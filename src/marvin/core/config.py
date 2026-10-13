@@ -18,7 +18,7 @@ PRODUCTION = os.getenv("PRODUCTION", "False").capitalize() == "True"
 TESTING = os.getenv("TESTING", "False").capitalize() == "True"
 DATA_DIR = os.getenv("DATA_DIR")
 PLUGIN_DIR = os.getenv("PLUGIN_DIR")
-SECRETS_DIR = os.getenv("SECRETS_DIR")
+SECRETS_DIR = Path(_secrets_dir) if (_secrets_dir := os.getenv("SECRETS_DIR")) else None
 
 
 def determine_data_dir() -> Path:
@@ -75,7 +75,7 @@ def get_app_plugin_settings(
     env_file: Path | None = ENV,
     env_secrets: Path | None = ENV_SECRETS,
     secrets_dir: Path | None = SECRETS_DIR,
-    settings_class: type[PluginSettings] | None = PluginSettings,
+    settings_class: type[PluginSettings] = PluginSettings,
 ) -> PluginSettings:
     """Get the application plugin settings."""
     return app_plugin_settings_constructor(

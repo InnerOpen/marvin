@@ -3,7 +3,6 @@
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from .. import BaseMixins, SqlAlchemyBase
@@ -28,14 +27,14 @@ class Forms(SqlAlchemyBase, BaseMixins):
     id: Mapped[GUID] = mapped_column(GUID, primary_key=True, default=GUID.generate)
     group_id: Mapped[GUID] = mapped_column(GUID, sa.ForeignKey("groups.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    slug: Mapped[str] = mapped_column(sa.String, nullable=False)
+    slug: Mapped[str] = mapped_column(sa.String, nullable=False, index=True)
     name: Mapped[str] = mapped_column(sa.String, nullable=False)
     description: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 
-    schema_json: Mapped[dict] = mapped_column("schema_json", JSONB, nullable=False, default=dict, server_default="{}")
+    schema_json: Mapped[dict] = mapped_column("schema_json", sa.JSON, nullable=False, default=dict, server_default="{}")
     """Field definitions for this form."""
 
-    settings_json: Mapped[dict | None] = mapped_column("settings_json", JSONB, nullable=True)
+    settings_json: Mapped[dict | None] = mapped_column("settings_json", sa.JSON, nullable=True)
     """Form behavior config: notifications, CAPTCHA, rate limits."""
 
     metadata_json: Mapped[dict | None] = mapped_column("metadata_json", sa.JSON, nullable=True)

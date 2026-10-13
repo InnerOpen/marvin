@@ -1,0 +1,25 @@
+{
+  "recipe": "knowledge-gap-finder",
+  "variables": {
+    "collection_slug": {
+      "type": "collection_slug",
+      "description": "The collection to look for gaps in.",
+      "example": "workshop-reference"
+    },
+    "collection_name": {
+      "type": "text",
+      "description": "Its name, as the AI should read it.",
+      "example": "Workshop Reference"
+    },
+    "draft_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type the backlog is drafted as.",
+      "example": "article"
+    },
+    "draft_body_field": {
+      "type": "field_key",
+      "description": "That type's text field.",
+      "example": "body"
+    }
+  }
+}

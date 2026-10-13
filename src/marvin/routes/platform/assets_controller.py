@@ -1,26 +1,98 @@
 """Asset routes."""
 
 import json
+from typing import Literal
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import UUID4
 
+from marvin.db.models.users.roles import WorkspaceRole
 from marvin.routes._base import BaseUserController, controller
+from marvin.routes._base.checks import require_workspace_editor, require_workspace_role
 from marvin.schemas.platform import AssetRead, AssetUpdate, AssetUploadRequest
-from marvin.services.assets.asset_storage_service import AssetStorageService
+from marvin.services import trash
+from marvin.services.assets import scope
+from marvin.services.assets.asset_storage_service import AssetRejected, AssetStorageService
+from marvin.services.assets.scope import ASK, LIBRARY, SCOPES, upload_scope
 from marvin.services.event_bus_service.event_types import EventAssetData, EventTypes
-from marvin.services.storage.provider_factory import get_storage_provider
+from marvin.services.storage import StorageConfigError
+from marvin.services.storage.keys import content_disposition
+from marvin.services.storage.provider_factory import get_storage_provider, provider_for, public_url_for
 
 router = APIRouter(prefix="/assets")
+
+SORTS = {"name": ("name", False), "newest": ("created_at", True), "oldest": ("created_at", False), "largest": ("file_size", True)}
+
+
+def library_page(session, group_id, spec: dict, sort: str) -> list[AssetRead]:
+    """The library's assets matching ``spec`` (services/item_query.py), sorted, each with its versions count. A filter
+    that can't match (an unknown tag or collection) is a 422 saying which."""
+    import sqlalchemy as sa
+
+    from marvin.db.models.platform import Assets
+    from marvin.services import item_query
+
+    query, note = item_query.build(session, group_id, item_query.ASSET, spec)
+    if note:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=note)
+    column, descending = SORTS[sort]
+    order = getattr(Assets, column)
+    rows = query.order_by(order.desc() if descending else order, Assets.name, Assets.id).all()
+    counts = dict(
+        session.query(Assets.source_asset_id, sa.func.count(Assets.id))
+        .filter(
+            Assets.group_id == group_id,
+            Assets.source_asset_id.in_([r.id for r in rows]),
+            Assets.trashed_at.is_(None),
+            Assets.scope == "library",
+        )
+        .group_by(Assets.source_asset_id)
+        .all()
+    )
+    return [AssetRead.model_validate(r).model_copy(update={"versions_count": counts.get(r.id, 0)}) for r in rows]
 
 
 @controller(router)
 class AssetsController(BaseUserController):
-    """Authenticated CRUD routes for assets with file upload support."""
+    """Authenticated CRUD routes for assets with file upload support. Any member reads; AUTHORs and
+    above upload; editing, deleting and accepting AI suggestions on an asset is EDITOR and above (an
+    asset has no owner, so an AUTHOR can't be limited to their own).
+
+    Delete moves an asset to the Trash (services/trash.py): its file stays in storage, it leaves the list,
+    and fetching it by id shows its `trashed_at`. Only a trashed asset can be deleted forever."""
 
     @router.get("", response_model=list[AssetRead], summary="List Assets")
-    def list_assets(self) -> list[AssetRead]:
-        return self.repos.assets.get_all(order_by="name")
+    def list_assets(
+        self,
+        scope: str = Query(LIBRARY, description="'library' (the Assets library) or 'ask' (files attached to chat questions)"),
+        q: str | None = Query(None, description="Name, slug or filename contains"),
+        asset_type: list[str] = Query(default_factory=list, description="image, svg, document, video, audio, archive, other"),
+        origin: list[str] = Query(default_factory=list, description="upload, derived (made from another asset), generated"),
+        tag: list[str] = Query(default_factory=list, description="Carrying any of these tags (slug or name)"),
+        collection: str | None = Query(None, description="In this collection (slug or name)"),
+        unattached: bool | None = Query(None, description="true: on no entry; false: on at least one"),
+        versions: bool | None = Query(None, description="false: fold versions under their original; true: only versions"),
+        source: str | None = Query(None, description="The versions made from this asset (id or slug)"),
+        sort: Literal["name", "newest", "oldest", "largest"] = Query("name"),
+    ) -> list[AssetRead]:
+        """The library's assets (filtered as the workflow and agent asset queries are), each with how many versions
+        were made from it; with `scope=ask`, the Ask files, newest first. Never those in the Trash."""
+        if scope not in SCOPES:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"scope must be one of: {', '.join(SCOPES)}")
+        if scope == ASK:
+            rows = self.repos.assets.get_all(order_by="created_at", order_descending=True)
+            return [a for a in rows if a.trashed_at is None and a.scope == scope]
+        spec = {
+            "text": q,
+            "asset_types": asset_type,
+            "origins": origin,
+            "tags": tag,
+            "collection": collection,
+            "unattached": unattached,
+            "versions": versions,
+            "source": source,
+        }
+        return library_page(self.session, self.group_id, {k: v for k, v in spec.items() if v not in (None, "", [])}, sort)
 
     @router.post("/upload", response_model=AssetRead, status_code=status.HTTP_201_CREATED, summary="Upload Asset")
     async def upload_asset(
@@ -47,14 +119,17 @@ class AssetsController(BaseUserController):
         - MIME type, file size, checksum
         - Image dimensions (width, height, orientation)
         - Asset type classification
+
+        Refused when bigger than ASSET_MAX_FILE_SIZE (413) or of a type ASSET_ALLOWED_MIME_TYPES leaves out (415).
         """
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.AUTHOR)
         # Parse metadata JSON if provided
         metadata_dict = None
         if metadata:
             try:
                 metadata_dict = json.loads(metadata)
             except json.JSONDecodeError:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON in metadata field.")
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON in metadata field.") from None
 
         # Create upload request
         upload_request = AssetUploadRequest(
@@ -63,6 +138,7 @@ class AssetsController(BaseUserController):
             alt_text=alt_text,
             description=description,
             metadata_json=metadata_dict,
+            scope=upload_scope(metadata_dict),
         )
 
         # Get storage provider and create service
@@ -70,13 +146,20 @@ class AssetsController(BaseUserController):
         asset_service = AssetStorageService(self.repos, storage_provider)
 
         # Upload through service
-        asset = asset_service.upload_asset(
-            upload_file=file,
-            upload_request=upload_request,
-            group_id=self.group_id,
-            user_id=self.user.id,
-        )
+        try:
+            asset = asset_service.upload_asset(
+                upload_file=file,
+                upload_request=upload_request,
+                group_id=self.group_id,
+                user_id=self.user.id,
+            )
+        except AssetRejected as e:
+            raise HTTPException(status_code=e.status_code, detail=str(e)) from e
 
+        # An Ask file isn't a new library asset: workflows and webhooks on `asset_uploaded` hear of it when it's
+        # moved to the library (move_to_library), not while it is a chat attachment.
+        if asset.scope == ASK:
+            return asset
         # Emit event
         self.event_bus.dispatch(
             integration_id="asset_management",
@@ -108,8 +191,12 @@ class AssetsController(BaseUserController):
 
         Note: Technical metadata (MIME type, dimensions, checksum, etc) cannot be changed.
         """
-        if not self.repos.assets.get_one(item_id):
+        require_workspace_editor(self.user, self.group_id)
+        current = self.repos.assets.get_one(item_id)
+        if not current:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+        if current.trashed_at is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This asset is in the Trash. Restore it before editing it.")
 
         # Use exclude_none=False to allow explicit null values to clear fields
         # exclude_unset=True only excludes fields not sent in the request
@@ -132,35 +219,64 @@ class AssetsController(BaseUserController):
 
         return updated_asset
 
-    @router.delete("/{item_id}", summary="Delete Asset")
-    def delete_asset(self, item_id: UUID4) -> dict:
-        """Delete asset from storage and database."""
+    @router.post("/{item_id}/apply-suggestion", response_model=AssetRead, summary="Apply AI Suggestion")
+    def apply_suggestion(self, item_id: UUID4) -> AssetRead:
+        """Apply the asset's staged AI suggestion (suggestion_json) and clear it."""
+        require_workspace_editor(self.user, self.group_id)
+        if not self.repos.assets.get_one(item_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+        return self.repos.assets.apply_suggestion(item_id)
+
+    @router.post("/{item_id}/reject-suggestion", response_model=AssetRead, summary="Reject AI Suggestion")
+    def reject_suggestion(self, item_id: UUID4) -> AssetRead:
+        """Discard the asset's staged AI suggestion without applying it."""
+        require_workspace_editor(self.user, self.group_id)
+        if not self.repos.assets.get_one(item_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+        return self.repos.assets.clear_suggestion(item_id)
+
+    @router.delete("/{item_id}", summary="Move Asset to Trash (or delete a trashed asset forever)")
+    def delete_asset(self, item_id: UUID4, permanent: bool = False) -> dict:
+        """Move the asset to the Trash (`asset_trashed`; its file stays in storage). With `permanent=true`,
+        delete an asset already in the Trash forever, file included (`asset_deleted`); any other asset gets a 409."""
+        require_workspace_editor(self.user, self.group_id)
         asset = self.repos.assets.get_one(item_id)
         if not asset:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+        if permanent:
+            if asset.trashed_at is None:
+                detail = "Only an asset in the Trash can be deleted forever. Move it to the Trash first."
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+            if not trash.delete_forever(self.session, self.group_id, trash.ASSET, [item_id], actor_id=self.user.id, event_bus=self.event_bus):
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+            return {"status": "ok", "message": "Asset deleted forever", "deleted": True}
+        trash.trash(self.session, self.group_id, trash.ASSET, item_id, actor_id=self.user.id, event_bus=self.event_bus)
+        return {"status": "ok", "message": "Asset moved to the Trash", "trashed": True}
 
-        # Delete through service to remove from storage too
-        storage_provider = get_storage_provider()
-        asset_service = AssetStorageService(self.repos, storage_provider)
+    @router.post("/{item_id}/restore", response_model=AssetRead, summary="Restore Asset from Trash")
+    def restore_asset(self, item_id: UUID4) -> AssetRead:
+        """Take an asset out of the Trash (`asset_restored`)."""
+        require_workspace_editor(self.user, self.group_id)
+        asset = self.repos.assets.get_one(item_id)
+        if not asset:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+        if asset.trashed_at is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This asset is not in the Trash.")
+        trash.restore(self.session, self.group_id, trash.ASSET, item_id, actor_id=self.user.id, event_bus=self.event_bus)
+        return self.repos.assets.get_one(item_id)
 
-        asset_service.delete_asset(item_id)
-
-        # Emit event
-        self.event_bus.dispatch(
-            integration_id="asset_management",
-            group_id=self.group_id,
-            event_type=EventTypes.asset_deleted,
-            document_data=EventAssetData.from_schema(
-                AssetRead.model_validate(asset),
-                workspace_id=self.group_id,
-                workspace_name=self.group.name if self.group else None,
-                uploader_id=self.user.id if self.user else None,
-                uploader_name=self.user.full_name if self.user else None,
-            ),
-            message=f"Asset {asset.name} deleted",
-        )
-
-        return {"status": "ok", "message": "Asset deleted successfully"}
+    @router.post("/{item_id}/move-to-library", response_model=AssetRead, summary="Move an Ask File to the Assets Library")
+    def move_to_library(self, item_id: UUID4) -> AssetRead:
+        """File an Ask file (a chat attachment) in the Assets library. It then lists, counts and publishes like any
+        asset, and `asset_uploaded` fires for it. AUTHOR and above, like uploading straight to the library."""
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.AUTHOR)
+        asset = self.repos.assets.get_one(item_id)
+        if not asset or asset.trashed_at is not None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+        if asset.scope != ASK:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This asset is already in the library.")
+        scope.move_to_library(self.session, self.group_id, [item_id], actor_id=self.user.id, event_bus=self.event_bus)
+        return self.repos.assets.get_one(item_id)
 
     @router.get("/{item_id}/file", summary="Serve Asset File")
     def serve_asset_file(self, item_id: UUID4):
@@ -170,22 +286,38 @@ class AssetsController(BaseUserController):
         For local storage, serves the file from disk.
         For S3 storage, redirects to the public URL or signed URL.
         """
-        from fastapi.responses import FileResponse, RedirectResponse
         from pathlib import Path
+
+        from fastapi.responses import FileResponse, RedirectResponse
 
         asset = self.repos.assets.get_one(item_id)
         if not asset:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
 
+        from marvin.services.storage.local_provider import LocalStorageProvider
+
+        # The provider the row lives in, whatever STORAGE_PROVIDER says now: rows on different
+        # providers are served side by side.
+        try:
+            storage_provider = provider_for(asset)
+        except StorageConfigError as e:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Asset storage unavailable: {e}") from e
+
         # For local storage, serve file directly
-        if asset.storage_provider == "local":
-            storage_provider = get_storage_provider()
+        if isinstance(storage_provider, LocalStorageProvider):
             file_path = Path(storage_provider.root) / asset.storage_key
 
             if not file_path.exists():
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset file not found on disk.")
 
-            return FileResponse(path=str(file_path), media_type=asset.mime_type or "application/octet-stream", filename=asset.original_filename)
+            # Inline, under the name it was uploaded with (keys carry no filename).
+            disposition = content_disposition(asset.original_filename)
+            return FileResponse(
+                path=str(file_path),
+                media_type=asset.mime_type or "application/octet-stream",
+                headers={"Content-Disposition": disposition} if disposition else None,
+            )
 
-        # For remote providers, redirect to computed URL from current config
-        return RedirectResponse(url=get_storage_provider().get_public_url(asset.storage_key))
+        # For remote providers, redirect to the file's URL (the workspace's public domain when it has
+        # one); the object carries its Content-Disposition from the upload.
+        return RedirectResponse(url=public_url_for(asset.storage_provider, asset.storage_key, self.group_id, provider=storage_provider))

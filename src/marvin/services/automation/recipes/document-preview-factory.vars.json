@@ -1,0 +1,20 @@
+{
+  "recipe": "document-preview-factory",
+  "variables": {
+    "document_role": {
+      "type": "text",
+      "description": "The role a PDF is attached to an entry in (its download).",
+      "example": "download"
+    },
+    "preview_role": {
+      "type": "text",
+      "description": "The role its first three pages are attached in, as pictures.",
+      "example": "preview"
+    },
+    "cover_role": {
+      "type": "text",
+      "description": "The role its first page is attached in, as the cover.",
+      "example": "cover"
+    }
+  }
+}

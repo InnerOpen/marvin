@@ -22,18 +22,21 @@ class UserWebhook(BaseWebhook):
         since = last_log if last_log else datetime.now(UTC) - timedelta(hours=24)
         since_naive = since.replace(tzinfo=None) if since.tzinfo else since
 
-        total = self.session.execute(
-            select(func.count()).select_from(WorkspaceMembers).where(
-                WorkspaceMembers.group_id == self._group_id
-            )
-        ).scalar() or 0
+        total = (
+            self.session.execute(select(func.count()).select_from(WorkspaceMembers).where(WorkspaceMembers.group_id == self._group_id)).scalar() or 0
+        )
 
-        new_count = self.session.execute(
-            select(func.count()).select_from(WorkspaceMembers).where(
-                WorkspaceMembers.group_id == self._group_id,
-                WorkspaceMembers.created_at >= since_naive,
-            )
-        ).scalar() or 0
+        new_count = (
+            self.session.execute(
+                select(func.count())
+                .select_from(WorkspaceMembers)
+                .where(
+                    WorkspaceMembers.group_id == self._group_id,
+                    WorkspaceMembers.created_at >= since_naive,
+                )
+            ).scalar()
+            or 0
+        )
 
         return {
             "total_members": total,

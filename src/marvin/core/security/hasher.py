@@ -9,6 +9,7 @@ The `get_hasher` function returns the appropriate hasher based on the
 application settings (FakeHasher for testing, BcryptHasher otherwise).
 """
 
+import hashlib
 from functools import lru_cache
 from typing import Protocol
 
@@ -108,3 +109,27 @@ def get_hasher() -> Hasher:
         return FakeHasher()
 
     return BcryptHasher(rounds=settings.SECURITY_BCRYPT_ROUNDS)
+
+
+def token_lookup(token: str) -> str:
+    """A fast, indexable fingerprint of an API token (SHA-256): finds the one stored token to bcrypt-check, instead
+    of bcrypt-checking every one — a wrong token then costs one query, not a CPU-second per stored token. Safe
+    because tokens are SECURITY_TOKEN_RANDOM_BYTES of randomness, not something guessable; the bcrypt hash stays
+    the check."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def find_token(query, model, token: str):
+    """The row of `query` (enabled tokens of `model`, which has token_hash and token_lookup) that `token` belongs
+    to, or None. Found by its lookup and confirmed with bcrypt; a token stored before token_lookup existed is
+    found the old way — bcrypt against each such row — and gets its lookup on the way, so that scan shrinks to
+    nothing as old tokens are used."""
+    lookup = token_lookup(token)
+    row = query.filter(model.token_lookup == lookup).first()
+    if row is not None:
+        return row if get_hasher().verify(token, row.token_hash) else None
+    for row in query.filter(model.token_lookup.is_(None)).all():
+        if get_hasher().verify(token, row.token_hash):
+            row.token_lookup = lookup
+            return row
+    return None

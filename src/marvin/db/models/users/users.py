@@ -14,12 +14,11 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from pydantic import ConfigDict
-from sqlalchemy import Boolean, ForeignKey, Integer, String, orm, select
+from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, orm, select
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, Session, mapped_column
 from sqlalchemy.types import Enum as SqlAlchemyEnum  # Explicit import for sqlalchemy Enum type
 
-from marvin.core.config import get_app_settings
 from marvin.db.models._model_utils.auto_init import auto_init
 from marvin.db.models._model_utils.datetime import NaiveDateTime
 from marvin.db.models._model_utils.guid import GUID
@@ -30,6 +29,8 @@ from .roles import PlatformRole
 if TYPE_CHECKING:
     from ..groups import Groups
     from .password_reset import PasswordResetModel
+    from .push_subscriptions import PushSubscriptionModel
+    from .roles import WorkspaceRole
     from .workspace_members import WorkspaceMembers
 
 
@@ -66,6 +67,14 @@ class LongLiveToken(SqlAlchemyBase, BaseMixins):
         index=True,
         unique=True,
         doc="Bcrypt hash of the token. Plaintext token never stored.",
+    )
+    token_lookup: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+        unique=True,
+        doc="SHA-256 of the token (core/security/hasher.py: token_lookup), to find it without checking every hash. "
+        "Null for a token made before it existed until its next successful use.",
     )
 
     # Lifecycle management
@@ -197,6 +206,10 @@ class Users(SqlAlchemyBase, BaseMixins):
     )
     # `can_organize` is used in `_set_permissions` but not a mapped column. This implies it might be a transient or calculated permission.
 
+    push_preferences: Mapped[dict | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True, doc="Which kinds of push notification the user takes ({category: on}); null takes the defaults."
+    )
+
     # Common arguments for one-to-many relationships from User to token-like models
     _token_relationship_args = {
         "back_populates": "user",  # Assumes 'user' field on LongLiveToken and PasswordResetToken
@@ -216,6 +229,10 @@ class Users(SqlAlchemyBase, BaseMixins):
         back_populates="user",
         cascade="all, delete, delete-orphan",
     )
+    # The devices the user turned Web Push on in (one-to-many; deleted with the user).
+    push_subscriptions: Mapped[list["PushSubscriptionModel"]] = orm.relationship(
+        "PushSubscriptionModel", back_populates="user", cascade="all, delete, delete-orphan", passive_deletes=True
+    )
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
@@ -229,6 +246,7 @@ class Users(SqlAlchemyBase, BaseMixins):
             "group",  # Group details might be fetched separately or via a nested schema.
             "tokens",  # Tokens should generally not be listed directly with user details.
             "password_reset_tokens",  # These are internal and should not be serialized.
+            "push_subscriptions",  # Self-service only (/api/self/push).
             "locked_at",  # Internal security detail.
             "login_attemps",  # Internal security detail.
             "cache_key",  # Internal detail.
@@ -269,7 +287,6 @@ class Users(SqlAlchemyBase, BaseMixins):
         Returns:
             WorkspaceRole if user is a member, None otherwise.
         """
-        from .roles import WorkspaceRole
 
         for membership in self.workspace_memberships:
             if str(membership.group_id) == str(group_id):
@@ -307,7 +324,7 @@ class Users(SqlAlchemyBase, BaseMixins):
             full_name (str): The user's full name.
             password (str): The user's plaintext password (will be hashed by the service layer before saving).
             group (str | None, optional): The name of the group to assign the user to.
-                                         Defaults to the system's default group name.
+                                         Defaults to the platform workspace.
             **kwargs: Additional attributes for the user, processed by `auto_init`
                       (e.g., `username`, `email`, `admin`).
 
@@ -317,19 +334,21 @@ class Users(SqlAlchemyBase, BaseMixins):
         # `auto_init` will process kwargs first. Values explicitly set here will override
         # those from kwargs if they share the same name, or complement them.
 
-        if group is None:
-            settings = get_app_settings()
-            group_name = settings.DEFAULT_GROUP  # Use a different variable name
-        else:
-            group_name = group
-
         from marvin.db.models.groups import Groups  # Local import to avoid circularity
 
         # Query for the group. auto_init does not handle this specific lookup logic.
-        self.group = session.execute(select(Groups).filter(Groups.name == group_name)).scalars().one_or_none()
+        if group is None:
+            # No group named: the platform (admin's) workspace — by its marker, whatever it's called.
+            from marvin.services.group.platform_workspace import PlatformWorkspaceMissing, platform_workspace
 
-        if self.group is None:
-            raise ValueError(f"Group '{group_name}' does not exist; cannot create user.")
+            try:
+                self.group = platform_workspace(session)
+            except PlatformWorkspaceMissing as e:
+                raise ValueError("No group given and no platform workspace exists; cannot create user.") from e
+        else:
+            self.group = session.execute(select(Groups).filter(Groups.name == group)).scalars().one_or_none()
+            if self.group is None:
+                raise ValueError(f"Group '{group}' does not exist; cannot create user.")
 
         # Password should be set after auto_init if it's also in kwargs,
         # or ensure it's not processed by auto_init if handled exclusively here.

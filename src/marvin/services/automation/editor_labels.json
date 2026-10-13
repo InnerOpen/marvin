@@ -1,0 +1,62 @@
+{
+  "_comment": "The workflow editor's own words, for the editor (frontend/src/pages/automation/workflows.astro) and for agents that explain it (services/automation/authoring.py). A copy lives at src/marvin/services/automation/editor_labels.json; tests/test_editor_labels.py fails when they differ.",
+  "screen": {
+    "trigger": "Trigger",
+    "target": "Run on a query",
+    "targetData": "Fields equal",
+    "previewMatches": "Preview matches",
+    "conditions": "Only if",
+    "dryRun": "Dry run"
+  },
+  "triggerTypes": {
+    "event": "Event",
+    "manual": "Manual (Run button)",
+    "schedule": "Schedule",
+    "chained": "After another workflow",
+    "on_error": "When a workflow fails",
+    "incoming_webhook": "Incoming webhook (external POST)",
+    "mcp": "MCP tool (external hosts)"
+  },
+  "stepKinds": {
+    "operation": "AI operation",
+    "entry": "Entry action",
+    "emit_event": "Emit event",
+    "handler": "Run task",
+    "webhook": "Call webhook",
+    "integration": "Run integration",
+    "approval": "Wait for approval",
+    "media": "Process an image",
+    "collect": "Gather items",
+    "fetch": "Check a web address",
+    "wait": "Wait",
+    "repeat": "Repeat for each"
+  },
+  "entryOps": {
+    "publish": "Publish",
+    "unpublish": "Unpublish",
+    "archive": "Archive",
+    "trash": "Move to Trash",
+    "restore": "Restore (from archive or Trash)",
+    "add_to_collection": "Add to collection",
+    "remove_from_collection": "Remove from collection",
+    "set_metadata": "Set metadata",
+    "set_data": "Set fields",
+    "request_review": "Send to review",
+    "create": "Create an entry"
+  },
+  "conditionOps": {
+    "eq": "equals",
+    "neq": "not equals",
+    "contains": "contains",
+    "in": "is one of",
+    "starts_with": "starts with",
+    "exists": "exists",
+    "changed": "changed",
+    "changed_from": "changed from",
+    "changed_to": "changed to",
+    "gt": "is more than",
+    "gte": "is at least",
+    "lt": "is less than",
+    "lte": "is at most"
+  }
+}

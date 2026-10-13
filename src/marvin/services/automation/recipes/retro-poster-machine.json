@@ -1,0 +1,51 @@
+{
+  "name": "Retro poster machine",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "target": {
+      "entity": "entry",
+      "query": {
+        "entry_type": "{{project_type}}",
+        "status": "published",
+        "has_images": true
+      }
+    },
+    "conditions": [
+      {
+        "field": "entry.metadata.poster",
+        "op": "exists",
+        "value": false
+      }
+    ],
+    "actions": [
+      {
+        "kind": "media",
+        "id": "poster",
+        "op": "render",
+        "template": "poster",
+        "fields": {
+          "title": "${entry.title}",
+          "subtitle": "{{studio_name}}",
+          "tagline": "${entry.summary}",
+          "year": "{{year_label}}"
+        },
+        "images": {
+          "image": "role:{{image_role}}"
+        },
+        "attach_as": "poster",
+        "tags": [
+          "poster"
+        ]
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "poster": "${steps.poster.output.asset.slug}"
+        }
+      }
+    ]
+  }
+}

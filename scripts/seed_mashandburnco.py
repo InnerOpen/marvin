@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import logging
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import create_engine
@@ -979,8 +979,9 @@ def upsert_project_assets(session, workspace: Groups, entry: Entries, project_da
 
 def create_api_client_for_workspace(session, workspace: Groups, admin_user_id: str):
     """Create an API client for the workspace's Publishing API."""
-    from marvin.core.security.hasher import get_hasher
     import secrets
+
+    from marvin.core.security.hasher import get_hasher
 
     # Check if API client already exists
     existing_client = session.query(APIClients).filter(APIClients.group_id == workspace.id, APIClients.slug == "publishing-api-client").first()
@@ -993,7 +994,7 @@ def create_api_client_for_workspace(session, workspace: Groups, admin_user_id: s
         class ExistingClient:
             def __init__(self, name, note):
                 self.name = name
-                self.token = f"<existing - rotate token to get new one>"
+                self.token = "<existing - rotate token to get new one>"
 
         return ExistingClient(existing_client.name, "Token not available for existing clients")
 
@@ -1095,7 +1096,7 @@ def seed_mashandburnco():
         # Get admin user (assume first admin)
         from marvin.db.models.users import Users
 
-        admin_user = session.query(Users).filter(Users.admin == True).first()
+        admin_user = session.query(Users).filter(Users.admin.is_(True)).first()
 
         if not admin_user:
             logger.error("❌ No admin user found. Create an admin user first.")
@@ -1111,8 +1112,8 @@ def seed_mashandburnco():
         upsert_site_configuration(session, workspace)
 
         # Add admin as workspace OWNER
-        from marvin.db.models.users.workspace_members import WorkspaceMembers
         from marvin.db.models.users.roles import WorkspaceRole
+        from marvin.db.models.users.workspace_members import WorkspaceMembers
 
         existing_membership = (
             session.query(WorkspaceMembers).filter(WorkspaceMembers.user_id == admin_user_id, WorkspaceMembers.group_id == workspace.id).first()
@@ -1160,7 +1161,7 @@ def seed_mashandburnco():
         logger.info("✅ Seed complete!")
         logger.info("=" * 60)
         logger.info("")
-        logger.info(f"📝 API Client Token (save this!):")
+        logger.info("📝 API Client Token (save this!):")
         logger.info(f"   {api_client.token}")
         logger.info("")
         logger.info("🧪 Test the Publishing API:")

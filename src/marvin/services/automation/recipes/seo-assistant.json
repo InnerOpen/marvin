@@ -1,0 +1,42 @@
+{
+  "name": "SEO assistant",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_updated"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      },
+      {
+        "field": "entry.status",
+        "op": "changed_to",
+        "value": "needs_review"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "summary",
+        "op": "generate-summary",
+        "input": {
+          "max_words": 40,
+          "focus": "a search-result description"
+        },
+        "write_back": true
+      },
+      {
+        "kind": "operation",
+        "id": "tags",
+        "op": "generate-tags",
+        "input": {
+          "max_tags": 6
+        },
+        "write_back": true
+      }
+    ]
+  }
+}

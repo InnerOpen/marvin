@@ -1,26 +1,26 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
-import { getCurrentWorkspace } from "@/lib/api/workspaces";
-import { createInviteToken } from "@/lib/api/invites";
 import type { InviteTokenCreate } from "@/lib/api/invites";
+import { createInviteToken } from "@/lib/api/invites";
+import { getCurrentWorkspace } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
 
 // Handle form submission (server-side)
-if (Astro.request.method === 'POST' && authToken) {
+if (Astro.request.method === "POST" && authToken) {
   try {
     const formData = await Astro.request.formData();
 
     const data: InviteTokenCreate = {
-      usesLeft: parseInt(formData.get('uses_left') as string),
-      workspaceRole: formData.get('workspace_role') as any,
+      usesLeft: parseInt(formData.get("uses_left") as string, 10),
+      workspaceRole: formData.get("workspace_role") as any,
     };
 
     await createInviteToken(data, authToken);
-    return Astro.redirect('/workspace/invites?created=true');
+    return Astro.redirect("/workspace/invites?created=true");
   } catch (e) {
-    console.error('[invites/new] Failed to create invite:', e);
+    console.error("[invites/new] Failed to create invite:", e);
     // Error will be shown below
   }
 }
@@ -31,12 +31,12 @@ let error: string | null = null;
 try {
   workspace = await getCurrentWorkspace(authToken);
 } catch (e) {
-  console.error('[invites/new] Error:', e);
+  console.error("[invites/new] Error:", e);
   error = e instanceof Error ? e.message : String(e);
 }
 ---
 
-<AppLayout title="Create Invite" eyebrow="Workspace">
+<AppLayout crumb="settings.invites.new">
   <div class="page-header">
     <div>
       <h2>Create Invite Token</h2>

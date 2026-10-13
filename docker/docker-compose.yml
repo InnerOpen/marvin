@@ -1,26 +1,77 @@
+# Standalone Marvin — run the built or published image as a self-contained deployment.
+#
+# The image is built and published to GHCR by .github/workflows/docker.yml on pushes to
+# main/develop (tags: latest, <branch>, <branch>-<sha>, semver). This file runs that image.
+#
+#   Run the published image (default):
+#     docker compose -f docker/docker-compose.yml up -d
+#
+#   Pin a specific published tag:
+#     MARVIN_IMAGE=ghcr.io/inneropen/marvin:develop docker compose -f docker/docker-compose.yml up -d
+#
+#   Build and run locally instead of pulling:
+#     docker compose -f docker/docker-compose.yml up -d --build
+#
+# Storage defaults to SQLite in a named volume, so it runs with no external services. To test
+# against Postgres instead, set DB_ENGINE=postgres and start with the postgres profile:
+#     DB_ENGINE=postgres docker compose -f docker/docker-compose.yml --profile postgres up -d
+
 services:
-    marvin:
-        container_name: marvin
-        image: marvin:dev
-        build:
-            context: ../
-            target: production
-            dockerfile: ./docker/Dockerfile
-        restart: always
-        volumes:
-          - marvin-data:/app/data
-        ports:
-            - 8080:8080
-        environment:
-            PRODUCTION: True
-            ALLOW_SIGNUP: "false"
-            LOG_LEVEL: DEBUG
-            DB_ENGINE: sqlite
-        secrets:
-          - DB_ENGINE
+  marvin:
+    container_name: marvin
+    image: ${MARVIN_IMAGE:-ghcr.io/inneropen/marvin:latest}
+    build:
+      context: ..
+      dockerfile: ./docker/Dockerfile
+      target: production
+      args:
+        COMMIT: ${MARVIN_COMMIT:-local}
+    restart: unless-stopped
+    ports:
+      - "${MARVIN_PORT:-8080}:8080"
+    environment:
+      PRODUCTION: "True"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
+
+      # Storage. SQLite (default) persists in the marvin-data volume below. Set DB_ENGINE=postgres
+      # to use the postgres service instead — its POSTGRES_* values default to the ones below.
+      DB_ENGINE: ${DB_ENGINE:-sqlite}
+      POSTGRES_SERVER: ${POSTGRES_SERVER:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:-marvin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-marvin}
+      POSTGRES_DB: ${POSTGRES_DB:-marvin}
+    volumes:
+      - marvin-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+        # Only enforced when the postgres profile is active; ignored for the SQLite default.
+        required: false
+    # Liveness comes from the image's built-in HEALTHCHECK (root /healthz).
+
+  # Optional Postgres backend. Only started with `--profile postgres`; the SQLite default needs
+  # nothing here.
+  postgres:
+    container_name: marvin-postgres
+    image: docker.io/postgres:15
+    profiles: [postgres]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-marvin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-marvin}
+      POSTGRES_DB: ${POSTGRES_DB:-marvin}
+    volumes:
+      - marvin-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-marvin} -d ${POSTGRES_DB:-marvin}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   marvin-data:
     driver: local
-secrets:
-    DB_ENGINE:
-        environment: COLORTERM
+  marvin-postgres-data:
+    driver: local

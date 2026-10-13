@@ -1,0 +1,63 @@
+{
+  "name": "Quote card studio",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "pick",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "From the text of “${entry.title}”, choose one sentence that stands on its own as a quote. Copy it exactly as written — same words, same punctuation; don't shorten, fix or paraphrase it.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "quote": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 240
+            }
+          },
+          "required": [
+            "quote"
+          ]
+        }
+      },
+      {
+        "kind": "media",
+        "id": "card",
+        "op": "render",
+        "template": "quote",
+        "fields": {
+          "quote": "${steps.pick.output.quote}",
+          "attribution": "{{attribution}}",
+          "source": "${entry.title}"
+        },
+        "images": {
+          "background": "role:{{image_role}}"
+        },
+        "attach_as": "quote-card",
+        "tags": [
+          "quote-card"
+        ],
+        "when": {
+          "field": "entry.data.{{body_field}}",
+          "op": "contains",
+          "value": "${steps.pick.output.quote}"
+        }
+      }
+    ]
+  }
+}

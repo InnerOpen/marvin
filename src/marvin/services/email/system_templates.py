@@ -75,6 +75,22 @@ SYSTEM_TEMPLATES: list[SystemTemplateDefinition] = [
         optional_vars=["first_name", "username", "workspace_name"],
     ),
     SystemTemplateDefinition(
+        template_type="integration_alert",
+        name="Integration Alert",
+        description="For an Events-page email on integration_attention_needed / _resolved. Settings → Automation → "
+        "Notifications emails integration alerts with its own message.",
+        subject="{{title}}",
+        body_markdown=(
+            "{{summary}}\n\n"
+            "Connection: **{{integration_name}}** ({{provider_name}}) · error code `{{code}}`\n\n"
+            "{{settings_url}}\n\n"
+            "You get one email when the alert opens, a reminder while it stays open, and one when it is resolved — "
+            "never one per affected item."
+        ),
+        required_vars=["title", "summary"],
+        optional_vars=["integration_name", "provider_name", "code", "settings_url", "count", "error", "resolution"],
+    ),
+    SystemTemplateDefinition(
         template_type="custom",
         name="Custom Notification",
         description="General-purpose custom notification email. Edit to suit any event.",
@@ -86,9 +102,7 @@ SYSTEM_TEMPLATES: list[SystemTemplateDefinition] = [
 ]
 
 # Quick lookup by type
-TEMPLATE_BY_TYPE: dict[str, SystemTemplateDefinition] = {
-    t.template_type: t for t in SYSTEM_TEMPLATES
-}
+TEMPLATE_BY_TYPE: dict[str, SystemTemplateDefinition] = {t.template_type: t for t in SYSTEM_TEMPLATES}
 
 
 def get_required_vars(template_type: str) -> list[str]:
@@ -117,8 +131,9 @@ def seed_system_templates(session) -> int:
     Create system templates (group_id=NULL) if they don't already exist.
     Idempotent — skips existing template types. Returns count of created templates.
     """
-    from marvin.db.models.groups.email_templates import EmailTemplateModel
     from sqlalchemy import select
+
+    from marvin.db.models.groups.email_templates import EmailTemplateModel
 
     created = 0
     for defn in SYSTEM_TEMPLATES:

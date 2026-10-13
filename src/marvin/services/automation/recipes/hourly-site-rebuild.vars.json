@@ -1,0 +1,10 @@
+{
+  "recipe": "hourly-site-rebuild",
+  "variables": {
+    "interval_seconds": {
+      "type": "integer",
+      "description": "Seconds between rebuild requests (3600 = hourly). Cron schedules are accepted but do not fire yet.",
+      "example": 3600
+    }
+  }
+}

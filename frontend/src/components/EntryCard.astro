@@ -1,5 +1,6 @@
 ---
-import type { EntryRead, CollectionRead } from "@/lib/api/types";
+import type { CollectionRead, EntryRead } from "@/lib/api/types";
+import { reviewReasons } from "@/lib/reviewReasons";
 
 interface Props {
   entry: EntryRead;
@@ -11,10 +12,12 @@ const { entry, collectionsMap } = Astro.props;
 // Get collections for this entry
 const entryCollections = entry.collections
   ?.map((item: any) => {
-    const id = typeof item === 'string' ? item : item.id;
+    const id = typeof item === "string" ? item : item.id;
     return collectionsMap?.get(id);
   })
   .filter(Boolean) as CollectionRead[] | undefined;
+// Why it's waiting in the review queue (a flagged submission, a refused newsletter signup…).
+const reasons = entry.status === "needs_review" ? reviewReasons(entry.metadataJson) : [];
 const asset = entry.assets?.find((item) => item.role === "featured" || item.role === "hero") ?? entry.assets?.[0];
 
 // Format relative time
@@ -52,6 +55,11 @@ function formatRelativeTime(timestamp: string | null | undefined): string {
       )}
     </div>
     {entry.summary && <p class="card-summary">{entry.summary}</p>}
+    {reasons.length > 0 && (
+      <ul class="review-reasons" aria-label="Why it needs review">
+        {reasons.map((reason) => <li>{reason}</li>)}
+      </ul>
+    )}
     {entryCollections && entryCollections.length > 0 && (
       <div class="collections-row">
         {entryCollections.map(collection => (
@@ -169,6 +177,14 @@ function formatRelativeTime(timestamp: string | null | undefined): string {
     -webkit-box-orient: vertical;
   }
 
+  .review-reasons {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 13px;
+    color: var(--warn);
+    line-height: 1.4;
+  }
+
   .collections-row {
     display: flex;
     gap: 6px;
@@ -231,7 +247,8 @@ function formatRelativeTime(timestamp: string | null | undefined): string {
     color: var(--good);
   }
 
-  .pill.archived {
+  .pill.archived,
+  .pill.trashed {
     background: var(--panel-2);
     color: var(--muted);
     opacity: 0.6;

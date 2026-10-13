@@ -42,9 +42,11 @@ class WebhookCreate(_MarvinModel):
     def validate_webhook_url(cls, v: Any) -> Any:
         """Block SSRF targets in production. Localhost/private IPs allowed when PRODUCTION=False."""
         from marvin.core.config import get_app_settings
+
         if get_app_settings().PRODUCTION:
             import ipaddress
             from urllib.parse import urlparse
+
             url_str = str(v)
             parsed = urlparse(url_str)
             hostname = parsed.hostname or ""
@@ -98,6 +100,20 @@ class WebhookUpdate(WebhookCreate):
 class WebhookRead(WebhookUpdate):
     id: UUID4
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    @field_validator("url", mode="before")
+    @classmethod
+    def validate_webhook_url(cls, v: Any) -> Any:
+        """Reads accept whatever is already stored — the SSRF block is write-only.
+
+        WebhookCreate rejects localhost/private URLs when creating a webhook in production (SSRF
+        protection at delivery time). But a row that already holds such a URL — created in dev, or
+        before the rule — must stay readable, or every response embedding it 500s in production:
+        GroupRead carries `list[WebhookRead]`, so one localhost webhook takes out the whole group
+        read. Read models must be total over persisted data, so this overrides the inherited
+        validator to a pass-through.
+        """
+        return v
 
     @classmethod
     def model_validate(cls, obj, **kwargs):

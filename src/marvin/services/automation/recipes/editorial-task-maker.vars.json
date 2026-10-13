@@ -1,0 +1,20 @@
+{
+  "recipe": "editorial-task-maker",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "Slug of the entry type whose publications create follow-up tasks.",
+      "example": "article"
+    },
+    "n8n_integration": {
+      "type": "integration_slug",
+      "description": "Slug of the connected n8n integration.",
+      "example": "automation-hub"
+    },
+    "n8n_webhook_path": {
+      "type": "text",
+      "description": "Path of the n8n webhook node that creates the tasks in your task tool.",
+      "example": "editorial-tasks"
+    }
+  }
+}

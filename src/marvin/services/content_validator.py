@@ -10,9 +10,6 @@ It ensures that:
 import re
 from datetime import datetime
 from typing import Any
-from uuid import UUID
-
-from pydantic import ValidationError
 
 from marvin.schemas.platform.entry_type_schema import (
     AssetFieldSchema,
@@ -20,6 +17,7 @@ from marvin.schemas.platform.entry_type_schema import (
     BooleanFieldSchema,
     DateFieldSchema,
     DateTimeFieldSchema,
+    EmbedFieldSchema,
     EntryTypeSchemaDefinition,
     FieldSchema,
     JsonFieldSchema,
@@ -103,7 +101,7 @@ class ContentValidator(BaseService):
                 raise ContentValidationError(
                     field_key,
                     f"Invalid regex pattern in schema: {e}",
-                )
+                ) from e
 
     def validate_content(
         self,
@@ -157,7 +155,7 @@ class ContentValidator(BaseService):
         field_key = field_schema.key
 
         # Dispatch to type-specific validator
-        if isinstance(field_schema, (TextFieldSchema, TextareaFieldSchema)):
+        if isinstance(field_schema, TextFieldSchema | TextareaFieldSchema):
             self._validate_text_field(field_schema, value)
         elif isinstance(field_schema, MarkdownFieldSchema):
             self._validate_markdown_field(field_schema, value)
@@ -173,9 +171,11 @@ class ContentValidator(BaseService):
             self._validate_datetime_field(field_schema, value)
         elif isinstance(field_schema, JsonFieldSchema):
             self._validate_json_field(field_schema, value)
-        elif isinstance(field_schema, (AssetFieldSchema, ResourceFieldSchema)):
+        elif isinstance(field_schema, EmbedFieldSchema):
+            self._validate_embed_field(field_schema, value)
+        elif isinstance(field_schema, AssetFieldSchema | ResourceFieldSchema):
             self._validate_reference_field(field_schema, value, is_list=False)
-        elif isinstance(field_schema, (AssetListFieldSchema, ResourceListFieldSchema)):
+        elif isinstance(field_schema, AssetListFieldSchema | ResourceListFieldSchema):
             self._validate_reference_field(field_schema, value, is_list=True)
         else:
             # Unknown field type - should not happen with discriminated union
@@ -210,9 +210,26 @@ class ContentValidator(BaseService):
                 f"Expected string, got {type(value).__name__}",
             )
 
+    def _validate_embed_field(self, field_schema: EmbedFieldSchema, value: Any) -> None:
+        """Embed field: a supported media link (empty = unset), from an allowed provider when the field limits them."""
+        from marvin.services.media_embeds.matcher import match_url
+        from marvin.services.media_embeds.providers import PROVIDERS
+
+        if not isinstance(value, str):
+            raise ContentValidationError(field_schema.key, f"Expected a media link, got {type(value).__name__}")
+        if not value.strip():
+            return
+        match = match_url(value)
+        if match is None:
+            names = ", ".join(p.name for p in PROVIDERS.values())
+            raise ContentValidationError(field_schema.key, f"Not a supported media link. Supported: {names}.")
+        if field_schema.providers and match.provider.key not in field_schema.providers:
+            allowed = ", ".join(PROVIDERS[k].name for k in field_schema.providers if k in PROVIDERS)
+            raise ContentValidationError(field_schema.key, f"{match.provider.name} links aren't allowed here (allowed: {allowed}).")
+
     def _validate_number_field(self, field_schema: NumberFieldSchema, value: Any) -> None:
         """Validate number field."""
-        if not isinstance(value, (int, float)):
+        if not isinstance(value, int | float):
             raise ContentValidationError(
                 field_schema.key,
                 f"Expected number, got {type(value).__name__}",
@@ -292,7 +309,7 @@ class ContentValidator(BaseService):
                 raise ContentValidationError(
                     field_schema.key,
                     f"Invalid date format. Expected ISO 8601 (YYYY-MM-DD): {e}",
-                )
+                ) from e
 
         raise ContentValidationError(
             field_schema.key,
@@ -316,7 +333,7 @@ class ContentValidator(BaseService):
                 raise ContentValidationError(
                     field_schema.key,
                     f"Invalid datetime format. Expected ISO 8601: {e}",
-                )
+                ) from e
 
         raise ContentValidationError(
             field_schema.key,
@@ -418,12 +435,12 @@ class ContentValidator(BaseService):
                 raise ContentValidationError(field_key, "Invalid email address")
 
         elif field_def.type == "number":
-            if not isinstance(value, (int, float)):
+            if not isinstance(value, int | float):
                 # Try to convert string to number
                 try:
                     value = float(value)
                 except (ValueError, TypeError):
-                    raise ContentValidationError(field_key, "Expected number")
+                    raise ContentValidationError(field_key, "Expected number") from None
 
             if field_def.validation:
                 if "min" in field_def.validation and value < field_def.validation["min"]:

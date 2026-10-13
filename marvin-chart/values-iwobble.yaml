@@ -1,0 +1,177 @@
+# Deployment values for the `marvin` release on the iwobble OpenShift cluster.
+# Split topology, GHCR develop images, CNPG Postgres, site-wide plugins installed at boot.
+#
+#   scripts/deploy/promote-iwobble.sh <commit>   (pins image.tag=develop-<sha>; see image: below)
+#
+# Hosts below are specific to this cluster (apps.ocp4.iwobble.com); change them for another cluster.
+
+mode: split
+
+# Backend and frontend both use the chart's rolling update (maxUnavailable 0, maxSurge 1): the new pod
+# is ready before the old one stops, so a promotion has no downtime. Safe since the move to Postgres —
+# no single-writer file any more; the scheduler's leader lease keeps scheduled work on one pod during
+# the brief overlap, and the old pod drains its AI runs (shutdown.terminationGracePeriodSeconds).
+# The old pod (backend and frontend alike) keeps serving for preStopSleepSeconds after it is told to
+# stop, while the OpenShift router (which reloads its backend list every few seconds) takes it out of
+# rotation; at the chart's 5s a rolling restart still dropped ~6s of requests (measured 2026-10-06),
+# so give it 15s.
+shutdown:
+  preStopSleepSeconds: 15
+
+# Production runs one exact, CI-built commit: `develop-<7-char sha>` (immutable GHCR tags). Don't edit
+# the tag here — promote with `scripts/deploy/promote-iwobble.sh <sha>`, which helm-upgrades with the chart
+# from that same commit and `--set image.tag=develop-<sha>`. `helm history marvin -n marvin` lists every
+# promotion; roll back with `helm rollback marvin <revision> -n marvin`. A bare `helm upgrade` with this file
+# alone would fall back to the moving `develop` tag below — use the script.
+image:
+  repository: ghcr.io/inneropen/marvin   # backend/frontend derive as -backend / -frontend
+  tag: develop
+  pullPolicy: IfNotPresent
+
+config:
+  publicApiUrl: https://api.iwobble.com
+  production: true      # OpenShift's random UID can't write /app/dev (dev mode); prod uses DATA_DIR
+  logLevel: INFO
+  dbEngine: postgres   # CloudNativePG cluster marvin-pg (below); SQLite file kept on marvin-data as the rollback
+  # Split deploy: UI (marvin-marvin) and API (marvin-api-marvin) are on different hosts, so the
+  # API must allow the UI origin for browser calls. Without this, production adds no CORS
+  # middleware and the token page / client-side features fail with "Failed to fetch" (CORS).
+  corsOrigins: "https://marvin-marvin.apps.ocp4.iwobble.com"
+
+# Backend headroom. One uvicorn worker by design (SQLite over NFS is single-writer), so the only
+# lever under a burst of slow reads is CPU: the chart default of 500m had the worker answering
+# probes late enough to be restarted (2026-09-11). Memory rarely exceeds 300Mi; the limit is for
+# image-processing peaks.
+resources:
+  requests:
+    cpu: 250m
+    memory: 384Mi
+  limits:
+    cpu: "1"
+    memory: 768Mi
+
+# Relaxed backend probe cadence (the app also filters probe paths out of the access log). Merged
+# over the chart defaults: liveness /healthz 10→30s, readiness /readyz 5→15s. The single uvicorn
+# worker answers probes late while it serves a burst of slow reads (a site build fetching many
+# entries): with the 5 s default timeout and 3 failures the pod was restarted mid-build
+# (7 restarts, "Completed"/exit 0 = SIGTERM, 2026-09-11) and the API answered 502 for minutes.
+# A restart should mean the process is hung, not busy — so give it 15 s and 5 strikes (~2.5 min).
+livenessProbe:
+  periodSeconds: 30
+  timeoutSeconds: 15
+  failureThreshold: 5
+readinessProbe:
+  periodSeconds: 15
+  timeoutSeconds: 10
+
+# NFS-backed PVC (managed-nfs-storage). Single writer only: keep split.backend.replicaCount at 1 —
+# sqlite over NFS is unsafe with concurrent writers. For HA, move dbEngine to postgres instead.
+persistence:
+  enabled: true
+  storageClass: managed-nfs-storage
+  size: 5Gi
+
+# Backups: the backup engine, one CronJob per target (marvin-backup-<name>; docs/manual/offsite-backup.md).
+# Each target has its own schedule, retention, run and exit code: a failing NAS never stops R2.
+backup:
+  # Admin → Scheduled Tasks can start these targets (run_backup_target: Run Now, or a Marvin-owned schedule) as a
+  # Job from the CronJob; renders Role marvin-backup-runner (get cronjobs, create/list jobs, this namespace only).
+  # Verified on marvin-dev first (2026-10-10).
+  scheduledTasks:
+    enabled: true
+  # r2: the off-site copy. Hourly pg_dump (+ config + assets) to Cloudflare R2, bucket marvin-backups,
+  # through the s3 target of marvin-storage-s3 (a plugin baked into the image); the Secret is created by hand
+  # from `pass` (marvin/r2/*), never committed. Same key layout as the old job, so it carries on that
+  # history. At most an hour of data lost. Retention 48 hourly + 30 daily + 8 weekly (Jared 2026-10-06).
+  # nas-nightly: the NAS on pve (export /tank/backups/marvin: all_squash to uid 3100, which owns it 0770,
+  # so any pod UID writes), subfolder prod/ (created by the kubelet on the first run; dev would get dev/).
+  # Same ZFS pool as the live data: it covers a lost PVC or an app bug, not losing the NAS (R2 does).
+  targets:
+    - name: r2
+      type: s3
+      # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, BACKUP_S3_ENDPOINT, BACKUP_S3_BUCKET (region: the
+      # plugin's default, auto — right for R2).
+      existingSecret: marvin-r2-backup
+      schedule: "0 * * * *"
+      timeZone: America/New_York
+      retention: {hourly: 48, daily: 30, weekly: 8}
+      # An hourly run must finish (or give up) well before the next one.
+      activeDeadlineSeconds: 2700
+      startingDeadlineSeconds: 900
+      # Assets on R2 (storage slice 8): the asset mirror also reads the s3 provider (bucket marvin-assets).
+      env: &assetsFromR2
+        - {name: BACKUP_ASSET_PROVIDERS, value: s3}
+        - {name: STORAGE_S3_BUCKET, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_BUCKET}}}
+        - {name: STORAGE_S3_ENDPOINT, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_ENDPOINT}}}
+        - {name: STORAGE_S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_ACCESS_KEY}}}
+        - {name: STORAGE_S3_SECRET_KEY, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_SECRET_KEY}}}
+    - name: nas-nightly
+      type: local
+      schedule: "30 2 * * *"
+      timeZone: America/New_York
+      retention: {hourly: 0, daily: 30, weekly: 8}
+      volume:
+        nfs:
+          server: 192.168.30.10
+          path: /tank/backups/marvin
+        subPath: prod
+      env: *assetsFromR2
+
+# Public UI route + public API route (the browser calls the API directly for login/interactive use).
+# config.publicApiUrl is pinned to the tunnel host below: the auto-derived value would be the
+# LAN-only `.apps` route, which the admin then prints as the address for external systems
+# (incoming-webhook URLs, asset links) — unreachable from Buttondown & co.
+route:
+  enabled: true
+  ui:
+    enabled: true
+  api:
+    enabled: true
+    host: marvin-api-marvin.apps.ocp4.iwobble.com
+  tls:
+    enabled: true
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+# --- Site-wide plugins ---------------------------------------------------------------------------
+# Baked into the image (pyproject.toml `plugins` group, pinned by uv.lock): the integrations,
+# marvin-storage-s3 (the r2 backup target) and marvin-ai-openai. Nothing is installed at start-up.
+# To add one or hot-fix one ahead of a build, list it here (see values.yaml).
+plugins:
+  packages: []
+
+extraEnv:
+  # Assets are served off this backend but the site (dev.mashandburnco.com) is a different origin,
+  # so hand out absolute asset URLs via the public tunnel host. Files still mount at /assets
+  # (STORAGE_LOCAL_PUBLIC_URL) — this only sets the URL prefix. See STORAGE_LOCAL_PUBLIC_BASE_URL.
+  - name: STORAGE_LOCAL_PUBLIC_BASE_URL
+    value: https://api.iwobble.com/assets
+  # Square uploads an item's picture (it accepts up to 15 MiB); the 5 MB default would skip a
+  # large photo. 16 MiB so anything Square takes can be fetched.
+  - name: INTEGRATION_HTTP_MAX_BYTES
+    value: "16777216"
+  # Assets on R2 (storage slice 8): the s3 provider (Secret marvin-r2-assets, a token scoped to marvin-assets only),
+  # served from the custom domain. Where NEW uploads go is the admin choice (Admin → Storage); keys are opaque.
+  - name: STORAGE_REMOTE_PUBLIC_URL
+    value: https://assets.iwobble.com
+  - name: STORAGE_S3_CACHE_CONTROL
+    value: "public, max-age=86400"
+  - {name: STORAGE_S3_BUCKET, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_BUCKET}}}
+  - {name: STORAGE_S3_ENDPOINT, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_ENDPOINT}}}
+  - {name: STORAGE_S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_ACCESS_KEY}}}
+  - {name: STORAGE_S3_SECRET_KEY, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_SECRET_KEY}}}
+
+# Web Push for the installable admin app: VAPID keys from this Secret (create it first — see
+# docs/manual/app-and-push.md; until it exists the backend starts with push off).
+webPush:
+  existingSecret: marvin-vapid
+
+# Postgres (CloudNativePG cluster `marvin-pg`, Secret `marvin-pg-app`) — production's database since the
+# cutover (docs/manual/postgres.md, "Production cutover"). NFS is the only storage class on this cluster — see the runbook's "Storage".
+postgres:
+  cluster:
+    enabled: true
+    name: marvin-pg
+    storage:
+      size: 10Gi
+      storageClass: managed-nfs-storage

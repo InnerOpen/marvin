@@ -1,0 +1,96 @@
+{
+  "name": "Milestone celebration",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_updated"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{project_type}}"
+      },
+      {
+        "field": "entry.data.{{status_field}}",
+        "op": "eq",
+        "value": "{{done_value}}"
+      },
+      {
+        "field": "entry.metadata.celebrated",
+        "op": "exists",
+        "value": false
+      }
+    ],
+    "actions": [
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "celebrated": true
+        }
+      },
+      {
+        "kind": "operation",
+        "id": "post",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "“${entry.title}” is finished. Write a short, warm celebration post grounded only in what the entry says (no invented facts), and a one-line visual idea for an illustration of it.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "post": {
+              "type": "string",
+              "minLength": 20
+            },
+            "visual": {
+              "type": "string",
+              "minLength": 5
+            }
+          },
+          "required": [
+            "post",
+            "visual"
+          ]
+        }
+      },
+      {
+        "kind": "approval",
+        "id": "ok",
+        "message": "Celebrate “${entry.title}”? Post: ${steps.post.output.post}",
+        "approvers": "editor",
+        "expires_in_hours": 168
+      },
+      {
+        "kind": "integration",
+        "id": "art",
+        "integration": "{{image_integration}}",
+        "action": "generate",
+        "attach_as": "celebration",
+        "args": {
+          "prompt": "{{image_style}}: ${steps.post.output.visual}",
+          "name": "${entry.title} — celebration"
+        },
+        "when": {
+          "field": "steps.ok.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "celebration_post": "${steps.post.output.post}"
+        },
+        "when": {
+          "field": "steps.ok.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      }
+    ]
+  }
+}

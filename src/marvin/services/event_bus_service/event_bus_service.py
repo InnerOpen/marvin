@@ -4,7 +4,7 @@ within the Marvin application.
 
 The service allows different parts of the application to publish events,
 and it ensures these events are routed to appropriate listeners (like
-Apprise or webhook listeners) for further processing, such as sending
+webhook, integration or email listeners) for further processing, such as sending
 notifications. Events can be dispatched synchronously or as background tasks.
 
 The `EventSource` class is also defined here, potentially for structuring
@@ -23,16 +23,23 @@ from marvin.services import BaseService  # Base service class for common functio
 
 # Event listener implementations
 from marvin.services.event_bus_service.event_bus_listener import (
-    AIEmbeddingReactionListener,
-    SmartCollectionReactionListener,
-    AppriseEventListener,
     AuditLogListener,
+    AutomationReactionListener,
     ConsoleEventListener,
     EmailEventListener,
     EventListenerBase,
+    IndexingReactionListener,
+    IntegrationEventListener,
+    MediaEmbedReactionListener,
+    PlatformAlertListener,
+    PushNotificationListener,
     ScheduledTaskListener,
+    SiteRebuildReactionListener,
+    SmartCollectionReactionListener,
     WebhookEventListener,
+    WorkspaceAlertListener,
 )
+from marvin.services.events.event_catalog import INTERNAL_EVENT_TYPES  # scheduler plumbing, logged quietly
 
 # Core event types used by the bus
 from .event_types import Event, EventBusMessage, EventDocumentDataBase, EventTypeBase
@@ -96,7 +103,7 @@ class EventBusService(BaseService):
     Service for dispatching events to registered listeners.
 
     This service takes an event, constructs a standardized `Event` object,
-    and then publishes it to relevant listeners (e.g., Apprise, Webhooks).
+    and then publishes it to relevant listeners (e.g., Webhooks, Integrations, Email).
     It can operate synchronously or dispatch event publishing as a background task
     if a `BackgroundTasks` instance is provided.
     """
@@ -133,7 +140,7 @@ class EventBusService(BaseService):
 
         The order of listeners determines the order in which they might process events.
         AuditLogListener MUST be first to ensure events are persisted even if other listeners fail.
-        Current order: AuditLog (persistence), Console (debug), Webhook, Apprise.
+        Current order: AuditLog (persistence), reactions, Console (debug), Webhook, Integration, Email, alerts, push.
 
         Args:
             group_id (UUID4): The ID of the group for which to get listeners.
@@ -150,12 +157,18 @@ class EventBusService(BaseService):
         return [
             AuditLogListener(group_id),  # Persists all events to event_log table (MUST BE FIRST).
             ScheduledTaskListener(group_id),  # Executes scheduled tasks when triggered.
-            AIEmbeddingReactionListener(group_id),  # Auto-embeds an entry into the RAG index on publish.
+            IndexingReactionListener(group_id),  # Keeps the RAG index fresh for every registered indexable type.
+            MediaEmbedReactionListener(group_id),  # Warms the media-embed cache before a rebuild reads it.
+            SiteRebuildReactionListener(group_id),  # Queues a (coalesced) site rebuild when published content changes.
+            AutomationReactionListener(group_id),  # Flavor B: runs user-configured automations on trigger events.
             SmartCollectionReactionListener(group_id),  # Materializes smart-collection membership on entry changes.
             ConsoleEventListener(group_id),  # Logs all events to console for debugging.
             WebhookEventListener(group_id),  # Handles custom webhook integrations for the group.
-            AppriseEventListener(group_id),  # Handles notifications via Apprise for the group.
+            IntegrationEventListener(group_id),  # Runs integration actions wired to events.
             EmailEventListener(group_id),  # Fires email templates on matching events.
+            PlatformAlertListener(group_id),  # Sends platform alerts past the bell (Admin → Platform alerts).
+            WorkspaceAlertListener(group_id),  # Sends the workspace's failures past the bell (Automation → Notifications).
+            PushNotificationListener(group_id),  # Pushes AI approvals and the bell's to-dos to people's devices (Web Push).
         ]
 
     def _publish_event(self, event: Event, group_id: UUID4) -> None:
@@ -171,7 +184,7 @@ class EventBusService(BaseService):
             group_id (UUID4): The ID of the group associated with this event.
         """
         # Internal comments from original code:
-        # "my event tipe is webhook_task > Should I use the webhook listener or the apprise listener or just webhook_task"
+        # "my event tipe is webhook_task > Should I use the webhook listener or just webhook_task"
         # -> The current logic iterates all listeners. Each listener's `get_subscribers` method
         #    will determine if it's interested in the event type.
         # "are we sure we want to use the webhook listener first?"
@@ -199,6 +212,8 @@ class EventBusService(BaseService):
         user_id: UUID4 | None = None,  # User who triggered the event
         entity_id: UUID4 | None = None,  # Primary entity the event is about
         entity_type: str | None = None,  # Type of the primary entity
+        reaction_depth: int = 0,  # Automation/reaction hop count (loop-guard); 0 for user/system actions
+        correlation_id: str | None = None,  # Causal-chain id; inherits the ambient scope when omitted
     ) -> None:
         """
         Dispatches an event to the event bus.
@@ -222,6 +237,13 @@ class EventBusService(BaseService):
             entity_type (str | None, optional): The type of the primary entity
                                                 (e.g., "entry", "asset"). Defaults to None.
         """
+        # Resolve the causal-chain id: an explicit arg wins, else inherit the ambient correlation
+        # scope (a reaction cascade / an EntryService emit batch), else mint one (a fresh root). Read
+        # synchronously here so it's baked into the Event even if publishing is deferred.
+        from marvin.services.event_bus_service.correlation import current_correlation_id, new_correlation_id
+
+        resolved_correlation_id = correlation_id or current_correlation_id.get() or new_correlation_id()
+
         # Construct the full Event object
         event_payload = Event(
             message=EventBusMessage.from_type(event_type, body=message),  # Standardized message structure
@@ -232,10 +254,12 @@ class EventBusService(BaseService):
             user_id=user_id,
             entity_id=entity_id,
             entity_type=entity_type,
+            reaction_depth=reaction_depth,
+            correlation_id=resolved_correlation_id,
         )
 
         event_name = event_type.name if hasattr(event_type, "name") else str(event_type)
-        is_internal = event_name in ("webhook_task", "scheduled_task_triggered", "scheduled_task_started", "scheduled_task_completed", "scheduled_task_failed")
+        is_internal = event_name in INTERNAL_EVENT_TYPES  # scheduler plumbing: logged at debug level
 
         if self.bg_tasks:
             if not is_internal:

@@ -7,7 +7,7 @@ It includes:
 """
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 from sqlalchemy import ForeignKey, Integer, String, Text
@@ -19,8 +19,7 @@ from .._model_utils.datetime import DateTime
 from .._model_utils.guid import GUID
 
 if TYPE_CHECKING:
-    from .groups import Groups
-    from .webhooks import GroupWebhooksModel
+    pass
 
 
 class WebhookExecutionLogModel(SqlAlchemyBase, BaseMixins):

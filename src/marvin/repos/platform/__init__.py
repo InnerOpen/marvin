@@ -10,6 +10,7 @@ from .form_submissions import FormSubmissionsRepository
 from .forms import FormsRepository
 from .resources import ResourcesRepository
 from .scheduled_tasks import ScheduledTaskExecutionLogRepository, ScheduledTasksRepository
+from .tags import TagsRepository
 
 # isort: split
 # CODE_GEN_ID: PLATFORM_REPO_IMPORTS
@@ -27,6 +28,7 @@ __all__ = [
     "ResourcesRepository",
     "ScheduledTaskExecutionLogRepository",
     "ScheduledTasksRepository",
+    "TagsRepository",
     # CODE_GEN_ID: PLATFORM_REPO_ALL
     # END: PLATFORM_REPO_ALL
 ]

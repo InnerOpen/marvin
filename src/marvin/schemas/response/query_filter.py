@@ -795,9 +795,7 @@ class QueryFilterBuilder:
 
                 # Get the SQLAlchemy filter element (e.g., User.name == 'test')
                 filter_element = self._get_filter_element(
-                    query=current_query_with_joins,  # Pass the query with joins
                     component=component,
-                    model=model,  # Pass the main model for context if needed by _get_filter_element
                     model_attr_owner=owning_model_cls,
                     model_attr=final_attr_to_use,
                     model_attr_sqla_type=attr_type_to_use,

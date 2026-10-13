@@ -1,0 +1,15 @@
+{
+  "recipe": "ocr-notebook",
+  "variables": {
+    "notes_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type the notes are drafted as.",
+      "example": "article"
+    },
+    "notes_body_field": {
+      "type": "field_key",
+      "description": "That type's text field.",
+      "example": "body"
+    }
+  }
+}

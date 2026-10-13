@@ -1,0 +1,30 @@
+{
+  "recipe": "workshop-field-guide",
+  "variables": {
+    "log_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entries that log a project's progress (bench notes, updates).",
+      "example": "bench-note"
+    },
+    "project_field": {
+      "type": "field_key",
+      "description": "Their field that names the project (its slug).",
+      "example": "project"
+    },
+    "body_field": {
+      "type": "field_key",
+      "description": "Their text field, for the AI to read.",
+      "example": "body"
+    },
+    "kicker": {
+      "type": "text",
+      "description": "A small heading above the title.",
+      "example": "Workshop field guide"
+    },
+    "footer": {
+      "type": "text",
+      "description": "A line at the bottom, e.g. the site.",
+      "example": "mashandburn.co"
+    }
+  }
+}

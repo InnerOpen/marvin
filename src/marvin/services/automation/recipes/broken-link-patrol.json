@@ -1,0 +1,61 @@
+{
+  "name": "Broken link patrol",
+  "definition": {
+    "trigger": {
+      "type": "schedule",
+      "schedule_type": "cron",
+      "schedule_config": {
+        "cron_expression": "0 8 * * 1",
+        "timezone": "{{timezone}}"
+      }
+    },
+    "target": {
+      "entity": "entry",
+      "query": {
+        "entry_type": "{{entry_type}}",
+        "status": "published"
+      }
+    },
+    "actions": [
+      {
+        "kind": "fetch",
+        "id": "links",
+        "links": "${entry.data.{{body_field}}}"
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "broken_links": "${steps.links.output.broken_count}"
+        },
+        "when": {
+          "any": [
+            {
+              "field": "steps.links.output.broken_count",
+              "op": "gt",
+              "value": 0
+            },
+            {
+              "field": "entry.metadata.broken_links",
+              "op": "exists"
+            }
+          ]
+        }
+      },
+      {
+        "kind": "integration",
+        "integration": "{{notify_integration}}",
+        "capability": "notify",
+        "args": {
+          "title": "Broken links in “${entry.title}”",
+          "body": "${steps.links.output.broken_count} of ${steps.links.output.checked} links don't work:\n${steps.links.output.text}\n${entry.url}"
+        },
+        "when": {
+          "field": "steps.links.output.broken_count",
+          "op": "gt",
+          "value": 0
+        }
+      }
+    ]
+  }
+}

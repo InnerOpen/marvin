@@ -7,10 +7,18 @@ SchedulerService when tasks are due.
 """
 
 # Import handler modules to trigger registration
-from .handlers import ScheduledTaskHandler, TaskHandlerRegistry
-
 # Import all handler modules to register them
-from .handlers import ai, maintenance, publishing  # noqa: F401  — imported for handler registration side effects
+from .handlers import (  # noqa: F401  — imported for handler registration side effects
+    ScheduledTaskHandler,
+    TaskHandlerRegistry,
+    ai,
+    automation,
+    backups,
+    integrations,
+    maintenance,
+    media,
+    publishing,
+)
 
 __all__ = [
     "ScheduledTaskHandler",

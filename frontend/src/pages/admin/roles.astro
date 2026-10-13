@@ -1,0 +1,96 @@
+---
+import AdminLayout from "@/layouts/AdminLayout.astro";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { requireAdmin } from "@/lib/auth";
+
+await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const authToken = getAuthToken(Astro.cookies);
+
+let matrix: any = { roles: [], capabilities: [] };
+let error: string | null = null;
+try {
+  matrix = await fetchApi<any>("/api/admin/about/roles-matrix", {}, authToken);
+} catch (e) {
+  console.error("[admin/roles] Failed to load:", e);
+  error = "Failed to load the roles matrix";
+}
+const roles: any[] = matrix?.roles ?? [];
+const capabilities: any[] = matrix?.capabilities ?? [];
+const has = (cap: any, role: string) => (cap?.roles ?? []).includes(role);
+---
+
+<AdminLayout crumb="admin.roles">
+  <div class="toolbar">
+    <div>
+      <h2>Roles &amp; Permissions</h2>
+      <p>Workspace roles and what each can do. These are enforced in code — this page is a live reference of the actual rules.</p>
+    </div>
+  </div>
+
+  {error && (
+    <div class="alert alert-error"><strong>Error:</strong> {error}</div>
+  )}
+
+  <div class="page-container">
+    <section class="card">
+      <div class="table-scroll">
+        <table class="matrix">
+          <thead>
+            <tr>
+              <th class="cap-col">Capability</th>
+              {roles.map((r) => (
+                <th class:list={{ platform: r.platform }}>
+                  {r.role}<span class="level">{r.platform ? 'platform' : `level ${r.level}`}</span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {capabilities.map((cap) => (
+              <tr>
+                <td class="cap-col">{cap.label}</td>
+                {roles.map((r) => (
+                  <td class:list={["cell", { yes: has(cap, r.role) }]}>
+                    {has(cap, r.role) ? "✓" : "–"}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p class="note">
+        <strong>SUPER_ADMIN</strong> is the <strong>platform</strong> role (top column): it can do everything in
+        every workspace <em>and</em> is the only role with access to this admin area. The rest are
+        <strong>workspace</strong> roles — <strong>OWNER › ADMIN › EDITOR › AUTHOR › VIEWER</strong> — scoped to a
+        single workspace; a workspace ADMIN administers its own workspace only, not the platform. Roles are
+        code-defined; assign workspace roles from a workspace's <strong>Members</strong> page.
+      </p>
+    </section>
+  </div>
+</AdminLayout>
+
+<style>
+  .toolbar { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+  .toolbar h2 { margin: 0; font-size: 24px; font-weight: 600; }
+  .toolbar p { margin: 8px 0 0; color: var(--muted); font-size: 14px; max-width: 70ch; }
+
+  .alert { padding: 16px; margin-bottom: 24px; border-radius: var(--radius); }
+  .alert-error { background: var(--color-error-bg); color: var(--color-error); border: 1px solid var(--color-error); }
+
+  .page-container { max-width: 900px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; }
+  .table-scroll { overflow-x: auto; }
+
+  .matrix { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .matrix th, .matrix td { padding: 12px 14px; text-align: center; border-bottom: 1px solid var(--line); }
+  .matrix thead th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  .matrix thead th.platform { color: var(--accent); }
+  .matrix thead th.platform .level { color: var(--accent); opacity: 0.8; }
+  .matrix .level { display: block; font-size: 11px; font-weight: 400; color: var(--muted); margin-top: 2px; }
+  .cap-col { text-align: left !important; font-weight: 500; white-space: nowrap; }
+  .cell { color: var(--muted); }
+  .cell.yes { color: var(--accent); font-weight: 700; }
+
+  .note { margin: 16px 0 0; font-size: 13px; color: var(--muted); }
+</style>

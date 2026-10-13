@@ -1,0 +1,19 @@
+{
+  "name": "Post new uploads to a chat channel",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "asset_uploaded"
+    },
+    "actions": [
+      {
+        "kind": "webhook",
+        "id": "post",
+        "webhook_id": "{{upload_webhook_id}}",
+        "body": {
+          "text": "New ${asset.asset_type} uploaded: ${asset.name} (${asset.mime_type}) ${asset.url}"
+        }
+      }
+    ]
+  }
+}

@@ -19,7 +19,6 @@ from sqlalchemy.orm.session import Session
 from marvin.core import root_logger
 from marvin.core.config import get_app_settings
 from marvin.core.security.hasher import get_hasher
-
 from marvin.schemas.user.auth import CredentialsRequest, CredentialsRequestForm
 
 # JWT algorithm constant - DO NOT CHANGE without migration plan
@@ -106,7 +105,7 @@ def validate_file_path(file_path: Path, allowed_base: Path) -> Path:
     try:
         abs_path.relative_to(abs_base)
     except ValueError:
-        raise ValueError(f"Path {file_path} is outside allowed directory {allowed_base}")
+        raise ValueError(f"Path {file_path} is outside allowed directory {allowed_base}") from None
 
     return abs_path
 

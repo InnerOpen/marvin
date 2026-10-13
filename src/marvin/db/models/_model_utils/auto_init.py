@@ -11,6 +11,7 @@ Configuration for the behavior of `auto_init` can be provided via a
 defined in `AutoInitConfig`.
 """
 
+from collections.abc import Callable
 from functools import wraps
 from uuid import UUID
 
@@ -226,7 +227,7 @@ def auto_init():  # sourcery no-metrics
         ```
     """
 
-    def decorator(init_method: callable):
+    def decorator(init_method: Callable):
         @wraps(init_method)
         def wrapper(self: SqlAlchemyBase, *args, **kwargs):
             """

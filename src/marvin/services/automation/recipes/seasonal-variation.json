@@ -1,0 +1,45 @@
+{
+  "name": "Seasonal variation",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "target": {
+      "entity": "asset",
+      "query": {
+        "tags": [
+          "{{tag}}"
+        ],
+        "asset_type": "image"
+      }
+    },
+    "actions": [
+      {
+        "kind": "approval",
+        "id": "ok",
+        "message": "Make a {{season}} version of “${asset.name}”? (one paid image edit)",
+        "approvers": "editor",
+        "expires_in_hours": 168
+      },
+      {
+        "kind": "integration",
+        "id": "edit",
+        "integration": "{{image_integration}}",
+        "action": "edit",
+        "source": "${asset.id}",
+        "args": {
+          "prompt": "Make a {{season}} version of this graphic: same layout, same text and logo, same style — change the colours, light and small details to suit {{season}}.",
+          "fidelity": "high"
+        },
+        "tags": [
+          "{{season_tag}}"
+        ],
+        "when": {
+          "field": "steps.ok.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      }
+    ]
+  }
+}

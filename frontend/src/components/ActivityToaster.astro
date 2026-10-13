@@ -1,0 +1,609 @@
+---
+// Live activity toasts (a speech bubble off the bell; newest on top): what Marvin just did in this workspace — workflows that ran or failed,
+// webhooks received, site rebuilds sent (with a "N changes" list of what each covers), content changed by someone else, a scheduled
+// publish that is waiting (the entry can't publish yet, or needs approval).
+// A queued site rebuild and a running workflow show a pending toast that the event ending it (the rebuild
+// sent; the run's ran/failed) updates in place — keyed per workspace / per run (see planToasts in toast.ts).
+//
+// Polls GET /api/platform/events/feed (the audit log, oldest first) every few seconds while the tab
+// is visible; for a super admin (`platformFeed`) also GET /api/admin/events/feed, the platform events
+// with no workspace (a failed or overdue installation backup). Everything shown is already in the event log; this only surfaces it as it happens.
+// Platform events are admin alerts: their own "Admin" group above workspace activity, an ADMIN badge, the
+// scope ("Platform — all workspaces") and a link to the admin page that deals with them.
+// The bell cycles All → Failures only → Off, remembered per browser. Muting changes nothing in Marvin.
+interface Props {
+  /** The signed-in user — their own content edits aren't echoed back to them. */
+  userId?: string | null;
+  /** Whether the Ask page is switched on: an agent waiting for approval links there, else opens the bubble. */
+  askPage?: boolean;
+  /** A super admin: also show platform events (backup failures) from the admin feed. */
+  platformFeed?: boolean;
+}
+const { userId = null, askPage = true, platformFeed = false } = Astro.props;
+---
+
+<button type="button" class="button secondary activity-bell" id="activity-bell" data-user-id={userId ?? ""} data-ask-page={askPage ? "1" : "0"} data-platform-feed={platformFeed ? "1" : "0"} aria-live="polite">
+  <span aria-hidden="true" data-icon>🔔</span><span class="sr-only" data-label>Activity: all</span>
+</button>
+<div class="activity-stack" id="activity-stack" role="log" aria-live="polite" aria-label="Recent activity" data-empty>
+  <section class="activity-group admin" data-group="admin" aria-label="Admin alerts" hidden>
+    <div class="activity-group-label"><span aria-hidden="true">🛡</span> Admin</div>
+    <div class="activity-list" data-list="admin"></div>
+  </section>
+  <section class="activity-group" data-group="workspace" aria-label="Workspace activity" hidden>
+    <div class="activity-group-label">Workspace</div>
+    <div class="activity-list" data-list="workspace"></div>
+  </section>
+</div>
+
+<script>
+  import {
+    adminLink,
+    adminScope,
+    approvalTarget,
+    type ChangeList,
+    changesLabel,
+    type DismissTimer,
+    dismissTimer,
+    isBackupRecovery,
+    keyedToasts,
+    moreLabel,
+    OPEN_BUBBLE_EVENT,
+    PLATFORM_FEED_PATH,
+    planToasts,
+    type RebuildChange,
+    STICKY_TONES,
+    summarizeChanges,
+    type Tone,
+    type ToastGroup,
+    refineKind,
+    toastGroup,
+    toastView,
+  } from "@/lib/activity/toast";
+  import { fetchApi } from "@/lib/api/client";
+  import { askThreadHref } from "@/lib/marvin/pending";
+  import { entityHref } from "@/lib/eventEntity";
+
+  type FeedEvent = {
+    eventId: string;
+    eventType: string;
+    occurredAt: string;
+    userId?: string | null;
+    entityId?: string | null;
+    entityType?: string | null;
+    messageTitle: string;
+    messageBody?: string | null;
+    detail?: string | null;
+    changes?: RebuildChange[] | null;
+    requestCount?: number | null;
+    workspaceId?: string | null;
+    runId?: string | null;
+    workflowName?: string | null;
+    handled?: boolean | null;
+    targetCount?: number | null;
+    quietSeconds?: number | null;
+    maxWaitSeconds?: number | null;
+  };
+  type Feed = { now: string; events: FeedEvent[] };
+  type Mode = "all" | "failures" | "off";
+  type Kind = {
+    tone: Tone; // warn and err stay until dismissed and show in "failures only"
+    label: string;
+    href?: (e: FeedEvent) => string | null;
+    /** Instead of a link: what clicking the toast does (e.g. open the bubble). */
+    onClick?: (e: FeedEvent) => (() => void) | null;
+    othersOnly?: boolean;
+    /** Only for the user the event is about (e.g. the owner of a paused agent run). */
+    selfOnly?: boolean;
+    skip?: (e: FeedEvent) => boolean;
+  };
+
+  const POLL_MS = 5000;
+  const TOAST_MS = 6000;
+  const MAX_TOASTS: Record<ToastGroup, number> = { admin: 3, workspace: 5 };
+  const SEEN_CAP = 500; // the feed overlaps polls on purpose; remember enough ids to dedupe
+  const MODE_KEY = "marvin.activity";
+  const MODES: Mode[] = ["all", "failures", "off"];
+  const MODE_LABEL: Record<Mode, string> = { all: "Activity: all", failures: "Activity: failures only", off: "Activity: off" };
+  const MODE_ICON: Record<Mode, string> = { all: "🔔", failures: "⚠️", off: "🔕" };
+
+  const entryHref = (e: FeedEvent) => (e.entityType === "entry" && e.entityId ? `/workspace/entries/${e.entityId}` : "/workspace/events");
+  // The event's own subject (the workflow, the scheduled task) when it has a page, else the list page.
+  const subjectHref = (fallback: string) => (e: FeedEvent) => entityHref(e.entityType, e.entityId) ?? fallback;
+
+  // What's worth a toast. Anything not listed stays in the event log only.
+  const KINDS: Record<string, Kind> = {
+    automation_started: { tone: "info", label: "Workflow", href: subjectHref("/automation/workflows") },
+    automation_ran: { tone: "ok", label: "Workflow", href: subjectHref("/automation/workflows") },
+    // A run whose failures the integration's error policy handled is softened to a warning (refineKind).
+    automation_failed: { tone: "err", label: "Workflow failed", href: subjectHref("/automation/workflows") },
+    // One per connection + error code, never one per item; sticky until dismissed.
+    integration_attention_needed: { tone: "warn", label: "Integration needs attention", href: () => "/workspace/settings/integrations" },
+    integration_attention_resolved: { tone: "ok", label: "Integration working again", href: () => "/workspace/settings/integrations" },
+    incoming_webhook: { tone: "info", label: "Webhook received", href: () => "/automation/incoming-webhooks" },
+    site_rebuild_queued: { tone: "info", label: "Site rebuild" },
+    webhook_triggered: { tone: "info", label: "Site rebuild" },
+    webhook_delivery_failed: { tone: "err", label: "Webhook delivery failed", href: () => "/automation/webhooks" },
+    site_build_started: { tone: "info", label: "Site build started" },
+    site_build_completed: { tone: "ok", label: "Site built" },
+    site_build_failed: { tone: "err", label: "Site build failed" },
+    site_deployment_started: { tone: "info", label: "Site deploy started" },
+    site_deployment_completed: { tone: "ok", label: "Site deployed" },
+    site_deployment_failed: { tone: "err", label: "Site deploy failed" },
+    trash_emptied: { tone: "info", label: "Trash emptied", href: subjectHref("/workspace/collections"), othersOnly: true },
+    scheduled_task_failed: { tone: "err", label: "Scheduled task failed", href: subjectHref("/workspace/scheduled-tasks") },
+    ai_operation_failed: { tone: "err", label: "AI operation failed" },
+    ai_budget_threshold_reached: { tone: "warn", label: "AI budget", href: () => "/workspace/settings/ai-workflow#usage-section" },
+    ai_budget_exceeded: { tone: "err", label: "AI budget reached", href: () => "/workspace/settings/ai-workflow#usage-section" },
+    ai_model_unpriced: { tone: "warn", label: "AI model has no price", href: () => "/workspace/settings/ai-workflow#usage-section" },
+    ai_provider_quota_exceeded: { tone: "err", label: "AI provider out of quota", href: () => "/workspace/settings/ai-workflow" },
+    // Full reindex runs only — every publish/edit also auto-indexes that one item, which isn't news.
+    ai_embeddings_reindexed: {
+      tone: "info",
+      label: "Search index",
+      href: () => "/workspace/settings/ai-ask",
+      skip: (e) => (e.messageBody || "").startsWith("Auto-indexed"),
+    },
+    form_submission_received: { tone: "info", label: "Form submission", href: entryHref },
+    // The scheduled publish held an entry back (once per reason, not every run) — sticky until dismissed.
+    entry_scheduled_publish_blocked: { tone: "warn", label: "Scheduled publish waiting", href: entryHref },
+    entry_published: { tone: "info", label: "Published", href: entryHref, othersOnly: true },
+    entry_unpublished: { tone: "info", label: "Unpublished", href: entryHref, othersOnly: true },
+    entry_created: { tone: "info", label: "Created", href: entryHref, othersOnly: true },
+    entry_updated: { tone: "info", label: "Updated", href: entryHref, othersOnly: true },
+    entry_deleted: { tone: "info", label: "Deleted", othersOnly: true },
+    // An agent run paused on an "ask first" call (its own, or a specialist's it handed off to): only its
+    // owner can decide, so only they see it — sticky until dismissed, since the run waits on them.
+    approval_requested: {
+      tone: "warn",
+      label: "Waiting for your approval",
+      selfOnly: true,
+      href: (e) => approvalTarget(e, me, askPageOn, askThreadHref)?.href ?? null,
+      onClick: (e) => {
+        const target = approvalTarget(e, me, askPageOn, askThreadHref);
+        if (!target?.openBubble) return null;
+        return () => document.dispatchEvent(new CustomEvent(OPEN_BUBBLE_EVENT, { detail: { threadId: target.threadId } }));
+      },
+    },
+  };
+
+  // Admin alerts: the platform feed's events (super admins only), each linked to its admin page.
+  const adminHref = (e: FeedEvent) => adminLink(e.eventType).href;
+  const ADMIN_KINDS: Record<string, Kind> = {
+    // An installation backup target failed, saved only part, or went quiet (once per incident) — sticky.
+    backup_failed: { tone: "err", label: "Backup failed", href: adminHref },
+    // Every ok run sends backup_completed; only the one ending an incident is worth a toast.
+    backup_completed: { tone: "ok", label: "Backup recovered", href: adminHref, skip: (e) => !isBackupRecovery(e) },
+    storage_provider_changed: { tone: "info", label: "Storage changed", href: adminHref, othersOnly: true },
+    storage_public_domain_changed: { tone: "info", label: "Asset domain changed", href: adminHref, othersOnly: true },
+  };
+
+  const bell = document.getElementById("activity-bell") as HTMLButtonElement;
+  const stack = document.getElementById("activity-stack") as HTMLElement;
+  const groups = {
+    admin: stack.querySelector<HTMLElement>('[data-group="admin"]')!,
+    workspace: stack.querySelector<HTMLElement>('[data-group="workspace"]')!,
+  };
+  const lists = {
+    admin: stack.querySelector<HTMLElement>('[data-list="admin"]')!,
+    workspace: stack.querySelector<HTMLElement>('[data-list="workspace"]')!,
+  };
+  // A group shows only while it holds a toast (the admin one never does without the platform feed); the
+  // "Workspace" heading only when the admin group is there to tell it from.
+  function syncGroups() {
+    for (const g of ["admin", "workspace"] as const) groups[g].hidden = !lists[g].children.length;
+    stack.toggleAttribute("data-empty", groups.admin.hidden && groups.workspace.hidden);
+    stack.toggleAttribute("data-both", !groups.admin.hidden && !groups.workspace.hidden);
+  }
+  const groupWatch = new MutationObserver(syncGroups);
+  for (const list of Object.values(lists)) groupWatch.observe(list, { childList: true });
+  // Rendered next to the bell, inside the top bar — whose backdrop-filter makes it the containing
+  // block for position: fixed, pinning the stack to the bar instead of the window. Lift it out.
+  document.body.appendChild(stack);
+
+  // Hang the stack off the bell like a speech bubble: under it, the tail pointing at its middle.
+  // This only reports where the bell is; the CSS keeps the stack inside the viewport's gutters
+  // however far left the bell sits (on a phone the stack spans the screen). On phones the top
+  // bar scrolls away, so a toast that lands then is pinned to the top edge with no tail.
+  function placeStack() {
+    const b = bell.getBoundingClientRect();
+    const detached = b.bottom <= 0;
+    stack.toggleAttribute("data-detached", detached);
+    stack.style.setProperty("--bell-bottom", `${detached ? 0 : Math.round(b.bottom)}px`);
+    stack.style.setProperty("--bell-right", `${Math.round(window.innerWidth - b.right)}px`);
+    stack.style.setProperty("--bell-mid-right", `${Math.round(window.innerWidth - (b.left + b.width / 2))}px`);
+  }
+  placeStack();
+  window.addEventListener("resize", placeStack);
+  const me = bell.dataset.userId || null;
+  const askPageOn = bell.dataset.askPage !== "0";
+  const platformOn = bell.dataset.platformFeed === "1";
+
+  function readMode(): Mode {
+    try {
+      const v = localStorage.getItem(MODE_KEY) as Mode | null;
+      return v && MODES.includes(v) ? v : "all";
+    } catch {
+      return "all";
+    }
+  }
+  let mode = readMode();
+
+  function renderBell() {
+    bell.querySelector("[data-icon]")!.textContent = MODE_ICON[mode];
+    bell.querySelector("[data-label]")!.textContent = MODE_LABEL[mode];
+    bell.title = `${MODE_LABEL[mode]} — click to change`;
+  }
+
+  bell.addEventListener("click", () => {
+    mode = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
+    try {
+      localStorage.setItem(MODE_KEY, mode);
+    } catch {
+      /* private window — the choice lasts for this page only */
+    }
+    renderBell();
+  });
+  renderBell();
+
+  function shouldShow(e: FeedEvent, kind: Kind | undefined): kind is Kind {
+    if (!kind || mode === "off") return false;
+    if (mode === "failures" && !STICKY_TONES.has(kind.tone)) return false;
+    if (kind.othersOnly && me && e.userId === me) return false;
+    if (kind.selfOnly && (!me || e.userId !== me)) return false;
+    if (kind.skip?.(e)) return false;
+    return true;
+  }
+
+  function dismiss(el: HTMLElement) {
+    el.classList.add("leaving");
+    setTimeout(() => el.remove(), 200);
+  }
+
+  // "N changes ▾" under a site rebuild: a disclosure listing what that one build covers.
+  function changesDisclosure(eventId: string, list: ChangeList, onToggle: (open: boolean) => void): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "activity-changes";
+
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "activity-changes-toggle";
+    toggle.setAttribute("aria-expanded", "false");
+    const panelId = `activity-changes-${eventId}`;
+    toggle.setAttribute("aria-controls", panelId);
+    const caret = document.createElement("span");
+    caret.setAttribute("aria-hidden", "true");
+    caret.textContent = "▾";
+    toggle.append(`${changesLabel(list.total)} `, caret);
+
+    const panel = document.createElement("ul");
+    panel.id = panelId;
+    panel.hidden = true;
+    for (const item of list.items) {
+      const li = document.createElement("li");
+      const text = document.createElement(item.href ? "a" : "span");
+      if (item.href) (text as HTMLAnchorElement).href = item.href;
+      text.textContent = item.label;
+      li.append(text);
+      panel.append(li);
+    }
+    if (list.more > 0) {
+      const li = document.createElement("li");
+      li.className = "activity-changes-more";
+      li.textContent = moreLabel(list.more);
+      panel.append(li);
+    }
+
+    toggle.addEventListener("click", () => {
+      const open = toggle.getAttribute("aria-expanded") !== "true";
+      toggle.setAttribute("aria-expanded", String(open));
+      panel.hidden = !open;
+      onToggle(open);
+    });
+    wrap.append(toggle, panel);
+    return wrap;
+  }
+
+  type Toast = { el: HTMLElement; countdown: DismissTimer | null };
+  // Queued rebuilds and running workflows, waiting for the event that ends them.
+  const pending = keyedToasts<Toast>((t) => dismiss(t.el));
+
+  /** Build a toast for `e`; with `replace`, it takes that toast's place (an in-place update). */
+  function show(e: FeedEvent, kind: Kind, opts: { replace?: Toast; key?: string; group?: ToastGroup } = {}): Toast {
+    const group = opts.group ?? "workspace";
+    const admin = group === "admin";
+    const view = toastView(e, kind, Boolean(opts.replace));
+    const changes = summarizeChanges(e.changes, e.requestCount);
+    // A toast with its own links inside can't itself be a link.
+    const link = kind.href && !changes ? kind.href(e) : null;
+    const action = !link && kind.onClick ? kind.onClick(e) : null;
+    const el = document.createElement(link ? "a" : "div");
+    el.className = `activity-toast ${view.tone}${admin ? " admin" : ""}${opts.replace ? " updated" : ""}${action ? " actionable" : ""}`;
+    if (link) (el as HTMLAnchorElement).href = link;
+    if (action) {
+      // A div, not a button: the toast holds its own close button.
+      el.setAttribute("role", "button");
+      el.tabIndex = 0;
+      const act = () => {
+        action();
+        dismiss(el);
+      };
+      el.addEventListener("click", act);
+      el.addEventListener("keydown", (ev) => {
+        const key = (ev as KeyboardEvent).key;
+        if (ev.target === el && (key === "Enter" || key === " ")) {
+          ev.preventDefault();
+          act();
+        }
+      });
+    }
+
+    const head = document.createElement("div");
+    head.className = "activity-head";
+    const label = document.createElement("strong");
+    if (admin) {
+      // "🛡 ADMIN · Backup failed": a platform event, not this workspace's.
+      const badge = document.createElement("span");
+      badge.className = "activity-admin-badge";
+      const shield = document.createElement("span");
+      shield.setAttribute("aria-hidden", "true");
+      shield.textContent = "🛡";
+      badge.append(shield, " ADMIN");
+      const sep = document.createElement("span");
+      sep.className = "activity-sep";
+      sep.setAttribute("aria-hidden", "true");
+      sep.textContent = " · ";
+      label.append(badge, sep, view.label);
+    } else label.textContent = view.label;
+    const time = document.createElement("time");
+    time.dateTime = e.occurredAt;
+    time.textContent = new Date(e.occurredAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+    head.append(label, time);
+    el.append(head);
+
+    if (admin) {
+      const scope = document.createElement("div");
+      scope.className = "activity-scope";
+      scope.textContent = adminScope(e);
+      el.append(scope);
+    }
+
+    const body = document.createElement("div");
+    body.className = "activity-body";
+    body.textContent = view.text;
+    el.append(body);
+
+    if (view.note) {
+      const note = document.createElement("div");
+      note.className = "activity-note";
+      note.textContent = view.note;
+      el.append(note);
+    }
+
+    if (e.detail) {
+      const detail = document.createElement("div");
+      detail.className = "activity-detail";
+      detail.textContent = e.detail;
+      el.append(detail);
+    }
+
+    if (admin && link) {
+      // The whole toast is the link; this says where it goes.
+      const cta = document.createElement("span");
+      cta.className = "activity-cta";
+      cta.textContent = adminLink(e.eventType).text;
+      el.append(cta);
+    }
+
+    // Failures stay until dismissed — they're the ones you'd act on; a pending toast stays until what
+    // it waits for arrives. Others wait while you're reading them: pointer over, focus inside, or the
+    // change list open.
+    const countdown = view.lifetime === "auto" ? dismissTimer(TOAST_MS, () => dismiss(el)) : null;
+    if (countdown) {
+      el.addEventListener("pointerenter", () => countdown.hold("pointer"));
+      el.addEventListener("pointerleave", () => countdown.release("pointer"));
+      el.addEventListener("focusin", () => countdown.hold("focus"));
+      el.addEventListener("focusout", (ev) => {
+        if (!el.contains((ev as FocusEvent).relatedTarget as Node | null)) countdown.release("focus");
+      });
+    }
+    if (changes) el.append(changesDisclosure(e.eventId, changes, (open) => (open ? countdown?.hold("open") : countdown?.release("open"))));
+
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "activity-close";
+    close.setAttribute("aria-label", "Dismiss");
+    close.textContent = "×";
+    close.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      countdown?.cancel();
+      // Only a pending toast holds its slot; a finished one's key may already hold the next batch's.
+      if (opts.key && view.lifetime === "pending") pending.take(opts.key);
+      dismiss(el);
+    });
+    el.append(close);
+
+    const toast = { el, countdown };
+    if (opts.replace?.el.isConnected) {
+      opts.replace.countdown?.cancel();
+      opts.replace.el.replaceWith(el);
+    } else {
+      if (stack.hasAttribute("data-empty")) placeStack(); // the page may have scrolled since the last toast
+      const list = lists[group];
+      list.prepend(el);
+      while (list.children.length > MAX_TOASTS[group]) list.lastElementChild?.remove();
+    }
+    if (opts.key && view.lifetime === "pending") pending.open(opts.key, toast, view.capMs ?? TOAST_MS);
+    return toast;
+  }
+
+  // A poll's new events, oldest first: a start whose end is in the same poll shows only the end.
+  function land(events: FeedEvent[], group: ToastGroup) {
+    const kinds = group === "admin" ? ADMIN_KINDS : KINDS;
+    for (const { event: e, key, action } of planToasts(events, pending.has)) {
+      const base = kinds[e.eventType];
+      const kind = base && refineKind(e, base);
+      const visible = shouldShow(e, kind);
+      const prior = action === "update" && key ? pending.take(key) : undefined;
+      if (visible) show(e, kind, { replace: prior, key: key ?? undefined, group });
+      else if (prior) dismiss(prior.el); // muted since it opened — don't leave it waiting
+    }
+  }
+
+  const seen = new Set<string>();
+  // Each feed keeps its own cursor: the workspace's, and (super admins) the platform's.
+  const feeds = [{ path: "/api/platform/events/feed", since: null as string | null }];
+  if (platformOn) feeds.push({ path: PLATFORM_FEED_PATH, since: null });
+  let timer: number | undefined;
+  let stopped = false;
+
+  async function pollFeed(feed: (typeof feeds)[number]) {
+    const q = feed.since ? `?since=${encodeURIComponent(feed.since)}` : "";
+    const got = await fetchApi<Feed>(`${feed.path}${q}`);
+    feed.since = got.now;
+    const fresh = got.events.filter((e) => !seen.has(e.eventId));
+    for (const e of fresh) seen.add(e.eventId);
+    land(fresh, toastGroup(feed.path));
+  }
+
+  async function poll() {
+    if (stopped || document.hidden) return;
+    for (const feed of feeds) {
+      try {
+        await pollFeed(feed);
+      } catch (err) {
+        // Signed out — stop asking. Anything else (a deploy, a blip) is retried on the next tick.
+        if ((err as { status?: number })?.status === 401) stopped = true;
+      }
+    }
+    if (seen.size > SEEN_CAP) {
+      for (const id of [...seen].slice(0, seen.size - SEEN_CAP)) seen.delete(id);
+    }
+  }
+
+  function start() {
+    if (timer === undefined) timer = window.setInterval(poll, POLL_MS);
+  }
+  function stop() {
+    if (timer !== undefined) window.clearInterval(timer);
+    timer = undefined;
+  }
+
+  // A hidden tab doesn't poll; on return it asks from where it left off, so nothing is lost.
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stop();
+    else {
+      poll();
+      start();
+    }
+  });
+  poll();
+  start();
+</script>
+
+<style>
+  /* Toasts are built by the script at runtime, so they don't carry this component's scope
+     attribute — styles reach them through :global() under the (scoped) stack. */
+  .activity-bell { padding: 6px 10px; line-height: 1; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* Placed from the bell's position (set by placeStack), clamped so the stack always sits within
+     the 16px gutters — or the safe-area insets, where larger — and is never wider than the screen. */
+  .activity-stack {
+    --gutter-l: max(16px, env(safe-area-inset-left, 0px));
+    --gutter-r: max(16px, env(safe-area-inset-right, 0px));
+    --stack-w: min(380px, calc(100vw - var(--gutter-l) - var(--gutter-r)));
+    --stack-right: clamp(var(--gutter-r), var(--bell-right, 16px), calc(100vw - var(--gutter-l) - var(--stack-w)));
+    position: fixed; z-index: 1100;
+    top: max(var(--bell-bottom, 62px) + 10px, env(safe-area-inset-top, 0px) + 16px);
+    right: var(--stack-right); width: var(--stack-w);
+    display: flex; flex-direction: column; gap: 12px; /* between the groups */
+    pointer-events: none;
+  }
+  /* The bubble's tail, drawn over the newest toast's top edge and pointing up at the bell. */
+  .activity-stack::before {
+    content: ""; position: absolute; top: -7px; z-index: 1;
+    right: clamp(12px, calc(var(--bell-mid-right, 36px) - var(--stack-right) - 6px), calc(var(--stack-w) - 24px));
+    width: 12px; height: 12px; transform: rotate(45deg);
+    background: var(--panel, var(--bg)); border-top: 1px solid var(--line); border-left: 1px solid var(--line);
+  }
+  .activity-stack[data-empty]::before, .activity-stack[data-detached]::before { display: none; }
+
+  /* Admin alerts get their own group above workspace activity, in the admin accent: the theme's
+     secondary colour (violet by default, as the staging badge). Text in it is lightened on dark panels. */
+  .activity-stack { --admin: var(--theme-secondary, #7c3aed); --admin-ink: var(--admin); }
+  :global([data-theme="dark"]) .activity-stack { --admin-ink: color-mix(in srgb, var(--admin) 60%, #fff); }
+  .activity-group, .activity-list { display: flex; flex-direction: column; gap: 8px; }
+  .activity-group[hidden] { display: none; }
+  .activity-group-label {
+    padding: 3px 10px; border-radius: 8px; background: var(--panel, var(--bg)); border: 1px solid var(--line);
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.08); color: var(--muted);
+    font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .activity-group.admin .activity-group-label {
+    color: var(--admin-ink); border-color: color-mix(in srgb, var(--admin) 45%, var(--line));
+    background: color-mix(in srgb, var(--admin) 8%, var(--panel, var(--bg)));
+  }
+  /* "Workspace" only labels its group when the admin group is there too. */
+  .activity-stack:not([data-both]) .activity-group[data-group="workspace"] .activity-group-label { display: none; }
+  .activity-stack :global(.activity-toast) {
+    position: relative; display: block; pointer-events: auto;
+    padding: 10px 32px 10px 12px; border-radius: 10px;
+    background: var(--panel, var(--bg)); color: inherit; text-decoration: none;
+    border: 1px solid var(--line); border-left: 4px solid var(--accent-2);
+    box-shadow: 0 6px 20px rgb(0 0 0 / 0.12);
+    font-size: 13px; animation: activity-in 0.18s ease-out;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  .activity-stack :global(.activity-toast.ok) { border-left-color: #16a34a; }
+  .activity-stack :global(.activity-toast.warn) { border-left-color: #d97706; }
+  .activity-stack :global(.activity-toast.actionable) { cursor: pointer; }
+  .activity-stack :global(.activity-toast.err) { border-left-color: #dc2626; }
+  .activity-stack :global(.activity-toast.admin) {
+    background: color-mix(in srgb, var(--admin) 7%, var(--panel, var(--bg)));
+    border-top-color: color-mix(in srgb, var(--admin) 40%, var(--line));
+    border-right-color: color-mix(in srgb, var(--admin) 40%, var(--line));
+    border-bottom-color: color-mix(in srgb, var(--admin) 40%, var(--line));
+  }
+  .activity-stack :global(.activity-admin-badge) {
+    display: inline-block; padding: 0 6px; margin-right: 1px; border-radius: 999px;
+    background: var(--admin); color: #fff; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; line-height: 16px;
+    vertical-align: 1px;
+  }
+  .activity-stack :global(.activity-sep) { color: var(--muted); }
+  .activity-stack :global(.activity-scope) { color: var(--admin-ink); font-size: 11px; font-weight: 600; margin-bottom: 2px; }
+  .activity-stack :global(.activity-cta) { display: inline-block; margin-top: 6px; color: var(--admin-ink); font-size: 12px; font-weight: 600; }
+  .activity-stack :global(a.activity-toast:hover .activity-cta) { text-decoration: underline; }
+  .activity-stack :global(.activity-toast.leaving) { opacity: 0; transform: translateY(-6px); }
+  .activity-stack :global(a.activity-toast:hover) { border-color: var(--muted); }
+  .activity-stack :global(.activity-head) { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
+  .activity-stack :global(.activity-head strong) { min-width: 0; overflow-wrap: anywhere; }
+  .activity-stack :global(.activity-head time) { color: var(--muted); font-size: 11px; white-space: nowrap; }
+  .activity-stack :global(.activity-body) { overflow-wrap: anywhere; }
+  .activity-stack :global(.activity-toast.updated) { animation: none; }
+  .activity-stack :global(.activity-note) { margin-top: 2px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+  .activity-stack :global(.activity-detail) { margin-top: 4px; color: #dc2626; font-size: 12px; overflow-wrap: anywhere; }
+  .activity-stack :global(.activity-changes) { margin-top: 4px; }
+  .activity-stack :global(.activity-changes-toggle) {
+    border: 0; background: none; padding: 0; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .activity-stack :global(.activity-changes-toggle:hover) { color: inherit; text-decoration: underline; }
+  .activity-stack :global(.activity-changes-toggle span) { display: inline-block; transition: transform 0.15s; }
+  .activity-stack :global(.activity-changes-toggle[aria-expanded="true"] span) { transform: rotate(180deg); }
+  .activity-stack :global(.activity-changes ul) {
+    margin: 4px 0 0; padding: 0 0 0 16px; max-height: 180px; overflow-y: auto; font-size: 12px;
+  }
+  .activity-stack :global(.activity-changes li) { margin: 2px 0; overflow-wrap: anywhere; }
+  .activity-stack :global(.activity-changes a) { color: inherit; }
+  .activity-stack :global(.activity-changes-more) { list-style: none; color: var(--muted); }
+  .activity-stack :global(.activity-close) {
+    position: absolute; top: 4px; right: 6px; border: 0; background: none; color: var(--muted);
+    font-size: 16px; line-height: 1; cursor: pointer; padding: 2px 4px;
+  }
+  @keyframes activity-in { from { opacity: 0; transform: translateY(-8px); } }
+  @media (prefers-reduced-motion: reduce) {
+    .activity-stack :global(.activity-toast) { animation: none; transition: none; }
+    .activity-stack :global(.activity-changes-toggle span) { transition: none; }
+  }
+</style>

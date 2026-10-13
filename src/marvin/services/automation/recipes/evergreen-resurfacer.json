@@ -1,0 +1,74 @@
+{
+  "name": "Evergreen resurfacer",
+  "definition": {
+    "trigger": {
+      "type": "schedule",
+      "schedule_type": "cron",
+      "schedule_config": {
+        "cron_expression": "0 9 1 * *",
+        "timezone": "{{timezone}}"
+      }
+    },
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "old",
+        "entity": "entry",
+        "query": {
+          "entry_type": "{{entry_type}}",
+          "status": "published",
+          "published_before": "-365d",
+          "sort": {
+            "by": "updated_at",
+            "direction": "asc"
+          }
+        },
+        "limit": 3
+      },
+      {
+        "kind": "operation",
+        "id": "ideas",
+        "op": "custom",
+        "see": [],
+        "prompt": "These pieces are over a year old and haven't been touched in a while:\n${steps.old.output.text}\nFor each, suggest how to refresh it (what may be out of date, what to add), in two or three lines. Use only what's listed.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "body": {
+              "type": "string",
+              "minLength": 20
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ]
+        },
+        "when": {
+          "field": "steps.old.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{notes_entry_type}}",
+        "title": "${steps.ideas.output.title}",
+        "data": {
+          "{{body_field}}": "${steps.ideas.output.body}"
+        },
+        "status": "draft",
+        "when": {
+          "field": "steps.old.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      }
+    ]
+  }
+}

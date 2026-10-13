@@ -14,7 +14,6 @@ from ldap.ldapobject import LDAPObject
 from sqlalchemy.orm.session import Session
 
 from marvin.core import root_logger
-from marvin.core.config import get_app_settings
 from marvin.core.security.providers.credentials_provider import CredentialsProvider
 from marvin.db.models.users.users import AuthMethod
 from marvin.repos.all_repositories import get_repositories

@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import ConfigDict, Field, StringConstraints, UUID4
+from pydantic import UUID4, ConfigDict, Field, StringConstraints
 
 from marvin.schemas._marvin import _MarvinModel
 

@@ -1,5 +1,5 @@
 ---
-// Image Cropper Component with draggable corners
+// Image Cropper Component with draggable corners — mouse, finger or pen (pointer events), sized for phones too.
 ---
 
 <div class="image-cropper-modal" id="imageCropperModal" style="display: none;">
@@ -153,25 +153,32 @@
     box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
     cursor: move;
     pointer-events: auto;
+    touch-action: none; /* a finger drag moves the box instead of scrolling the page */
+    --handle: 12px;
+  }
+  /* Fingers need bigger targets than a mouse. */
+  @media (pointer: coarse) {
+    .crop-box { --handle: 26px; }
   }
 
   .crop-handle {
     position: absolute;
-    width: 12px;
-    height: 12px;
+    width: var(--handle);
+    height: var(--handle);
+    touch-action: none;
     background: #fff;
     border: 2px solid #000;
     box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
   }
 
-  .crop-handle.nw { top: -6px; left: -6px; cursor: nw-resize; }
-  .crop-handle.ne { top: -6px; right: -6px; cursor: ne-resize; }
-  .crop-handle.sw { bottom: -6px; left: -6px; cursor: sw-resize; }
-  .crop-handle.se { bottom: -6px; right: -6px; cursor: se-resize; }
-  .crop-handle.n { top: -6px; left: 50%; transform: translateX(-50%); cursor: n-resize; }
-  .crop-handle.s { bottom: -6px; left: 50%; transform: translateX(-50%); cursor: s-resize; }
-  .crop-handle.e { top: 50%; right: -6px; transform: translateY(-50%); cursor: e-resize; }
-  .crop-handle.w { top: 50%; left: -6px; transform: translateY(-50%); cursor: w-resize; }
+  .crop-handle.nw { top: calc(var(--handle) / -2); left: calc(var(--handle) / -2); cursor: nw-resize; }
+  .crop-handle.ne { top: calc(var(--handle) / -2); right: calc(var(--handle) / -2); cursor: ne-resize; }
+  .crop-handle.sw { bottom: calc(var(--handle) / -2); left: calc(var(--handle) / -2); cursor: sw-resize; }
+  .crop-handle.se { bottom: calc(var(--handle) / -2); right: calc(var(--handle) / -2); cursor: se-resize; }
+  .crop-handle.n { top: calc(var(--handle) / -2); left: 50%; transform: translateX(-50%); cursor: n-resize; }
+  .crop-handle.s { bottom: calc(var(--handle) / -2); left: 50%; transform: translateX(-50%); cursor: s-resize; }
+  .crop-handle.e { top: 50%; right: calc(var(--handle) / -2); transform: translateY(-50%); cursor: e-resize; }
+  .crop-handle.w { top: 50%; left: calc(var(--handle) / -2); transform: translateY(-50%); cursor: w-resize; }
 
   .cropper-controls {
     display: grid;
@@ -209,6 +216,20 @@
     border-top: 1px solid var(--line);
     flex-shrink: 0;
   }
+
+  /* Phones: the whole screen, the image as big as fits, compact controls, the buttons always on screen. */
+  @media (max-width: 640px) {
+    .cropper-container { width: 100vw; max-width: none; height: 100dvh; max-height: 100dvh; border-radius: 0; }
+    .cropper-header { padding: 0.75rem 1rem; }
+    .cropper-header h3 { font-size: 1.05rem; }
+    .cropper-body { padding: 0.75rem; gap: 0.75rem; }
+    .canvas-container { min-height: 0; padding: 0.5rem; }
+    #cropCanvas { max-height: 58dvh; }
+    .cropper-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; padding: 0.5rem; }
+    .control-group label { font-size: 0.75rem; }
+    .control-group input { min-width: 0; width: 100%; }
+    .cropper-footer { padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom, 0px)); }
+  }
 </style>
 
 <script>
@@ -220,9 +241,10 @@
     private cropBox: HTMLElement;
     private image: HTMLImageElement | null = null;
     private crop = { x: 0, y: 0, width: 0, height: 0 };
-    private isDragging = false;
-    private dragStart = { x: 0, y: 0 };
-    private resizing: string | null = null;
+    // The crop is kept in canvas pixels; the canvas is shown scaled (a phone shows a 1200px preview at ~340px), so
+    // pointer movement is converted by `scale()` and the box is drawn at crop / scale.
+    private gesture: { mode: string; x: number; y: number; start: { x: number; y: number; width: number; height: number } } | null = null;
+    private static MIN = 40; // smallest crop side, canvas pixels
     private onApply: ((blob: Blob) => void) | null = null;
     private onCancel: (() => void) | null = null;
 
@@ -248,19 +270,14 @@
         qualityValue.textContent = qualitySlider.value + '%';
       });
 
-      // Crop box dragging and resizing
-      this.cropBox.addEventListener('mousedown', (e) => this.startDrag(e));
-      document.addEventListener('mousemove', (e) => this.drag(e));
-      document.addEventListener('mouseup', () => this.endDrag());
-
-      // Handle resizing
-      this.cropBox.querySelectorAll('.crop-handle').forEach(handle => {
-        handle.addEventListener('mousedown', (e) => {
-          e.stopPropagation();
-          this.resizing = (e.target as HTMLElement).className.split(' ')[1];
-          this.dragStart = { x: e.clientX, y: e.clientY };
-        });
-      });
+      // Move the box or pull a handle: pointer events, so a finger, a mouse and a pen all work.
+      this.cropBox.addEventListener('pointerdown', (e) => this.startGesture(e));
+      this.cropBox.addEventListener('pointermove', (e) => this.moveGesture(e));
+      const end = (e: PointerEvent) => this.endGesture(e);
+      this.cropBox.addEventListener('pointerup', end);
+      this.cropBox.addEventListener('pointercancel', end);
+      // The preview's on-screen size changes with the window or a rotated phone: redraw the box to match.
+      new ResizeObserver(() => this.updateCropBox()).observe(this.canvas);
     }
 
     public show(file: File, onApply: (blob: Blob) => void, onCancel?: () => void) {
@@ -346,58 +363,54 @@
       this.updateCropBox();
     }
 
+    /** Canvas pixels per on-screen pixel. */
+    private scale(): number {
+      const shown = this.canvas.getBoundingClientRect().width;
+      return shown > 0 ? this.canvas.width / shown : 1;
+    }
+
     private updateCropBox() {
-      this.cropBox.style.left = this.crop.x + 'px';
-      this.cropBox.style.top = this.crop.y + 'px';
-      this.cropBox.style.width = this.crop.width + 'px';
-      this.cropBox.style.height = this.crop.height + 'px';
+      const k = this.scale();
+      this.cropBox.style.left = this.crop.x / k + 'px';
+      this.cropBox.style.top = this.crop.y / k + 'px';
+      this.cropBox.style.width = this.crop.width / k + 'px';
+      this.cropBox.style.height = this.crop.height / k + 'px';
     }
 
-    private startDrag(e: MouseEvent) {
-      if ((e.target as HTMLElement).classList.contains('crop-handle')) return;
-      this.isDragging = true;
-      this.dragStart = { x: e.clientX - this.crop.x, y: e.clientY - this.crop.y };
+    private startGesture(e: PointerEvent) {
+      const handle = (e.target as HTMLElement).closest('.crop-handle');
+      const mode = handle ? (['nw', 'ne', 'sw', 'se', 'n', 's', 'e', 'w'].find((d) => handle.classList.contains(d)) ?? 'move') : 'move';
+      this.gesture = { mode, x: e.clientX, y: e.clientY, start: { ...this.crop } };
+      this.cropBox.setPointerCapture(e.pointerId); // keep the gesture even when the finger leaves the box
+      e.preventDefault();
     }
 
-    private drag(e: MouseEvent) {
-      if (this.isDragging) {
-        this.crop.x = Math.max(0, Math.min(e.clientX - this.dragStart.x, this.canvas.width - this.crop.width));
-        this.crop.y = Math.max(0, Math.min(e.clientY - this.dragStart.y, this.canvas.height - this.crop.height));
-        this.updateCropBox();
-      } else if (this.resizing) {
-        const dx = e.clientX - this.dragStart.x;
-        const dy = e.clientY - this.dragStart.y;
+    private moveGesture(e: PointerEvent) {
+      if (!this.gesture) return;
+      const k = this.scale();
+      const dx = (e.clientX - this.gesture.x) * k;
+      const dy = (e.clientY - this.gesture.y) * k;
+      const { mode, start } = this.gesture;
+      const W = this.canvas.width, H = this.canvas.height, MIN = ImageCropper.MIN;
+      const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
 
-        // Handle different resize directions
-        if (this.resizing.includes('e')) {
-          this.crop.width = Math.max(50, Math.min(this.crop.width + dx, this.canvas.width - this.crop.x));
-        }
-        if (this.resizing.includes('w')) {
-          const newWidth = this.crop.width - dx;
-          if (newWidth >= 50 && this.crop.x + dx >= 0) {
-            this.crop.x += dx;
-            this.crop.width = newWidth;
-          }
-        }
-        if (this.resizing.includes('s')) {
-          this.crop.height = Math.max(50, Math.min(this.crop.height + dy, this.canvas.height - this.crop.y));
-        }
-        if (this.resizing.includes('n')) {
-          const newHeight = this.crop.height - dy;
-          if (newHeight >= 50 && this.crop.y + dy >= 0) {
-            this.crop.y += dy;
-            this.crop.height = newHeight;
-          }
-        }
-
-        this.dragStart = { x: e.clientX, y: e.clientY };
-        this.updateCropBox();
+      if (mode === 'move') {
+        this.crop = { ...start, x: clamp(start.x + dx, 0, W - start.width), y: clamp(start.y + dy, 0, H - start.height) };
+      } else {
+        // Each edge follows the finger from where the gesture began, clamped to the image and a minimum size.
+        let left = start.x, top = start.y, right = start.x + start.width, bottom = start.y + start.height;
+        if (mode.includes('w')) left = clamp(start.x + dx, 0, right - MIN);
+        if (mode.includes('e')) right = clamp(start.x + start.width + dx, left + MIN, W);
+        if (mode.includes('n')) top = clamp(start.y + dy, 0, bottom - MIN);
+        if (mode.includes('s')) bottom = clamp(start.y + start.height + dy, top + MIN, H);
+        this.crop = { x: left, y: top, width: right - left, height: bottom - top };
       }
+      this.updateCropBox();
     }
 
-    private endDrag() {
-      this.isDragging = false;
-      this.resizing = null;
+    private endGesture(e: PointerEvent) {
+      if (this.cropBox.hasPointerCapture(e.pointerId)) this.cropBox.releasePointerCapture(e.pointerId);
+      this.gesture = null;
     }
 
     private async apply() {

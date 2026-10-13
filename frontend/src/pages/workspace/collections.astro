@@ -1,34 +1,48 @@
 ---
-import AppLayout from "@/layouts/AppLayout.astro";
 import FilterBar from "@/components/FilterBar.astro";
-import { listCollections, type CollectionRead } from "@/lib/api/collections";
+import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import { type CollectionRead, listCollections } from "@/lib/api/collections";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
+// Everyone reads; creating, reordering, editing and deleting collections is EDITOR+.
+const { canEdit } = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 let collections: CollectionRead[] = [];
 let error: string | null = null;
 
 if (!authToken) {
-  error = 'Not authenticated';
+  error = "Not authenticated";
 } else {
   try {
     collections = await listCollections(authToken);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
-    console.error('[Collections] Failed to load:', error);
+    console.error("[Collections] Failed to load:", error);
   }
 }
 
 // Sort by sort_order
 const sortedCollections = collections.sort((a, b) => a.sortOrder - b.sortOrder);
 
-// Group by type
-const manualCollections = sortedCollections.filter(c => !c.isSmart);
-const smartCollections = sortedCollections.filter(c => c.isSmart);
+// Group by type (Manual vs Smart) — used by the "Types" view
+const manualCollections = sortedCollections.filter((c) => !c.isSmart);
+const smartCollections = sortedCollections.filter((c) => c.isSmart);
+
+// Group by ownership (Custom vs System) — the primary two-section layout.
+// Custom = user-created (editable, reorderable); System = workflow pipeline (locked).
+const customCollections = sortedCollections.filter((c) => !c.isSystem);
+const systemCollections = sortedCollections.filter((c) => c.isSystem);
+
+// System collections are always private and already carry a "System" pill, so only flag user
+// collections someone switched off "Visible to sites".
+const isPrivate = (c: CollectionRead) => c.isPublic === false && !c.isSystem;
+const PRIVATE_TITLE = "Hidden from the publishing API — sites can't list or read it";
 ---
 
 <AppLayout title="Collections">
+  <div id="delete-error" class="error-banner" style="margin-bottom:1rem;display:none;"></div>
   {error ? (
     <div class="error-banner">
       <p><strong>Error loading collections:</strong> {error}</p>
@@ -55,7 +69,7 @@ const smartCollections = sortedCollections.filter(c => c.isSmart);
               }
             ]}
           />
-          <a class="button" href="/workspace/collections/new">Create Collection</a>
+          {canEdit && <a class="button" href="/workspace/collections/new">Create Collection</a>}
         </div>
       </div>
 
@@ -64,7 +78,7 @@ const smartCollections = sortedCollections.filter(c => c.isSmart);
           <div class="empty-icon">📚</div>
           <h3>No collections yet</h3>
           <p>Collections are curated groupings of entries, like Featured Projects or Recent Articles.</p>
-          <a href="/workspace/collections/new" class="button">Create Your First Collection</a>
+          {canEdit && <a href="/workspace/collections/new" class="button">Create Your First Collection</a>}
         </div>
       ) : (
         <>
@@ -80,59 +94,115 @@ const smartCollections = sortedCollections.filter(c => c.isSmart);
           </div>
 
           <div id="table-view" class="view-section">
-            <p class="reorder-hint">Drag the <span class="grip-inline">⠿</span> handle to reorder. Order is saved automatically.</p>
-            <table class="table">
-              <thead>
-                <tr>
-                  <th class="drag-col"></th>
-                  <th>Icon</th>
-                  <th>Name</th>
-                  <th>Slug</th>
-                  <th>Description</th>
-                  <th>Type</th>
-                  <th>Entries</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="reorderable">
-                {sortedCollections.map((collection) => (
-                  <tr class="collection-row" data-type={collection.isSmart ? 'smart' : 'manual'} data-id={collection.id} draggable="true">
-                    <td class="drag-col"><span class="grip" title="Drag to reorder">⠿</span></td>
-                    <td>
-                      {collection.icon ? (
-                        <span style={`font-size:1.5rem;${collection.color ? `color:${collection.color}` : ''}`}>
-                          {collection.icon}
-                        </span>
-                      ) : (
-                        <span class="empty-value">EMPTY</span>
-                      )}
-                    </td>
-                    <td class="collection-name">{collection.name ? <a href={`/workspace/collections/${collection.id}`} class="name-link"><strong>{collection.name}</strong></a> : <span class="empty-value">EMPTY</span>}</td>
-                    <td>{collection.slug ? <code>{collection.slug}</code> : <span class="empty-value">EMPTY</span>}</td>
-                    <td>{collection.description || <span class="empty-value">EMPTY</span>}</td>
-                    <td>
-                      <span class="pill">{collection.isSmart ? 'Smart' : 'Manual'}</span>
-                      {collection.isSystem && <span class="pill system-pill">System</span>}
-                    </td>
-                    <td class="count-cell">{collection.entryCount ?? 0}</td>
-                    <td>
-                      {collection.isSystem ? (
-                        <span class="locked-note" title="System workflow collection — managed by Marvin">🔒 Locked</span>
-                      ) : (
-                        <div class="actions">
-                          <a href={`/workspace/collections/${collection.id}/edit`} class="button secondary small">Edit</a>
-                          <form method="POST" action={`/api/collections/${collection.id}/delete`} style="display:inline;">
-                            <button type="submit" class="button secondary small danger" onclick="return confirm('Delete this collection?')">
-                              Delete
-                            </button>
-                          </form>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <!-- Custom collections — user-created, editable, drag-reorderable -->
+            <section class="section-block">
+              <div class="section-head">
+                <h3 class="section-title">Custom Collections</h3>
+                <span class="collection-count">{customCollections.length}</span>
+              </div>
+              {customCollections.length > 0 ? (
+                <>
+                  {canEdit && <p class="reorder-hint">Drag the <span class="grip-inline">⠿</span> handle to reorder. Order is saved automatically.</p>}
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th class="drag-col"></th>
+                        <th>Icon</th>
+                        <th>Name</th>
+                        <th>Slug</th>
+                        <th>Description</th>
+                        <th>Type</th>
+                        <th>Entries</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id={canEdit ? "reorderable" : undefined}>
+                      {customCollections.map((collection) => (
+                        <tr class="collection-row" data-type={collection.isSmart ? 'smart' : 'manual'} data-id={collection.id} draggable={canEdit ? "true" : undefined}>
+                          <td class="drag-col">{canEdit && <span class="grip" title="Drag to reorder">⠿</span>}</td>
+                          <td>
+                            {collection.icon ? (
+                              <span style={`font-size:1.5rem;${collection.color ? `color:${collection.color}` : ''}`}>
+                                {collection.icon}
+                              </span>
+                            ) : (
+                              <span class="empty-value">EMPTY</span>
+                            )}
+                          </td>
+                          <td class="collection-name">{collection.name ? <a href={`/workspace/collections/${collection.id}`} class="name-link"><strong>{collection.name}</strong></a> : <span class="empty-value">EMPTY</span>}{isPrivate(collection) && <span class="pill private-pill" title={PRIVATE_TITLE}>Private</span>}</td>
+                          <td>{collection.slug ? <code>{collection.slug}</code> : <span class="empty-value">EMPTY</span>}</td>
+                          <td>{collection.description || <span class="empty-value">EMPTY</span>}</td>
+                          <td><span class="pill">{collection.isSmart ? 'Smart' : 'Manual'}</span></td>
+                          <td class="count-cell">{collection.entryCount ?? 0}</td>
+                          <td>
+                            {canEdit && (
+                            <div class="actions">
+                              <a href={`/workspace/collections/${collection.id}/edit`} class="button secondary small">Edit</a>
+                              <form method="POST" action={`/api/collections/${collection.id}/delete`} style="display:inline;">
+                                <button type="submit" class="button secondary small danger" onclick="return confirm('Delete this collection?')">
+                                  Delete
+                                </button>
+                              </form>
+                            </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              ) : (
+                <p class="section-empty">No custom collections yet.{canEdit && <> <a href="/workspace/collections/new">Create one</a>.</>}</p>
+              )}
+            </section>
+
+            <!-- System collections — workflow pipeline, locked, not reorderable -->
+            {systemCollections.length > 0 && (
+              <section class="section-block">
+                <div class="section-head">
+                  <h3 class="section-title">System Collections</h3>
+                  <span class="collection-count">{systemCollections.length}</span>
+                  <span class="section-sub">Workflow pipeline — managed by Marvin</span>
+                </div>
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Icon</th>
+                      <th>Name</th>
+                      <th>Slug</th>
+                      <th>Description</th>
+                      <th>Type</th>
+                      <th>Entries</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {systemCollections.map((collection) => (
+                      <tr class="collection-row" data-type={collection.isSmart ? 'smart' : 'manual'}>
+                        <td>
+                          {collection.icon ? (
+                            <span style={`font-size:1.5rem;${collection.color ? `color:${collection.color}` : ''}`}>
+                              {collection.icon}
+                            </span>
+                          ) : (
+                            <span class="empty-value">EMPTY</span>
+                          )}
+                        </td>
+                        <td class="collection-name">{collection.name ? <a href={`/workspace/collections/${collection.id}`} class="name-link"><strong>{collection.name}</strong></a> : <span class="empty-value">EMPTY</span>}{isPrivate(collection) && <span class="pill private-pill" title={PRIVATE_TITLE}>Private</span>}</td>
+                        <td>{collection.slug ? <code>{collection.slug}</code> : <span class="empty-value">EMPTY</span>}</td>
+                        <td>{collection.description || <span class="empty-value">EMPTY</span>}</td>
+                        <td>
+                          <span class="pill">{collection.isSmart ? 'Smart' : 'Manual'}</span>
+                          <span class="pill system-pill">System</span>
+                        </td>
+                        <td class="count-cell">{collection.entryCount ?? 0}</td>
+                        <td><span class="locked-note" title="System workflow collection — managed by Marvin">🔒 Locked</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+            )}
           </div>
 
           <div id="grouped-view" class="view-section" style="display:none;">
@@ -168,14 +238,14 @@ const smartCollections = sortedCollections.filter(c => c.isSmart);
                             <span class="empty-value">EMPTY</span>
                           )}
                         </td>
-                        <td class="collection-name">{collection.name ? <a href={`/workspace/collections/${collection.id}`} class="name-link"><strong>{collection.name}</strong></a> : <span class="empty-value">EMPTY</span>}</td>
+                        <td class="collection-name">{collection.name ? <a href={`/workspace/collections/${collection.id}`} class="name-link"><strong>{collection.name}</strong></a> : <span class="empty-value">EMPTY</span>}{isPrivate(collection) && <span class="pill private-pill" title={PRIVATE_TITLE}>Private</span>}</td>
                         <td>{collection.slug ? <code>{collection.slug}</code> : <span class="empty-value">EMPTY</span>}</td>
                         <td>{collection.description || <span class="empty-value">EMPTY</span>}</td>
                         <td class="count-cell">{collection.entryCount ?? 0}</td>
                         <td>
                           {collection.isSystem ? (
                             <span class="locked-note" title="System workflow collection — managed by Marvin">🔒 Locked</span>
-                          ) : (
+                          ) : canEdit && (
                             <div class="actions">
                               <a href={`/workspace/collections/${collection.id}/edit`} class="button secondary small">Edit</a>
                               <form method="POST" action={`/api/collections/${collection.id}/delete`} style="display:inline;">
@@ -225,14 +295,14 @@ const smartCollections = sortedCollections.filter(c => c.isSmart);
                             <span class="empty-value">EMPTY</span>
                           )}
                         </td>
-                        <td class="collection-name">{collection.name ? <a href={`/workspace/collections/${collection.id}`} class="name-link"><strong>{collection.name}</strong></a> : <span class="empty-value">EMPTY</span>}</td>
+                        <td class="collection-name">{collection.name ? <a href={`/workspace/collections/${collection.id}`} class="name-link"><strong>{collection.name}</strong></a> : <span class="empty-value">EMPTY</span>}{isPrivate(collection) && <span class="pill private-pill" title={PRIVATE_TITLE}>Private</span>}</td>
                         <td>{collection.slug ? <code>{collection.slug}</code> : <span class="empty-value">EMPTY</span>}</td>
                         <td>{collection.description || <span class="empty-value">EMPTY</span>}</td>
                         <td class="count-cell">{collection.entryCount ?? 0}</td>
                         <td>
                           {collection.isSystem ? (
                             <span class="locked-note" title="System workflow collection — managed by Marvin">🔒 Locked</span>
-                          ) : (
+                          ) : canEdit && (
                             <div class="actions">
                               <a href={`/workspace/collections/${collection.id}/edit`} class="button secondary small">Edit</a>
                               <form method="POST" action={`/api/collections/${collection.id}/delete`} style="display:inline;">
@@ -257,6 +327,41 @@ const smartCollections = sortedCollections.filter(c => c.isSmart);
 </AppLayout>
 
 <script>
+  // Intercept collection delete submits so a failed delete (e.g. 409 — collection
+  // still in use by entries) shows an inline banner instead of navigating to the
+  // /delete endpoint and rendering raw JSON. The button's onclick confirm() has
+  // already gate-kept the submit, so no second prompt here.
+  document.addEventListener('submit', async (e) => {
+    const form = e.target as HTMLFormElement;
+    if (!(form instanceof HTMLFormElement)) return;
+    if (!/\/api\/collections\/[^/]+\/delete$/.test(form.getAttribute('action') || '')) return;
+
+    e.preventDefault();
+    const res = await fetch(form.action, { method: 'POST' });
+    if (res.ok) {
+      window.location.href = '/workspace/collections';
+      return;
+    }
+
+    let msg = 'Failed to delete collection';
+    try {
+      const data = await res.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // keep the generic message
+    }
+    const banner = document.getElementById('delete-error');
+    if (banner) {
+      const strong = document.createElement('strong');
+      strong.textContent = "Couldn't delete collection:";
+      const p = document.createElement('p');
+      p.append(strong, ` ${msg}`);
+      banner.replaceChildren(p);
+      banner.style.display = 'flex';
+      banner.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  });
+
   const searchInput = document.getElementById('filter-search') as HTMLInputElement;
   const typeFilter = document.getElementById('type-filter') as HTMLSelectElement;
   const tableView = document.getElementById('table-view');
@@ -472,6 +577,38 @@ const smartCollections = sortedCollections.filter(c => c.isSmart);
     box-shadow: 0 1px 2px rgba(0,0,0,0.06);
   }
 
+  .section-block {
+    margin-bottom: 2.5rem;
+  }
+
+  .section-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding-bottom: 0.5rem;
+    margin-bottom: 0.75rem;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .section-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  .section-sub {
+    font-size: 0.8125rem;
+    color: var(--muted);
+    margin-left: auto;
+  }
+
+  .section-empty {
+    margin: 0;
+    padding: 1rem 0;
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+
   .collection-group {
     margin-bottom: 1.5rem;
   }
@@ -571,6 +708,12 @@ const smartCollections = sortedCollections.filter(c => c.isSmart);
 
   .system-pill {
     margin-left: 0.35rem;
+    background: var(--panel-2);
+    color: var(--muted);
+  }
+
+  .private-pill {
+    margin-left: 0.5rem;
     background: var(--panel-2);
     color: var(--muted);
   }

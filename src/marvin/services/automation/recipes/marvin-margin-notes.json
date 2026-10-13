@@ -1,0 +1,43 @@
+{
+  "name": "Marvin margin notes",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "target": {
+      "entity": "entry",
+      "query": {
+        "entry_type": "{{entry_type}}",
+        "status": "draft"
+      }
+    },
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "note",
+        "op": "custom",
+        "see": [
+          "item",
+          "persona"
+        ],
+        "prompt": "Write a short margin note on this draft in a dry, faintly pessimistic voice: {{voice}}. Be wry, never cruel, and point at one real thing in the draft. Two sentences at most.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "note": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 400
+            }
+          },
+          "required": [
+            "note"
+          ]
+        },
+        "write_back": {
+          "note": "metadata.margin_note"
+        }
+      }
+    ]
+  }
+}

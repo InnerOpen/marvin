@@ -1,0 +1,40 @@
+{
+  "name": "Publication announcement",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "webhook",
+        "id": "announce",
+        "webhook_id": "{{announcement_webhook_id}}",
+        "body": {
+          "title": "${entry.title}",
+          "url": "${entry.url}",
+          "summary": "${entry.summary}",
+          "entry_id": "${entry.id}",
+          "image": "${entry.image}"
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "announcement": {
+            "status_code": "${steps.announce.output.status_code}",
+            "run": "${event.correlation_id}"
+          }
+        }
+      }
+    ]
+  }
+}

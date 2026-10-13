@@ -1,0 +1,22 @@
+{# A contact sheet: the pictures in a near-square grid, each with its name, under an optional title. #}
+{% set n = images.tiles | length %}
+{% set cols = [1, (n ** 0.5) | round(0, "ceil") | int] | max %}
+<style>
+  .g { box-sizing: border-box; width: 100vw; height: 100vh; padding: 3vw; background: #faf8f4; color: #1c1917; display: flex; flex-direction: column; gap: 2vw;
+       font-family: Lato, "Open Sans", "DejaVu Sans", sans-serif; }
+  h1 { margin: 0; font-size: 3.6vw; font-weight: 900; letter-spacing: -.01em; }
+  .grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat({{ cols }}, 1fr); grid-auto-rows: 1fr; gap: 1.4vw; }
+  figure { margin: 0; min-height: 0; display: flex; flex-direction: column; gap: .5vw; }
+  .img { flex: 1; min-height: 0; background: #e7e5e4 center / cover no-repeat; border-radius: .4vw; }
+  figcaption { font-size: {{ [0.9, 4.2 / cols] | max }}vw; color: #57534e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .foot { font-size: 1.4vw; color: #78716c; letter-spacing: .1em; text-transform: uppercase; }
+</style>
+<div class="g">
+  {% if fields.title %}<h1>{{ fields.title }}</h1>{% endif %}
+  <div class="grid">
+    {% for t in images.tiles %}
+    <figure><div class="img" style="background-image: url('{{ t.src }}')"></div><figcaption>{{ t.label }}</figcaption></figure>
+    {% endfor %}
+  </div>
+  {% if fields.footer %}<div class="foot">{{ fields.footer }}</div>{% endif %}
+</div>

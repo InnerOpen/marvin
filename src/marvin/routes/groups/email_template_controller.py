@@ -1,11 +1,11 @@
 """Email template management controller for workspace-scoped email templates."""
 
 from functools import cached_property
-from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4, BaseModel, EmailStr
 
+from marvin.db.models.users.roles import WORKSPACE_ROLE_HIERARCHY
 from marvin.routes._base import MarvinCrudRoute
 from marvin.routes._base.base_controllers import BaseUserController
 from marvin.routes._base.controller import controller
@@ -14,8 +14,10 @@ from marvin.schemas.group.email_template import (
     EmailTemplateRead,
     EmailTemplateSummary,
     EmailTemplateUpdate,
+    SystemEmailRead,
+    SystemEmailVariable,
 )
-from marvin.services.event_bus_service.event_types import EventOperation, EventTypes
+from marvin.services.event_bus_service.event_types import EventEmailTemplateData, EventOperation, EventTypes
 
 router = APIRouter(prefix="/platform/workspaces/{group_id}/email-templates", route_class=MarvinCrudRoute)
 
@@ -32,7 +34,7 @@ class EmailTemplateController(BaseUserController):
     Controller for managing workspace email templates.
 
     Provides CRUD operations for email templates that can customize
-    invitation, password reset, and notification emails per workspace.
+    invitation, welcome and notification emails per workspace (never the password reset email: the platform's own).
     """
 
     @cached_property
@@ -40,8 +42,8 @@ class EmailTemplateController(BaseUserController):
         """Repository for email templates."""
         if not self.user:
             raise Exception("No user logged in")
-        from marvin.repos.repository_generic import RepositoryGeneric
         from marvin.db.models.groups.email_templates import EmailTemplateModel
+        from marvin.repos.repository_generic import RepositoryGeneric
         from marvin.schemas.group.email_template import EmailTemplateRead
 
         return RepositoryGeneric(
@@ -66,8 +68,9 @@ class EmailTemplateController(BaseUserController):
         """
         self._check_workspace_access(group_id)
 
-        from marvin.db.models.groups.email_templates import EmailTemplateModel
         from sqlalchemy import or_
+
+        from marvin.db.models.groups.email_templates import EmailTemplateModel
 
         all_templates = (
             self.repos.session.query(EmailTemplateModel)
@@ -91,10 +94,9 @@ class EmailTemplateController(BaseUserController):
         """
         self._check_workspace_access(group_id)
 
-        from marvin.db.models.groups.email_templates import EmailTemplateModel
         from marvin.db.models.groups.email_event_subscriptions import EmailEventSubscriptionModel
+        from marvin.db.models.groups.email_templates import EmailTemplateModel
         from marvin.services.email.system_email_events import SYSTEM_TEMPLATE_EVENT_MAP
-        from sqlalchemy import and_
 
         session = self.repos.session
         result = []
@@ -144,24 +146,71 @@ class EmailTemplateController(BaseUserController):
                 except ValueError:
                     return str(raw)
 
-            result.append({
-                "template_type": template_type,
-                "event_type": mapping["event_type"],
-                "recipient_type": mapping["recipient_type"],
-                "recipient_field": mapping.get("recipient_field"),
-                "system_template": (
-                    {"id": _fmt(system_tmpl.id), "name": system_tmpl.name}
-                    if system_tmpl else None
-                ),
-                "workspace_template": (
-                    {"id": _fmt(workspace_tmpl.id), "name": workspace_tmpl.name}
-                    if workspace_tmpl else None
-                ),
-                "subscription_id": _fmt(subscription.id) if subscription else None,
-                "has_workspace_override": subscription is not None,
-            })
+            result.append(
+                {
+                    "template_type": template_type,
+                    "event_type": mapping["event_type"],
+                    "recipient_type": mapping["recipient_type"],
+                    "recipient_field": mapping.get("recipient_field"),
+                    "system_template": ({"id": _fmt(system_tmpl.id), "name": system_tmpl.name} if system_tmpl else None),
+                    "workspace_template": ({"id": _fmt(workspace_tmpl.id), "name": workspace_tmpl.name} if workspace_tmpl else None),
+                    "subscription_id": _fmt(subscription.id) if subscription else None,
+                    "has_workspace_override": subscription is not None,
+                }
+            )
 
         return result
+
+    @router.get("/system-emails", response_model=list[SystemEmailRead], summary="List Marvin's Replaceable System Emails")
+    def list_system_emails(self, group_id: UUID4) -> list[SystemEmailRead]:
+        """Marvin's own emails a workspace template can replace (welcome, invitation): the event each
+        is sent on, its variables (from the event catalog), whether it sends now and which workspace templates replace
+        it. The email template page offers "Replaces Marvin's … email" from this, so it never has to list platform
+        events. Workspace OWNER/ADMIN."""
+        self._check_admin_access(group_id)
+
+        from marvin.db.models.groups.email_templates import EmailTemplateModel
+        from marvin.services.email.system_email_events import SYSTEM_TEMPLATE_EVENT_MAP
+        from marvin.services.events import connections
+        from marvin.services.events.event_catalog import get_catalog_entry
+
+        session = self.repos.session
+        system_ids = dict(
+            session.query(EmailTemplateModel.template_type, EmailTemplateModel.id).filter(
+                EmailTemplateModel.group_id.is_(None), EmailTemplateModel.template_type.in_(list(SYSTEM_TEMPLATE_EVENT_MAP))
+            )
+        )
+        out = []
+        for template_type, mapping in SYSTEM_TEMPLATE_EVENT_MAP.items():
+            event_type = mapping["event_type"]
+            entry = get_catalog_entry(event_type)
+            sends, replaced_by = connections.system_email(session, group_id, event_type)
+            # The link the sender adds (it's never in the event: every member reads an event's payload).
+            link_variable = mapping.get("link_variable")
+            link = (
+                [SystemEmailVariable(slug=link_variable[0], description=link_variable[1], example="https://...", type="url")] if link_variable else []
+            )
+            out.append(
+                SystemEmailRead(
+                    template_type=template_type,
+                    label=mapping["label"],
+                    event_type=event_type,
+                    event_name=entry.name if entry else event_type,
+                    recipient_type=mapping["recipient_type"],
+                    recipient_field=mapping.get("recipient_field"),
+                    system_template_id=system_ids.get(template_type),
+                    system_sends=sends,
+                    replaced_by=replaced_by,
+                    variables=[
+                        *(
+                            SystemEmailVariable(slug=v.slug, description=v.description, example=v.example, type=v.type)
+                            for v in (entry.variables if entry else [])
+                        ),
+                        *link,
+                    ],
+                )
+            )
+        return out
 
     @router.get("/{template_id}", response_model=EmailTemplateRead, summary="Get Email Template")
     def get_template(self, group_id: UUID4, template_id: UUID4) -> EmailTemplateRead:
@@ -176,15 +225,7 @@ class EmailTemplateController(BaseUserController):
             Email template details
         """
         self._check_workspace_access(group_id)
-
-        template = self.repo.get_one(template_id)
-        if not template:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Email template not found: {template_id}",
-            )
-
-        return EmailTemplateRead.model_validate(template)
+        return self._template_or_404(group_id, template_id)
 
     @router.post("", response_model=EmailTemplateRead, status_code=status.HTTP_201_CREATED, summary="Create Email Template")
     def create_template(self, group_id: UUID4, data: EmailTemplateCreate) -> EmailTemplateRead:
@@ -199,6 +240,14 @@ class EmailTemplateController(BaseUserController):
             Created email template
         """
         self._check_admin_access(group_id)
+
+        # The password-reset email carries a live credential for an account the workspace doesn't own: it's always the
+        # platform's own (services/email/system_email_events.py), so a workspace template of its type would never send.
+        if data.template_type == "password_reset":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="The password reset email is the platform's own; a workspace template can't replace it.",
+            )
 
         # Ensure group_id matches
         if data.group_id and str(data.group_id) != str(group_id):
@@ -231,10 +280,10 @@ class EmailTemplateController(BaseUserController):
         self.repos.session.refresh(template)
 
         # Auto-connect only if no workspace template of this type is already connected
-        from marvin.services.email.system_email_events import SYSTEM_TEMPLATE_EVENT_MAP
+
         from marvin.db.models.groups.email_event_subscriptions import EmailEventSubscriptionModel
         from marvin.db.models.groups.email_templates import EmailTemplateModel as _ETM
-        from sqlalchemy import and_
+        from marvin.services.email.system_email_events import SYSTEM_TEMPLATE_EVENT_MAP
 
         sys_mapping = SYSTEM_TEMPLATE_EVENT_MAP.get(template.template_type)
         if sys_mapping:
@@ -266,12 +315,13 @@ class EmailTemplateController(BaseUserController):
             integration_id="email_template_management",
             group_id=group_id,
             event_type=EventTypes.email_template_created,
-            document_data={
-                "operation": EventOperation.create,
-                "template_id": str(template.id),
-                "template_type": template.template_type,
-                "workspace_id": group_id,
-            },
+            document_data=EventEmailTemplateData(
+                operation=EventOperation.create,
+                template_id=str(template.id),
+                template_type=template.template_type,
+                system_template=False,
+                workspace_id=group_id,
+            ),
             message=f"Email template created: {template.name} ({template.template_type})",
             user_id=self.user.id if self.user else None,
         )
@@ -293,13 +343,8 @@ class EmailTemplateController(BaseUserController):
         """
         self._check_admin_access(group_id)
 
-        # Verify template exists and belongs to this workspace
-        template = self.repo.get_one(template_id)
-        if not template:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Email template not found: {template_id}",
-            )
+        # This workspace's template, or a system one (refused below); anything else is a 404.
+        template = self._template_or_404(group_id, template_id)
 
         # Don't allow updating system templates from workspace controller
         if template.group_id is None:
@@ -316,12 +361,13 @@ class EmailTemplateController(BaseUserController):
             integration_id="email_template_management",
             group_id=group_id,
             event_type=EventTypes.email_template_updated,
-            document_data={
-                "operation": EventOperation.update,
-                "template_id": str(template_id),
-                "template_type": updated_template.template_type,
-                "workspace_id": group_id,
-            },
+            document_data=EventEmailTemplateData(
+                operation=EventOperation.update,
+                template_id=str(template_id),
+                template_type=updated_template.template_type,
+                system_template=False,
+                workspace_id=group_id,
+            ),
             message=f"Email template updated: {updated_template.name}",
             user_id=self.user.id if self.user else None,
         )
@@ -339,13 +385,8 @@ class EmailTemplateController(BaseUserController):
         """
         self._check_admin_access(group_id)
 
-        # Verify template exists and belongs to this workspace
-        template = self.repo.get_one(template_id)
-        if not template:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Email template not found: {template_id}",
-            )
+        # This workspace's template, or a system one (refused below); anything else is a 404.
+        template = self._template_or_404(group_id, template_id)
 
         # Don't allow deleting system templates from workspace controller
         if template.group_id is None:
@@ -364,12 +405,13 @@ class EmailTemplateController(BaseUserController):
             integration_id="email_template_management",
             group_id=group_id,
             event_type=EventTypes.email_template_deleted,
-            document_data={
-                "operation": EventOperation.delete,
-                "template_id": str(template_id),
-                "template_type": template_type,
-                "workspace_id": group_id,
-            },
+            document_data=EventEmailTemplateData(
+                operation=EventOperation.delete,
+                template_id=str(template_id),
+                template_type=template_type,
+                system_template=False,
+                workspace_id=group_id,
+            ),
             message=f"Email template deleted: {template_name}",
             user_id=self.user.id if self.user else None,
         )
@@ -377,7 +419,8 @@ class EmailTemplateController(BaseUserController):
     @router.post("/{template_id}/test", status_code=status.HTTP_200_OK, summary="Send Test Email")
     def send_test_email(self, group_id: UUID4, template_id: UUID4, data: TestEmailRequest) -> dict:
         """
-        Send a test email using the specified template.
+        Send a test email using the specified template. Workspace OWNER/ADMIN only: it sends mail
+        through the workspace's SMTP to any address, like the /platform/email test routes.
 
         Args:
             group_id: Workspace ID
@@ -387,15 +430,8 @@ class EmailTemplateController(BaseUserController):
         Returns:
             Success message
         """
-        self._check_workspace_access(group_id)
-
-        # Get the template
-        template = self.repo.get_one(template_id)
-        if not template:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Email template not found: {template_id}",
-            )
+        self._check_admin_access(group_id)
+        template = self._template_or_404(group_id, template_id)
 
         # Send test email
         from marvin.services.email.email_service import EmailService
@@ -434,7 +470,30 @@ class EmailTemplateController(BaseUserController):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Error sending test email: {str(e)}",
+            ) from e
+
+    def _template_or_404(self, group_id: UUID4, template_id: UUID4) -> EmailTemplateRead:
+        """The template if it belongs to `group_id` or is a system template (no workspace).
+
+        Another workspace's template gets the same 404 as a missing id, so its ids don't leak. Callers
+        that change a template refuse system ones themselves (workspaces override them by creating
+        their own template of that type, never by editing the system row).
+        """
+        from sqlalchemy import or_
+
+        from marvin.db.models.groups.email_templates import EmailTemplateModel
+
+        template = (
+            self.repos.session.query(EmailTemplateModel)
+            .filter(
+                EmailTemplateModel.id == template_id,
+                or_(EmailTemplateModel.group_id == group_id, EmailTemplateModel.group_id.is_(None)),
             )
+            .first()
+        )
+        if template is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Email template not found: {template_id}")
+        return EmailTemplateRead.model_validate(template)
 
     def _check_workspace_access(self, group_id: UUID4) -> bool:
         """Check if user has access to workspace."""
@@ -456,7 +515,7 @@ class EmailTemplateController(BaseUserController):
 
         for membership in self.user.workspace_memberships:
             if membership.group_id == group_id:
-                if membership.workspace_role.value >= 4:  # ADMIN or OWNER
+                if WORKSPACE_ROLE_HIERARCHY.get(membership.workspace_role, 0) >= 4:  # ADMIN or OWNER
                     return True
 
         raise HTTPException(

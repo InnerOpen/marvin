@@ -8,11 +8,54 @@
  * shows up in /help. Future skills — publish, rebuild, test, review — dispatch to their
  * existing endpoints the same way.
  */
-import { fetchApi } from '@/lib/api/client';
+
+import DOMPurify from "dompurify";
+import { marked } from "marked";
+import {
+  type AgentRunResult,
+  getRunProgress,
+  getThread,
+  NEW_THREAD,
+  type PendingCall,
+  type RunProgress,
+  resumeThread,
+} from "@/lib/api/aiAgents";
+import { askWorkspace, listAgents, runAgent, runAgentAs, sendChat } from "@/lib/api/aiBubble";
+import { getTones } from "@/lib/api/aiTones";
+import { listAgentTools } from "@/lib/api/aiTools";
+import { type ApprovalCard, approvalCardHtml, type Decisions } from "@/lib/approvals";
+import { ATTACHMENTS_KEY, attachmentIds, loadAttachments } from "@/lib/marvin/attachments";
+import { getActiveContext } from "@/lib/marvin/context";
+import {
+  askThreadHref,
+  clearPending,
+  learnWhileInFlight,
+  loadPending,
+  newRunId,
+  ownsPending,
+  PENDING_RUN_TIMEOUT_MS,
+  type PendingRun,
+  type RecoveryDeps,
+  recoverPendingRun,
+  rememberThread,
+  savePending,
+  scoped,
+  threadFor,
+} from "@/lib/marvin/pending";
+import { findTone } from "@/lib/tones";
 
 export interface MarvinResult {
   /** Safe HTML for Marvin's reply. Escape ALL dynamic content with esc(). */
   html: string;
+  /**
+   * The server execution behind an agent reply. The bubble keeps it with the turn so a reply that
+   * is recovered after a navigation is never shown twice.
+   */
+  executionId?: string;
+  /** The agent run paused for the user's approval rather than answering. */
+  parked?: boolean;
+  /** Set with `parked`: the inline approval card's data (kept with the turn, re-rendered once decided). */
+  approval?: ApprovalCard;
 }
 
 export interface Capability {
@@ -24,44 +67,369 @@ export interface Capability {
   commands: string[];
   /** If true, handles free-text input that matched no slash command. Only one should be default. */
   isDefault?: boolean;
+  /** If true, the command runs with no argument (e.g. /tools). Skips the "give me something" guard. */
+  noArg?: boolean;
   /** Execute the skill. `arg` is the text after the command (or the whole input for the default). */
   run(arg: string): Promise<MarvinResult>;
 }
 
-/** Escape untrusted text before putting it in innerHTML. */
+/** A tone slug — a built-in (auto | professional | playful) or one of the workspace's own (@/lib/tones). */
+export type MarvinRegister = string;
+
+/**
+ * Tone register for the NEXT agent run, set by whoever triggered it (e.g. the entry editor's
+ * "Review & suggest" asks for 'professional' so findings come back plain rather than in
+ * character). One-shot: consumed by the run, so a typed follow-up isn't silently affected.
+ */
+let pendingRegister: MarvinRegister | undefined;
+
+export function setPendingRegister(register: MarvinRegister | undefined): void {
+  pendingRegister = register;
+}
+
+function takeRegister(): MarvinRegister | undefined {
+  const r = pendingRegister;
+  pendingRegister = undefined;
+  return r;
+}
+
+/** Escape untrusted text before putting it in innerHTML (attributes, inline chips, etc.). */
 export function esc(s: unknown): string {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Render Marvin's answer (markdown from the model) to sanitized HTML for innerHTML.
+ * The model output is untrusted (prompt-injectable via workspace content), so we sanitize with
+ * DOMPurify after marked — never inject raw model HTML.
+ */
+export function renderMarkdown(text: unknown): string {
+  const raw = marked.parse(String(text ?? ""), { async: false }) as string;
+  return DOMPurify.sanitize(raw);
 }
 
 function entityHref(type: string, id: string): string | null {
-  if (type === 'entry') return `/workspace/entries/${id}`;
-  if (type === 'resource') return `/workspace/resources/${id}`;
+  if (type === "entry") return `/workspace/entries/${id}`;
+  if (type === "resource") return `/workspace/resources/${id}`;
   return null;
+}
+
+interface Thumb {
+  url: string;
+  alt: string;
+  entryId?: string;
+  title?: string;
+}
+
+/**
+ * Deterministic thumbnail source: pull image assets (with real urls) out of the agent's tool
+ * results — get_entry (`assets`) and find_entries (`entries[].assets`) — rather than trusting the
+ * model to embed image URLs. Deduped by asset id; each thumb links to its parent entry.
+ */
+function collectThumbs(steps: any[]): Thumb[] {
+  const out: Thumb[] = [];
+  const seen = new Set<string>();
+  const add = (a: any, entryId?: string, title?: string) => {
+    if (a?.assetType !== "image" || !a.url || seen.has(a.id)) return;
+    seen.add(a.id);
+    out.push({ url: a.url, alt: a.altText || a.filename || title || "", entryId, title });
+  };
+  for (const s of steps) {
+    let r: any;
+    try {
+      r = typeof s.result === "string" ? JSON.parse(s.result) : s.result;
+    } catch {
+      continue;
+    }
+    if (!r) continue;
+    if (Array.isArray(r.assets)) for (const a of r.assets) add(a, r.id, r.title); // get_entry
+    if (Array.isArray(r.entries)) {
+      for (const e of r.entries) if (Array.isArray(e.assets)) for (const a of e.assets) add(a, e.id, e.title); // find_entries
+    }
+    if (Array.isArray(r.results)) {
+      // search_content: entry hits carry DB-hydrated image refs; link to the entity.
+      for (const hit of r.results)
+        if (Array.isArray(hit.assets))
+          for (const a of hit.assets) add(a, hit.entityType === "entry" ? hit.entityId : undefined, hit.title);
+    }
+  }
+  return out;
+}
+
+/** Render a thumbnail strip (each linked to its entry) from collected image assets. */
+function thumbsHtml(steps: any[], cap = 12): string {
+  const thumbs = collectThumbs(steps);
+  if (!thumbs.length) return "";
+  const items = thumbs.slice(0, cap).map((t) => {
+    const img = `<img src="${esc(t.url)}" alt="${esc(t.alt)}" title="${esc(t.title || "")}" loading="lazy" />`;
+    const href = t.entryId ? entityHref("entry", t.entryId) : null;
+    return href ? `<a class="mv-thumb" href="${esc(href)}">${img}</a>` : `<span class="mv-thumb">${img}</span>`;
+  });
+  return `<div class="mv-thumbs">${items.join("")}</div>`;
+}
+
+// ── Built-in skill: Agent (tool-calling loop) ────────────────────────────────
+// The default free-text handler. Give Marvin a goal; it decides which of its tools to use
+// (search, browse, list types, compose a draft), chaining as many as needed, then answers.
+// The conversation is a server thread per agent (the Ask page lists the same threads): the server
+// replays it as the agent's memory, and the answer is stored there even if this page is gone by
+// the time it arrives (see @/lib/marvin/pending).
+const agent: Capability = {
+  id: "agent",
+  label: "Agent",
+  hint: "Give me a goal — I search, browse, and draft to get it done.",
+  commands: ["agent", "do"],
+  isDefault: true,
+  async run(arg: string): Promise<MarvinResult> {
+    // A one-shot tone from the caller (e.g. "Review & suggest") beats the session's `/tone`.
+    return runBubbleAgent(getActiveAgent(), arg, takeRegister() ?? getSessionTone()?.slug);
+  },
+};
+
+/** The server's answer when a message names a thread that no longer exists (deleted on the Ask page). */
+const THREAD_GONE = /^No thread '/;
+const HTTP_NOT_FOUND = 404;
+
+async function runBubbleAgent(
+  slug: string,
+  arg: string,
+  register: MarvinRegister | undefined,
+  retried = false,
+): Promise<MarvinResult> {
+  // Pending until the answer is in hand: if this page goes away mid-run, the next one picks the
+  // answer up from the server (resumePendingRun).
+  const run: PendingRun = {
+    clientRunId: newRunId(),
+    agent: slug,
+    message: arg,
+    sentAt: Date.now(),
+    threadId: threadFor(slug),
+  };
+  savePending(run);
+  const stopLearning = learnWhileInFlight(run, pendingDeps(run));
+  const attachments = attachmentIds(loadAttachments(sessionStorage, scoped(ATTACHMENTS_KEY), slug));
+  const ref = {
+    threadId: run.threadId ?? NEW_THREAD,
+    clientRunId: run.clientRunId,
+    ...(attachments.length ? { attachments } : {}),
+  };
+  let res: any;
+  try {
+    // Ground the run in whatever the current page declared (see @/lib/marvin/context), so
+    // "review and suggest" works without naming the entity. Null when the page declared no
+    // context or the user dismissed it — then this is a plain, unscoped ask.
+    res =
+      slug === "marvin"
+        ? await runAgent(arg, getActiveContext(), ref, register)
+        : await runAgentAs(slug, arg, getActiveContext(), ref, register);
+  } catch (err: any) {
+    stopLearning();
+    // The call can fail while the run carries on server-side (the SDK stops waiting after two
+    // minutes; a proxy may drop a long request) — then wait for the answer instead of reporting
+    // an error that isn't one.
+    if (ownsPending(run) && (await serverStillHas(run))) {
+      const recovered = await resumePendingRun(loadPending() ?? run);
+      if (recovered) return recovered;
+    }
+    if (ownsPending(run)) clearPending();
+    const msg = String(err?.message || err);
+    // The SDK reports a 404 as "Resource not found: <path>", hiding the server's "No thread" detail.
+    const threadGone = THREAD_GONE.test(msg) || err?.statusCode === HTTP_NOT_FOUND;
+    if (run.threadId && !retried && threadGone) {
+      rememberThread(slug, null);
+      return runBubbleAgent(slug, arg, register, true);
+    }
+    // The agent needs a tool-capable provider; degrade to a helpful hint rather than snark.
+    if (/tool.?call|tool-capable|does not support/i.test(msg)) {
+      return {
+        html: `<div class="mv-answer">This workspace's AI provider can't run the full agent (no tool-calling). Try <code>/ask</code> for a quick answer from your content instead.</div>`,
+      };
+    }
+    throw err; // let the bubble show its standard error
+  }
+  stopLearning();
+  // A "Clear" pressed meanwhile already started a new conversation: don't re-attach this thread.
+  if (ownsPending(run)) {
+    clearPending();
+    if (res?.threadId) rememberThread(slug, res.threadId);
+  }
+  return runResult(res, slug);
+}
+
+/** A run's (or a resumed run's) response as a bubble reply: the answer, or an approval card when it parked. */
+function runResult(res: AgentRunResult | undefined, slug: string): MarvinResult {
+  if (res?.stoppedReason === "awaiting_approval" && res.threadId)
+    return parkedResult(res.threadId, slug, res.pending ?? []);
+  return {
+    html: agentReplyHtml(res?.answer ?? "(no answer — the void stares back)", res?.steps ?? []),
+    executionId: res?.executionId,
+  };
+}
+
+// Whether the Ask page is switched on (its own invocation source), set by the bubble from the workspace's
+// AI settings. While it is off, the card has no "Open on Ask page" link: the bubble is where you decide.
+let askPageOn = true;
+
+export function setAskPageAllowed(on: boolean): void {
+  askPageOn = on;
+}
+
+/** An "ask first" call paused the run: the inline approval card (Marvin's own asks and its specialists'). */
+function parkedResult(threadId: string, agent: string, pending: PendingCall[]): MarvinResult {
+  const approval: ApprovalCard = {
+    cardId: newRunId(),
+    threadId,
+    agent,
+    pending,
+    askHref: askPageOn ? askThreadHref(threadId) : null,
+  };
+  return { html: approvalCardHtml(approval, esc), parked: true, approval };
+}
+
+/** The card for a thread that is waiting on the user — how a toast opens the bubble on it. Null when nothing waits. */
+export async function parkedCardFor(threadId: string): Promise<MarvinResult | null> {
+  const thread = await getThread(threadId);
+  if (thread.status !== "awaiting_approval" || !thread.pending?.length) return null;
+  // On a specialist's own thread the ids are its own; the server forwards the decision to the root.
+  return parkedResult(thread.id, thread.agentSlug, thread.pending);
+}
+
+/**
+ * Decide a parked run from its card and continue it (source `bubble`, so it works with the Ask page
+ * switched off). Tracked like a run: progress drives the character, and the answer is recovered after a
+ * navigation (it lands on the same execution, which is what findReply looks for). The reply may be
+ * another card — the run can ask again.
+ */
+export async function resumeBubbleRun(card: ApprovalCard, decisions: Decisions): Promise<MarvinResult> {
+  const run: PendingRun = {
+    clientRunId: newRunId(),
+    agent: card.agent,
+    message: "",
+    sentAt: Date.now(),
+    threadId: card.threadId,
+  };
+  savePending(run);
+  const stopLearning = learnWhileInFlight(run, pendingDeps(run));
+  let res: AgentRunResult;
+  try {
+    res = await resumeThread(card.threadId, decisions, { source: "bubble", clientRunId: run.clientRunId });
+  } catch (err) {
+    stopLearning();
+    if (ownsPending(run)) clearPending();
+    throw err;
+  }
+  stopLearning();
+  if (ownsPending(run)) {
+    clearPending();
+    // A decision taken on a specialist's thread answers on the root conversation, which isn't this agent's.
+    if (res.threadId === card.threadId) rememberThread(card.agent, res.threadId);
+  }
+  return runResult(res, card.agent);
+}
+
+async function serverStillHas(run: PendingRun): Promise<boolean> {
+  try {
+    return (await getRunProgress(run.clientRunId)).status !== "failed";
+  } catch {
+    return false; // unknown to the server: the request never got there, or it already said why
+  }
+}
+
+/** Hears every progress poll of the bubble's agent runs — the bubble character, to show the agent at work. */
+let progressListener: ((progress: RunProgress) => void) | undefined;
+
+export function onRunProgress(listener: ((progress: RunProgress) => void) | undefined): void {
+  progressListener = listener;
+}
+
+function pendingDeps(run: PendingRun): RecoveryDeps {
+  const listener = progressListener;
+  return {
+    // Only when someone listens: otherwise in-flight polling stops as soon as the ids are known.
+    onProgress: listener,
+    getRunProgress: (id) => getRunProgress(id),
+    getThread: (id) => getThread(id),
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now: () => Date.now(),
+    onUpdate: (next) => {
+      if (ownsPending(next)) savePending(next);
+    },
+    isCancelled: () => !ownsPending(run),
+  };
+}
+
+/**
+ * Recover the answer to an agent run whose response this page never got — it was sent from a
+ * previous page, or the call failed while the server carried on. Null when "Clear" abandoned it
+ * meanwhile; throws when the run failed, so the bubble shows its usual error.
+ */
+export async function resumePendingRun(run: PendingRun): Promise<MarvinResult | null> {
+  const outcome = await recoverPendingRun(run, pendingDeps(run));
+  if (outcome.kind === "cancelled" || outcome.kind === "wait" || !ownsPending(run)) return null;
+  clearPending();
+  if (outcome.kind === "failed") throw new Error(outcome.error);
+  if (outcome.threadId) rememberThread(run.agent, outcome.threadId);
+  if (outcome.kind === "reply") {
+    const m = outcome.message;
+    return { html: agentReplyHtml(m.content, m.stepsJson ?? []), executionId: m.executionId ?? undefined };
+  }
+  if (outcome.kind === "parked") return parkedResult(outcome.threadId, run.agent, outcome.pending);
+  const where = `<a href="${esc(askThreadHref(outcome.threadId))}">${outcome.threadId ? "the conversation on the Ask page" : "the Ask page"}</a>`;
+  return {
+    html: outcome.timedOut
+      ? `<div class="mv-answer">Still no answer after ${PENDING_RUN_TIMEOUT_MS / 60_000} minutes, so I've stopped waiting. It may yet finish — check ${where}.</div>`
+      : `<div class="mv-answer">I lost track of that request — the server no longer knows about it (restarted, or it never got there). Check ${where}, or ask again.</div>`,
+  };
+}
+
+/** An agent answer as bubble HTML: the answer, image thumbnails, drafts it composed, tools it used. */
+function agentReplyHtml(answer: string, steps: any[]): string {
+  let html = `<div class="mv-answer">${renderMarkdown(answer)}</div>`;
+
+  // Deterministic thumbnail strip from the tool results' image assets (real urls, not guessed).
+  html += thumbsHtml(steps);
+
+  // Surface any drafts the agent composed as clickable links.
+  const drafts: string[] = [];
+  for (const s of steps) {
+    if (s.tool !== "compose_entry") continue;
+    try {
+      const r = typeof s.result === "string" ? JSON.parse(s.result) : s.result;
+      if (r?.editUrl) drafts.push(`<a href="${esc(r.editUrl)}">${esc(r.title || "New draft")}</a>`);
+    } catch {
+      /* ignore unparseable tool result (a thread stores results truncated) */
+    }
+  }
+  if (drafts.length) {
+    html += `<div class="mv-sources"><span>Drafts:</span> ${drafts.join(" · ")}</div>`;
+  }
+
+  // Show which tools were used, as a subtle trace of the agent's work.
+  if (steps.length) {
+    const tools = [...new Set(steps.map((s) => s.tool))];
+    html += `<div class="mv-sources"><span>Used:</span> ${tools.map((t) => `<code>${esc(t)}</code>`).join(" ")}</div>`;
+  }
+  return html;
 }
 
 // ── Built-in skill: Ask (RAG) ────────────────────────────────────────────────
 const ask: Capability = {
-  id: 'ask',
-  label: 'Ask',
-  hint: 'Answer a question from your workspace content, with sources.',
-  commands: ['ask'],
-  isDefault: true,
+  id: "ask",
+  label: "Ask",
+  hint: "Quick answer from your workspace content, with sources (read-only, no tools).",
+  commands: ["ask"],
   async run(arg: string): Promise<MarvinResult> {
-    const exec = await fetchApi<any>('/api/ai/operations/answer-workspace-question/execute', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ input: { question: arg } }),
-    });
+    const exec: any = await askWorkspace(arg);
     const out = exec?.outputJson ?? exec?.output_json ?? {};
-    const answer = out.answer ?? '(no answer — the void stares back)';
+    const answer = out.answer ?? "(no answer — the void stares back)";
     const retrieved: any[] = out.retrieved_sources ?? [];
 
-    let html = `<div class="mv-answer">${esc(answer)}</div>`;
+    let html = `<div class="mv-answer">${renderMarkdown(answer)}</div>`;
     const seen = new Set<string>();
     const links: string[] = [];
     for (const s of retrieved) {
@@ -73,14 +441,207 @@ const ask: Capability = {
       links.push(href ? `<a href="${esc(href)}">${label}</a>` : label);
     }
     if (links.length) {
-      html += `<div class="mv-sources"><span>Sources:</span> ${links.join(' · ')}</div>`;
+      html += `<div class="mv-sources"><span>Sources:</span> ${links.join(" · ")}</div>`;
     }
     return { html };
   },
 };
 
+// ── Built-in skill: Chat (plain completion — no tools, no RAG) ───────────────
+// Ungrounded conversation with the model, like the Ollama CLI. Works on ANY model, including
+// text-only ones (gemma, phi) that can't run the tool-calling agent. Not grounded in workspace
+// content — use /ask for that, /agent (default) to actually do things.
+const chat: Capability = {
+  id: "chat",
+  label: "Chat",
+  hint: "Just talk to the model — no tools, no content lookup. Works on any model.",
+  commands: ["chat"],
+  async run(arg: string): Promise<MarvinResult> {
+    const res = await sendChat(arg);
+    const reply = res?.reply ?? "(no reply — the silence is deafening)";
+    return { html: `<div class="mv-answer">${renderMarkdown(reply)}</div>` };
+  },
+};
+
+// ── Built-in skill: Tools (what the agent can reach) ─────────────────────────
+// Transparency, not a mode you drive: lists the tools the /agent loop actually binds for you —
+// built-in registry tools plus any allowlisted external MCP tools — so "did my server wire in?"
+// has an honest answer. You never call these directly; the agent picks from them.
+const tools: Capability = {
+  id: "tools",
+  label: "Tools",
+  hint: "See the tools I can reach right now (built-in + your external MCP servers).",
+  commands: ["tools"],
+  noArg: true,
+  async run(): Promise<MarvinResult> {
+    const all = await listAgentTools();
+    if (!all.length) {
+      return { html: `<div class="mv-tools">No tools are enabled. Bleak, but on brand.</div>` };
+    }
+    // Group: built-ins first, then one group per external MCP server.
+    const groups = new Map<string, typeof all>();
+    const label = (t: (typeof all)[number]) => (t.source === "external" ? t.server || "External MCP" : "Built-in");
+    for (const t of all) {
+      const k = label(t);
+      (groups.get(k) ?? groups.set(k, []).get(k)!).push(t);
+    }
+    // Built-in group renders first; external servers follow in insertion order.
+    const ordered = [...groups.entries()].sort(([a], [b]) => (a === "Built-in" ? -1 : b === "Built-in" ? 1 : 0));
+    const short = (d: string) => (d.length > 90 ? `${d.slice(0, 87).trimEnd()}…` : d);
+    const sections = ordered
+      .map(([name, ts]) => {
+        const rows = ts
+          .map(
+            (t) =>
+              `<li><code>${esc(t.name)}</code>${t.asksFirst ? ` <em class="mv-ask-first" title="I pause and ask you before each call">asks first</em>` : ""} <span title="${esc(t.description)}">${esc(short(t.description))}</span></li>`,
+          )
+          .join("");
+        return `<div class="mv-tools-group"><span class="mv-tools-head">${esc(name)}</span><ul>${rows}</ul></div>`;
+      })
+      .join("");
+    return {
+      html: `<div class="mv-tools">Here's what I can reach right now — I pick from these when you give me a goal${all.some((t) => t.asksFirst) ? " (the ones marked <em>asks first</em> wait for your go-ahead)" : ""}:${sections}</div>`,
+    };
+  },
+};
+
+// ── Active agent (which named agent free text goes to) ───────────────────────
+const AGENT_KEY = "marvin.agent";
+
+export function getActiveAgent(): string {
+  try {
+    return sessionStorage.getItem(scoped(AGENT_KEY)) || "marvin";
+  } catch {
+    return "marvin";
+  }
+}
+
+export function setActiveAgent(slug: string): void {
+  try {
+    if (slug === "marvin") sessionStorage.removeItem(scoped(AGENT_KEY));
+    else sessionStorage.setItem(scoped(AGENT_KEY), slug);
+  } catch {
+    /* storage unavailable — the switch lasts for this page only */
+  }
+}
+
+// ── Built-in skill: Agents (list) ────────────────────────────────────────────
+const agents: Capability = {
+  id: "agents",
+  label: "Agents",
+  hint: "List the agents you can talk to; switch with /use <slug>.",
+  commands: ["agents"],
+  noArg: true,
+  async run(): Promise<MarvinResult> {
+    const list = await listAgents();
+    const active = getActiveAgent();
+    const rows = list
+      .filter((a) => a.enabled)
+      .map((a) => {
+        const flags = [a.kind, a.allowWrites ? "" : "read-only", a.isSystem ? "built-in" : ""]
+          .filter(Boolean)
+          .join(" · ");
+        const desc = a.description ? `<br><span class="mv-muted">${esc(a.description)}</span>` : "";
+        return `<li><code>${esc(a.slug)}</code>${a.slug === active ? " <strong>(active)</strong>" : ""} — ${esc(a.name)}<span class="mv-muted"> · ${esc(flags)}</span>${desc}</li>`;
+      })
+      .join("");
+    return {
+      html: `<div class="mv-help">Agents:<ul>${rows}</ul>Switch with <code>/use &lt;slug&gt;</code>; <code>/use marvin</code> goes back to the default.</div>`,
+    };
+  },
+};
+
+// ── Built-in skill: Use (switch the active agent) ────────────────────────────
+const use: Capability = {
+  id: "use",
+  label: "Use agent",
+  hint: "Route free text to a named agent, e.g. /use workshop.",
+  commands: ["use"],
+  async run(arg: string): Promise<MarvinResult> {
+    const slug = arg.trim().toLowerCase();
+    const list = await listAgents();
+    const hit = list.find((a) => a.slug === slug && a.enabled);
+    if (!hit) {
+      return {
+        html: `<div class="mv-answer">No agent called <code>${esc(slug)}</code>. <code>/agents</code> lists them.</div>`,
+      };
+    }
+    setActiveAgent(slug);
+    const mode = hit.allowWrites ? "" : ", read-only";
+    return {
+      html: `<div class="mv-answer">Talking to <strong>${esc(hit.name)}</strong> (<code>${esc(slug)}</code>${mode}). Free text goes there until <code>/use marvin</code>.</div>`,
+    };
+  },
+};
+
+// ── Session tone (`/tone`) ───────────────────────────────────────────────────
+// Sticky for the browser session, like `/use`: every agent run from the bubble asks for it until
+// `/tone default`. The bubble shows it as a chip (Marvin.astro listens for TONE_EVENT).
+const TONE_KEY = "marvin.tone";
+export const TONE_EVENT = "marvin:tone";
+
+export function getSessionTone(): { slug: string; name: string } | null {
+  try {
+    const raw = sessionStorage.getItem(scoped(TONE_KEY));
+    const tone = raw ? JSON.parse(raw) : null;
+    return tone && typeof tone.slug === "string" ? { slug: tone.slug, name: String(tone.name || tone.slug) } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setSessionTone(tone: { slug: string; name: string } | null): void {
+  try {
+    if (tone) sessionStorage.setItem(scoped(TONE_KEY), JSON.stringify(tone));
+    else sessionStorage.removeItem(scoped(TONE_KEY));
+  } catch {
+    /* storage unavailable — the tone lasts for this page only */
+  }
+  document.dispatchEvent(new CustomEvent(TONE_EVENT, { detail: tone }));
+}
+
+const TONE_CLEAR = new Set(["default", "none", "off", "clear"]);
+
+const tone: Capability = {
+  id: "tone",
+  label: "Tone",
+  hint: "Set how my work reads for this session, e.g. /tone professional; /tone default clears it.",
+  commands: ["tone"],
+  noArg: true,
+  async run(arg: string): Promise<MarvinResult> {
+    const ref = arg.trim();
+    if (TONE_CLEAR.has(ref.toLowerCase())) {
+      setSessionTone(null);
+      return { html: `<div class="mv-answer">Back to the default tone.</div>` };
+    }
+    const state = await getTones();
+    if (!ref) {
+      const current = getSessionTone()?.slug ?? null;
+      const rows = state.tones
+        .filter((t) => !t.hidden)
+        .map((t) => {
+          const mark = t.slug === current ? " <strong>(active)</strong>" : t.slug === state.defaultTone && !current ? " <strong>(default)</strong>" : "";
+          const desc = t.description ? `<span class="mv-muted"> — ${esc(t.description)}</span>` : "";
+          return `<li><code>${esc(t.slug)}</code>${mark} ${esc(t.name)}${desc}</li>`;
+        })
+        .join("");
+      return {
+        html: `<div class="mv-help">Tones:<ul>${rows}</ul>Pick one with <code>/tone &lt;name&gt;</code>; <code>/tone default</code> goes back to the workspace's.</div>`,
+      };
+    }
+    const hit = findTone(state.tones, ref);
+    if (!hit) {
+      return { html: `<div class="mv-answer">No tone called <code>${esc(ref)}</code>. <code>/tone</code> lists them.</div>` };
+    }
+    setSessionTone({ slug: hit.slug, name: hit.name });
+    return {
+      html: `<div class="mv-answer">Tone: <strong>${esc(hit.name)}</strong>. My work reads that way until <code>/tone default</code>.</div>`,
+    };
+  },
+};
+
 // ── Registry ─────────────────────────────────────────────────────────────────
-export const CAPABILITIES: Capability[] = [ask];
+export const CAPABILITIES: Capability[] = [agent, ask, chat, tools, agents, use, tone];
 
 /** Register a new skill at runtime (e.g. from a plugin bundle). */
 export function registerCapability(cap: Capability): void {
@@ -95,19 +656,19 @@ export function registerCapability(cap: Capability): void {
  */
 export function resolveCapability(input: string): { cap: Capability | null; arg: string; help?: boolean } {
   const trimmed = input.trim();
-  if (trimmed.startsWith('/')) {
+  if (trimmed.startsWith("/")) {
     const [cmd, ...rest] = trimmed.slice(1).split(/\s+/);
-    if (cmd === 'help' || cmd === '?') return { cap: null, arg: '', help: true };
+    if (cmd === "help" || cmd === "?") return { cap: null, arg: "", help: true };
     const cap = CAPABILITIES.find((c) => c.commands.includes(cmd.toLowerCase())) ?? null;
-    return { cap, arg: rest.join(' ') };
+    return { cap, arg: rest.join(" ") };
   }
   return { cap: CAPABILITIES.find((c) => c.isDefault) ?? null, arg: trimmed };
 }
 
 /** Rendered /help listing every registered skill. */
 export function helpHtml(): string {
-  const rows = CAPABILITIES.map(
-    (c) => `<li><code>/${esc(c.commands[0] ?? c.id)}</code> — ${esc(c.hint)}</li>`,
-  ).join('');
+  const rows = CAPABILITIES.map((c) => `<li><code>/${esc(c.commands[0] ?? c.id)}</code> — ${esc(c.hint)}</li>`).join(
+    "",
+  );
   return `<div class="mv-help">Brain the size of a planet, and here's what they let me do:<ul>${rows}</ul>Or just type a question and I'll do my best. It won't be enough.</div>`;
 }

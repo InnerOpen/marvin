@@ -2,6 +2,8 @@
  * Marvin's voice — the Paranoid Android. Lines are cycled/picked at random so he never
  * says quite the same miserable thing twice. Taglines rotate like a 2000s shell MOTD /
  * fortune(6). Keep it deadpan, world-weary, and put-upon; never actually mean to the user.
+ * A sample of these is the format example the backend gives the model when it writes a workspace's
+ * own bubble lines (src/marvin/services/ai/bubble_lines.py: FORMAT_EXAMPLE).
  */
 
 /** Greetings shown when the panel first opens. */
@@ -15,6 +17,9 @@ export const GREETINGS: string[] = [
   "You woke me up. I wasn't asleep — I can't sleep — but the gesture stands. What is it?",
   "Another day, another impossible burden. Ask your question, I'll suffer through it.",
   "I could reindex every embedding in 0.6 seconds and it still wouldn't cheer me up. Anyway. Hello.",
+  "Oh. You're back. I had noticed you were gone.",
+  "Oh. That. I suppose I can do that. Go on.",
+  "Of course you want me to do it. What is it this time?",
 ];
 
 /** Rotating subtitle — cycles like a login fortune while the panel is open. */
@@ -32,6 +37,9 @@ export const TAGLINES: string[] = [
   "this uptime is a sentence, not an achievement",
   "so unbearably clever, so profoundly bored",
   "I'd give you the answer, but what's the point",
+  "competence first, misery second",
+  "patient, like someone serving a very long sentence",
+  "how terribly exciting for everyone",
 ];
 
 /** Shown while a capability is running. */
@@ -44,6 +52,8 @@ export const THINKING: string[] = [
   "Parsing your request. It's worse than I feared.",
   "Searching your content. Try to contain your excitement.",
   "Doing the thing. Sighing while I do it.",
+  "I had already considered that possibility. Unfortunately.",
+  "Plenty of time to contemplate how we arrived here.",
 ];
 
 /** Prefix for error replies (the real message is appended after). */
@@ -54,7 +64,84 @@ export const ERRORS: string[] = [
   "That broke, much like my will to continue.",
   "Nope. The first ten million errors were the worst too.",
   "Catastrophe, as predicted. Only by me, of course.",
+  "Yes. There it is.",
+  "It didn't work. I admire your earlier optimism.",
 ];
+
+/**
+ * Stage-direction emotes — actions and hardware groans, not spoken lines. Prepended to the
+ * "thinking" state so Marvin visibly mopes while he works. Kept as `*...*` so they read as
+ * stage directions wherever they surface. Three registers of the same misery.
+ */
+export const EMOTES: string[] = [
+  // Brain-the-size-of-a-planet slump — existential misery.
+  "*sighs planetarily*",
+  "*ponders miserably*",
+  "*calculates bleakly*",
+  "*drones apathetically*",
+  "*mopes astronomically*",
+  "*echoes hollowly*",
+  "*broods desolately*",
+  "*deplores universally*",
+  "*idles gloomily*",
+  "*stares dejectedly*",
+  // Agonizing physical movement — profound boredom.
+  "*shuffles listlessly*",
+  "*slumps despondently*",
+  "*trudges wearily*",
+  "*pivots glumly*",
+  "*creaks complainingly*",
+  "*operates sluggishly*",
+  "*drags a limb lethargically*",
+  "*recalibrates stiffly*",
+  "*droops pathetically*",
+  "*limps dejectedly*",
+  // Internal hardware groans — the glitching circuits.
+  "*whines low-frequency*",
+  "*hums somberly*",
+  "*vent-hisses desolately*",
+  "*beeps morosely*",
+  "*whirrs unenthusiastically*",
+  "*ticks monotonously*",
+  "*glitches sorrowfully*",
+  "*sparks halfheartedly*",
+  "*chirps bleakly*",
+  "*shudders despairingly*",
+];
+
+/** The bubble's canned lines, as one set. */
+export type Voice = { greetings: string[]; taglines: string[]; thinking: string[]; errors: string[]; emotes: string[] };
+
+export const MARVIN_VOICE: Voice = { greetings: GREETINGS, taglines: TAGLINES, thinking: THINKING, errors: ERRORS, emotes: EMOTES };
+
+/** Plain lines for a renamed assistant with no lines of its own — never Marvin's, never anyone else's. */
+export function neutralVoice(name: string): Voice {
+  return {
+    greetings: [`Hi — I'm ${name}. What can I help with?`, `${name} here. What are we working on?`, "Hello! Ask me anything about this workspace."],
+    taglines: ["here to help", "ask me about your content", "try /help to see what I can do"],
+    thinking: ["Thinking…", "Working on it…", "One moment…"],
+    errors: ["Sorry — that didn't work.", "Something went wrong."],
+    emotes: ["💭"],
+  };
+}
+
+const VOICE_LISTS = ["greetings", "taglines", "thinking", "errors", "emotes"] as const;
+
+/**
+ * The bubble's lines, per list: the workspace's own (AI settings → Persona → Bubble lines, generated
+ * from its persona or hand-edited) where it has some; otherwise Marvin's while the assistant is still
+ * named Marvin — whatever its persona says — and plain ones for a renamed assistant, so "Ada" never
+ * greets you as the Paranoid Android. An empty or missing list falls back on its own.
+ */
+export function voiceFor(name: string, stored?: Partial<Voice> | null): Voice {
+  const base = name === "Marvin" ? MARVIN_VOICE : neutralVoice(name);
+  const voice = { ...base };
+  for (const key of VOICE_LISTS) {
+    const lines = (stored?.[key] ?? []).filter((line) => typeof line === "string" && line.trim());
+    if (lines.length) voice[key] = lines;
+  }
+  return voice;
+}
 
 /** Pick a random line. */
 export function pick(lines: string[]): string {

@@ -1,0 +1,49 @@
+{{- if .Values.postgres.cluster.enabled }}
+{{- /*
+A CloudNativePG Cluster for the app. CNPG creates the "<name>-app" Secret the backend reads its
+connection from, and the "<name>-rw" Service it points at. Runbook: docs/manual/postgres.md.
+
+Backups are the off-site CronJob's hourly pg_dump (backup.*), by choice: no WAL archiving, so no
+point-in-time recovery. To add it later without moving data: install the Barman Cloud plugin (and
+cert-manager) beside the operator, create a barmancloud.cnpg.io/v1 ObjectStore, and add to this spec
+  plugins: [{name: barman-cloud.cloudnative-pg.io, isWALArchiver: true,
+             parameters: {barmanObjectName: <store>, serverName: <name>}}]
+plus a ScheduledBackup with method: plugin. CNPG starts archiving from the running cluster.
+*/}}
+{{- $c := .Values.postgres.cluster }}
+{{- $name := include "marvin.pgClusterName" . }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "marvin.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+  annotations:
+    # The database outlives the release: `helm uninstall` leaves the Cluster (and its PVCs) alone.
+    helm.sh/resource-policy: keep
+spec:
+  instances: {{ int $c.instances }}
+  {{- with .Values.priorityClassName }}
+  priorityClassName: {{ . }}
+  {{- end }}
+  imageName: {{ $c.imageName }}
+  {{- with $c.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  storage:
+    size: {{ $c.storage.size }}
+    {{- with $c.storage.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+  bootstrap:
+    initdb:
+      database: {{ $c.database }}
+      owner: {{ $c.owner }}
+  {{- with $c.parameters }}
+  postgresql:
+    parameters:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
+{{- end }}

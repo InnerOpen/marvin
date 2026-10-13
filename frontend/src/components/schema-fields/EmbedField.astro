@@ -1,0 +1,230 @@
+---
+/**
+ * EmbedField Component
+ * A media-embed slot: the value is a provider URL (YouTube, Vimeo, Spotify, …) that sites show as a player.
+ * Accepts a pasted link or a provider's embed code (reduced to its URL), and previews the player.
+ */
+export interface Props {
+  field: {
+    key: string;
+    label: string;
+    type: "embed";
+    required?: boolean;
+    defaultValue?: string;
+    placeholder?: string;
+    helpText?: string;
+    readOnly?: boolean;
+    /** Registry keys this slot accepts; empty/absent = every supported provider. */
+    providers?: string[];
+  };
+  value?: string;
+  error?: string;
+}
+
+const { field, value, error } = Astro.props;
+const inputId = `field-${field.key}`;
+const allowed = Array.isArray(field.providers) ? field.providers.filter(Boolean) : [];
+---
+
+<div class="field-group embed-field" data-embed-field data-providers={JSON.stringify(allowed)}>
+  <label for={inputId}>
+    {field.label}
+    {field.required && <span class="required">*</span>}
+  </label>
+
+  <div class="embed-input-row">
+    <input
+      type="text"
+      inputmode="url"
+      id={inputId}
+      name={`dataJson.${field.key}`}
+      value={value || field.defaultValue || ''}
+      placeholder={field.placeholder || 'Paste a link or embed code'}
+      required={field.required}
+      readonly={field.readOnly}
+      autocomplete="off"
+      class:list={['field-input', { error }]}
+      data-embed-url
+    />
+    <button type="button" class="button secondary embed-preview-button" data-embed-preview-button>Preview</button>
+  </div>
+
+  <p class="field-help" data-embed-providers>
+    {allowed.length > 0 ? `Accepts: ${allowed.join(', ')}` : 'Accepts links from any supported video, music or podcast provider.'}
+  </p>
+  <p class="embed-status" data-embed-status aria-live="polite"></p>
+  <div class="embed-preview" data-embed-preview></div>
+
+  {field.helpText && <p class="field-help">{field.helpText}</p>}
+  {error && <p class="field-error">{error}</p>}
+</div>
+
+<style>
+  .field-group {
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  label {
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--ink);
+  }
+
+  .required {
+    color: var(--color-error);
+    margin-left: 2px;
+  }
+
+  .embed-input-row {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .field-input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    font-size: 0.875rem;
+    transition: border-color 0.2s;
+  }
+
+  .field-input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px var(--color-primary-alpha);
+  }
+
+  .field-input:read-only {
+    background: var(--muted-bg);
+    cursor: not-allowed;
+  }
+
+  .field-input.error {
+    border-color: var(--color-error);
+  }
+
+  .embed-preview-button {
+    flex: none;
+  }
+
+  .field-help,
+  .embed-status {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .embed-status:empty,
+  .embed-preview:empty {
+    display: none;
+  }
+
+  .embed-status.is-warning {
+    color: var(--warn);
+  }
+
+  .embed-status.is-error,
+  .field-error {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--color-error);
+  }
+</style>
+
+<script>
+  import { findProvider, providerAllowed } from '@/lib/mediaEmbeds';
+  import {
+    buildEmbedElement,
+    describeEmbed,
+    loadProviders,
+    resolveCached,
+    resolveErrorMessage,
+  } from '@/lib/mediaEmbedsBrowser';
+
+  function setupEmbedField(root: HTMLElement) {
+    const input = root.querySelector<HTMLInputElement>('[data-embed-url]');
+    const button = root.querySelector<HTMLButtonElement>('[data-embed-preview-button]');
+    const status = root.querySelector<HTMLElement>('[data-embed-status]');
+    const preview = root.querySelector<HTMLElement>('[data-embed-preview]');
+    const providersHint = root.querySelector<HTMLElement>('[data-embed-providers]');
+    if (!input || !button || !status || !preview) return;
+
+    let allowed: string[] = [];
+    try {
+      allowed = JSON.parse(root.dataset.providers || '[]');
+    } catch {
+      allowed = [];
+    }
+
+    const setStatus = (text: string, tone: '' | 'is-warning' | 'is-error' = '') => {
+      status.textContent = text;
+      status.classList.remove('is-warning', 'is-error');
+      if (tone) status.classList.add(tone);
+    };
+
+    // Name the accepted providers once the registry is loaded.
+    void loadProviders().then(({ providers }) => {
+      if (!providersHint || providers.length === 0) return;
+      const names = providers.filter((p) => providerAllowed(p.key, allowed)).map((p) => p.name);
+      if (names.length > 0) providersHint.textContent = `Accepts: ${names.join(', ')}`;
+    });
+
+    let lastChecked = '';
+    async function check(force = false) {
+      const raw = input!.value.trim();
+      if (!raw) {
+        lastChecked = '';
+        preview!.replaceChildren();
+        setStatus('');
+        return;
+      }
+      if (raw === lastChecked && !force) return;
+      lastChecked = raw;
+      setStatus('Checking…');
+      preview!.replaceChildren();
+      try {
+        const [result, { providers, frameSources }] = await Promise.all([resolveCached(raw, 'direct'), loadProviders()]);
+        if (input!.value.trim() !== raw) return; // edited meanwhile; a newer check owns the status
+        if (!result.url || !result.embed) {
+          setStatus(result.error || "That link isn't from a supported provider.", 'is-error');
+          return;
+        }
+        // Pasted embed code (anything but a plain link) is reduced to the URL to store.
+        if (!/^https?:\/\/\S+$/i.test(raw) && !input!.readOnly) {
+          input!.value = result.url;
+          lastChecked = result.url;
+          input!.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        const embed = result.embed;
+        const providerKey = embed.provider || findProvider(result.url, providers)?.key || '';
+        if (!providerAllowed(providerKey, allowed)) {
+          const names = providers.filter((p) => allowed.includes(p.key)).map((p) => p.name);
+          setStatus(
+            `${embed.providerName} isn't one of the providers this field expects (${(names.length ? names : allowed).join(', ')}).`,
+            'is-warning',
+          );
+        } else {
+          setStatus(describeEmbed(embed));
+        }
+        preview!.replaceChildren(buildEmbedElement(embed, frameSources));
+      } catch (e) {
+        lastChecked = '';
+        setStatus(resolveErrorMessage(e), 'is-error');
+      }
+    }
+
+    button.addEventListener('click', () => void check(true));
+    input.addEventListener('change', () => void check());
+    // Embed code is never typed by hand — check it as soon as it's pasted.
+    input.addEventListener('paste', () => setTimeout(() => void check(), 0));
+    if (input.value.trim()) void check();
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll<HTMLElement>('[data-embed-field]').forEach(setupEmbedField);
+  });
+</script>

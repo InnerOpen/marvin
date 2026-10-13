@@ -30,6 +30,8 @@ def get_login_info() -> LoginInfo:
         oidc_provider_name=settings.OIDC_PROVIDER_NAME,
         oidc_auto_redirect=settings.OIDC_AUTO_REDIRECT,
         allow_signup=settings.ALLOW_SIGNUP,
+        is_demo=settings.IS_DEMO,
+        environment_label=settings.ENVIRONMENT_LABEL,
     )
 
 
@@ -38,6 +40,13 @@ def clear_settings_cache() -> dict:
     """Clear the LRU cache for app settings (useful for development)."""
     get_app_settings.cache_clear()
     return {"message": "Settings cache cleared"}
+
+
+@public_router.get("/version", summary="Get the running application version")
+def get_app_version() -> dict[str, str]:
+    """The backend's version string, unauthenticated. It is already public in the image tags;
+    the admin frontend's update banner compares it across deploys (see /version.json there)."""
+    return {"version": APP_VERSION}
 
 
 @router.get("", response_model=AppInfo, summary="Get Basic Application Information")
@@ -75,9 +84,10 @@ def get_startup_info():
 
     settings = get_app_settings()
 
-    # Get settings as dict, excluding sensitive fields
+    # Get settings as dict, excluding sensitive fields. DB_PROVIDER holds raw connection fields
+    # (POSTGRES_URL_OVERRIDE is a plain string that can embed credentials), so it stays out too.
     data = settings.model_dump(
-        exclude={"theme", "SECRET", "ENV_SECRETS", "_logger"},
+        exclude={"theme", "SECRET", "ENV_SECRETS", "_logger", "DB_PROVIDER"},
         exclude_none=True,
     )
 
@@ -91,8 +101,6 @@ def get_startup_info():
     data["OIDC_FEATURE"] = settings.OIDC_FEATURE._asdict() if settings.OIDC_FEATURE else None
     data["OPENAI_ENABLED"] = settings.OPENAI_ENABLED
     data["OPENAI_FEATURE"] = settings.OPENAI_FEATURE._asdict() if settings.OPENAI_FEATURE else None
-    data["APPRISE_READY"] = settings.APPRISE_READY
-    data["APPRISE_FEATURE"] = settings.APPRISE_FEATURE._asdict() if settings.APPRISE_FEATURE else None
     data["PLUGIN_ENABLED"] = settings.PLUGIN_ENABLED
     data["PLUGIN_FEATURE"] = settings.PLUGIN_FEATURE._asdict() if settings.PLUGIN_FEATURE else None
 

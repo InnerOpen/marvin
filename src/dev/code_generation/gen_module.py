@@ -4,7 +4,6 @@ import subprocess
 from pathlib import Path
 
 from jinja2 import Template
-
 from utils import (
     CodeKeys,
     MarvinPaths,

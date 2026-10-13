@@ -6,7 +6,6 @@ maps task_type strings to handler classes for dynamic dispatch.
 """
 
 from abc import ABC, abstractmethod
-from typing import Type
 
 from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
 from marvin.services.event_bus_service.event_bus_service import EventBusService
@@ -29,6 +28,13 @@ class ScheduledTaskHandler(ABC):
     """JSON schema describing expected task_config fields."""
     admin_only: bool = False
     """If True, this handler can only be used by admin (system) tasks."""
+    can_run_platform_wide: bool = False
+    """If True, a workspace-usable handler also handles group_id=NULL by covering every
+    workspace, so it can back a system task (admin-only handlers are platform-wide already)."""
+    sends: tuple[str, ...] = ()
+    """The event types (by name) a run of this task sends, where the task type alone decides it — the
+    Events hub lists the workspace's tasks of this type as their senders (services/events/connections.py).
+    Empty when it depends on the task's config (run_automation, run_integration_action) or nothing is sent."""
 
     @abstractmethod
     def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
@@ -38,6 +44,12 @@ class ScheduledTaskHandler(ABC):
         Args:
             task: The scheduled task model with configuration
             event_bus: Event bus for emitting events
+
+        Returns:
+            A one-line summary for the execution log, or **None when nothing happened**. A routine
+            run that returns None is not logged at all — a task running every couple of minutes
+            would otherwise bury its real events under thousands of identical rows. The task's
+            last_run_at/last_status still update, and a run triggered by hand is always logged.
 
         Raises:
             Exception: Any exception will be caught by the scheduler and logged
@@ -53,10 +65,10 @@ class TaskHandlerRegistry:
     or explicit register() calls.
     """
 
-    _handlers: dict[str, Type[ScheduledTaskHandler]] = {}
+    _handlers: dict[str, type[ScheduledTaskHandler]] = {}
 
     @classmethod
-    def register(cls, task_type: str, handler: Type[ScheduledTaskHandler]) -> None:
+    def register(cls, task_type: str, handler: type[ScheduledTaskHandler]) -> None:
         """
         Register a handler for a task type.
 
@@ -93,10 +105,7 @@ class TaskHandlerRegistry:
     @classmethod
     def list_registered_types(cls, include_admin: bool = True) -> list[str]:
         """Get list of all registered task types."""
-        return [
-            k for k, h in cls._handlers.items()
-            if include_admin or not h().admin_only
-        ]
+        return [k for k, h in cls._handlers.items() if include_admin or not h().admin_only]
 
     @classmethod
     def get_task_type_info(cls) -> list[dict]:

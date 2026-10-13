@@ -23,17 +23,17 @@ class MarvinDisplay:
             transient=True,
         )
 
-    def header(self, title: str, subtitle: str = None):
+    def header(self, title: str, subtitle: str | None = None):
         """Print a header message in the console."""
         self.console.print(Panel(f"[bold magenta]{title}[/bold magenta]\n{subtitle}", expand=False))
 
-    def section(self, title: str, subtitle: str = None):
+    def section(self, title: str, subtitle: str | None = None):
         """Print a section message in the console."""
         self.console.print(f"[bold blue]{title}[/bold blue]")
         if subtitle:
             self.console.print(f"[dim]{subtitle}[/dim]")
 
-    def step(self, step: str, title: str, total_steps: int = None, subtitle: str = None):
+    def step(self, step: str, title: str, total_steps: int | None = None, subtitle: str | None = None):
         """Print a step message in the console."""
         self.console.print(f"[bold green]Step {step}/{total_steps}: {title}[/bold green]")
         if subtitle:
@@ -64,7 +64,7 @@ class MarvinDisplay:
         self.console.print(f"[dim]{message}...[/dim]")
         return self.progress.add_task(message)
 
-    def prompt(self, message: str, choices: list = list[Any], default: str = None):
+    def prompt(self, message: str, choices: list[Any] | None = None, default: str | None = None):
         """Display an interactive prompt.
 
         Args:

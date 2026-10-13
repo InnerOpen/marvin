@@ -239,19 +239,21 @@ class WorkspaceBootstrapService:
         },
     ]
 
-    # Default collections to create
+    # Default collections to create.
+    #
+    # Only `featured` — a workspace's editorial collections are its own business, and the CMS
+    # shouldn't presume them. `recent` used to ship here too and was removed (2026-09-25): it was a
+    # manual collection described as "recently published content", so nothing could keep it filled,
+    # and it was empty in every workspace on the instance. Smart rules can express it now
+    # (`published_within_days`), but as something a user opts into, not a box they inherit.
+    # The locked workflow collections (inbox/drafts/needs-review/approved) are seeded separately by
+    # services/collections/system_collections.py — those are system, these are taste.
     DEFAULT_COLLECTIONS = [
         {
             "slug": "featured",
             "name": "Featured",
             "description": "Featured content",
             "sort_order": 1,
-        },
-        {
-            "slug": "recent",
-            "name": "Recent",
-            "description": "Recently published content",
-            "sort_order": 2,
         },
     ]
 
@@ -262,7 +264,7 @@ class WorkspaceBootstrapService:
 
         Creates:
         1. Default entry types (page, post, project)
-        2. Default collections (featured, recent)
+        2. Default collections (featured)
         3. Workspace memberships (creator as OWNER, all admins as ADMIN)
 
         Args:
@@ -306,8 +308,9 @@ class WorkspaceBootstrapService:
         )
 
         # 4. Add all SUPER_ADMIN users as ADMIN (for convenience)
-        from marvin.db.models.users.users import Users
         from sqlalchemy import select
+
+        from marvin.db.models.users.users import Users
 
         stmt = select(Users).where(Users.platform_role == PlatformRole.SUPER_ADMIN)
         super_admins = repos.session.execute(stmt).scalars().all()

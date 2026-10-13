@@ -1,65 +1,151 @@
 ---
+import ThemeInit from "@/components/ThemeInit.astro";
 import "../styles/global.css";
-import WorkspaceSwitcher from "@/components/WorkspaceSwitcher.astro";
-import ThemeSwitcher from "@/components/ThemeSwitcher.astro";
+import ActivityToaster from "@/components/ActivityToaster.astro";
+import EnvironmentBadge from "@/components/EnvironmentBadge.astro";
 import Marvin from "@/components/Marvin.astro";
-import { getAuthToken } from "@/lib/api/client";
+import UploadQueue from "@/components/UploadQueue.astro";
+import NavDrawerToggle from "@/components/NavDrawerToggle.astro";
+import RuntimeConfig from "@/components/RuntimeConfig.astro";
+import UpdateBanner from "@/components/UpdateBanner.astro";
+import LocalTimeScript from "@/components/LocalTimeScript.astro";
+import ThemeSwitcher from "@/components/ThemeSwitcher.astro";
+import WorkspaceSwitcher from "@/components/WorkspaceSwitcher.astro";
+import NavTrail from "@/components/NavTrail.astro";
+import Pwa from "@/components/Pwa.astro";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { getEnvironmentLabel, withEnvironmentPrefix } from "@/lib/environmentLabel";
+import { sourceAllowed } from "@/lib/marvin/gate";
+import { navTitle, navTrail } from "@/lib/navTree";
 import { createSdkClient } from "@/lib/sdk";
+import { ADMINS_ONLY } from "@/lib/workspaceRole";
 
 interface Props {
-  title: string;
+  /**
+   * This page's node in lib/navTree.ts (settings, automation and publishing pages). The layout shows its ancestors as
+   * the breadcrumb trail above the H1, in place of the eyebrow, and its title as the H1 unless `title` is passed.
+   */
+  crumb?: string;
+  /** Route params for a dynamic ancestor's link, e.g. { type } on the event type → webhook page. */
+  crumbParams?: Record<string, string>;
+  /** Labels for dynamic ancestors by node id, e.g. { "automation.events.type": "Entry published" }. */
+  crumbLabels?: Record<string, string>;
+  /** The H1. Optional with `crumb` (defaults to the node's title); detail pages pass their own. */
+  title?: string;
+  /** The line above the H1 on pages that have no `crumb` (content pages). */
   eyebrow?: string;
+  /**
+   * Optional page grounding for the Marvin bubble — what entity this page is rendering.
+   * Detail pages declare it; it's stamped onto <body> as data-entity-* and read back by
+   * @/lib/marvin/context. Grounding only: it does not widen permissions.
+   */
+  /**
+   * Only declare a type the agent can actually resolve with a tool (get_entry, get_asset,
+   * get_resource, get_collection, get_entry_type). Grounding a page whose entity the agent
+   * cannot fetch invites hallucination rather than preventing it.
+   */
+  entityType?: "entry" | "asset" | "resource" | "collection" | "entry_type";
+  entityId?: string;
+  entityLabel?: string;
+  /**
+   * The page is workspace-admin only and the caller isn't one (the API answered 403): show the
+   * admins-only note in place of the page body, so a member never sees controls the API refuses.
+   */
+  adminOnly?: boolean;
+  /**
+   * The caller's role can't use this page (e.g. EDITORS_ONLY or AUTHORS_ONLY from lib/workspaceRole):
+   * show this note in place of the page body. `adminOnly` is the same with ADMINS_ONLY.
+   */
+  restrictedNote?: string | null;
 }
 
-const { title, eyebrow = "Marvin Platform" } = Astro.props;
+const { crumb, crumbParams, crumbLabels, eyebrow = "Marvin Platform", entityType, entityId, entityLabel, adminOnly = false, restrictedNote = null } = Astro.props;
+const title = Astro.props.title ?? (crumb ? navTitle(crumb) : "");
+const trail = crumb ? navTrail(crumb, { params: crumbParams, labels: crumbLabels }) : null;
+const blockedNote = adminOnly ? ADMINS_ONLY : restrictedNote;
 const path = Astro.url.pathname;
+// Non-production instances (backend ENVIRONMENT_LABEL) badge the header and prefix the tab title.
+const environmentLabel = await getEnvironmentLabel();
 
 // Check if user is admin and get platform role
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
 let isAdmin = false;
 let isSuperAdmin = false;
+let currentUserId: string | null = null;
 try {
-  const currentUser = await sdk.user.getProfile() as any;
+  const currentUser = (await sdk.user.getProfile()) as any;
+  currentUserId = currentUser?.id ?? null;
   isAdmin = currentUser?.admin === true;
-  isSuperAdmin = currentUser?.platformRole === 'SUPER_ADMIN';
+  isSuperAdmin = currentUser?.platformRole === "SUPER_ADMIN";
 
   if (import.meta.env.DEV) {
-    console.log('[AppLayout] User role check:', {
+    console.debug("[AppLayout] User role check:", {
       admin: isAdmin,
       superAdmin: isSuperAdmin,
       platformRole: currentUser?.platformRole,
       workspaceMemberships: currentUser?.workspaceMemberships,
     });
-    console.log('[AppLayout] Full user object:', currentUser);
+    console.debug("[AppLayout] Full user object:", currentUser);
   }
 } catch (e) {
   // Not logged in or error
 }
 
+// Entries badge: how many entries wait in `inbox` (agents and forms drop drafts there). Best-effort —
+// a failed count just hides the badge.
+// The installed app's icon adds the approvals waiting for you in any workspace (GET /api/self/push/badge).
+let inboxCount = 0;
+let appBadge = 0;
+if (authToken) {
+  try {
+    const badge = await fetchApi<{ inbox: number; count: number }>("/api/self/push/badge", {}, authToken);
+    inboxCount = Number(badge.inbox ?? 0);
+    appBadge = Number(badge.count ?? inboxCount);
+  } catch {
+    inboxCount = appBadge = 0;
+  }
+}
+
+// Ask link: hidden while the workspace has the Ask page invocation source switched off. Best-effort — a
+// failed read keeps the link (the page explains itself).
+let askLinkShown = true;
+if (authToken) {
+  try {
+    askLinkShown = sourceAllowed(((await sdk.ai.settings.get()) as any)?.invocationSources, "ask_page");
+  } catch {
+    askLinkShown = true;
+  }
+}
+
 // Simplified navigation following 80% rule
+const ASK_PATH = "/workspace/settings/ai-ask";
+
 // Primary sidebar contains only daily-use features
 const navGroups = [
   {
     label: null,
     items: [
       { href: "/", label: "Dashboard", icon: "⌂" },
-    ]
+      // Quick link to the agent chat; the page itself gates on AI being enabled.
+      ...(askLinkShown ? [{ href: ASK_PATH, label: "Ask", icon: "💬" }] : []),
+    ],
   },
   {
     label: "Content",
     items: [
-      { href: "/workspace/entries", label: "Entries", icon: "📝" },
+      { href: "/workspace/entries", label: "Entries", icon: "📝", badge: inboxCount },
       { href: "/workspace/collections", label: "Collections", icon: "📚" },
       { href: "/workspace/assets", label: "Assets", icon: "🖼" },
       { href: "/workspace/resources", label: "Resources", icon: "🔗" },
-    ]
+    ],
   },
   {
     label: "Workspace",
     items: [
-      { href: "/workspace/settings", label: "Settings", icon: "⚙" },
-    ]
+      // Lands on the workspace dashboard (/workspace); its tab banner navigates into each settings section.
+      { href: "/workspace", label: "Settings", icon: "⚙" },
+    ],
   },
 ];
 
@@ -67,9 +153,7 @@ const finalNavGroups = [
   ...navGroups,
   {
     label: null,
-    items: [
-      { href: "/user/profile", label: "Profile", icon: "👤" },
-    ]
+    items: [{ href: "/user/profile", label: "Profile", icon: "👤" }],
   },
 ];
 
@@ -78,9 +162,7 @@ const finalNavGroups = [
 if (isSuperAdmin) {
   finalNavGroups.push({
     label: "Administration",
-    items: [
-      { href: "/admin", label: "Admin Settings", icon: "⚙" },
-    ]
+    items: [{ href: "/admin", label: "Admin Settings", icon: "⚙" }],
   });
 }
 
@@ -89,7 +171,12 @@ function isActive(itemPath: string, currentPath: string): boolean {
   if (itemPath === "/") {
     return currentPath === "/";
   }
-  return currentPath === itemPath || currentPath.startsWith(itemPath + "/");
+  // The Workspace "Settings" item lands on /workspace (dashboard) and owns the settings
+  // sections, but NOT sibling content routes like /workspace/entries or /workspace/assets.
+  if (itemPath === "/workspace") {
+    return currentPath === "/workspace" || (currentPath.startsWith("/workspace/settings") && currentPath !== ASK_PATH);
+  }
+  return currentPath === itemPath || currentPath.startsWith(`${itemPath}/`);
 }
 ---
 
@@ -97,15 +184,22 @@ function isActive(itemPath: string, currentPath: string): boolean {
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <ThemeInit />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Marvin platform admin frontend" />
-    <title>{title} | Marvin</title>
+    <title>{withEnvironmentPrefix(`${title} | Marvin`, environmentLabel)}</title>
+    <RuntimeConfig />
+    <Pwa environmentLabel={environmentLabel} badgeCount={authToken ? appBadge : null} />
   </head>
-  <body>
+  <body
+    data-entity-type={entityType}
+    data-entity-id={entityId}
+    data-entity-label={entityLabel}
+  >
     <div class="app-shell">
-      <aside class="sidebar">
+      <aside class="sidebar" id="app-sidebar" aria-label="Navigation">
         <div class="sidebar-header">
-          <WorkspaceSwitcher />
+          <WorkspaceSwitcher showPlatformBadge={isSuperAdmin} />
         </div>
         {finalNavGroups.map((group, groupIndex) => (
           <div class:list={["nav-group", { "nav-group-admin": group.label === "Administration" }]}>
@@ -117,6 +211,9 @@ function isActive(itemPath: string, currentPath: string): boolean {
                 <a href={item.href} aria-current={isActive(item.href, path) ? "page" : undefined}>
                   <span aria-hidden="true">{item.icon}</span>
                   <span>{item.label}</span>
+                  {"badge" in item && item.badge > 0 && (
+                    <span class="nav-badge" aria-label={`${item.badge} in inbox`}>{item.badge > 99 ? "99+" : item.badge}</span>
+                  )}
                 </a>
               ))}
             </nav>
@@ -126,12 +223,15 @@ function isActive(itemPath: string, currentPath: string): boolean {
       <main class="main">
         <header class="topbar">
           <div class="topbar-left">
+            <NavDrawerToggle controls="app-sidebar" />
+            <EnvironmentBadge label={environmentLabel} />
             <div class="topbar-title">
-              <p>{eyebrow}</p>
+              {trail ? <NavTrail trail={trail} /> : <p>{eyebrow}</p>}
               <h1>{title}</h1>
             </div>
           </div>
           <div class="topbar-actions">
+            {authToken && <ActivityToaster userId={currentUserId} askPage={askLinkShown} platformFeed={isSuperAdmin} />}
             <a class="button secondary" href="/workspace/entries?status=needs_review,approved">Review Queue</a>
             <form method="POST" action="/api/auth/logout" style="display:inline;">
               <button type="submit" class="button secondary">Logout</button>
@@ -139,11 +239,19 @@ function isActive(itemPath: string, currentPath: string): boolean {
           </div>
         </header>
         <section class="content">
-          <slot />
+          {blockedNote ? (
+            <div class="alert alert-info" role="status">{blockedNote}</div>
+          ) : (
+            <slot />
+          )}
         </section>
       </main>
       <ThemeSwitcher />
       <Marvin />
+      <UploadQueue />
     </div>
+
+    <UpdateBanner />
+    <LocalTimeScript />
   </body>
 </html>

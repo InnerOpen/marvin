@@ -1,9 +1,10 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
-import { requireAdmin } from "@/lib/auth";
-import { getAuthToken } from "@/lib/api/client";
-import { listAllTasks } from "@/lib/api/admin/scheduledTasks";
 import type { ScheduledTaskRead } from "@/lib/api/admin/scheduledTasks";
+import { listAllTasks } from "@/lib/api/admin/scheduledTasks";
+import { getAuthToken } from "@/lib/api/client";
+import { requireAdmin } from "@/lib/auth";
 
 await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
 const authToken = getAuthToken(Astro.cookies);
@@ -14,26 +15,26 @@ let error: string | null = null;
 try {
   tasks = await listAllTasks(authToken);
 } catch (e) {
-  console.error('[admin/scheduled-tasks] Error loading:', e);
+  console.error("[admin/scheduled-tasks] Error loading:", e);
   error = e instanceof Error ? e.message : String(e);
 }
 
 function formatSchedule(task: ScheduledTaskRead): string {
-  if (!task.scheduleConfig) return 'No schedule';
-  if (task.scheduleType === 'interval') {
+  if (!task.scheduleConfig) return "No schedule";
+  if (task.scheduleType === "interval") {
     const s = task.scheduleConfig.interval_seconds;
     if (s >= 86400) return `Every ${s / 86400} day(s)`;
     if (s >= 3600) return `Every ${s / 3600} hour(s)`;
     if (s >= 60) return `Every ${s / 60} minute(s)`;
     return `Every ${s}s`;
   }
-  if (task.scheduleType === 'cron') return `Cron: ${task.scheduleConfig.cron_expression}`;
-  if (task.scheduleType === 'once') return `Once: ${task.scheduleConfig.run_at || '—'}`;
-  return '—';
+  if (task.scheduleType === "cron") return `Cron: ${task.scheduleConfig.cron_expression}`;
+  if (task.scheduleType === "once") return `Once: ${task.scheduleConfig.run_at || "—"}`;
+  return "—";
 }
 ---
 
-<AdminLayout title="Scheduled Tasks">
+<AdminLayout crumb="admin.scheduled-tasks">
   <div class="toolbar">
     <div>
       <h2>Scheduled Tasks</h2>
@@ -90,9 +91,7 @@ function formatSchedule(task: ScheduledTaskRead): string {
               <div class="meta-item">
                 <span class="meta-label">Next Run</span>
                 <span class="meta-value">
-                  {task.nextRunAt
-                    ? new Date(task.nextRunAt).toLocaleString()
-                    : 'Not scheduled'}
+                  <LocalTime iso={task.nextRunAt} fallback="Not scheduled" />
                 </span>
               </div>
             </div>

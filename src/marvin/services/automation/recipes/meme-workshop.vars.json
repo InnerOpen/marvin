@@ -1,0 +1,15 @@
+{
+  "recipe": "meme-workshop",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type to offer memes for.",
+      "example": "article"
+    },
+    "image_role": {
+      "type": "text",
+      "description": "The role an entry's main picture is attached in.",
+      "example": "hero"
+    }
+  }
+}

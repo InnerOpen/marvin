@@ -1,36 +1,41 @@
 [project]
 name = "marvin"
-version = "0.2.0"
+version = "1.0.0-rc.298"
 description = "Marvin"
 readme = "README.md"
 
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "alembic>=1.15.2",
-    "apprise>=1.9.3",
     "authlib>=1.5.2",
     "bcrypt>=4.3.0",
-    "boto3>=1.35.0",
     "dotenv>=0.9.9",
     "email-validator>=2.3.0",
     "fastapi>=0.115.12",
     "go-task-bin>=3.43.3",
     "html2text>=2025.4.15",
+    "httpx>=0.27.0",
     "isodate>=0.7.2",
     "jinja2>=3.1.6",
     "mangum>=0.19.0",
+    # The plugin contract (integrations, storage, AI providers): pinned to a commit, since it isn't on PyPI. A
+    # direct reference, so no installer ever looks the name up on an index. Bump it with the SDK.
+    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@v0.9.0",
     "mcp[cli]>=1.28.1",
     "numpy>=2.2.6",
-    "openai>=2.46.0",
     "pillow>=11.1.0",
     "pre-commit>=4.2.0",
     "pydantic-core>=2.33.2",
     "pydantic-settings>=2.9.1",
     "pyhumps>=3.8.0",
     "pyjwt>=2.10.1",
+    "pypdf>=6.19.0",
+    "pypdfium2>=5.14.0",
     "python-dateutil>=2.9.0.post0",
-    "python-ldap>=3.4.5",
+    "python-docx>=1.2.0",
     "python-slugify>=8.0.4",
+    "pywebpush>=2.3",
+    "requests>=2.32.0",
     "rich>=14.0.0",
     "ruff>=0.11.7",
     "sqlalchemy>=2.0.40",
@@ -44,21 +49,6 @@ dependencies = [
     "uvicorn>=0.34.2",
 ]
 
-[project.optional-dependencies]
-# AI provider SDKs — install only the providers you use, e.g. `uv sync --extra openai`
-# or `pip install 'marvin[openai]'`. Providers lazy-import these, so an undeclared SDK only
-# fails when that provider is actually selected. See docs/AI-ARCHITECTURE-PLAN.md §6.
-openai = ["openai>=1.50.0"]          # also powers the Azure OpenAI provider
-anthropic = ["anthropic>=0.40.0"]
-google = ["google-generativeai>=0.8.0"]
-ollama = ["httpx>=0.27.0"]
-all-ai = [
-    "openai>=1.50.0",
-    "anthropic>=0.40.0",
-    "google-generativeai>=0.8.0",
-    "httpx>=0.27.0",
-]
-
 [project.scripts]
 marvin-server = "marvin.app:main"
 #healthz = "marvin.scripts.healthcheck"
@@ -67,6 +57,9 @@ marvin-server = "marvin.app:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.metadata]
+allow-direct-references = true  # the git tag pins (SDK, plugins)
+
 [dependency-groups]
 dev = [
     "coverage>=7.8.0",
@@ -74,18 +67,54 @@ dev = [
     # "materialx>=1.39.3",  # Disabled: CMake build fails with version 4.3.4
     "mkdocs>=1.6.1",
     "mkdocs-material>=9.6.14",
+    "moto[s3]>=5",
     "mypy>=1.15.0",
     "pylint>=3.3.7",
     "pytest>=8.3.5",
+    "pytest-cov>=6.0.0",
     "python-dateutil>=2.9.0.post0",
     "python-semantic-release>=9.17.0",
     "rich>=14.0.0",
     "ruff>=0.11.7",
     "types-pyyaml>=6.0.12.20250402",
 ]
-ldap = []
-postgres = [
-    "postgres>=4.0",
+# Optional LDAP auth. Needs system libs to build the C extension (libldap2-dev, libsasl2-dev)
+# and is only imported when LDAP auth is enabled. Opt in with `uv sync --group ldap`.
+ldap = ["python-ldap>=3.4.5"]
+# Optional PostgreSQL driver. SQLAlchemy's bare `postgresql://` dialect uses psycopg2;
+# the binary wheel needs no build step. Opt in with `uv sync --group postgres`.
+postgres = ["psycopg2-binary>=2.9"]
+
+# The site-wide plugins baked into the image (docker/Dockerfile: `--group plugins`), so a pod never downloads
+# them at start-up. Each follows its repo's branch here and uv.lock pins the exact commit, so an image tag pins
+# every plugin. Update one: `uv lock --upgrade-package marvin-integration-slack`, commit, let CI build it.
+# The chart's plugins.packages can still add one at start-up (a hot fix) without a build.
+plugins = [
+    "marvin-integration-apprise @ git+https://github.com/InnerOpen/marvin-integration-apprise@v0.3.0",
+    "marvin-integration-slack @ git+https://github.com/InnerOpen/marvin-integration-slack@v0.4.0",
+    "marvin-integration-openai-images @ git+https://github.com/InnerOpen/marvin-integration-openai-images@v0.3.0",
+    "marvin-integration-instagram @ git+https://github.com/InnerOpen/marvin-integration-instagram@v0.4.0",
+    "marvin-integration-square @ git+https://github.com/InnerOpen/marvin-integration-square@v0.4.0",
+    "marvin-integration-cloudflare-pages @ git+https://github.com/InnerOpen/marvin-integration-cloudflare-pages@v0.1.0",
+    "marvin-integration-buttondown @ git+https://github.com/InnerOpen/marvin-integration-buttondown@v0.7.0",
+    "marvin-integration-n8n @ git+https://github.com/InnerOpen/marvin-integration-n8n@v0.2.0",
+    "marvin-storage-s3 @ git+https://github.com/InnerOpen/marvin-storage-s3@v0.1.0",
+    # The AI providers: core ships none (slice 5). Same slugs as the old built-ins, so saved settings carry over.
+    "marvin-ai-openai @ git+https://github.com/InnerOpen/marvin-ai-openai@v0.1.0",
+    "marvin-ai-anthropic @ git+https://github.com/InnerOpen/marvin-ai-anthropic@v0.1.0",
+    "marvin-ai-google @ git+https://github.com/InnerOpen/marvin-ai-google@v0.1.0",
+    "marvin-ai-ollama @ git+https://github.com/InnerOpen/marvin-ai-ollama@v0.1.0",
+]
+# Optional HashiCorp Vault secret backend (SECRET_BACKEND=vault). Opt in with `uv sync --group vault`.
+vault = ["hvac>=2.0"]
+# Optional Bitwarden Secrets Manager backend (SECRET_BACKEND=bitwarden). Opt in with `uv sync --group bitwarden`.
+bitwarden = ["bitwarden-sdk>=1.0.0"]
+
+[tool.uv]
+# Every plugin builds against the one SDK commit Marvin pins above: their own pyproject points the SDK at a
+# sibling checkout (or another commit) for local development, which uv would otherwise follow.
+override-dependencies = [
+    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@v0.9.0",
 ]
 
 [tool.pytest.ini_options]
@@ -161,11 +190,15 @@ select = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["E402", "E501"]
-"mealie/alembic/versions/*" = ["E501", "I001"]
-"dev/scripts/all_recipes_stress_test.py" = ["E501"]
+"src/marvin/alembic/versions/*" = ["E501", "I001"]
 "ldap_provider.py" = ["UP032"]
 "tests/conftest.py" = ["E402"]
 "tests/utils/routes/__init__.py" = ["F401"]
+# Standalone CLI utilities: writing to stdout is their output, not a debug leftover, and
+# imports necessarily follow the sys.path.insert that makes `marvin` importable at all (E402).
+"scripts/*" = ["T201", "E402", "E501"]
+"verify_configuration.py" = ["T201"]
+"src/dev/code_generation/*" = ["T201"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -181,8 +214,18 @@ max-complexity = 24  # Default is 10.
 version_toml = ["pyproject.toml:project.version"]
 version_variables = ["src/marvin/__init__.py:__version__"]
 branch = "main"
-build_command = "pip install -e ."
-commit_message = "chore(release): {version} [skip ci]\n\n{changelog}"
+# `uv lock` re-stamps the project version into uv.lock after version_toml has rewritten
+# pyproject.toml. Without it the lock keeps whatever version it was written at and drifts further
+# every release — it sat at 1.0.0rc3 while pyproject.toml had reached 1.0.0rc10. semantic-release
+# runs this before staging, so the refreshed lock is picked up by `assets` below and rides along in
+# the release commit. It re-resolves nothing else: upgrades require an explicit --upgrade.
+build_command = "uv lock && pip install -e ."
+# Files to include in the release commit beyond the version locations themselves.
+assets = ["uv.lock"]
+# Only {version} is substituted here — semantic-release formats this with version= alone, so any
+# other placeholder (e.g. {changelog}) raises KeyError and fails the release at commit time, after
+# the version bump and build have already succeeded. The changelog lives in CHANGELOG.md.
+commit_message = "chore(release): {version} [skip ci]"
 tag_format = "v{version}"
 upload_to_pypi = false
 upload_to_vcs_release = true
@@ -194,7 +237,11 @@ prerelease = false
 [tool.semantic_release.branches.develop]
 match = "develop"
 prerelease = true
-prerelease_token = "next"
+# Must be a PEP 440 pre-release marker — only "a", "b" and "rc" are legal. This yields
+# 1.0.0-rc.1, which normalizes to 1.0.0rc1. A token like "next" produces 1.0.0-next.1, which
+# hatchling rejects when semantic-release runs its build_command (`pip install -e .`) — failing
+# the release after the new version has already been written to pyproject.toml.
+prerelease_token = "rc"
 
 [tool.semantic_release.changelog]
 template_dir = "templates"

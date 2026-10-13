@@ -24,9 +24,9 @@
  * If authToken is not provided, the SDK relies on cookie-based auth with credentials: 'include'.
  */
 
-import { createPlatformClient } from '@inneropen/marvin-sdk/platform';
-import type { PlatformClient } from '@inneropen/marvin-sdk/platform';
-import { getApiUrl } from './api/config';
+import type { PlatformClient } from "@inneropen/marvin-sdk/platform";
+import { createPlatformClient } from "@inneropen/marvin-sdk/platform";
+import { getApiUrl } from "./api/config";
 
 /**
  * Create a Platform API client
@@ -52,12 +52,12 @@ import { getApiUrl } from './api/config';
  */
 export function createSdkClient(authToken?: string): PlatformClient {
   // Get base API URL (strip any trailing path)
-  const apiUrl = getApiUrl('');
-  const baseUrl = (typeof apiUrl === 'string' ? apiUrl : apiUrl.toString()).replace(/\/+$/, '');
+  const apiUrl = getApiUrl("");
+  const baseUrl = (typeof apiUrl === "string" ? apiUrl : apiUrl.toString()).replace(/\/+$/, "");
 
   return createPlatformClient({
     apiUrl: baseUrl,
     userToken: authToken,
-    credentials: 'include', // Always include cookies for HttpOnly session auth
+    credentials: "include", // Always include cookies for HttpOnly session auth
   });
 }

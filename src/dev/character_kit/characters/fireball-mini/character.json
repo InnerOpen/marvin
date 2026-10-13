@@ -1,0 +1,12 @@
+{
+  "name": "Fireball Mini",
+  "description": "a cute walking 50 ml mini whisky bottle: a flat, flask-shaped glass bottle with rounded shoulders, filled with glowing amber-orange cinnamon whisky, a red ribbed screw cap, and a parchment-yellow label with scorched, burnt-looking edges and little red flame curls — the label is where its happy face is — plus small arms and legs",
+  "style": "pixel-art",
+  "rules": [
+    "the glass is drawn solid, NOT see-through: no background shows through the bottle anywhere",
+    "flat flask shape with rounded shoulders; amber-orange liquid; a light glass highlight",
+    "a red ribbed screw cap on top",
+    "a parchment-yellow label with scorched edges and red flame curls; NO words, letters or logos on it; the face is on the label",
+    "small stubby arms and legs"
+  ]
+}

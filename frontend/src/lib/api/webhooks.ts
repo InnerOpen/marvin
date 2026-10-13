@@ -3,12 +3,8 @@
  * Migrated to use @inneropen/marvin-sdk
  */
 
-import { createSdkClient } from '../sdk';
-import type {
-  Webhook,
-  WebhookCreate,
-  WebhookUpdate,
-} from '@inneropen/marvin-sdk/platform';
+import type { Webhook, WebhookCreate, WebhookUpdate } from "@inneropen/marvin-sdk/platform";
+import { createSdkClient } from "../sdk";
 
 export type { Webhook, WebhookCreate, WebhookUpdate };
 
@@ -55,7 +51,10 @@ export async function deleteWebhook(id: string, authToken: string): Promise<void
 /**
  * Test a webhook
  */
-export async function testWebhook(id: string, authToken: string): Promise<{ success: boolean; message?: string; statusCode?: number }> {
+export async function testWebhook(
+  id: string,
+  authToken: string,
+): Promise<{ success: boolean; message?: string; statusCode?: number }> {
   const sdk = createSdkClient(authToken);
   return sdk.webhooks.test(id);
 }

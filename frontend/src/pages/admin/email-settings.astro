@@ -1,9 +1,9 @@
 ---
 import AdminLayout from "@/layouts/AdminLayout.astro";
-import { requireAdmin } from "@/lib/auth";
-import { createSdkClient } from '@/lib/sdk';
-import { getAuthToken } from '@/lib/api/client';
 import { listSystemEmailTemplates } from "@/lib/api/admin/emailTemplates";
+import { getAuthToken } from "@/lib/api/client";
+import { requireAdmin } from "@/lib/auth";
+import { createSdkClient } from "@/lib/sdk";
 
 // Require admin authentication
 const user = await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
@@ -24,11 +24,11 @@ try {
   // Fetch system email templates
   emailTemplates = await listSystemEmailTemplates(authToken);
 } catch (e) {
-  console.error('Could not fetch settings:', e);
+  console.error("Could not fetch settings:", e);
 }
 ---
 
-<AdminLayout title="Email Settings">
+<AdminLayout crumb="admin.email">
   <div class="settings-header">
     <div class="header-content">
       <h1>Email Settings</h1>
@@ -605,6 +605,8 @@ try {
 
     const payload = {
       email: formData.get('test_email'),
+      subject: formData.get('subject') || undefined,
+      message: formData.get('message') || undefined,
     };
 
     testResult?.classList.remove('hidden', 'success', 'error');
@@ -1150,7 +1152,7 @@ try {
   .modal .form-group input:focus,
   .modal .form-group textarea:focus {
     outline: none;
-    border-color: var(--primary);
+    border-color: var(--accent);
   }
 
   .modal .form-group textarea {
@@ -1208,13 +1210,13 @@ try {
   }
 
   .mode-tab:hover {
-    border-color: var(--primary);
+    border-color: var(--accent);
     background: var(--panel);
   }
 
   .mode-tab.active {
-    border-color: var(--primary);
-    background: var(--primary);
+    border-color: var(--accent);
+    background: var(--accent);
     color: white;
   }
 
@@ -1250,11 +1252,69 @@ try {
   }
 
   .button.primary {
-    background: var(--primary);
+    background: var(--accent);
     color: white;
   }
 
   .button.primary:hover {
     opacity: 0.9;
+  }
+
+  /* Phones: a template card stacks its name, badges and actions (the one-row layout ran past the
+     card, which clipped the buttons); the card header and the modal rows wrap. */
+  @media (max-width: 640px) {
+    .card {
+      padding: 16px;
+    }
+
+    .card-header {
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .setting-item {
+      flex-wrap: wrap;
+    }
+
+    .setting-value {
+      overflow-wrap: anywhere;
+    }
+
+    .template-card {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 12px;
+      padding: 14px 16px;
+    }
+
+    .template-header {
+      flex-wrap: wrap;
+      gap: 6px 8px;
+    }
+
+    .template-header strong {
+      flex-basis: 100%;
+      overflow-wrap: anywhere;
+    }
+
+    .template-actions {
+      flex-wrap: wrap;
+    }
+
+    .modal-header,
+    .form-section {
+      padding: 16px;
+    }
+
+    .modal-close {
+      width: 40px;
+      height: 40px;
+      margin: -8px -8px -8px 0;
+    }
+
+    .modal-actions {
+      flex-wrap: wrap;
+      padding: 16px;
+    }
   }
 </style>

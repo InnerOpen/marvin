@@ -1,0 +1,28 @@
+{
+  "name": "Attribution companion",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "asset_attached_to_entry"
+    },
+    "conditions": [
+      {
+        "field": "asset.metadata.{{credit_key}}",
+        "op": "exists"
+      },
+      {
+        "field": "asset.metadata.{{license_key}}",
+        "op": "exists"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "{{credit_metadata_key}}": "${asset.metadata.{{credit_key}}} (${asset.metadata.{{license_key}}})"
+        }
+      }
+    ]
+  }
+}

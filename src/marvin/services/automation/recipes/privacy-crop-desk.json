@@ -1,0 +1,50 @@
+{
+  "name": "Privacy crop desk",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "asset_uploaded"
+    },
+    "conditions": [
+      {
+        "field": "asset.mime_type",
+        "op": "in",
+        "value": "image/jpeg,image/png,image/webp"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "media",
+        "id": "find",
+        "op": "find_sensitive",
+        "find": "{{find}}"
+      },
+      {
+        "kind": "approval",
+        "id": "ok",
+        "message": "“${asset.name}” shows ${steps.find.output.count} face(s), plate(s) or personal detail(s). Make a blurred copy?",
+        "approvers": "editor",
+        "expires_in_hours": 168,
+        "when": {
+          "field": "steps.find.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      },
+      {
+        "kind": "media",
+        "id": "blur",
+        "op": "redact",
+        "boxes": "${steps.find.output.regions}",
+        "tags": [
+          "blurred"
+        ],
+        "when": {
+          "field": "steps.ok.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      }
+    ]
+  }
+}

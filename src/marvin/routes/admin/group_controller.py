@@ -17,7 +17,10 @@ from marvin.schemas.group.group import GroupAdminUpdate  # Schema for updating g
 from marvin.schemas.mapper import mapper  # Utility for mapping data between objects
 from marvin.schemas.response.pagination import PaginationQuery  # For handling pagination parameters
 from marvin.schemas.response.responses import ErrorResponse  # Standardized error response
+from marvin.services.group.group_purge import purge_group_dependents  # Clears non-cascading workspace rows
 from marvin.services.group.group_service import GroupService  # Service layer for group operations
+from marvin.services.group.platform_workspace import PlatformWorkspaceMissing, is_platform_workspace, platform_workspace
+from marvin.services.group.workspace_rename import WorkspaceRenameError, rename_workspace
 
 # Base controller and mixin for CRUD helpers
 from .._base import BaseAdminController, controller
@@ -137,8 +140,9 @@ class AdminGroupManagementRoutes(BaseAdminController):
         group = GroupService.create_group(self.repos, data)
 
         # Get the underlying model instance for bootstrap
-        from marvin.db.models.groups import Groups
         from sqlalchemy import select
+
+        from marvin.db.models.groups import Groups
 
         group_model = self.repos.session.execute(select(Groups).where(Groups.id == group.id)).scalar_one()
 
@@ -168,6 +172,21 @@ class AdminGroupManagementRoutes(BaseAdminController):
 
         return group
 
+    @router.get("/platform", response_model=GroupRead, summary="Get the Platform Workspace")
+    def get_platform(self) -> GroupRead:
+        """
+        The platform (admin's) workspace — platform alerts and shared services run from it.
+
+        Found by its marker, whatever it is called. Rename it with ``PUT /api/admin/groups/{id}``.
+
+        Raises:
+            HTTPException (404 Not Found): The database has no platform workspace yet.
+        """
+        try:
+            return self.repo.schema.model_validate(platform_workspace(self.session))
+        except PlatformWorkspaceMissing as e:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
     @router.get("/{item_id}", response_model=GroupRead, summary="Get a Specific Group by ID")
     def get_one(self, item_id: UUID4) -> GroupRead:
         """
@@ -193,8 +212,8 @@ class AdminGroupManagementRoutes(BaseAdminController):
         Updates an existing group's details, including its name and preferences.
 
         If `data.preferences` is provided, the group's preferences are updated.
-        If `data.name` is provided and different from the current name, the group's
-        name (and consequently its slug, handled by the repository) is updated.
+        If `data.name` differs from the current name, or `data.slug` from the current slug, the
+        workspace is renamed (slug derived from the name unless given); the old slug keeps resolving.
         Accessible only by administrators.
 
         Args:
@@ -207,16 +226,20 @@ class AdminGroupManagementRoutes(BaseAdminController):
 
         Raises:
             HTTPException (404 Not Found): If the group or its preferences are not found.
+            HTTPException (409 Conflict): The name or slug is taken (or was another workspace's slug).
         """
-        # Retrieve the existing group model instance
-        group_model_instance = self.repo.get_one_raw(item_id)  # Assuming get_one_raw returns the SQLAlchemy model
+        from marvin.db.models.groups.groups import Groups
+        from marvin.db.models.groups.preferences import GroupPreferencesModel
+
+        # Retrieve the existing group ORM model instance
+        group_model_instance = self.session.get(Groups, item_id)
         if not group_model_instance:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Group not found.")
 
         # Update group preferences if provided in the request data
         if data.preferences:
             # Fetch existing preferences for the group
-            preferences_model = self.repos.group_preferences.get_one_raw(value=item_id, key="group_id")
+            preferences_model = self.session.query(GroupPreferencesModel).filter_by(group_id=item_id).first()
             if not preferences_model:
                 # This case might indicate data inconsistency or preferences are not yet created.
                 # Depending on design, could create preferences here or raise error.
@@ -226,28 +249,29 @@ class AdminGroupManagementRoutes(BaseAdminController):
             # Map incoming preference data to the existing preferences model
             updated_preferences_data = mapper(data.preferences, preferences_model)
             # Update preferences in the database
-            # The group_model_instance.preferences will be updated by the relationship if correctly configured
-            # or by direct assignment after the update.
             self.repos.group_preferences.update(preferences_model.id, updated_preferences_data)  # Update by preference ID
 
-        # Update group name if it's provided and different from the current name
-        # The repository's update method should handle slug regeneration if name changes.
-        if data.name is not None and data.name.strip() and data.name != group_model_instance.name:
-            # Prepare data dictionary for group update
-            group_update_dict = {"name": data.name}
-            # Update the group using the repository. This will also handle slug update.
-            group_model_instance = self.repo.update(item_id, group_update_dict)
+        # Rename: a new name, a new slug, or both. Without an explicit slug a name change derives it
+        # from the new name. A changed slug stays resolvable as an alias (services.group.workspace_rename),
+        # so Publishing API URLs, CLI arguments and backup names using the old one keep working. The
+        # platform workspace is renamed the same way; its marker isn't part of this schema.
+        new_name = data.name.strip() if data.name and data.name.strip() else group_model_instance.name
+        if new_name != group_model_instance.name or (data.slug and data.slug.strip() and data.slug != group_model_instance.slug):
+            try:
+                rename_workspace(self.session, group_model_instance, name=new_name, slug=data.slug)
+            except WorkspaceRenameError as e:
+                self.session.rollback()
+                raise HTTPException(status.HTTP_409_CONFLICT, detail=ErrorResponse.respond(message=str(e))) from e
+            self.session.commit()
 
-        # After all updates, refresh the group_model_instance to get the latest state
-        # and convert to the response schema.
-        # If repo.update already returns the schema, this explicit get might be redundant.
-        # However, to ensure all changes (name, preferences via relationship) are reflected:
+        # After all updates, refresh the ORM instance to capture name/slug and
+        # relationship (preferences) changes, then convert to the response schema.
         self.session.refresh(group_model_instance)  # Refresh to capture potential relationship updates
 
         result = self.repo.schema.model_validate(group_model_instance)
 
         # Dispatch workspace_updated event
-        from marvin.services.event_bus_service.event_types import EventWorkspaceData, EventOperation, EventTypes
+        from marvin.services.event_bus_service.event_types import EventOperation, EventTypes, EventWorkspaceData
 
         self.event_bus.dispatch(
             integration_id="workspace_management_admin",
@@ -273,6 +297,7 @@ class AdminGroupManagementRoutes(BaseAdminController):
         Deletes a workspace by its unique ID.
 
         Safety checks:
+        - Never the platform (admin's) workspace (409), force or not
         - Cannot delete if workspace has users with it as their primary group_id
         - Cannot delete if workspace has workspace members (unless force=True)
         - Cannot delete if workspace has entries, collections, or assets (unless force=True)
@@ -293,6 +318,13 @@ class AdminGroupManagementRoutes(BaseAdminController):
         group_to_delete = self.repo.get_one(item_id)
         if not group_to_delete:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
+
+        # The platform (admin's) workspace runs platform alerts and shared services: never deletable.
+        if is_platform_workspace(self.session, item_id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=ErrorResponse.respond(message="The platform workspace can't be deleted. You can rename it."),
+            )
 
         # Check for users with this as their primary group (always block this)
         user_count_in_group = self.repos.users.count_all(match_key="group_id", match_value=item_id)
@@ -315,8 +347,9 @@ class AdminGroupManagementRoutes(BaseAdminController):
                 )
 
             # Check for entries
+            from sqlalchemy import func, select
+
             from marvin.db.models.entries import Entries
-            from sqlalchemy import select, func
 
             entry_count = self.repos.session.execute(select(func.count(Entries.id)).where(Entries.group_id == item_id)).scalar()
             if entry_count and entry_count > 0:
@@ -333,6 +366,11 @@ class AdminGroupManagementRoutes(BaseAdminController):
             document_data=None,
             message=f"Workspace '{group_to_delete.name}' deleted by {self.user.username}",
         )
+
+        # `force` previously only skipped the checks above; the delete then hit a foreign key from
+        # the workspace-scoped tables that don't cascade on their own, so it could never succeed.
+        # Clear those first. Users are untouched — the primary-group check above still guards them.
+        purge_group_dependents(self.repos.session, item_id)
 
         # Proceed with deletion
         self.mixins.delete_one(item_id)

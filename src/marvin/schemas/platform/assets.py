@@ -1,8 +1,9 @@
 """Asset schemas."""
 
+from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import UUID4, AliasChoices, ConfigDict, Field, StringConstraints, field_serializer, field_validator, model_validator
+from pydantic import UUID4, AliasChoices, ConfigDict, Field, PrivateAttr, StringConstraints, field_serializer, field_validator, model_validator
 
 from marvin.schemas._marvin import _MarvinModel
 
@@ -20,6 +21,8 @@ class AssetUploadRequest(_MarvinModel):
     """Optional description of the asset."""
     metadata_json: dict | None = Field(default=None, validation_alias=AliasChoices("metadata", "metadata_json"))
     """Optional asset metadata."""
+    scope: str = "library"
+    """'library', or 'ask' for a file attached to a chat question (services/assets/scope.py)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -52,6 +55,10 @@ class AssetCreateInternal(_MarvinModel):
     description: str | None = None
     metadata_json: dict | None = Field(default=None, validation_alias=AliasChoices("metadata", "metadata_json"))
 
+    scope: str = "library"
+    origin: Literal["upload", "derived", "generated"] = "upload"
+    source_asset_id: UUID4 | None = None
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -63,6 +70,8 @@ class AssetUpdate(_MarvinModel):
     alt_text: str | None = Field(default=None, validation_alias=AliasChoices("alt_text", "altText"))
     description: str | None = None
     metadata_json: dict | None = Field(default=None, validation_alias=AliasChoices("metadata", "metadata_json"))
+    tag_ids: list[UUID4] | None = Field(default=None, validation_alias=AliasChoices("tag_ids", "tagIds"))
+    """Existing tag IDs to replace this asset's tags (resolve typed names via POST /tags first)."""
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
@@ -139,6 +148,33 @@ class AssetRead(AssetSummary):
     """Optional asset metadata."""
     uploaded_by: UUID4
     """ID of user who uploaded the asset."""
+    tags: list[str] = []
+    """Tag slugs applied to this asset (shared vocabulary)."""
+    trashed_at: datetime | None = None
+    """When it was moved to the Trash; null when it is not in the Trash."""
+    trashed_by: UUID4 | None = None
+    """Who moved it to the Trash."""
+    scope: str = "library"
+    """'library' (the Assets library) or 'ask' (a file attached to a chat question; see the Ask files tab)."""
+    origin: Literal["upload", "derived", "generated"] = "upload"
+    """Where the file came from: an upload, a version made from another asset, or an image an integration generated."""
+    source_asset_id: UUID4 | None = None
+    """For a derived asset: the asset it was made from (empty once that asset is deleted)."""
+    versions_count: int = 0
+    """How many versions in the library were made from this asset (filled in by the list; 0 elsewhere)."""
+    suggestion_json: dict | None = Field(
+        default=None,
+        description="Pending AI-proposed changes staged for review (write-back)",
+        serialization_alias="suggestionJson",
+    )
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _tag_slugs(cls, value: Any) -> list[str]:
+        # `obj.tags` is the ORM Tag relationship; the schema field is a list of slug strings.
+        if not value:
+            return []
+        return [getattr(t, "slug", t) for t in value]
 
     @field_validator("metadata_json", mode="before")
     @classmethod
@@ -157,17 +193,28 @@ class AssetRead(AssetSummary):
         """Ensure metadata is serialized as dict."""
         return value if isinstance(value, dict) else None
 
-    @model_validator(mode="after")
-    def compute_public_url(self) -> "AssetRead":
-        if not self.storage_key:
-            return self
-        try:
-            from marvin.services.storage.provider_factory import get_storage_provider
+    _group_id: Any = PrivateAttr(default=None)
+    """The row's workspace (not part of the schema): what ``asset_public_url`` needs for its domain."""
 
-            self.public_url = get_storage_provider().get_public_url(self.storage_key)
+    @model_validator(mode="wrap")
+    @classmethod
+    def compute_public_url(cls, data: Any, handler) -> "AssetRead":
+        """The URL the file is served at now: its row's provider, on its workspace's public domain when it
+        has one (the workspace id is read from the row, it isn't part of the schema)."""
+        if isinstance(data, AssetRead):
+            return handler(data)
+        model = handler(data)
+        if not model.storage_key:
+            return model
+        group_id = data.get("group_id") if isinstance(data, dict) else getattr(data, "group_id", None)
+        model._group_id = group_id
+        try:
+            from marvin.services.storage.provider_factory import public_url_for
+
+            model.public_url = public_url_for(model.storage_provider, model.storage_key, group_id)
         except Exception:
             pass  # retain DB value as degraded fallback if provider config is broken
-        return self
+        return model
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 

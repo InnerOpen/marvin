@@ -1,56 +1,40 @@
 """
-Approximate AI provider pricing for cost estimation.
+AI cost estimates: what a run's tokens cost, from the first source that prices its model.
 
-Prices are per 1M tokens (input/output separately).
-Updated periodically — not real-time. Used only for estimates stored on executions.
+1. an admin's own price (Admin → AI Pricing, services/ai/price_overrides.py);
+2. the provider's own table (its plugin's ``AIProvider.prices``; a new model's price is a plugin release);
+3. self-hosted providers (``self_hosted``: Ollama) cost nothing;
+4. the daily price feed (services/ai/price_feed.py, LiteLLM's list from a configurable URL).
+
+Core keeps no table of its own (AI provider plugins, slice 5): every provider is a plugin that ships its prices.
+A model none of these price has no estimate — stored as unknown, shown as "—", counted as unpriced (never $0).
+Per 1M tokens, input and output separately; used only for the estimates stored on executions.
 """
 
-from dataclasses import dataclass
+from marvin_integration_sdk.ai import ModelPrice
+
+ModelPricing = ModelPrice
+"""The SDK's ModelPrice (input_per_1m, output_per_1m), under its old name."""
+
+# Providers whose runs cost nothing even when their plugin isn't installed any more (a stored run's provider).
+_SELF_HOSTED = {"ollama", "custom"}
 
 
-@dataclass
-class ModelPricing:
-    input_per_1m: float   # USD per 1M prompt tokens
-    output_per_1m: float  # USD per 1M completion tokens
+def estimate_cost(provider_type: str, model_id: str, prompt_tokens: int, completion_tokens: int) -> float | None:
+    """Estimated USD cost for a completion; None when the model's price isn't known (shown as "—",
+    never as a misleading "Free")."""
+    from .price_feed import feed_price_for
+    from .price_overrides import override_for
+    from .registry import find_class
 
-
-# provider_type → model_id → pricing
-PRICING: dict[str, dict[str, ModelPricing]] = {
-    "openai": {
-        "gpt-4o": ModelPricing(input_per_1m=2.50, output_per_1m=10.00),
-        "gpt-4o-mini": ModelPricing(input_per_1m=0.15, output_per_1m=0.60),
-        "gpt-4.1": ModelPricing(input_per_1m=2.00, output_per_1m=8.00),
-        "gpt-4.1-mini": ModelPricing(input_per_1m=0.40, output_per_1m=1.60),
-        "gpt-4-turbo": ModelPricing(input_per_1m=10.00, output_per_1m=30.00),
-        "o3": ModelPricing(input_per_1m=10.00, output_per_1m=40.00),
-        "o4-mini": ModelPricing(input_per_1m=1.10, output_per_1m=4.40),
-    },
-    "anthropic": {
-        "claude-opus-4-8": ModelPricing(input_per_1m=15.00, output_per_1m=75.00),
-        "claude-sonnet-5": ModelPricing(input_per_1m=3.00, output_per_1m=15.00),
-        "claude-haiku-4-5-20251001": ModelPricing(input_per_1m=0.80, output_per_1m=4.00),
-    },
-    "google": {
-        "gemini-1.5-pro": ModelPricing(input_per_1m=1.25, output_per_1m=5.00),
-        "gemini-1.5-flash": ModelPricing(input_per_1m=0.075, output_per_1m=0.30),
-        "gemini-2.0-flash": ModelPricing(input_per_1m=0.10, output_per_1m=0.40),
-    },
-    "azure": {
-        # Azure mirrors OpenAI pricing; use the same rates
-        "gpt-4o": ModelPricing(input_per_1m=2.50, output_per_1m=10.00),
-        "gpt-4.1": ModelPricing(input_per_1m=2.00, output_per_1m=8.00),
-    },
-    # Ollama is self-hosted — no cost
-    "ollama": {},
-    "custom": {},
-}
-
-_FALLBACK = ModelPricing(input_per_1m=0.0, output_per_1m=0.0)
-
-
-def estimate_cost(provider_type: str, model_id: str, prompt_tokens: int, completion_tokens: int) -> float:
-    """Return estimated USD cost for a completion. Returns 0.0 for unknown models."""
-    pricing = PRICING.get(provider_type, {}).get(model_id, _FALLBACK)
-    cost = (prompt_tokens / 1_000_000) * pricing.input_per_1m
-    cost += (completion_tokens / 1_000_000) * pricing.output_per_1m
-    return round(cost, 8)
+    if (mine := override_for(provider_type, model_id)) is not None:
+        return mine.cost(prompt_tokens, completion_tokens)
+    cls = find_class(provider_type)
+    if cls is not None:
+        cost = cls.estimate_cost(model_id, prompt_tokens, completion_tokens)
+        if cost is not None:
+            return cost
+    if provider_type in _SELF_HOSTED or (cls is not None and getattr(cls, "self_hosted", False)):
+        return 0.0
+    feed = feed_price_for(provider_type, model_id)
+    return feed.cost(prompt_tokens, completion_tokens) if feed is not None else None

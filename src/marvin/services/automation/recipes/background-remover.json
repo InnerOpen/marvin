@@ -1,0 +1,45 @@
+{
+  "name": "Background remover",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "target": {
+      "entity": "asset",
+      "query": {
+        "tags": [
+          "{{tag}}"
+        ],
+        "asset_type": "image"
+      }
+    },
+    "actions": [
+      {
+        "kind": "approval",
+        "id": "ok",
+        "message": "Remove the background from “${asset.name}”? (one paid image edit)",
+        "approvers": "editor",
+        "expires_in_hours": 168
+      },
+      {
+        "kind": "integration",
+        "id": "edit",
+        "integration": "{{image_integration}}",
+        "action": "edit",
+        "source": "${asset.id}",
+        "args": {
+          "prompt": "Remove the background completely, leaving only the main subject, unchanged, on a transparent background.",
+          "background": "transparent"
+        },
+        "tags": [
+          "no-background"
+        ],
+        "when": {
+          "field": "steps.ok.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      }
+    ]
+  }
+}

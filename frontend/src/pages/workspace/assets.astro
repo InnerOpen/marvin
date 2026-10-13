@@ -1,50 +1,73 @@
 ---
+import AssetRow from "@/components/AssetRow.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
-import FilterBar from "@/components/FilterBar.astro";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { listCollections } from "@/lib/api/collections";
 import { getAssets } from "@/lib/api/platform";
-import { getAuthToken } from "@/lib/api/client";
+import { listTags } from "@/lib/api/tags";
+import { listTrashedAssets } from "@/lib/api/trash";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
+import { getMimeCategory } from "@/lib/assetCategory";
+import { isFiltered, listParams, ORIGINS, readLibraryView, SORTS, TYPES, viewHref } from "@/lib/assetLibraryView";
+import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
+// Everyone reads; uploading is AUTHOR+, editing and deleting assets EDITOR+.
+const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+// The filters live in the URL (lib/assetLibraryView.ts): the API returns exactly the matching assets, with versions
+// folded under their original unless shown.
+const view = readLibraryView(Astro.url.searchParams);
 
-let assets = [];
+let assets: any[] = [];
+let trashedAssets: any[] = [];
+let tags: any[] = [];
+let collections: any[] = [];
+let sourceAsset: any = null;
 let error: string | null = null;
 
+// Ask files (chat attachments) live apart from the library: a link to them, with their count.
+let askFiles = 0;
 try {
-  assets = await getAssets(authToken);
+  const [library, asks, trashed, tagList, collectionList] = await Promise.all([
+    view.status === "trashed" ? Promise.resolve([]) : getAssets(authToken, listParams(view)),
+    fetchApi<unknown[]>("/api/platform/assets?scope=ask", {}, authToken).catch(() => []),
+    listTrashedAssets(authToken).catch(() => []),
+    listTags(authToken).catch(() => []),
+    listCollections(authToken).catch(() => []),
+  ]);
+  assets = library;
+  askFiles = asks.length;
+  trashedAssets = trashed;
+  tags = tagList;
+  collections = collectionList.filter((c: any) => (c.targetType ?? "entry") === "asset");
+  if (view.source) sourceAsset = await createSdkClient(authToken).assets.get(view.source).catch(() => null);
 } catch (e) {
   error = e instanceof Error ? e.message : String(e);
-  console.error('[Assets] Failed to load:', error);
+  console.error("[Assets] Failed to load:", error);
 }
-
-// Categorize by MIME type
-function getMimeCategory(mimeType: string): string {
-  if (mimeType.startsWith('image/')) return 'image';
-  if (mimeType.startsWith('video/')) return 'video';
-  if (mimeType.startsWith('audio/')) return 'audio';
-  if (mimeType.includes('pdf')) return 'document';
-  return 'other';
-}
+const rows = view.status === "trashed" ? trashedAssets : assets;
 
 // Group assets by MIME category
 const categoryLabels: Record<string, string> = {
-  image: 'Images',
-  video: 'Videos',
-  audio: 'Audio',
-  document: 'Documents',
-  other: 'Other',
+  image: "Images",
+  video: "Videos",
+  audio: "Audio",
+  document: "Documents",
+  other: "Other",
 };
 const categoryGroups = new Map<string, { label: string; assets: any[] }>();
-for (const asset of assets) {
+for (const asset of rows) {
   const cat = getMimeCategory(asset.mimeType);
   if (!categoryGroups.has(cat)) {
     categoryGroups.set(cat, { label: categoryLabels[cat] || cat, assets: [] });
   }
   categoryGroups.get(cat)!.assets.push(asset);
 }
-const categoryOrder = ['image', 'video', 'audio', 'document', 'other'];
+const categoryOrder = ["image", "video", "audio", "document", "other"];
 const sortedCategoryGroups = categoryOrder
-  .filter(cat => categoryGroups.has(cat))
-  .map(cat => ({ key: cat, ...categoryGroups.get(cat)! }));
+  .filter((cat) => categoryGroups.has(cat))
+  .map((cat) => ({ key: cat, ...categoryGroups.get(cat)! }));
+const opt = (value: string, label: string, current: string) => ({ value, label, selected: value === current });
 ---
 
 <AppLayout title="Assets">
@@ -57,36 +80,70 @@ const sortedCategoryGroups = categoryOrder
     <>
       <div class="toolbar">
         <div>
-          <h2 style="margin:0;font-size:20px;">Media library</h2>
-          <p style="margin:4px 0 0;color:var(--muted);">{assets.length} reusable uploads available to entries.</p>
+          <h2 style="margin:0;font-size:20px;">{view.source ? `Versions of ${sourceAsset?.name ?? "an asset"}` : view.status === "trashed" ? "Assets in the Trash" : "Media library"}</h2>
+          <p style="margin:4px 0 0;color:var(--muted);">
+            {view.source ? (
+              <>Made from it by workflows and the media pipeline · <a href={viewHref(view, { source: "" })}>Back to the library</a></>
+            ) : (
+              <>{rows.length} {rows.length === 1 ? "asset" : "assets"}{!view.versions && view.status !== "trashed" ? " (versions folded under their original)" : ""}.</>
+            )}
+          </p>
         </div>
         <div style="display:flex;gap:0.75rem;">
-          <FilterBar
-            searchPlaceholder="Search assets..."
-            filters={[
-              {
-                id: "type-filter",
-                label: "Types",
-                options: [
-                  { value: "image", label: "Images" },
-                  { value: "video", label: "Videos" },
-                  { value: "audio", label: "Audio" },
-                  { value: "document", label: "Documents" },
-                  { value: "other", label: "Other" }
-                ]
-              }
-            ]}
-          />
-          <a class="button" href="/workspace/assets/new">Upload Asset</a>
+          <a class="button secondary" href="/workspace/assets/ask-files" title="Files attached to chat questions, kept out of the library">Ask files{askFiles ? ` (${askFiles})` : ""}</a>
+          {access.canAuthor && <a class="button" href="/workspace/assets/new">Upload Asset</a>}
         </div>
       </div>
 
-      {assets.length === 0 ? (
+      <form method="get" class="asset-filters" id="asset-filters">
+        <input type="search" name="q" class="filter-search" placeholder="Search name or filename…" value={view.q} />
+        <select name="type" class="filter-select" aria-label="Type">
+          <option value="">All types</option>
+          {Object.entries(TYPES).map(([v, l]) => <option value={v} selected={view.type === v}>{l}</option>)}
+        </select>
+        <select name="origin" class="filter-select" aria-label="Where it came from">
+          <option value="">Any origin</option>
+          {Object.entries(ORIGINS).map(([v, l]) => <option value={v} selected={view.origin === v}>{l}</option>)}
+        </select>
+        {tags.length > 0 && (
+          <select name="tag" class="filter-select" aria-label="Tag">
+            <option value="">Any tag</option>
+            {tags.map((t: any) => <option value={t.slug} selected={view.tag === t.slug}>{t.name}</option>)}
+          </select>
+        )}
+        {collections.length > 0 && (
+          <select name="collection" class="filter-select" aria-label="Collection">
+            <option value="">Any collection</option>
+            {collections.map((c: any) => <option value={c.slug} selected={view.collection === c.slug}>{c.name}</option>)}
+          </select>
+        )}
+        <select name="attached" class="filter-select" aria-label="Used on an entry">
+          {[opt("", "On entries or not", view.attached), opt("yes", "Used on an entry", view.attached), opt("no", "Not on any entry", view.attached)].map((o) => (
+            <option value={o.value} selected={o.selected}>{o.label}</option>
+          ))}
+        </select>
+        <select name="sort" class="filter-select" aria-label="Sort">
+          {Object.entries(SORTS).map(([v, l]) => <option value={v} selected={view.sort === v}>{l}</option>)}
+        </select>
+        <label class="filter-check"><input type="checkbox" name="versions" value="show" checked={view.versions} /> Show versions</label>
+        {trashedAssets.length > 0 && (
+          <label class="filter-check"><input type="checkbox" name="status" value="trashed" checked={view.status === "trashed"} /> The Trash ({trashedAssets.length})</label>
+        )}
+        {view.source && <input type="hidden" name="source" value={view.source} />}
+        {(isFiltered(view) || view.versions || view.status || view.sort !== "name") && <a class="filter-reset" href="/workspace/assets">Clear</a>}
+      </form>
+
+      {rows.length === 0 && (isFiltered(view) || view.status) ? (
+        <div class="empty-state">
+          <h3>Nothing matches</h3>
+          <p><a href="/workspace/assets">Clear the filters</a></p>
+        </div>
+      ) : assets.length === 0 && trashedAssets.length === 0 ? (
         <div class="empty-state">
           <div class="empty-icon">🖼️</div>
           <h3>No assets yet</h3>
           <p>Assets are images, videos, documents, and files that you can reference in your entries.</p>
-          <a href="/workspace/assets/new" class="button">Upload Your First Asset</a>
+          {access.canAuthor && <a href="/workspace/assets/new" class="button">Upload Your First Asset</a>}
         </div>
       ) : (
         <>
@@ -94,6 +151,10 @@ const sortedCategoryGroups = categoryOrder
             <button class="toggle-btn active" id="view-table" title="All assets">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
               All
+            </button>
+            <button class="toggle-btn" id="view-grid" title="Thumbnails">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="4" height="4" rx="1"/><rect x="6" y="1" width="4" height="4" rx="1"/><rect x="11" y="1" width="4" height="4" rx="1"/><rect x="1" y="6" width="4" height="4" rx="1"/><rect x="6" y="6" width="4" height="4" rx="1"/><rect x="11" y="6" width="4" height="4" rx="1"/><rect x="1" y="11" width="4" height="4" rx="1"/><rect x="6" y="11" width="4" height="4" rx="1"/><rect x="11" y="11" width="4" height="4" rx="1"/></svg>
+              Grid
             </button>
             <button class="toggle-btn" id="view-grouped" title="Group by type">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="14" height="3" rx="1"/><rect x="3" y="5.5" width="12" height="2" rx="0.5" opacity="0.6"/><rect x="3" y="8.5" width="12" height="2" rx="0.5" opacity="0.6"/><rect x="1" y="12" width="14" height="3" rx="1"/></svg>
@@ -115,56 +176,36 @@ const sortedCategoryGroups = categoryOrder
                 </tr>
               </thead>
               <tbody>
-                {assets.map((asset: any) => (
-                  <tr class="asset-row" data-type={getMimeCategory(asset.mimeType)}>
-                    <td>
-                      <div class="preview">
-                        {asset.publicUrl && getMimeCategory(asset.mimeType) === 'image' ? (
-                          <img
-                            src={asset.publicUrl}
-                            alt={asset.altText ?? asset.name}
-                            style={`object-position: ${asset.focalPoint ?? "50% 50%"}`}
-                          />
-                        ) : (
-                          <span class="file-icon">{
-                            getMimeCategory(asset.mimeType) === 'video' ? '🎬' :
-                            getMimeCategory(asset.mimeType) === 'audio' ? '🎵' :
-                            getMimeCategory(asset.mimeType) === 'document' ? '📄' : '📎'
-                          }</span>
-                        )}
-                      </div>
-                    </td>
-                    <td class="asset-name">
-                      <strong>{asset.name}</strong>
-                      {asset.slug && <div class="slug"><code>{asset.slug}</code></div>}
-                    </td>
-                    <td class="asset-type"><span class="type-badge">{asset.mimeType}</span></td>
-                    <td>
-                      {asset.width && asset.height
-                        ? `${asset.width} × ${asset.height}`
-                        : '—'}
-                    </td>
-                    <td>
-                      {asset.fileSize
-                        ? `${(asset.fileSize / 1024).toFixed(1)} KB`
-                        : '—'}
-                    </td>
-                    <td class="alt-text-cell">{asset.altText || '—'}</td>
-                    <td>
-                      <div class="actions">
-                        <a href={`/workspace/assets/${asset.id}/view`} class="button secondary small">View</a>
-                        <a href={`/workspace/assets/${asset.id}`} class="button secondary small">Edit</a>
-                        <form method="POST" action={`/api/assets/${asset.id}/delete`} style="display:inline;">
-                          <button type="submit" class="button secondary small danger" onclick="return confirm('Delete this asset?')">
-                            Delete
-                          </button>
-                        </form>
-                      </div>
-                    </td>
-                  </tr>
+                {rows.map((asset: any) => (
+                  <AssetRow asset={asset} canEdit={access.canEdit} inTrash={view.status === "trashed"} versionsHref={viewHref(view, { source: asset.id, versions: false })} />
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div id="grid-view" class="view-section" style="display:none;">
+            <ul class="asset-grid">
+              {rows.map((asset: any) => (
+                <li class="asset-card" data-in-trash={view.status === "trashed" ? "" : undefined}>
+                  <a class="thumb" href={view.status === "trashed" ? `/workspace/assets/${asset.id}` : `/workspace/assets/${asset.id}/view`} title={asset.name}>
+                    {asset.publicUrl && getMimeCategory(asset.mimeType) === "image" ? (
+                      <img src={asset.publicUrl} alt={asset.altText ?? asset.name} loading="lazy" style={`object-position: ${asset.focalPoint ?? "50% 50%"}`} />
+                    ) : (
+                      <span class="file-icon">📎</span>
+                    )}
+                  </a>
+                  <div class="card-name" title={asset.name}>{asset.name}</div>
+                  <div class="card-meta">
+                    {asset.width && asset.height ? `${asset.width}×${asset.height}` : asset.mimeType}
+                    {asset.origin === "derived" && <span class="card-badge">Version</span>}
+                    {asset.origin === "generated" && <span class="card-badge">Generated</span>}
+                    {asset.versionsCount > 0 && (
+                      <a class="card-badge versions" href={viewHref(view, { source: asset.id, versions: false })}>{asset.versionsCount} {asset.versionsCount === 1 ? "version" : "versions"}</a>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
 
           <div id="grouped-view" class="view-section" style="display:none;">
@@ -191,52 +232,7 @@ const sortedCategoryGroups = categoryOrder
                   </thead>
                   <tbody>
                     {groupAssets.map((asset: any) => (
-                      <tr class="asset-row" data-type={getMimeCategory(asset.mimeType)}>
-                        <td>
-                          <div class="preview">
-                            {asset.publicUrl && getMimeCategory(asset.mimeType) === 'image' ? (
-                              <img
-                                src={asset.publicUrl}
-                                alt={asset.altText ?? asset.name}
-                                style={`object-position: ${asset.focalPoint ?? "50% 50%"}`}
-                              />
-                            ) : (
-                              <span class="file-icon">{
-                                getMimeCategory(asset.mimeType) === 'video' ? '🎬' :
-                                getMimeCategory(asset.mimeType) === 'audio' ? '🎵' :
-                                getMimeCategory(asset.mimeType) === 'document' ? '📄' : '📎'
-                              }</span>
-                            )}
-                          </div>
-                        </td>
-                        <td class="asset-name">
-                          <strong>{asset.name}</strong>
-                          {asset.slug && <div class="slug"><code>{asset.slug}</code></div>}
-                        </td>
-                        <td class="asset-type"><span class="type-badge">{asset.mimeType}</span></td>
-                        <td>
-                          {asset.width && asset.height
-                            ? `${asset.width} × ${asset.height}`
-                            : '—'}
-                        </td>
-                        <td>
-                          {asset.fileSize
-                            ? `${(asset.fileSize / 1024).toFixed(1)} KB`
-                            : '—'}
-                        </td>
-                        <td class="alt-text-cell">{asset.altText || '—'}</td>
-                        <td>
-                          <div class="actions">
-                            <a href={`/workspace/assets/${asset.id}/view`} class="button secondary small">View</a>
-                            <a href={`/workspace/assets/${asset.id}`} class="button secondary small">Edit</a>
-                            <form method="POST" action={`/api/assets/${asset.id}/delete`} style="display:inline;">
-                              <button type="submit" class="button secondary small danger" onclick="return confirm('Delete this asset?')">
-                                Delete
-                              </button>
-                            </form>
-                          </div>
-                        </td>
-                      </tr>
+                      <AssetRow asset={asset} canEdit={access.canEdit} inTrash={view.status === "trashed"} versionsHref={viewHref(view, { source: asset.id, versions: false })} />
                     ))}
                   </tbody>
                 </table>
@@ -250,57 +246,129 @@ const sortedCategoryGroups = categoryOrder
 </AppLayout>
 
 <script>
-  const searchInput = document.getElementById('filter-search') as HTMLInputElement;
-  const typeFilter = document.getElementById('type-filter') as HTMLSelectElement;
   const tableView = document.getElementById('table-view');
   const groupedView = document.getElementById('grouped-view');
+  const gridView = document.getElementById('grid-view');
+  const viewGridBtn = document.getElementById('view-grid');
   const viewTableBtn = document.getElementById('view-table');
   const viewGroupedBtn = document.getElementById('view-grouped');
 
-  function setView(view: 'table' | 'grouped') {
-    if (!tableView || !groupedView) return;
+  type View = 'table' | 'grid' | 'grouped';
+  function setView(view: View) {
+    if (!tableView || !groupedView || !gridView) return;
     tableView.style.display = view === 'table' ? '' : 'none';
+    gridView.style.display = view === 'grid' ? '' : 'none';
     groupedView.style.display = view === 'grouped' ? '' : 'none';
     viewTableBtn?.classList.toggle('active', view === 'table');
+    viewGridBtn?.classList.toggle('active', view === 'grid');
     viewGroupedBtn?.classList.toggle('active', view === 'grouped');
-    localStorage.setItem('assets-view', view);
-    filterAssets();
+    try { localStorage.setItem('assets-view', view); } catch { /* a private window: the choice just isn't kept */ }
   }
 
   viewTableBtn?.addEventListener('click', () => setView('table'));
   viewGroupedBtn?.addEventListener('click', () => setView('grouped'));
+  viewGridBtn?.addEventListener('click', () => setView('grid'));
 
-  const savedView = localStorage.getItem('assets-view') as 'table' | 'grouped' | null;
-  if (savedView) setView(savedView);
+  let savedView: string | null = null;
+  try { savedView = localStorage.getItem('assets-view'); } catch { /* as above */ }
+  if (savedView === 'table' || savedView === 'grid' || savedView === 'grouped') setView(savedView);
 
-  function filterAssets() {
-    const searchQuery = searchInput?.value.toLowerCase() || '';
-    const typeQuery = typeFilter?.value || '';
-    const rows = document.querySelectorAll('.asset-row');
-
-    rows.forEach(row => {
-      const name = row.querySelector('.asset-name')?.textContent?.toLowerCase() || '';
-      const type = row.getAttribute('data-type') || '';
-
-      const matchesSearch = !searchQuery || name.includes(searchQuery);
-      const matchesType = !typeQuery || type === typeQuery;
-
-      (row as HTMLElement).style.display = (matchesSearch && matchesType) ? '' : 'none';
-    });
-
-    document.querySelectorAll('.collection-group').forEach(group => {
-      const visibleRows = group.querySelectorAll('.asset-row:not([style*="display: none"])');
-      (group as HTMLElement).style.display = visibleRows.length > 0 ? '' : 'none';
-    });
-  }
-
-  filterAssets();
-
-  searchInput?.addEventListener('input', filterAssets);
-  typeFilter?.addEventListener('change', filterAssets);
+  // The filters are a GET form: a choice reloads the list from the server (search on Enter).
+  const filters = document.getElementById('asset-filters') as HTMLFormElement | null;
+  filters?.querySelectorAll('select, input[type="checkbox"]').forEach((el) => el.addEventListener('change', () => filters.requestSubmit()));
 </script>
 
 <style>
+  .asset-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .asset-card {
+    min-width: 0;
+  }
+  .asset-card .thumb {
+    display: grid;
+    place-items: center;
+    aspect-ratio: 1;
+    overflow: hidden;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--panel, var(--bg));
+  }
+  .asset-card[data-in-trash] .thumb {
+    opacity: 0.5;
+  }
+  .asset-card img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .asset-card .file-icon {
+    font-size: 2rem;
+  }
+  .card-name {
+    margin-top: 0.35rem;
+    font-size: 0.875rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    align-items: center;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+  .card-badge {
+    padding: 0 0.35rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .card-badge.versions {
+    color: var(--accent, inherit);
+  }
+
+  .asset-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+    align-items: center;
+    margin: 0 0 1rem;
+  }
+  .filter-search {
+    min-width: 220px;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .filter-select {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .filter-check {
+    display: inline-flex;
+    gap: 0.35rem;
+    align-items: center;
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+  .filter-reset {
+    font-size: 0.875rem;
+  }
+
   .error-banner {
     padding: 1.5rem;
     background: var(--color-error-bg);
@@ -341,73 +409,6 @@ const sortedCategoryGroups = categoryOrder
     margin: 0;
     color: var(--muted);
     max-width: 32rem;
-  }
-
-  .preview {
-    width: 80px;
-    height: 80px;
-    border-radius: 6px;
-    overflow: hidden;
-    background: var(--panel-2);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .preview img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-
-  .file-icon {
-    font-size: 2rem;
-    opacity: 0.7;
-  }
-
-  .slug {
-    margin-top: 0.25rem;
-    font-size: 0.75rem;
-    color: var(--muted);
-  }
-
-  .type-badge {
-    display: inline-block;
-    padding: 0.25rem 0.5rem;
-    background: var(--panel-2);
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 500;
-    text-transform: uppercase;
-  }
-
-  .alt-text-cell {
-    max-width: 200px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 0.875rem;
-    color: var(--muted);
-  }
-
-  .actions {
-    display: flex;
-    gap: 0.5rem;
-  }
-
-  .button.small {
-    min-height: 32px;
-    padding: 6px 10px;
-    font-size: 0.875rem;
-  }
-
-  .button.danger {
-    color: var(--color-error);
-    border-color: var(--color-error);
-  }
-
-  .button.danger:hover {
-    background: var(--color-error-bg);
   }
 
   .view-toggle {

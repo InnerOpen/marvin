@@ -6,10 +6,12 @@ all admin fields, internal metadata, and unpublished content.
 """
 
 from datetime import datetime
+from typing import Literal
 
-from pydantic import UUID4, ConfigDict, Field
+from pydantic import UUID4, ConfigDict, Field, field_validator
 
 from marvin.schemas._marvin import _MarvinModel
+from marvin.services.media_embeds.html import DEFAULT_CONSENT_TEXT
 
 
 class PublishedAssetRead(_MarvinModel):
@@ -52,6 +54,9 @@ class PublishedAssetRead(_MarvinModel):
 
     metadata: dict | None = Field(default=None, serialization_alias="metadataJson")
     """Custom metadata as JSON object."""
+
+    tags: list[str] = []
+    """Tag slugs applied to this asset."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -107,8 +112,56 @@ class PublishedEntryTypeRead(_MarvinModel):
     is_rendered: bool = False
     rendering: EntryTypeRendering | None = None
     capabilities: EntryTypeCapabilities | None = None
+    page_url_pattern: str | None = None
+    """Where the site renders this type's entries, e.g. /works/{slug}; null when not configured."""
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PublishedEmbedIframe(_MarvinModel):
+    """A Marvin-built player: every attribute comes from Marvin's provider registry, never from the provider."""
+
+    src: str
+    title: str
+    allow: str
+    sandbox: str
+    referrerpolicy: str
+    aspect_ratio: str | None = None
+    """CSS aspect ratio for video players, e.g. ``"16/9"``."""
+    height: int | None = None
+    """Fixed player height in px for audio / podcast / playlist players."""
+
+
+class PublishedEmbedLink(_MarvinModel):
+    """The plain link to the media on its provider — the fallback and the link card."""
+
+    href: str
+    title: str
+    provider_name: str
+
+
+class PublishedEmbed(_MarvinModel):
+    """A media link in an entry (a bare provider URL in a markdown field, or an ``embed`` field) resolved
+    to a player. Keyed in ``embeds`` by the URL exactly as written in the field."""
+
+    url: str
+    """The URL as written in the field (also its key in ``embeds``)."""
+    canonical_url: str
+    provider: str
+    """Registry key, e.g. ``youtube``."""
+    provider_name: str
+    """Display name, e.g. ``YouTube``."""
+    kind: Literal["video", "audio", "podcast", "playlist"]
+    status: Literal["ok", "link", "unavailable"]
+    """``ok``: ``iframe`` is set. ``link``: no safe player — show ``link``. ``unavailable``: the provider says
+    it is private, removed or blocked — show ``link``."""
+    title: str | None = None
+    author_name: str | None = None
+    thumbnail_url: str | None = None
+    iframe: PublishedEmbedIframe | None = None
+    link: PublishedEmbedLink
+    html: str
+    """Ready-to-insert HTML built by Marvin per ``site.embeds.mode`` (a facade, the player, or a link card)."""
 
 
 class PublishedEntryRead(_MarvinModel):
@@ -134,11 +187,26 @@ class PublishedEntryRead(_MarvinModel):
     entry_type_info: PublishedEntryTypeInfo | None = Field(default=None, serialization_alias="entryTypeInfo")
     """Rendering and capabilities info for this entry's type."""
 
-    summary: str | None = None
-    """Optional short description/summary."""
+    url: str | None = None
+    """The entry's page on the site: absolute when the workspace has a Canonical URL, else the site path.
+    Null unless the entry's type has a page URL pattern."""
 
-    data: dict
+    summary: str | None = None
+    """Short blurb for compact placements (cards, related-reference lists)."""
+
+    description: str | None = None
+    """Longer descriptive lede shown under the title on the entry's own page."""
+
+    data: dict = Field(default_factory=dict)
     """Entry content structured according to entry type schema."""
+
+    @field_validator("data", mode="before")
+    @classmethod
+    def _data_never_null(cls, value: object) -> dict:
+        """An entry with no custom data stores ``data_json`` as SQL NULL; the API contract is that
+        ``data`` is always an object. Normalize NULL (and any non-dict) to ``{}`` so a data-less
+        entry serializes cleanly instead of failing response validation with a 500."""
+        return value if isinstance(value, dict) else {}
 
     published_at: datetime | None = None
     """Timestamp when the entry was published."""
@@ -155,6 +223,18 @@ class PublishedEntryRead(_MarvinModel):
     assets: list[PublishedEntryAsset] = []
     """Assets included in this entry with relationship context."""
 
+    tags: list[str] = []
+    """Tag slugs applied to this entry."""
+
+    embeds: dict[str, PublishedEmbed] = Field(default_factory=dict)
+    """Media players for this entry's media links, keyed by the URL as written ({} when none)."""
+
+    @field_validator("embeds", mode="before")
+    @classmethod
+    def _embeds_never_null(cls, value: object) -> dict:
+        """``embeds`` is always an object ({} when the entry has no media links)."""
+        return value if isinstance(value, dict) else {}
+
     order: int | None = None
     """Sort order within a collection. Only populated when querying entries for a specific collection."""
 
@@ -163,10 +243,11 @@ class PublishedEntryRead(_MarvinModel):
 
 class PublishedEntryListItem(_MarvinModel):
     """
-    Minimal entry schema for list responses.
+    Entry schema for list responses.
 
-    Used when listing multiple entries - returns only essential fields
-    without full content.
+    Used when listing multiple entries. Carries the entry's schema fields (``data``) alongside
+    the summary, memberships, tags and a resolved featured asset, but not the full asset,
+    resource and collection detail of ``PublishedEntryRead``.
     """
 
     slug: str
@@ -181,8 +262,27 @@ class PublishedEntryListItem(_MarvinModel):
     entry_type_info: PublishedEntryTypeInfo | None = Field(default=None, serialization_alias="entryTypeInfo")
     """Rendering and capabilities info for this entry's type."""
 
+    url: str | None = None
+    """The entry's page on the site: absolute when the workspace has a Canonical URL, else the site path.
+    Null unless the entry's type has a page URL pattern."""
+
     summary: str | None = None
     """Optional short description/summary."""
+
+    description: str | None = None
+    """Longer descriptive lede shown under the title on the entry's own page."""
+
+    data: dict = Field(default_factory=dict)
+    """Entry content structured according to the entry type schema.
+
+    Carried on list items so a site can render a whole collection from one request instead of
+    re-fetching every entry for its fields (an N+1 that times out on large collections)."""
+
+    @field_validator("data", mode="before")
+    @classmethod
+    def _data_never_null(cls, value: object) -> dict:
+        """Same contract as ``PublishedEntryRead.data``: SQL NULL (or any non-dict) becomes ``{}``."""
+        return value if isinstance(value, dict) else {}
 
     published_at: datetime | None = None
     """Timestamp when the entry was published."""
@@ -199,11 +299,23 @@ class PublishedEntryListItem(_MarvinModel):
     resources: list[str] = Field(default=[], serialization_alias="resourceSlugs")
     """List of resource slugs referenced by this entry."""
 
+    tags: list[str] = []
+    """Tag slugs applied to this entry."""
+
     metadata: dict | None = Field(default=None, serialization_alias="metadataJson")
     """Custom non-schema metadata as JSON object."""
 
     featured_asset: PublishedAssetRead | None = Field(default=None, serialization_alias="featuredAsset")
     """First hero/featured asset, or first asset by position."""
+
+    embeds: dict[str, PublishedEmbed] = Field(default_factory=dict)
+    """Media players for this entry's media links, keyed by the URL as written ({} when none)."""
+
+    @field_validator("embeds", mode="before")
+    @classmethod
+    def _embeds_never_null(cls, value: object) -> dict:
+        """``embeds`` is always an object ({} when the entry has no media links)."""
+        return value if isinstance(value, dict) else {}
 
     order: int | None = None
     """Sort order within a collection. Only populated when querying entries for a specific collection."""
@@ -241,12 +353,25 @@ class PublishedEntriesResponse(_MarvinModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class PublishedCollectionRead(_MarvinModel):
+class PublishedEntriesExpandedResponse(_MarvinModel):
     """
-    Schema for published collections in the publishing API.
+    Paginated response for listing published entries with ``?expand=full``.
 
-    Includes collection metadata and its published entries.
+    Each item has the shape of the single-entry read (``PublishedEntryRead``), so a site can
+    render a page of entries without re-reading each one.
     """
+
+    data: list[PublishedEntryRead]
+    """List of published entries, each as full as the single-entry read."""
+
+    meta: PaginationMeta
+    """Pagination metadata (total, page, limit)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class _PublishedCollectionFields(_MarvinModel):
+    """The collection fields shared by the plain and the expanded collection read."""
 
     slug: str
     """URL-friendly identifier for the collection."""
@@ -269,10 +394,30 @@ class PublishedCollectionRead(_MarvinModel):
     entry_count: int
     """Number of published entries in this collection."""
 
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PublishedCollectionRead(_PublishedCollectionFields):
+    """
+    Schema for published collections in the publishing API.
+
+    Includes collection metadata and its published entries.
+    """
+
     entries: list[PublishedEntryListItem]
     """Published entries in this collection."""
 
-    model_config = ConfigDict(from_attributes=True)
+
+class PublishedCollectionExpandedRead(_PublishedCollectionFields):
+    """
+    A published collection read with ``?expand=full``.
+
+    Same collection fields as ``PublishedCollectionRead``; each entry has the shape of the
+    single-entry read (``PublishedEntryRead``).
+    """
+
+    entries: list[PublishedEntryRead]
+    """Published entries in this collection, each as full as the single-entry read."""
 
 
 class PublishedCollectionSummary(_MarvinModel):
@@ -344,6 +489,9 @@ class PublishedResourceSummary(_MarvinModel):
     entries: list[str] = []
     """List of entry slugs that reference this resource."""
 
+    tags: list[str] = []
+    """Tag slugs applied to this resource."""
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -370,6 +518,79 @@ class WorkspaceInfo(_MarvinModel):
     """Workspace name."""
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SiteSeoVerification(_MarvinModel):
+    """Search-engine ownership verification tokens, each rendered as a <meta name="..."> tag."""
+
+    google: str | None = None  # google-site-verification (Google Search Console)
+    bing: str | None = None  # msvalidate.01 (Bing Webmaster Tools)
+    pinterest: str | None = None  # p:domain_verify (Pinterest)
+    yandex: str | None = None  # yandex-verification (Yandex Webmaster)
+
+
+class SiteSeo(_MarvinModel):
+    """
+    Structured SEO / social-sharing metadata for a workspace's published site.
+
+    Stored under ``group_preferences.site_metadata_json['seo']`` and surfaced here, typed,
+    as ``site.seo`` on the publishing API. Every field is optional — a consuming site is
+    expected to fall back to the matching identity value (title, description, canonical_url)
+    when a field is absent. Marvin stores and serves these values; the rendering layer emits
+    the actual ``<meta>``/Open Graph/Twitter tags.
+    """
+
+    # Search / core meta
+    title: str | None = None
+    """Meta title override. Falls back to the site title."""
+    title_template: str | None = None
+    """Per-page title pattern, e.g. ``"%s | Brand"`` (``%s`` = the page title)."""
+    description: str | None = None
+    """Meta description. Falls back to the site description."""
+    keywords: list[str] = Field(default_factory=list)
+    """Keyword list (low ranking value, but some frameworks still emit them)."""
+    robots: str = "index,follow"
+    """robots meta directive, e.g. ``index,follow`` or ``noindex,nofollow``."""
+
+    # Social sharing (Open Graph + Twitter/X)
+    image: str | None = None
+    """Default share image URL (Open Graph + Twitter). Recommended 1200×630."""
+    image_alt: str | None = None
+    """Alt text for the share image (og:image:alt)."""
+    og_type: str = "website"
+    """Open Graph type: website, article, profile, book."""
+    site_name: str | None = None
+    """og:site_name — the brand name, distinct from the page title."""
+    twitter_card: str = "summary_large_image"
+    """Twitter card style: summary_large_image or summary."""
+    twitter_handle: str | None = None
+    """twitter:site — the site's @handle."""
+    twitter_creator: str | None = None
+    """twitter:creator — the content author's @handle."""
+    fb_app_id: str | None = None
+    """fb:app_id — Facebook app id for domain insights."""
+
+    # Branding / structured data
+    theme_color: str | None = None
+    """<meta name="theme-color"> — browser chrome / PWA color (e.g. #4f9c84)."""
+    publisher: str | None = None
+    """Publisher / organization name for structured data (JSON-LD, article:publisher)."""
+
+    verification: SiteSeoVerification = Field(default_factory=SiteSeoVerification)
+    """Search-engine ownership verification tokens."""
+
+
+class SiteEmbeds(_MarvinModel):
+    """How a site shows media embeds. Stored under ``group_preferences.site_metadata_json['embeds']``
+    (``mode``, ``consentText``); ``frame_sources`` is computed from Marvin's provider registry."""
+
+    mode: Literal["direct", "click_to_load"] = "click_to_load"
+    """``click_to_load`` (default): a facade — nothing third-party loads until the visitor clicks.
+    ``direct``: the player iframe itself."""
+    consent_text: str = DEFAULT_CONSENT_TEXT
+    """Shown on the click-to-load facade; ``{provider}`` is replaced with the provider's name."""
+    frame_sources: list[str] = Field(default_factory=list)
+    """Every origin a Marvin-built player may load from (for a site's ``frame-src``)."""
 
 
 class SiteConfiguration(_MarvinModel):
@@ -409,6 +630,12 @@ class SiteConfiguration(_MarvinModel):
 
     social: dict | None = None
     """Social media links (e.g., {instagram: 'url', facebook: 'url'})."""
+
+    seo: SiteSeo | None = None
+    """Structured SEO / social-sharing metadata (also present under ``metadata.seo``)."""
+
+    embeds: SiteEmbeds = Field(default_factory=SiteEmbeds)
+    """Media-embed privacy mode, consent text and the player origins (always present)."""
 
     metadata: dict | None = Field(default=None, serialization_alias="metadataJson")
     """Framework-specific or custom site metadata."""

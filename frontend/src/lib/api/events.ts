@@ -3,8 +3,8 @@
  * Migrated to use @inneropen/marvin-sdk
  */
 
-import { createSdkClient } from '../sdk';
-import type { EventOption } from '@inneropen/marvin-sdk/platform';
+import type { EventOption } from "@inneropen/marvin-sdk/platform";
+import { createSdkClient } from "../sdk";
 
 export type { EventOption };
 

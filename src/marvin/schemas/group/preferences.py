@@ -7,12 +7,13 @@ settings associated with a user group, such as privacy settings or display optio
 like the first day of the week.
 """
 
-from pydantic import UUID4, ConfigDict  # For UUID type and Pydantic model configuration
+from pydantic import UUID4, ConfigDict, field_validator  # For UUID type and Pydantic model configuration
 from sqlalchemy.orm.interfaces import LoaderOption  # Type for loader options
 
 # Corresponding SQLAlchemy models (used in loader_options)
 # from marvin.db.models.groups import Groups # Groups model itself is used in a potentially confusing way in loader_options
 from marvin.schemas._marvin import _MarvinModel  # Base Pydantic model
+from marvin.schemas.platform.submission_protection import SubmissionProtectionOverride
 
 
 class GroupPreferencesCreate(_MarvinModel):
@@ -55,11 +56,18 @@ class GroupPreferencesCreate(_MarvinModel):
     site_timezone: str | None = "America/New_York"
     """The timezone for the site (e.g., America/New_York)."""
     site_contact_email: str | None = None
+    site_auto_rebuild: bool = True
     """Primary contact email for the site."""
     site_social_json: dict | None = None
     """DEPRECATED: Social media links. Use site_metadata_json with 'social' key instead."""
     site_metadata_json: dict | None = None
     """Flexible metadata for framework-specific settings. Include social links under 'social' key, SEO under 'seo', etc."""
+    submission_protection_json: dict | None = None
+    """Workspace override of the platform submission-protection defaults; null fields inherit."""
+    scheduled_publish_requires_approval: bool = False
+    """Scheduled publish only publishes due entries whose status is 'approved'; the others wait."""
+    trash_auto_empty_days: int | None = None
+    """Days an entry stays in the Trash before it is deleted forever (0 = never); null inherits the platform default."""
 
     model_config = ConfigDict(from_attributes=True)  # Allows creating from ORM model attributes
 
@@ -105,11 +113,28 @@ class GroupPreferencesUpdate(_MarvinModel):  # Typically, update schemas allow p
     site_timezone: str | None = None
     """Optional: The timezone for the site (e.g., America/New_York)."""
     site_contact_email: str | None = None
+    site_auto_rebuild: bool | None = None
     """Optional: Primary contact email for the site."""
     site_social_json: dict | None = None
     """Optional: DEPRECATED - Social media links. Use site_metadata_json with 'social' key instead."""
     site_metadata_json: dict | None = None
     """Optional: Flexible metadata for framework-specific settings. Include social links under 'social' key, SEO under 'seo', etc."""
+    submission_protection_json: SubmissionProtectionOverride | None = None
+    """Optional: workspace override of the platform submission-protection defaults; null fields inherit."""
+    scheduled_publish_requires_approval: bool | None = None
+    """Optional: scheduled publish only publishes due entries whose status is 'approved'."""
+    trash_auto_empty_days: int | None = None
+    """Optional: days an entry stays in the Trash before it is deleted forever (0 = never). An explicit null
+    goes back to inheriting the platform default."""
+
+    @field_validator("trash_auto_empty_days")
+    @classmethod
+    def validate_trash_auto_empty_days(cls, value: int | None) -> int | None:
+        from marvin.services.entries.trash import AUTO_EMPTY_CHOICES
+
+        if value is not None and value not in AUTO_EMPTY_CHOICES:
+            raise ValueError(f"trash_auto_empty_days must be one of {', '.join(map(str, AUTO_EMPTY_CHOICES))} (0 = never), or null")
+        return value
 
     model_config = ConfigDict(from_attributes=True)
 

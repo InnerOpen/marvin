@@ -1,8 +1,8 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import type { GroupRead, WorkspaceRole } from "@/lib/api/types";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
-import type { WorkspaceRole, GroupRead } from "@/lib/api/types";
 
 const authToken = getAuthToken(Astro.cookies);
 
@@ -15,7 +15,7 @@ if (!authToken) {
   try {
     workspace = await getCurrentWorkspace(authToken);
   } catch (e) {
-    console.error('[members/new] Error:', e);
+    console.error("[members/new] Error:", e);
     error = e instanceof Error ? e.message : String(e);
   }
 }
@@ -39,7 +39,7 @@ const roleDescriptions: Record<WorkspaceRole, string> = {
 };
 ---
 
-<AppLayout title="Add Member" eyebrow="Workspace">
+<AppLayout crumb="settings.members.new">
   <div class="page-header">
     <div>
       <h2>Invite Workspace Member</h2>
@@ -143,6 +143,7 @@ const roleDescriptions: Record<WorkspaceRole, string> = {
       const tokenResponse = await sdk.invites.create({
         uses_left: 1,
         group_id: workspaceId,
+        workspace_role: formData.get('workspace_role'),
       } as any) as { token: string };
 
       // Build the invitation URL
@@ -174,11 +175,16 @@ const roleDescriptions: Record<WorkspaceRole, string> = {
       }
 
       if (emailStatus) {
+        // The address and the error are text, never markup.
+        const status = document.createElement('p');
         if (emailSuccess) {
-          emailStatus.innerHTML = '<p class="status-success">✓ Email sent successfully to ' + formData.get('email') + '</p>';
+          status.className = 'status-success';
+          status.textContent = `✓ Email sent successfully to ${formData.get('email')}`;
         } else {
-          emailStatus.innerHTML = '<p class="status-error">⚠ Email failed to send: ' + emailError + '<br>Please share the link above manually.</p>';
+          status.className = 'status-error';
+          status.append(`⚠ Email failed to send: ${emailError}`, document.createElement('br'), 'Please share the link above manually.');
         }
+        emailStatus.replaceChildren(status);
       }
 
       if (modal) {

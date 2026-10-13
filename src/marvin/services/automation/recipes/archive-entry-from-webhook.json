@@ -1,0 +1,25 @@
+{
+  "name": "A webhook call finds an entry by slug and archives it",
+  "definition": {
+    "trigger": {
+      "type": "incoming_webhook",
+      "webhook": "{{incoming_webhook}}"
+    },
+    "actions": [
+      {
+        "kind": "entry",
+        "op": "archive",
+        "entity_slug": "${event.payload.slug}",
+        "id": "archive"
+      }
+    ],
+    "on_failure": [
+      {
+        "kind": "entry",
+        "op": "request_review",
+        "entity_slug": "${event.payload.slug}",
+        "reason": "${error.message}"
+      }
+    ]
+  }
+}

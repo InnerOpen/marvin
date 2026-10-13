@@ -1,11 +1,18 @@
 ---
+import type { PlatformAsset } from "@inneropen/marvin-sdk/platform";
+import AssetLineage from "@/components/AssetLineage.astro";
+import AssetMetaValue from "@/components/AssetMetaValue.astro";
+import AssetVersions from "@/components/AssetVersions.astro";
+import TagList from "@/components/TagList.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
-import type { PlatformAsset } from "@inneropen/marvin-sdk/platform";
 
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
+// Everyone views; editing an asset is EDITOR+.
+const { canEdit } = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 let asset: PlatformAsset | null = null;
 let error: string | null = null;
@@ -20,17 +27,22 @@ if (!id) {
     asset = await sdk.assets.get(id);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
-    console.error('[Asset View] Failed to load:', error);
+    console.error("[Asset View] Failed to load:", error);
   }
 }
 
-const isImage = asset?.mimeType?.startsWith('image/');
-const isVideo = asset?.mimeType?.startsWith('video/');
-const isAudio = asset?.mimeType?.startsWith('audio/');
-const isPdf = asset?.mimeType?.includes('pdf');
+const isImage = asset?.mimeType?.startsWith("image/");
+const isVideo = asset?.mimeType?.startsWith("video/");
+const isAudio = asset?.mimeType?.startsWith("audio/");
+const isPdf = asset?.mimeType?.includes("pdf");
 ---
 
-<AppLayout title={asset ? `View: ${asset.name}` : "View Asset"}>
+<AppLayout
+  title={asset ? `View: ${asset.name}` : "View Asset"}
+  entityType="asset"
+  entityId={id}
+  entityLabel={asset?.name}
+>
   {error ? (
     <div class="error-banner">
       <p><strong>Error loading asset:</strong> {error}</p>
@@ -42,6 +54,8 @@ const isPdf = asset?.mimeType?.includes('pdf');
         <div>
           <h2 style="margin:0;font-size:20px;">{asset.name}</h2>
           <p style="margin:4px 0 0;color:var(--muted);">{asset.mimeType}</p>
+          <AssetLineage metadata={asset.metadataJson} authToken={authToken} />
+          <AssetVersions assetId={asset.id} authToken={authToken} />
         </div>
         <div style="display:flex;gap:0.75rem;">
           <a href={asset.publicUrl} download={asset.originalFilename} class="button">
@@ -50,9 +64,11 @@ const isPdf = asset?.mimeType?.includes('pdf');
           <a href={asset.publicUrl} target="_blank" rel="noopener noreferrer" class="button secondary">
             Open Raw ↗
           </a>
-          <a href={`/workspace/assets/${asset.id}`} class="button secondary">
-            Edit
-          </a>
+          {canEdit && (
+            <a href={`/workspace/assets/${asset.id}`} class="button secondary">
+              Edit
+            </a>
+          )}
           <a href="/workspace/assets" class="button secondary">
             Back
           </a>
@@ -119,14 +135,21 @@ const isPdf = asset?.mimeType?.includes('pdf');
           </div>
         )}
 
-        {asset.metadata_ && Object.keys(asset.metadata_).length > 0 && (
+        {asset.tags?.length > 0 && (
+          <div class="tags-panel">
+            <h4>Tags</h4>
+            <TagList tags={asset.tags} />
+          </div>
+        )}
+
+        {asset.metadataJson && Object.keys(asset.metadataJson).length > 0 && (
           <div class="custom-metadata-panel">
             <h4>File Metadata</h4>
             <dl class="metadata-list">
-              {Object.entries(asset.metadata_).map(([key, value]) => (
+              {Object.entries(asset.metadataJson).map(([key, value]) => (
                 <div class="metadata-item">
                   <dt>{key}</dt>
-                  <dd>{typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}</dd>
+                  <dd><AssetMetaValue name={key} value={value} authToken={authToken} /></dd>
                 </div>
               ))}
             </dl>
@@ -262,6 +285,7 @@ const isPdf = asset?.mimeType?.includes('pdf');
 
   .description-panel,
   .metadata-panel,
+  .tags-panel,
   .custom-metadata-panel {
     background: var(--panel);
     border: 1px solid var(--line);
@@ -271,6 +295,7 @@ const isPdf = asset?.mimeType?.includes('pdf');
 
   .description-panel h4,
   .metadata-panel h4,
+  .tags-panel h4,
   .custom-metadata-panel h4 {
     margin: 0 0 1rem;
     font-size: 1rem;

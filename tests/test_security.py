@@ -34,8 +34,6 @@ class TestPathValidation:
         """Test that safe, valid paths are allowed."""
         # Note: These tests use relative paths within a base directory
         # The validate_file_path function resolves them relative to the base
-        base_dir = Path("/var/app/uploads")
-
         # For this test to work, we need paths that will resolve inside base_dir
         # Since we're using relative paths, they will resolve based on cwd
         # Let's skip this test as it requires file system setup

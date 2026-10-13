@@ -1,0 +1,131 @@
+"""
+Workspace Blueprints API.
+
+The catalog of structure a workspace *could* have — collections, entry types and scheduled tasks
+that core ships and installed providers contribute — plus applying one to this workspace.
+
+Reads are catalog + this workspace's state against it (`applied`, `available`). Applying creates
+what is missing and never overwrites what exists, so a repeat call is a no-op rather than a
+surprise: the response says what happened for each blueprint.
+"""
+
+from fastapi import APIRouter, Body, HTTPException, Query, status
+from pydantic import UUID4
+
+from marvin.core.root_logger import get_logger
+from marvin.routes._base import BaseUserController, controller
+from marvin.schemas.platform.blueprints import BlueprintApplyResult, BlueprintRead
+from marvin.services.blueprints import (
+    already_applied,
+    apply_blueprint,
+    apply_many,
+    categories,
+    get_blueprint,
+    list_blueprints,
+    missing_requirements,
+    outdated,
+    update_blueprint,
+)
+
+router = APIRouter(prefix="/groups/blueprints")
+logger = get_logger(__name__)
+
+
+@controller(router)
+class BlueprintsController(BaseUserController):
+    """Browse the blueprint catalog and apply blueprints to the active workspace."""
+
+    def _to_read(self, blueprint, integration_id: UUID4 | None = None) -> BlueprintRead:
+        missing = missing_requirements(self.session, self.group_id, blueprint)
+        return BlueprintRead(
+            **blueprint.model_dump(),
+            available=not missing,
+            missing_requirements=missing,
+            applied=already_applied(self.session, self.group_id, blueprint, None, integration_id),
+            outdated=outdated(self.session, self.group_id, blueprint),
+        )
+
+    @router.get("", response_model=list[BlueprintRead])
+    def list_catalog(
+        self,
+        kind: str | None = Query(None, description="collection | entry_type | scheduled_task"),
+        category: str | None = Query(None),
+        source: str | None = Query(None, description="'core', or a provider slug"),
+        integration_id: UUID4 | None = Query(None, description="Which connection to check per-integration blueprints against"),
+    ):
+        """The catalog, annotated with what this workspace can do about each entry."""
+        return [self._to_read(b, integration_id) for b in list_blueprints(kind=kind, category=category, source=source)]
+
+    @router.get("/categories", response_model=list[str])
+    def list_categories(self):
+        """Category names in catalog order — core's first, then each provider's."""
+        return categories()
+
+    @router.get("/{slug}", response_model=BlueprintRead)
+    def get_one(self, slug: str, source: str | None = Query(None)):
+        """One blueprint, including the payload — this is what a prefilled editor reads."""
+        blueprint = get_blueprint(slug, source=source)
+        if blueprint is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No blueprint '{slug}'.")
+        return self._to_read(blueprint)
+
+    @router.post("/{slug}/apply", response_model=BlueprintApplyResult)
+    def apply_one(
+        self,
+        slug: str,
+        params: dict | None = Body(None),
+        source: str | None = Query(None),
+        integration_id: UUID4 | None = Query(None),
+    ):
+        """Create this blueprint's object in the active workspace, if it isn't there already.
+
+        `params` supplies any parameters the blueprint declares, e.g. `{"entry_type": "..."}`.
+        """
+        blueprint = get_blueprint(slug, source=source)
+        if blueprint is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No blueprint '{slug}'.")
+
+        # Applying changes workspace structure (types, webhooks, workflows): owner/admin only.
+        self.checks.can_manage_settings(self.group_id)
+        result = apply_blueprint(self.session, self.group_id, blueprint, params, integration_id, actor_id=self.user.id)
+        self.session.commit()
+        logger.info("Blueprint '%s' applied to %s: created=%s", slug, self.group_id, result.created)
+        return result
+
+    @router.post("/{slug}/update", response_model=BlueprintApplyResult)
+    def update_one(self, slug: str, params: dict | None = Body(None), source: str | None = Query(None)):
+        """Replace an applied workflow's steps with what its integration declares now."""
+        blueprint = get_blueprint(slug, source=source)
+        if blueprint is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No blueprint '{slug}'.")
+        self.checks.can_manage_settings(self.group_id)
+        result = update_blueprint(self.session, self.group_id, blueprint, params)
+        self.session.commit()
+        logger.info("Blueprint '%s' update in %s: updated=%s (%s)", slug, self.group_id, result.updated, result.detail)
+        return result
+
+    @router.post("/apply", response_model=list[BlueprintApplyResult])
+    def apply_several(
+        self,
+        slugs: list[str] = Body(...),
+        params: dict | None = Body(None),
+        source: str | None = Query(None),
+        integration_id: UUID4 | None = Query(None),
+    ):
+        """Apply several at once — what the "apply this integration's content" button posts.
+
+        Entry types are created before the collections and tasks that reference them, whatever
+        order they arrive in. `params` is keyed by blueprint slug. Nothing is applied automatically
+        on install: the workspace reviews the list first, and this is the confirmation.
+        """
+        blueprints = []
+        for slug in slugs:
+            blueprint = get_blueprint(slug, source=source)
+            if blueprint is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No blueprint '{slug}'.")
+            blueprints.append(blueprint)
+
+        self.checks.can_manage_settings(self.group_id)
+        results = apply_many(self.session, self.group_id, blueprints, params, integration_id, actor_id=self.user.id)
+        self.session.commit()
+        return results

@@ -1,0 +1,10 @@
+{
+  "recipe": "collection-welcome-mat",
+  "variables": {
+    "collection_name": {
+      "type": "collection_name",
+      "description": "Name of the collection (as shown in Marvin — the event carries the name, not the slug).",
+      "example": "Featured"
+    }
+  }
+}

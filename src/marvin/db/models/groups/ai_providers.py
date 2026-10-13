@@ -20,9 +20,7 @@ class AIProviderModel(SqlAlchemyBase, BaseMixins):
     __tablename__ = "ai_providers"
 
     id: Mapped[GUID] = mapped_column(GUID, primary_key=True, default=GUID.generate)
-    group_id: Mapped[GUID] = mapped_column(
-        GUID, sa.ForeignKey("groups.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    group_id: Mapped[GUID] = mapped_column(GUID, sa.ForeignKey("groups.id", ondelete="CASCADE"), nullable=False, index=True)
     group: Mapped[Optional["Groups"]] = orm.relationship("Groups", back_populates="ai_providers")
 
     name: Mapped[str] = mapped_column(sa.String, nullable=False)
@@ -57,9 +55,7 @@ class AIModelModel(SqlAlchemyBase, BaseMixins):
     __tablename__ = "ai_models"
 
     id: Mapped[GUID] = mapped_column(GUID, primary_key=True, default=GUID.generate)
-    provider_id: Mapped[GUID] = mapped_column(
-        GUID, sa.ForeignKey("ai_providers.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    provider_id: Mapped[GUID] = mapped_column(GUID, sa.ForeignKey("ai_providers.id", ondelete="CASCADE"), nullable=False, index=True)
     provider: Mapped["AIProviderModel"] = orm.relationship("AIProviderModel", back_populates="models")
     # Denormalised for easy workspace-level queries
     group_id: Mapped[GUID] = mapped_column(GUID, nullable=False, index=True)

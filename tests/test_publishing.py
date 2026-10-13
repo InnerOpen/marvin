@@ -4,7 +4,6 @@ Tests for publishing API endpoints.
 Verifies that publishing endpoints work correctly and handle errors properly.
 """
 
-import pytest
 from fastapi.testclient import TestClient
 
 
@@ -89,3 +88,139 @@ class TestPublishingPerformance:
         # 3. Query count instrumentation
         # For now, just verify the endpoint structure is correct
         pass
+
+
+class TestPublishedEntryDataNormalization:
+    """`PublishedEntryRead.data` must always be an object, even when the entry stores no custom
+    data (``data_json`` is SQL NULL). Regression: a NULL ``data_json`` used to fail response
+    validation and 500 the published-entry endpoint."""
+
+    def _read(self, **overrides):
+        from marvin.schemas.publishing import PublishedEntryRead
+
+        base = {"slug": "x", "title": "X", "entry_type": "page"}
+        base.update(overrides)
+        return PublishedEntryRead(**base)
+
+    def test_null_data_normalizes_to_empty_dict(self):
+        assert self._read(data=None).data == {}
+
+    def test_missing_data_defaults_to_empty_dict(self):
+        assert self._read().data == {}
+
+    def test_dict_data_is_preserved(self):
+        assert self._read(data={"body": "hello"}).data == {"body": "hello"}
+
+
+class TestPublishedEntryListItemCarriesData:
+    """List items carry the entry's schema fields so a site can render a collection from one
+    request. Without this, clients re-fetch every entry (N+1); on a 280-entry collection that
+    timed out and dropped entries. ``data`` follows the same never-null contract as the detail."""
+
+    def _item(self, **overrides):
+        from marvin.schemas.publishing import PublishedEntryListItem
+
+        base = {"slug": "x", "title": "X", "entry_type": "artwork", "status": "published"}
+        base.update(overrides)
+        return PublishedEntryListItem(**base)
+
+    def test_list_item_data_is_preserved(self):
+        assert self._item(data={"medium": "Acrylic on canvas", "size": "20 × 20 in"}).data == {
+            "medium": "Acrylic on canvas",
+            "size": "20 × 20 in",
+        }
+
+    def test_list_item_null_data_normalizes_to_empty_dict(self):
+        assert self._item(data=None).data == {}
+
+    def test_list_item_missing_data_defaults_to_empty_dict(self):
+        assert self._item().data == {}
+
+    def test_list_item_serializes_data_and_description(self):
+        dumped = self._item(data={"body": "hi"}, description="A lede").model_dump(by_alias=True)
+        assert dumped["data"] == {"body": "hi"}
+        assert dumped["description"] == "A lede"
+
+    def test_entry_to_list_item_copies_data_json_and_description(self):
+        from types import SimpleNamespace
+
+        from marvin.routes.publish.publishing_controller import _entry_to_list_item
+
+        entry = SimpleNamespace(
+            slug="weightless-hour",
+            title="Weightless Hour",
+            entry_type=SimpleNamespace(slug="artwork", rendering_json=None, capabilities_json=None),
+            summary="Acrylic on canvas",
+            description="Sold. 20 × 20 in.",
+            data_json={"medium": "Acrylic on canvas", "status": "sold"},
+            metadata_json=None,
+            published_at=None,
+            status="published",
+            entry_collections=[],
+            entry_assets=[],
+            entry_resources=[],
+            tag_names=[],
+        )
+
+        item = _entry_to_list_item(entry, "grace-martin-franklin")
+
+        assert item.data == {"medium": "Acrylic on canvas", "status": "sold"}
+        assert item.description == "Sold. 20 × 20 in."
+
+
+class TestNonPublishableTypesStayPrivate:
+    """Entries of a type with `publishable: false` (submissions) are never served by the publishing
+    API, even when a workflow moves them to `published` as a lifecycle status."""
+
+    def test_non_publishable_ids_picks_only_explicit_false(self):
+        from types import SimpleNamespace
+
+        from marvin.services.publish_visibility import non_publishable_type_ids
+
+        types = [
+            SimpleNamespace(id="newsletter", capabilities_json={"publishable": False, "submittable": True}),
+            SimpleNamespace(id="artwork", capabilities_json={"publishable": True}),
+            SimpleNamespace(id="page", capabilities_json=None),
+            SimpleNamespace(id="legacy", capabilities_json={}),
+        ]
+        assert non_publishable_type_ids(types) == ["newsletter"]
+
+    def test_only_publishable_types_filters_when_needed(self):
+        from types import SimpleNamespace
+
+        from marvin.routes.publish.publishing_controller import _only_publishable_types
+
+        calls = []
+
+        class _Q:
+            def filter(self, *a):
+                calls.append(a)
+                return self
+
+            def all(self):
+                return [SimpleNamespace(id="t-private", capabilities_json={"publishable": False})]
+
+        session = SimpleNamespace(query=lambda model: _Q())
+        base = _Q()
+        out = _only_publishable_types(session, "G", base)
+        assert out is base and len(calls) == 2  # the type lookup filter + the notin_ filter
+
+    def test_only_publishable_types_is_a_no_op_without_private_types(self):
+        from types import SimpleNamespace
+
+        from marvin.routes.publish.publishing_controller import _only_publishable_types
+
+        class _Q:
+            def __init__(self):
+                self.filters = 0
+
+            def filter(self, *a):
+                self.filters += 1
+                return self
+
+            def all(self):
+                return [SimpleNamespace(id="t", capabilities_json={"publishable": True})]
+
+        base = _Q()
+        session = SimpleNamespace(query=lambda model: _Q())
+        assert _only_publishable_types(session, "G", base) is base and base.filters == 0

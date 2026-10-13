@@ -1,21 +1,24 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
-import Breadcrumb from "@/components/Breadcrumb.astro";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { getBrowserFetchBaseUrl } from "@/lib/api/config";
+import { canManageCurrentWorkspace, getCurrentWorkspace } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
-import { getAuthToken, fetchApi } from "@/lib/api/client";
-import { getCurrentWorkspace } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
+// Admin-only page (the API refuses members with a 403); if the role can't be read, let the API decide.
+const adminOnly = !(await canManageCurrentWorkspace(authToken!).catch(() => true));
 const sdk = createSdkClient(authToken);
 const { id } = Astro.params;
 
 let template: any = null;
 let eventOptions: any[] = [];
 let subscriptions: any[] = [];
+let systemEmails: any[] = [];
 let wsId: string | null = null;
 let error: string | null = null;
 
-const apiUrl = import.meta.env.PUBLIC_MARVIN_API_URL || 'http://localhost:8080';
+const apiUrl = getBrowserFetchBaseUrl();
 
 try {
   const workspace = await getCurrentWorkspace(authToken!);
@@ -23,37 +26,44 @@ try {
 
   if (!wsId) throw new Error("Could not determine workspace ID");
 
-  [template, eventOptions, subscriptions] = await Promise.all([
+  [template, eventOptions, subscriptions, systemEmails] = await Promise.all([
     fetchApi<any>(`/api/platform/workspaces/${wsId}/email-templates/${id}`, {}, authToken),
-    sdk.events.getOptions().then((r: any) => Array.isArray(r) ? r : (r?.items ?? [])).catch(() => []),
-    fetchApi<any[]>('/api/groups/email-event-subscriptions', {}, authToken).catch(() => []),
+    sdk.events
+      .getOptions()
+      .then((r: any) => (Array.isArray(r) ? r : (r?.items ?? [])))
+      .catch(() => []),
+    fetchApi<any[]>("/api/groups/email-event-subscriptions", {}, authToken).catch(() => []),
+    // Marvin's own emails a workspace template can replace, with their events' variables (from the catalog).
+    fetchApi<any[]>(`/api/platform/workspaces/${wsId}/email-templates/system-emails`, {}, authToken).catch(() => []),
   ]);
 } catch (e) {
-  console.error('[email/edit] Error:', e);
+  console.error("[email/edit] Error:", e);
   error = e instanceof Error ? e.message : String(e);
 }
 
 if (!template && !error) {
-  return Astro.redirect('/workspace/settings/email');
+  return Astro.redirect("/workspace/settings/email");
 }
 
 const isSystem = template && !(template.groupId ?? template.group_id);
-const templateType: string = template?.templateType ?? template?.template_type ?? '';
+const templateType: string = template?.templateType ?? template?.template_type ?? "";
 
 // Subscriptions for this template
-const mySubscriptions = (subscriptions ?? []).filter((s: any) =>
-  (s.template_id ?? s.templateId) === id
-);
+const mySubscriptions = (subscriptions ?? []).filter((s: any) => (s.template_id ?? s.templateId) === id);
 const subscribedEvents = new Set(mySubscriptions.map((s: any) => s.event_type ?? s.eventType));
 
-// System template event mapping (mirrors backend SYSTEM_TEMPLATE_EVENT_MAP)
-const SYSTEM_EVENT_MAP: Record<string, string> = {
-  invitation: "invitation_sent",
-  password_reset: "user_password_reset_requested",
-  welcome: "user_signup",
-};
-const systemHardcodedEvent = SYSTEM_EVENT_MAP[templateType] ?? null;
+// The system email this template type replaces (welcome, password reset, invitation), if any: its event isn't
+// offered on the workspace's event list (sign-ups and password resets are platform events), so the page offers the
+// replacement itself, with that email's own variables.
+const systemEmail: any = (systemEmails ?? []).find((s: any) => s.templateType === templateType) ?? null;
+const systemHardcodedEvent: string | null = systemEmail?.eventType ?? null;
 const isAutoConnected = systemHardcodedEvent ? subscribedEvents.has(systemHardcodedEvent) : false;
+const replacesNow = !!systemEmail && (systemEmail.replacedBy ?? []).includes(id);
+const replacedByOther = !!systemEmail && !replacesNow && (systemEmail.replacedBy ?? []).length > 0;
+const replaceLabel = systemEmail ? `Marvin's ${systemEmail.label}` : "";
+const replaceRecipient = systemEmail
+  ? { recipient_type: systemEmail.recipientType, recipient_field: systemEmail.recipientField }
+  : null;
 
 // Sub ID map: event_type → subscription id (for deletes)
 const subIdMap: Record<string, string> = {};
@@ -65,29 +75,23 @@ for (const s of mySubscriptions) {
 // Collect event variables from connected events
 const connectedEventTypes = [
   ...(systemHardcodedEvent ? [systemHardcodedEvent] : []),
-  ...[...subscribedEvents].filter(e => e !== systemHardcodedEvent),
+  ...[...subscribedEvents].filter((e) => e !== systemHardcodedEvent),
 ];
 
 const eventVarSeen = new Set();
 const eventVars: Array<{ slug: string; description: string; example: string; fromEvent: string }> = [];
 for (const evtType of connectedEventTypes) {
-  const evtInfo = eventOptions.find((e: any) => e.value === evtType);
-  for (const v of (evtInfo?.variables ?? [])) {
+  const evtInfo = evtType === systemHardcodedEvent ? systemEmail : eventOptions.find((e: any) => e.value === evtType);
+  for (const v of evtInfo?.variables ?? []) {
     if (!eventVarSeen.has(v.slug)) {
       eventVarSeen.add(v.slug);
-      eventVars.push({ slug: v.slug, description: v.description ?? '', example: v.example ?? '', fromEvent: evtType });
+      eventVars.push({ slug: v.slug, description: v.description ?? "", example: v.example ?? "", fromEvent: evtType });
     }
   }
 }
 ---
 
-<AppLayout title={template?.name ?? 'Edit Template'} eyebrow="Workspace Settings">
-  <Breadcrumb items={[
-    { label: "Workspace Settings", href: "/workspace/settings" },
-    { label: "Email Settings", href: "/workspace/settings/email" },
-    { label: template?.name ?? "Edit Template" }
-  ]} />
-
+<AppLayout crumb="settings.email.template" adminOnly={adminOnly} title={template?.name ?? 'Edit Template'}>
   {error ? (
     <div class="alert alert-error"><strong>Error:</strong> {error}</div>
   ) : template ? (
@@ -222,11 +226,13 @@ for (const evtType of connectedEventTypes) {
         <div class="form-section">
           <div class="section-header">
             <div>
-              <h3>Event Subscriptions</h3>
+              <h3>{systemEmail ? (isSystem ? "When it's sent" : `Replaces ${replaceLabel}`) : "Event Subscriptions"}</h3>
               <p class="section-description">
-                {isSystem || systemHardcodedEvent
-                  ? "This template is connected to its event automatically."
-                  : "Select which events should trigger this email template."}
+                {systemEmail
+                  ? `Sent on ${systemEmail.eventName} (${systemEmail.eventType}) to the address in the event.`
+                  : isSystem
+                    ? "This template is connected to its event automatically."
+                    : "Select which events should trigger this email template."}
               </p>
             </div>
             {!isSystem && !systemHardcodedEvent && (
@@ -238,22 +244,35 @@ for (const evtType of connectedEventTypes) {
             )}
           </div>
 
-          {(isSystem || systemHardcodedEvent) && systemHardcodedEvent ? (
-            <div class="system-event-row">
-              <div class="event-chip" class:list={[{ 'chip-disconnected': !isSystem && !isAutoConnected }]}>
+          {systemEmail && isSystem ? (
+            <div class="system-event-row" id="system-email-state">
+              <div class="event-chip" class:list={[{ 'chip-disconnected': !systemEmail.systemSends }]}>
                 <span class="chip-icon">&#9679;</span>
-                <span class="chip-label">{systemHardcodedEvent}</span>
-                {isSystem && <span class="chip-badge">Always connected</span>}
-                {!isSystem && isAutoConnected && <span class="chip-badge">Connected</span>}
-                {!isSystem && !isAutoConnected && <span class="chip-badge chip-badge-off">Not connected</span>}
+                <span class="chip-label">{systemEmail.eventName}</span>
+                {systemEmail.systemSends
+                  ? <span class="chip-badge">Sending</span>
+                  : <span class="chip-badge chip-badge-off">Replaced</span>}
               </div>
               <p class="system-event-note">
-                {isSystem
-                  ? <>Always fires on <code>{systemHardcodedEvent}</code> — managed by the system.</>
+                {systemEmail.systemSends
+                  ? <>Marvin sends this email unless a workspace template replaces it. <a href={`/workspace/settings/email?customize=${id}`}>Create a workspace version</a> to replace it.</>
+                  : <>A workspace template replaces this email, so Marvin doesn't send it.</>}
+              </p>
+            </div>
+          ) : systemEmail ? (
+            <div class="system-event-row" id="system-email-state">
+              <label class="checkbox-label">
+                <input type="checkbox" id="replace-system" checked={isAutoConnected} />
+                <span>Send this template instead of {replaceLabel}</span>
+              </label>
+              <p class="system-event-note">
+                {replacesNow
+                  ? <>On: Marvin sends this template instead of its own {systemEmail.label}.</>
                   : isAutoConnected
-                    ? <>Connected to <code>{systemHardcodedEvent}</code>. <a href={`/automation/events/${systemHardcodedEvent}`}>Manage in Events</a>.</>
-                    : <>Not connected. <a href={`/automation/events/${systemHardcodedEvent}`}>Connect from the Events page</a> to make this template active.</>
-                }
+                    ? <>Turned on, but this template is switched off, so {replaceLabel} still sends.</>
+                    : replacedByOther
+                      ? <>Off: another workspace template replaces {replaceLabel} now.</>
+                      : <>Off: Marvin sends its own {systemEmail.label}{systemEmail.systemSends ? "" : " (switched off on this install)"}.</>}
               </p>
             </div>
           ) : isSystem ? (
@@ -341,7 +360,7 @@ for (const evtType of connectedEventTypes) {
     </div>
   </div>
 
-  <script define:vars={{ wsId, id, isSystem, systemHardcodedEvent, subIdMap, apiUrl }}>
+  <script define:vars={{ wsId, id, isSystem, systemHardcodedEvent, subIdMap, apiUrl, replaceRecipient }}>
     const GROUP_ID = wsId;
     const TEMPLATE_ID = id;
     const SUB_ID_MAP = subIdMap;
@@ -383,9 +402,15 @@ for (const evtType of connectedEventTypes) {
         const res = await fetch(`${apiUrl}/api/groups/variables`, { credentials: 'include' });
         const vars = res.ok ? await res.json() : [];
         if (!vars.length) { el.textContent = 'none configured'; return; }
-        el.innerHTML = vars.map((v) =>
-          `<code class="ws-var-chip" title="${v.slug}" style="cursor:pointer;background:rgba(79,156,132,0.08);padding:1px 5px;border-radius:3px;font-size:11px;margin:0 2px">{{${v.slug}}}</code>`
-        ).join('');
+        // A variable's slug is text (title and label), never markup.
+        el.replaceChildren(...vars.map((v) => {
+          const chip = document.createElement('code');
+          chip.className = 'ws-var-chip';
+          chip.title = v.slug;
+          chip.style.cssText = 'cursor:pointer;background:rgba(79,156,132,0.08);padding:1px 5px;border-radius:3px;font-size:11px;margin:0 2px';
+          chip.textContent = `{{${v.slug}}}`;
+          return chip;
+        }));
         el.querySelectorAll('.ws-var-chip').forEach(c => {
           c.addEventListener('click', async () => {
             const t = c.title ? `{{${c.title}}}` : c.textContent ?? '';
@@ -519,10 +544,25 @@ for (const evtType of connectedEventTypes) {
           throw new Error(err.detail || `Save failed (${res.status})`);
         }
 
-        // Diff and apply subscription changes
-        // Skip for system-typed templates — their connections are managed from the Events page
+        // A template that can replace Marvin's own email: its one connection is the "Send this template instead"
+        // switch (the event isn't on the workspace's event list), with the system email's recipients.
         if (systemHardcodedEvent) {
+          const want = document.getElementById('replace-system')?.checked ?? false;
+          const subId = SUB_ID_MAP[systemHardcodedEvent];
+          if (want && !subId) {
+            const r = await fetch(`${apiUrl}/api/groups/email-event-subscriptions`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ template_id: TEMPLATE_ID, event_type: systemHardcodedEvent, ...replaceRecipient, enabled: true }),
+            });
+            if (!r.ok) throw new Error(`Couldn't turn on the replacement (${r.status})`);
+          } else if (!want && subId) {
+            const r = await fetch(`${apiUrl}/api/groups/email-event-subscriptions/${subId}`, { method: 'DELETE', credentials: 'include' });
+            if (!r.ok) throw new Error(`Couldn't turn off the replacement (${r.status})`);
+          }
           showBanner('Changes saved');
+          window.location.reload(); // the note under the switch says what sends now
           return;
         }
 
@@ -1046,7 +1086,7 @@ for (const evtType of connectedEventTypes) {
 
   /* Buttons */
   .button { padding: 9px 18px; border-radius: var(--radius); font-size: 14px; font-weight: 500; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
-  .button.primary { background: var(--primary); color: white; border-color: var(--primary); }
+  .button.primary { background: var(--accent); color: white; border-color: var(--accent); }
   .button.secondary { background: transparent; border-color: var(--line); }
   .button.danger { background: var(--color-error); color: white; border-color: var(--color-error); }
   .button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -1065,4 +1105,21 @@ for (const evtType of connectedEventTypes) {
   /* Toast */
   .toast { position: fixed; bottom: 24px; right: 24px; background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: var(--radius); font-size: 14px; font-weight: 500; z-index: 9999; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
   .toast-visible { opacity: 1; }
+
+  /* Phones: section headers and the action row wrap instead of squeezing their text, and the small
+     controls (body tabs, Select All / Clear All, the modal ×) get finger-sized hit areas. */
+  @media (max-width: 640px) {
+    .form-section { padding: 16px; }
+    .section-header { flex-wrap: wrap; gap: 8px 16px; }
+    .link-button { min-height: 36px; }
+    .body-tab { min-height: 36px; }
+    .var-chip { min-height: 32px; }
+    .events-checklist { padding: 8px; }
+    .form-actions { flex-wrap: wrap; }
+    .form-actions .button { flex: 1 1 auto; min-height: 40px; }
+    .modal-header { padding: 16px; }
+    .modal-close { width: 40px; height: 40px; margin: -8px -8px -8px 0; }
+    .modal-actions { flex-wrap: wrap; padding: 16px; }
+    .toast { left: 16px; right: 16px; bottom: 16px; text-align: center; }
+  }
 </style>

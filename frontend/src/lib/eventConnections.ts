@@ -1,0 +1,241 @@
+/**
+ * Events hub: what sends an event type and what reacts to it (the connections API,
+ * `/api/platform/event-types/…` and `/api/admin/event-types/…`). Types and the pure helpers the event page,
+ * the Events catalog and the admin Events page share. Run the tests with `npm test`.
+ */
+
+export type ReactionKind = "workflow" | "integration_action" | "email" | "webhook" | "builtin";
+export type SenderKind = "marvin" | "workflow" | "incoming_webhook" | "scheduled_task";
+
+export interface InstalledBy {
+  integrationId: string;
+  name: string;
+  provider: string;
+  blueprint?: string | null;
+}
+
+export interface EventReaction {
+  kind: ReactionKind;
+  id?: string | null;
+  name: string;
+  enabled: boolean;
+  /** An integration action's or workflow's own switch; `enabled` also needs its integration on. */
+  switchedOn?: boolean | null;
+  detail?: string | null;
+  triggerType?: string | null;
+  managedAt?: string | null;
+  installedBy?: InstalledBy | null;
+}
+
+export interface EventSender {
+  kind: SenderKind;
+  id?: string | null;
+  name: string;
+  enabled: boolean;
+  detail?: string | null;
+  viaWorkflowId?: string | null;
+  viaWorkflowName?: string | null;
+  managedAt?: string | null;
+  installedBy?: InstalledBy | null;
+}
+
+export interface EventTypeRef {
+  eventType: string;
+  name: string;
+}
+
+export interface EventLogRow {
+  id: string;
+  eventId: string;
+  eventType: string;
+  occurredAt: string;
+  messageTitle: string;
+  messageBody?: string | null;
+}
+
+export interface EventConnections {
+  eventType: string;
+  name: string;
+  description: string;
+  category: string;
+  senders: EventSender[];
+  reactions: EventReaction[];
+  audited: boolean;
+  recent: EventLogRow[];
+  leadsTo: EventTypeRef[];
+  causedBy: EventTypeRef[];
+}
+
+export interface EventConnectionCounts {
+  eventType: string;
+  name: string;
+  category: string;
+  senders: number;
+  reactions: number;
+  activeReactions: number;
+  builtinReactions: number;
+  lastOccurredAt?: string | null;
+}
+
+export interface WorkspaceEventReactions {
+  workspaceId: string;
+  workspaceName?: string | null;
+  workspaceSlug?: string | null;
+  reactions: EventReaction[];
+}
+
+export interface AdminEventConnections extends Omit<EventConnections, "audited" | "recent"> {
+  workspaces: WorkspaceEventReactions[];
+}
+
+export interface Group<K, T> {
+  kind: K;
+  label: string;
+  rows: T[];
+}
+
+const REACTION_ORDER: [ReactionKind, string][] = [
+  ["workflow", "Workflows"],
+  ["integration_action", "Integration actions"],
+  ["email", "Emails"],
+  ["webhook", "Webhooks"],
+  ["builtin", "Built-in"],
+];
+
+const SENDER_ORDER: [SenderKind, string][] = [
+  ["marvin", "Marvin"],
+  ["workflow", "Workflows"],
+  ["incoming_webhook", "Incoming webhooks"],
+  ["scheduled_task", "Scheduled tasks"],
+];
+
+function groupBy<K extends string, T extends { kind: K }>(order: [K, string][], rows: T[]): Group<K, T>[] {
+  return order
+    .map(([kind, label]) => ({ kind, label, rows: rows.filter((r) => r.kind === kind) }))
+    .filter((g) => g.rows.length > 0);
+}
+
+/** The reactions by kind, in display order (workflows first, built-in last); empty kinds left out. */
+export function groupReactions(reactions: EventReaction[]): Group<ReactionKind, EventReaction>[] {
+  return groupBy(REACTION_ORDER, reactions);
+}
+
+/** The senders by kind: Marvin's own lines first, then the workspace's workflows, incoming webhooks and tasks. */
+export function groupSenders(senders: EventSender[]): Group<SenderKind, EventSender>[] {
+  return groupBy(SENDER_ORDER, senders);
+}
+
+/** The system email template's row (Marvin's own invitation / reset / welcome email), not a subscription. */
+export function isSystemEmail(r: EventReaction): boolean {
+  return r.kind === "email" && r.detail === "System template";
+}
+
+/**
+ * Whether the event page offers an On/Off switch for a reaction: an integration action's or a workflow's own switch,
+ * including what an integration installed — `enabled` is the admin's switch; its settings stay with the integration
+ * (blueprints never overwrite an existing row, so a switch sticks). Same audited path as the agent's
+ * set_automation_enabled (services/automation/toggle.py).
+ */
+export function switchable(r: EventReaction): boolean {
+  return (r.kind === "integration_action" || r.kind === "workflow") && Boolean(r.id) && typeof r.switchedOn === "boolean";
+}
+
+/** Why a reaction whose own switch is on still won't run, if that's the case. */
+export function switchHint(r: EventReaction): string | null {
+  return r.switchedOn && !r.enabled && r.kind === "integration_action" ? "On, but its integration is switched off, so it won't run." : null;
+}
+
+/**
+ * Whether the event page offers its own controls (edit / disconnect) for a reaction. Emails, webhooks and
+ * integration actions are connected on the event page; workflows, built-ins, the system email and anything an
+ * integration installed are managed where they live, so the page only links there.
+ */
+export function managedHere(r: EventReaction): boolean {
+  if (r.installedBy) return false;
+  if (isSystemEmail(r)) return false;
+  return r.kind === "email" || r.kind === "webhook" || r.kind === "integration_action";
+}
+
+/** One line on the system email row: why it does or doesn't send. */
+export function systemEmailNote(r: EventReaction): string {
+  return r.enabled
+    ? "Marvin's built-in email for this event. It sends unless you connect your own template of this type."
+    : "Marvin's built-in email for this event. Not sent: your own template replaces it, or it's switched off.";
+}
+
+/** The catalog list's state for one event type. */
+export type DotState = "active" | "off" | "none";
+
+export function dotState(c: EventConnectionCounts | undefined): DotState {
+  if (!c || c.reactions === 0) return "none";
+  return c.activeReactions > 0 ? "active" : "off";
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** The catalog chip's tooltip: both directions, counted. */
+export function countsTitle(c: EventConnectionCounts | undefined, now: Date = new Date()): string {
+  if (!c) return "";
+  const off = c.reactions - c.activeReactions;
+  const parts = [
+    c.senders ? `Sent by ${plural(c.senders, "sender")}` : "Nothing sends it yet",
+    c.reactions
+      ? `${plural(c.reactions, "reaction")}${off ? ` (${off} switched off)` : ""}`
+      : "No reactions in this workspace",
+  ];
+  if (c.builtinReactions) parts.push(`${c.builtinReactions} built-in`);
+  if (c.lastOccurredAt) parts.push(`last ${formatWhen(c.lastOccurredAt, now)}`);
+  return parts.join(" · ");
+}
+
+/** "connected" in the catalog: something in the workspace reacts to it (switched off or not). */
+export function isConnected(c: EventConnectionCounts | undefined): boolean {
+  return !!c && c.reactions > 0;
+}
+
+/** API datetimes may carry microseconds and no zone; read them as UTC. */
+export function parseApiDate(iso: string): Date {
+  const trimmed = iso.replace(/(\.\d{3})\d+/, "$1");
+  return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(trimmed) ? trimmed : `${trimmed}Z`);
+}
+
+/** "just now", "5 min ago", "3 hours ago", "2 days ago", then the date. */
+export function formatWhen(iso: string, now: Date = new Date()): string {
+  const d = parseApiDate(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const secs = Math.round((now.getTime() - d.getTime()) / 1000);
+  if (secs < 60) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${plural(hours, "hour")} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${plural(days, "day")} ago`;
+  return d.toISOString().slice(0, 10);
+}
+
+/** Where a recent event opens: its row in the workspace Event Log. */
+export function eventLogHref(eventId: string): string {
+  return `/workspace/events?event=${encodeURIComponent(eventId)}`;
+}
+
+/** The workflow builder, opened on a new workflow triggered by `eventType`. */
+export function newWorkflowHref(eventType: string): string {
+  return `/automation/workflows?trigger=${encodeURIComponent(eventType)}`;
+}
+
+/** The builder's `?trigger=` value, if it's an event the builder can trigger on. */
+export function triggerFromQuery(search: string, triggerable: Iterable<string>): string | null {
+  const value = new URLSearchParams(search).get("trigger");
+  if (!value) return null;
+  return new Set(triggerable).has(value) ? value : null;
+}
+
+/** Every event a workflow can trigger on, from the builder options (grouped, or the flat list). */
+export function triggerableEvents(
+  options: { triggers?: string[]; triggerGroups?: Record<string, string[]> } | null | undefined,
+): string[] {
+  const groups = options?.triggerGroups;
+  if (groups && Object.keys(groups).length) return Object.values(groups).flat();
+  return options?.triggers ?? [];
+}

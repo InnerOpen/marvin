@@ -1,0 +1,29 @@
+{
+  "name": "Summarise a published entry and add it to a collection",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "summary",
+        "op": "generate-summary",
+        "write_back": true
+      },
+      {
+        "kind": "entry",
+        "op": "add_to_collection",
+        "collection_slug": "{{collection_slug}}"
+      }
+    ]
+  }
+}

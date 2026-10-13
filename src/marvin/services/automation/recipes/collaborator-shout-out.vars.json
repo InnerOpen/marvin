@@ -1,0 +1,45 @@
+{
+  "recipe": "collaborator-shout-out",
+  "variables": {
+    "project_type": {
+      "type": "entry_type_slug",
+      "description": "The entries whose people get thanked when they're published (projects, pieces, releases).",
+      "example": "project"
+    },
+    "people_field": {
+      "type": "field_key",
+      "description": "Its field naming the people who helped: their entries' slugs, comma-separated.",
+      "example": "collaborators"
+    },
+    "person_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type of people (collaborators, makers, guests).",
+      "example": "person"
+    },
+    "consent_field": {
+      "type": "field_key",
+      "description": "Their yes/no field: ticked when they're happy to be tagged. Anyone without it ticked is left out.",
+      "example": "ok_to_tag"
+    },
+    "handle_field": {
+      "type": "field_key",
+      "description": "Their field with the handle to tag (e.g. @ada@mastodon.social).",
+      "example": "handle"
+    },
+    "voice": {
+      "type": "text",
+      "description": "How the post should sound.",
+      "example": "a warm, plain voice"
+    },
+    "draft_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type the thank-you is drafted as.",
+      "example": "article"
+    },
+    "draft_body_field": {
+      "type": "field_key",
+      "description": "That type's text field.",
+      "example": "body"
+    }
+  }
+}

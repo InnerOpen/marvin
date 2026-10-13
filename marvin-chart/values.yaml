@@ -2,12 +2,41 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
+# Deployment topology:
+#   combined — one container runs the API and the server-rendered frontend together (default).
+#   split    — two Deployments: the backend API and the frontend UI, scaled and rolled
+#              independently. Uses the marvin-backend / marvin-frontend images.
+mode: combined
+
 # Image configuration
 image:
+  # Combined mode uses this image. Split mode derives the backend/frontend images from the same
+  # repository + tag by appending -backend / -frontend (override under `split` if they differ).
   repository: marvin
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: "latest"
+
+# Split-mode configuration (ignored when mode=combined). The backend and frontend images default
+# to <image.repository>-backend / -frontend at <image.tag>; override here for a different registry.
+split:
+  backend:
+    replicaCount: 1
+    # The backend's own update strategy; empty uses `strategy` below. With SQLite on a shared volume
+    # set {type: Recreate}: the old pod stops (draining its AI runs) before the new one starts, so
+    # there is never a second writer — at the price of downtime while it drains.
+    strategy: {}
+    image:
+      repository: ""   # defaults to "<image.repository>-backend"
+      tag: ""          # defaults to image.tag
+  frontend:
+    replicaCount: 1
+    # Sleep before SIGTERM so the Service/Route stop routing to a stopping frontend pod first (a rolling
+    # deploy without it drops in-flight page loads). Empty uses shutdown.preStopSleepSeconds; 0 disables.
+    preStopSleepSeconds: ""
+    image:
+      repository: ""   # defaults to "<image.repository>-frontend"
+      tag: ""          # defaults to image.tag
 
 # imagePullSecrets for private registries
 imagePullSecrets: []
@@ -25,6 +54,18 @@ strategy:
   rollingUpdate:
     maxUnavailable: 0
     maxSurge: 1
+
+# Graceful shutdown of the API (combined container / split backend). A deploy lets in-flight
+# requests — agent runs are synchronous and can take minutes — finish for up to the grace period
+# before the pod is killed; the server's drain timeout is derived from it (see _helpers.tpl).
+# Trade-off: a pod with a long run in flight takes that long to go away. Under RollingUpdate the new
+# pod already serves while the old one drains, so with SQLite on a shared volume the two processes
+# overlap as writers for up to this long — use strategy Recreate to rule that out (at the price of
+# downtime while the old pod drains), or a server database.
+shutdown:
+  terminationGracePeriodSeconds: 300
+  # Sleep before SIGTERM so the Service/Route stop routing here first (0 disables the hook).
+  preStopSleepSeconds: 5
 
 # Service Account
 serviceAccount:
@@ -61,11 +102,16 @@ resources:
     memory: "512Mi"
     cpu: "500m"
 
+# PriorityClass for every pod the chart renders (backend, frontend, backup jobs, the CNPG cluster). Empty = the
+# cluster default. The class itself is cluster-scoped and created by an admin (.github/deploy/marvin-dev-limits.yaml
+# makes `marvin-dev-low`, so dev yields to production on a shared node).
+priorityClassName: ""
+
 # Liveness and readiness probes
 livenessProbe:
   enabled: true
   httpGet:
-    path: /api/health
+    path: /healthz
     port: http
   initialDelaySeconds: 30
   periodSeconds: 10
@@ -75,7 +121,7 @@ livenessProbe:
 readinessProbe:
   enabled: true
   httpGet:
-    path: /api/health
+    path: /readyz
     port: http
   initialDelaySeconds: 10
   periodSeconds: 5
@@ -95,19 +141,60 @@ affinity: {}
 service:
   type: ClusterIP
   port: 8080
-  targetPort: 8080
+  # The frontend is a second port on the same pod, exposed alongside the API
+  frontendPort: 4322
+  # Both ports resolve to the container's named ports, so they track config.apiPort /
+  # config.frontendPort automatically and can't drift out of sync with them.
+  #
+  # NodePort pinning — only used when type: NodePort. Empty = let Kubernetes assign
+  # one from the 30000-32767 range. Pin them when you need a stable URL up front:
+  # e.g. so config.publicApiUrl can name the API port BEFORE the first install
+  # (one-shot deploy, no second pass), and so the ports don't change on reinstall.
+  #   http     = the API port (combined Service, or the -backend Service in split)
+  #   frontend = the UI  port (combined Service, or the -frontend Service in split)
+  nodePorts:
+    http: ""
+    frontend: ""
   annotations: {}
 
-# OpenShift Route configuration
+# OpenShift Routes.
+#
+# Two independent routes — a public web UI and an (optional) public API — that resolve to the right
+# Service in BOTH topologies, so the routing is identical whether you run combined or split:
+#   combined: ui → the one Service's `frontend` port,  api → its `http` port
+#   split:    ui → the -frontend Service,               api → the -backend Service
+#
+# By default only the UI is exposed. The frontend reaches the API *internally* over the cluster
+# Service (SSR uses MARVIN_API_URL → the -backend Service in split mode, or localhost in combined),
+# so no public API route is needed to render pages. Expose the API publicly only when the browser
+# must call it directly (client-side/interactive features) or for external SDK/CLI access.
 route:
   enabled: true
-  host: ""  # Auto-generated if empty
-  path: /
+
+  # TLS + annotations apply to both routes below unless overridden per-route.
   tls:
     enabled: true
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
   annotations: {}
+
+  # Public web UI route — the site users visit.
+  ui:
+    enabled: true
+    host: ""   # auto-assigned by OpenShift if empty
+    path: /
+
+  # Public API route — OFF by default (API is reached internally; see the note above). Enable for
+  # direct browser/SDK/CLI access, then point config.publicApiUrl at it — or just set api.host and
+  # publicApiUrl is auto-derived from it (see configmap.yaml).
+  api:
+    enabled: false
+    host: ""
+    path: /
+
+  # Response headers set by the router on both routes (OpenShift 4.14+ Route spec.httpHeaders), e.g.
+  # a non-production instance: [{name: X-Robots-Tag, value: "noindex, nofollow"}].
+  responseHeaders: []
 
 # Persistent storage
 persistence:
@@ -120,14 +207,27 @@ persistence:
 
 # Application configuration
 config:
-  # Environment mode
-  production: false
+  # Container runtime mode — keep true for every cluster install. false is laptop-dev mode: a fixed, publicly known
+  # token signing key, localhost CORS, debug handlers and an auto-reloading server.
+  production: true
+
+  # Short tag for a non-production instance, e.g. "DEV" or "STAGING" (upper-cased, max 12 chars).
+  # The UI badges the app/admin headers and the login page with it and prefixes tab titles with
+  # "[DEV] ". Empty (the default, and production) renders nothing — the env var is not even set.
+  # Maps to the API's ENVIRONMENT_LABEL. Unrelated to `production` (container runtime mode).
+  environmentLabel: ""
+
+  # Name of the platform (admin's) workspace — where platform alerts and shared services run. Used only
+  # when a FRESH install creates it (its slug is derived from the name). Empty = the built-in "Default".
+  # On an existing install it changes nothing: rename the workspace in Admin → Workspaces instead.
+  # Maps to the API's DEFAULT_GROUP.
+  platformWorkspaceName: ""
 
   # Application settings
   allowSignup: true
   logLevel: DEBUG
 
-  # Database configuration
+  # Database configuration: sqlite (a file in dataDir) or postgres (see `postgres` below).
   dbEngine: sqlite
   dataDir: /app/data
 
@@ -135,8 +235,31 @@ config:
   apiPort: 8080
   apiHost: "0.0.0.0"
 
+  # URL the user's browser uses to reach the backend API. The frontend injects it into each page
+  # at request time (resolved at runtime, not baked into the image), so set it to the address a
+  # browser can actually reach — e.g. https://marvin.example.com. Left empty, the browser falls
+  # back to http://localhost:8080, which only works for local single-host access.
+  publicApiUrl: ""
+
+  # Comma-separated browser origins allowed to call the API in PRODUCTION — required for
+  # SPLIT deployments where the UI and API are on different hosts and the browser calls the
+  # API cross-origin (e.g. "https://marvin.example.com"). If left empty and a UI route with
+  # an explicit host is enabled, it's derived as https://<ui route host>. Leave empty for
+  # same-origin/combined deployments (no CORS middleware is added). Maps to the API's
+  # CORS_ORIGINS env var.
+  corsOrigins: ""
+
+  # Server-rendered frontend (Astro SSR) — the image runs it alongside the API.
+  # Pinned rather than derived from FRONTEND_URL: the containerPort has to be a fixed number for
+  # the Service to target it. Keep in step with the FRONTEND_URL the deployment advertises.
+  frontendPort: 4322
+
   # Scheduler configuration
-  schedulerInterval: 300  # 5 minutes in seconds
+  # Scheduler frequent-tick interval in seconds — delivers webhooks, fires due scheduled tasks, and
+  # renews the leadership lease (wired to SCHEDULER_INTERVAL_SECONDS). If you raise this, the app
+  # also requires the lease TTL to be at least twice it (default TTL is 150s), or it refuses to
+  # start — set SCHEDULER_LEASE_TTL_SECONDS via extraEnv accordingly.
+  schedulerInterval: 60
 
   # Webhook configuration
   webhookRetryAttempts: 3
@@ -154,32 +277,181 @@ secrets:
   smtpFromEmail: "noreply@marvin.local"
 
   # Security
-  jwtSecret: "dev-jwt-secret-change-in-production"
+  # No JWT key here: the app signs sessions with DATA_DIR/.secret (generated on first start), so
+  # keep config.dataDir on the persistent volume.
   apiKey: ""
 
   # External services (if any)
   # Add your secrets here
 
-# Migration job configuration
-migration:
-  enabled: true
-  # Number of retries before considering a Job as failed
-  backoffLimit: 3
-  # Time to keep completed job pods for debugging
-  ttlSecondsAfterFinished: 600
-  # Resources for migration job
+# Backups: backup.targets (templates/backup-targets.yaml), below. The single-target off-site CronJob
+# (offsite_backup.py, `backup.enabled`) it replaced was removed in storage slice 7 (2026-10-10).
+backup:
+  # Default resources for each target's CronJob (a target may set its own).
   resources:
     requests:
-      memory: "256Mi"
-      cpu: "100m"
+      cpu: 50m
+      memory: 128Mi
     limits:
-      memory: "512Mi"
-      cpu: "200m"
+      cpu: 500m
+      memory: 512Mi
+  # Backup targets for the backup engine (templates/backup-targets.yaml). One CronJob
+  # `<fullname>-backup-<name>` per target runs `python -m marvin.scripts.backup run --target <type>
+  # --name <name>` from the backend image, on the backend's node, with the plugins init container when
+  # plugins.packages is set. Keys: postgres/ or sqlite/, config/, assets/. Each target has its own
+  # schedule, retention and exit code. Empty = nothing rendered.
+  #   name                     DNS label, unique; the CronJob name must stay within 52 characters
+  #   type                     `local` (built in: a directory on a volume of its own), or a storage
+  #                            plugin's target slug (e.g. `s3`, from plugins.packages)
+  #   schedule, timeZone       cron schedule and the zone it is read in (empty = the controller's, UTC);
+  #                            also passed to the job (BACKUP_SCHEDULE / BACKUP_TIME_ZONE) and recorded
+  #                            with each run, so Admin → Backup health knows when the next one is due
+  #   retention                {hourly, daily, weekly, bundles} → BACKUP_KEEP_*; a key left out keeps the
+  #                            engine's default (48 / 30 / 0 / 14). hourly counts database backups only;
+  #                            daily >= 1; 0 turns hourly or weekly off. bundles: workspace backup bundles
+  #                            (DATA_DIR/backups) kept per workspace under bundles/; 0 = not copied here
+  #   prefix                   key prefix inside the target (BACKUP_PREFIX), e.g. "dev/"
+  #   activeDeadlineSeconds    a run (including time Pending) is failed after this long (default 3600)
+  #   startingDeadlineSeconds  skip a run that couldn't start this long after its time (default 3600, 0 = no limit)
+  #   resources                default: backup.resources
+  #   existingSecret           a Secret whose keys all become environment variables (a plugin
+  #                            target's settings and credentials)
+  #   env                      extra environment variables (a list of EnvVar)
+  #   volume                   type local only, and required there; never the data volume (the chart
+  #                            refuses marvin-data / persistence's claim), and the engine refuses a
+  #                            directory on the same filesystem as DATA_DIR. Mounted at /backup-target.
+  #     existingClaim          a PVC that already exists, or
+  #     nfs                    {server, path, size (default 50Gi), mountOptions (default [hard,
+  #                            nfsvers=4.2])}: a static PV `<namespace>-<fullname>-backup-<name>`
+  #                            (ReadWriteMany, Retain, storageClassName "", claimRef) + PVC
+  #     subPath                a subdirectory of that volume to use; the kubelet creates it if missing
+  #   suspend                  true = the CronJob never fires on its own: Marvin schedules the target with a
+  #                            run_backup_target scheduled task (needs scheduledTasks.enabled), and the
+  #                            CronJob is only the Job template
+  # targets:
+  #   - name: nas-nightly
+  #     type: local
+  #     schedule: "30 2 * * *"
+  #     timeZone: America/New_York
+  #     retention: {hourly: 0, daily: 30, weekly: 8}
+  #     volume:
+  #       nfs: {server: 192.168.30.10, path: /tank/backups/marvin}
+  #       subPath: prod
+  targets: []
+  # Start backups from Admin → Scheduled Tasks (task type run_backup_target, config {target: <name>}):
+  # Run Now, or a schedule Marvin owns. The backend creates a Job from the target's CronJob, so the pod,
+  # its credentials and its node stay what the CronJob says; the backend never holds a target's secrets.
+  # Security trade: this renders a Role letting the backend's service account get CronJobs and create /
+  # list Jobs in this namespace (nothing else) — a backend compromise could then start Jobs from those
+  # templates. Off by default.
+  scheduledTasks:
+    enabled: false
+
+# Web Push — notifications for the installable admin app (phones and browsers that turned them on in
+# Profile → Notifications). The backend's VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT come from an
+# existing Secret, never rendered by this chart. Empty = push off: the app hides its push controls and the
+# alert pages have no Push channel. Generate the pair once per installation (a new pair means every device
+# has to turn notifications on again):
+#   python -m marvin.scripts.vapid --subject mailto:ops@example.com
+#   oc create secret generic marvin-vapid -n <namespace> --from-env-file=<the three lines it printed>
+# Runbook: docs/manual/app-and-push.md.
+webPush:
+  existingSecret: ""
+  # Key names inside that Secret.
+  secretKeys:
+    publicKey: VAPID_PUBLIC_KEY
+    privateKey: VAPID_PRIVATE_KEY
+    subject: VAPID_SUBJECT
+
+# PostgreSQL — used when config.dbEngine is postgres, ignored with sqlite. The app's POSTGRES_SERVER,
+# _PORT, _USER, _PASSWORD and _DB come from an existing Secret: by default the one CloudNativePG keeps
+# for a cluster's owner, `<cluster>-app`. The data PVC (persistence) stays either way: it holds the
+# uploaded assets and the `.secret` key that decrypts stored secrets; only the database moves.
+# Runbook: docs/manual/postgres.md.
+postgres:
+  # Secret with the connection. Empty = "<postgres.cluster.name>-app" when the chart renders the cluster.
+  existingSecret: ""
+  # Key names inside that Secret (CloudNativePG's).
+  secretKeys:
+    host: host
+    port: port
+    username: username
+    password: password
+    database: dbname
+
+  # A CloudNativePG Cluster rendered by this chart (templates/postgres-cluster.yaml). Needs the CNPG
+  # operator. It carries helm.sh/resource-policy: keep — `helm uninstall` never deletes the database.
+  # Its backups are the off-site job's pg_dump (`backup` below, hourly in a Postgres release); there
+  # is no WAL archiving / point-in-time recovery by choice (how to add it: the template's header).
+  cluster:
+    enabled: false
+    name: ""   # default "<release fullname>-pg"
+    instances: 1
+    # The Postgres major the clusters run, the CI suite tests and the backend image's pg_dump (Debian
+    # trixie's postgresql-client, 17) matches — a pg_dump 17 archive only restores cleanly into >= 17.
+    imageName: ghcr.io/cloudnative-pg/postgresql:17
+    database: marvin
+    owner: marvin
+    storage:
+      size: 10Gi
+      storageClass: ""   # cluster default if empty
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
+    # postgresql.conf parameters (CNPG manages the rest).
+    parameters: {}
+
+# Pod disruption budget (only meaningful with replicaCount > 1)
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1  # mutually exclusive with minAvailable
 
 # Extra environment variables
 extraEnv: []
   # - name: DEBUG
   #   value: "true"
+
+# Init containers, run to completion before the app container starts.
+#
+# The main use is installing integration plugins without rebuilding the image. Marvin discovers
+# providers through the `marvin.integrations` entry-point group, which is read from installed
+# distribution metadata at process start — so a plugin has to be a real installed distribution on
+# sys.path before the app imports, and adding one always means a pod restart. Pair this with
+# extraVolumes/extraVolumeMounts/extraEnv, as in the worked example in README.md:
+#
+# initContainers:
+#   - name: install-plugins
+#     image: python:3.12-slim
+#     command: ["sh", "-c", "pip install --target /plugins marvin-integration-slack"]
+#     volumeMounts:
+#       - name: plugins
+#         mountPath: /plugins
+#
+# Note that PYTHONPATH precedes site-packages, so a dependency vendored here shadows the image's
+# copy. Pin deliberately, or build a derived image instead — see README.md. For plugins, prefer
+# `plugins.packages` below; this list stays as the escape hatch.
+initContainers: []
+
+# Site-wide plugins (integrations, storage providers / backup targets, AI providers) are baked into the image:
+# Marvin's pyproject.toml `plugins` group, pinned by uv.lock, so a pod starts without downloading anything.
+# This list is the escape hatch — an extra plugin, or a hot fix ahead of a Marvin build: each entry is a pip
+# requirement (a tarball URL needs no git in the init image) installed at pod start into a shared emptyDir on
+# PYTHONPATH, in the backend and each backup CronJob. The install runs in the backend image, pinned to the
+# versions the image already has, then drops every package the image has, so /plugins holds only what is new
+# and never shadows Marvin's own dependencies. Empty = nothing rendered (no init container, no egress needed).
+#
+# plugins:
+#   packages:
+#     - https://github.com/InnerOpen/marvin-integration-slack/archive/refs/heads/fix-branch.tar.gz
+plugins:
+  packages: []
+  # Empty = the backend image, so the install can pin to and drop what the image already has.
+  image: ""
+  resources: {}
 
 # Extra volumes
 extraVolumes: []

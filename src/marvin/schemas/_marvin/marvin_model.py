@@ -19,7 +19,7 @@ from __future__ import annotations  # Enables using Self for return type hints
 
 import re  # For regular expression operations in datetime parsing
 from collections.abc import Sequence  # For typing sequences
-from datetime import datetime, UTC  # Standard datetime objects
+from datetime import UTC, datetime  # Standard datetime objects
 from enum import Enum  # For creating enumerations like SearchType
 from typing import Any, ClassVar, Protocol, TypeVar  # Typing utilities
 
@@ -33,7 +33,7 @@ from pydantic import UUID4, BaseModel, ConfigDict, model_validator  # Core Pydan
 # from marvin.db.models import SqlAlchemyBase
 
 # Define a TypeVar for generic methods like cast
-T = TypeVar("T")
+T = TypeVar("T", bound=BaseModel)
 
 # Regex pattern to find timezones specified only with an hour part (e.g., "+05" instead of "+05:00")
 # This is used in `fix_hour_only_tz` to correct such formats.

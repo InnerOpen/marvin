@@ -1,0 +1,94 @@
+---
+/**
+ * Renders an entity's pending AI write-back suggestion (suggestion_json) as a current→proposed
+ * diff with Apply / Reject buttons. Reusable across asset and resource editors (the entry editor
+ * has its own inline version). Styling reuses the .suggestion-* / .diff-* classes in global.css.
+ *
+ * Props:
+ *   suggestion — the entity's suggestionJson (or null/undefined)
+ *   entity     — the read object, for resolving each target's current value
+ *   apiBase    — same-origin route base, e.g. "/api/assets" or "/api/resources"
+ *   entityId   — the entity id (used to build the apply/reject URL)
+ */
+interface Props {
+  suggestion?: Record<string, any> | null;
+  entity?: any;
+  apiBase: string;
+  entityId: string;
+}
+const { suggestion, entity, apiBase, entityId } = Astro.props;
+
+function currentOf(target: string): any {
+  if (!entity) return undefined;
+  if (target === "tags") return entity.tags;
+  if (target.startsWith("metadata_json."))
+    return (entity.metadataJson ?? entity.metadata_json)?.[target.slice("metadata_json.".length)];
+  return entity[target];
+}
+function fmt(v: any): string {
+  if (v == null || v === "") return "—";
+  if (Array.isArray(v)) return v.join(", ");
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+}
+const fields = suggestion
+  ? Object.keys(suggestion)
+      .filter((k) => k !== "_meta")
+      .map((target) => ({
+        label: target.replace(/^data_json\./, "").replace(/^metadata_json\./, ""),
+        current: fmt(currentOf(target)),
+        proposed: fmt(suggestion[target]),
+      }))
+  : [];
+const op = suggestion?._meta?.operation as string | undefined;
+---
+
+{fields.length > 0 && (
+  <div class="suggestion-banner" data-api-base={apiBase} data-entity-id={entityId}>
+    <div class="suggestion-head">
+      <span class="suggestion-title">✨ AI suggested changes</span>
+      {op && <span class="suggestion-op">from <code>{op}</code></span>}
+    </div>
+    <ul class="suggestion-list">
+      {fields.map((f) => (
+        <li class="suggestion-field">
+          <span class="suggestion-label">{f.label}</span>
+          <div class="suggestion-diff">
+            <div class="diff-row diff-current"><span class="diff-tag">current</span><span class="diff-val">{f.current}</span></div>
+            <div class="diff-row diff-proposed"><span class="diff-tag">proposed</span><span class="diff-val">{f.proposed}</span></div>
+          </div>
+        </li>
+      ))}
+    </ul>
+    <div class="suggestion-actions">
+      <button type="button" class="button suggestion-apply">Apply changes</button>
+      <button type="button" class="button secondary suggestion-reject">Reject</button>
+    </div>
+  </div>
+)}
+
+<script>
+  document.querySelectorAll<HTMLElement>('.suggestion-banner').forEach((banner) => {
+    const apiBase = banner.dataset.apiBase;
+    const id = banner.dataset.entityId;
+    if (!apiBase || !id) return;
+    const apply = banner.querySelector('.suggestion-apply') as HTMLButtonElement | null;
+    const reject = banner.querySelector('.suggestion-reject') as HTMLButtonElement | null;
+
+    async function act(kind: 'apply' | 'reject') {
+      apply?.setAttribute('disabled', 'true');
+      reject?.setAttribute('disabled', 'true');
+      try {
+        const res = await fetch(`${apiBase}/${id}/${kind}-suggestion`, { method: 'POST' });
+        if (!res.ok) throw new Error(String(res.status));
+        window.location.reload();
+      } catch (e) {
+        alert(`Failed to ${kind} suggestion.`);
+        apply?.removeAttribute('disabled');
+        reject?.removeAttribute('disabled');
+      }
+    }
+    apply?.addEventListener('click', () => act('apply'));
+    reject?.addEventListener('click', () => act('reject'));
+  });
+</script>

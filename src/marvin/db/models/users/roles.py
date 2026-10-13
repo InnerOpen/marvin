@@ -117,6 +117,7 @@ class WorkspaceRole(enum.Enum):
 
 # Helper functions for role checks
 
+
 def workspace_role_can_manage_settings(role: WorkspaceRole) -> bool:
     """Check if workspace role can manage workspace settings."""
     return role in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN)

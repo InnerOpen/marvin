@@ -8,7 +8,7 @@ from pydantic import UUID4
 from sqlalchemy.orm import Session
 
 from marvin.core.config import get_app_settings
-from marvin.core.security.hasher import get_hasher
+from marvin.core.security.hasher import find_token, get_hasher, token_lookup
 from marvin.db.models.platform import APIClients
 from marvin.repos.repository_generic import GroupRepositoryGeneric
 from marvin.schemas.platform import APIClientRead, APIClientWithToken
@@ -53,6 +53,7 @@ class APIClientsRepository(GroupRepositoryGeneric[APIClientRead, APIClients]):
 
         # Hash the token for storage (never store plaintext)
         data_dict["token_hash"] = get_hasher().hash(plaintext_token)
+        data_dict["token_lookup"] = token_lookup(plaintext_token)
 
         # Ensure permissions is a dict (default if not provided)
         if "permissions" not in data_dict or data_dict["permissions"] is None:
@@ -91,6 +92,7 @@ class APIClientsRepository(GroupRepositoryGeneric[APIClientRead, APIClients]):
         # Prevent token_hash changes unless explicitly allowed (e.g., from rotate_token)
         if not _allow_token_hash:
             data_dict.pop("token_hash", None)
+            data_dict.pop("token_lookup", None)
 
         return super().update(match_value, data_dict, match_key=match_key)
 
@@ -115,7 +117,11 @@ class APIClientsRepository(GroupRepositoryGeneric[APIClientRead, APIClients]):
         plaintext_token = self._generate_token()
 
         # Update with new token hash (allow token_hash update via internal flag)
-        updated = self.update(api_client_id, {"token_hash": get_hasher().hash(plaintext_token)}, _allow_token_hash=True)
+        updated = self.update(
+            api_client_id,
+            {"token_hash": get_hasher().hash(plaintext_token), "token_lookup": token_lookup(plaintext_token)},
+            _allow_token_hash=True,
+        )
 
         # Return with new plaintext token
         return APIClientWithToken(
@@ -167,15 +173,11 @@ class APIClientsRepository(GroupRepositoryGeneric[APIClientRead, APIClients]):
         if self.group_id:
             query = query.filter(APIClients.group_id == self.group_id)
 
-        # Check each one (in production, consider caching)
-        for api_client in query.all():
-            if get_hasher().verify(plaintext_token, api_client.token_hash):
-                # Update last_used_at
-                api_client.last_used_at = datetime.now(UTC)
-                self.session.commit()
-                return api_client
-
-        return None
+        api_client = find_token(query, APIClients, plaintext_token)
+        if api_client is not None:
+            api_client.last_used_at = datetime.now(UTC)
+            self.session.commit()
+        return api_client
 
     def get_by_slug(self, slug: str) -> APIClientRead | None:
         """

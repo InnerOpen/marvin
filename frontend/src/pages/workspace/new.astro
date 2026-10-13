@@ -1,25 +1,25 @@
 ---
-import AppLayout from "@/layouts/AppLayout.astro";
 import SlugInput from "@/components/SlugInput.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { createWorkspace } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
 if (!authToken) {
-  return Astro.redirect('/login');
+  return Astro.redirect("/login");
 }
 
 let error: string | null = null;
 
 // Handle form submission (server-side)
-if (Astro.request.method === 'POST') {
+if (Astro.request.method === "POST") {
   try {
     const formData = await Astro.request.formData();
 
     const data = {
-      name: formData.get('name') as string,
-      slug: (formData.get('slug') as string) || null,
-      description: (formData.get('description') as string) || null,
+      name: formData.get("name") as string,
+      slug: (formData.get("slug") as string) || null,
+      description: (formData.get("description") as string) || null,
     };
 
     const workspace = await createWorkspace(data, authToken);
@@ -27,13 +27,13 @@ if (Astro.request.method === 'POST') {
     // Redirect to workspace settings or activate the new workspace
     return Astro.redirect(`/workspace/settings`);
   } catch (e) {
-    error = e instanceof Error ? e.message : 'Failed to create workspace';
-    console.error('[NewWorkspace] Error:', error);
+    error = e instanceof Error ? e.message : "Failed to create workspace";
+    console.error("[NewWorkspace] Error:", error);
   }
 }
 ---
 
-<AppLayout title="Create Workspace" eyebrow="Workspaces">
+<AppLayout crumb="workspace.new">
   <div class="page-container">
     <div class="page-header">
       <div>
@@ -176,7 +176,7 @@ if (Astro.request.method === 'POST') {
   .form-group input:focus,
   .form-group textarea:focus {
     outline: none;
-    border-color: var(--primary);
+    border-color: var(--accent);
   }
 
   .form-group small {

@@ -1,0 +1,15 @@
+{
+  "recipe": "content-refresh",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "Slug of the entry type whose published entries are mirrored elsewhere.",
+      "example": "article"
+    },
+    "refresh_webhook_id": {
+      "type": "webhook_id",
+      "description": "Id of the outgoing webhook (type `workflow`) that tells the external copy or search index to re-fetch the entry.",
+      "example": "<uuid of the outgoing webhook>"
+    }
+  }
+}

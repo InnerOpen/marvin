@@ -41,41 +41,80 @@ class WorkspaceExporter:
         """
         self.logger.info("Exporting workspace data...")
 
-        export_data = {
+        export_data: dict[str, Any] = {
             "version": 1,
             "workspace": self._export_workspace_metadata(),
             "site": self._export_site_preferences(),
             "collections": self._export_collections(),
+            "tags": self._export_tags(),
             "entry_types": self._export_entry_types(include_system_types),
             "entries": self._export_entries(),
             "assets": self._export_assets(),
             "resources": self._export_resources(),
+            "variables": self._export_variables(),
+            "ai_settings": self._export_ai_settings(),
+            "secrets": self._export_secrets(),
+            # Connections & config (credentials travel via the secrets section above, referenced by
+            # secret_ref). Apprise notifications are an integration, so they travel with "integrations".
+            "integrations": self._export_integrations(),
+            "ai_providers": self._export_ai_providers(),
+            "mcp_servers": self._export_mcp_servers(),
+            "smtp_profiles": self._export_smtp_profiles(),
+            "webhooks": self._export_webhooks(),
+            "agents": self._export_agents(),
+            "incoming_webhooks": self._export_incoming_webhooks(),
+            "automations": self._export_automations(),
+            "scheduled_tasks": self._export_scheduled_tasks(),
+            "forms": self._export_forms(),
+            "email_templates": self._export_email_templates(),
+            "email_subscriptions": self._export_email_subscriptions(),
+            "integration_subscriptions": self._export_integration_subscriptions(),
+            "notifications": self._export_notifications(),
         }
 
         self.logger.info(
             f"Export complete: {len(export_data['collections'])} collections, "
+            f"{len(export_data['tags'])} tags, "
             f"{len(export_data['entry_types'])} entry types, "
             f"{len(export_data['entries'])} entries, "
             f"{len(export_data['assets'])} assets, "
-            f"{len(export_data['resources'])} resources"
+            f"{len(export_data['resources'])} resources, "
+            f"{len(export_data['variables'])} variables, "
+            f"{len(export_data['secrets'])} secrets, "
+            f"{'1' if export_data['ai_settings'] else '0'} AI settings, "
+            f"{len(export_data['integrations'])} integrations, "
+            f"{len(export_data['ai_providers'])} AI providers, "
+            f"{len(export_data['mcp_servers'])} MCP servers, "
+            f"{len(export_data['smtp_profiles'])} SMTP profiles, "
+            f"{len(export_data['webhooks'])} webhooks, "
+            f"{len(export_data['agents'])} agents, "
+            f"{len(export_data['incoming_webhooks'])} incoming webhooks, "
+            f"{len(export_data['automations'])} automations, "
+            f"{len(export_data['scheduled_tasks'])} scheduled tasks, "
+            f"{len(export_data['forms'])} forms, "
+            f"{len(export_data['email_templates'])} email templates, "
+            f"{len(export_data['email_subscriptions'])} email subscriptions, "
+            f"{len(export_data['integration_subscriptions'])} integration subscriptions"
         )
 
         return export_data
 
-    def export_workspace_bundle(self, include_system_types: bool = False, temp_dir: Path | None = None) -> Path:
+    def export_workspace_bundle(self, include_system_types: bool = False, temp_dir: Path | None = None, label: str | None = None) -> Path:
         """Export workspace metadata + all asset binaries into a zip bundle.
 
         Args:
             include_system_types: Whether to include system entry types
             temp_dir: Directory to write the zip file into (defaults to system temp)
+            label: Marks who made it in the name, before the token (`<slug>-backup-<date>-scheduled-<token>.zip`
+                for the create_workspace_bundles task), so that task's retention never removes a bundle made by hand
 
         Returns:
             Path to the created zip file
         """
         import secrets
-        from datetime import date
+        from datetime import UTC, datetime
 
-        from marvin.services.storage.provider_factory import get_storage_provider
+        from marvin.services.storage.provider_factory import provider_for
 
         export_data = self.export_workspace(include_system_types=include_system_types)
 
@@ -84,13 +123,12 @@ class WorkspaceExporter:
 
         if temp_dir is None:
             import tempfile
+
             temp_dir = Path(tempfile.gettempdir())
 
         token = secrets.token_hex(8)
-        basename = f"{workspace_slug}-backup-{date.today().isoformat()}-{token}"
+        basename = f"{workspace_slug}-backup-{datetime.now(UTC).date().isoformat()}-{f'{label}-' if label else ''}{token}"
         zip_path = temp_dir / f"{basename}.zip"
-        storage_provider = get_storage_provider()
-
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             json_content = json.dumps(export_data, indent=2, ensure_ascii=False)
             zf.writestr(f"{basename}.json", json_content)
@@ -98,7 +136,8 @@ class WorkspaceExporter:
             for asset in export_data["assets"]:
                 storage_key = asset["storageKey"]
                 try:
-                    file_data = storage_provider.get(storage_key)
+                    # Each asset from the provider it lives in (its row's storageProvider).
+                    file_data = provider_for(asset.get("storageProvider")).get(storage_key)
                     zf.writestr(f"files/{storage_key}", file_data.read())
                 except FileNotFoundError:
                     self.logger.warning(f"Asset binary missing from storage, skipping binary: {storage_key}")
@@ -138,7 +177,7 @@ class WorkspaceExporter:
             if user and user.email:
                 owner_emails.append(user.email)
 
-        result = {
+        result: dict[str, Any] = {
             "name": workspace.name,
             # Note: slug NOT exported to prevent conflicts on re-import
             # The workspace will be matched by name, keeping its existing slug
@@ -173,6 +212,8 @@ class WorkspaceExporter:
             "locale": prefs.site_locale,
             "timezone": prefs.site_timezone,
             "contactEmail": prefs.site_contact_email,
+            "autoRebuild": prefs.site_auto_rebuild,
+            "scheduledPublishRequiresApproval": prefs.scheduled_publish_requires_approval,
             "social": prefs.site_social_json,
             "metadataJson": prefs.site_metadata_json,
         }
@@ -203,6 +244,15 @@ class WorkspaceExporter:
             )
 
         return exported
+
+    def _export_tags(self) -> list[dict[str, Any]]:
+        """Export the workspace tag vocabulary (slug is the identity; name + color for display).
+
+        Per-entry membership is exported as a slug list on each entry (see _export_entries), so a
+        restore can recreate the vocabulary and relink entries without losing display names/colors.
+        """
+        tags = self.repos.tags.get_all(limit=None, order_by="slug")
+        return [{"name": tag.name, "slug": tag.slug, "color": tag.color} for tag in tags]
 
     def _export_entry_types(self, include_system: bool) -> list[dict[str, Any]]:
         """Export entry types.
@@ -237,6 +287,7 @@ class WorkspaceExporter:
                     "renderingJson": et.rendering,
                     "capabilitiesJson": et.capabilities,
                     "recipeJson": et.recipe,
+                    "pageUrlPattern": et.page_url_pattern,
                 }
             )
 
@@ -292,6 +343,12 @@ class WorkspaceExporter:
             resources_data = self._get_entry_resources(entry.id)
             if resources_data:
                 entry_dict["resources"] = resources_data
+
+            # Tag membership as a slug list — EntryRead.tags is already the slug list (see T4);
+            # resolved against the exported vocabulary on import.
+            tag_slugs = list(entry.tags or [])
+            if tag_slugs:
+                entry_dict["tags"] = tag_slugs
 
             exported.append(entry_dict)
 
@@ -394,6 +451,10 @@ class WorkspaceExporter:
                 "name": asset.name,
                 "slug": asset.slug,
                 "originalFilename": asset.original_filename,
+                # filename + checksum are NOT NULL on the asset — carry them so the bundle is
+                # self-complete and restores on any backend without the importer having to derive.
+                "filename": asset.filename,
+                "checksum": asset.checksum,
                 "extension": asset.extension,
                 "fileSize": asset.file_size,
                 "mimeType": asset.mime_type,
@@ -414,6 +475,9 @@ class WorkspaceExporter:
                 asset_dict["description"] = asset.description
             if asset.metadata_json:
                 asset_dict["metadataJson"] = asset.metadata_json
+            tag_slugs = list(getattr(asset, "tags", None) or [])
+            if tag_slugs:
+                asset_dict["tags"] = tag_slugs
 
             exported.append(asset_dict)
 
@@ -446,7 +510,374 @@ class WorkspaceExporter:
                 resource_dict["externalId"] = resource.external_id
             if resource.metadata_json:
                 resource_dict["metadataJson"] = resource.metadata_json
+            tag_slugs = list(getattr(resource, "tags", None) or [])
+            if tag_slugs:
+                resource_dict["tags"] = tag_slugs
 
             exported.append(resource_dict)
 
         return exported
+
+    def _export_variables(self) -> list[dict[str, Any]]:
+        """Export workspace variables (plaintext by design — safe to carry in the bundle)."""
+        from marvin.db.models.groups.variables import WorkspaceVariable
+
+        rows = (
+            self.repos.session.query(WorkspaceVariable)
+            .filter(WorkspaceVariable.group_id == self.repos.group_id)
+            .order_by(WorkspaceVariable.slug)
+            .all()
+        )
+        return [{"name": v.name, "slug": v.slug, "description": v.description, "value": v.value} for v in rows]
+
+    def _export_ai_settings(self) -> dict[str, Any] | None:
+        """Export the workspace AI policy row (config only — references secrets by slug, no key material)."""
+        from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+
+        row = self.repos.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.repos.group_id).first()
+        if not row:
+            return None
+
+        return {
+            "enabled": row.enabled,
+            "credentialMode": row.credential_mode,
+            "provider": row.provider,
+            "model": row.model,
+            "secretRef": row.secret_ref,
+            "approvalMode": row.approval_mode,
+            "invocationSources": row.invocation_sources,
+            "operationOverrides": row.operation_overrides,
+            "budgetConfig": row.budget_config,
+            "loggingConfig": row.logging_config,
+            "moderationConfig": row.moderation_config,
+            "mediaPresets": row.media_presets,
+            "externalMcpEnabled": row.external_mcp_enabled,
+            "assistantName": row.assistant_name,
+            "assistantIcon": row.assistant_icon,
+            "personaPrompt": row.persona_prompt,
+            "bubbleLines": row.bubble_lines,
+            "bubbleLinesSource": row.bubble_lines_source,
+            "defaultRegister": row.default_register,
+            "tones": row.tones,
+            "hiddenTones": row.hidden_tones,
+            "agentToolPolicies": row.agent_tool_policies,
+        }
+
+    def _export_secrets(self) -> list[dict[str, Any]]:
+        """Export workspace secrets with values wrapped by the per-workspace backup key.
+
+        Names/slugs/descriptions travel in the clear so a keyless restore can still recreate the
+        secret shells; only the value is encrypted under the backup key. A secret whose value can't
+        be resolved (e.g. an external backend miss) is exported metadata-only.
+        """
+        from marvin.db.models.groups.secrets import WorkspaceSecret
+        from marvin.services.backup.keys import encrypt_secret_value, get_or_create_backup_key
+        from marvin.services.secrets import get_secret_backend
+
+        rows = self.repos.session.query(WorkspaceSecret).filter(WorkspaceSecret.group_id == self.repos.group_id).order_by(WorkspaceSecret.slug).all()
+        if not rows:
+            return []
+
+        backup_key = get_or_create_backup_key(self.repos.session, self.repos.group_id)
+        backend = get_secret_backend()
+
+        exported = []
+        for secret in rows:
+            item: dict[str, Any] = {"name": secret.name, "slug": secret.slug, "description": secret.description}
+            try:
+                value = backend.get(secret.slug, self.repos.group_id)
+            except Exception as e:
+                self.logger.warning(f"Could not read secret '{secret.slug}' for export: {e}")
+                value = None
+
+            if value is not None:
+                item["encryptedBackupValue"] = encrypt_secret_value(value, backup_key)
+            else:
+                self.logger.warning(f"Secret '{secret.slug}' exported as metadata-only (value could not be resolved)")
+
+            exported.append(item)
+
+        return exported
+
+    def _group_rows(self, model, order_col="slug"):
+        """Fetch all rows of a group-scoped model for this workspace, ordered for stable output."""
+        col = getattr(model, order_col, None)
+        q = self.repos.session.query(model).filter(model.group_id == self.repos.group_id)
+        return q.order_by(col).all() if col is not None else q.all()
+
+    def _export_integrations(self) -> list[dict[str, Any]]:
+        """External service connections. Credential is not on the row — only secret_ref (see secrets)."""
+        from marvin.db.models.groups.integrations import IntegrationModel
+
+        return [
+            {
+                "provider": r.provider,
+                "name": r.name,
+                "slug": r.slug,
+                "enabled": r.enabled,
+                "config": r.config,
+                "secretRef": r.secret_ref,
+            }
+            for r in self._group_rows(IntegrationModel)
+        ]
+
+    def _export_ai_providers(self) -> list[dict[str, Any]]:
+        """AI provider connections with their model catalog nested. Credential via secret_ref."""
+        from marvin.db.models.groups.ai_providers import AIModelModel, AIProviderModel
+
+        out = []
+        for r in self._group_rows(AIProviderModel):
+            models = self.repos.session.query(AIModelModel).filter(AIModelModel.provider_id == r.id).order_by(AIModelModel.model_id).all()
+            out.append(
+                {
+                    "name": r.name,
+                    "slug": r.slug,
+                    "providerType": r.provider_type,
+                    "secretRef": r.secret_ref,
+                    "baseUrl": r.base_url,
+                    "enabled": r.enabled,
+                    "isDefault": r.is_default,
+                    "metadataJson": r.metadata_json,
+                    "models": [
+                        {
+                            "name": m.name,
+                            "modelId": m.model_id,
+                            "isDefault": m.is_default,
+                            "contextWindow": m.context_window,
+                            "maxOutputTokens": m.max_output_tokens,
+                            "supportsVision": m.supports_vision,
+                            "supportsTools": m.supports_tools,
+                            "enabled": m.enabled,
+                        }
+                        for m in models
+                    ],
+                }
+            )
+        return out
+
+    def _export_mcp_servers(self) -> list[dict[str, Any]]:
+        """External MCP server connections. Credential via secret_ref."""
+        from marvin.db.models.groups.mcp_servers import WorkspaceMcpServerModel
+
+        return [
+            {
+                "name": r.name,
+                "slug": r.slug,
+                "transport": r.transport,
+                "url": r.url,
+                "secretRef": r.secret_ref,
+                "enabled": r.enabled,
+                "allowedTools": r.allowed_tools,
+            }
+            for r in self._group_rows(WorkspaceMcpServerModel)
+        ]
+
+    def _export_smtp_profiles(self) -> list[dict[str, Any]]:
+        """SMTP connections. The password lives in the secrets section, referenced by secretRef."""
+        from marvin.db.models.groups.smtp_profiles import WorkspaceSMTPProfileModel
+
+        return [
+            {
+                "name": r.name,
+                "host": r.host,
+                "port": r.port,
+                "username": r.username,
+                "secretRef": r.secret_ref,
+                "fromName": r.from_name,
+                "fromEmail": r.from_email,
+                "authStrategy": r.auth_strategy,
+                "isActive": r.is_active,
+            }
+            for r in self._group_rows(WorkspaceSMTPProfileModel, order_col="name")
+        ]
+
+    def _export_webhooks(self) -> list[dict[str, Any]]:
+        """Outgoing webhooks. {{SLUG}} references in headers resolve to secrets at send time."""
+        from marvin.db.models.groups.webhooks import GroupWebhooksModel
+
+        return [
+            {
+                "name": r.name,
+                "url": str(r.url) if r.url is not None else None,
+                # method/webhook_type are Python enums — export the plain value (json-serializable).
+                "method": getattr(r.method, "value", r.method),
+                "webhookType": getattr(r.webhook_type, "value", r.webhook_type),
+                "enabled": r.enabled,
+                "subscribedEvents": r.subscribed_events,
+                "headersJson": r.headers_json,
+                "customPayload": r.custom_payload,
+                "scheduledTime": r.scheduled_time.isoformat() if r.scheduled_time else None,
+            }
+            for r in self._group_rows(GroupWebhooksModel, order_col="name")
+        ]
+
+    def _export_agents(self) -> list[dict[str, Any]]:
+        """Workspace-defined AI agents (the system agents are code, not data)."""
+        from marvin.db.models.groups.agents import WorkspaceAgentModel
+
+        return [
+            {
+                "slug": r.slug,
+                "name": r.name,
+                "description": r.description,
+                "kind": r.kind,
+                "systemPrompt": r.system_prompt,
+                "modelOverride": r.model_override,
+                "toolAllowlist": r.tool_allowlist,
+                "defaultRegister": r.default_register,
+                "minRole": r.min_role,
+                "sources": r.sources,
+                "enabled": r.enabled,
+                "allowWrites": r.allow_writes,
+                "toolPolicy": r.tool_policy,
+                "icon": r.icon,
+                "suggestions": r.suggestions,
+                "handoffHint": r.handoff_hint,
+            }
+            for r in self._group_rows(WorkspaceAgentModel)
+        ]
+
+    def _export_incoming_webhooks(self) -> list[dict[str, Any]]:
+        """Inbound webhook endpoints. The token is carried so restored URLs keep working."""
+        from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookModel
+
+        return [
+            {
+                "name": r.name,
+                "slug": r.slug,
+                "description": r.description,
+                "enabled": r.enabled,
+                "token": r.token,
+            }
+            for r in self._group_rows(WorkspaceIncomingWebhookModel)
+        ]
+
+    def _export_automations(self) -> list[dict[str, Any]]:
+        """Automation definitions (self-contained JSON referencing other objects by slug)."""
+        from marvin.db.models.groups.automations import WorkspaceAutomationModel
+
+        return [
+            {"name": r.name, "slug": r.slug, "enabled": r.enabled, "definition": r.definition} for r in self._group_rows(WorkspaceAutomationModel)
+        ]
+
+    def _export_scheduled_tasks(self) -> list[dict[str, Any]]:
+        """Scheduled task definitions. Runtime state (last/next run, counters) is not exported."""
+        from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
+
+        return [
+            {
+                "name": r.name,
+                "slug": r.slug,
+                "description": r.description,
+                "enabled": r.enabled,
+                "scheduleType": r.schedule_type,
+                "scheduleConfig": r.schedule_config,
+                "taskType": r.task_type,
+                "taskConfig": r.task_config,
+                "retryPolicy": r.retry_policy,
+            }
+            for r in self._group_rows(ScheduledTaskModel)
+        ]
+
+    def _export_forms(self) -> list[dict[str, Any]]:
+        """Form definitions. Submissions are not exported."""
+        from marvin.db.models.platform.forms import Forms
+
+        return [
+            {
+                "slug": r.slug,
+                "name": r.name,
+                "description": r.description,
+                "schemaJson": r.schema_json,
+                "settingsJson": r.settings_json,
+                "metadataJson": r.metadata_json,
+                "status": getattr(r.status, "value", r.status),
+            }
+            for r in self._group_rows(Forms)
+        ]
+
+    def _export_email_templates(self) -> list[dict[str, Any]]:
+        """Workspace email templates (keyed by template_type on restore)."""
+        from marvin.db.models.groups.email_templates import EmailTemplateModel
+
+        return [
+            {
+                "templateType": r.template_type,
+                "name": r.name,
+                "description": r.description,
+                "subject": r.subject,
+                "customHtml": r.custom_html,
+                "bodyMarkdown": r.body_markdown,
+                "availableVariables": r.available_variables,
+                "enabled": r.enabled,
+            }
+            for r in self._group_rows(EmailTemplateModel, order_col="template_type")
+        ]
+
+    def _export_email_subscriptions(self) -> list[dict[str, Any]]:
+        """Email event subscriptions. The template FK is exported as its type for re-resolution."""
+        from marvin.db.models.groups.email_event_subscriptions import EmailEventSubscriptionModel
+        from marvin.db.models.groups.email_templates import EmailTemplateModel
+
+        out = []
+        for r in self._group_rows(EmailEventSubscriptionModel, order_col="event_type"):
+            template = self.repos.session.query(EmailTemplateModel).filter(EmailTemplateModel.id == r.template_id).first()
+            out.append(
+                {
+                    "templateType": template.template_type if template else None,
+                    "templateName": template.name if template else None,
+                    "eventType": r.event_type,
+                    "recipientType": r.recipient_type,
+                    "recipientField": r.recipient_field,
+                    "recipientEmail": r.recipient_email,
+                    "enabled": r.enabled,
+                }
+            )
+        return out
+
+    def _export_notifications(self) -> dict[str, Any] | None:
+        """Where the workspace's alerts go (Settings → Automation → Notifications). A route's connection travels
+        as its slug; None when the workspace never changed the defaults."""
+        from marvin.db.models.groups.integrations import IntegrationModel
+        from marvin.db.models.groups.preferences import GroupPreferencesModel
+
+        prefs = self.repos.session.query(GroupPreferencesModel).filter_by(group_id=self.repos.group_id).first()
+        stored = prefs.notifications_json if prefs is not None else None
+        if not stored:
+            return None
+        slugs = {str(row.id): row.slug for row in self._group_rows(IntegrationModel)}
+        routes = [
+            {
+                "integrationSlug": slugs.get(str(route.get("integration_id"))),
+                "action": route.get("action"),
+                "args": route.get("args") or {},
+                "enabled": route.get("enabled", True),
+                "kinds": route.get("kinds"),
+            }
+            for route in stored.get("routes") or []
+        ]
+        return {
+            "types": stored.get("types") or {},
+            "email": stored.get("email") or {},
+            "routes": routes,
+            "integrationReminderHours": prefs.integration_alert_reminder_hours,
+        }
+
+    def _export_integration_subscriptions(self) -> list[dict[str, Any]]:
+        """Integration event subscriptions. The integration FK is exported as its slug."""
+        from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel
+        from marvin.db.models.groups.integrations import IntegrationModel
+
+        out = []
+        for r in self._group_rows(IntegrationEventSubscriptionModel, order_col="event_type"):
+            integration = self.repos.session.query(IntegrationModel).filter(IntegrationModel.id == r.integration_id).first()
+            out.append(
+                {
+                    "integrationSlug": integration.slug if integration else None,
+                    "eventType": r.event_type,
+                    "action": r.action,
+                    "args": r.args,
+                    "enabled": r.enabled,
+                }
+            )
+        return out

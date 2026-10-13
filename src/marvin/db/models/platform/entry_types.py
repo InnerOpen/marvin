@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 import sqlalchemy.orm as orm
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from .. import BaseMixins, SqlAlchemyBase
@@ -42,8 +41,8 @@ class EntryTypes(SqlAlchemyBase, BaseMixins):
     description: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     sort_order: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0, server_default="0")
     is_system: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False, server_default="false")
-    is_rendered: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False, server_default=sa.text("0"))
-    schema_json: Mapped[dict] = mapped_column("schema_json", JSONB, nullable=False, default=dict, server_default="{}")
+    is_rendered: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False, server_default=sa.false())
+    schema_json: Mapped[dict] = mapped_column("schema_json", sa.JSON, nullable=False, default=dict, server_default="{}")
     """Schema definition for this entry type (EntryTypeSchemaDefinition)."""
 
     rendering_json: Mapped[dict | None] = mapped_column("rendering_json", sa.JSON, nullable=True)
@@ -55,6 +54,10 @@ class EntryTypes(SqlAlchemyBase, BaseMixins):
     recipe_json: Mapped[dict | None] = mapped_column("recipe_json", sa.JSON, nullable=True)
     """Authoring recipe: what to gather/derive to build an entry of this type
     (assets contract, resource extraction, enrichment steps) — EntryTypeRecipe."""
+
+    page_url_pattern: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    """Where the workspace's site renders an entry of this type, e.g. ``/works/{slug}``.
+    Optional; resolved by ``marvin.services.entry_urls.entry_url``."""
 
     entries: Mapped[list["Entries"]] = orm.relationship("Entries", back_populates="entry_type")
 

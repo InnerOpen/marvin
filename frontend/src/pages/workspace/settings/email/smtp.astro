@@ -1,0 +1,549 @@
+---
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { getBrowserFetchBaseUrl } from "@/lib/api/config";
+import { canManageCurrentWorkspace, getCurrentWorkspace } from "@/lib/api/workspaces";
+
+const authToken = getAuthToken(Astro.cookies);
+// Admin-only page (the API refuses members with a 403); if the role can't be read, let the API decide.
+const adminOnly = !(await canManageCurrentWorkspace(authToken!).catch(() => true));
+
+let workspace = null;
+try {
+  workspace = await getCurrentWorkspace(authToken);
+} catch (e) {
+  console.error("[email-smtp] Error loading workspace:", e);
+}
+
+const apiUrl = getBrowserFetchBaseUrl();
+---
+
+<AppLayout crumb="settings.email.smtp" adminOnly={adminOnly}>
+  <div class="toolbar">
+    <div>
+      <h2>SMTP Configuration</h2>
+      <p>Named SMTP profiles for {workspace?.workspace?.name || 'this workspace'} — the active profile is used to send workspace mail</p>
+    </div>
+    <button class="button" id="add-profile-btn">+ Add SMTP Profile</button>
+  </div>
+
+  <div class="smtp-page">
+    <div id="profiles-container">
+      <div class="loading-state">Loading profiles…</div>
+    </div>
+
+    <p class="footnote">
+      Passwords are encrypted at rest and never shown again. Falls back to the system-wide SMTP
+      settings when no profile is active.
+    </p>
+  </div>
+
+  <!-- Add / Edit Profile Modal -->
+  <div id="profile-modal" class="modal">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="profile-modal-title">Add SMTP Profile</h3>
+        <button class="modal-close" id="close-profile-modal" type="button">&times;</button>
+      </div>
+      <form id="profile-form">
+        <input type="hidden" id="profile-id" />
+
+        <div class="form-grid">
+          <div class="form-group span-2">
+            <label for="f-name">Name *</label>
+            <input type="text" id="f-name" placeholder="e.g., Transactional" required />
+          </div>
+
+          <div class="form-group">
+            <label for="f-host">Host *</label>
+            <input type="text" id="f-host" placeholder="smtp.example.com" required />
+          </div>
+          <div class="form-group">
+            <label for="f-port">Port *</label>
+            <input type="number" id="f-port" value="587" required />
+          </div>
+
+          <div class="form-group">
+            <label for="f-strategy">Security</label>
+            <select id="f-strategy">
+              <option value="TLS">STARTTLS (587)</option>
+              <option value="SSL">SSL/TLS (465)</option>
+              <option value="NONE">None (unencrypted)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="f-username">Username</label>
+            <input type="text" id="f-username" placeholder="Optional" autocomplete="off" />
+          </div>
+
+          <div class="form-group span-2">
+            <label for="f-password">Password</label>
+            <input type="password" id="f-password" placeholder="Optional" autocomplete="new-password" />
+            <small id="pw-hint" class="hidden">Leave blank to keep the stored password.</small>
+            <small class="field-note">Enter a password, or reference an existing workspace secret as <code>{'{{SLUG}}'}</code>.</small>
+          </div>
+
+          <div class="form-group">
+            <label for="f-from-name">From Name</label>
+            <input type="text" id="f-from-name" placeholder="Marvin" />
+          </div>
+          <div class="form-group">
+            <label for="f-from-email">From Email</label>
+            <input type="email" id="f-from-email" placeholder="no-reply@example.com" />
+          </div>
+
+          <p class="form-hint span-2">
+            Gmail / Google Workspace rewrites the From to the account you authenticate as, unless this
+            address is a verified <strong>“Send mail as”</strong> alias on it. To send from a different
+            domain, verify it in that Google account — or use a transactional provider (SendGrid, Postmark,
+            Mailgun, SES).
+          </p>
+
+          <div class="form-group span-2">
+            <label class="checkbox-label">
+              <input type="checkbox" id="f-active" />
+              <span>Make this the active profile for the workspace</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="button secondary" id="cancel-profile-btn">Cancel</button>
+          <button type="submit" class="button">Save Profile</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Test Send Modal -->
+  <div id="test-modal" class="modal">
+    <div class="modal-overlay"></div>
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h3>Send Test Email</h3>
+        <button class="modal-close" id="close-test-modal" type="button">&times;</button>
+      </div>
+      <form id="test-form">
+        <input type="hidden" id="test-profile-id" />
+        <div class="form-group">
+          <label for="test-recipient">Recipient Email *</label>
+          <input type="email" id="test-recipient" placeholder="you@example.com" required />
+          <small>Sends a live message through <strong id="test-profile-name"></strong>.</small>
+        </div>
+        <div id="test-result" class="test-result hidden"></div>
+        <div class="modal-actions">
+          <button type="button" class="button secondary" id="cancel-test-btn">Close</button>
+          <button type="submit" class="button">Send Test</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script define:vars={{ apiUrl }}>
+    const API = `${apiUrl}/api/groups/smtp-profiles`;
+    const profileModal = document.getElementById('profile-modal');
+    const testModal = document.getElementById('test-modal');
+    const container = document.getElementById('profiles-container');
+
+    function esc(s) {
+      return String(s ?? '').replace(/[&<>"']/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    }
+
+    function showModal(m) { m.classList.add('show'); document.body.style.overflow = 'hidden'; }
+    function hideModal(m) { m.classList.remove('show'); document.body.style.overflow = ''; }
+
+    async function loadProfiles() {
+      container.innerHTML = '<div class="loading-state">Loading profiles…</div>';
+      try {
+        const res = await fetch(API, { credentials: 'include' });
+        if (!res.ok) throw new Error(`Failed (${res.status})`);
+        const profiles = await res.json();
+        renderProfiles(profiles);
+      } catch (e) {
+        container.innerHTML = `<div class="empty-state"><p>Could not load profiles</p><small>${esc(e.message)}</small></div>`;
+      }
+    }
+
+    function renderProfiles(profiles) {
+      if (!profiles.length) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <p>No SMTP profiles yet</p>
+            <small>Add one to send workspace mail through your own server.</small>
+          </div>`;
+        return;
+      }
+      const rows = profiles.map((p) => {
+        const from = p.fromEmail
+          ? `${p.fromName ? esc(p.fromName) + ' ' : ''}&lt;${esc(p.fromEmail)}&gt;`
+          : '<span class="muted">— system default —</span>';
+        return `
+          <tr>
+            <td>
+              <strong>${esc(p.name)}</strong>
+              ${p.isActive ? '<span class="badge badge-active">Active</span>' : ''}
+            </td>
+            <td><code>${esc(p.host)}:${esc(p.port)}</code></td>
+            <td>${from}</td>
+            <td><span class="badge badge-sec">${esc(p.authStrategy)}</span></td>
+            <td class="row-actions">
+              ${p.isActive ? '' : `<button class="button secondary small act-btn" data-id="${p.id}">Activate</button>`}
+              <button class="button secondary small test-btn" data-id="${p.id}" data-name="${esc(p.name)}">Test</button>
+              <button class="button secondary small edit-btn" data-id="${p.id}">Edit</button>
+              <button class="button danger small del-btn" data-id="${p.id}" data-name="${esc(p.name)}">Delete</button>
+            </td>
+          </tr>`;
+      }).join('');
+      container.innerHTML = `
+        <table class="profiles-table">
+          <thead>
+            <tr><th>Name</th><th>Server</th><th>From</th><th>Security</th><th></th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+      wireRowActions(profiles);
+    }
+
+    function wireRowActions(profiles) {
+      const byId = Object.fromEntries(profiles.map((p) => [p.id, p]));
+
+      container.querySelectorAll('.edit-btn').forEach((b) =>
+        b.addEventListener('click', () => openEdit(byId[b.dataset.id])));
+
+      container.querySelectorAll('.act-btn').forEach((b) =>
+        b.addEventListener('click', async () => {
+          b.disabled = true;
+          try {
+            const res = await fetch(`${API}/${b.dataset.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ is_active: true }),
+            });
+            if (!res.ok) throw new Error(`Failed (${res.status})`);
+            loadProfiles();
+          } catch (e) { alert('Error: ' + e.message); b.disabled = false; }
+        }));
+
+      container.querySelectorAll('.del-btn').forEach((b) =>
+        b.addEventListener('click', async () => {
+          if (!confirm(`Delete SMTP profile "${b.dataset.name}"?`)) return;
+          try {
+            const res = await fetch(`${API}/${b.dataset.id}`, { method: 'DELETE', credentials: 'include' });
+            if (!res.ok && res.status !== 204) throw new Error(`Failed (${res.status})`);
+            loadProfiles();
+          } catch (e) { alert('Error: ' + e.message); }
+        }));
+
+      container.querySelectorAll('.test-btn').forEach((b) =>
+        b.addEventListener('click', () => openTest(b.dataset.id, b.dataset.name)));
+    }
+
+    // ── Add / Edit ────────────────────────────────────────────────
+    function resetForm() {
+      document.getElementById('profile-form').reset();
+      document.getElementById('profile-id').value = '';
+      document.getElementById('f-port').value = '587';
+      document.getElementById('pw-hint').classList.add('hidden');
+    }
+
+    document.getElementById('add-profile-btn').addEventListener('click', () => {
+      resetForm();
+      document.getElementById('profile-modal-title').textContent = 'Add SMTP Profile';
+      showModal(profileModal);
+    });
+
+    function openEdit(p) {
+      resetForm();
+      document.getElementById('profile-modal-title').textContent = 'Edit SMTP Profile';
+      document.getElementById('profile-id').value = p.id;
+      document.getElementById('f-name').value = p.name ?? '';
+      document.getElementById('f-host').value = p.host ?? '';
+      document.getElementById('f-port').value = p.port ?? 587;
+      document.getElementById('f-strategy').value = p.authStrategy ?? 'TLS';
+      document.getElementById('f-username').value = p.username ?? '';
+      document.getElementById('f-from-name').value = p.fromName ?? '';
+      document.getElementById('f-from-email').value = p.fromEmail ?? '';
+      document.getElementById('f-active').checked = !!p.isActive;
+      const hint = document.getElementById('pw-hint');
+      hint.textContent = p.hasPassword
+        ? 'Leave blank to keep the stored password.'
+        : 'No password stored yet.';
+      hint.classList.remove('hidden');
+      showModal(profileModal);
+    }
+
+    document.getElementById('profile-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('profile-id').value;
+      const pw = document.getElementById('f-password').value;
+      const body = {
+        name: document.getElementById('f-name').value.trim(),
+        host: document.getElementById('f-host').value.trim(),
+        port: parseInt(document.getElementById('f-port').value, 10) || 587,
+        auth_strategy: document.getElementById('f-strategy').value,
+        username: document.getElementById('f-username').value.trim() || null,
+        from_name: document.getElementById('f-from-name').value.trim() || null,
+        from_email: document.getElementById('f-from-email').value.trim() || null,
+        is_active: document.getElementById('f-active').checked,
+      };
+      // Only send the password when the user typed one (blank = keep existing on edit).
+      if (pw) body.password = pw;
+
+      try {
+        const res = await fetch(id ? `${API}/${id}` : API, {
+          method: id ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || `Failed (${res.status})`);
+        }
+        hideModal(profileModal);
+        loadProfiles();
+      } catch (e) { alert('Error: ' + e.message); }
+    });
+
+    // ── Test ──────────────────────────────────────────────────────
+    function openTest(id, name) {
+      document.getElementById('test-form').reset();
+      document.getElementById('test-profile-id').value = id;
+      document.getElementById('test-profile-name').textContent = name;
+      const r = document.getElementById('test-result');
+      r.className = 'test-result hidden';
+      r.textContent = '';
+      showModal(testModal);
+    }
+
+    document.getElementById('test-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('test-profile-id').value;
+      const recipient = document.getElementById('test-recipient').value.trim();
+      const r = document.getElementById('test-result');
+      r.className = 'test-result info';
+      r.textContent = 'Sending…';
+      try {
+        const res = await fetch(`${API}/${id}/test`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ recipient_email: recipient }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
+          r.className = 'test-result success';
+          r.textContent = '✓ ' + (data.message || 'Test email sent.');
+        } else {
+          r.className = 'test-result error';
+          r.textContent = '✗ ' + (data.message || data.detail || `Failed (${res.status})`);
+        }
+      } catch (e) {
+        r.className = 'test-result error';
+        r.textContent = '✗ ' + e.message;
+      }
+    });
+
+    // Close handlers
+    document.getElementById('close-profile-modal').addEventListener('click', () => hideModal(profileModal));
+    document.getElementById('cancel-profile-btn').addEventListener('click', () => hideModal(profileModal));
+    document.getElementById('close-test-modal').addEventListener('click', () => hideModal(testModal));
+    document.getElementById('cancel-test-btn').addEventListener('click', () => hideModal(testModal));
+    document.querySelectorAll('.modal-overlay').forEach((o) =>
+      o.addEventListener('click', () => { hideModal(profileModal); hideModal(testModal); }));
+
+    loadProfiles();
+  </script>
+</AppLayout>
+
+<style>
+  .toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 32px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--line);
+  }
+  .toolbar h2 { margin: 0; font-size: 24px; font-weight: 600; }
+  .toolbar p { margin: 8px 0 0; color: var(--muted); font-size: 14px; max-width: 60ch; }
+
+  .smtp-page { max-width: 960px; }
+
+  .footnote { margin: 16px 2px 0; font-size: 12px; color: var(--muted); }
+
+  .hidden { display: none; }
+
+  /*
+   * The profiles table, badges, and row buttons are built by client JS (see renderProfiles),
+   * so they never receive Astro's scope attribute. Style them via :global(), anchored under the
+   * static .smtp-page wrapper so the rules stay confined to this page.
+   */
+  .smtp-page :global(.loading-state),
+  .smtp-page :global(.empty-state) {
+    padding: 48px 24px;
+    text-align: center;
+    background: var(--panel);
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
+  }
+  .smtp-page :global(.empty-state p) { margin: 0 0 6px; font-size: 15px; font-weight: 500; }
+  .smtp-page :global(.empty-state small) { color: var(--muted); font-size: 13px; }
+
+  .smtp-page :global(.profiles-table) {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .smtp-page :global(.profiles-table th),
+  .smtp-page :global(.profiles-table td) {
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--line);
+    font-size: 14px;
+    vertical-align: middle;
+  }
+  .smtp-page :global(.profiles-table thead th) {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .smtp-page :global(.profiles-table tbody tr:last-child td) { border-bottom: none; }
+  .smtp-page :global(.profiles-table code) { font-family: ui-monospace, monospace; font-size: 13px; color: var(--accent); }
+  .smtp-page :global(.profiles-table .muted) { color: var(--muted); }
+
+  .smtp-page :global(.row-actions) { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }
+
+  .smtp-page :global(.badge) {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin-left: 8px;
+  }
+  .smtp-page :global(.badge-active) { background: rgb(53 122 85 / 0.15); color: var(--good); }
+  .smtp-page :global(.badge-sec) { background: var(--panel-2); color: var(--muted); margin-left: 0; }
+
+  .smtp-page :global(.button.small) { padding: 6px 12px; font-size: 13px; }
+  .smtp-page :global(.button.danger) { background: var(--color-error); color: white; border-color: var(--color-error); }
+
+  /* Modal */
+  .modal { display: none; position: fixed; inset: 0; z-index: 1000; }
+  .modal.show { display: block; }
+  .modal-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); }
+  .modal-content {
+    position: relative;
+    max-width: 620px;
+    max-height: 90vh;
+    margin: 5vh auto;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  }
+  .modal-small { max-width: 460px; }
+  .modal-content > form { overflow-y: auto; padding: 24px; }
+  .modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 24px; border-bottom: 1px solid var(--line);
+  }
+  .modal-header h3 { margin: 0; font-size: 18px; font-weight: 600; }
+  .modal-close {
+    background: none; border: none; font-size: 28px; line-height: 1;
+    color: var(--muted); cursor: pointer; width: 32px; height: 32px;
+  }
+  .modal-close:hover { color: var(--ink); }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .form-group { display: grid; gap: 6px; }
+  .form-group.span-2 { grid-column: 1 / -1; }
+  .form-group label { font-size: 13px; font-weight: 500; }
+  .form-group input, .form-group select {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    font-size: 14px;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  .form-group small { font-size: 12px; color: var(--muted); }
+
+  .form-hint {
+    grid-column: 1 / -1;
+    margin: -4px 0 0;
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--muted);
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+
+  .checkbox-label {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 14px; font-weight: 500; cursor: pointer; user-select: none;
+  }
+  .checkbox-label input { width: auto; }
+
+  .modal-actions {
+    display: flex; gap: 12px; justify-content: flex-end;
+    margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line);
+  }
+  .test-result { margin-top: 16px; padding: 10px 14px; border-radius: var(--radius); font-size: 13px; }
+  .test-result.info, .test-result.success {
+    background: rgba(79,156,132,0.1); color: var(--accent); border: 1px solid var(--accent);
+  }
+  .test-result.error {
+    background: var(--color-error-bg); color: var(--color-error); border: 1px solid var(--color-error);
+  }
+
+  /* Phones: each profile row becomes a stacked card (name, server, from, security, then the
+     actions), since five columns with a nowrap button group can't fit; the modal form goes to one column. */
+  @media (max-width: 640px) {
+    .smtp-page :global(.profiles-table),
+    .smtp-page :global(.profiles-table tbody),
+    .smtp-page :global(.profiles-table tr),
+    .smtp-page :global(.profiles-table td) {
+      display: block;
+    }
+    .smtp-page :global(.profiles-table thead) { display: none; }
+    .smtp-page :global(.profiles-table tr) { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+    .smtp-page :global(.profiles-table tbody tr:last-child) { border-bottom: none; }
+    .smtp-page :global(.profiles-table td) { padding: 3px 0; border-bottom: none; overflow-wrap: anywhere; }
+    .smtp-page :global(.profiles-table td.row-actions) {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+      gap: 8px;
+      margin-top: 10px;
+      white-space: normal;
+    }
+    .smtp-page :global(.button.small) { min-height: 36px; }
+    .modal-header { padding: 16px; }
+    .modal-close { width: 40px; height: 40px; margin: -8px -8px -8px 0; }
+    .modal-content > form { padding: 16px; }
+    .form-grid { grid-template-columns: minmax(0, 1fr); }
+    .modal-actions { flex-wrap: wrap; }
+  }
+</style>

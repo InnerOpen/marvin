@@ -6,7 +6,17 @@ from pydantic import UUID4, BaseModel, ConfigDict, Field
 
 from marvin.db.models.platform import EntryCollections
 from marvin.routes._base import BaseUserController, controller
-from marvin.schemas.platform import CollectionCreate, CollectionRead, CollectionUpdate, EntryRead, UpdateEntryCollectionRequest
+from marvin.routes._base.checks import require_workspace_editor
+from marvin.schemas.platform import (
+    CollectionCreate,
+    CollectionRead,
+    CollectionUpdate,
+    EntryRead,
+    SmartRulesPreview,
+    SmartRulesPreviewRequest,
+    UpdateEntryCollectionRequest,
+)
+from marvin.services.entries import trash
 from marvin.services.event_bus_service.event_types import EventCollectionData, EventOperation, EventTypes
 
 router = APIRouter(prefix="/collections")
@@ -44,7 +54,8 @@ class ReorderCollectionsRequest(BaseModel):
 
 @controller(router)
 class CollectionsController(BaseUserController):
-    """Authenticated CRUD routes for collections."""
+    """Authenticated CRUD routes for collections. Any member reads; organising content into
+    collections (creating, editing, ordering, deleting them) is EDITOR and above."""
 
     @router.get("", response_model=list[CollectionRead], summary="List Collections")
     def list_collections(self) -> list[CollectionRead]:
@@ -52,20 +63,34 @@ class CollectionsController(BaseUserController):
         # sort_order) lead — Inbox first — and drag-and-drop reordering is reflected.
         collections = self.repos.collections.get_all(order_by="sort_order", order_descending=False)
 
-        # Attach entry counts in one grouped query (avoids N+1).
+        # Attach member counts. entry_count carries the count of whatever the collection targets
+        # (entries / assets / resources) — one grouped query per junction (avoids N+1).
         from sqlalchemy import func
 
-        from marvin.db.models.platform import Collections, EntryCollections
+        from marvin.db.models.platform import Assets, CollectionAssets, CollectionResources, Collections, EntryCollections, Resources
+        from marvin.db.models.platform.entries import Entries
 
-        counts = dict(
-            self.session.query(EntryCollections.collection_id, func.count(EntryCollections.entry_id))
-            .join(Collections, Collections.id == EntryCollections.collection_id)
-            .filter(Collections.group_id == self.group_id)
-            .group_by(EntryCollections.collection_id)
-            .all()
-        )
+        def _counts(junction, fk, *filters, model=Entries):
+            q = (
+                self.session.query(junction.collection_id, func.count(getattr(junction, fk)))
+                .join(Collections, Collections.id == junction.collection_id)
+                .filter(Collections.group_id == self.group_id)
+            )
+            if filters:
+                q = q.join(model, model.id == getattr(junction, fk)).filter(*filters)
+            return dict(q.group_by(junction.collection_id).all())
+
+        # An asset or resource in the Trash keeps its membership (for a restore) but isn't counted.
+        by_type = {
+            "entry": _counts(EntryCollections, "entry_id", trash.not_trashed()),
+            "asset": _counts(CollectionAssets, "asset_id", Assets.trashed_at.is_(None), model=Assets),
+            "resource": _counts(CollectionResources, "resource_id", Resources.trashed_at.is_(None), model=Resources),
+        }
+        in_trash = _counts(EntryCollections, "entry_id", Entries.status == trash.TRASHED)
         for collection in collections:
-            collection.entry_count = counts.get(collection.id, 0)
+            counts = by_type.get(getattr(collection, "target_type", "entry") or "entry", {})
+            # Trashed entries count only toward the Trash; every other collection hides them.
+            collection.entry_count = (in_trash if trash.is_trash_collection(collection) else counts).get(collection.id, 0)
         return collections
 
     @router.patch("/order", summary="Reorder Collections")
@@ -75,14 +100,11 @@ class CollectionsController(BaseUserController):
         Writes sort_order directly (not via the repo update), so it works for system
         collections too — reordering is display-only and doesn't touch their locked content.
         """
+        require_workspace_editor(self.user, self.group_id)
         from marvin.db.models.platform import Collections
 
         ids = [item.id for item in data.collections]
-        rows = (
-            self.session.query(Collections)
-            .filter(Collections.group_id == self.group_id, Collections.id.in_(ids))
-            .all()
-        )
+        rows = self.session.query(Collections).filter(Collections.group_id == self.group_id, Collections.id.in_(ids)).all()
         by_id = {row.id: row for row in rows}
         for item in data.collections:
             row = by_id.get(item.id)
@@ -93,6 +115,7 @@ class CollectionsController(BaseUserController):
 
     @router.post("", response_model=CollectionRead, status_code=status.HTTP_201_CREATED, summary="Create Collection")
     def create_collection(self, data: CollectionCreate) -> CollectionRead:
+        require_workspace_editor(self.user, self.group_id)
         collection = self.repos.collections.create(data)
 
         # Emit event
@@ -115,6 +138,31 @@ class CollectionsController(BaseUserController):
 
         return collection
 
+    @router.post("/preview", response_model=SmartRulesPreview, summary="Preview Smart Collection Rules")
+    def preview_smart_rules(self, data: SmartRulesPreviewRequest) -> SmartRulesPreview:
+        """What a smart collection with these (unsaved) rules would contain, without saving anything.
+
+        Evaluated by ``matching_items`` — the same code that materializes membership on save — so
+        the count is exactly what the collection would hold. Scoped to the caller's workspace.
+        """
+        require_workspace_editor(self.user, self.group_id)
+        from marvin.services.collections.smart_collections import has_rules, ignored_keys, matching_items
+
+        rules = data.smart_rules or {}
+        matches = matching_items(self.session, self.group_id, rules, data.target_type)
+        if data.target_type != "entry":  # membership keeps a trashed asset/resource; the listing doesn't show it
+            matches = [m for m in matches if getattr(m, "trashed_at", None) is None]
+        label_attr = "title" if data.target_type == "entry" else "name"
+        items = [
+            {"id": m.id, "label": getattr(m, label_attr, None) or m.slug or str(m.id), "slug": m.slug, "type": data.target_type}
+            for m in matches[: data.limit]
+        ]
+        ignored = ignored_keys(rules, data.target_type)
+        note = None
+        if not has_rules(rules, data.target_type):
+            note = "None of these keys is a rule here, so nothing matches." if ignored else "No rules yet. An empty rule set matches nothing."
+        return SmartRulesPreview(total=len(matches), items=items, ignored_keys=ignored, note=note)
+
     @router.get("/{item_id}", response_model=CollectionRead, summary="Get Collection")
     def get_collection(self, item_id: UUID4) -> CollectionRead:
         collection = self.repos.collections.get_one(item_id)
@@ -124,8 +172,11 @@ class CollectionsController(BaseUserController):
 
     @router.patch("/{item_id}", response_model=CollectionRead, summary="Update Collection")
     def update_collection(self, item_id: UUID4, data: CollectionUpdate) -> CollectionRead:
-        if not self.repos.collections.get_one(item_id):
+        require_workspace_editor(self.user, self.group_id)
+        existing = self.repos.collections.get_one(item_id)
+        if not existing:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found.")
+        was_public = existing.is_public
 
         collection = self.repos.collections.update(item_id, data)
 
@@ -140,6 +191,9 @@ class CollectionsController(BaseUserController):
                 collection_name=collection.name,
                 workspace_id=collection.group_id,
                 workspace_name=self.group.name if self.group else None,
+                is_public=collection.is_public,
+                # A visibility toggle changes what the site shows even when the collection ends up private.
+                before={"is_public": was_public} if was_public != collection.is_public else {},
             ),
             message=f"Collection '{collection.name}' updated",
             user_id=self.user.id if self.user else None,
@@ -151,6 +205,7 @@ class CollectionsController(BaseUserController):
 
     @router.delete("/{item_id}", summary="Delete Collection")
     def delete_collection(self, item_id: UUID4) -> dict:
+        require_workspace_editor(self.user, self.group_id)
         collection = self.repos.collections.get_one(item_id)
         if not collection:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found.")
@@ -166,6 +221,7 @@ class CollectionsController(BaseUserController):
                 collection_name=collection.name,
                 workspace_id=collection.group_id,
                 workspace_name=self.group.name if self.group else None,
+                is_public=collection.is_public,
             ),
             message=f"Collection '{collection.name}' deleted",
             user_id=self.user.id if self.user else None,
@@ -176,9 +232,45 @@ class CollectionsController(BaseUserController):
         self.repos.collections.delete(item_id)
         return {"status": "ok", "message": "Collection deleted successfully"}
 
+    @router.get("/{item_id}/members", summary="Get Collection Members")
+    def get_collection_members(self, item_id: UUID4) -> list[dict]:
+        """Lightweight membership list for a collection of any target type.
+
+        Returns ``[{id, label, slug, type}]`` — entries (title), assets (name), or resources (name)
+        depending on the collection's target_type. Used by the admin UI to show membership of
+        asset/resource smart collections uniformly.
+        """
+        collection = self.repos.collections.get_one(item_id)
+        if not collection:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found.")
+
+        from marvin.db.models.platform import (
+            Assets,
+            CollectionAssets,
+            CollectionResources,
+            Entries,
+            Resources,
+        )
+
+        target = getattr(collection, "target_type", "entry") or "entry"
+        model, junction, fk, label_col = {
+            "entry": (Entries, EntryCollections, EntryCollections.entry_id, "title"),
+            "asset": (Assets, CollectionAssets, CollectionAssets.asset_id, "name"),
+            "resource": (Resources, CollectionResources, CollectionResources.resource_id, "name"),
+        }[target]
+
+        q = self.session.query(model).join(junction, model.id == fk).filter(junction.collection_id == item_id)
+        if target == "entry":
+            q = q.filter(trash.collection_entries_filter(collection))
+        else:  # an asset or resource in the Trash keeps its membership for a restore, out of sight
+            q = q.filter(model.trashed_at.is_(None))
+        rows = q.order_by(getattr(model, label_col)).all()
+        return [{"id": str(r.id), "label": getattr(r, label_col), "slug": r.slug, "type": target} for r in rows]
+
     @router.get("/{item_id}/entries", response_model=list[EntryRead], summary="Get Collection Entries")
     def get_collection_entries(self, item_id: UUID4) -> list[EntryRead]:
-        """Get all entries in a collection, ordered by sort_order."""
+        """Get all entries in a collection, ordered by sort_order. Entries in the Trash are listed only by
+        the Trash collection (a manual collection keeps their membership, so a restore puts them back)."""
         collection = self.repos.collections.get_one(item_id)
         if not collection:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found.")
@@ -189,6 +281,7 @@ class CollectionsController(BaseUserController):
             self.session.query(Entries)
             .join(EntryCollections, Entries.id == EntryCollections.entry_id)
             .filter(EntryCollections.collection_id == item_id)
+            .filter(trash.collection_entries_filter(collection))
             .options(*EntryRead.loader_options())
             .order_by(
                 sa.case(
@@ -206,6 +299,7 @@ class CollectionsController(BaseUserController):
     @router.patch("/{item_id}/entries/order", summary="Reorder Collection Entries")
     def reorder_collection_entries(self, item_id: UUID4, data: ReorderEntriesRequest) -> dict:
         """Bulk update sort_order for entries in a collection."""
+        require_workspace_editor(self.user, self.group_id)
         collection = self.repos.collections.get_one(item_id)
         if not collection:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found.")
@@ -245,6 +339,7 @@ class CollectionsController(BaseUserController):
                 collection_name=collection.name,
                 workspace_id=collection.group_id,
                 workspace_name=self.group.name if self.group else None,
+                is_public=collection.is_public,
             ),
             message=f"Collection '{collection.name}' entries reordered",
             user_id=self.user.id if self.user else None,
@@ -257,6 +352,7 @@ class CollectionsController(BaseUserController):
     @router.patch("/{item_id}/entries/{entry_id}", summary="Update Entry-Collection Junction")
     def update_entry_junction(self, item_id: UUID4, entry_id: UUID4, data: UpdateEntryCollectionRequest) -> dict:
         """Update role and metadata_json on a specific entry-collection junction record."""
+        require_workspace_editor(self.user, self.group_id)
         junction = (
             self.session.query(EntryCollections).filter(EntryCollections.collection_id == item_id, EntryCollections.entry_id == entry_id).first()
         )

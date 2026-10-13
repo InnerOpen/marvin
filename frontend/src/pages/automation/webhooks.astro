@@ -1,14 +1,17 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
-import { createSdkClient } from "@/lib/sdk";
 import { getAuthToken } from "@/lib/api/client";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import { createSdkClient } from "@/lib/sdk";
+import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
 let workspace = null;
 let webhooks: any[] = [];
 let error: string | null = null;
+let adminOnly = false;
 
 try {
   workspace = await getCurrentWorkspace(authToken);
@@ -17,19 +20,13 @@ try {
     webhooks = await sdk.webhooks.list();
   }
 } catch (e) {
-  console.error('[webhooks] Error loading:', e);
-  error = e instanceof Error ? e.message : String(e);
-}
-
-function formatScheduledTime(time: string | null | undefined): string {
-  if (!time) return 'Not scheduled';
-  const normalized = time.replace(/(\.\d{3})\d+/, '$1');
-  const d = new Date(normalized);
-  return isNaN(d.getTime()) ? time : d.toLocaleString();
+  console.error("[webhooks] Error loading:", e);
+  if (isForbidden(e)) adminOnly = true;
+  else error = e instanceof Error ? e.message : String(e);
 }
 ---
 
-<AppLayout title="Webhooks" eyebrow="Workspace">
+<AppLayout crumb="automation.webhooks" adminOnly={adminOnly}>
   <div class="toolbar">
     <div>
       <h2>Webhooks</h2>
@@ -79,7 +76,7 @@ function formatScheduledTime(time: string | null | undefined): string {
               </div>
               <div class="meta-item">
                 <span class="meta-label">Scheduled</span>
-                <span class="meta-value">{formatScheduledTime((webhook as any).scheduledTime ?? (webhook as any).scheduled_time)}</span>
+                <span class="meta-value"><LocalTime iso={(webhook as any).scheduledTime ?? (webhook as any).scheduled_time} fallback="Not scheduled" /></span>
               </div>
             </div>
             <div class="webhook-actions">
@@ -128,8 +125,8 @@ function formatScheduledTime(time: string | null | undefined): string {
           name: webhook.name,
           url: webhook.url,
           method: webhook.method,
-          webhook_type: webhook.webhookType ?? webhook.webhook_type,
-          scheduled_time: webhook.scheduledTime ?? webhook.scheduled_time,
+          webhook_type: webhook.webhookType ?? (webhook as any).webhook_type,
+          scheduled_time: webhook.scheduledTime ?? (webhook as any).scheduled_time,
           enabled: !currentlyEnabled,
         } as any);
         window.location.reload();
@@ -335,4 +332,11 @@ function formatScheduledTime(time: string | null | undefined): string {
   }
 
   .button:disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+
+  /* Phones: the meta row and the four actions wrap rather than widening the card. */
+  @media (max-width: 640px) {
+    .webhook-card { padding: 16px; }
+    .webhook-meta { flex-wrap: wrap; gap: 12px 24px; }
+    .webhook-actions { flex-wrap: wrap; }
+  }
 </style>

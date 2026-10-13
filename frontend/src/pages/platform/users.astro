@@ -1,8 +1,8 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
-import { getAuthToken, fetchApi } from "@/lib/api/client";
-import { createSdkClient } from '@/lib/sdk';
+import { createSdkClient } from "@/lib/sdk";
 
 const currentUser = await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
 
@@ -16,13 +16,13 @@ let groups: any[] = [];
 try {
   const [usersResponse, groupsResponse] = await Promise.all([
     sdk.adminUsers.list(),
-    fetchApi<any>('/api/admin/groups', {}, authToken),
+    fetchApi<any>("/api/admin/groups", {}, authToken),
   ]);
 
   users = usersResponse.items || [];
   groups = groupsResponse.items || [];
 } catch (e) {
-  console.error('[platform/users] Error loading:', e);
+  console.error("[platform/users] Error loading:", e);
   error = e instanceof Error ? e.message : String(e);
 }
 
@@ -49,7 +49,7 @@ const groupMap = new Map(groups.map((g: any) => [g.id, g.name]));
         <div class="empty-icon">👥</div>
         <p class="empty-title">No users found</p>
         <p class="empty-description">Create your first user to get started</p>
-        <a href="/admin/users/new" class="button">Create User</a>
+        <a href="/platform/users/new" class="button">Create User</a>
       </div>
     ) : (
       <div class="users-list">

@@ -1,0 +1,21 @@
+{
+  "name": "Every hour, rebuild the site",
+  "definition": {
+    "trigger": {
+      "type": "schedule",
+      "schedule_type": "interval",
+      "schedule_config": {
+        "interval_seconds": "{{interval_seconds}}"
+      }
+    },
+    "actions": [
+      {
+        "kind": "handler",
+        "task": "request_site_rebuild",
+        "config": {
+          "reason": "scheduled rebuild"
+        }
+      }
+    ]
+  }
+}

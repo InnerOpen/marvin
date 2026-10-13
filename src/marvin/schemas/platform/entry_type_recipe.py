@@ -42,9 +42,11 @@ class RecipeAssets(_MarvinModel):
 class RecipeResourceExtract(_MarvinModel):
     """Pull named entities out of a content field into linked resources."""
 
-    type: str                      # supplier | tool | reference | …
-    source: str = "body"           # which field to read entities from
+    type: str  # supplier | tool | reference | …
+    source: str = "body"  # which field to read entities from
     capture: list[str] = Field(default_factory=list, description="name | url | notes | …")
+    required: bool = False  # completeness: entry must link ≥ min resources of this type
+    min: int = 0  # minimum linked resources of this type (implies 1 when required)
 
     model_config = ConfigDict(extra="allow")
 
@@ -55,11 +57,29 @@ class RecipeResources(_MarvinModel):
     model_config = ConfigDict(extra="allow")
 
 
-class EntryTypeRecipe(_MarvinModel):
-    """Authoring recipe for an entry type (stored in entry_types.recipe_json)."""
+class RecipeTags(_MarvinModel):
+    """Tagging contract for the entry type — completeness + authoring guidance."""
 
+    required: bool = False  # entry must carry ≥ min tags
+    min: int = 0  # minimum tag count (implies 1 when required)
+    suggested: list[str] = Field(default_factory=list, description="Preferred vocabulary to reuse")
+
+    model_config = ConfigDict(extra="allow")
+
+
+class EntryTypeRecipe(_MarvinModel):
+    """Authoring recipe for an entry type (stored in entry_types.recipe_json).
+
+    This is the type's *authoring program*: compose reads it and assembles its behaviour from these
+    declarative sections — no per-type logic in code. ``instructions`` is the author's freeform "how
+    to build this type" prose (followed verbatim); ``assets``/``resources``/``enrichment`` declare
+    what images to gather, what entities to extract, and what to derive.
+    """
+
+    instructions: str | None = None
     assets: RecipeAssets | None = None
     resources: RecipeResources | None = None
+    tags: RecipeTags | None = None
     enrichment: dict | None = None
 
     model_config = ConfigDict(extra="allow")

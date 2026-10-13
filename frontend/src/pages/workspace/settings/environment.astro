@@ -1,7 +1,9 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
-import { createSdkClient } from "@/lib/sdk";
 import { getAuthToken } from "@/lib/api/client";
+import { createSdkClient } from "@/lib/sdk";
+import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
@@ -9,42 +11,41 @@ const sdk = createSdkClient(authToken);
 let variables: any[] = [];
 let secrets: any[] = [];
 let error: string | null = null;
+let adminOnly = false;
 
 try {
-  [variables, secrets] = await Promise.all([
-    sdk.variables.list(),
-    sdk.secrets.list(),
-  ]);
+  [variables, secrets] = await Promise.all([sdk.variables.list(), sdk.secrets.list()]);
 } catch (e) {
-  console.error('[environment] Error loading:', e);
-  error = e instanceof Error ? e.message : String(e);
+  console.error("[environment] Error loading:", e);
+  if (isForbidden(e)) adminOnly = true;
+  else error = e instanceof Error ? e.message : String(e);
 }
 
-const tab = Astro.url.searchParams.get('tab') || 'variables';
+const tab = Astro.url.searchParams.get("tab") || "variables";
 
 function fmtRelative(isoStr: string | null | undefined): string {
-  if (!isoStr) return '';
-  const normalized = isoStr.replace(/(\.\d{3})\d+/, '$1');
+  if (!isoStr) return "";
+  const normalized = isoStr.replace(/(\.\d{3})\d+/, "$1");
   const d = new Date(normalized);
-  if (isNaN(d.getTime())) return '';
+  if (Number.isNaN(d.getTime())) return "";
   const diffMs = Date.now() - d.getTime();
   const mins = Math.floor(diffMs / 60000);
-  if (mins < 1)  return 'Just now';
-  if (mins < 60) return mins === 1 ? '1 minute ago' : `${mins} minutes ago`;
+  if (mins < 1) return "Just now";
+  if (mins < 60) return mins === 1 ? "1 minute ago" : `${mins} minutes ago`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24)  return hrs === 1 ? '1 hour ago' : `${hrs} hours ago`;
+  if (hrs < 24) return hrs === 1 ? "1 hour ago" : `${hrs} hours ago`;
   const days = Math.floor(hrs / 24);
-  if (days < 7)  return days === 1 ? 'Yesterday' : `${days} days ago`;
+  if (days < 7) return days === 1 ? "Yesterday" : `${days} days ago`;
   const weeks = Math.floor(days / 7);
-  if (weeks < 5) return weeks === 1 ? '1 week ago' : `${weeks} weeks ago`;
+  if (weeks < 5) return weeks === 1 ? "1 week ago" : `${weeks} weeks ago`;
   const months = Math.floor(days / 30);
-  if (months < 12) return months === 1 ? '1 month ago' : `${months} months ago`;
+  if (months < 12) return months === 1 ? "1 month ago" : `${months} months ago`;
   const years = Math.floor(days / 365);
-  return years === 1 ? '1 year ago' : `${years} years ago`;
+  return years === 1 ? "1 year ago" : `${years} years ago`;
 }
 ---
 
-<AppLayout title="Environment" eyebrow="Settings">
+<AppLayout crumb="settings.environment" adminOnly={adminOnly}>
   <div class="page-header">
     <div>
       <h2>Environment</h2>
@@ -123,7 +124,6 @@ function fmtRelative(isoStr: string | null | undefined): string {
           </div>
           {variables.map((v: any) => {
             const upd = v.updateAt ?? v.update_at;
-            const updStr = upd ? new Date(upd.replace(/(\.\d{3})\d+/, '$1')).toLocaleDateString() : '—';
             return (
             <div class="env-row var-row" data-id={v.id} data-type="variable">
               <div>
@@ -145,7 +145,7 @@ function fmtRelative(isoStr: string | null | undefined): string {
                   data-id={v.id}
                 />
               </div>
-              <div class="env-updated">{updStr}</div>
+              <div class="env-updated"><LocalTime iso={upd} format="date" /></div>
               <div class="env-actions">
                 <button class="button secondary small save-var-btn" data-id={v.id} style="display:none">Save</button>
                 <button class="button secondary small danger" data-action="delete-var" data-id={v.id} data-name={v.name}>Delete</button>
@@ -213,7 +213,6 @@ function fmtRelative(isoStr: string | null | undefined): string {
           </div>
           {secrets.map((s: any) => {
             const upd = s.updateAt ?? s.update_at;
-            const updStr = upd ? new Date(upd.replace(/(\.\d{3})\d+/, '$1')).toLocaleDateString() : '—';
             return (
             <div class="env-row sec-row">
               <div>
@@ -230,7 +229,7 @@ function fmtRelative(isoStr: string | null | undefined): string {
                 <span class="masked">••••••••</span>
                 <button class="button secondary small rotate-btn" data-id={s.id} data-name={s.name}>Rotate</button>
               </div>
-              <div class="env-updated">{updStr}</div>
+              <div class="env-updated"><LocalTime iso={upd} format="date" /></div>
               <div class="env-actions">
                 <button class="button secondary small danger" data-action="delete-sec" data-id={s.id} data-name={s.name}>Delete</button>
               </div>
@@ -679,4 +678,19 @@ function fmtRelative(isoStr: string | null | undefined): string {
   .slug-copy { display: flex; align-items: center; gap: 6px; }
   .copy-btn { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 14px; padding: 2px 4px; border-radius: 3px; opacity: 0.6; }
   .copy-btn:hover { opacity: 1; color: var(--accent); background: rgba(79,156,132,0.1); }
+
+  /* Phones: the five-column rows (which the card clipped, hiding Value and Delete) stack — name, slug
+     and value full width, then the date beside the actions. The column header has nothing to label. */
+  @media (max-width: 640px) {
+    .panel-header { flex-wrap: wrap; }
+    .form-row { grid-template-columns: minmax(0, 1fr); }
+    .env-header { display: none; }
+    .var-row,
+    .sec-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; }
+    .env-row > :nth-child(-n + 3) { grid-column: 1 / -1; }
+    .env-slug { max-width: 100%; overflow-wrap: anywhere; }
+    .copy-btn { min-width: 36px; min-height: 36px; }
+    .inline-input { min-height: 36px; }
+    .env-actions .button.small { min-height: 36px; }
+  }
 </style>

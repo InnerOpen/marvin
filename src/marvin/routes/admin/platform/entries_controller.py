@@ -2,14 +2,13 @@
 
 from functools import cached_property
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from pydantic import UUID4
 
-from marvin.schemas.platform import EntryCreate, EntryRead, EntryUpdate
-from marvin.schemas.response.pagination import PaginationQuery
 from marvin.repos.platform import EntriesRepository
 from marvin.routes._base import BaseAdminController, controller
 from marvin.routes._base.mixins import HttpRepo
+from marvin.schemas.platform import EntryCreate, EntryRead, EntryUpdate
 
 router = APIRouter(prefix="/entries")
 
@@ -28,9 +27,7 @@ class AdminEntriesRoutes(BaseAdminController):
     @property
     def mixins(self) -> HttpRepo[EntryCreate, EntryRead, EntryUpdate]:
         """Mixin for CRUD operations."""
-        return HttpRepo[EntryCreate, EntryRead, EntryUpdate](
-            self.repo, self.logger, self.registered_exceptions
-        )
+        return HttpRepo[EntryCreate, EntryRead, EntryUpdate](self.repo, self.logger, self.registered_exceptions)
 
     @router.get("", response_model=list[EntryRead], summary="List Entries")
     def get_all(self) -> list[EntryRead]:
@@ -41,7 +38,7 @@ class AdminEntriesRoutes(BaseAdminController):
     @router.post("", response_model=EntryRead, summary="Create Entry")
     def create(self, schema: EntryCreate) -> EntryRead:
         """Create a new entry."""
-        return self.mixins.create(schema)
+        return self.mixins.create_one(schema)
 
     @router.get("/{entry_id}", response_model=EntryRead, summary="Get Entry")
     def get_one(self, entry_id: UUID4) -> EntryRead:
@@ -51,10 +48,9 @@ class AdminEntriesRoutes(BaseAdminController):
     @router.put("/{entry_id}", response_model=EntryRead, summary="Update Entry")
     def update(self, entry_id: UUID4, schema: EntryUpdate) -> EntryRead:
         """Update an entry."""
-        schema.id = entry_id
-        return self.mixins.update(schema)
+        return self.mixins.update_one(entry_id, schema)
 
-    @router.delete("/{entry_id}", summary="Delete Entry")
-    def delete(self, entry_id: UUID4) -> dict:
+    @router.delete("/{entry_id}", response_model=EntryRead, summary="Delete Entry")
+    def delete(self, entry_id: UUID4) -> EntryRead:
         """Delete an entry."""
-        return self.mixins.delete(entry_id)
+        return self.mixins.delete_one(entry_id)

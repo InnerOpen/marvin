@@ -1,0 +1,25 @@
+{
+  "recipe": "broken-link-patrol",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "The published entries whose links are checked.",
+      "example": "article"
+    },
+    "body_field": {
+      "type": "field_key",
+      "description": "Their text field (markdown or HTML).",
+      "example": "body"
+    },
+    "notify_integration": {
+      "type": "integration_slug",
+      "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
+      "example": "alerts"
+    },
+    "timezone": {
+      "type": "text",
+      "description": "The time zone the schedule runs in (IANA name).",
+      "example": "America/New_York"
+    }
+  }
+}

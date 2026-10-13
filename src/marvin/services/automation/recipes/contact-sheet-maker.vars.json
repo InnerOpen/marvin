@@ -1,0 +1,15 @@
+{
+  "recipe": "contact-sheet-maker",
+  "variables": {
+    "tag": {
+      "type": "text",
+      "description": "Tag of the images to put on the sheet (up to 48).",
+      "example": "october-shoot"
+    },
+    "title": {
+      "type": "text",
+      "description": "The sheet's title.",
+      "example": "October shoot"
+    }
+  }
+}

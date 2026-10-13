@@ -1,11 +1,13 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
-import Breadcrumb from "@/components/Breadcrumb.astro";
 import { getAuthToken } from "@/lib/api/client";
-import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import { getBrowserApiBaseUrl, getBrowserFetchBaseUrl } from "@/lib/api/config";
 import { listEmailTemplates } from "@/lib/api/emailTemplates";
+import { canManageCurrentWorkspace, getCurrentWorkspace } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
+// Members may read templates; changing or test-sending them is admin-only (the API answers 403).
+const canManage = await canManageCurrentWorkspace(authToken!).catch(() => true);
 
 let workspace = null;
 let emailTemplates = [];
@@ -17,24 +19,29 @@ let allSubscriptions: any[] = [];
 try {
   workspace = await getCurrentWorkspace(authToken);
   const wsId = (workspace as any)?.id ?? (workspace as any)?.groupId;
-  const base = import.meta.env.PUBLIC_MARVIN_API_URL || 'http://localhost:8080';
-  const hdrs = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
+  const base = getBrowserApiBaseUrl();
+  const hdrs = authToken ? { Authorization: `Bearer ${authToken}` } : {};
   if (wsId) {
     [emailTemplates, eventConnections, allSubscriptions] = await Promise.all([
       listEmailTemplates(wsId, authToken),
-      fetch(`${base}/api/platform/workspaces/${wsId}/email-templates/event-connections`, { headers: hdrs, credentials: 'include' })
-        .then(r => r.ok ? r.json() : []).catch(() => []),
-      fetch(`${base}/api/groups/email-event-subscriptions`, { headers: hdrs, credentials: 'include' })
-        .then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch(`${base}/api/platform/workspaces/${wsId}/email-templates/event-connections`, {
+        headers: hdrs,
+        credentials: "include",
+      })
+        .then((r) => (r.ok ? r.json() : []))
+        .catch(() => []),
+      fetch(`${base}/api/groups/email-event-subscriptions`, { headers: hdrs, credentials: "include" })
+        .then((r) => (r.ok ? r.json() : []))
+        .catch(() => []),
     ]);
   }
 } catch (e) {
-  console.error('[email-settings] Error:', e);
+  console.error("[email-settings] Error:", e);
   error = e instanceof Error ? e.message : String(e);
 }
 
 const groupId = (workspace as any)?.id ?? (workspace as any)?.groupId;
-const apiUrl = import.meta.env.PUBLIC_MARVIN_API_URL || 'http://localhost:8080';
+const apiUrl = getBrowserFetchBaseUrl();
 
 // Build template_id → [event_type, ...] and (template_id|event_type) → subscription_id
 const eventsByTemplateId: Record<string, string[]> = {};
@@ -50,8 +57,7 @@ function _addEvent(id: string, et: string, subId?: string) {
 for (const conn of eventConnections) {
   if (conn.workspace_template?.id && conn.subscription_id)
     _addEvent(conn.workspace_template.id, conn.event_type, conn.subscription_id);
-  else if (conn.system_template?.id)
-    _addEvent(conn.system_template.id, conn.event_type);
+  else if (conn.system_template?.id) _addEvent(conn.system_template.id, conn.event_type);
 }
 for (const sub of allSubscriptions) {
   const tid = sub.template_id ?? sub.templateId;
@@ -62,14 +68,16 @@ for (const sub of allSubscriptions) {
 // System event map — same keys as backend SYSTEM_TEMPLATE_EVENT_MAP
 const SYSTEM_EVENT_MAP: Record<string, string> = {
   invitation: "invitation_sent",
-  password_reset: "user_password_reset_requested",
   welcome: "user_signup",
 };
+// The platform's own emails: a workspace can't replace them. The password-reset link is a credential for an account
+// the workspace doesn't own, so it always goes out in the platform's template (the API refuses a workspace copy).
+const PLATFORM_ONLY_TYPES = new Set(["password_reset"]);
 
 // Group templates by type to compute effective state
 const templatesByType: Record<string, any[]> = {};
 for (const t of emailTemplates) {
-  const type = (t as any).templateType ?? (t as any).template_type ?? 'custom';
+  const type = (t as any).templateType ?? (t as any).template_type ?? "custom";
   if (!templatesByType[type]) templatesByType[type] = [];
   templatesByType[type].push(t);
 }
@@ -79,29 +87,31 @@ function isSuperseded(template: any): boolean {
   const isSystem = !((template as any).groupId ?? (template as any).group_id);
   if (!isSystem) return false;
   const type = (template as any).templateType ?? (template as any).template_type;
+  if (PLATFORM_ONLY_TYPES.has(type)) return false;
   const siblings = templatesByType[type] || [];
-  return siblings.some(t => {
+  return siblings.some((t) => {
     const tIsWorkspace = !!((t as any).groupId ?? (t as any).group_id);
     return tIsWorkspace && t.enabled;
   });
 }
 ---
 
-<AppLayout title="Email Settings" eyebrow="Workspace">
-  <Breadcrumb items={[
-    { label: "Workspace Settings", href: "/workspace/settings" },
-    { label: "Email Settings" }
-  ]} />
-
+<AppLayout crumb="settings.email">
   <div class="toolbar">
     <div>
-      <h2>Email Settings</h2>
-      <p>Manage email templates and test sending for {workspace?.workspace?.name || 'this workspace'}</p>
+      <h2>Email Templates</h2>
+      <p>Customize the emails sent from {workspace?.workspace?.name || 'this workspace'}</p>
     </div>
-    <button class="button" id="create-template-btn">
-      <span>+ Create Template</span>
-    </button>
+    {canManage && (
+      <button class="button" id="create-template-btn">
+        <span>+ Create Template</span>
+      </button>
+    )}
   </div>
+
+  {!canManage && (
+    <div class="alert alert-info" role="status">Only workspace owners and admins can change, connect or test-send email templates.</div>
+  )}
 
   {error ? (
     <div class="alert alert-error"><strong>Error:</strong> {error}</div>
@@ -167,7 +177,7 @@ function isSuperseded(template: any): boolean {
                                 <span class="connected-dot">&#9679;</span>
                                 <code>{e}</code>
                                 {isAuto && <span class="auto-badge">Auto</span>}
-                                {subId && !isAuto && (
+                                {canManage && subId && !isAuto && (
                                   <button class="disconnect-event-btn" data-sub-id={subId} title="Disconnect" type="button">&#215;</button>
                                 )}
                               </span>
@@ -180,8 +190,10 @@ function isSuperseded(template: any): boolean {
                       <small class="superseded-note">A workspace customization is currently active — this template won't be used.</small>
                     )}
                   </div>
-                  <div class="template-actions">
-                    {isSystemTpl ? (
+                  {canManage && <div class="template-actions">
+                    {isSystemTpl && PLATFORM_ONLY_TYPES.has((template as any).templateType ?? (template as any).template_type) ? (
+                      <span class="badge badge-system" title="Sent in the platform's own template: a workspace can't replace it">Platform</span>
+                    ) : isSystemTpl ? (
                       <button
                         class="button secondary small customize-btn"
                         data-template-id={template.id}
@@ -211,7 +223,7 @@ function isSuperseded(template: any): boolean {
                         Delete
                       </button>
                     )}
-                  </div>
+                  </div>}
                 </div>
               );
             };
@@ -235,58 +247,6 @@ function isSuperseded(template: any): boolean {
         </div>
       </section>
 
-      <section class="settings-section">
-        <h3>Test Email Delivery</h3>
-        <p class="section-description">Send a test email to verify SMTP configuration</p>
-
-        <form id="test-email-form" class="test-form">
-          <label class="form-field">
-            <span class="label">Test Email Address *</span>
-            <input
-              type="email"
-              name="test_email"
-              placeholder="test@example.com"
-              required
-              class="input"
-            />
-          </label>
-
-          <label class="form-field">
-            <span class="label">Subject</span>
-            <input
-              type="text"
-              name="subject"
-              value="Marvin Platform - Test Email"
-              class="input"
-            />
-          </label>
-
-          <label class="form-field">
-            <span class="label">Message</span>
-            <textarea
-              name="message"
-              rows="4"
-              class="input textarea"
-            >This is a test email from Marvin Platform. If you received this, your SMTP configuration is working correctly.</textarea>
-          </label>
-
-          <div class="form-actions">
-            <button type="submit" class="button">Send Test Email</button>
-          </div>
-        </form>
-
-        <div id="test-result" class="test-result hidden"></div>
-      </section>
-
-      <section class="settings-section">
-        <h3>SMTP Configuration</h3>
-        <p class="section-description">Workspace-specific email server settings (optional)</p>
-
-        <div class="coming-soon-box">
-          <p>📧 Workspace-specific SMTP configuration coming soon</p>
-          <p class="hint">Currently using system-wide SMTP settings from admin configuration</p>
-        </div>
-      </section>
     </div>
   )}
 
@@ -309,7 +269,6 @@ function isSuperseded(template: any): boolean {
             <label for="template-type-select">Template Type</label>
             <select id="template-type" class="input">
               <option value="invitation">Workspace Invitation — invitation</option>
-              <option value="password_reset">Password Reset — password_reset</option>
               <option value="welcome">New User Welcome — welcome</option>
               <option value="custom">Custom — custom</option>
             </select>
@@ -644,7 +603,7 @@ function isSuperseded(template: any): boolean {
       });
     });
 
-    document.getElementById('create-template-btn').addEventListener('click', () => {
+    document.getElementById('create-template-btn')?.addEventListener('click', () => {
       isEditMode = false;
       document.getElementById('modal-title').textContent = 'Create Custom Template';
       templateForm.reset();
@@ -870,7 +829,7 @@ function isSuperseded(template: any): boolean {
         const val = inp.value.trim();
         if (slug && val) vars[slug] = val;
       });
-      console.log('[test-send] variables being sent:', vars);
+      console.debug('[test-send] variables being sent:', vars);
 
       try {
         const response = await fetch(`${apiUrl}/api/platform/email/templates/${templateId}/test`, {
@@ -920,52 +879,6 @@ function isSuperseded(template: any): boolean {
           hideModal(testSendModal);
         }
       });
-    });
-  </script>
-
-  <script define:vars={{ apiUrl }}>
-    const testForm = document.getElementById('test-email-form');
-    const testResult = document.getElementById('test-result');
-
-    testForm?.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const formData = new FormData(e.target);
-
-      const payload = {
-        email: formData.get('test_email'),
-        subject: formData.get('subject') || null,
-        message: formData.get('message') || null,
-      };
-
-      testResult?.classList.remove('hidden', 'success', 'error');
-      if (testResult) testResult.textContent = 'Sending test email...';
-      testResult?.classList.add('info');
-
-      try {
-        const response = await fetch(`${apiUrl}/api/platform/email/test`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(payload),
-        });
-
-        const result = await response.json();
-
-        testResult?.classList.remove('info');
-        if (response.ok && result.success) {
-          testResult?.classList.add('success');
-          if (testResult) testResult.textContent = '✓ Test email sent successfully! Check your inbox at ' + payload.email;
-        } else {
-          testResult?.classList.add('error');
-          const msg = result.error || result.detail || 'Unknown error';
-          if (testResult) testResult.textContent = `✗ Failed: ${msg}`;
-        }
-      } catch (error) {
-        testResult?.classList.remove('info');
-        testResult?.classList.add('error');
-        if (testResult) testResult.textContent = '✗ Network error. Please try again.';
-        console.error('Error sending test email:', error);
-      }
     });
   </script>
 
@@ -1024,7 +937,15 @@ function isSuperseded(template: any): boolean {
       // Add a banner at the top so the user knows they're in connect flow
       const banner = document.createElement('div');
       banner.className = 'connect-flow-banner';
-      banner.innerHTML = `Connecting to <strong>${connectEvent}</strong> event &mdash; edit the template below, then click <strong>Connect</strong> when ready.`;
+      // connect_event comes from the URL: text only, never markup.
+      const strong = (text) => Object.assign(document.createElement('strong'), { textContent: text });
+      banner.append(
+        'Connecting to ',
+        strong(connectEvent),
+        ' event \u2014 edit the template below, then click ',
+        strong('Connect'),
+        ' when ready.',
+      );
       document.querySelector('.toolbar')?.before(banner);
 
       // Auto-open the template
@@ -1534,6 +1455,15 @@ function isSuperseded(template: any): boolean {
     padding: 0;
   }
 
+  /* The test-send form has no .form-section wrappers to inset its fields. */
+  #test-send-form {
+    padding-top: 20px;
+  }
+
+  #test-send-form > :not(.modal-actions) {
+    margin: 0 24px;
+  }
+
   .form-section {
     padding: 24px;
     border-bottom: 1px solid var(--line);
@@ -1635,7 +1565,7 @@ function isSuperseded(template: any): boolean {
   }
 
   .button.primary {
-    background: var(--primary);
+    background: var(--accent);
     color: white;
   }
 
@@ -1685,5 +1615,83 @@ function isSuperseded(template: any): boolean {
     color: var(--muted);
     margin-bottom: 10px;
     font-style: italic;
+  }
+
+  /* Phones: a template card stacks its name, badges and actions instead of squeezing them into one
+     row (the row couldn't shrink, so the cards ran off the screen). */
+  @media (max-width: 640px) {
+    .settings-section {
+      padding: 16px;
+    }
+
+    .template-card {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 12px;
+      padding: 14px 16px;
+    }
+
+    .template-header {
+      flex-wrap: wrap;
+      gap: 6px 8px;
+    }
+
+    .template-header strong {
+      flex-basis: 100%;
+      overflow-wrap: anywhere;
+    }
+
+    .template-actions {
+      flex-wrap: wrap;
+    }
+
+    .template-search-row .input {
+      max-width: none;
+    }
+
+    /* The × on a connected-event tag: a 32px hit area, mostly inside the tag's own padding, with
+       enough row gap that two wrapped tags' targets don't overlap. */
+    .connected-events-list {
+      gap: 8px;
+    }
+
+    .connected-event-tag {
+      padding: 4px 4px 4px 8px;
+    }
+
+    .disconnect-event-btn {
+      min-width: 32px;
+      min-height: 32px;
+      margin: -8px -4px -8px 0;
+      font-size: 16px;
+    }
+
+    .checkbox-label {
+      min-height: 32px;
+    }
+
+    .modal-header,
+    .form-section {
+      padding: 16px;
+    }
+
+    .modal-close {
+      width: 40px;
+      height: 40px;
+      margin: -8px -8px -8px 0;
+    }
+
+    .body-tab {
+      min-height: 36px;
+    }
+
+    .modal-actions {
+      flex-wrap: wrap;
+      padding: 16px;
+    }
+
+    #test-send-form > :not(.modal-actions) {
+      margin: 0 16px;
+    }
   }
 </style>

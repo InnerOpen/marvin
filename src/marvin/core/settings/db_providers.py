@@ -89,7 +89,9 @@ class PostgresProvider(AbstractDBProvider, BaseSettings):
     POSTGRES_DB: str = ""
     POSTGRES_URL_OVERRIDE: str | None = None
 
-    model_config = SettingsConfigDict(arbitrary_types_allowed=True, extra="allow")
+    # extra="ignore": this provider shares the app .env, so it must NOT absorb unrelated keys
+    # (e.g. OPENAI_API_KEY, DEFAULT_PASSWORD) — otherwise they land in model_dump and leak.
+    model_config = SettingsConfigDict(arbitrary_types_allowed=True, extra="ignore")
 
     @property
     def db_url(self) -> str:
@@ -122,9 +124,9 @@ class PostgresProvider(AbstractDBProvider, BaseSettings):
             return safe_url
         return str(
             PostgresDsn.build(
-                scheme="postgres",
+                scheme="postgresql",  # SQLAlchemy 2.0 dropped the "postgres" dialect alias
                 username=self.POSTGRES_USER,
-                password=urlparse.quote(self.POSTGRES_PASSWORD),
+                password=urlparse.quote(self.POSTGRES_PASSWORD.get_secret_value()),
                 host=f"{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}",
                 path=f"{self.POSTGRES_DB or ''}",
             )
@@ -141,7 +143,9 @@ class PostgresProvider(AbstractDBProvider, BaseSettings):
             str: The public PostgreSQL connection URL.
         """
         user = self.POSTGRES_USER
-        password = self.POSTGRES_PASSWORD
+        # db_url embeds the URL-quoted secret value — mask against that exact form (SecretStr and the
+        # raw value are not str, and the quoted form is what actually appears in the URL).
+        password = urlparse.quote(self.POSTGRES_PASSWORD.get_secret_value())
         return self.db_url.replace(user, "*********", 1).replace(password, "***********", 1)
 
 

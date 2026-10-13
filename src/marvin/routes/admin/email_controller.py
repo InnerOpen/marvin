@@ -25,7 +25,8 @@ from marvin.schemas.group.email_template import (
     EmailTemplateUpdate,
 )
 from marvin.services.email import EmailService  # Service for handling email operations
-from marvin.services.event_bus_service.event_types import EventOperation, EventTypes
+from marvin.services.email.email_senders import email_ready
+from marvin.services.event_bus_service.event_types import EventEmailTemplateData, EventOperation, EventTypes
 
 # APIRouter for admin "email" section, prefixed with /email
 # All routes in this controller will be under /admin/email.
@@ -51,8 +52,8 @@ class AdminEmailController(BaseAdminController):
     @property
     def repo(self):
         """Repository for system email templates (group_id = NULL)."""
-        from marvin.repos.repository_generic import RepositoryGeneric
         from marvin.db.models.groups.email_templates import EmailTemplateModel
+        from marvin.repos.repository_generic import RepositoryGeneric
         from marvin.schemas.group.email_template import EmailTemplateRead
 
         return RepositoryGeneric(self.repos.session, "id", EmailTemplateModel, EmailTemplateRead)
@@ -69,7 +70,7 @@ class AdminEmailController(BaseAdminController):
             EmailReady: A Pydantic model indicating if the email (SMTP) service is ready.
         """
         # Returns a simple boolean status based on application settings
-        return EmailReady(ready=self.settings.SMTP_ENABLED)
+        return EmailReady(ready=email_ready())
 
     @router.post("", response_model=EmailSuccess, summary="Send a Test Email")
     async def send_test_email(
@@ -123,7 +124,11 @@ class AdminEmailController(BaseAdminController):
         Returns:
             List of system email template summaries
         """
-        templates = self.repo.get_all()
+        from marvin.db.models.groups.email_templates import EmailTemplateModel
+
+        # System templates only: group_id IS NULL. (The generic repo's get_all() returns every
+        # template, so workspace/custom ones would otherwise show up mislabelled as "System".)
+        templates = self.repos.session.query(EmailTemplateModel).filter(EmailTemplateModel.group_id.is_(None)).all()
         return [EmailTemplateSummary.model_validate(t) for t in templates]
 
     @router.get("/templates/{template_id}", response_model=EmailTemplateRead, summary="Get System Email Template")
@@ -168,12 +173,12 @@ class AdminEmailController(BaseAdminController):
             integration_id="email_template_management",
             group_id=None,
             event_type=EventTypes.email_template_created,
-            document_data={
-                "operation": EventOperation.create,
-                "template_id": str(template.id),
-                "template_type": template.template_type,
-                "system_template": True,
-            },
+            document_data=EventEmailTemplateData(
+                operation=EventOperation.create,
+                template_id=str(template.id),
+                template_type=template.template_type,
+                system_template=True,
+            ),
             message=f"System email template created: {template.name} ({template.template_type})",
             user_id=self.user.id if self.user else None,
         )
@@ -207,12 +212,12 @@ class AdminEmailController(BaseAdminController):
             integration_id="email_template_management",
             group_id=None,
             event_type=EventTypes.email_template_updated,
-            document_data={
-                "operation": EventOperation.update,
-                "template_id": str(template_id),
-                "template_type": updated_template.template_type,
-                "system_template": True,
-            },
+            document_data=EventEmailTemplateData(
+                operation=EventOperation.update,
+                template_id=str(template_id),
+                template_type=updated_template.template_type,
+                system_template=True,
+            ),
             message=f"System email template updated: {updated_template.name}",
             user_id=self.user.id if self.user else None,
         )
@@ -244,12 +249,12 @@ class AdminEmailController(BaseAdminController):
             integration_id="email_template_management",
             group_id=None,
             event_type=EventTypes.email_template_deleted,
-            document_data={
-                "operation": EventOperation.delete,
-                "template_id": str(template_id),
-                "template_type": template_type,
-                "system_template": True,
-            },
+            document_data=EventEmailTemplateData(
+                operation=EventOperation.delete,
+                template_id=str(template_id),
+                template_type=template_type,
+                system_template=True,
+            ),
             message=f"System email template deleted: {template_name}",
             user_id=self.user.id if self.user else None,
         )
@@ -298,4 +303,4 @@ class AdminEmailController(BaseAdminController):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Error sending test email: {str(e)}",
-            )
+            ) from e

@@ -67,9 +67,7 @@ class WorkspaceMembers(SqlAlchemyBase, BaseMixins):
     workspace: Mapped[Optional["Groups"]] = orm.relationship("Groups", back_populates="members")
 
     # Unique constraint: a user can only have one membership per workspace
-    __table_args__ = (
-        sa.UniqueConstraint("user_id", "group_id", name="uq_workspace_member"),
-    )
+    __table_args__ = (sa.UniqueConstraint("user_id", "group_id", name="uq_workspace_member"),)
 
     @auto_init()
     def __init__(self, session: Session, **kwargs) -> None:

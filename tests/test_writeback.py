@@ -29,8 +29,17 @@ def _call(status, mode, writeback=None, output=None, entity_type="entry"):
     return AIOperationsController._write_back(ctrl, _operation(writeback), entity_type, "e1", output, "exec1")
 
 
-def test_non_entry_returns_none():
-    assert _call("inbox", "allow-automatic-update", entity_type="resource") is None
+def test_unsupported_entity_returns_none():
+    # entries/assets/resources write back; anything else (e.g. form_submission) does not.
+    assert _call("inbox", "allow-automatic-update", entity_type="form_submission") is None
+
+
+def test_asset_and_resource_write_back():
+    # Assets/resources have no published lifecycle to protect → always eligible to apply;
+    # suggest-only still stages.
+    assert _call("published", "allow-automatic-update", entity_type="asset") == "applied"
+    assert _call("published", "allow-draft-update", entity_type="resource") == "applied"
+    assert _call("published", "suggest-only", entity_type="resource") == "staged"
 
 
 def test_empty_writeback_returns_none():

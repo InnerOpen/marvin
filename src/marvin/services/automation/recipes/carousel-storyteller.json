@@ -1,0 +1,137 @@
+{
+  "name": "Carousel storyteller",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "outline",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "Turn “${entry.title}” into a 5-slide carousel in {{voice}}: slide 1 hooks, slides 2 to 4 give one idea each, slide 5 closes and points to the full piece. Each slide has a short heading and one or two short sentences. Use only what the entry says.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "slides": {
+              "type": "array",
+              "minItems": 5,
+              "maxItems": 5,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 50
+                  },
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  }
+                },
+                "required": [
+                  "title",
+                  "text"
+                ]
+              }
+            }
+          },
+          "required": [
+            "slides"
+          ]
+        }
+      },
+      {
+        "kind": "media",
+        "id": "slide_1",
+        "op": "render",
+        "template": "card",
+        "fields": {
+          "title": "${steps.outline.output.slides.0.title}",
+          "text": "${steps.outline.output.slides.0.text}",
+          "footer": "{{footer}} · 1/5"
+        },
+        "attach_as": "carousel-1",
+        "tags": [
+          "carousel"
+        ],
+        "images": {
+          "image": "role:{{image_role}}"
+        }
+      },
+      {
+        "kind": "media",
+        "id": "slide_2",
+        "op": "render",
+        "template": "card",
+        "fields": {
+          "title": "${steps.outline.output.slides.1.title}",
+          "text": "${steps.outline.output.slides.1.text}",
+          "footer": "{{footer}} · 2/5"
+        },
+        "attach_as": "carousel-2",
+        "tags": [
+          "carousel"
+        ]
+      },
+      {
+        "kind": "media",
+        "id": "slide_3",
+        "op": "render",
+        "template": "card",
+        "fields": {
+          "title": "${steps.outline.output.slides.2.title}",
+          "text": "${steps.outline.output.slides.2.text}",
+          "footer": "{{footer}} · 3/5"
+        },
+        "attach_as": "carousel-3",
+        "tags": [
+          "carousel"
+        ]
+      },
+      {
+        "kind": "media",
+        "id": "slide_4",
+        "op": "render",
+        "template": "card",
+        "fields": {
+          "title": "${steps.outline.output.slides.3.title}",
+          "text": "${steps.outline.output.slides.3.text}",
+          "footer": "{{footer}} · 4/5"
+        },
+        "attach_as": "carousel-4",
+        "tags": [
+          "carousel"
+        ]
+      },
+      {
+        "kind": "media",
+        "id": "slide_5",
+        "op": "render",
+        "template": "card",
+        "fields": {
+          "title": "${steps.outline.output.slides.4.title}",
+          "text": "${steps.outline.output.slides.4.text}",
+          "footer": "{{footer}} · 5/5"
+        },
+        "attach_as": "carousel-5",
+        "tags": [
+          "carousel"
+        ]
+      }
+    ]
+  }
+}

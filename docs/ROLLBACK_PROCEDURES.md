@@ -582,17 +582,17 @@ oc logs $NEW_POD | grep -i scheduler
 ### In Staging
 
 ```bash
-# 1. Deploy to staging
+# 1. Deploy to dev (marvin-dev)
 helm upgrade --install marvin ./marvin-chart \
-  --namespace marvin-staging \
-  --values marvin-chart/values-staging.yaml \
+  --namespace marvin-dev \
+  --values marvin-chart/values-dev.yaml \
   --set image.tag=test-version
 
 # 2. Verify deployment works
 # ... run tests ...
 
 # 3. Practice rollback
-helm rollback marvin -n marvin-staging
+helm rollback marvin -n marvin-dev
 
 # 4. Verify rollback works
 # ... run tests ...
@@ -664,7 +664,7 @@ After successful rollback:
 
 1. **Improve Testing**
    - Add tests for the failure scenario
-   - Update staging environment to match production
+   - Update dev (marvin-dev) to match production
    - Automate rollback testing
 
 2. **Improve Monitoring**

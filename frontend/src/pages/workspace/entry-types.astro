@@ -1,43 +1,42 @@
 ---
-import AppLayout from "@/layouts/AppLayout.astro";
-import Breadcrumb from "@/components/Breadcrumb.astro";
 import FilterBar from "@/components/FilterBar.astro";
-import { listEntryTypes, type EntryTypeRead } from "@/lib/api/entryTypes";
-import { listEntries, type EntryRead } from "@/lib/api/entries";
+import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import { type EntryRead, listEntries } from "@/lib/api/entries";
+import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
+import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
+// Everyone reads; creating, editing and deleting entry types is admin-only (if the role can't be read, let the API decide).
+const canManage = authToken ? await canManageCurrentWorkspace(authToken).catch(() => true) : true;
 
 let entryTypes: EntryTypeRead[] = [];
 let entries: EntryRead[] = [];
 let error: string | null = null;
 
 if (!authToken) {
-  error = 'Authentication required';
-  console.error('[EntryTypes] No auth token available');
+  error = "Authentication required";
+  console.error("[EntryTypes] No auth token available");
 } else {
   try {
-    [entryTypes, entries] = await Promise.all([
-      listEntryTypes(authToken),
-      listEntries(authToken),
-    ]);
+    [entryTypes, entries] = await Promise.all([listEntryTypes(authToken), listEntries(authToken)]);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
-    console.error('[EntryTypes] Failed to load:', error);
+    console.error("[EntryTypes] Failed to load:", error);
   }
 }
 
 // Count entries per type
 const entryCounts = new Map<string, number>();
-entries.forEach(entry => {
+entries.forEach((entry) => {
   const count = entryCounts.get(entry.entryTypeId) || 0;
   entryCounts.set(entry.entryTypeId, count + 1);
 });
 
 // Sort by sortOrder (camelCase from SDK)
 const sortedTypes = entryTypes.sort((a, b) => a.sortOrder - b.sortOrder);
-const systemTypes = sortedTypes.filter(t => t.isSystem);
-const customTypes = sortedTypes.filter(t => !t.isSystem);
+const systemTypes = sortedTypes.filter((t) => t.isSystem);
+const customTypes = sortedTypes.filter((t) => !t.isSystem);
 
 function getRendering(type: EntryTypeRead) {
   const rendering = type.renderingJson as Record<string, unknown> | undefined;
@@ -49,12 +48,7 @@ function getRendering(type: EntryTypeRead) {
 }
 ---
 
-<AppLayout title="Entry Types">
-  <Breadcrumb items={[
-    { label: "Workspace Settings", href: "/workspace/settings?tab=entry-types" },
-    { label: "Entry Types" }
-  ]} />
-
+<AppLayout crumb="settings.entry-types">
   {error ? (
     <div class="error-banner">
       <p><strong>Error loading entry types:</strong> {error}</p>
@@ -69,7 +63,7 @@ function getRendering(type: EntryTypeRead) {
         </div>
         <div style="display:flex;gap:0.75rem;">
           <FilterBar searchPlaceholder="Search entry types..." />
-          <a class="button" href="/workspace/entry-types/new">Create Entry Type</a>
+          {canManage && <a class="button" href="/workspace/entry-types/new">Create Entry Type</a>}
         </div>
       </div>
 
@@ -137,7 +131,7 @@ function getRendering(type: EntryTypeRead) {
           <p class="empty-description">
             Create custom entry types to organize your content beyond the default system types.
           </p>
-          <a href="/workspace/entry-types/new" class="button">Create Entry Type</a>
+          {canManage && <a href="/workspace/entry-types/new" class="button">Create Entry Type</a>}
         </div>
       ) : (
         <section>
@@ -192,12 +186,14 @@ function getRendering(type: EntryTypeRead) {
                     <td>{type.sortOrder}</td>
                     <td>
                       <div class="actions">
-                        <a href={`/workspace/entry-types/${type.id}`} class="button secondary small">Edit</a>
-                        <form method="POST" action={`/api/entry-types/${type.id}/delete`} style="display:inline;">
-                          <button type="submit" class="button secondary small danger" onclick="return confirm('Delete this entry type?')">
-                            Delete
-                          </button>
-                        </form>
+                        <a href={`/workspace/entry-types/${type.id}`} class="button secondary small">{canManage ? "Edit" : "View"}</a>
+                        {canManage && (
+                          <form method="POST" action={`/api/entry-types/${type.id}/delete`} style="display:inline;">
+                            <button type="submit" class="button secondary small danger" onclick="return confirm('Delete this entry type?')">
+                              Delete
+                            </button>
+                          </form>
+                        )}
                       </div>
                     </td>
                   </tr>

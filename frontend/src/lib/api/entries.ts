@@ -3,17 +3,32 @@
  * Migrated to use @inneropen/marvin-sdk
  */
 
-import { createSdkClient } from '../sdk';
-import { getApiUrl } from './config';
 import type {
+  PlatformCollection,
   PlatformEntry,
   PlatformEntryCreate,
   PlatformEntryUpdate,
-  PlatformCollection,
-} from '@inneropen/marvin-sdk/platform';
+} from "@inneropen/marvin-sdk/platform";
+import { createSdkClient } from "../sdk";
+import { getApiUrl } from "./config";
 
 // Re-export SDK types with legacy names for backward compatibility
-export type EntryRead = PlatformEntry;
+/** Why the Publish Scheduled Entries task is holding a due entry back (see the entry editor's Scheduled Publish). */
+export type ScheduledPublishBlock = {
+  /** "requirements": the publish gate refused it; "approval": the workspace publishes only approved entries on schedule. */
+  waitingFor: "requirements" | "approval" | string;
+  reason: string;
+  issues: string[];
+  /** When it was first held back for this reason (UTC). */
+  at: string | null;
+};
+
+// pageUrl and scheduledPublishBlocked are newer than the published SDK types (pageUrl is set on a
+// single-entry read); drop the intersection once they carry them.
+export type EntryRead = PlatformEntry & {
+  pageUrl?: string | null;
+  scheduledPublishBlocked?: ScheduledPublishBlock | null;
+};
 export type EntryCreate = PlatformEntryCreate;
 export type EntryUpdate = PlatformEntryUpdate;
 export type CollectionRead = PlatformCollection;
@@ -24,6 +39,12 @@ export type CollectionRead = PlatformCollection;
 export async function listEntries(authToken: string): Promise<EntryRead[]> {
   const sdk = createSdkClient(authToken);
   return sdk.entries.list();
+}
+
+/** Entry counts by status for the current workspace (`{inbox, draft, …, total}`) — the sidebar badge. */
+export async function getEntryCounts(authToken?: string): Promise<Record<string, number>> {
+  const { fetchApi } = await import("./client");
+  return fetchApi<Record<string, number>>("/api/platform/entries/counts", {}, authToken);
 }
 
 /**
@@ -64,7 +85,7 @@ export async function deleteEntry(id: string, authToken: string): Promise<void> 
  */
 export async function applyEntrySuggestion(id: string, authToken: string): Promise<EntryRead> {
   const res = await fetch(getApiUrl(`/api/platform/entries/${id}/apply-suggestion`), {
-    method: 'POST',
+    method: "POST",
     headers: { Authorization: `Bearer ${authToken}` },
   });
   if (!res.ok) throw new Error(`apply-suggestion failed: ${res.status}`);
@@ -74,7 +95,7 @@ export async function applyEntrySuggestion(id: string, authToken: string): Promi
 /** Discard the entry's staged AI suggestion without applying it. */
 export async function rejectEntrySuggestion(id: string, authToken: string): Promise<EntryRead> {
   const res = await fetch(getApiUrl(`/api/platform/entries/${id}/reject-suggestion`), {
-    method: 'POST',
+    method: "POST",
     headers: { Authorization: `Bearer ${authToken}` },
   });
   if (!res.ok) throw new Error(`reject-suggestion failed: ${res.status}`);
@@ -100,7 +121,11 @@ export async function addEntryToCollection(entryId: string, collectionId: string
 /**
  * Remove an entry from a collection
  */
-export async function removeEntryFromCollection(entryId: string, collectionId: string, authToken: string): Promise<void> {
+export async function removeEntryFromCollection(
+  entryId: string,
+  collectionId: string,
+  authToken: string,
+): Promise<void> {
   const sdk = createSdkClient(authToken);
   return sdk.entries.removeFromCollection(entryId, collectionId);
 }

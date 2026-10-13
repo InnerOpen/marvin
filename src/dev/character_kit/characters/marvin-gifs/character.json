@@ -1,0 +1,10 @@
+{
+  "name": "Marvin",
+  "description": "Marvin the Paranoid Android: a thin white humanoid robot with a large round domed head, small green eyes, and a slumped, glum posture",
+  "style": "smooth 3D-render",
+  "rules": [
+    "white and pale grey only",
+    "large round domed head, small green eyes",
+    "always looks a little glum"
+  ]
+}

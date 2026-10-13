@@ -1,7 +1,7 @@
 """Collection schemas."""
 
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import UUID4, AliasChoices, ConfigDict, Field, StringConstraints, field_validator
 
@@ -27,6 +27,8 @@ class CollectionCreate(_MarvinModel):
     """Whether this is a smart collection based on rules."""
     smart_rules: dict | None = None
     """Optional rules for smart collections."""
+    target_type: str = "entry"
+    """Which entity type this collection groups: 'entry' (default), 'asset', or 'resource'."""
     is_public: bool = True
     """Whether this collection is exposed via the publish API."""
     metadata_json: dict | None = None
@@ -56,6 +58,8 @@ class CollectionUpdate(_MarvinModel):
     """Whether this is a smart collection based on rules."""
     smart_rules: dict | None = None
     """Optional rules for smart collections."""
+    target_type: str | None = None
+    """Which entity type this collection groups: 'entry', 'asset', or 'resource'."""
     is_public: bool | None = None
     """Whether this collection is exposed via the publish API."""
     metadata_json: dict | None = None
@@ -85,6 +89,8 @@ class CollectionSummary(_MarvinModel):
     """Optional color code."""
     is_smart: bool
     """Whether this is a smart collection."""
+    target_type: str = "entry"
+    """Which entity type this collection groups: 'entry', 'asset', or 'resource'."""
     is_system: bool = False
     """System workflow collection — locked from edit/delete and internal-only."""
     is_public: bool = True
@@ -108,6 +114,10 @@ class CollectionRead(CollectionSummary):
     """Optional rules for smart collections."""
     metadata_json: dict | None = None
     """Custom metadata for this collection."""
+    source_integration_id: UUID4 | None = None
+    """Read-only "installed by": the integration whose blueprint created this (null: made by a person)."""
+    source_blueprint: str | None = None
+    """Read-only: the slug of the blueprint that created this, if one did."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -146,3 +156,36 @@ class EntryCollectionRead(_MarvinModel):
         return value
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SmartRulesPreviewRequest(_MarvinModel):
+    """Unsaved smart-collection rules to evaluate against the workspace."""
+
+    target_type: Literal["entry", "asset", "resource"] = "entry"
+    """Which kind of item the rules select."""
+    smart_rules: dict | None = None
+    """The rules, in the same shape as ``CollectionCreate.smart_rules``."""
+    limit: int = Field(default=10, ge=0, le=50)
+    """How many matching items to list (newest first); ``total`` counts them all."""
+
+
+class SmartRulesPreviewItem(_MarvinModel):
+    """One item the rules match."""
+
+    id: UUID4
+    label: str
+    slug: str | None = None
+    type: str
+
+
+class SmartRulesPreview(_MarvinModel):
+    """What a smart collection with these rules would contain if saved now."""
+
+    total: int
+    """Every match, not just the listed ones."""
+    items: list[SmartRulesPreviewItem]
+    """The first ``limit`` matches, newest first."""
+    ignored_keys: list[str] = []
+    """Keys in the rules this target type doesn't read (e.g. a workflow query's ``entry_type``)."""
+    note: str | None = None
+    """Why nothing can match, when that's knowable (e.g. an empty rule set)."""

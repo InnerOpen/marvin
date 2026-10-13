@@ -1,11 +1,12 @@
 """Rate limiting service for form submissions."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from pydantic import UUID4
 from sqlalchemy.orm import Session
 
 from marvin.db.models.platform.form_rate_limits import FormRateLimits
+from marvin.db.models.platform.submission_rate_limits import SubmissionRateLimits
 
 
 class RateLimitService:
@@ -13,6 +14,57 @@ class RateLimitService:
 
     def __init__(self, session: Session) -> None:
         self.session = session
+
+    def check_subject_limit(self, subject_id: UUID4, identifier: str, max_submissions: int, window_minutes: int) -> bool:
+        """Windowed rate check for a submittable subject (an entry type). Generalizes ``check_limit``
+        off the ``forms.id`` FK so the entry-type submit path can be rate-limited.
+
+        Returns True if the submission is allowed, False if the limit is exceeded.
+        """
+        record = self._current_window(subject_id, identifier, window_minutes)
+        if record is None:
+            self._open_window(subject_id, identifier)
+            return True
+        if record.submission_count >= max_submissions:
+            return False
+        record.submission_count += 1
+        self.session.commit()
+        return True
+
+    def record_submission(self, subject_id: UUID4, identifier: str, window_minutes: int) -> int:
+        """Unconditionally count one submission for (subject, identifier) and return the window total.
+        Feeds surge detection, which wants the count rather than an allow/deny."""
+        record = self._current_window(subject_id, identifier, window_minutes)
+        if record is None:
+            self._open_window(subject_id, identifier)
+            return 1
+        record.submission_count += 1
+        self.session.commit()
+        return record.submission_count
+
+    def _current_window(self, subject_id: UUID4, identifier: str, window_minutes: int) -> SubmissionRateLimits | None:
+        window_start = datetime.now(UTC) - timedelta(minutes=window_minutes)
+        return (
+            self.session.query(SubmissionRateLimits)
+            .filter(
+                SubmissionRateLimits.subject_id == subject_id,
+                SubmissionRateLimits.identifier == identifier,
+                SubmissionRateLimits.window_start >= window_start,
+            )
+            .first()
+        )
+
+    def _open_window(self, subject_id: UUID4, identifier: str) -> SubmissionRateLimits:
+        record = SubmissionRateLimits(
+            session=self.session,
+            subject_id=subject_id,
+            identifier=identifier,
+            window_start=datetime.now(UTC),
+            submission_count=1,
+        )
+        self.session.add(record)
+        self.session.commit()
+        return record
 
     def check_limit(self, form_id: UUID4, identifier: str, settings: dict | None) -> bool:
         """Check if submission is within rate limit.
@@ -34,7 +86,7 @@ class RateLimitService:
         window_minutes = rate_config.get("windowMinutes", 60)
 
         # Calculate window start
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         window_start = now - timedelta(minutes=window_minutes)
 
         # Get or create rate limit record
@@ -76,6 +128,7 @@ class RateLimitService:
         Args:
             days: Number of days to keep records
         """
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
         self.session.query(FormRateLimits).filter(FormRateLimits.window_start < cutoff).delete()
+        self.session.query(SubmissionRateLimits).filter(SubmissionRateLimits.window_start < cutoff).delete()
         self.session.commit()

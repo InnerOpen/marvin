@@ -1,22 +1,287 @@
 """Publishing API forms controller."""
 
-from datetime import datetime, timezone
+import logging
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from jinja2 import Template
 from sqlalchemy.orm import Session
 
 from marvin.core.dependencies import get_publishing_context
 from marvin.core.permissions import Permissions
 from marvin.db.db_setup import generate_session
-from marvin.db.models.platform.forms import Forms
+from marvin.db.models.platform.entry_types import EntryTypes
 from marvin.db.models.platform.form_submissions import FormSubmissions
+from marvin.db.models.platform.forms import Forms
+from marvin.schemas.platform.entry_type_rendering import CapabilitiesDefinition, SubmissionConfig
+from marvin.schemas.platform.entry_type_schema import EntryTypeSchemaDefinition
 from marvin.schemas.platform.forms import FormSchemaDefinition
 from marvin.schemas.publishing import FormSubmissionResponse, PublishedFormRead
 from marvin.services.content_validator import ContentValidationError, ContentValidator
+from marvin.services.entries.entry_service import EntryService
+from marvin.services.entries.query import find_by_identity, identity_value
+from marvin.services.event_bus_service.event_bus_service import EventBusService
+from marvin.services.event_bus_service.event_types import (
+    EventFormSubmissionData,
+    EventOperation,
+    EventSubmissionSurgeData,
+    EventTypes,
+)
+from marvin.services.secrets.resolver import resolve
 from marvin.services.security.captcha_service import CaptchaService
+from marvin.services.security.client_info import ClientInfo, get_client_ip
 from marvin.services.security.rate_limit_service import RateLimitService
+from marvin.services.security.submission_protection import SubmissionProtectionService, evaluate
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+def _derive_submission_title(cfg: SubmissionConfig, entry_type: EntryTypes, data: dict) -> str:
+    """Title for the entry a submission becomes: config template → first text value → type + time."""
+    if cfg.title_template:
+        try:
+            rendered = Template(cfg.title_template).render(**data).strip()
+            if rendered:
+                return rendered[:200]
+        except Exception:  # noqa: BLE001 — a bad template must never break a submission
+            pass
+    for value in data.values():
+        if isinstance(value, str) and value.strip():
+            return value.strip()[:200]
+    return f"{entry_type.name} submission {datetime.now(UTC).isoformat(timespec='seconds')}"
+
+
+def _published_form_from_entry_type(entry_type: EntryTypes, cfg: SubmissionConfig) -> PublishedFormRead:
+    """Expose a submittable entry type as a public form definition for a schema→form renderer.
+
+    ``form_schema`` carries the entry type's own field schema (``EntryTypeSchemaDefinition``), so the
+    site renders the form from the same schema the submission validates against. ``metadata`` carries
+    the render-time bits: the success message and the honeypot field name (only when enabled, so the
+    renderer knows to include the hidden trap input).
+    """
+    return PublishedFormRead(
+        slug=entry_type.slug,
+        name=entry_type.name,
+        description=entry_type.description,
+        form_schema=entry_type.schema_json or {},
+        metadata={
+            "successMessage": cfg.success_message,
+            "honeypotField": cfg.honeypot_field if cfg.enable_honeypot else None,
+        },
+    )
+
+
+def _detect_surge(protection: SubmissionProtectionService, policy, entry_type: EntryTypes, group, bus: EventBusService) -> None:
+    """Count this submission toward the form's surge window and announce the crossing, once."""
+    try:
+        count = protection.record_and_detect_surge(policy, entry_type.id)
+        if count is None:
+            return
+        bus.dispatch(
+            integration_id="form_management",
+            group_id=group.id,
+            event_type=EventTypes.submission_surge_detected,
+            document_data=EventSubmissionSurgeData(
+                operation=EventOperation.info,
+                form_id=entry_type.id,
+                form_name=entry_type.name,
+                workspace_id=group.id,
+                workspace_name=group.name,
+                submission_count=count,
+                threshold=policy.surge_threshold or count,
+                window_minutes=policy.surge_window_minutes,
+            ),
+            message=f"Submission surge on '{entry_type.name}': {count} in {policy.surge_window_minutes} min",
+            entity_id=entry_type.id,
+            entity_type="entry_type",
+        )
+    except Exception as e:  # never let bookkeeping fail a submission that was already accepted
+        logger.error(f"Surge detection failed: {e}", exc_info=True)
+
+
+def _find_submitter(session: Session, group_id, entry_type: EntryTypes, cfg: SubmissionConfig, data: dict):
+    """The existing entry this submission's ``match_field`` value identifies, or None (no match field,
+    no usable value, or nobody on file)."""
+    if not cfg.match_field:
+        return None
+    identity = identity_value(data.get(cfg.match_field))
+    if identity is None:
+        return None
+    value, ignore_case = identity
+    return find_by_identity(session, group_id, entry_type.id, cfg.match_field, value, ignore_case=ignore_case)
+
+
+def _has_value(value) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    return value is not None and value != [] and value != {}
+
+
+def _repeat_submission_update(match, cfg: SubmissionConfig, data: dict, now: str, client_meta: dict) -> dict:
+    """The update a repeat submission makes to the submitter's existing entry.
+
+    New non-empty values are merged over the stored ones (the match field keeps its stored spelling);
+    ``metadata_json.submission`` keeps the first ``received_at`` and gains ``last_received_at`` and
+    ``submission_count``. Status is left alone — except ``archived`` (someone who left and signed up
+    again) goes back to ``inbox``. The title is left as it is.
+    """
+    fresh = {k: v for k, v in data.items() if k != cfg.match_field and _has_value(v)}
+    metadata = dict(match.metadata_json or {})
+    previous = dict(metadata.get("submission") or {})
+    metadata["submission"] = {
+        **previous,
+        **client_meta,
+        "received_at": previous.get("received_at") or now,
+        "last_received_at": now,
+        "submission_count": int(previous.get("submission_count") or 1) + 1,
+    }
+    update: dict = {"data_json": {**(match.data_json or {}), **fresh}, "metadata_json": metadata}
+    if match.status == "archived":
+        update["status"] = "inbox"
+    return update
+
+
+async def _submit_to_entry_type(
+    entry_type: EntryTypes,
+    cfg: SubmissionConfig,
+    submission_data: dict,
+    request: Request,
+    group,
+    bg_tasks: BackgroundTasks,
+    session: Session,
+) -> FormSubmissionResponse:
+    """Handle a public submission for a submittable entry type: create an ``inbox`` entry — or, when
+    the type has a ``match_field`` and the submitter is already on file, update their entry.
+
+    A submittable entry type IS a form; a submission IS an entry of that type. The submitted values
+    run the security gauntlet (rate limit → honeypot → CAPTCHA), validate against the type's own
+    field schema, and land as an ``inbox`` entry (kept out of published output, visible in the admin
+    Entries list). Notification stays on the scoped ``form_submission_received`` event — never
+    ``entry_created``, which fires for every entry. The visitor's response is the same either way,
+    so a form never reveals who is already on the list.
+    """
+    client = ClientInfo.from_request(request)
+    ip_address = client.ip_address
+
+    # Rate limit by IP, keyed on this submittable subject (opt-in via rate_limit_max).
+    if cfg.rate_limit_max:
+        window_minutes = max(1, (cfg.rate_limit_window_seconds or 3600) // 60)
+        if not RateLimitService(session).check_subject_limit(entry_type.id, ip_address, cfg.rate_limit_max, window_minutes):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Rate limit exceeded. Please try again later.",
+            )
+
+    # Honeypot — a filled hidden field is almost certainly a bot; return success without persisting.
+    if cfg.enable_honeypot:
+        if submission_data.get(cfg.honeypot_field):
+            return FormSubmissionResponse(success=True, message=cfg.success_message or "Thank you for your submission")
+        submission_data.pop(cfg.honeypot_field, None)
+
+    # CAPTCHA — the secret is a {{SLUG}} ref resolved from the workspace secret store, never plaintext.
+    if cfg.enable_captcha:
+        token = submission_data.pop("captchaToken", None)
+        secret = resolve(cfg.captcha_secret_ref, group.id, allow_secrets=True) if cfg.captcha_secret_ref else None
+        if not await CaptchaService().verify(token, cfg.captcha_provider or "hcaptcha", secret):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CAPTCHA verification failed")
+
+    # Validate the submitted values against the entry type's own field schema.
+    schema = entry_type.schema_json or {}
+    if schema.get("fields"):
+        try:
+            schema_def = EntryTypeSchemaDefinition.model_validate(schema)
+            ContentValidator().validate_content(schema_def, submission_data)
+        except ContentValidationError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Validation failed: {e.message}") from e
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid submission data: {str(e)}") from e
+
+    # Submission protection (platform defaults + workspace overrides): a suspicious submission is
+    # still accepted in ``review`` mode — it lands as ``needs_review`` with the reasons recorded — and
+    # only ``reject`` mode turns it away. Exempt IPs skip the checks entirely.
+    protection = SubmissionProtectionService(session)
+    policy = protection.effective_settings(group.id)
+    verdict = evaluate(policy, submission_data, ip_address)
+    if verdict.suspicious and policy.mode == "reject":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This submission could not be accepted.")
+    now = datetime.now(UTC).isoformat()
+    client_meta = client.as_metadata() if policy.capture_client_info else {}
+    review_reasons = list(verdict.reasons)
+
+    # One entry per person: with a match_field, a repeat from someone already on file updates their
+    # entry. A flagged submission never touches it (spam must not overwrite a real person's record):
+    # it lands as a new needs_review entry whose reasons name the entry it matched.
+    match = _find_submitter(session, group.id, entry_type, cfg, submission_data)
+    if match is not None and verdict.suspicious:
+        review_reasons.append(f"matches existing entry {match.id}")
+    previous_status = match.status if match is not None else None
+    duplicate = match is not None and not verdict.suspicious
+
+    # One event bus for both the entry service (entry_created / entry_updated) and the scoped
+    # submission event. The entry write — and its events — come first, so a workflow reacting to
+    # form_submission_received reads the entry as it now is.
+    bus = EventBusService(bg_tasks=bg_tasks, session=session)
+    entries = EntryService(session, group.id, event_bus=bus, actor_id=None)
+    if duplicate:
+        entry = entries.update(match.id, _repeat_submission_update(match, cfg, submission_data, now, client_meta))
+        entry_status = entry.status
+    else:
+        entry_status = "needs_review" if verdict.suspicious else "inbox"
+        submission_meta: dict = {"received_at": now, **client_meta}
+        if verdict.suspicious:
+            submission_meta["review_reasons"] = review_reasons
+        entry = entries.create(
+            {
+                "entry_type_id": entry_type.id,
+                "title": _derive_submission_title(cfg, entry_type, submission_data),
+                "data_json": submission_data,
+                "status": entry_status,
+                "metadata_json": {"submission": submission_meta},
+                "created_by": None,
+            }
+        )
+
+    if cfg.notify:
+        try:
+            bus.dispatch(
+                integration_id="form_management",
+                group_id=group.id,
+                event_type=EventTypes.form_submission_received,
+                document_data=EventFormSubmissionData(
+                    operation=EventOperation.create,
+                    form_id=entry_type.id,
+                    form_name=entry_type.name,
+                    submission_id=entry.id,
+                    submission_data=submission_data,
+                    workspace_id=group.id,
+                    workspace_name=group.name,
+                    status=entry_status,
+                    flagged=verdict.suspicious,
+                    review_reasons=review_reasons,
+                    ip_address=client.ip_address if policy.capture_client_info else None,
+                    user_agent=client.user_agent if policy.capture_client_info else None,
+                    duplicate=duplicate,
+                    existing_entry_id=match.id if match is not None else None,
+                    previous_status=previous_status,
+                ),
+                message=f"Submission received for '{entry_type.name}'",
+                entity_id=entry.id,
+                entity_type="entry",
+            )
+        except Exception as e:
+            logger.error(f"Failed to dispatch form_submission_received event: {e}", exc_info=True)
+
+    _detect_surge(protection, policy, entry_type, group, bus)
+
+    return FormSubmissionResponse(
+        success=True,
+        message=cfg.success_message or "Thank you for your submission",
+        submission_id=entry.id,
+        redirect_url=cfg.redirect_url,
+    )
 
 
 @router.get(
@@ -40,6 +305,13 @@ async def get_form(
 
     # Check permission
     perms.require_permission(Permissions.READ_PUBLISHED_ENTRIES, "form definition")
+
+    # Prefer a submittable entry type with this slug (forms-as-entry-types); fall back to legacy Forms.
+    entry_type = session.query(EntryTypes).filter(EntryTypes.group_id == group.id, EntryTypes.slug == form_slug).first()
+    if entry_type is not None:
+        caps = CapabilitiesDefinition(**(entry_type.capabilities_json or {}))
+        if caps.submittable:
+            return _published_form_from_entry_type(entry_type, caps.submission or SubmissionConfig())
 
     # Get form
     form = (
@@ -74,6 +346,7 @@ async def submit_form(
     form_slug: str,
     submission_data: dict,
     request: Request,
+    bg_tasks: BackgroundTasks,
     context: tuple = Depends(get_publishing_context),
     session: Session = Depends(generate_session),
 ) -> FormSubmissionResponse:
@@ -86,8 +359,18 @@ async def submit_form(
     """
     api_client, group, perms = context
 
-    # Check permission
-    perms.require_permission(Permissions.WRITE_FORM_SUBMISSIONS, "form submission")
+    # Either permission grants submit: public-entry submit (the new entry-type path) or the legacy
+    # form-submissions permission (which existing site tokens already hold).
+    perms.require_any_permission([Permissions.WRITE_PUBLIC_ENTRIES, Permissions.WRITE_FORM_SUBMISSIONS], "form submission")
+
+    # Forms are folding into submittable entry types: if a submittable entry type matches this slug,
+    # the submission becomes an inbox entry of that type. Otherwise fall through to the legacy Forms
+    # path (keeps existing forms working during migration; the submit URL is unchanged either way).
+    entry_type = session.query(EntryTypes).filter(EntryTypes.group_id == group.id, EntryTypes.slug == form_slug).first()
+    if entry_type is not None:
+        caps = CapabilitiesDefinition(**(entry_type.capabilities_json or {}))
+        if caps.submittable:
+            return await _submit_to_entry_type(entry_type, caps.submission or SubmissionConfig(), submission_data, request, group, bg_tasks, session)
 
     # Get form
     form = (
@@ -107,7 +390,7 @@ async def submit_form(
     settings = form.settings_json or {}
 
     # Rate limiting check
-    ip_address = request.client.host if request.client else "unknown"
+    ip_address = get_client_ip(request)
     rate_limit_service = RateLimitService(session)
     if not rate_limit_service.check_limit(form.id, ip_address, settings):
         raise HTTPException(
@@ -151,12 +434,12 @@ async def submit_form(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Validation failed: {e.message}",
-            )
+            ) from e
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid submission data: {str(e)}",
-            )
+            ) from e
 
     # Create submission (if persistence enabled)
     submission_id = None
@@ -172,7 +455,7 @@ async def submit_form(
             },
             ip_address=ip_address,
             user_agent=request.headers.get("user-agent"),
-            submitted_at=datetime.now(timezone.utc),
+            submitted_at=datetime.now(UTC),
         )
         session.add(submission)
         session.commit()
@@ -180,8 +463,33 @@ async def submit_form(
 
         # Update form stats
         form.submissions_count += 1
-        form.last_submission_at = datetime.now(timezone.utc)
+        form.last_submission_at = datetime.now(UTC)
         session.commit()
+
+    # Notify subscribers (e.g. an admin email via EmailEventListener). Runs in the background so a
+    # notification failure never fails the visitor's submission; the honeypot path returned earlier,
+    # so confirmed spam never dispatches. Delivery requires a form_submission_received subscription.
+    try:
+        bus = EventBusService(bg_tasks=bg_tasks, session=session)
+        bus.dispatch(
+            integration_id="form_management",
+            group_id=group.id,
+            event_type=EventTypes.form_submission_received,
+            document_data=EventFormSubmissionData(
+                operation=EventOperation.create,
+                form_id=form.id,
+                form_name=form.name,
+                submission_id=submission_id,
+                submission_data=submission_data,
+                workspace_id=group.id,
+                workspace_name=group.name,
+            ),
+            message=f"Form '{form.name}' submission received",
+            entity_id=form.id,
+            entity_type="form",
+        )
+    except Exception as e:
+        logger.error(f"Failed to dispatch form_submission_received event: {e}", exc_info=True)
 
     # Return response
     success_message = settings.get("successMessage", "Thank you for your submission")

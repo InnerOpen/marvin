@@ -1,0 +1,151 @@
+# Operations
+
+What an operator needs to run Marvin 1.0.0-rc.186. Settings are environment variables read by `src/marvin/core/settings/settings.py`.
+
+## Health and version
+
+| Endpoint | Auth | Returns |
+|---|---|---|
+| `GET /healthz`, `/livez`, `/health` | none | `{"status":"ok"}` while the process is up; touches nothing |
+| `GET /readyz` | none | 200 when `SELECT 1` succeeds on the database, 503 `{"status":"unavailable"}` otherwise |
+| `GET /api/app/health` | none | legacy health endpoint, kept for back-compat |
+| `GET /api/app/about/version` | none | `{"version": "<backend version>"}` |
+| `GET /version.json` (frontend) | none | `{"frontend": "<build commit>", "backend": "<version>"}` |
+| `GET /api/app/changes?since=&until=&since_commit=` | signed in | release notes between two versions, newest first (at most 20), led by an "Unreleased" entry for the image's commits since its last release; empty when no changelog is installed |
+
+The root probes live outside `/api` so orchestrators can hit them without knowing the mount. The admin stamps the version pair into every page, polls `/version.json` once a minute and on tab focus, and shows a Reload / Later bar when either side changes, on workspace and platform admin pages alike; it never forces a reload, and **Later** hides it until the next deploy. **What's new** on the bar opens the release notes between the versions the page was rendered with and the live ones, fetched on first open from `GET /api/app/changes`. The notes come from the image's `CHANGELOG.md`; because the release job writes a release's changelog section after the image is built, CI also records the commits since the last release tag in `UNRELEASED.txt` (`docker/write-unreleased.sh`), and the list shows their `feat`, `fix`, `perf` and `docs` commits first as "Unreleased". A build without that file still works. The frontend's commit comes from `GIT_COMMIT_HASH`, set from the Dockerfile `COMMIT` build arg.
+
+## Images
+
+`docker/Dockerfile` has four targets; `.github/workflows/docker.yml` publishes three to `ghcr.io` on push, named after the repository in lower case:
+
+| Target | Image | Runs |
+|---|---|---|
+| `production` | `ghcr.io/inneropen/marvin` | API and server-rendered frontend in one container (`start.sh`) |
+| `backend` | `ghcr.io/inneropen/marvin-backend` | API only (`marvin-server`) |
+| `frontend` | `ghcr.io/inneropen/marvin-frontend` | Astro SSR UI only (`start-frontend.sh`) |
+| `lambda` | not published | `FROM production` |
+
+The backend-based images carry `CHANGELOG.md` and `UNRELEASED.txt` (the update banner's release notes) and this manual (`docs/manual`, which the agents' `search_docs` / `read_doc` tools read) beside the venv, so both always match the running version.
+
+## Helm chart
+
+`marvin-chart/` is the current deployment unit; read [`marvin-chart/README.md`](https://github.com/InnerOpen/marvin/blob/develop/marvin-chart/README.md) for install commands. `mode: combined` (default) runs the single image; `mode: split` creates backend and frontend Deployments from the `-backend` / `-frontend` images. Overlays: `values-k8s.yaml`, `values-production.yaml`, and iwobble's `values-iwobble.yaml` (prod) / `values-dev.yaml` (marvin-dev). Probes default to `/healthz` (liveness, initial delay 30 s, period 10 s) and `/readyz` (readiness, initial delay 10 s, period 5 s). Use `extraEnv` for settings the chart does not model and `initContainers` plus `extraVolumes` to install integration plugins before start (worked example in the chart README).
+
+**Graceful shutdown.** An agent run is one synchronous request that can take minutes, so a deploy lets in-flight requests finish before the API pod goes away. `shutdown.terminationGracePeriodSeconds` (default 300) is the pod's grace period and `shutdown.preStopSleepSeconds` (default 5; 0 drops the hook) a sleep before SIGTERM so the Service stops routing to the pod first. On SIGTERM the server stops taking connections and waits up to `GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS` for running requests; the chart sets it to the grace period minus the preStop sleep and 15 seconds for shutdown and exit. A run still going at the deadline is lost, and the next process marks it failed (see [Agents and Ask → Interrupted runs](whats-new/agents-and-ask.md)); the chart delays that sweep (`AI_INTERRUPTED_RUN_SWEEP_DELAY_SECONDS`) to the grace period plus 60 seconds, so it never fails a run the old pod is still finishing.
+
+The trade-off: a pod with a long run in flight takes that long to stop. Under the default `RollingUpdate` the new pod serves while the old one drains, so with SQLite on a shared volume two processes write at once for up to the grace period. To rule that out, set the API pod's strategy to `{type: Recreate}` (`strategy` in combined mode; in split mode the backend's own `split.backend.strategy`, so the frontend keeps rolling) and accept downtime while the old pod drains, or use Postgres. Under `Recreate` the chart sweeps interrupted runs at startup, since the old pod is already gone.
+
+**Session signing key.** JWTs are signed with `DATA_DIR/.secret`, generated on first production start; the chart has no JWT setting. Keep `DATA_DIR` on a persistent volume or every restart invalidates sessions.
+
+!!! warning "Chart keys the app does not read"
+    `config.webhookRetryAttempts` and `config.webhookRetryDelay` land in the ConfigMap but nothing in `src/` reads them. `docs/HELM_DEPLOYMENT_GUIDE.md` and `docs/OPENSHIFT_DEPLOYMENT.md` predate this and are superseded on this point.
+
+## Deploying
+
+The iwobble cluster runs two releases of the chart, both named `marvin`: `marvin-dev` (`values-dev.yaml`) and production in `marvin` (`values-iwobble.yaml`). Both pin `image.tag=develop-<7-char sha>`, the images CI built from one develop commit, and take the chart from that same commit.
+
+**The pipeline** (`.github/workflows/promote.yml`). Every push to `develop` waits for that commit's Docker Build, Test Suite and SDK Quality Gate, re-running one GitHub cancelled for lack of a runner (up to three attempts). If develop moves on first, the newer push takes over and this run ends without deploying — except that a release commit (`chore(release): … [skip ci]`, or any push whose commits all carry a skip-CI marker) doesn't count as moving on, since it never runs Promote itself. With CI green, the commit goes to `marvin-dev` and is smoke-checked; when that passes, the same commit goes to `marvin` with the same checks. There is no approval step: a green develop push reaches production on its own, and a failing one stops at dev. The prod job deploys through the `production` environment on GitHub, which has no protection rules; giving it a required reviewer (**Settings → Environments → production**) adds an approval before production without changing the workflow. A deploy in progress is never interrupted: a newer commit waits its turn, and only the newest waiting one is kept. The deploy jobs run on the in-cluster runner set as the `deployer` ServiceAccount (`.github/deploy/promote-rbac.yaml`, which also lists the one-time GitHub settings), and never for pull requests.
+
+Each environment runs `scripts/deploy/promote.sh` (helm upgrade, described `promote develop-<sha>`, then both rollouts) and `scripts/deploy/smoke.sh`. The smoke check needs no credentials. It goes through the release's Routes: the UI's `/healthz` and the API's `/readyz` return 200, `/version.json` reports the new frontend commit, and the new backend pods have logged no `ERROR` or `Traceback`. If the upgrade, a rollout or the smoke check fails, `scripts/deploy/rollback.sh` returns the release to the helm revision it had before, and the job fails. A failed `marvin-dev` stops the run before production.
+
+**Manual runs.** GitHub dispatches a workflow only if the default branch (`main`) also has it, so these need `promote.yml` and `promote-release.yml` on `main` (as `deploy.yml` is); the run itself uses develop's copy. `gh workflow run promote.yml --ref develop -f sha=<commit>` promotes a commit on develop; without `sha`, develop's tip. `-f dry_run=true` renders the chart with the cluster's capabilities and server-side dry-run applies every object in both namespaces, then checks the Routes answer; nothing changes. `-f smoke_expect=<other commit>` is the rollback drill: `marvin-dev`'s smoke check expects the wrong build, fails and rolls back, and production never starts.
+
+**Rollback by hand.** `helm history marvin -n <ns>` lists the revisions; `scripts/deploy/rollback.sh <ns> <revision>` returns to one. The database is not rolled back: the backend migrates at startup, so older code runs on the newer schema. That works for added tables and columns, not after a migration that drops or renames something the older code reads. A run killed mid-upgrade leaves the release `pending-upgrade`, and helm refuses the next upgrade until `rollback.sh` returns it to the last deployed revision.
+
+**Without the pipeline.** `scripts/deploy/promote-iwobble.sh <commit> [--dry-run]` promotes to production from a workstation logged in to the cluster. `scripts/deploy/promote.sh <commit> marvin-dev values-dev.yaml` does the same for dev. `scripts/deploy/wait-for-ci.sh <sha>` waits for a commit's CI.
+
+## Platform workspace
+
+One workspace is the **platform (admin's) workspace**: platform alerts and shared services run from it. It is marked in the database (`groups.is_platform`, at most one row, enforced by the partial unique index `uq_groups_is_platform`) and code finds it by that marker — `platform_workspace(session)` in `services/group/platform_workspace.py` — never by its name or slug.
+
+- **Naming it.** A fresh install creates it under `DEFAULT_GROUP` (chart: `config.platformWorkspaceName`; empty = `Default`), its slug derived from the name. On an existing install that setting changes nothing; the API logs a hint at startup when it differs from the workspace's actual name. The upgrade that introduced the marker set it on the workspace named `DEFAULT_GROUP` (or `Default`), else on the oldest workspace.
+- **Renaming it.** **Admin → Workspaces** lists it first with an **Admin** badge; **Manage** opens its page, where a super admin changes the name and slug. API: `PUT /api/admin/groups/{id}` with `{"id": "<id>", "name": "…", "slug": "…"}` (slug optional — omitted, it is derived from the name; `GET /api/admin/groups/platform` returns the workspace and its id). A name or slug another workspace has gets 409.
+- **What a slug change keeps working.** The current workspace is stored by id, so nobody's selection changes. The old slug is kept as an alias (`group_slug_aliases`): Publishing API URLs (`/api/publish/<old-slug>/…`, e.g. a site's `MARVIN_WORKSPACE_SLUG`), switching by slug (CLI `--workspace`), `storage_migrate --workspace` and the backup lists (zips are named `<slug>-backup-…`) still find the workspace. Renaming back to an old slug drops that alias; no other workspace can take a slug that is someone's alias. Literal slugs typed into webhook URLs or bodies are not rewritten — use `{{workspace_slug}}`.
+- **It can't be deleted** (409, with or without `force`), and the marker can't be moved or removed through the API. It shows the **Admin** badge in the workspace switcher to platform super admins only; other members see it like any workspace.
+
+## Scheduler
+
+Every API process starts the scheduler; a database lease (`services/scheduler/leader.py`, one row, conditional `UPDATE`) makes exactly one replica run each tick, on SQLite as well as Postgres. `SCHEDULER_INTERVAL_SECONDS` (default 60) is the frequent tick that delivers webhooks, fires due scheduled tasks and renews the lease, so a task can run up to one interval late. `SCHEDULER_LEASE_TTL_SECONDS` (default 150) must be at least twice the interval or the app refuses to start. Set `SCHEDULER_ENABLED=false` on pods that should only serve requests. The same tick also sends queued site rebuilds (see [Site rebuilds](#site-rebuilds)). System tasks seeded at startup (idempotently by slug, so an upgrade adds new ones): `prune_event_logs`, `prune_ai_executions`, `prune_scheduled_task_executions` and `resync_smart_collections` on a 24-hour interval, and since rc.170 `publish_scheduled_entries` and `unpublish_expired_entries` every 5 minutes, so entries' Scheduled Publish and Expiration Date work with no setup (see [Scheduled tasks](whats-new/scheduled-tasks.md)). Idle runs of the 5-minute tasks write no execution row. `DAILY_SCHEDULE_TIME` (default `23:47`, local server time) sets the scheduler's daily callback, which has no built-in jobs today.
+
+## Site rebuilds
+
+A static site is rebuilt by an outgoing webhook (a deploy hook) subscribed to `webhook_triggered`. The `request_site_rebuild` handler, run from a workflow step or a scheduled task, does not send that event directly: it queues one rebuild per workspace (`services/site_rebuild.py`). The scheduler tick sends the queued rebuild once no new request has arrived for `SITE_REBUILD_QUIET_SECONDS` (default 60), or once the first request is `SITE_REBUILD_MAX_WAIT_SECONDS` old (default 600), so a bulk edit that fires a workflow per entry costs one build. Expect a single change to start building up to the quiet period plus one scheduler interval later. The request that opens a batch emits `site_rebuild_queued` once, which the admin shows as a "Site rebuild queued" toast until the rebuild is sent. The sent event's message counts the coalesced requests, and its data carries `requestCount` and the changes it covers (the newest 50, repeat edits of one thing collapsed), which the admin's **Site rebuild** toast lists. Since rc.143 published content changes queue a rebuild too, unless the workspace turns off **Rebuild the site automatically** under **Settings → General** (see [Publishing API → Site rebuilds](whats-new/publishing-api.md#site-rebuilds)). An EDITOR can also queue one with `POST /api/platform/site/rebuild` and read the queue and the last build with `GET` on the same path; the POST answers 409 when no enabled webhook or integration action is on `webhook_triggered`.
+
+## Integration downloads
+
+Integration providers call outside services through Marvin's HTTP client. A response larger than `INTEGRATION_HTTP_MAX_BYTES` (default 5,000,000 bytes) is refused and the provider sees an error. Raise it for providers that move files such as images.
+
+## Storage
+
+`STORAGE_PROVIDER` is `local` (default) or `s3`. Local files live in `STORAGE_LOCAL_ROOT` (default `DATA_DIR/assets`) and mount at `STORAGE_LOCAL_PUBLIC_URL` (default `/assets`, must stay a `/`-rooted path). Set `STORAGE_LOCAL_PUBLIC_BASE_URL` (new in rc.40, e.g. `https://api.example.com/assets`) when a site is served from another origin so asset URLs are absolute. S3-compatible storage (`s3`) is the `marvin-storage-s3` plugin, baked into the image (core's own S3 provider was removed in storage slice 7); its settings are `STORAGE_S3_ENDPOINT`, `STORAGE_S3_BUCKET`, `STORAGE_S3_REGION` (default `auto`), `STORAGE_S3_ACCESS_KEY`, `STORAGE_S3_SECRET_KEY` and optionally `STORAGE_REMOTE_PUBLIC_URL` for a CDN domain.
+
+The platform's bubble-character library (see [Agents and Ask](whats-new/agents-and-ask.md)) stores its packs through the same provider, outside any workspace: under `_platform/character-packs/<pack id>/` (on local storage, inside `STORAGE_LOCAL_ROOT`), served by the same public URL as asset files. A workspace's own bubble character is stored as ordinary workspace assets.
+
+Since rc.159 an upload makes an image's opaque solid background transparent. Files stored before that can be cleaned the same way with `python -m marvin.scripts.repair_character_mattes`, run where the backend runs: on its own it lists what would change, and `--apply` overwrites each changed file in place at its storage key, so stored URLs keep working. It covers library packs and every workspace's and agent's own upload. A browser that cached a file may show the old one until a hard refresh.
+
+## Retention
+
+| What | Setting | Default |
+|---|---|---|
+| Event log (`prune_event_logs`) | `EVENT_LOG_RETENTION_DAYS` | 90 days; `0` keeps forever; overridable per task |
+| AI executions (`prune_ai_executions`) | `AI_EXECUTION_RETENTION_DAYS` | 90 days; a workspace's `logging_config.retention_days` overrides |
+| Scheduled-task execution log (`prune_scheduled_task_executions`) | task config `retention_days` | 30 days (rc.97) |
+| Revoked API tokens and site clients (`prune_revoked_tokens`) | task config `age_days` | 30 days after revocation |
+
+Since rc.96 an automatic run whose handler returns `None` writes no execution row; manual runs always do.
+
+## Backups
+
+Admin: **Admin → Operations → Backups** (`/admin/backups`) and `/api/admin/backups` (`GET` list, `POST /workspaces/{workspace_id}`, `GET /workspaces/{workspace_id}/key`, `GET /{filename}`, `POST /workspaces/{workspace_id}/import`). Per workspace: **Settings → General → Backups** (`/workspace/settings/backups`) and `/api/platform/workspace` with `POST /backups`, `GET /backups`, `GET /backups/{filename}`, `GET /backup-key`, `GET /export`, `GET /export/pretty`, `POST /import`. Maintenance actions (temp cleanup, revoked-token cleanup, event cleanup, DB optimize, cache clear, stats) are under `/api/admin/maintenance`.
+
+These are per-workspace content exports kept on the data volume. For the whole installation (users, tokens, event logs, the `.secret`, uploaded files) copied off the cluster every hour, see [Off-site backup](offsite-backup.md). To get backup and other platform alerts by email or Slack, see [Getting alerts outside Marvin](offsite-backup.md#getting-alerts-outside-marvin).
+
+## Settings reference
+
+| Variable | Default | Notes |
+|---|---|---|
+| `PRODUCTION` | `false` | enables the `.secret` file, sentinel replacement of unresolved `{{SLUG}}`s, strict CORS |
+| `ENVIRONMENT_LABEL` | empty | short tag for a non-production instance, e.g. `DEV` or `STAGING`; stripped, upper-cased, cut to 12 characters. When set, the app and admin headers and the login page show it as a badge (amber for `DEV…`, purple for `STAG…`, neutral otherwise) and every tab title starts `[DEV] `. Empty shows nothing. Served on the public `/api/app/about/login-info` and the admin about endpoint as `environmentLabel`. Independent of `PRODUCTION` (runtime mode) and `IS_DEMO` (public demo). Chart: `config.environmentLabel` |
+| `BASE_URL` | `http://localhost:8080` | public API URL |
+| `FRONTEND_URL` | `http://localhost:4322` | public admin URL; `FRONTEND_PORT` is derived from it. When set to anything but the default, entry links that AI tools hand back are absolute |
+| `API_HOST` / `API_PORT` | `0.0.0.0` / `8080` | bind address |
+| `GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS` | unset | how long the server waits for in-flight requests after SIGTERM; unset waits until the process is killed. The Helm chart derives it from the grace period (see [Helm chart](#helm-chart)) |
+| `CORS_ORIGINS` | empty | comma list; ignored outside production |
+| `DATA_DIR` | unset | database, `.secret`, assets, secrets, seeds |
+| `DB_ENGINE` | `sqlite` | or `postgres` |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_SERVER`, `POSTGRES_PORT`, `POSTGRES_DB` | empty | or `POSTGRES_URL_OVERRIDE` for a full URL |
+| `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | `5` / `10` | SQLAlchemy pool |
+| `DB_SQLITE_WAL_MODE` | `true` | |
+| `AUTO_MIGRATE` | `true` | run Alembic at startup |
+| `API_DOCS` | `true` | Swagger and ReDoc; `/openapi.json` stays public either way |
+| `LOG_LEVEL` | `info` | |
+| `TOKEN_TIME` | `48` | session hours |
+| `ALLOW_SIGNUP` | `false` | |
+| `DEFAULT_EMAIL` / `DEFAULT_PASSWORD` | `changeme@example.com` / unset | first super admin |
+| `DEFAULT_GROUP` | `Default` | name of the platform workspace on a fresh install only (see [Platform workspace](#platform-workspace)) |
+| `SEED_ON_STARTUP` | `false` | |
+| `SCHEDULER_ENABLED` / `SCHEDULER_INTERVAL_SECONDS` / `SCHEDULER_LEASE_TTL_SECONDS` | `true` / `60` / `150` | see Scheduler; the interval must be at least 10 |
+| `SITE_REBUILD_QUIET_SECONDS` | `60` | quiet period before a queued site rebuild is sent; see [Site rebuilds](#site-rebuilds) |
+| `SITE_REBUILD_MAX_WAIT_SECONDS` | `600` | longest a queued rebuild waits; must be at least `SITE_REBUILD_QUIET_SECONDS` |
+| `INTEGRATION_HTTP_MAX_BYTES` | `5000000` | largest response an integration provider may download; must be at least 1 |
+| `MEDIA_EMBEDS_FETCH_ENABLED` | `true` | ask media providers' oEmbed for link titles and player ids; off builds players from the link alone. See [Media embeds](whats-new/media-embeds.md#settings) |
+| `EVENT_LOG_RETENTION_DAYS` / `AI_EXECUTION_RETENTION_DAYS` | `90` / `90` | |
+| `STORAGE_PROVIDER` | `local` | see Storage |
+| `SECRET_BACKEND` | `database` | `disk`, `env`, `vault`, `bitwarden` |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM_NAME`, `SMTP_FROM_EMAIL`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_AUTH_STRATEGY` | unset / `587` / `Marvin` / unset / unset / unset / `TLS` | email |
+| `AI_PRICE_FEED_URL` | LiteLLM's `model_prices_and_context_window.json` on GitHub | the daily AI price feed's default URL (LiteLLM's format, https); Admin → AI Pricing can override it or switch the feed off |
+| `AI_DEFAULT_PROVIDER` | empty | Empty: the first installed of `openai`, `anthropic`, `google`, `azure`, `ollama` (then any other installed provider), logged at startup; with no provider installed it only warns and platform AI is off. Set to a provider nothing provides, startup stops. OpenAI and Azure OpenAI come from the `marvin-ai-openai` plugin (baked into the image with the other site-wide plugins). `OPENAI_API_KEY`, `OPENAI_MODEL` (`gpt-4o-mini`), `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`, `GOOGLE_BASE_URL`, `AZURE_BASE_URL`, `OLLAMA_BASE_URL`. The official OpenAI API is called through the Responses API; an `OPENAI_BASE_URL` pointing elsewhere (an OpenAI-compatible server) uses Chat Completions |
+| `AI_DEFAULT_TEMPERATURE` | unset | sent with every AI call only when set; unset (the default since rc.149; it was `0.7`) lets each model use its own, and some reasoning models refuse any other value |
+| `AI_DEFAULT_MAX_TOKENS` | unset | output-token cap when a workspace sets no **Max output tokens per request** |
+| `AI_BUDGET_WARNING_PERCENT` | `80` | percent of a workspace's monthly AI cost limit that fires `ai_budget_threshold_reached` and its toast; `0` turns the warning off |
+| `DOCS_BASE_URL` | `https://inneropen.github.io/marvin/` | where this manual is published; `search_docs` / `read_doc` link each section here (the text itself comes from the manual bundled with the install) |
+| `MCP_TOOL_TIMEOUT_SECONDS` | `45` | how long an agent waits for one external MCP tool call; keep it well under the proxy's request timeout. Must be above 0 (rc.146) |
+| `MCP_TOOL_RESULT_MAX_CHARS` | `20000` | longest external MCP tool result an agent sees; longer ones are cut with a note. Must be above 0 (rc.146) |
+| `AI_ALLOW_WORKSPACE_CREDENTIALS` | `true` | workspaces may store their own provider keys |
+| `AI_INTERRUPTED_RUN_SWEEP_DELAY_SECONDS` | `0` | how long after startup to mark AI runs left `running` by an earlier process as failed; `0` sweeps at startup. The Helm chart sets the grace period plus 60 seconds under a rolling update, `0` under `Recreate` |
+| `AI_PARKED_RUN_TTL_HOURS` | `168` | how long an agent run waiting for your approval stays decidable (7 days). An hourly task ends older ones: the pending actions are denied, the run fails "expired" and `approval_rejected` fires with reason `expired`. `0` keeps them forever |
+| `AI_HANDOFF_MAX_DEPTH` | `1` | how deep agent hand-offs nest: `1` lets the main agent hand off to a specialist that cannot hand off further, `2` lets that specialist hand off once more; `0` turns hand-offs off. Each level runs inside the request of the level above |
+| `OIDC_*`, `LDAP_*`, `SECURITY_*`, `AUTH_COOKIE_NAME` | see [Auth and tokens](auth-and-tokens.md) | |
+
+The full list with docstrings is `src/marvin/core/settings/settings.py`; `docs/configuration-settings.md` in the repo is older and not checked against rc.186.

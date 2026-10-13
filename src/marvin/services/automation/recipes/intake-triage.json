@@ -1,0 +1,90 @@
+{
+  "name": "Intake triage",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "form_submission_received"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{form_entry_type}}"
+      },
+      {
+        "field": "event.flagged",
+        "op": "neq",
+        "value": true
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "triage",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "Triage this request. Say in one line what it's asking; pick the queue it belongs to — exactly one of: {{queues}}; rate how urgent it is; and list up to three questions to ask the sender if something needed to act on it is missing (none if nothing is). Then draft a short, friendly reply that acknowledges it and asks those questions. Use only what the request says.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "intent": {
+              "type": "string",
+              "maxLength": 160
+            },
+            "queue": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "urgency": {
+              "type": "string",
+              "enum": [
+                "low",
+                "normal",
+                "high"
+              ]
+            },
+            "questions": {
+              "type": "array",
+              "maxItems": 3,
+              "items": {
+                "type": "string",
+                "maxLength": 200
+              }
+            },
+            "reply": {
+              "type": "string",
+              "minLength": 20
+            }
+          },
+          "required": [
+            "intent",
+            "queue",
+            "urgency",
+            "questions",
+            "reply"
+          ]
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "triage": {
+            "intent": "${steps.triage.output.intent}",
+            "queue": "${steps.triage.output.queue}",
+            "urgency": "${steps.triage.output.urgency}",
+            "questions": "${steps.triage.output.questions}",
+            "reply_draft": "${steps.triage.output.reply}"
+          }
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "request_review",
+        "reason": "${steps.triage.output.queue} · ${steps.triage.output.urgency}: ${steps.triage.output.intent}"
+      }
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "recipe": "resource-attachment-notes",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "Which entries get a note when a resource is linked to them.",
+      "example": "article"
+    },
+    "note_key": {
+      "type": "text",
+      "description": "The entry metadata key the note is written to.",
+      "example": "resource_note"
+    }
+  }
+}

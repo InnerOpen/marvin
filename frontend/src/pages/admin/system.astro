@@ -1,8 +1,8 @@
 ---
 import AdminLayout from "@/layouts/AdminLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
-import { createSdkClient } from '@/lib/sdk';
-import { getAuthToken } from '@/lib/api/client';
+import { createSdkClient } from "@/lib/sdk";
 
 // Require admin authentication
 const user = await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
@@ -16,12 +16,12 @@ let stats: any = null;
 try {
   stats = await sdk.adminSystem.getStatistics();
 } catch (e) {
-  console.error('[admin/system] Failed to fetch stats:', e);
-  error = 'Failed to load platform statistics';
+  console.error("[admin/system] Failed to fetch stats:", e);
+  error = "Failed to load platform statistics";
 }
 ---
 
-<AdminLayout title="Platform System">
+<AdminLayout crumb="admin.system">
   <div class="toolbar">
     <div>
       <h2>Platform System</h2>
@@ -101,6 +101,25 @@ try {
           <div class="stat-item">
             <div class="stat-label">Total Webhooks</div>
             <div class="stat-value">{stats?.totalWebhooks || '—'}</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- AI Usage (all accounts) -->
+      <section class="card">
+        <h3>AI Usage (all accounts)</h3>
+        <div class="stat-items">
+          <div class="stat-item">
+            <div class="stat-label">Total AI Operations</div>
+            <div class="stat-value">{stats?.totalAiOperations ?? '—'}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Total AI Tokens</div>
+            <div class="stat-value">{stats?.totalAiTokens != null ? Number(stats.totalAiTokens).toLocaleString() : '—'}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Total AI Cost</div>
+            <div class="stat-value">{stats?.totalAiCostUsd != null ? '$' + Number(stats.totalAiCostUsd).toFixed(2) : '—'}</div>
           </div>
         </div>
       </section>

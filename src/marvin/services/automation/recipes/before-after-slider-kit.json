@@ -1,0 +1,37 @@
+{
+  "name": "Before and after kit",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "target": {
+      "entity": "asset",
+      "query": {
+        "versions": true,
+        "tags": [
+          "{{compare_tag}}"
+        ]
+      }
+    },
+    "actions": [
+      {
+        "kind": "media",
+        "id": "pair",
+        "op": "render",
+        "template": "side-by-side",
+        "fields": {
+          "title": "${asset.name}",
+          "left_label": "Before",
+          "right_label": "After"
+        },
+        "images": {
+          "left": "${asset.derived_from}",
+          "right": "${asset.id}"
+        },
+        "tags": [
+          "before-after"
+        ]
+      }
+    ]
+  }
+}

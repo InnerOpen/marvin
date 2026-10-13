@@ -1,0 +1,31 @@
+{
+  "name": "Publication ledger",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "publication_ledger": {
+            "event": "${event.event_type}",
+            "run": "${event.correlation_id}",
+            "published_by": "${event.user_id}",
+            "url": "${entry.url}",
+            "slug": "${entry.slug}"
+          }
+        }
+      }
+    ]
+  }
+}

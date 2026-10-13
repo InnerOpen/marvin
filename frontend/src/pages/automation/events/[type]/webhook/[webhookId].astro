@@ -1,7 +1,9 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { getBrowserFetchBaseUrl } from "@/lib/api/config";
 import { createSdkClient } from "@/lib/sdk";
-import { getAuthToken, fetchApi } from "@/lib/api/client";
+import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
@@ -11,8 +13,9 @@ let eventInfo: any = null;
 let webhook: any = null;
 let isConnected = false;
 let error: string | null = null;
+let adminOnly = false;
 
-const apiUrl = import.meta.env.PUBLIC_MARVIN_API_URL || 'http://localhost:8080';
+const apiUrl = getBrowserFetchBaseUrl();
 
 function buildExamplePayload(eventType: string, variables: any[]): object {
   const varExamples: Record<string, string> = {};
@@ -23,10 +26,10 @@ function buildExamplePayload(eventType: string, variables: any[]): object {
   return {
     eventType,
     eventId: "evt_a1b2c3d4-...",
-    timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
     workspaceId: "<workspace-uuid>",
     message: {
-      title: eventType.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
+      title: eventType.replace(/_/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase()),
       body: eventType,
     },
     documentData: varExamples,
@@ -44,31 +47,31 @@ try {
   webhook = webhookData;
 
   if (!eventInfo) {
-    return Astro.redirect('/automation/events');
+    return Astro.redirect("/automation/events");
   }
 
   const subscribedEvents: string[] = (webhook as any)?.subscribedEvents ?? (webhook as any)?.subscribed_events ?? [];
-  isConnected = subscribedEvents.includes(type || '');
+  isConnected = subscribedEvents.includes(type || "");
 } catch (e) {
-  console.error('[events/webhook-connect] Error:', e);
-  error = e instanceof Error ? e.message : String(e);
+  console.error("[events/webhook-connect] Error:", e);
+  if (isForbidden(e)) adminOnly = true;
+  else error = e instanceof Error ? e.message : String(e);
 }
 
-const examplePayload = (eventInfo as any)?.payloadExample ?? (eventInfo ? buildExamplePayload(type!, eventInfo.variables ?? []) : {});
+const examplePayload =
+  (eventInfo as any)?.payloadExample ?? (eventInfo ? buildExamplePayload(type!, eventInfo.variables ?? []) : {});
 ---
 
-<AppLayout title="Connect Webhook" eyebrow="Events">
+<AppLayout
+  crumb="automation.events.type.webhook"
+  crumbParams={{ type: type ?? "" }}
+  crumbLabels={eventInfo ? { "automation.events.type": eventInfo.label } : undefined}
+  adminOnly={adminOnly}
+>
   {error ? (
     <div class="alert alert-error"><strong>Error:</strong> {error}</div>
   ) : (eventInfo && webhook) ? (
     <>
-      <div class="breadcrumb">
-        <a href="/automation/events">Events</a>
-        <span>›</span>
-        <a href={`/automation/events/${type}`}>{eventInfo.label}</a>
-        <span>›</span>
-        <span>Webhook</span>
-      </div>
 
       <!-- Card matching modal layout -->
       <div class="wh-card">
@@ -100,7 +103,7 @@ const examplePayload = (eventInfo as any)?.payloadExample ?? (eventInfo ? buildE
             {isConnected
               ? <button type="button" id="disconnect-btn" class="button secondary danger">Disconnect</button>
               : <button type="button" id="connect-btn" class="button">Connect</button>}
-            <a href={`/automation/events/${type}`} class="button secondary">Back</a>
+            <a href={`/automation/events/${type}`} class="button secondary">Cancel</a>
           </div>
         </div>
       </div>
@@ -147,10 +150,6 @@ const examplePayload = (eventInfo as any)?.payloadExample ?? (eventInfo ? buildE
 <style>
   .alert { padding: 16px; border-radius: var(--radius); background: var(--color-error-bg); color: var(--color-error); border: 1px solid var(--color-error); margin-bottom: 20px; }
 
-  .breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); margin-bottom: 20px; }
-  .breadcrumb a { color: var(--muted); text-decoration: none; }
-  .breadcrumb a:hover { color: var(--ink); }
-
   /* Card — mirrors modal content panel */
   .wh-card {
     background: var(--panel);
@@ -184,4 +183,14 @@ const examplePayload = (eventInfo as any)?.payloadExample ?? (eventInfo ? buildE
   .button.secondary.danger:hover { background: var(--color-error-bg); }
   .wh-link { color: var(--accent); text-decoration: none; font-size: 12px; }
   .wh-link:hover { text-decoration: underline; }
+
+  /* Phones: a long webhook URL wraps instead of pushing the Connected pill off the screen. */
+  @media (max-width: 640px) {
+    .wh-header { flex-wrap: wrap; gap: 8px; padding: 16px; }
+    .wh-header > div { min-width: 0; }
+    .wh-url { overflow-wrap: anywhere; }
+    .wh-body { padding: 16px; }
+    .wh-footer { padding: 16px; }
+    .wh-actions { flex-wrap: wrap; }
+  }
 </style>

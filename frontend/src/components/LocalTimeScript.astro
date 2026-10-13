@@ -1,0 +1,16 @@
+---
+// Rewrites every server-rendered <time data-local-time> (components/LocalTime.astro) in the viewer's time zone, and
+// keeps the UTC time in its tooltip. Included once by each layout.
+---
+<script>
+  import { formatTimestamp, type TimestampFormat } from "@/lib/localDatetime";
+
+  function localize(root: ParentNode = document) {
+    root.querySelectorAll<HTMLTimeElement>("time[data-local-time]").forEach((el) => {
+      const text = formatTimestamp(el.dateTime, (el.dataset.localTime || "datetime") as TimestampFormat);
+      if (text) el.textContent = text;
+    });
+  }
+  localize();
+  document.addEventListener("astro:page-load", () => localize());
+</script>

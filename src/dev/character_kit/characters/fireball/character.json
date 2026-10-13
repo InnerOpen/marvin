@@ -1,0 +1,10 @@
+{
+  "name": "Fireball",
+  "description": "a small chibi character with a flame for hair, an orange-red rounded-square head around a beige face, and a beige body with an orange emblem on its chest",
+  "style": "pixel-art",
+  "rules": [
+    "orange-yellow flames on top of the head",
+    "orange-red head frame around a beige face",
+    "orange emblem on the chest"
+  ]
+}

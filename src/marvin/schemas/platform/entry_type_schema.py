@@ -11,7 +11,7 @@ different field types, following Marvin's existing pattern from scheduled tasks
 
 from typing import Annotated, Any, Literal
 
-from pydantic import ConfigDict, Field, StringConstraints
+from pydantic import ConfigDict, Field, StringConstraints, field_validator
 
 from marvin.schemas._marvin import _MarvinModel
 
@@ -41,7 +41,12 @@ class BaseFieldSchema(_MarvinModel):
     """Placeholder text shown in empty inputs."""
 
     help_text: str | None = Field(default=None, alias="helpText")
-    """Help text shown to editors to explain the field's purpose."""
+    """Help text shown to editors to explain the field's purpose. Also fed to AI compose as
+    context, so keep it useful for both a human filling the form and the model authoring the field."""
+
+    ai_hint: str | None = Field(default=None, alias="aiHint")
+    """Directive, AI-only authoring guidance for this field (e.g. desired length, voice, what to
+    include). Layered on top of help_text in the compose prompt; not shown as form helper text."""
 
     read_only: bool = Field(default=False, alias="readOnly")
     """If true, field cannot be edited (useful for computed/system fields)."""
@@ -69,6 +74,9 @@ class MarkdownFieldSchema(BaseFieldSchema):
     """Markdown editor field."""
 
     type: Literal["markdown"]
+    auto_embed: bool = Field(default=True, alias="autoEmbed")
+    """A supported media link (YouTube, Vimeo, Spotify, …) alone on its own line becomes a player on the
+    site (published under the entry's ``embeds``). ``false`` keeps every link in this field a plain link."""
 
 
 class NumberFieldSchema(BaseFieldSchema):
@@ -116,6 +124,26 @@ class JsonFieldSchema(BaseFieldSchema):
     type: Literal["json"]
 
 
+class EmbedFieldSchema(BaseFieldSchema):
+    """A media player slot. Value is a supported media link (YouTube, Vimeo, Spotify, SoundCloud, …),
+    published resolved under the entry's ``embeds``."""
+
+    type: Literal["embed"]
+    providers: list[str] | None = Field(default=None, description="Allowed provider keys (e.g. ['youtube', 'vimeo']); empty = any")
+
+    @field_validator("providers")
+    @classmethod
+    def _known_providers(cls, value: list[str] | None) -> list[str] | None:
+        if not value:
+            return None
+        from marvin.services.media_embeds.providers import PROVIDERS
+
+        unknown = [p for p in value if p not in PROVIDERS]
+        if unknown:
+            raise ValueError(f"Unknown media providers {unknown}; known: {sorted(PROVIDERS)}")
+        return value
+
+
 class AssetFieldSchema(BaseFieldSchema):
     """A single linked asset (image/file). Value is an asset id."""
 
@@ -160,6 +188,7 @@ FieldSchema = Annotated[
     | DateFieldSchema
     | DateTimeFieldSchema
     | JsonFieldSchema
+    | EmbedFieldSchema
     | AssetFieldSchema
     | AssetListFieldSchema
     | ResourceFieldSchema

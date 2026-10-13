@@ -18,10 +18,10 @@ from pathlib import Path
 
 from pydantic import UUID4  # For UUID type hinting
 
+from marvin.core.config import get_app_dirs
+
 # Marvin core components and utilities
 from marvin.core.root_logger import get_logger
-
-logger = get_logger(__name__)
 from marvin.db.db_setup import session_context  # Context manager for DB sessions
 from marvin.repos.all_repositories import get_repositories  # Factory for AllRepositories
 from marvin.schemas.group.webhook import WebhookRead  # Pydantic schema for webhook data
@@ -37,7 +37,8 @@ from marvin.services.event_bus_service.event_types import (  # Core event system
     EventTypes,
     EventWebhookData,
 )
-from marvin.core.config import get_app_dirs
+
+logger = get_logger(__name__)
 
 
 def _get_state_file_path() -> Path:
@@ -52,7 +53,7 @@ def _load_last_ran() -> datetime:
         return datetime.now(UTC)
 
     try:
-        with open(state_file, "r") as f:
+        with open(state_file) as f:
             state = json.load(f)
         return datetime.fromisoformat(state["last_ran"])
     except (json.JSONDecodeError, ValueError, KeyError) as e:

@@ -8,8 +8,8 @@ Usage::
 """
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from marvin.core.root_logger import get_logger
 
+from marvin.core.root_logger import get_logger
 
 logger = get_logger("server")
 
@@ -23,12 +23,12 @@ class S(BaseHTTPRequestHandler):
     def do_GET(self):
         logger.info("GET request,\nPath: %s\nHeaders:\n%s\n", str(self.path), str(self.headers))
         self._set_response()
-        self.wfile.write("GET request for {}".format(self.path).encode("utf-8"))
+        self.wfile.write(f"GET request for {self.path}".encode())
 
     def do_DELETE(self):
         logger.info("DELETE request,\nPath: %s\nHeaders:\n%s\n", str(self.path), str(self.headers))
         self._set_response()
-        self.wfile.write("DELETE request for {}".format(self.path).encode("utf-8"))
+        self.wfile.write(f"DELETE request for {self.path}".encode())
 
     def do_PUT(self):
         content_length = int(self.headers["Content-Length"])  # <--- Gets the size of data
@@ -41,7 +41,7 @@ class S(BaseHTTPRequestHandler):
         )
 
         self._set_response()
-        self.wfile.write("PUT request for {}".format(self.path).encode("utf-8"))
+        self.wfile.write(f"PUT request for {self.path}".encode())
 
     def do_POST(self):
         content_length = int(self.headers["Content-Length"])  # <--- Gets the size of data
@@ -54,7 +54,7 @@ class S(BaseHTTPRequestHandler):
         )
 
         self._set_response()
-        self.wfile.write("POST request for {}".format(self.path).encode("utf-8"))
+        self.wfile.write(f"POST request for {self.path}".encode())
 
 
 def run(server_class=HTTPServer, handler_class=S, port=8080):

@@ -1,6 +1,6 @@
 """Form submission repositories."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import UUID4
@@ -31,7 +31,7 @@ class FormSubmissionsRepository(GroupRepositoryGeneric[FormSubmissionRead, FormS
             data_dict["group_id"] = self.group_id
 
         # Always set submitted_at to now
-        data_dict["submitted_at"] = datetime.now(timezone.utc)
+        data_dict["submitted_at"] = datetime.now(UTC)
 
         return super().create(data_dict)
 

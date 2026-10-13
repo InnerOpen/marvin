@@ -1,0 +1,15 @@
+{
+  "recipe": "community-question",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "Which entries get a discussion question when they are published.",
+      "example": "article"
+    },
+    "announcement_webhook_id": {
+      "type": "webhook_id",
+      "description": "The outgoing webhook that posts to your community channel (it receives text, title, url, entry_id).",
+      "example": "<webhook id>"
+    }
+  }
+}

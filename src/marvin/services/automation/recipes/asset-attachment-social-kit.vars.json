@@ -1,0 +1,15 @@
+{
+  "recipe": "asset-attachment-social-kit",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "Which entries get a social kit when an image is attached to them.",
+      "example": "article"
+    },
+    "caption_style": {
+      "type": "text",
+      "description": "How captions should sound.",
+      "example": "warm, plain words, one emoji at most"
+    }
+  }
+}

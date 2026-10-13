@@ -23,11 +23,14 @@ permissions:
 jobs:
   cli-e2e-tests:
     name: CLI End-to-End Tests
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER || 'ubuntu-latest' }}
 
     services:
       postgres:
         image: postgres:15-alpine
+        credentials:  # logged in: Docker Hub's anonymous pull limit is shared by every job on the runner
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
         env:
           POSTGRES_USER: marvin
           POSTGRES_PASSWORD: marvin
@@ -42,6 +45,9 @@ jobs:
 
       redis:
         image: redis:7-alpine
+        credentials:  # logged in: Docker Hub's anonymous pull limit is shared by every job on the runner
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
@@ -57,38 +63,64 @@ jobs:
 
     steps:
       - name: Checkout main repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: marvin
 
       - name: Checkout CLI repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: InnerOpen/marvin-cli
+          # Without a ref this builds the CLI's default branch (main) while backend work lands on
+          # develop, so the job silently tested a lagging CLI. Track develop to catch drift.
+          ref: develop
           path: marvin-cli
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: marvin/pyproject.toml
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: marvin-cli/package-lock.json
+
+      - name: Install system dependencies (OpenLDAP headers for python-ldap)
+        run: sudo apt-get update && sudo apt-get install -y libldap2-dev libsasl2-dev
 
       - name: Install Marvin backend dependencies
         working-directory: marvin
         run: |
           pip install -e ".[dev]"
 
+      # The SQLite file lives in <BASE_DIR>/dev/data, and BASE_DIR resolves to the repo's src/
+      # directory. Nothing under src/dev/data is tracked, so a fresh checkout doesn't have it, and
+      # the code that creates it (AppDirectories) only runs when the app starts — one step below.
+      # Without this, alembic fails with "unable to open database file".
+      - name: Create SQLite data directory
+        working-directory: marvin
+        run: mkdir -p src/dev/data
+
       - name: Run Alembic migrations
         working-directory: marvin/src/marvin
         run: |
           alembic upgrade head
+
+      # The backend seeds its default admin on first startup. Without a known password it
+      # auto-generates a random one we can't recover, so pin a throwaway credential for this
+      # run only — it exists just long enough to mint the CLI's token in the next step.
+      - name: Generate throwaway admin credentials
+        run: |
+          PW="$(openssl rand -hex 32)"
+          echo "::add-mask::$PW"
+          echo "DEFAULT_EMAIL=ci-admin@marvin.test" >> "$GITHUB_ENV"
+          echo "DEFAULT_PASSWORD=$PW" >> "$GITHUB_ENV"
 
       - name: Start Marvin backend
         working-directory: marvin
@@ -98,13 +130,31 @@ jobs:
 
           # Wait for server to start
           for i in {1..30}; do
-            if curl -f http://localhost:8080/health 2>/dev/null || curl -f http://localhost:8080/healthz 2>/dev/null; then
+            if curl -fsS http://localhost:8080/healthz >/dev/null 2>&1; then
               echo "✅ Marvin backend started"
               break
             fi
             echo "Waiting for Marvin backend... ($i/30)"
             sleep 2
           done
+
+      # Unauthenticated, the CLI only registers the auth commands — `marvin workspace …` doesn't
+      # exist yet, so the suite fails with "unknown command 'create'". The CLI reads
+      # MARVIN_USER_TOKEN, so mint one and hand it over; the password is not needed again.
+      - name: Mint CLI access token
+        run: |
+          TOKEN=$(curl -sS -X POST "$MARVIN_API_URL/api/auth/token" \
+            --data-urlencode "username=$DEFAULT_EMAIL" \
+            --data-urlencode "password=$DEFAULT_PASSWORD" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+          if [ -z "$TOKEN" ]; then
+            echo "::error::Could not obtain an access token — backend log follows"
+            cat /tmp/marvin.log
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+          echo "MARVIN_USER_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          echo "✅ CLI authenticated"
 
       - name: Install CLI dependencies
         working-directory: marvin-cli
@@ -120,91 +170,79 @@ jobs:
 
       - name: CLI Test Suite
         run: |
-          set -e
+          set -euo pipefail
 
           echo "=== CLI Integration Test Suite ==="
+          TMP="$(mktemp -d)"
+          # Unique per run so names/slugs never collide with a previous run's leftovers.
+          U="${GITHUB_RUN_ID:-$RANDOM}"
 
-          # Test: Display help
+          # Commands print a human "✓ ..." line to stdout before the JSON body, so slice from the
+          # first bracket. Payloads go via --file, not the local `--json <payload>` option, which
+          # would collide with the global --json output shortcut used here; `--file -` (stdin) is
+          # not honoured by the platform commands either.
+          json_of() { sed -n '/^[[{]/,$p'; }
+
           echo "📝 Test: Display help"
-          marvin --help || marvin help || true
+          marvin --help
 
-          # Test: Create workspace
           echo "📝 Test: Create workspace"
-          WORKSPACE_OUTPUT=$(marvin workspace create test-workspace --description "Test workspace" --format json)
-          WORKSPACE_ID=$(echo "$WORKSPACE_OUTPUT" | jq -r '.id')
-          echo "✅ Workspace created: $WORKSPACE_ID"
+          echo "{\"name\":\"CI Test Workspace $U\"}" > "$TMP/ws.json"
+          WS=$(marvin admin groups create --file "$TMP/ws.json" --json | json_of)
+          WS_ID=$(echo "$WS" | jq -r '.id')
+          WS_SLUG=$(echo "$WS" | jq -r '.slug')
+          echo "✅ Workspace created: $WS_SLUG ($WS_ID)"
 
-          # Test: List workspaces
           echo "📝 Test: List workspaces"
-          marvin workspace list --format json
+          marvin admin groups list --json >/dev/null
           echo "✅ Workspaces listed"
 
-          # Test: Get workspace
-          echo "📝 Test: Get workspace"
-          marvin workspace get "$WORKSPACE_ID" --format json
-          echo "✅ Workspace retrieved"
+          echo "📝 Test: Select workspace and read it back"
+          marvin workspace use "$WS_SLUG" >/dev/null
+          marvin workspace current --json | json_of | jq -e --arg s "$WS_SLUG" '.slug == $s' >/dev/null
+          echo "✅ Active workspace is $WS_SLUG"
 
-          # Test: Create collection
           echo "📝 Test: Create collection"
-          COLLECTION_OUTPUT=$(marvin collection create test-collection \
-            --workspace "$WORKSPACE_ID" \
-            --description "Test collection" \
-            --format json)
-          COLLECTION_ID=$(echo "$COLLECTION_OUTPUT" | jq -r '.id')
+          echo "{\"name\":\"CI Collection $U\",\"targetType\":\"entry\",\"isPublic\":false,\"sortOrder\":0,\"isSmart\":false}" > "$TMP/col.json"
+          COLLECTION_ID=$(marvin platform collections create --file "$TMP/col.json" --workspace "$WS_SLUG" --json | json_of | jq -r '.id')
           echo "✅ Collection created: $COLLECTION_ID"
 
-          # Test: Create entry type
           echo "📝 Test: Create entry type"
-          ENTRY_TYPE_OUTPUT=$(marvin entry-type create test-entry-type \
-            --workspace "$WORKSPACE_ID" \
-            --collection "$COLLECTION_ID" \
-            --format json)
-          ENTRY_TYPE_ID=$(echo "$ENTRY_TYPE_OUTPUT" | jq -r '.id')
+          echo "{\"name\":\"CI Entry Type $U\",\"slug\":\"ci-entry-type-$U\",\"schemaJson\":{\"fields\":[]}}" > "$TMP/et.json"
+          ENTRY_TYPE_ID=$(marvin platform entry-types create --file "$TMP/et.json" --workspace "$WS_SLUG" --json | json_of | jq -r '.id')
           echo "✅ Entry type created: $ENTRY_TYPE_ID"
 
-          # Test: Create entry
           echo "📝 Test: Create entry"
-          ENTRY_OUTPUT=$(marvin entry create test-entry \
-            --workspace "$WORKSPACE_ID" \
-            --collection "$COLLECTION_ID" \
-            --entry-type "$ENTRY_TYPE_ID" \
-            --format json)
-          ENTRY_ID=$(echo "$ENTRY_OUTPUT" | jq -r '.id')
+          echo "{\"title\":\"CI Entry\",\"slug\":\"ci-entry-$U\",\"entryTypeId\":\"$ENTRY_TYPE_ID\",\"status\":\"draft\"}" > "$TMP/entry.json"
+          ENTRY_ID=$(marvin platform entries create --file "$TMP/entry.json" --workspace "$WS_SLUG" --json | json_of | jq -r '.id')
           echo "✅ Entry created: $ENTRY_ID"
 
-          # Test: Get entry
           echo "📝 Test: Get entry"
-          marvin entry get "$ENTRY_ID" --format json
+          marvin platform entries get "$ENTRY_ID" --workspace "$WS_SLUG" --json | json_of | jq -e '.title == "CI Entry"' >/dev/null
           echo "✅ Entry retrieved"
 
-          # Test: Update entry
           echo "📝 Test: Update entry"
-          marvin entry update "$ENTRY_ID" \
-            --title "Updated Test Entry" \
-            --format json
+          echo '{"title":"CI Entry Updated"}' > "$TMP/update.json"
+          marvin platform entries update "$ENTRY_ID" --file "$TMP/update.json" --workspace "$WS_SLUG" --json | json_of | jq -e '.title == "CI Entry Updated"' >/dev/null
           echo "✅ Entry updated"
 
-          # Test: Publish entry
-          echo "📝 Test: Publish entry"
-          marvin publish entry "$ENTRY_ID" --format json || echo "⚠️ Publish not yet implemented"
+          echo "📝 Test: Add entry to collection"
+          marvin platform entries add-to-collection "$ENTRY_ID" "$COLLECTION_ID" --workspace "$WS_SLUG" >/dev/null
+          echo "✅ Entry added to collection"
 
-          # Test: Delete entry
           echo "📝 Test: Delete entry"
-          marvin entry delete "$ENTRY_ID" --confirm --format json
+          marvin platform entries delete "$ENTRY_ID" --yes --workspace "$WS_SLUG" >/dev/null
           echo "✅ Entry deleted"
 
-          # Test: Delete collection
           echo "📝 Test: Delete collection"
-          marvin collection delete "$COLLECTION_ID" --confirm --format json
+          marvin platform collections delete "$COLLECTION_ID" --yes --workspace "$WS_SLUG" >/dev/null
           echo "✅ Collection deleted"
 
-          # Test: Delete workspace
           echo "📝 Test: Delete workspace"
-          marvin workspace delete "$WORKSPACE_ID" --confirm --format json
+          marvin admin groups delete "$WS_ID" --yes --force >/dev/null
           echo "✅ Workspace deleted"
 
-          echo ""
-          echo "🎉 All CLI tests passed!"
+          echo "=== All CLI integration tests passed ==="
 
       - name: Check Marvin logs on failure
         if: failure()
@@ -230,13 +268,13 @@ jobs:
 
     steps:
       - name: Checkout CLI repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: InnerOpen/marvin-cli
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
@@ -252,7 +290,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload CLI binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cli-${{ matrix.os }}-node${{ matrix.node-version }}
           path: dist/

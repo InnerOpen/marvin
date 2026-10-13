@@ -1,73 +1,146 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
+import { type Agent, listAgents } from "@/lib/api/aiAgents";
+import { getTones } from "@/lib/api/aiTones";
 import { getAuthToken } from "@/lib/api/client";
-import { getAIWorkflowSettings } from "@/lib/api/aiWorkflowSettings";
+import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
+import { MAIN_AGENT } from "@/lib/marvin/cast";
+import { sourceAllowed } from "@/lib/marvin/gate";
+import { createSdkClient } from "@/lib/sdk";
+import { BUILTIN_TONES, pickerTones, type TonesState } from "@/lib/tones";
 
 const authToken = getAuthToken(Astro.cookies);
 const authed = !!authToken;
 
 let aiEnabled = false;
+// The workspace can switch the Ask page off on its own (AI settings → Invocation Sources, `ask_page`).
+let askEnabled = true;
+let canManage = false;
 let settingsError: string | null = null;
+let agents: Agent[] = [];
+// Every tone the workspace offers (built-ins + its own, minus hidden ones) for the per-call picker.
+let tones: TonesState = { tones: BUILTIN_TONES, defaultTone: "auto", maxCustomTones: 0, maxNameChars: 0, maxInstructionsChars: 0 };
+// The workspace's name for its main agent (AI settings), shown wherever that agent is named.
+let assistantName = "";
 
 // Gate the surface on AI being enabled AND valid auth (see ai-frontend-gating).
 if (authed) {
   try {
-    const settings = await getAIWorkflowSettings(authToken);
+    const settings = await createSdkClient(authToken).ai.settings.get();
     aiEnabled = (settings as any)?.enabled !== false;
+    askEnabled = sourceAllowed((settings as any)?.invocationSources, "ask_page");
+    assistantName = String((settings as any)?.assistantName ?? "").trim();
   } catch (e) {
     settingsError = e instanceof Error ? e.message : String(e);
-    console.error('[ai-ask] Error loading AI settings:', e);
+    console.error("[ai-ask] Error loading AI settings:", e);
+  }
+  if (aiEnabled && !askEnabled) {
+    canManage = await canManageCurrentWorkspace(authToken!).catch(() => false);
+  } else {
+    try {
+      [agents, tones] = await Promise.all([
+        listAgents(authToken).then((list) => list.filter((a) => a.enabled)),
+        getTones(authToken).catch((e) => {
+          console.error("[ai-ask] Error loading tones:", e);
+          return tones;
+        }),
+      ]);
+    } catch (e) {
+      console.error("[ai-ask] Error loading agents:", e);
+    }
   }
 }
+const agentsJson = JSON.stringify(agents);
+const agentDisplayName = (a: Agent) => (a.slug === MAIN_AGENT && assistantName ? assistantName : a.name);
+const defaultToneName = tones.tones.find((t) => t.slug === tones.defaultTone)?.name ?? "Auto";
+// A tone an agent defaults to stays selectable even if it's hidden from pickers since.
+const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hidden && agents.some((a) => a.defaultRegister === t.slug)));
 ---
 
-<AppLayout title="Ask Workspace" eyebrow="Settings">
+<AppLayout crumb="settings.ai-ask">
   <div class="page-header">
-    <div class="breadcrumb">
-      <a href="/workspace/settings?tab=ai">AI</a>
-      <span>›</span>
-      <span>Ask Workspace</span>
+    <div class="page-header-row">
+      <div>
+        <h2>Ask</h2>
+        <p>Talk to an agent. <strong>Ask</strong> answers from your content with citations; the others do what they're defined to do. Conversations are saved as threads you can reopen.</p>
+      </div>
+      <a href="/workspace/settings/ai-agents" class="button secondary small">Manage agents</a>
     </div>
-    <h2>Ask Workspace</h2>
-    <p>Ask a question and get an answer grounded in your workspace content, with citations</p>
   </div>
 
   {!authed ? (
-    <div class="alert alert-error"><strong>Authentication required.</strong> Sign in to use workspace Q&A.</div>
+    <div class="alert alert-error"><strong>Authentication required.</strong> Sign in to use Ask.</div>
   ) : !aiEnabled ? (
     <div class="alert alert-info">
       AI is currently disabled for this workspace.
       <a href="/workspace/settings/ai-workflow">Enable it in AI Settings</a> to ask questions.
       {settingsError && <span class="muted"> ({settingsError})</span>}
     </div>
+  ) : !askEnabled ? (
+    <div class="alert alert-info">
+      Ask is switched off for this workspace. An admin can turn it on in{" "}
+      {canManage ? <a href="/workspace/settings/ai-workflow#invocation-sources">AI settings → Invocation Sources</a> : "AI settings → Invocation Sources"}.
+    </div>
   ) : (
   <>
-    <div class="ask-card">
-      <label class="field-label" for="question">Your question</label>
-      <textarea id="question" class="question-input" rows="3"
-        placeholder="e.g. What suppliers do we use for packaging?"></textarea>
-      <div class="ask-actions">
-        <button id="ask-btn" class="button">Ask</button>
-        <span id="ask-status" class="status"></span>
+    <div class="chat" data-agents={agentsJson} data-assistant-name={assistantName}>
+      <!-- Toolbar: agent picker, tone, tools panel -->
+      <div class="toolbar">
+        <label class="tb-field">
+          <span class="tb-label">Agent</span>
+          <select id="agent" class="input">
+            {agents.map((a) => (
+              <option value={a.slug} selected={a.slug === "ask"}>
+                {(a.icon ? a.icon + " " : "") + agentDisplayName(a)}{a.allowWrites ? "" : " · read-only"}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label class="tb-field">
+          <span class="tb-label">Tone</span>
+          <select id="register" class="input">
+            <option value="">Default ({defaultToneName})</option>
+            {askTones.map((t) => <option value={t.slug} title={t.description ?? undefined}>{t.name}</option>)}
+          </select>
+        </label>
+        <div class="tb-actions">
+          <button id="threads-btn" class="button secondary small" type="button" aria-expanded="false">Threads</button>
+          <button id="tools-btn" class="button secondary small" type="button" aria-expanded="false">Tools</button>
+          <button id="new-btn" class="button secondary small" type="button">New conversation</button>
+        </div>
       </div>
-    </div>
+      <p id="agent-desc" class="agent-desc"></p>
 
-    <div id="answer-panel" class="answer-panel" style="display:none">
-      <div class="answer-head">
-        <span class="answer-eyebrow">Answer</span>
-        <span id="answer-meta" class="answer-meta"></span>
+      <div id="threads-panel" class="threads-panel" hidden></div>
+      <div id="tools-panel" class="tools-panel" hidden></div>
+
+      <div id="suggestions" class="suggestions" hidden></div>
+
+      <div id="transcript" class="transcript" aria-live="polite">
+        <div class="transcript-empty" id="transcript-empty">Ask something to start. Cmd/Ctrl+Enter sends.</div>
       </div>
-      <div id="answer-body" class="answer-body"></div>
-      <div id="sources-block" class="sources-block" style="display:none">
-        <div class="sources-label">Sources</div>
-        <ol id="sources-list" class="sources-list"></ol>
+
+      <!-- Composer -->
+      <div class="composer">
+        <div id="attachments" class="attachments" hidden></div>
+        <textarea id="question" class="question-input" rows="3" placeholder="Ask a question, or give the agent a goal…"></textarea>
+        <div class="composer-actions">
+          <div class="composer-left">
+            <input id="file" type="file" multiple hidden />
+            <button id="attach-btn" class="button secondary small" type="button" title="Attach files (uploaded as assets the agent can open)">📎 Attach</button>
+            <button id="mic-btn" class="button secondary small" type="button" title="Speak instead of typing (browser speech recognition)" hidden>🎙 Speak</button>
+            <span id="status" class="status"></span>
+          </div>
+          <button id="send-btn" class="button" type="button">Send</button>
+        </div>
       </div>
     </div>
 
     <div class="reindex-card">
       <div class="reindex-info">
         <strong>Search index</strong>
-        <span>Rebuild embeddings so answers reflect the latest entries and resources. Runs on demand; a scheduled task can keep it fresh automatically.</span>
+        <span>Rebuild embeddings so grounded answers reflect the latest entries, images and resources. Runs in the background and only re-embeds what changed; a scheduled task can keep it fresh automatically.</span>
+        <span id="index-status" class="index-status muted"></span>
       </div>
       <div class="reindex-action">
         <button id="reindex-btn" class="button secondary">Reindex now</button>
@@ -79,280 +152,957 @@ if (authed) {
 </AppLayout>
 
 <script>
-  import { fetchApi } from '@/lib/api/client';
+  import {
+    type Agent,
+    type AgentRunResult,
+    type BulkWritePreview,
+    deleteThread,
+    getPermissions,
+    getRunProgress,
+    getThread,
+    type Handoff,
+    listThreads,
+    NEW_THREAD,
+    type PendingCall,
+    type Permissions,
+    type Referral,
+    renameThread,
+    resumeThread,
+    runAgent,
+    type RunEvent,
+    type Source,
+    type Thread,
+  } from "@/lib/api/aiAgents";
+  import { fetchApi } from "@/lib/api/client";
+  import { argsPreview, groupPending, viaText } from "@/lib/approvals";
+  import { groupThreads, handOffNote } from "@/lib/askThreads";
+  import { renderMarkdown } from "@/lib/marvin/capabilities";
+  import { MAIN_AGENT } from "@/lib/marvin/cast";
+  import { createSdkClient } from "@/lib/sdk";
+  import { assetName, assetSlug } from "@/lib/share";
+  import {
+    ATTACH_ACCEPT,
+    type Attachment,
+    attachmentIcon,
+    attachmentIds,
+    MAX_ATTACHMENTS,
+    roomFor,
+    turnAttachments,
+    withAttachment,
+    withoutAttachment,
+  } from "@/lib/marvin/attachments";
+  import { createDictation, type Dictation, speechRecognition } from "@/lib/marvin/dictation";
 
-  const questionEl = document.getElementById('question') as HTMLTextAreaElement | null;
-  const askBtn = document.getElementById('ask-btn') as HTMLButtonElement | null;
-  const askStatus = document.getElementById('ask-status');
-  const answerPanel = document.getElementById('answer-panel');
-  const answerBody = document.getElementById('answer-body');
-  const answerMeta = document.getElementById('answer-meta');
-  const sourcesBlock = document.getElementById('sources-block');
-  const sourcesList = document.getElementById('sources-list');
-  const reindexBtn = document.getElementById('reindex-btn') as HTMLButtonElement | null;
-  const reindexStatus = document.getElementById('reindex-status');
+  const root = document.querySelector<HTMLElement>(".chat");
+  if (root) {
+    const agents: Agent[] = JSON.parse(root.dataset.agents || "[]");
+    const assistantName = root.dataset.assistantName || "";
+    const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T | null;
+    const agentSel = $<HTMLSelectElement>("agent")!;
+    const registerSel = $<HTMLSelectElement>("register")!;
+    const desc = $<HTMLElement>("agent-desc")!;
+    const toolsBtn = $<HTMLButtonElement>("tools-btn")!;
+    const toolsPanel = $<HTMLElement>("tools-panel")!;
+    const threadsBtn = $<HTMLButtonElement>("threads-btn")!;
+    const threadsPanel = $<HTMLElement>("threads-panel")!;
+    const newBtn = $<HTMLButtonElement>("new-btn")!;
+    const suggestionsEl = $<HTMLElement>("suggestions")!;
+    const transcript = $<HTMLElement>("transcript")!;
+    const emptyNote = $<HTMLElement>("transcript-empty")!;
+    const questionEl = $<HTMLTextAreaElement>("question")!;
+    const sendBtn = $<HTMLButtonElement>("send-btn")!;
+    const statusEl = $<HTMLElement>("status")!;
+    const fileInput = $<HTMLInputElement>("file")!;
+    const attachBtn = $<HTMLButtonElement>("attach-btn")!;
+    const attachmentsEl = $<HTMLElement>("attachments")!;
+    const micBtn = $<HTMLButtonElement>("mic-btn")!;
+    const reindexBtn = $<HTMLButtonElement>("reindex-btn");
+    const reindexStatus = $<HTMLElement>("reindex-status");
 
-  function entityHref(type: string, id: string): string | null {
-    if (type === 'entry') return `/workspace/entries/${id}`;
-    if (type === 'resource') return `/workspace/resources/${id}`;
-    return null;
-  }
+    const esc = (s: unknown) =>
+      String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const setStatus = (msg: string, kind: "" | "error" | "success" = "") => {
+      statusEl.textContent = msg;
+      statusEl.className = `status ${kind}`.trim();
+    };
 
-  async function ask() {
-    const question = questionEl?.value.trim();
-    if (!question) {
-      askStatus!.textContent = 'Enter a question first.';
-      askStatus!.className = 'status error';
-      return;
-    }
-    askBtn!.disabled = true;
-    askStatus!.textContent = 'Thinking…';
-    askStatus!.className = 'status';
-
+    // ── State ──
+    // The conversation lives server-side: `threadId` is the thread this transcript continues (null =
+    // the next send opens a new one). Reloading the page loses the view, not the thread.
+    let threadId: string | null = null;
+    // Files attached to this conversation (@/lib/marvin/attachments): sent with every run until removed.
+    let attachments: Attachment[] = [];
+    const AGENT_KEY = "ask.agent";
     try {
-      const exec = await fetchApi<any>('/api/ai/operations/answer-workspace-question/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: { question } }),
-      });
+      const saved = sessionStorage.getItem(AGENT_KEY);
+      if (saved && agents.some((a) => a.slug === saved)) agentSel.value = saved;
+    } catch {
+      /* storage unavailable */
+    }
+    const current = () => agents.find((a) => a.slug === agentSel.value) ?? agents[0];
 
-      const out = exec?.outputJson ?? exec?.output_json ?? {};
-      const answer = out.answer ?? '(no answer returned)';
-      const retrieved = out.retrieved_sources ?? [];
+    function syncAgent() {
+      const a = current();
+      if (!a) return;
+      try {
+        sessionStorage.setItem(AGENT_KEY, a.slug);
+      } catch {
+        /* ignore */
+      }
+      desc.textContent = a.description ?? "";
+      // Starter prompts, if the agent defines any.
+      const sugg = a.suggestions ?? [];
+      suggestionsEl.innerHTML = sugg.map((s) => `<button type="button" class="chip">${esc(s)}</button>`).join("");
+      suggestionsEl.hidden = sugg.length === 0;
+      suggestionsEl.querySelectorAll<HTMLButtonElement>(".chip").forEach((b) =>
+        b.addEventListener("click", () => {
+          questionEl.value = b.textContent ?? "";
+          questionEl.focus();
+        }),
+      );
+      // Show the agent's own default tone; "" (Default) sends none and the server decides.
+      if (a.defaultRegister && registerSel.querySelector(`option[value="${CSS.escape(a.defaultRegister)}"]`)) registerSel.value = a.defaultRegister;
+      if (!toolsPanel.hidden) void loadTools();
+    }
+    agentSel.addEventListener("change", () => {
+      if (threadId) resetConversation();
+      syncAgent();
+      if (thisAgentOnly && !threadsPanel.hidden) void loadThreads();
+    });
+    syncAgent();
 
-      answerBody!.textContent = answer;
+    // ── Tools panel (the agent's effective permissions for you) ──
+    async function loadTools() {
+      const a = current();
+      if (!a) return;
+      toolsPanel.innerHTML = `<div class="tp-loading">Loading…</div>`;
+      try {
+        const p: Permissions = await getPermissions(a.slug);
+        const rows = p.rows
+          .map((r) => {
+            const tools = r.tools.length
+              ? r.tools
+                  .map(
+                    (t) =>
+                      `<li class="${t.decision}"><code>${esc(t.name)}</code><span class="tp-why">${t.decision === "allow" ? "allowed" : t.decision === "ask" ? "ask first" : "blocked · " + esc(t.reason)}</span></li>`,
+                  )
+                  .join("")
+              : `<li class="tp-note">discovered at run time</li>`;
+            return `<div class="tp-group"><div class="tp-head"><strong>${esc(r.label)}</strong><span class="tp-default ${r.default}">${r.default === "allow" ? "allow" : r.default === "ask" ? "ask first" : "block"}${r.writes ? " · writes" : ""}</span></div><ul>${tools}</ul></div>`;
+          })
+          .join("");
+        toolsPanel.innerHTML = `<div class="tp-title">What <strong>${esc(a.name)}</strong> can do as you ${p.allowWrites ? "" : "<span class='tp-ro'>(read-only agent)</span>"}</div>${rows}`;
+      } catch (e) {
+        toolsPanel.innerHTML = `<div class="tp-loading">Couldn't load tools: ${esc(e instanceof Error ? e.message : e)}</div>`;
+      }
+    }
+    toolsBtn.addEventListener("click", () => {
+      toolsPanel.hidden = !toolsPanel.hidden;
+      toolsBtn.setAttribute("aria-expanded", String(!toolsPanel.hidden));
+      if (!toolsPanel.hidden) void loadTools();
+    });
 
-      const tokens = exec?.totalTokens ?? exec?.total_tokens;
-      answerMeta!.textContent = tokens ? `${tokens.toLocaleString()} tokens` : '';
-
-      // Render unique cited sources as links (dedupe by entity, keep first index).
-      sourcesList!.innerHTML = '';
+    // ── Transcript ──
+    function addTurn(role: "user" | "assistant", html: string, meta = "") {
+      emptyNote.hidden = true;
+      const el = document.createElement("div");
+      el.className = `turn ${role}`;
+      el.innerHTML = `<div class="turn-body">${html}</div>${meta ? `<div class="turn-meta">${meta}</div>` : ""}`;
+      transcript.appendChild(el);
+      el.scrollIntoView({ block: "nearest" });
+      return el;
+    }
+    function entityHref(type: string, id: string): string | null {
+      if (type === "entry") return `/workspace/entries/${id}`;
+      if (type === "resource") return `/workspace/resources/${id}`;
+      if (type === "asset") return `/workspace/assets/${id}`;
+      return null;
+    }
+    function sourcesHtml(sources: Source[] | undefined | null): string {
       const seen = new Set<string>();
-      for (const s of retrieved) {
-        const key = `${s.entity_type}:${s.entity_id}`;
+      const links: string[] = [];
+      for (const s of sources ?? []) {
+        const key = `${s.entityType}:${s.entityId}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        const li = document.createElement('li');
-        const href = entityHref(s.entity_type, s.entity_id);
-        if (href) {
-          const a = document.createElement('a');
-          a.href = href;
-          a.textContent = s.title || key;
-          li.appendChild(a);
-        } else {
-          li.textContent = s.title || key;
-        }
-        li.appendChild(document.createTextNode(' '));
-        const badge = document.createElement('span');
-        badge.className = 'source-type';
-        badge.textContent = s.entity_type;
-        li.appendChild(badge);
-        sourcesList!.appendChild(li);
+        const href = entityHref(s.entityType, s.entityId);
+        links.push(href ? `<a href="${esc(href)}">${esc(s.title || key)}</a>` : esc(s.title || key));
       }
-      sourcesBlock!.style.display = seen.size ? '' : 'none';
-      answerPanel!.style.display = '';
-      askStatus!.textContent = '';
-    } catch (err: any) {
-      askStatus!.textContent = `Error: ${err.message}`;
-      askStatus!.className = 'status error';
-    } finally {
-      askBtn!.disabled = false;
+      return links.length ? `<span>Sources:</span> ${links.join(" · ")}` : "";
     }
-  }
+    function usedHtml(tools: string[]): string {
+      const used = [...new Set(tools)];
+      return used.length ? `<span>Used:</span> ${used.map((t) => `<code>${esc(t)}</code>`).join(" ")}` : "";
+    }
+    const agentName = (slug: string) =>
+      slug === MAIN_AGENT && assistantName ? assistantName : (agents.find((a) => a.slug === slug)?.name ?? slug);
+    const agentLabel = (slug: string) => {
+      const icon = agents.find((a) => a.slug === slug)?.icon;
+      return (icon ? `${icon} ` : "") + agentName(slug);
+    };
+    // "Handed off: Materials ↗" opens the specialist's child thread; the next send continues it (= /use).
+    function handoffsHtml(handoffs: Handoff[] | undefined | null): string {
+      const items = (handoffs ?? []).map((h) =>
+        h.threadId
+          ? `<button type="button" class="meta-link" data-open-thread="${esc(h.threadId)}">${esc(agentName(h.agent))} ↗</button>`
+          : esc(agentName(h.agent)),
+      );
+      return items.length ? `<span>Handed off:</span> ${items.join(" · ")}` : "";
+    }
+    // A referral runs nothing: "Continue →" pre-fills the question for that agent, never sends it.
+    function referralsHtml(referrals: Referral[] | undefined | null): string {
+      return (referrals ?? [])
+        .map((r) => {
+          const name = esc(r.name || agentName(r.agent));
+          const reason = r.reason ? ` — ${esc(r.reason)}` : "";
+          const cont = agents.some((a) => a.slug === r.agent)
+            ? ` · <button type="button" class="meta-link" data-continue-agent="${esc(r.agent)}" data-question="${esc(r.question ?? "")}">Continue →</button>`
+            : "";
+          return `<span>Suggests asking ${name}</span>${reason}${cont}`;
+        })
+        .join(" · ");
+    }
+    function assistantMeta(
+      sources: Source[] | undefined | null,
+      tools: string[],
+      tokens: number | undefined | null,
+      handoffs?: Handoff[] | null,
+      referrals?: Referral[] | null,
+    ): string {
+      return [
+        sourcesHtml(sources),
+        usedHtml(tools),
+        handoffsHtml(handoffs),
+        referralsHtml(referrals),
+        tokens ? `${Number(tokens).toLocaleString()} tokens` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
+    transcript.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-open-thread], [data-continue-agent], [data-approve], [data-deny]");
+      if (!btn) return;
+      if (btn.hasAttribute("data-approve") || btn.hasAttribute("data-deny")) {
+        const card = btn.closest<HTMLElement>(".turn.approval");
+        if (!card || card.classList.contains("resolved")) return;
+        const denyAll = btn.hasAttribute("data-deny");
+        const decisions: Record<string, "approve" | "deny"> = {};
+        card.querySelectorAll<HTMLInputElement>("input[data-call-id]").forEach((cb) => {
+          decisions[cb.dataset.callId!] = !denyAll && cb.checked ? "approve" : "deny";
+        });
+        void resumeRun(card, decisions);
+        return;
+      }
+      if (btn.dataset.openThread) {
+        void openThread(btn.dataset.openThread);
+        return;
+      }
+      const slug = btn.dataset.continueAgent!;
+      if (!agents.some((a) => a.slug === slug)) return;
+      agentSel.value = slug;
+      resetConversation();
+      syncAgent();
+      questionEl.value = btn.dataset.question ?? "";
+      questionEl.focus();
+    });
+    function resetConversation() {
+      threadId = null;
+      transcript.querySelectorAll(".turn").forEach((t) => t.remove());
+      emptyNote.hidden = false;
+      clearAttachments();
+      setStatus("");
+      threadsPanel.querySelectorAll(".th-row.active").forEach((r) => r.classList.remove("active"));
+    }
+    newBtn.addEventListener("click", resetConversation);
 
-  askBtn?.addEventListener('click', ask);
-  questionEl?.addEventListener('keydown', (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') ask();
-  });
-
-  reindexBtn?.addEventListener('click', async () => {
-    reindexBtn.disabled = true;
-    reindexStatus!.textContent = 'Reindexing…';
-    reindexStatus!.className = 'status';
+    // ── Threads panel: your saved conversations, every agent's (or just this agent's) ──
+    // A router thread's hand-offs nest under it; opening any thread switches the agent to its own, so
+    // the next send continues it (a hand-off child too — the same as `/use` from the bubble).
+    const THIS_AGENT_ONLY_KEY = "ask.threads.thisAgentOnly";
+    const THREADS_LIMIT = 50;
+    let thisAgentOnly = false;
     try {
-      const res = await fetchApi<any>('/api/ai/embeddings/reindex', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: 'workspace' }),
-      });
-      const entities = res?.entities_indexed ?? 0;
-      const chunks = res?.chunks_indexed ?? 0;
-      reindexStatus!.textContent = `Indexed ${entities} items (${chunks} chunks).`;
-      reindexStatus!.className = 'status success';
-    } catch (err: any) {
-      reindexStatus!.textContent = `Error: ${err.message}`;
-      reindexStatus!.className = 'status error';
-    } finally {
-      reindexBtn.disabled = false;
+      thisAgentOnly = sessionStorage.getItem(THIS_AGENT_ONLY_KEY) === "1";
+    } catch {
+      /* storage unavailable */
     }
-  });
+    const when = (iso: string | null | undefined) => {
+      if (!iso) return "";
+      const d = new Date(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`);
+      return Number.isNaN(d.getTime()) ? "" : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    };
+    function threadRow(t: Thread, opts: { child?: boolean; showAgent?: boolean } = {}): string {
+      const active = t.id === threadId ? " active" : "";
+      const title = esc(t.title || "(untitled)");
+      const meta = [
+        !opts.child && opts.showAgent ? esc(agentLabel(t.agentSlug)) : "",
+        esc(when(t.lastMessageAt || t.createdAt)),
+        t.status === "awaiting_approval" ? "awaiting approval" : "",
+        opts.child ? "" : esc(handOffNote(t) ?? ""),
+      ].filter(Boolean);
+      return `<div class="th-row${opts.child ? " th-child" : ""}${active}" data-id="${esc(t.id)}">
+        <button type="button" class="th-open" title="Reopen this conversation">
+          <span class="th-line">${opts.child ? `<span class="th-agent">↳ ${esc(agentLabel(t.agentSlug))} · </span>` : ""}<span class="th-title">${title}</span></span>
+          <span class="th-when">${meta.join(" · ")}</span>
+        </button>
+        <span class="th-actions">
+          <button type="button" class="link-btn th-rename" title="Rename">✎</button>
+          <button type="button" class="link-btn th-delete" title="Delete">🗑</button>
+        </span>
+      </div>`;
+    }
+    function threadsHeader(a: Agent): string {
+      const heading = thisAgentOnly ? `Conversations with <strong>${esc(agentName(a.slug))}</strong>` : "Conversations";
+      return `<div class="th-head"><span class="tp-title">${heading}</span>
+        <label class="th-filter"><input type="checkbox" class="th-this-agent"${thisAgentOnly ? " checked" : ""} /> This agent only</label></div>`;
+    }
+    async function loadThreads() {
+      const a = current();
+      if (!a) return;
+      threadsPanel.innerHTML = `<div class="tp-loading">Loading…</div>`;
+      try {
+        const agent = thisAgentOnly ? a.slug : null;
+        const rows = await listThreads({ ...(agent ? { agent } : {}), children: true, limit: THREADS_LIMIT });
+        const groups = groupThreads(rows, agent);
+        const empty = agent
+          ? `No saved conversations with ${esc(agentName(a.slug))} yet — send a message to start one.`
+          : "No saved conversations yet — send a message to start one.";
+        const body = groups.length
+          ? groups
+              .map((g) => threadRow(g.thread, { showAgent: !agent }) + g.children.map((c) => threadRow(c, { child: true })).join(""))
+              .join("")
+          : `<div class="tp-loading">${empty}</div>`;
+        threadsPanel.innerHTML = threadsHeader(a) + body;
+      } catch (e) {
+        threadsPanel.innerHTML = `<div class="tp-loading">Couldn't load threads: ${esc(e instanceof Error ? e.message : e)}</div>`;
+      }
+    }
+    async function openThread(id: string) {
+      setStatus("Opening…");
+      try {
+        const t = await getThread(id);
+        if (t.agentSlug !== agentSel.value && agents.some((a) => a.slug === t.agentSlug)) {
+          agentSel.value = t.agentSlug;
+          syncAgent();
+          if (thisAgentOnly && !threadsPanel.hidden) void loadThreads();
+        }
+        threadId = null;
+        transcript.querySelectorAll(".turn").forEach((el) => el.remove());
+        clearAttachments();
+        for (const m of t.messages) {
+          if (m.role === "user") {
+            const files = turnAttachments(m.metaJson);
+            addTurn("user", esc(m.content) + attachedHtml(files));
+            // The conversation goes on with the files its last question carried.
+            attachments = files.map((f) => ({ ...f, sent: true }));
+          }
+          else if (m.metaJson?.abandoned || m.metaJson?.expired || m.metaJson?.no_longer_permitted)
+            // A paused run that was never decided: a short notice, not an answer.
+            addTurn("assistant", esc(m.content)).classList.add("notice");
+          else
+            addTurn(
+              "assistant",
+              renderMarkdown(m.content),
+              assistantMeta(
+                m.metaJson?.sources,
+                (m.stepsJson ?? []).map((s) => s.tool),
+                m.metaJson?.totalTokens,
+                m.metaJson?.handoffs,
+                m.metaJson?.referrals,
+              ),
+            );
+        }
+        if (t.status === "awaiting_approval" && t.pending?.length) addApprovalCard(t.pending, t.id, t.rootThreadId);
+        emptyNote.hidden = t.messages.length > 0;
+        threadId = t.id;
+        threadsPanel.querySelectorAll(".th-row").forEach((r) => r.classList.toggle("active", (r as HTMLElement).dataset.id === t.id));
+        setStatus("");
+        questionEl.focus();
+      } catch (e) {
+        setStatus(`Couldn't open thread: ${e instanceof Error ? e.message : e}`, "error");
+      }
+    }
+    function startRename(row: HTMLElement) {
+      const id = row.dataset.id!;
+      const titleEl = row.querySelector<HTMLElement>(".th-title")!;
+      const input = document.createElement("input");
+      input.className = "input th-rename-input";
+      input.value = titleEl.textContent === "(untitled)" ? "" : (titleEl.textContent ?? "");
+      titleEl.replaceWith(input);
+      input.focus();
+      input.select();
+      let done = false;
+      const finish = async (save: boolean) => {
+        if (done) return;
+        done = true;
+        const title = input.value.trim();
+        if (save) {
+          try {
+            await renameThread(id, title || null);
+          } catch (e) {
+            setStatus(`Couldn't rename: ${e instanceof Error ? e.message : e}`, "error");
+          }
+        }
+        void loadThreads();
+      };
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") void finish(true);
+        if (e.key === "Escape") void finish(false);
+      });
+      input.addEventListener("blur", () => void finish(true));
+    }
+    threadsPanel.addEventListener("change", (e) => {
+      const box = (e.target as HTMLElement).closest<HTMLInputElement>(".th-this-agent");
+      if (!box) return;
+      thisAgentOnly = box.checked;
+      try {
+        sessionStorage.setItem(THIS_AGENT_ONLY_KEY, thisAgentOnly ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      void loadThreads();
+    });
+    threadsPanel.addEventListener("click", async (e) => {
+      const target = e.target as HTMLElement;
+      const row = target.closest<HTMLElement>(".th-row");
+      if (!row) return;
+      const id = row.dataset.id!;
+      if (target.closest(".th-open")) {
+        void openThread(id);
+      } else if (target.closest(".th-rename")) {
+        startRename(row);
+      } else if (target.closest(".th-delete")) {
+        // Two clicks to delete — no modal dialogs.
+        const btn = target.closest<HTMLButtonElement>(".th-delete")!;
+        if (btn.dataset.armed !== "1") {
+          btn.dataset.armed = "1";
+          btn.textContent = "Sure?";
+          setTimeout(() => {
+            btn.dataset.armed = "";
+            btn.textContent = "🗑";
+          }, 3000);
+          return;
+        }
+        try {
+          await deleteThread(id);
+          if (threadId === id) resetConversation();
+          void loadThreads();
+        } catch (err) {
+          setStatus(`Couldn't delete: ${err instanceof Error ? err.message : err}`, "error");
+        }
+      }
+    });
+    threadsBtn.addEventListener("click", () => {
+      threadsPanel.hidden = !threadsPanel.hidden;
+      threadsBtn.setAttribute("aria-expanded", String(!threadsPanel.hidden));
+      if (!threadsPanel.hidden) void loadThreads();
+    });
+
+    // ── Attachments: each file is uploaded as an asset and sent with every run of the conversation ──
+    fileInput.accept = ATTACH_ACCEPT;
+    let uploading = 0;
+    function renderAttachments() {
+      const rows = attachments.map(
+        (a) =>
+          `<span class="attachment" title="${esc(a.name)}">${attachmentIcon(a.mimeType)} ${esc(a.name)}` +
+          `<button class="link-btn" type="button" data-remove="${esc(a.id)}" aria-label="Remove ${esc(a.name)}">×</button></span>`,
+      );
+      attachmentsEl.innerHTML = rows.join("");
+      attachmentsEl.hidden = rows.length === 0;
+      attachBtn.disabled = roomFor(attachments) - uploading <= 0;
+    }
+    function clearAttachments() {
+      attachments = [];
+      renderAttachments();
+      fileInput.value = "";
+    }
+    /** Names the files a turn carries for the first time (a thread's stored turns: the files it carried). */
+    function attachedHtml(files: Attachment[]): string {
+      return files.length ? `<div class="turn-attach">📎 ${files.map((f) => esc(f.name)).join(", ")}</div>` : "";
+    }
+    attachmentsEl.addEventListener("click", (e) => {
+      const id = (e.target as HTMLElement).closest<HTMLElement>("[data-remove]")?.dataset.remove;
+      if (!id) return;
+      attachments = withoutAttachment(attachments, id);
+      renderAttachments();
+    });
+    attachBtn.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", async () => {
+      const files = [...(fileInput.files ?? [])];
+      fileInput.value = "";
+      const room = roomFor(attachments) - uploading;
+      if (files.length > room) setStatus(`${MAX_ATTACHMENTS} files at most per conversation.`, "error");
+      const batch = files.slice(0, Math.max(0, room));
+      if (!batch.length) return;
+      uploading += batch.length;
+      renderAttachments();
+      setStatus(batch.length === 1 ? `Uploading ${batch[0].name}…` : `Uploading ${batch.length} files…`);
+      const failed: string[] = [];
+      await Promise.all(
+        batch.map(async (file) => {
+          try {
+            const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+            const asset: any = await createSdkClient().assets.upload(file, {
+              slug: `ask-${assetSlug(file.name, suffix)}`,
+              name: assetName(file.name),
+              metadata: { attachedVia: "ask_page" },
+            });
+            attachments = withAttachment(attachments, {
+              id: String(asset.id),
+              name: file.name || asset.name,
+              mimeType: asset.mimeType || file.type || "",
+            });
+          } catch (e) {
+            failed.push(`${file.name}: ${e instanceof Error ? e.message : e}`);
+          } finally {
+            uploading -= 1;
+            renderAttachments();
+          }
+        }),
+      );
+      if (failed.length) setStatus(`Couldn't upload ${failed.join("; ")}`, "error");
+      else setStatus("Attached — the agent can open these for the rest of the conversation.", "success");
+    });
+
+    // ── Voice input (@/lib/marvin/dictation; Chrome/Edge/Safari, none on Firefox) ──
+    const Recognition = speechRecognition(window);
+    let dictation: Dictation | null = null;
+    if (Recognition) {
+      micBtn.hidden = false;
+      const d = createDictation(Recognition, {
+        lang: navigator.language,
+        continuous: !/Android/i.test(navigator.userAgent),
+        read: () => questionEl.value,
+        write: (text) => (questionEl.value = text),
+        onState: (listening) => {
+          micBtn.textContent = listening ? "■ Stop" : "🎙 Speak";
+          if (listening) setStatus("Listening…");
+          else if (statusEl.textContent === "Listening…") setStatus(""); // not over a send's "Thinking…"
+          if (!listening) questionEl.focus();
+        },
+        onError: (message) => setStatus(message, "error"),
+      });
+      micBtn.addEventListener("click", () => d.toggle());
+      dictation = d;
+    }
+
+    // ── Live steps: a placeholder bubble that fills in while the run is in flight ──
+    const PROGRESS_POLL_MS = 700;
+    const PROGRESS_MAX_MISSES = 40;
+    // A hand-off shows as "Asked <agent> …" with the specialist's own steps nested under it: child
+    // events carry `via` (the specialist's slug) and close the last running row with the same `via`.
+    // When the specialist pauses for approval the hand-off row waits too, and the run's wait names
+    // whose ask each call is ("· via Workshop").
+    type StepRow = { label: string; via?: string; state: "running" | "done" | "failed" | "waiting" | "declined" };
+    const viaChip = (slug: string | undefined) => (slug ? ` <span class="via-chip">via ${esc(agentName(slug))}</span>` : "");
+    function stepsHtml(events: RunEvent[]): string {
+      const rows: StepRow[] = [];
+      for (const ev of events) {
+        if (ev.type === "tool_call") {
+          const args = ev.arguments as Record<string, unknown> | undefined;
+          const label =
+            ev.tool === "run_agent" && args
+              ? `Asked <code>${esc(args.agent)}</code><span class="step-args">${esc(String(args.message ?? ""))}</span>`
+              : `<code>${esc(ev.tool)}</code><span class="step-args">${esc(argsPreview(ev.arguments))}</span>`;
+          rows.push({ label, via: ev.via, state: "running" });
+        } else if (ev.type === "tool_result") {
+          const open = [...rows].reverse().find((r) => r.state === "running" && r.via === ev.via);
+          if (open && ev.deferred) {
+            open.state = "waiting";
+            open.label += ` — waiting for your approval`;
+          } else if (open) open.state = ev.ok === false ? "failed" : "done";
+        } else if (ev.type === "awaiting_approval") {
+          for (const c of ev.calls ?? [])
+            rows.push({ label: `Waiting for approval: <code>${esc(c.tool)}</code>${viaChip(c.via)}`, via: ev.via, state: "waiting" });
+        } else if (ev.type === "declined") {
+          const what = ev.reason === "not_permitted" ? "No longer permitted" : "Declined";
+          rows.push({ label: `${what}: <code>${esc(ev.tool)}</code>`, via: ev.via, state: "declined" });
+        }
+      }
+      const items = rows.map((r) => `<li class="step ${r.state}${r.via ? " nested" : ""}">${r.label}</li>`);
+      const thinking = events.length === 0 || events[events.length - 1]?.type === "thinking";
+      const tail = thinking ? `<li class="step thinking">${items.length ? "thinking…" : "starting…"}</li>` : "";
+      return `<ul class="steps">${items.join("")}${tail}</ul>`;
+    }
+    function watchRun(runId: string, placeholder: HTMLElement): () => void {
+      const body = placeholder.querySelector<HTMLElement>(".turn-body")!;
+      let stopped = false;
+      let missed = 0;
+      const tick = async () => {
+        if (stopped) return;
+        try {
+          const p = await getRunProgress(runId);
+          missed = 0;
+          if (!stopped) body.innerHTML = stepsHtml(p.events);
+        } catch {
+          // 404 until the server has registered the run (or ever, on another replica): keep the
+          // placeholder as-is and give up quietly after a while — the answer still arrives.
+          missed += 1;
+          if (missed > PROGRESS_MAX_MISSES) stopped = true;
+        }
+        if (!stopped) setTimeout(tick, PROGRESS_POLL_MS);
+      };
+      setTimeout(tick, PROGRESS_POLL_MS);
+      return () => {
+        stopped = true;
+      };
+    }
+
+    // ── Ask first: the approval card and the resumed run ──
+    // A parked run shows as a card in the transcript: one checkbox per pending call, "Approve
+    // selected" / "Deny all". Deciding resumes the run on the same thread and execution; the card
+    // greys out ("resolved") and a new placeholder shows the resumed run's live steps.
+    // A big bulk write carries a preview: the summary replaces the raw arguments line, and the card
+    // spells out every target and item so the user approves the actual links, not a filter. An ask-first
+    // preview with no items (archive_entries or trash_entries on a published entry) lists only its targets.
+    function bulkPreviewHtml(p: BulkWritePreview): string {
+      const plural = (w: string) => (w.endsWith("y") ? `${w.slice(0, -1)}ies` : `${w}s`);
+      const more = p.targetCount - p.targets.length;
+      const targets = p.targets.map(esc).join(", ") + (more > 0 ? ` and ${more} more` : "");
+      const items = p.items.length
+        ? `<div><span>${esc(plural(p.itemKind))} (${p.items.length}):</span> ${p.items.map(esc).join(", ")}</div>`
+        : "";
+      return (
+        `<div class="approval-bulk"><div><span>${esc(plural(p.targetType))} (${p.targetCount}):</span> ${targets}</div>` +
+        `${items}</div>`
+      );
+    }
+    // A specialist's asks (carried up through a hand-off) are grouped under a "via <agent>" chip; their
+    // ids are paths (`c1/c7`) and go back to the server as they came.
+    function approvalRowHtml(c: PendingCall): string {
+      return (
+        `<li class="approval-row"><label><input type="checkbox" checked data-call-id="${esc(c.id)}" /> <code>${esc(c.tool)}</code><span class="step-args">${esc(c.preview ? c.preview.summary : argsPreview(c.arguments))}</span></label>` +
+        (c.preview ? bulkPreviewHtml(c.preview) : "") +
+        `<details class="approval-args"><summary>arguments</summary><pre>${esc(JSON.stringify(c.arguments ?? {}, null, 2))}</pre></details></li>`
+      );
+    }
+    function approvalCardHtml(pending: PendingCall[], rootThreadId?: string | null): string {
+      const groups = groupPending(pending)
+        .map((g) => {
+          const head = g.via
+            ? `<div class="approval-via"><span class="via-chip">${esc(viaText(g, agentName))}</span>${
+                g.childThreadId ? ` <button type="button" class="meta-link" data-open-thread="${esc(g.childThreadId)}">its conversation ↗</button>` : ""
+              }</div>`
+            : "";
+          return `${head}<ul class="approval-list">${g.calls.map(approvalRowHtml).join("")}</ul>`;
+        })
+        .join("");
+      // On a specialist's own thread the decision belongs to the conversation that handed off; deciding
+      // here forwards it there, and the answer shows in that conversation.
+      const forwarded = rootThreadId
+        ? `<div class="approval-note">This is part of a hand-off — deciding here continues <button type="button" class="meta-link" data-open-thread="${esc(rootThreadId)}">the conversation it came from ↗</button>.</div>`
+        : "";
+      return (
+        `<div class="approval-title">Before I continue, approve these actions:</div>${forwarded}${groups}` +
+        `<div class="approval-actions"><button type="button" class="button small" data-approve>Approve selected</button>` +
+        `<button type="button" class="button secondary small" data-deny>Deny all</button></div>`
+      );
+    }
+    function addApprovalCard(pending: PendingCall[], forThread: string | null, rootThreadId?: string | null): HTMLElement {
+      const el = addTurn("assistant", approvalCardHtml(pending, rootThreadId));
+      el.classList.add("approval");
+      if (forThread) el.dataset.threadId = forThread;
+      return el;
+    }
+    function setCardResolved(card: HTMLElement, resolved: boolean) {
+      card.classList.toggle("resolved", resolved);
+      card.querySelectorAll<HTMLButtonElement | HTMLInputElement>("button, input").forEach((b) => {
+        b.disabled = resolved;
+      });
+    }
+    const newRunId = () => (typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "");
+    function startPlaceholder(): { placeholder: HTMLElement; runId: string; stopWatching: () => void } {
+      // The placeholder shows live steps while the run is in flight, then becomes the answer.
+      const runId = newRunId();
+      const placeholder = addTurn("assistant", stepsHtml([]));
+      placeholder.classList.add("pending");
+      const stopWatching = runId ? watchRun(runId, placeholder) : () => {};
+      return { placeholder, runId, stopWatching };
+    }
+    function handleRunResult(res: AgentRunResult, placeholder: HTMLElement, opts: { refreshThreads?: boolean } = {}) {
+      placeholder.remove();
+      threadId = res.threadId ?? threadId;
+      if (res.stoppedReason === "awaiting_approval" && res.pending?.length) {
+        addApprovalCard(res.pending, res.threadId ?? threadId);
+        if (!threadsPanel.hidden) void loadThreads(); // the row now says "awaiting approval"
+        setStatus("Waiting for your decision.");
+        return;
+      }
+      const answer = res.answer ?? "(no answer)";
+      addTurn(
+        "assistant",
+        renderMarkdown(answer),
+        assistantMeta(res.sources, (res.steps ?? []).map((s) => s.tool), res.totalTokens, res.handoffs, res.referrals),
+      );
+      if (opts.refreshThreads && !threadsPanel.hidden) void loadThreads();
+      setStatus(attachments.length ? "Attachments stay with this conversation; remove one with ×." : "");
+    }
+    async function resumeRun(card: HTMLElement, decisions: Record<string, "approve" | "deny">) {
+      const tid = card.dataset.threadId || threadId;
+      if (!tid) return;
+      setCardResolved(card, true);
+      sendBtn.disabled = true;
+      setStatus(Object.values(decisions).some((d) => d === "approve") ? "Continuing…" : "Continuing without those actions…");
+      const { placeholder, runId, stopWatching } = startPlaceholder();
+      try {
+        const res = await resumeThread(tid, decisions, runId ? { clientRunId: runId } : {});
+        stopWatching();
+        // Decided on a specialist's thread: the server continued the conversation it belongs to — show that one.
+        if (res.threadId && res.threadId !== tid) {
+          placeholder.remove();
+          await openThread(res.threadId);
+          if (!threadsPanel.hidden) void loadThreads();
+          return;
+        }
+        handleRunResult(res, placeholder, { refreshThreads: true });
+      } catch (e) {
+        stopWatching();
+        placeholder.remove();
+        setCardResolved(card, false);
+        addTurn("assistant", `<span class="turn-error">Error: ${esc(e instanceof Error ? e.message : e)}</span>`);
+        setStatus("");
+      } finally {
+        sendBtn.disabled = false;
+        questionEl.focus();
+      }
+    }
+
+    // ── Send ──
+    async function send() {
+      const message = questionEl.value.trim();
+      const a = current();
+      if (!message || !a) {
+        setStatus("Type something first.", "error");
+        return;
+      }
+      sendBtn.disabled = true;
+      setStatus("Thinking…");
+      // A new message on a parked thread denies its pending calls server-side; grey the card now.
+      transcript.querySelectorAll<HTMLElement>(".turn.approval:not(.resolved)").forEach((card) => setCardResolved(card, true));
+      addTurn("user", esc(message) + attachedHtml(attachments.filter((a) => !a.sent)));
+      attachments = attachments.map((a) => ({ ...a, sent: true }));
+      dictation?.cancel(); // late results mustn't refill the cleared box
+      questionEl.value = "";
+      const register = registerSel.value || undefined;
+      const wasNew = !threadId;
+      const { placeholder, runId, stopWatching } = startPlaceholder();
+      try {
+        // Every agent goes through the run endpoint; the thread on the server is the memory, and
+        // citations come back from the run's own search_content results.
+        const res = await runAgent(a.slug, message, {
+          threadId: threadId ?? NEW_THREAD,
+          ...(runId ? { clientRunId: runId } : {}),
+          register,
+          attachments: attachmentIds(attachments),
+        });
+        stopWatching();
+        handleRunResult(res, placeholder, { refreshThreads: wasNew });
+      } catch (e) {
+        stopWatching();
+        placeholder.remove();
+        addTurn("assistant", `<span class="turn-error">Error: ${esc(e instanceof Error ? e.message : e)}</span>`);
+        setStatus("");
+      } finally {
+        sendBtn.disabled = false;
+        questionEl.focus();
+      }
+    }
+    sendBtn.addEventListener("click", send);
+    questionEl.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") send();
+    });
+
+    // `?thread=<id>` opens that conversation — how the Marvin bubble links here (e.g. to approve a
+    // paused run, or to follow one it stopped waiting for).
+    const linkedThread = new URLSearchParams(location.search).get("thread");
+    if (linkedThread) void openThread(linkedThread);
+
+    // ── Reindex (kept from the RAG page) ──
+    // The index card: what the index holds, and a run in progress (it runs in the background — a
+    // whole workspace takes longer than a request may last). Polls only while a run is going.
+    const indexStatus = document.getElementById("index-status");
+    let pollTimer: number | undefined;
+    async function refreshIndexStatus(): Promise<boolean> {
+      try {
+        const st: any = await fetchApi("/api/ai/embeddings/status");
+        const running = st?.running;
+        if (indexStatus) {
+          const held = `${st.chunks} chunks · ${st.itemsIndexed ?? st.items_indexed} of ${st.indexable} items indexed`;
+          const last = st.lastRun ?? st.last_run;
+          const lastText = last ? ` · last run ${new Date(last.at).toLocaleString()}: ${last.summary}` : "";
+          indexStatus.textContent = running ? `${held} · reindexing ${running.done}/${running.total || "…"}` : held + lastText;
+        }
+        if (reindexBtn) reindexBtn.disabled = !!running;
+        return !!running;
+      } catch {
+        return false;
+      }
+    }
+    function pollWhileRunning() {
+      if (pollTimer) window.clearInterval(pollTimer);
+      pollTimer = window.setInterval(async () => {
+        if (!(await refreshIndexStatus())) {
+          window.clearInterval(pollTimer);
+          pollTimer = undefined;
+          if (reindexStatus) {
+            reindexStatus.textContent = "Done.";
+            reindexStatus.className = "status success";
+          }
+        }
+      }, 3000);
+    }
+    refreshIndexStatus().then((running) => running && pollWhileRunning());
+
+    reindexBtn?.addEventListener("click", async () => {
+      reindexBtn.disabled = true;
+      if (reindexStatus) {
+        reindexStatus.textContent = "Starting…";
+        reindexStatus.className = "status";
+      }
+      try {
+        await createSdkClient().ai.operations.reindex({ scope: "workspace" });
+        if (reindexStatus) reindexStatus.textContent = "Reindexing in the background — you can leave this page.";
+        pollWhileRunning();
+      } catch (err: any) {
+        const running = (err?.statusCode ?? err?.status) === 409;
+        if (reindexStatus) {
+          reindexStatus.textContent = running ? "A reindex is already running." : `Error: ${err.message}`;
+          reindexStatus.className = running ? "status" : "status error";
+        }
+        if (running) pollWhileRunning();
+        else reindexBtn.disabled = false;
+      }
+    });
+  }
 </script>
 
 <style>
-  .page-header {
-    margin-bottom: 24px;
-    padding-bottom: 20px;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--muted);
-    margin-bottom: 12px;
-  }
-
-  .breadcrumb a { color: var(--muted); text-decoration: none; }
-  .breadcrumb a:hover { color: var(--ink); }
-
-  .page-header h2 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
+  .page-header { margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+  .page-header-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  .page-header h2 { margin: 0 0 6px; font-size: 22px; font-weight: 600; }
   .page-header p { margin: 0; color: var(--muted); font-size: 14px; }
-
-  .alert {
-    padding: 16px;
-    margin-bottom: 24px;
-    border-radius: var(--radius);
-    background: var(--color-error-bg);
-    color: var(--color-error);
-    border: 1px solid var(--color-error);
-  }
-
-  .alert-info {
-    background: var(--panel);
-    color: var(--ink);
-    border: 1px solid var(--line);
-    font-size: 14px;
-  }
-
-  .alert-info a { color: var(--accent); }
-
-  .ask-card {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    padding: 20px;
-    margin-bottom: 20px;
-  }
-
-  .field-label {
-    display: block;
-    font-size: 13px;
-    font-weight: 600;
-    margin-bottom: 8px;
-  }
-
-  .question-input {
-    width: 100%;
-    padding: 12px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    font-size: 15px;
-    font-family: inherit;
-    background: var(--bg);
-    color: var(--ink);
-    box-sizing: border-box;
-    resize: vertical;
-  }
-
-  .question-input:focus { border-color: var(--accent); outline: none; }
-
-  .ask-actions {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    margin-top: 12px;
-  }
-
-  .status { font-size: 13px; color: var(--muted); }
-  .status.success { color: var(--accent); }
-  .status.error { color: var(--color-error); }
-
-  .answer-panel {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    padding: 20px;
-    margin-bottom: 20px;
-  }
-
-  .answer-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    margin-bottom: 12px;
-  }
-
-  .answer-eyebrow {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--muted);
-  }
-
-  .answer-meta { font-size: 12px; color: var(--muted); }
-
-  .answer-body {
-    font-size: 15px;
-    line-height: 1.6;
-    color: var(--ink);
-    white-space: pre-wrap;
-  }
-
-  .sources-block {
-    margin-top: 20px;
-    padding-top: 16px;
-    border-top: 1px solid var(--line);
-  }
-
-  .sources-label {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--muted);
-    margin-bottom: 10px;
-  }
-
-  /* The <li>/<a>/badge nodes are created in JS, so they lack Astro's scope
-     attribute — their styles must be :global() to apply. */
-  .sources-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
-  .sources-list :global(li) { font-size: 14px; }
-  .sources-list :global(a) { color: var(--accent); text-decoration: none; }
-  .sources-list :global(a:hover) { text-decoration: underline; }
-
-  .sources-list :global(.source-type) {
-    display: inline-block;
-    margin-left: 8px;
-    padding: 1px 6px;
-    border-radius: 4px;
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    color: var(--muted);
-    background: var(--bg);
-    border: 1px solid var(--line);
-  }
-
-  .reindex-card {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    padding: 20px;
-  }
-
-  .reindex-info { display: flex; flex-direction: column; gap: 4px; }
-  .reindex-info strong { font-size: 14px; font-weight: 600; }
-  .reindex-info span { font-size: 13px; color: var(--muted); max-width: 60ch; }
-
-  .reindex-action { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-
+  .alert { padding: 14px 16px; margin-bottom: 20px; border-radius: var(--radius); font-size: 14px; border: 1px solid var(--line); background: var(--panel); }
+  .alert-error { background: var(--color-error-bg); color: var(--color-error); border-color: var(--color-error); }
   .muted { color: var(--muted); }
+
+  .chat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; }
+  .tb-field { display: grid; gap: 6px; min-width: 200px; }
+  .tb-label { font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+  .tb-actions { display: flex; gap: 8px; margin-left: auto; }
+  .input { width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 14px; background: var(--bg); color: var(--ink); box-sizing: border-box; }
+  .input:focus { border-color: var(--accent); outline: none; }
+  .agent-desc { margin: 10px 0 0; font-size: 13px; color: var(--muted); min-height: 1em; }
+
+  .threads-panel, .tools-panel { margin-top: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); padding: 12px 14px; }
+  .threads-panel :global(.tp-title) { font-size: 13px; margin-bottom: 6px; }
+  .threads-panel :global(.th-head) { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .threads-panel :global(.th-filter) { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; margin-bottom: 6px; }
+  .threads-panel :global(.tp-loading) { font-size: 13px; color: var(--muted); }
+  .threads-panel :global(.th-row) { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding: 6px 0; }
+  .threads-panel :global(.th-row.active) { background: var(--panel-2); margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: var(--radius); }
+  .threads-panel :global(.th-open) { flex: 1; display: grid; gap: 2px; text-align: left; border: 0; background: none; cursor: pointer; color: var(--ink); padding: 2px 0; font: inherit; }
+  .threads-panel :global(.th-line), .threads-panel :global(.th-title) { font-size: 14px; }
+  .threads-panel :global(.th-when) { font-size: 12px; color: var(--muted); }
+  /* A hand-off under the thread that made it: indented, joined to its parent without a rule. */
+  .threads-panel :global(.th-row.th-child) { border-top: 0; padding-top: 0; padding-left: 18px; }
+  .threads-panel :global(.th-row.th-child.active) { padding-left: 26px; }
+  .threads-panel :global(.th-child .th-line), .threads-panel :global(.th-child .th-title) { font-size: 13px; }
+  .threads-panel :global(.th-agent) { color: var(--muted); }
+  .threads-panel :global(.th-actions) { display: flex; gap: 6px; }
+  .threads-panel :global(.th-actions .link-btn) { border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 13px; line-height: 1; padding: 2px 4px; }
+  .threads-panel :global(.th-actions .link-btn:hover) { color: var(--ink); }
+  .threads-panel :global(.th-rename-input) { width: 100%; font-size: 14px; padding: 4px 8px; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--bg); color: var(--ink); font-family: inherit; box-sizing: border-box; }
+  .tools-panel :global(.tp-title) { font-size: 13px; margin-bottom: 10px; }
+  .tools-panel :global(.tp-ro) { color: var(--muted); }
+  .tools-panel :global(.tp-loading) { font-size: 13px; color: var(--muted); }
+  .tools-panel :global(.tp-group) { border-top: 1px solid var(--line); padding: 8px 0; }
+  .tools-panel :global(.tp-head) { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+  .tools-panel :global(.tp-default) { font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
+  .tools-panel :global(.tp-default.block) { color: var(--color-error); }
+  .tools-panel :global(.tp-default.ask) { color: var(--warn); }
+  .tools-panel :global(li.ask .tp-why) { color: var(--warn); }
+  .tools-panel :global(ul) { list-style: none; margin: 6px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px 16px; }
+  .tools-panel :global(li) { font-size: 12px; display: flex; gap: 8px; align-items: baseline; }
+  .tools-panel :global(li.block code) { text-decoration: line-through; color: var(--muted); }
+  .tools-panel :global(.tp-why) { color: var(--muted); }
+  .tools-panel :global(.tp-note) { color: var(--muted); font-style: italic; }
+
+  .suggestions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .suggestions :global(.chip) { font-size: 13px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
+  .suggestions :global(.chip:hover) { border-color: var(--accent); }
+
+  .transcript { margin-top: 16px; display: grid; gap: 12px; max-height: 60vh; overflow-y: auto; padding-right: 4px; }
+  .transcript-empty { font-size: 13px; color: var(--muted); padding: 12px 0; }
+  .transcript :global(.turn) { border-radius: var(--radius); padding: 12px 14px; font-size: 14px; line-height: 1.55; }
+  .transcript :global(.turn.user) { background: var(--panel-2); margin-left: 15%; }
+  .transcript :global(.turn.assistant) { background: var(--bg); border: 1px solid var(--line); margin-right: 15%; }
+  .transcript :global(.turn-attach) { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .transcript :global(.turn-meta) { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  .transcript :global(.turn-meta span) { font-weight: 500; }
+  .transcript :global(.turn-meta code) { font-size: 12px; }
+  .transcript :global(.meta-link) { border: 0; background: none; padding: 0; font: inherit; color: var(--accent); cursor: pointer; }
+  .transcript :global(.meta-link:hover) { text-decoration: underline; }
+  .transcript :global(.turn-error) { color: var(--color-error); }
+  .transcript :global(.turn.pending) { border-style: dashed; }
+  .transcript :global(.steps) { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+  .transcript :global(.step) { display: flex; gap: 8px; align-items: baseline; color: var(--muted); }
+  .transcript :global(.step::before) { content: "○"; flex: none; }
+  .transcript :global(.step.running::before) { content: "◐"; color: var(--accent); }
+  .transcript :global(.step.done::before) { content: "●"; color: var(--accent); }
+  .transcript :global(.step.failed::before) { content: "●"; color: var(--color-error); }
+  .transcript :global(.step.nested) { margin-left: 18px; }
+  .transcript :global(.step.thinking) { font-style: italic; }
+  .transcript :global(.step.thinking::before) { content: "…"; }
+  .transcript :global(.step.waiting::before) { content: "?"; color: var(--warn); }
+  .transcript :global(.step.declined::before) { content: "⊘"; color: var(--muted); }
+  /* Ask first: the approval card */
+  .transcript :global(.turn.approval) { border-color: var(--warn); border-left-width: 3px; background: color-mix(in srgb, var(--warn) 6%, var(--bg)); }
+  .transcript :global(.turn.approval.resolved) { opacity: 0.55; border-color: var(--line); border-left-width: 1px; background: var(--bg); }
+  .transcript :global(.approval-title) { font-weight: 500; margin-bottom: 8px; }
+  .transcript :global(.approval-list) { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .transcript :global(.approval-row label) { display: flex; gap: 8px; align-items: baseline; cursor: pointer; }
+  .transcript :global(.approval-row code) { color: var(--ink); font-size: 12px; }
+  .transcript :global(.approval-bulk) { margin: 4px 0 0 24px; font-size: 12px; display: grid; gap: 2px; }
+  .transcript :global(.approval-bulk span) { color: var(--muted); }
+  .transcript :global(.approval-args) { margin: 2px 0 0 24px; font-size: 12px; color: var(--muted); }
+  .transcript :global(.approval-args summary) { cursor: pointer; }
+  .transcript :global(.approval-args pre) { margin: 4px 0 0; padding: 8px 10px; background: var(--panel-2); border-radius: var(--radius); overflow-x: auto; font-size: 12px; color: var(--ink); white-space: pre-wrap; }
+  .transcript :global(.approval-actions) { display: flex; gap: 8px; margin-top: 12px; }
+  .transcript :global(.approval-via) { margin: 10px 0 6px; font-size: 12px; }
+  .transcript :global(.approval-note) { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+  .transcript :global(.via-chip) {
+    display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--muted); font-weight: 400;
+  }
+  .transcript :global(.turn.notice) { opacity: 0.75; font-style: italic; }
+  .transcript :global(.step code) { color: var(--ink); font-size: 12px; }
+  .transcript :global(.step-args) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Links in an answer (review-the-draft, citations) must read as links, not body text. */
+  .transcript :global(.turn-body a), .transcript :global(.turn-meta a) { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+  .transcript :global(.turn-body a:hover), .transcript :global(.turn-meta a:hover) { text-decoration-thickness: 2px; }
+  .transcript :global(.turn-body p) { margin: 0 0 8px; }
+  .transcript :global(.turn-body p:last-child) { margin-bottom: 0; }
+
+  .composer { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 16px; }
+  .attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .attachments :global(.attachment) { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); padding: 4px 10px; border: 1px dashed var(--line); border-radius: 999px; }
+  /* A class that sets `display` beats the `hidden` attribute's UA style; without these the empty
+     attachment row, the empty suggestions row and an unsupported mic button all show. */
+  .attachments[hidden], .suggestions[hidden], .button[hidden] { display: none; }
+  .link-btn { border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 16px; line-height: 1; padding: 0 2px; }
+  .question-input { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 15px; font-family: inherit; line-height: 1.5; resize: vertical; background: var(--bg); color: var(--ink); box-sizing: border-box; }
+  .question-input:focus { border-color: var(--accent); outline: none; }
+  .composer-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+  .composer-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .status { font-size: 13px; color: var(--muted); }
+  .status.error { color: var(--color-error); }
+  .status.success { color: var(--accent); }
+
+  .reindex-card { display: flex; justify-content: space-between; align-items: center; gap: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 20px; flex-wrap: wrap; }
+  .reindex-info { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  .reindex-info strong { color: var(--ink); font-size: 14px; }
+  .index-status { font-size: 12px; }
+  .reindex-action { display: flex; align-items: center; gap: 12px; }
+  @media (max-width: 720px) { .transcript :global(.turn.user), .transcript :global(.turn.assistant) { margin: 0; } }
 </style>

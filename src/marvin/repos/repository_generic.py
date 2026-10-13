@@ -1013,9 +1013,11 @@ class RepositoryGeneric(Generic[Schema, Model]):
         Returns:
             Select: The modified query with search filters applied.
         """
-        # _normalize_search is expected to be a callable on the schema if custom normalization is needed
-        normalize_method = getattr(schema, "_normalize_search", None)
-        search_filter = SearchFilter(self.session, search, normalize_method)
+        # SearchFilter's third arg is a bool flag: normalize characters when the schema
+        # declares a custom `_normalize_search`. (Truthiness of the attribute was already the
+        # de-facto behavior; make it an explicit bool so it type-checks.)
+        normalize_characters = getattr(schema, "_normalize_search", None) is not None
+        search_filter = SearchFilter(self.session, search, normalize_characters)
         return search_filter.filter_query_by_search(query, schema, self.model)
 
 

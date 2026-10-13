@@ -17,15 +17,24 @@ config:
   # Tighter webhook timeouts for production
   webhookTimeout: 20
 
-# Production route with real domain
+# Production routes with real domains.
 route:
-  host: marvin.yourdomain.com
   tls:
     enabled: true
     termination: edge
   annotations:
     # Add any production-specific annotations
     # haproxy.router.openshift.io/rate-limit-connections: "true"
+  # Public web UI.
+  ui:
+    enabled: true
+    host: marvin.yourdomain.com
+  # Public API — enable only if the browser or external SDK/CLI must reach the API directly.
+  # Left off, the frontend reaches it internally over the cluster Service. When enabled, its host
+  # auto-populates config.publicApiUrl.
+  api:
+    enabled: false
+    host: api.marvin.yourdomain.com
 
 # Production storage requirements
 persistence:
@@ -41,8 +50,10 @@ resources:
     memory: "1Gi"
     cpu: "1000m"
 
-# Production secrets MUST come from sealed-secrets or external vault
-# NEVER put real secrets in this file
+# Production secrets MUST come from sealed-secrets or external vault.
+# NEVER put real secrets in this file. Note that `secrets: {}` does not blank the defaults —
+# Helm coalesces maps, so a key omitted here keeps whatever values.yaml sets. Override each
+# key explicitly (or via --set / a sealed secret) rather than relying on an empty map.
 secrets: {}
 
 # Production-grade health checks

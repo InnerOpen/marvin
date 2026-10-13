@@ -1,0 +1,20 @@
+{
+  "recipe": "translation-desk",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "Which published entries get a translation (the draft is made as the same type).",
+      "example": "article"
+    },
+    "body_field": {
+      "type": "field_key",
+      "description": "That type's field for the text.",
+      "example": "body"
+    },
+    "language": {
+      "type": "text",
+      "description": "The language to translate into.",
+      "example": "Spanish"
+    }
+  }
+}

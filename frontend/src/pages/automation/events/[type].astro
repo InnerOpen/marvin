@@ -1,59 +1,109 @@
 ---
+import ConnectionGroup from "@/components/events/ConnectionGroup.astro";
+import ConnectionRow from "@/components/events/ConnectionRow.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
-import { createSdkClient } from "@/lib/sdk";
-import { getAuthToken, fetchApi } from "@/lib/api/client";
+import { ApiRequestError, fetchApi, getAuthToken } from "@/lib/api/client";
+import { getBrowserFetchBaseUrl } from "@/lib/api/config";
 import { listEmailTemplates } from "@/lib/api/emailTemplates";
-import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import { getEventConnections } from "@/lib/api/eventConnections";
+import { listIntegrations, listProviders } from "@/lib/api/integrations";
+import { getWorkflowLibrary } from "@/lib/api/workflowLibrary";
+import { canManageCurrentWorkspace, getCurrentWorkspace } from "@/lib/api/workspaces";
+import {
+  type EventConnections,
+  type EventReaction,
+  eventLogHref,
+  formatWhen,
+  groupReactions,
+  groupSenders,
+  isSystemEmail,
+  managedHere,
+  newWorkflowHref,
+  switchable,
+  switchHint,
+  systemEmailNote,
+  triggerableEvents,
+} from "@/lib/eventConnections";
+import { createSdkClient } from "@/lib/sdk";
+import { type Recipe, recipeHref } from "@/lib/workflowLibrary";
 
 const authToken = getAuthToken(Astro.cookies);
+// Admin-only page (the API refuses members with a 403); if the role can't be read, let the API decide.
+const adminOnly = !(await canManageCurrentWorkspace(authToken!).catch(() => true));
 const sdk = createSdkClient(authToken);
 const { type } = Astro.params;
 
 let eventInfo: any = null;
 let emailTemplates: any[] = [];
 let emailSubscriptions: any[] = [];
-let eventConnections: any[] = [];
 let webhooks: any[] = [];
-let notifications: any[] = [];
+let integrations: any[] = [];
+let integrationProviders: any[] = [];
+// Library recipes on this event (a workflow trigger, or a subscription set up elsewhere) — ideas aren't offered.
+let eventRecipes: Recipe[] = [];
+let integrationsAvailable = true;
+let connections: EventConnections | null = null;
+let reactions: EventReaction[] = [];
+let triggerable = false;
 let error: string | null = null;
 let wsId: string | null = null;
 
-const apiUrl = import.meta.env.PUBLIC_MARVIN_API_URL || 'http://localhost:8080';
+const apiUrl = getBrowserFetchBaseUrl();
 
 try {
-  const allTypes = await sdk.events.getOptions() as any[];
+  const allTypes = (await sdk.events.getOptions()) as any[];
   eventInfo = allTypes.find((e: any) => e.value === type) || null;
 
+  // Unknown, and the platform's own events (sign-ups, workspaces, …): the workspace catalog leaves them out,
+  // so their links land on the catalog. Super admins see them on Admin → Events.
   if (!eventInfo) {
-    return Astro.redirect('/automation/events');
+    return Astro.redirect("/automation/events");
   }
 
   const workspace = await getCurrentWorkspace(authToken!);
   wsId = workspace?.id ?? null;
 
-  const emailSubsRes = await fetchApi<any[]>('/api/groups/email-event-subscriptions', {}, authToken).catch(() => []);
+  let builderOptions: any = null;
+  let connectionsResult: EventConnections | null = null;
+  let emailRes: any;
+  let webhookRes: any;
+  let emailSubsRes: any;
+  let library: Awaited<ReturnType<typeof getWorkflowLibrary>> | null;
+  [connectionsResult, builderOptions, emailRes, webhookRes, emailSubsRes, integrations, integrationProviders, library] =
+    await Promise.all([
+      getEventConnections(type!, authToken).catch((e) => {
+        console.error("[events/type] Connections failed:", e);
+        return null;
+      }),
+      sdk.automations.options().catch(() => null),
+      wsId ? listEmailTemplates(wsId, authToken).catch(() => []) : Promise.resolve([]),
+      sdk.webhooks.list().catch(() => []),
+      fetchApi<any[]>("/api/groups/email-event-subscriptions", {}, authToken).catch(() => []),
+      listIntegrations(authToken).catch(() => []),
+      listProviders(authToken).catch(() => []),
+      getWorkflowLibrary(authToken).catch(() => null),
+    ]);
+  connections = connectionsResult;
+  eventRecipes = (library?.recipes ?? []).filter((r) => r.trigger.event === type && r.shape !== "idea");
+  triggerable = triggerableEvents(builderOptions).includes(type!);
+  emailTemplates = Array.isArray(emailRes) ? emailRes : (emailRes?.items ?? []);
+  webhooks = Array.isArray(webhookRes) ? webhookRes : (webhookRes?.items ?? []);
   emailSubscriptions = Array.isArray(emailSubsRes) ? emailSubsRes : [];
 
-  const [emailRes, webhookRes, notifRes] = await Promise.all([
-    wsId ? listEmailTemplates(wsId, authToken).catch(() => []) : Promise.resolve([]),
-    sdk.webhooks.list().catch(() => []),
-    sdk.notifications.list().catch(() => ({ items: [] })),
-  ]);
-  emailTemplates = Array.isArray(emailRes) ? emailRes : (emailRes as any)?.items ?? [];
-  webhooks = Array.isArray(webhookRes) ? webhookRes : (webhookRes as any)?.items ?? [];
-  notifications = Array.isArray(notifRes) ? notifRes : (notifRes as any)?.items ?? [];
-
-  // Fetch event-connections to show system template row
-  if (wsId) {
-    try {
-      const connRes = await fetchApi<any[]>(`/api/platform/workspaces/${wsId}/email-templates/event-connections`, {}, authToken).catch(() => []);
-      if (Array.isArray(connRes)) {
-        (eventConnections as any[]).push(...connRes);
-      }
-    } catch { /* non-fatal */ }
+  // Integrations are an optional, plugin-only feature — the backend only mounts the routes when an
+  // integration package is installed. Probe the providers endpoint: a 404 means it's not installed,
+  // so we surface a note instead of the "connect an action" affordance.
+  try {
+    await fetchApi("/api/groups/integrations/providers", {}, authToken);
+  } catch (e) {
+    if (e instanceof ApiRequestError && e.status === 404) {
+      integrationsAvailable = false;
+    }
   }
+
+  reactions = connections?.reactions ?? [];
 } catch (e) {
-  console.error('[events/type] Error:', e);
+  console.error("[events/type] Error:", e);
   error = e instanceof Error ? e.message : String(e);
 }
 
@@ -63,29 +113,54 @@ function buildExamplePayload(eventType: string, variables: any[]): object {
   return {
     eventType,
     eventId: "evt_a1b2c3d4-...",
-    timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
     workspaceId: "<workspace-uuid>",
-    message: { title: eventType.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()), body: eventType },
+    message: { title: eventType.replace(/_/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase()), body: eventType },
     documentData: varExamples,
     userId: "<user-uuid>",
   };
 }
 
 // Use real payload structure from the API if available, else fall back to client builder
-const examplePayload = eventInfo?.payloadExample ?? (eventInfo ? buildExamplePayload(type!, eventInfo.variables || []) : {});
+const examplePayload =
+  eventInfo?.payloadExample ?? (eventInfo ? buildExamplePayload(type!, eventInfo.variables || []) : {});
+
+const now = new Date();
+const reactionGroups = groupReactions(reactions);
+const senderGroups = connections ? groupSenders(connections.senders) : [];
+const webhooksById = new Map(webhooks.map((w: any) => [w.id, w]));
+
+// The Subscribe menu offers what isn't connected yet; connected ones are listed under "What happens".
+const eventDrivenWebhooks = webhooks.filter((w: any) => (w.webhookType ?? w.webhook_type) === "event_driven");
+const openWebhooks = eventDrivenWebhooks.filter(
+  (w: any) => !(w.subscribedEvents ?? w.subscribed_events ?? []).includes(type),
+);
+// System-typed workspace templates (invitation / password reset / welcome) belong to their own event only (a
+// password_reset one, from before the platform kept that email to itself, belongs to no workspace event).
+const SYSTEM_EVENT_MAP: Record<string, string> = {
+  invitation: "invitation_sent",
+  password_reset: "user_password_reset_requested",
+  welcome: "user_signup",
+};
+const connectedTemplateIds = new Set(
+  emailSubscriptions
+    .filter((s: any) => (s.event_type ?? s.eventType) === type)
+    .map((s: any) => s.template_id ?? s.templateId),
+);
+const openTemplates = emailTemplates.filter((t: any) => {
+  if (!(t.groupId ?? t.group_id)) return false;
+  const mapped = SYSTEM_EVENT_MAP[t.templateType ?? t.template_type];
+  if (mapped && mapped !== type) return false;
+  return !connectedTemplateIds.has(t.id);
+});
 ---
 
-<AppLayout title={eventInfo ? eventInfo.label : 'Event'} eyebrow="Events">
+<AppLayout crumb="automation.events.type" adminOnly={adminOnly} title={eventInfo ? eventInfo.label : 'Event'}>
   {error ? (
     <div class="alert alert-error"><strong>Error:</strong> {error}</div>
   ) : eventInfo ? (
     <>
       <div class="page-header">
-        <div class="breadcrumb">
-          <a href="/automation/events">Events</a>
-          <span>›</span>
-          <span>{eventInfo.label}</span>
-        </div>
         <div class="event-meta">
           <h2>{eventInfo.label}</h2>
           <span class="event-category">{eventInfo.category}</span>
@@ -94,196 +169,286 @@ const examplePayload = eventInfo?.payloadExample ?? (eventInfo ? buildExamplePay
           <p class="event-description">{eventInfo.description}</p>
         )}
         <code class="event-type-code">{type}</code>
-      </div>
-
-      <div class="subscriptions">
-        <section class="sub-section">
-          <div class="sub-header">
-            <h3>Email Templates</h3>
-            <p>Send an email when this event fires</p>
-          </div>
-          <div class="sub-options">
-            {(() => {
-              const sysCon = eventConnections.find((c: any) => c.event_type === type);
-              return sysCon ? (
-                <div class="sub-option sub-option-connected">
-                  <div class="sub-option-info">
-                    <div class="sub-option-name-row">
-                      <span class="connected-check">&#10003;</span>
-                      <strong>{sysCon.has_workspace_override ? (sysCon.workspace_template?.name ?? sysCon.system_template?.name) : sysCon.system_template?.name}</strong>
-                      {sysCon.has_workspace_override ? (
-                        <span class="badge-inline badge-custom">Custom</span>
-                      ) : (
-                        <span class="badge-inline badge-system-sm">System</span>
-                      )}
-                    </div>
-                    <code class="sub-type">{sysCon.template_type}</code>
-                  </div>
-                  <div class="sub-option-actions">
-                    {sysCon.has_workspace_override ? (
-                      <>
-                        <a href={`/workspace/settings/email/${sysCon.workspace_template?.id}`} class="button small secondary">Edit</a>
-                        <button type="button" class="button small secondary danger disconnect-email-btn" data-subscription-id={sysCon.subscription_id ?? ''}>Disconnect</button>
-                      </>
-                    ) : (
-                      <a href={`/workspace/settings/email?customize=${sysCon.system_template?.id}`} class="button small secondary">Customize</a>
-                    )}
-                  </div>
-                </div>
-              ) : null;
-            })()}
-            {emailTemplates.filter((t: any) => !!(( t as any).groupId ?? t.group_id)).map((t: any) => {
-              const tplType = (t as any).templateType ?? t.template_type;
-
-              // System-typed workspace templates (invitation/password_reset/welcome) only
-              // appear on their specific event page — not on every event's connect list
-              const SYSTEM_EVENT_MAP: Record<string, string> = {
-                invitation: 'invitation_sent',
-                password_reset: 'user_password_reset_requested',
-                welcome: 'user_signup',
-              };
-              const mappedEvent = SYSTEM_EVENT_MAP[tplType];
-              if (mappedEvent && mappedEvent !== type) return null;
-
-              const sub = emailSubscriptions.find((s: any) =>
-                (s.template_id ?? s.templateId) === t.id &&
-                (s.event_type ?? s.eventType) === type
-              );
-              const isConnected = !!sub;
-              const isSysOverride = eventConnections.some((c: any) =>
-                c.event_type === type && c.workspace_template?.id === t.id && c.has_workspace_override
-              );
-              if (isSysOverride) return null;
-              return (
-                <div class:list={['sub-option', { 'sub-option-connected': isConnected }]}>
-                  <div class="sub-option-info">
-                    <div class="sub-option-name-row">
-                      {isConnected && <span class="connected-check">&#10003;</span>}
-                      <strong>{t.name}</strong>
-                      {isConnected && <span class="badge-inline badge-custom">Custom</span>}
-                    </div>
-                    <code class="sub-type">{tplType}</code>
-                  </div>
-                  <div class="sub-option-actions">
-                    {isConnected ? (
-                      <>
-                        <a href={`/workspace/settings/email/${t.id}`} class="button small secondary">Edit</a>
-                        <button
-                          type="button"
-                          class="button small secondary danger disconnect-email-btn"
-                          data-subscription-id={sub?.id ?? ''}
-                        >
-                          Disconnect
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        class="button small connect-email-btn"
-                        data-template-id={t.id}
-                        data-template-name={t.name}
-                        data-event-type={type}
-                        data-subscription-id=""
-                        data-is-connected="false"
-                        data-is-edit="false"
-                      >
-                        Connect
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-            {emailTemplates.filter((t: any) => !!(( t as any).groupId ?? t.group_id)).length === 0 &&
-              !eventConnections.some((c: any) => c.event_type === type) && (
-              <div class="sub-option" style="color:var(--muted);font-size:13px;">
-                No custom templates yet — create one to connect to this event.
+        {connections && (connections.causedBy.length > 0 || connections.leadsTo.length > 0) && (
+          <div class="chain">
+            {connections.causedBy.length > 0 && (
+              <div class="chain-line">
+                <span class="chain-label">Caused by</span>
+                {connections.causedBy.map((t) => <a class="chain-chip" href={`/automation/events/${t.eventType}`}>{t.name}</a>)}
               </div>
             )}
-            <a href="/workspace/settings/email" class="sub-option sub-option-create">
-              <span>+ Create or customize an email template</span>
-            </a>
+            {connections.leadsTo.length > 0 && (
+              <div class="chain-line">
+                <span class="chain-label">Leads to</span>
+                {connections.leadsTo.map((t) => <a class="chain-chip" href={`/automation/events/${t.eventType}`}>{t.name}</a>)}
+              </div>
+            )}
           </div>
+        )}
+      </div>
+
+      <div class="story">
+        <section class="ev-panel" aria-labelledby="sent-by-title">
+          <div class="ev-panel-head">
+            <div>
+              <h3 id="sent-by-title">Sent by</h3>
+              <p>What makes this event happen.</p>
+            </div>
+          </div>
+          {connections ? (
+            senderGroups.length ? (
+              senderGroups.map((g) => (
+                <ConnectionGroup label={g.label}>
+                  {g.rows.map((s) =>
+                    s.kind === "marvin" ? (
+                      <ConnectionRow name={s.name} showState={false} />
+                    ) : (
+                      <ConnectionRow
+                        name={s.name}
+                        enabled={s.enabled}
+                        detail={s.viaWorkflowId ? "Starts the workflow" : s.detail}
+                        via={s.viaWorkflowId ? { label: s.viaWorkflowName ?? "workflow", href: `/automation/workflows?workflow=${s.viaWorkflowId}` } : null}
+                        installedBy={s.installedBy}
+                        href={s.managedAt}
+                      />
+                    ),
+                  )}
+                </ConnectionGroup>
+              ))
+            ) : (
+              <p class="ev-empty">Nothing sends this event yet.</p>
+            )
+          ) : (
+            <p class="ev-empty">
+              Couldn't load what sends this event. Reload the page to try again.
+            </p>
+          )}
         </section>
 
-        <section class="sub-section">
-          <div class="sub-header">
-            <h3>Webhooks</h3>
-            <p>Send an HTTP request when this event fires — only Event-Driven webhooks appear here.</p>
+        <section class="ev-panel" aria-labelledby="what-happens-title">
+          <div class="ev-panel-head">
+            <div>
+              <h3 id="what-happens-title">What happens</h3>
+              <p>Everything that runs when this event fires, however it was connected.</p>
+            </div>
+            <button type="button" class="button small" id="subscribe-toggle" aria-expanded="false" aria-controls="subscribe-menu">
+              Subscribe <span aria-hidden="true">▾</span>
+            </button>
           </div>
-          <div class="sub-options">
-            {webhooks.filter((w: any) => {
-              const webhookType = (w as any).webhookType ?? (w as any).webhook_type;
-              return webhookType === 'event_driven';
-            }).map((w: any) => {
-              const subscribedEvents: string[] = (w as any).subscribedEvents ?? (w as any).subscribed_events ?? [];
-              const isConnected = subscribedEvents.includes(type || '');
-              return (
-                <div class:list={['sub-option', { 'sub-option-connected': isConnected }]}>
-                  <div class="sub-option-info">
-                    <div class="sub-option-name-row">
-                      {isConnected && <span class="connected-check">&#10003;</span>}
-                      <strong>{w.name}</strong>
-                    </div>
+
+          <div id="subscribe-menu" class="subscribe-menu" hidden>
+            {triggerable && (
+              <div class="sm-group">
+                <h4>Workflow</h4>
+                <a href={newWorkflowHref(type!)} class="sm-create">+ New workflow on this event</a>
+              </div>
+            )}
+            {eventRecipes.length > 0 && (
+              <div class="sm-group">
+                <h4>From the Library</h4>
+                <p class="sm-hint">Ready-made recipes on this event — each opens filled in, for you to read before saving.</p>
+                {eventRecipes.map((r) => (
+                  <a href={r.shape === "workflow" ? recipeHref(r.id) : `/automation/library#recipe-${r.id}`} class="sm-create">
+                    {r.title}{r.missing.length > 0 && <span class="sm-hint"> — needs {r.missing.join("; ")}</span>}
+                  </a>
+                ))}
+              </div>
+            )}
+            <div class="sm-group">
+              <h4>Webhook</h4>
+              <p class="sm-hint">Send an HTTP request — only Event-Driven webhooks appear here.</p>
+              {openWebhooks.map((w: any) => (
+                <div class="sm-option">
+                  <div class="sm-option-info">
+                    <strong>{w.name}</strong>
                     <code class="sub-url">{w.url?.toString().slice(0, 48)}{(w.url?.toString().length || 0) > 48 ? '…' : ''}</code>
-                  </div>
-                  <div class="sub-option-actions">
-                    <button
-                      type="button"
-                      class:list={['button', 'small', isConnected ? 'secondary' : '']}
-                      data-open-webhook-modal={w.id}
-                      data-webhook-name={w.name}
-                      data-webhook-url={w.url}
-                      data-webhook-method={w.method || 'POST'}
-                      data-is-connected={isConnected ? 'true' : 'false'}
-                    >
-                      {isConnected ? 'Disconnect' : 'Connect'}
-                    </button>
-                    {isConnected && (
-                      <a href={`/automation/events/${type}/webhook/${w.id}`} class="button secondary small">
-                        Edit
-                      </a>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-            <a href="/automation/webhooks/new" class="sub-option sub-option-create">
-              <span>+ Create a new webhook</span>
-            </a>
-          </div>
-        </section>
-
-        <section class="sub-section">
-          <div class="sub-header">
-            <h3>Notifications</h3>
-            <p>Send a notification (Slack, email, SMS, etc.) when this event fires</p>
-          </div>
-          <div class="sub-options">
-            {notifications.map((n: any) => {
-              const opts: any[] = (n as any).options ?? [];
-              const isConnected = opts.some((o: any) => (o.option || o.slug) === ('core.' + type));
-              return (
-                <div class="sub-option">
-                  <div class="sub-option-info">
-                    <strong>{n.name}</strong>
                   </div>
                   <button
                     type="button"
-                    class:list={['button', 'small', isConnected ? 'secondary' : '']}
-                    data-notifier-id={n.id}
-                    data-event-type={type}
-                    data-connected={isConnected ? 'true' : 'false'}
+                    class="button small"
+                    data-open-webhook-modal={w.id}
+                    data-webhook-name={w.name}
+                    data-webhook-url={w.url}
+                    data-webhook-method={w.method || 'POST'}
+                    data-is-connected="false"
                   >
-                    {isConnected ? 'Disconnect' : 'Connect'}
+                    Connect
                   </button>
                 </div>
-              );
-            })}
-            <a href="/automation/notifications/new" class="sub-option sub-option-create">
-              <span>+ Add notification endpoint</span>
-            </a>
+              ))}
+              <a href="/automation/webhooks/new" class="sm-create">+ Create a new webhook</a>
+            </div>
+            <div class="sm-group">
+              <h4>Email</h4>
+              <p class="sm-hint">Send one of your email templates.</p>
+              {openTemplates.map((t: any) => (
+                <div class="sm-option">
+                  <div class="sm-option-info">
+                    <strong>{t.name}</strong>
+                    <code class="sub-type">{t.templateType ?? t.template_type}</code>
+                  </div>
+                  <button
+                    class="button small connect-email-btn"
+                    data-template-id={t.id}
+                    data-template-name={t.name}
+                    data-event-type={type}
+                    data-subscription-id=""
+                    data-is-connected="false"
+                    data-is-edit="false"
+                  >
+                    Connect
+                  </button>
+                </div>
+              ))}
+              <a href="/workspace/settings/email" class="sm-create">+ Create or customize an email template</a>
+            </div>
+            <div class="sm-group">
+              <h4>Integration action</h4>
+              {integrationsAvailable ? (
+                <>
+                  <p class="sm-hint">Run an integration action (Slack, Apprise notifications, deploy hook, …).</p>
+                  <button type="button" class="sm-create js-int-connect-open">+ Connect an integration action</button>
+                </>
+              ) : (
+                <p class="sm-hint">
+                  Integrations aren't installed. They're an optional add-on that ships separately from Marvin core:
+                  install a provider package (e.g. <code>marvin-integration-slack</code>) and restart the server.
+                </p>
+              )}
+            </div>
           </div>
+
+          {reactionGroups.length ? (
+            reactionGroups.map((g) => (
+              <ConnectionGroup label={g.label} muted={g.kind === "builtin"}>
+                {g.rows.map((r) => {
+                  if (r.kind === "builtin") return <ConnectionRow name={r.name} showState={false} muted />;
+                  if (isSystemEmail(r)) {
+                    return (
+                      <ConnectionRow
+                        name={r.name}
+                        enabled={r.enabled}
+                        note={systemEmailNote(r)}
+                        href={r.managedAt}
+                        linkLabel="Customize"
+                      />
+                    );
+                  }
+                  if (!managedHere(r)) {
+                    if (switchable(r)) {
+                      return (
+                        <ConnectionRow name={r.name} enabled={r.enabled} detail={r.detail} note={switchHint(r)} installedBy={r.installedBy}>
+                          <button
+                          type="button"
+                          class="button small secondary js-switch"
+                          data-switch-kind={r.kind}
+                          data-switch-id={r.id ?? ''}
+                          data-switch-on={r.switchedOn ? "true" : "false"}
+                        >
+                          {r.switchedOn ? "Turn off" : "Turn on"}
+                        </button>
+                          {r.managedAt && <a class="button small secondary" href={r.managedAt}>Open</a>}
+                        </ConnectionRow>
+                      );
+                    }
+                    return (
+                      <ConnectionRow
+                        name={r.name}
+                        enabled={r.enabled}
+                        detail={r.detail}
+                        installedBy={r.installedBy}
+                        href={r.managedAt}
+                      />
+                    );
+                  }
+                  if (r.kind === "webhook") {
+                    const w: any = webhooksById.get(r.id);
+                    return (
+                      <ConnectionRow name={r.name} enabled={r.enabled} detail={r.detail}>
+                        <a href={`/automation/events/${type}/webhook/${r.id}`} class="button small secondary">Edit</a>
+                        <button
+                          type="button"
+                          class="button small secondary danger"
+                          data-open-webhook-modal={r.id}
+                          data-webhook-name={r.name}
+                          data-webhook-url={w?.url ?? ''}
+                          data-webhook-method={w?.method || 'POST'}
+                          data-is-connected="true"
+                        >
+                          Disconnect
+                        </button>
+                      </ConnectionRow>
+                    );
+                  }
+                  if (r.kind === "email") {
+                    return (
+                      <ConnectionRow name={r.name} enabled={r.enabled} detail={r.detail}>
+                        {r.managedAt && <a href={r.managedAt} class="button small secondary">Edit</a>}
+                        <button type="button" class="button small secondary danger disconnect-email-btn" data-subscription-id={r.id ?? ''}>Disconnect</button>
+                      </ConnectionRow>
+                    );
+                  }
+                  return (
+                    <ConnectionRow name={r.name} enabled={r.enabled} detail={r.detail} note={switchHint(r)}>
+                      {switchable(r) && (
+                        <button
+                            type="button"
+                            class="button small secondary js-switch"
+                            data-switch-kind={r.kind}
+                            data-switch-id={r.id ?? ''}
+                            data-switch-on={r.switchedOn ? "true" : "false"}
+                          >
+                            {r.switchedOn ? "Turn off" : "Turn on"}
+                          </button>
+                      )}
+                      <button type="button" class="button small secondary danger js-int-disconnect" data-sub-id={r.id ?? ''}>Disconnect</button>
+                    </ConnectionRow>
+                  );
+                })}
+              </ConnectionGroup>
+            ))
+          ) : (
+            <p class="ev-empty">
+              {connections
+                ? "Nothing reacts to this event yet. Use Subscribe to add a workflow, webhook, email or integration action."
+                : "Couldn't load what reacts to this event. Reload the page to try again."}
+            </p>
+          )}
         </section>
+
+        {connections && (
+          <section class="ev-panel" aria-labelledby="recent-title">
+            <div class="ev-panel-head">
+              <div>
+                <h3 id="recent-title">Recent</h3>
+                <p>The newest times it happened in this workspace.</p>
+              </div>
+              {connections.audited && <a href="/workspace/events" class="button small secondary">Event Log</a>}
+            </div>
+            {!connections.audited ? (
+              <p class="ev-empty">
+                This event isn't recorded in this workspace's Event Log.{" "}
+                <a href="/workspace/events#audit-coverage">Audit coverage</a> decides which events are recorded.
+              </p>
+            ) : connections.recent.length ? (
+              <ul class="recent-list">
+                {connections.recent.map((ev) => (
+                  <li>
+                    <a class="recent-row" href={eventLogHref(ev.eventId)}>
+                      <span class="recent-main">
+                        <span class="recent-title">{ev.messageTitle}</span>
+                        {ev.messageBody && <span class="recent-body">{ev.messageBody}</span>}
+                      </span>
+                      <time class="recent-when" datetime={ev.occurredAt} title={ev.occurredAt}>{formatWhen(ev.occurredAt, now)}</time>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p class="ev-empty">It hasn't happened in this workspace yet.</p>
+            )}
+          </section>
+        )}
       </div>
     </>
   ) : null}
@@ -379,7 +544,42 @@ const examplePayload = eventInfo?.payloadExample ?? (eventInfo ? buildExamplePay
   </div>
 </div>
 
-<script define:vars={{ type, apiUrl: import.meta.env.PUBLIC_MARVIN_API_URL || 'http://localhost:8080', examplePayload, eventVariables: eventInfo?.variables ?? [], wsId: wsId ?? null }}>
+<!-- Integration connection modal -->
+<div id="int-modal" class="wh-modal" style="display:none" aria-modal="true">
+  <div class="wh-overlay"></div>
+  <div class="wh-content">
+    <div class="wh-header">
+      <div>
+        <h3>Connect an integration</h3>
+        <code class="wh-url">Runs on every {type} event</code>
+      </div>
+      <button type="button" id="int-close" class="wh-close">✕</button>
+    </div>
+    <div class="wh-body">
+      <div class="form-group">
+        <label class="em-field-label">Integration</label>
+        <select id="int-select" class="em-text-input"></select>
+      </div>
+      <div class="form-group">
+        <label class="em-field-label">Action</label>
+        <select id="int-action" class="em-text-input"></select>
+      </div>
+      <div id="int-args"></div>
+      <p class="wh-label" style="margin-top:10px;">Insert event data with <code>{"{{field}}"}</code> — e.g. <code>{"{{title}}"}</code>, <code>{"{{event_type}}"}</code>.</p>
+    </div>
+    <div class="wh-footer">
+      <span id="int-note" class="wh-note"></span>
+      <div class="wh-actions">
+        <button type="button" id="int-confirm" class="button">Connect</button>
+        <button type="button" id="int-cancel" class="button secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="application/json" id="int-data" set:html={JSON.stringify({ integrations, providers: integrationProviders, eventType: type }).replace(/</g, "\\u003c")}></script>
+
+<script define:vars={{ type, apiUrl, examplePayload, eventVariables: eventInfo?.variables ?? [], wsId: wsId ?? null }}>
   // Webhook modal
   const modal = document.getElementById('webhook-modal');
   const whTitle = document.getElementById('wh-title');
@@ -440,16 +640,16 @@ const examplePayload = eventInfo?.payloadExample ?? (eventInfo ? buildExamplePay
       const res = await fetch(`${apiUrl}/api/groups/webhooks/${activeWebhookId}`, { credentials: 'include' });
       if (!res.ok) throw new Error(`GET failed: ${res.status}`);
       const webhook = await res.json();
-      console.log('[webhook-connect] GET response:', webhook);
+      console.debug('[webhook-connect] GET response:', webhook);
       const current = webhook.subscribedEvents ?? webhook.subscribed_events ?? [];
-      console.log('[webhook-connect] current subscribed_events:', current);
+      console.debug('[webhook-connect] current subscribed_events:', current);
       const updated = activeIsConnected
         ? current.filter(e => e !== type)
         : [...new Set([...current, type])];
-      console.log('[webhook-connect] updated subscribed_events:', updated);
+      console.debug('[webhook-connect] updated subscribed_events:', updated);
       // Use camelCase key to match Pydantic alias — snake_case gets overridden by the spread
       const body = { ...webhook, subscribedEvents: updated, subscribed_events: updated };
-      console.log('[webhook-connect] PUT body:', body);
+      console.debug('[webhook-connect] PUT body:', body);
       const putRes = await fetch(`${apiUrl}/api/groups/webhooks/${activeWebhookId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -457,7 +657,7 @@ const examplePayload = eventInfo?.payloadExample ?? (eventInfo ? buildExamplePay
         body: JSON.stringify(body),
       });
       const putData = await putRes.json().catch(() => ({}));
-      console.log('[webhook-connect] PUT response:', putRes.status, putData);
+      console.debug('[webhook-connect] PUT response:', putRes.status, putData);
       if (!putRes.ok) {
         console.error('[webhook-connect] PUT failed:', putRes.status, putData);
         throw new Error(putData.detail || `PUT failed: ${putRes.status}`);
@@ -472,14 +672,25 @@ const examplePayload = eventInfo?.payloadExample ?? (eventInfo ? buildExamplePay
   });
 
   // ── Markdown parser — inline, block-level, no external dependency ────────
+  // The template body is text: raw HTML in it is shown escaped, not rendered, and a link becomes an <a>
+  // only for an http(s) or mailto URL, or a {{ variable }} (anything else, e.g. javascript:, stays text).
+  function _esc(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function _mdLink(_match, text, url) {
+    return /^(https?:|mailto:)/i.test(url) || /^\x00V\d+\x00$/.test(url) ? `<a href="${url}">${text}</a>` : text;
+  }
+
   function _mdInline(s) {
-    return s
+    return _esc(s)
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
       .replace(/__(.+?)__/g, '<strong>$1</strong>')
       .replace(/\*(.+?)\*/g, '<em>$1</em>')
       .replace(/_(.+?)_/g, '<em>$1</em>')
       .replace(/`([^`]+)`/g, '<code>$1</code>')
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, _mdLink);
   }
 
   function _mdParse(md) {
@@ -491,7 +702,7 @@ const examplePayload = eventInfo?.payloadExample ?? (eventInfo ? buildExamplePay
       if (line.startsWith('```')) {
         const code = []; i++;
         while (i < lines.length && !lines[i].startsWith('```')) code.push(lines[i++]);
-        out.push('<pre><code>' + code.join('\n') + '</code></pre>'); i++; continue;
+        out.push('<pre><code>' + _esc(code.join('\n')) + '</code></pre>'); i++; continue;
       }
       const hm = line.match(/^(#{1,3})\s+(.*)/);
       if (hm) { out.push(`<h${hm[1].length}>${_mdInline(hm[2])}</h${hm[1].length}>`); i++; continue; }
@@ -522,7 +733,7 @@ const examplePayload = eventInfo?.payloadExample ?? (eventInfo ? buildExamplePay
     const vars = [];
     const safe = md.replace(/\{\{[^}]+\}\}/g, m => { vars.push(m); return `\x00V${vars.length - 1}\x00`; });
     let html = _mdParse(safe);
-    vars.forEach((v, i) => { html = html.replaceAll(`\x00V${i}\x00`, v); });
+    vars.forEach((v, i) => { html = html.replaceAll(`\x00V${i}\x00`, _esc(v)); });
     return html;
   }
 
@@ -553,7 +764,7 @@ const examplePayload = eventInfo?.payloadExample ?? (eventInfo ? buildExamplePay
   const emEventFieldRadio = document.getElementById('em-event-field-radio');
   const emNoEmailFields = document.getElementById('em-no-email-fields');
   if (emailVars.length > 0) {
-    if (emEventField) emEventField.innerHTML = emailVars.map(v => `<option value="${v.slug}">${v.slug}</option>`).join('');
+    if (emEventField) emEventField.replaceChildren(...emailVars.map(v => new Option(v.slug, v.slug)));
   } else {
     if (emEventFieldRadio) emEventFieldRadio.disabled = true;
     if (emNoEmailFields) emNoEmailFields.style.display = 'inline';
@@ -602,14 +813,22 @@ const examplePayload = eventInfo?.payloadExample ?? (eventInfo ? buildExamplePay
   const varsEl = document.getElementById('em-template-vars');
   if (varsEl && eventVariables?.length) {
     const chips = eventVariables.filter(v => v.type !== 'uuid');
-    varsEl.innerHTML = `
-      <div class="em-vars-header">
-        <span class="em-vars-title">Variables</span>
-        <span class="em-vars-hint">Click to insert at cursor</span>
-      </div>
-      <div class="em-vars-chips">
-        ${chips.map(v => `<button type="button" class="em-var-chip" data-slug="{{${v.slug}}}" title="${(v.description||v.slug) + ' — click to insert'}"><code>{{${v.slug}}}</code></button>`).join('')}
-      </div>`;
+    const node = (tag, className, ...children) => {
+      const n = document.createElement(tag);
+      if (className) n.className = className;
+      n.append(...children);
+      return n;
+    };
+    varsEl.replaceChildren(
+      node('div', 'em-vars-header', node('span', 'em-vars-title', 'Variables'), node('span', 'em-vars-hint', 'Click to insert at cursor')),
+      node('div', 'em-vars-chips', ...chips.map(v => {
+        const chip = node('button', 'em-var-chip', node('code', '', `{{${v.slug}}}`));
+        chip.type = 'button';
+        chip.dataset.slug = `{{${v.slug}}}`;
+        chip.title = `${v.description || v.slug} — click to insert`;
+        return chip;
+      })),
+    );
     // Track last focused editable field in the modal
     let emLastFocused = document.getElementById('em-md-body');
     ['em-subject', 'em-md-body'].forEach(id => {
@@ -808,35 +1027,157 @@ const examplePayload = eventInfo?.payloadExample ?? (eventInfo ? buildExamplePay
       emConfirm.textContent = emIsEdit ? 'Save' : 'Connect';
     }
   });
+</script>
 
-  // Notification connect/disconnect
-  document.querySelectorAll('[data-notifier-id]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const notifierId = btn.dataset.notifierId;
-      const isConnected = btn.dataset.connected === 'true';
-      const optionSlug = 'core.' + type;
+<!-- Subscribe menu: open and close; /automation/events/<type>#subscribe opens it. -->
+<script>
+  {
+    const toggle = document.getElementById('subscribe-toggle');
+    const menu = document.getElementById('subscribe-menu');
+    const setOpen = (open: boolean) => {
+      if (!toggle || !menu) return;
+      menu.hidden = !open;
+      toggle.setAttribute('aria-expanded', String(open));
+    };
+    toggle?.addEventListener('click', () => setOpen(!!menu?.hidden));
+    if (location.hash === '#subscribe') {
+      setOpen(true);
+      menu?.scrollIntoView({ block: 'nearest' });
+    }
+  }
+</script>
+
+<!-- Integration event-connection: pick an integration action + args, wired via the SDK. -->
+<script>
+  {
+    const dataEl = document.getElementById('int-data');
+    const parsed = JSON.parse(dataEl?.textContent || '{}') as {
+      integrations?: any[]; providers?: any[]; eventType?: string;
+    };
+    const integrations = parsed.integrations ?? [];
+    const providers = parsed.providers ?? [];
+    const eventType = parsed.eventType ?? '';
+    const bySlug = new Map(providers.map((p: any) => [p.slug, p]));
+
+    const modal = document.getElementById('int-modal') as HTMLElement | null;
+    const sel = document.getElementById('int-select') as HTMLSelectElement | null;
+    const actionSel = document.getElementById('int-action') as HTMLSelectElement | null;
+    const argsEl = document.getElementById('int-args') as HTMLElement | null;
+
+    // Only integrations that are enabled AND whose provider exposes at least one action.
+    const usable = integrations.filter((i: any) => i.enabled && (bySlug.get(i.provider)?.actions?.length));
+
+    // Names, labels and keys come from the server: built as DOM nodes, never as HTML.
+    const option = (value: string, label: string) => {
+      const o = document.createElement('option');
+      o.value = value;
+      o.textContent = label;
+      return o;
+    };
+    sel?.replaceChildren(...usable.map((i: any) => {
+      const o = option(i.id, i.name);
+      o.dataset.provider = i.provider;
+      return o;
+    }));
+
+    function renderArgs() {
+      if (!sel || !actionSel || !argsEl) return;
+      const provider = bySlug.get(sel.selectedOptions[0]?.dataset.provider);
+      const action = (provider?.actions ?? []).find((a: any) => a.key === actionSel.value);
+      const props = (action?.inputSchema?.properties ?? {}) as Record<string, any>;
+      argsEl.replaceChildren(...Object.entries(props).map(([key, prop]: [string, any]) => {
+        const group = document.createElement('div');
+        group.className = 'form-group';
+        const label = document.createElement('label');
+        label.className = 'em-field-label';
+        label.textContent = prop.title || key;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'em-text-input';
+        input.dataset.argKey = key;
+        input.placeholder = prop.format === 'uri' ? 'https://…' : '';
+        group.append(label, input);
+        return group;
+      }));
+    }
+    function renderActions() {
+      if (!sel || !actionSel) return;
+      const provider = bySlug.get(sel.selectedOptions[0]?.dataset.provider);
+      const actions = provider?.actions ?? [];
+      actionSel.replaceChildren(...actions.map((a: any) => option(a.key, a.label)));
+      renderArgs();
+    }
+    sel?.addEventListener('change', renderActions);
+    actionSel?.addEventListener('change', renderArgs);
+    if (usable.length) renderActions();
+
+    function closeInt() { if (modal) modal.style.display = 'none'; document.body.style.overflow = ''; }
+    document.querySelector('.js-int-connect-open')?.addEventListener('click', () => {
+      if (!usable.length) { alert('No integrations with actions yet. Add one in Settings → Integrations.'); return; }
+      const note = document.getElementById('int-note');
+      if (note) note.innerHTML = `Runs on every <strong>${eventType}</strong> event.`;
+      if (modal) { modal.style.display = 'flex'; document.body.style.overflow = 'hidden'; }
+    });
+    document.getElementById('int-close')?.addEventListener('click', closeInt);
+    document.getElementById('int-cancel')?.addEventListener('click', closeInt);
+    modal?.querySelector('.wh-overlay')?.addEventListener('click', closeInt);
+
+    document.getElementById('int-confirm')?.addEventListener('click', async () => {
+      if (!sel || !actionSel || !argsEl) return;
+      const integrationId = sel.value;
+      const action = actionSel.value;
+      if (!integrationId || !action) return;
+      const args: Record<string, unknown> = {};
+      argsEl.querySelectorAll<HTMLInputElement>('[data-arg-key]').forEach((inp) => {
+        if (inp.value.trim()) args[inp.dataset.argKey!] = inp.value.trim();
+      });
+      const btn = document.getElementById('int-confirm') as HTMLButtonElement;
+      btn.disabled = true; btn.textContent = 'Saving…';
       try {
-        if (isConnected) {
-          alert('To disconnect, edit the notification from the Notifications page.');
-          return;
-        }
-        const res = await fetch(`${apiUrl}/api/groups/notifications/${notifierId}`, { credentials: 'include' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const notif = await res.json();
-        const currentOptions = notif.options ?? [];
-        const putRes = await fetch(`${apiUrl}/api/groups/notifications/${notifierId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ ...notif, options: [...currentOptions, optionSlug] }),
-        });
-        if (!putRes.ok) throw new Error(`HTTP ${putRes.status}`);
+        const { createSdkClient } = await import('@/lib/sdk');
+        await createSdkClient().integrations.createSubscription({ integrationId, eventType, action, args });
         window.location.reload();
       } catch (e) {
-        alert('Failed to update notification subscription');
+        alert('Error: ' + (e instanceof Error ? e.message : String(e)));
+        btn.disabled = false; btn.textContent = 'Connect';
       }
     });
-  });
+
+    // On/Off for an integration action or a workflow (installed ones too): the same PATCH routes as their own
+    // pages, audited (integration_action_enabled / automation_disabled, …). Only `enabled` changes.
+    document.querySelectorAll<HTMLButtonElement>('.js-switch').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.switchId!;
+        const enabled = btn.dataset.switchOn !== 'true';
+        btn.disabled = true;
+        try {
+          const { createSdkClient } = await import('@/lib/sdk');
+          const sdk = createSdkClient();
+          if (btn.dataset.switchKind === 'workflow') await sdk.automations.update(id, { enabled });
+          else await sdk.integrations.updateSubscription(id, { enabled });
+          window.location.reload();
+        } catch (e) {
+          alert('Error: ' + (e instanceof Error ? e.message : String(e)));
+          btn.disabled = false;
+        }
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.js-int-disconnect').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Disconnect this integration action from the event?')) return;
+        btn.disabled = true;
+        try {
+          const { createSdkClient } = await import('@/lib/sdk');
+          await createSdkClient().integrations.deleteSubscription(btn.dataset.subId!);
+          window.location.reload();
+        } catch (e) {
+          alert('Error: ' + (e instanceof Error ? e.message : String(e)));
+          btn.disabled = false;
+        }
+      });
+    });
+  }
 </script>
 
 </AppLayout>
@@ -856,22 +1197,6 @@ const examplePayload = eventInfo?.payloadExample ?? (eventInfo ? buildExamplePay
     padding-bottom: 20px;
     border-bottom: 1px solid var(--line);
   }
-
-  .breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--muted);
-    margin-bottom: 12px;
-  }
-
-  .breadcrumb a {
-    color: var(--muted);
-    text-decoration: none;
-  }
-
-  .breadcrumb a:hover { color: var(--ink); }
 
   .event-meta {
     display: flex;
@@ -913,198 +1238,129 @@ const examplePayload = eventInfo?.payloadExample ?? (eventInfo ? buildExamplePay
     border-radius: 3px;
   }
 
-  .vars-panel {
-    margin-bottom: 28px;
+  /* The chain: what causes this event and what it leads to */
+  .chain { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+  .chain-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .chain-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    margin-right: 2px;
+  }
+  .chain-chip {
+    font-size: 12px;
+    padding: 2px 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--ink);
+    background: var(--panel);
+    text-decoration: none;
+  }
+  .chain-chip:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Sent by · What happens · Recent */
+  .story { display: grid; gap: 24px; max-width: 800px; min-width: 0; }
+  .ev-panel {
+    border: 1px solid var(--line);
+    border-top: 3px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    min-width: 0;
+  }
+  .ev-panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
     padding: 16px 20px;
     background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
   }
+  .ev-panel-head h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; color: var(--ink); }
+  .ev-panel-head p { margin: 0; font-size: 13px; color: var(--muted); }
+  .ev-panel-head .button { flex-shrink: 0; }
+  .ev-empty { margin: 0; padding: 14px 20px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  .ev-empty a { color: var(--accent); }
 
-  .vars-header {
-    display: flex;
-    align-items: baseline;
-    gap: 12px;
-    margin-bottom: 12px;
+  /* Subscribe menu: what can still be connected here */
+  .subscribe-menu {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px 24px;
+    padding: 16px 20px;
+    border-top: 1px solid var(--line);
+    background: color-mix(in srgb, var(--accent) 4%, var(--bg));
   }
-
-  .vars-title {
-    font-size: 12px;
+  .subscribe-menu[hidden] { display: none; }
+  .sm-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .sm-group h4 {
+    margin: 0;
+    font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: var(--muted);
   }
-
-  .vars-hint {
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  .vars-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .var-chip {
-    font-size: 12px;
-    background: rgba(79, 156, 132, 0.08);
-    border: 1px solid rgba(79, 156, 132, 0.2);
-    border-radius: 4px;
-    padding: 4px 10px;
-    cursor: default;
-  }
-
-  .var-chip-inner {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .var-chip code {
-    font-size: 11px;
-    font-family: ui-monospace, monospace;
-    color: var(--accent);
-    font-weight: 600;
-    background: none;
-    padding: 0;
-  }
-
-  .var-value {
-    font-size: 11px;
-    color: var(--muted);
-  }
-
-  .subscriptions {
-    display: grid;
-    gap: 24px;
-    max-width: 800px;
-  }
-
-  .sub-section {
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    overflow: hidden;
-  }
-
-  .sub-header {
-    padding: 16px 20px;
-    background: var(--panel);
-    border-bottom: 1px solid var(--line);
-  }
-
-  .sub-header h3 {
-    margin: 0 0 4px;
-    font-size: 15px;
-    font-weight: 600;
-  }
-
-  .sub-header p {
-    margin: 0;
-    font-size: 13px;
-    color: var(--muted);
-  }
-
-  .sub-options {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .sub-option {
+  .sm-hint { margin: 0; font-size: 12px; color: var(--muted); }
+  .sm-hint code { font-size: 11px; }
+  .sm-option {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 20px;
+    gap: 8px;
+    padding: 6px 0;
     border-bottom: 1px solid var(--line);
-    gap: 16px;
-    text-decoration: none;
-    color: inherit;
-  }
-
-  .sub-option:last-child { border-bottom: none; }
-  .sub-option:hover { background: var(--panel); }
-
-  .sub-option-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
     min-width: 0;
   }
-
-  .sub-option-info strong {
-    font-size: 14px;
-    font-weight: 500;
+  .sm-option-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .sm-option-info strong { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+  .sm-create {
+    align-self: flex-start;
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 13px;
+    color: var(--accent);
+    text-decoration: none;
+    cursor: pointer;
+    text-align: left;
   }
+  .sm-create:hover { text-decoration: underline; }
 
   .sub-type,
   .sub-url {
     font-size: 11px;
     font-family: ui-monospace, monospace;
     color: var(--muted);
+    overflow-wrap: anywhere;
   }
 
-  .sub-option-create {
-    color: var(--accent);
-    font-size: 13px;
+  /* Recent */
+  .recent-list { list-style: none; margin: 0; padding: 0; }
+  .recent-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 20px;
+    border-top: 1px solid var(--line);
+    color: inherit;
+    text-decoration: none;
+    min-width: 0;
   }
-
-  .sub-option-create:hover {
-    color: var(--accent);
-    background: rgba(79, 156, 132, 0.04);
-  }
+  .recent-row:hover { background: var(--panel); }
+  .recent-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .recent-title { font-size: 14px; color: var(--ink); overflow-wrap: anywhere; }
+  .recent-body { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .recent-when { font-size: 12px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
 
   .button.small {
     padding: 5px 12px;
     font-size: 12px;
     min-height: 28px;
     flex-shrink: 0;
-  }
-
-  .sub-option-name-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .tpl-badge {
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    padding: 1px 6px;
-    border-radius: 3px;
-    flex-shrink: 0;
-  }
-
-  .tpl-badge-system {
-    background: rgba(128,128,128,0.1);
-    color: var(--muted);
-  }
-
-  .tpl-badge-custom {
-    background: rgba(79,156,132,0.1);
-    color: var(--accent);
-  }
-
-  .badge-inline {
-    font-size: 9px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    flex-shrink: 0;
-  }
-
-  .badge-custom {
-    background: rgba(79,156,132,0.1);
-    color: var(--accent);
-  }
-
-  .badge-system-sm {
-    background: rgba(128,128,128,0.1);
-    color: var(--muted);
   }
 
   /* Give the event header more identity */
@@ -1120,14 +1376,15 @@ const examplePayload = eventInfo?.payloadExample ?? (eventInfo ? buildExamplePay
     margin-top: 6px;
   }
 
-  /* Accent the sub-section headers */
-  .sub-section { border-top: 3px solid var(--line); }
-  .sub-section:first-child { border-top: 3px solid var(--accent); }
-  .sub-header h3 { color: var(--ink); }
-
-  /* Make connected items visually distinct */
-  .sub-option .button.secondary { opacity: 0.7; }
-  .sub-option:has(.button:not(.secondary)) { background: rgba(79,156,132,0.03); }
+  @media (max-width: 640px) {
+    .ev-panel-head { flex-direction: column; }
+    .ev-panel-head,
+    .subscribe-menu { padding: 14px 16px; }
+    .ev-empty { padding: 12px 16px; }
+    .recent-row { flex-direction: column; gap: 2px; padding: 10px 16px; }
+    .button.small { min-height: 36px; }
+    .sm-create { display: inline-flex; align-items: center; min-height: 36px; }
+  }
 
   /* ── Webhook modal ────────────────────────────────────────────────────── */
   .wh-modal {
@@ -1208,20 +1465,7 @@ const examplePayload = eventInfo?.payloadExample ?? (eventInfo ? buildExamplePay
   .button.secondary.danger { color: var(--color-error); border-color: var(--color-error); }
   .button.secondary.danger:hover { background: var(--color-error-bg); }
 
-  /* Connected row */
-  .sub-option-connected {
-    background: rgba(79,156,132,0.04);
-    border-left: 3px solid var(--accent);
-  }
-
-  .sub-option-actions { display: flex; gap: 6px; flex-shrink: 0; }
-
-  .connected-check {
-    color: var(--accent);
-    font-weight: 700;
-    font-size: 13px;
-    flex-shrink: 0;
-  }
+  .wh-actions { flex-wrap: wrap; }
 
   /* Email modal recipient options */
   .em-recipient-options {

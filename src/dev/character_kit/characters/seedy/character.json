@@ -1,0 +1,11 @@
+{
+  "name": "Seedy",
+  "description": "a pixel-art sprout robot with a beige boxy head, a pink-cheeked face screen, two green leaves on a brown stem, and a small beige body with a green dot",
+  "style": "pixel-art",
+  "rules": [
+    "two green leaves on a brown stem on top of the head",
+    "the face is a light screen inside the boxy head, with pink cheeks",
+    "a green dot in the middle of the body",
+    "beige, never green or grey"
+  ]
+}

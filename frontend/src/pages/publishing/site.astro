@@ -1,9 +1,11 @@
 ---
+import type { Workspace } from "@inneropen/marvin-sdk/platform";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
-import { createSdkClient } from '@/lib/sdk';
-import type { Workspace } from '@inneropen/marvin-sdk/platform';
+import { getEmbedProviders } from "@/lib/api/mediaEmbeds";
 import type { GroupPreferencesRead } from "@/lib/api/types";
+import { DEFAULT_CONSENT_TEXT } from "@/lib/mediaEmbeds";
+import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
@@ -15,10 +17,10 @@ let success: boolean = false;
 
 // Check for success/error query params
 const urlParams = Astro.url.searchParams;
-if (urlParams.get('success')) {
+if (urlParams.get("success")) {
   success = true;
 }
-if (urlParams.get('error')) {
+if (urlParams.get("error")) {
   error = "Failed to save site configuration. Please try again.";
 }
 
@@ -27,17 +29,42 @@ try {
 
   if (workspace?.id) {
     // Get preferences for this workspace
-    preferences = await sdk.workspaces.getPreferences(workspace.id) as GroupPreferencesRead;
+    preferences = (await sdk.workspaces.getPreferences(workspace.id)) as GroupPreferencesRead;
   } else {
     error = "No active workspace found. Please activate a workspace first.";
   }
 } catch (e) {
-  console.error('[site] Error loading:', e);
+  console.error("[site] Error loading:", e);
   error = e instanceof Error ? e.message : String(e);
 }
+
+// SEO lives under site_metadata_json.seo — surface it as a structured section (not raw JSON).
+const siteMeta = (preferences?.siteMetadataJson || {}) as Record<string, any>;
+const seo = (siteMeta.seo || {}) as Record<string, any>;
+const seoKeywords = Array.isArray(seo.keywords) ? seo.keywords.join(", ") : (seo.keywords ?? "");
+
+// Media embeds live under site_metadata_json.embeds = {mode, consentText}; click-to-load is the default.
+const embeds = (siteMeta.embeds || {}) as Record<string, any>;
+const embedsMode = embeds.mode === "direct" ? "direct" : "click_to_load";
+let embedProviderNames: string[] = [];
+try {
+  embedProviderNames = (await getEmbedProviders(authToken)).providers.map((p) => p.name);
+} catch (e) {
+  console.warn("[site] Could not load media embed providers:", e);
+}
+
+// The raw metadata editor owns everything EXCEPT seo and embeds (structured above) — compute its display value
+// here in the frontmatter, since TS generics/casts can't live inside Astro template expressions.
+const metaWithoutSeo: Record<string, any> = { ...siteMeta };
+delete metaWithoutSeo.seo;
+delete metaWithoutSeo.embeds;
+const siteSocial = (preferences?.siteSocialJson || null) as Record<string, any> | null;
+const metaForDisplay: Record<string, any> =
+  siteSocial && Object.keys(siteSocial).length > 0 ? { ...metaWithoutSeo, social: siteSocial } : metaWithoutSeo;
+const metadataEditorValue = Object.keys(metaForDisplay).length > 0 ? JSON.stringify(metaForDisplay, null, 2) : "";
 ---
 
-<AppLayout title="Site Configuration" eyebrow="Publishing">
+<AppLayout crumb="publishing.site">
   <div class="toolbar">
     <div>
       <h2>Site Configuration</h2>
@@ -99,7 +126,7 @@ try {
               value={preferences.siteCanonicalUrl || ""}
               placeholder="https://example.com"
             />
-            <small>Where this site is published</small>
+            <small>Where this site is published. Also the base for entry links when an entry type has a Page URL pattern.</small>
           </label>
         </div>
       </section>
@@ -172,9 +199,243 @@ try {
         </div>
       </section>
 
+      <section class="form-section" id="seo">
+        <h3>SEO &amp; Social Sharing</h3>
+        <p class="section-description">How search engines and social platforms present your site. Leave a field blank to fall back to the identity settings above.</p>
+        <div class="form-grid">
+          <p class="subgroup-label">Search</p>
+          <label class="span-2">
+            <span>Meta Title</span>
+            <input
+              type="text"
+              name="seoTitle"
+              value={seo.title || ""}
+              maxlength="60"
+              placeholder={preferences.siteTitle || workspace.name}
+            />
+            <small>Shown in browser tabs and search results. Aim for ≤ 60 characters.</small>
+          </label>
+          <label class="span-2">
+            <span>Title Template</span>
+            <input
+              type="text"
+              name="seoTitleTemplate"
+              value={seo.titleTemplate || ""}
+              placeholder="%s | My Site"
+            />
+            <small>Pattern for per-page titles. <code>%s</code> is replaced by the page title.</small>
+          </label>
+          <label class="span-2">
+            <span>Meta Description</span>
+            <textarea
+              name="seoDescription"
+              rows="3"
+              maxlength="160"
+              placeholder={preferences.siteDescription || "A concise summary of this site for search results"}
+            >{seo.description || ""}</textarea>
+            <small>The snippet under your title in search results. Aim for ≤ 160 characters.</small>
+          </label>
+          <label class="span-2">
+            <span>Keywords</span>
+            <input
+              type="text"
+              name="seoKeywords"
+              value={seoKeywords}
+              placeholder="content, publishing, headless cms"
+            />
+            <small>Comma-separated. Low ranking value today, but some frameworks still emit them.</small>
+          </label>
+          <label>
+            <span>Search Engine Indexing</span>
+            <select name="seoRobots">
+              <option value="index,follow" selected={(seo.robots || "index,follow") === "index,follow"}>Index &amp; follow (public)</option>
+              <option value="noindex,nofollow" selected={seo.robots === "noindex,nofollow"}>No index (hidden from search)</option>
+            </select>
+            <small>Controls the robots meta tag.</small>
+          </label>
+
+          <p class="subgroup-label">Social sharing</p>
+          <label class="span-2">
+            <span>Default Share Image URL</span>
+            <input
+              type="url"
+              name="seoImage"
+              value={seo.image || ""}
+              placeholder="https://example.com/og-image.png"
+            />
+            <small>Used for Open Graph and Twitter cards. Recommended 1200×630.</small>
+          </label>
+          <label class="span-2">
+            <span>Share Image Alt Text</span>
+            <input
+              type="text"
+              name="seoImageAlt"
+              value={seo.imageAlt || ""}
+              placeholder="Describe the share image"
+            />
+            <small>Accessible description of the share image (og:image:alt).</small>
+          </label>
+          <label>
+            <span>Open Graph Type</span>
+            <select name="seoOgType">
+              {["website", "article", "profile", "book"].map((t) => (
+                <option value={t} selected={(seo.ogType || "website") === t}>{t}</option>
+              ))}
+            </select>
+            <small>How platforms categorize the page.</small>
+          </label>
+          <label>
+            <span>Site Name</span>
+            <input
+              type="text"
+              name="seoSiteName"
+              value={seo.siteName || ""}
+              placeholder={preferences.siteTitle || workspace.name}
+            />
+            <small>og:site_name — the brand name, distinct from the page title.</small>
+          </label>
+          <label>
+            <span>Twitter Card</span>
+            <select name="seoTwitterCard">
+              {["summary_large_image", "summary"].map((t) => (
+                <option value={t} selected={(seo.twitterCard || "summary_large_image") === t}>{t}</option>
+              ))}
+            </select>
+            <small>Large image or compact preview.</small>
+          </label>
+          <label>
+            <span>Twitter Site Handle</span>
+            <input
+              type="text"
+              name="seoTwitterHandle"
+              value={seo.twitterHandle || ""}
+              placeholder="@yourhandle"
+            />
+            <small>twitter:site — the site's handle.</small>
+          </label>
+          <label>
+            <span>Twitter Creator Handle</span>
+            <input
+              type="text"
+              name="seoTwitterCreator"
+              value={seo.twitterCreator || ""}
+              placeholder="@author"
+            />
+            <small>twitter:creator — the content author.</small>
+          </label>
+          <label>
+            <span>Facebook App ID</span>
+            <input
+              type="text"
+              name="seoFbAppId"
+              value={seo.fbAppId || ""}
+              placeholder="1234567890"
+            />
+            <small>fb:app_id — for Facebook domain insights.</small>
+          </label>
+
+          <p class="subgroup-label">Branding &amp; structured data</p>
+          <label>
+            <span>Theme Color</span>
+            <input
+              type="text"
+              name="seoThemeColor"
+              value={seo.themeColor || ""}
+              placeholder="#4f9c84"
+            />
+            <small>Browser chrome / PWA color (theme-color meta).</small>
+          </label>
+          <label>
+            <span>Publisher</span>
+            <input
+              type="text"
+              name="seoPublisher"
+              value={seo.publisher || ""}
+              placeholder={preferences.siteTitle || workspace.name}
+            />
+            <small>Organization name for structured data (JSON-LD).</small>
+          </label>
+
+          <p class="subgroup-label">Search engine verification</p>
+          <label>
+            <span>Google</span>
+            <input
+              type="text"
+              name="seoVerGoogle"
+              value={seo.verification?.google || ""}
+              placeholder="google-site-verification token"
+            />
+            <small>Google Search Console.</small>
+          </label>
+          <label>
+            <span>Bing</span>
+            <input
+              type="text"
+              name="seoVerBing"
+              value={seo.verification?.bing || ""}
+              placeholder="msvalidate.01 token"
+            />
+            <small>Bing Webmaster Tools.</small>
+          </label>
+          <label>
+            <span>Pinterest</span>
+            <input
+              type="text"
+              name="seoVerPinterest"
+              value={seo.verification?.pinterest || ""}
+              placeholder="p:domain_verify token"
+            />
+            <small>Pinterest domain verification.</small>
+          </label>
+          <label>
+            <span>Yandex</span>
+            <input
+              type="text"
+              name="seoVerYandex"
+              value={seo.verification?.yandex || ""}
+              placeholder="yandex-verification token"
+            />
+            <small>Yandex Webmaster.</small>
+          </label>
+        </div>
+      </section>
+
+      <section class="form-section" id="embeds">
+        <h3>Embeds &amp; Privacy</h3>
+        <p class="section-description">How your site shows media players for video, music and podcast links in your content.</p>
+        <div class="form-grid">
+          <label class="span-2">
+            <span>Loading players</span>
+            <select name="embedsMode">
+              <option value="click_to_load" selected={embedsMode === "click_to_load"}>Click to load — recommended</option>
+              <option value="direct" selected={embedsMode === "direct"}>Load players directly</option>
+            </select>
+            <small>
+              <strong>Click to load</strong> shows a placeholder with a play button; nothing is fetched from the provider (and no
+              third-party cookies are set) until the visitor clicks. <strong>Load players directly</strong> embeds the player
+              straight away — convenient, but the provider sees every page view.
+            </small>
+          </label>
+          <label class="span-2">
+            <span>Consent text</span>
+            <textarea
+              name="embedsConsentText"
+              rows="2"
+              placeholder={DEFAULT_CONSENT_TEXT}
+            >{embeds.consentText || ""}</textarea>
+            <small>Shown on click-to-load placeholders. <code>{"{provider}"}</code> is replaced with the provider's name. Leave blank for the default.</small>
+          </label>
+          {embedProviderNames.length > 0 && (
+            <p class="span-2 embed-providers">
+              <span>Supported providers:</span> {embedProviderNames.join(", ")}
+            </p>
+          )}
+        </div>
+      </section>
+
       <section class="form-section">
-        <h3>Metadata</h3>
-        <p class="section-description">Custom metadata for framework-specific settings, social links, SEO, analytics, etc.</p>
+        <h3>Advanced Metadata</h3>
+        <p class="section-description">Custom metadata for framework-specific settings, social links, analytics, etc. SEO and embeds are managed in the sections above.</p>
         <div class="form-grid">
           <label class="span-2">
             <span>Custom Metadata (JSON)</span>
@@ -184,41 +445,16 @@ try {
               rows="10"
               placeholder='{"social": {"instagram": "...", "twitter": "..."}, "seo": {"image": "..."}, "analytics": {"id": "..."}}'
               class="metadata-editor"
-            >{(() => {
-              const metadata = preferences.siteMetadataJson;
-              const social = preferences.siteSocialJson;
-
-              // Merge social into metadata if it exists
-              if (social && Object.keys(social).length > 0) {
-                const combined = { ...(metadata || {}), social };
-                return JSON.stringify(combined, null, 2);
-              }
-
-              // Show metadata if it exists and has content
-              if (metadata && Object.keys(metadata).length > 0) {
-                return JSON.stringify(metadata, null, 2);
-              }
-
-              // Empty state
-              return "";
-            })()}</textarea>
+            >{metadataEditorValue}</textarea>
             <small>Additional metadata for your publishing framework. Include social links under "social" key.</small>
 
             {(() => {
-              const metadata = preferences.siteMetadataJson;
-              const social = preferences.siteSocialJson;
-
-              let mergedMetadata = metadata || {};
-              if (social && Object.keys(social).length > 0) {
-                mergedMetadata = { ...mergedMetadata, social };
-              }
-
-              if (mergedMetadata && Object.keys(mergedMetadata).length > 0) {
+              if (Object.keys(metaForDisplay).length > 0) {
                 return (
                   <div class="metadata-preview">
                     <p class="metadata-preview-title">Current Metadata:</p>
                     <dl class="metadata-preview-list">
-                      {Object.entries(mergedMetadata).map(([key, value]) => (
+                      {Object.entries(metaForDisplay).map(([key, value]) => (
                         <div class="metadata-preview-item">
                           <dt>{key}</dt>
                           <dd>{typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}</dd>
@@ -247,6 +483,8 @@ try {
 </AppLayout>
 
 <script>
+  import { bindMetadataPreview } from '@/lib/metadataPreview';
+
   // HttpOnly cookie is automatically sent with credentials: 'include'
   const form = document.getElementById('site-form') as HTMLFormElement;
   if (form) {
@@ -262,26 +500,93 @@ try {
       const formData = new FormData(form);
       const data: Record<string, any> = {};
 
-      // Convert form data to object, handling JSON fields
-      formData.forEach((value, key) => {
-        if (key === 'siteMetadataJson') {
-          try {
-            const parsed = value ? JSON.parse(value as string) : null;
-            data[key] = parsed && Object.keys(parsed).length > 0 ? parsed : null;
+      // Gather the structured SEO fields into a single seo object (stored under metadata.seo).
+      const seoFieldMap: Record<string, string> = {
+        seoTitle: 'title',
+        seoTitleTemplate: 'titleTemplate',
+        seoDescription: 'description',
+        seoRobots: 'robots',
+        seoImage: 'image',
+        seoImageAlt: 'imageAlt',
+        seoOgType: 'ogType',
+        seoSiteName: 'siteName',
+        seoTwitterCard: 'twitterCard',
+        seoTwitterHandle: 'twitterHandle',
+        seoTwitterCreator: 'twitterCreator',
+        seoFbAppId: 'fbAppId',
+        seoThemeColor: 'themeColor',
+        seoPublisher: 'publisher',
+      };
+      const seo: Record<string, any> = {};
+      for (const [field, key] of Object.entries(seoFieldMap)) {
+        const v = (formData.get(field) as string | null)?.trim();
+        if (v) seo[key] = v;
+      }
+      const keywordsRaw = (formData.get('seoKeywords') as string | null)?.trim();
+      if (keywordsRaw) {
+        const kw = keywordsRaw.split(',').map((k) => k.trim()).filter(Boolean);
+        if (kw.length) seo.keywords = kw;
+      }
+      // Search-engine verification tokens nest under seo.verification.
+      const verFieldMap: Record<string, string> = {
+        seoVerGoogle: 'google',
+        seoVerBing: 'bing',
+        seoVerPinterest: 'pinterest',
+        seoVerYandex: 'yandex',
+      };
+      const verification: Record<string, any> = {};
+      for (const [field, key] of Object.entries(verFieldMap)) {
+        const v = (formData.get(field) as string | null)?.trim();
+        if (v) verification[key] = v;
+      }
+      if (Object.keys(verification).length > 0) seo.verification = verification;
 
-            // If metadata has a "social" key, also set siteSocialJson for backward compatibility
-            if (parsed && parsed.social) {
-              data['siteSocialJson'] = parsed.social;
-            } else {
-              data['siteSocialJson'] = null;
-            }
-          } catch {
-            data[key] = null;
-            data['siteSocialJson'] = null;
-          }
-        } else {
-          data[key] = value || null;
+      const seoKeys = new Set([
+        ...Object.keys(seoFieldMap),
+        ...Object.keys(verFieldMap),
+        'seoKeywords',
+        'embedsMode',
+        'embedsConsentText',
+      ]);
+
+      // Embeds & privacy (stored under metadata.embeds); the mode always has a value.
+      const embeds = {
+        mode: formData.get('embedsMode') === 'direct' ? 'direct' : 'click_to_load',
+        consentText: (formData.get('embedsConsentText') as string | null)?.trim() || null,
+      };
+
+      // Parse the raw metadata editor (everything except seo and embeds, which the sections above own).
+      let metadataObj: Record<string, any> = {};
+      const rawMeta = formData.get('siteMetadataJson') as string | null;
+      if (rawMeta) {
+        try {
+          metadataObj = JSON.parse(rawMeta) || {};
+        } catch {
+          metadataObj = {};
         }
+      }
+
+      // social is persisted separately for backward compatibility.
+      if (metadataObj.social) {
+        data['siteSocialJson'] = metadataObj.social;
+        delete metadataObj.social;
+      } else {
+        data['siteSocialJson'] = null;
+      }
+
+      // Fold structured SEO back into metadata (drop it entirely when empty).
+      if (Object.keys(seo).length > 0) {
+        metadataObj.seo = seo;
+      } else {
+        delete metadataObj.seo;
+      }
+      metadataObj.embeds = embeds;
+      data['siteMetadataJson'] = Object.keys(metadataObj).length > 0 ? metadataObj : null;
+
+      // Remaining simple string fields.
+      formData.forEach((value, key) => {
+        if (key === 'siteMetadataJson' || seoKeys.has(key)) return;
+        data[key] = value || null;
       });
 
       try {
@@ -299,65 +604,9 @@ try {
   }
 
   // Metadata preview update
-  const metadataEditor = document.getElementById('metadata-editor') as HTMLTextAreaElement;
-  const metadataPreviewContainer = metadataEditor?.closest('.form-grid')?.querySelector('.metadata-preview');
-
+  const metadataEditor = document.getElementById('metadata-editor') as HTMLTextAreaElement | null;
   if (metadataEditor) {
-    metadataEditor.addEventListener('input', () => {
-      const value = metadataEditor.value.trim();
-
-      if (!value) {
-        if (metadataPreviewContainer) {
-          metadataPreviewContainer.remove();
-        }
-        return;
-      }
-
-      try {
-        const parsed = JSON.parse(value);
-        const entries = Object.entries(parsed);
-
-        if (entries.length === 0) {
-          if (metadataPreviewContainer) {
-            metadataPreviewContainer.remove();
-          }
-          return;
-        }
-
-        let previewHTML = `
-          <div class="metadata-preview">
-            <p class="metadata-preview-title">Current Metadata:</p>
-            <dl class="metadata-preview-list">
-        `;
-
-        entries.forEach(([key, value]) => {
-          const displayValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
-          previewHTML += `
-            <div class="metadata-preview-item">
-              <dt>${key}</dt>
-              <dd>${displayValue}</dd>
-            </div>
-          `;
-        });
-
-        previewHTML += `</dl></div>`;
-
-        if (metadataPreviewContainer) {
-          metadataPreviewContainer.outerHTML = previewHTML;
-        } else {
-          const label = metadataEditor.closest('label');
-          const smallElement = label?.querySelector('small');
-          if (smallElement) {
-            smallElement.insertAdjacentHTML('afterend', previewHTML);
-          }
-        }
-      } catch (error) {
-        // Invalid JSON - remove preview
-        if (metadataPreviewContainer) {
-          metadataPreviewContainer.remove();
-        }
-      }
-    });
+    bindMetadataPreview(metadataEditor, '.form-grid', () => metadataEditor.closest('label')?.querySelector('small'));
   }
 </script>
 
@@ -441,6 +690,25 @@ try {
     grid-column: 1 / -1;
   }
 
+  .subgroup-label {
+    grid-column: 1 / -1;
+    margin: 8px 0 0;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--line);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+  }
+
+  .form-grid small code {
+    font-size: 12px;
+    padding: 1px 4px;
+    background: var(--panel-2);
+    border-radius: 3px;
+  }
+
   .form-grid label > span {
     font-size: 14px;
     font-weight: 500;
@@ -448,7 +716,8 @@ try {
   }
 
   .form-grid input,
-  .form-grid textarea {
+  .form-grid textarea,
+  .form-grid select {
     width: 100%;
     padding: 10px 12px;
     border: 1px solid var(--line);
@@ -459,7 +728,8 @@ try {
   }
 
   .form-grid input:focus,
-  .form-grid textarea:focus {
+  .form-grid textarea:focus,
+  .form-grid select:focus {
     outline: none;
     border-color: var(--accent);
   }
@@ -473,6 +743,18 @@ try {
   .form-grid small {
     font-size: 12px;
     color: var(--muted);
+  }
+
+  .embed-providers {
+    grid-column: 1 / -1;
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .embed-providers span {
+    font-weight: 500;
+    color: var(--ink);
   }
 
   .form-actions {

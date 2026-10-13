@@ -1,0 +1,10 @@
+{
+  "recipe": "entry-schema-impact-report",
+  "variables": {
+    "notify_integration": {
+      "type": "integration_slug",
+      "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
+      "example": "alerts"
+    }
+  }
+}

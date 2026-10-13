@@ -93,3 +93,347 @@ DeploymentConfig
 Deployment
 {{- end -}}
 {{- end -}}
+
+{{/*
+Split-mode image references. Backend/frontend default to <image.repository>-backend / -frontend at
+image.tag (falling back to the chart appVersion), and can be overridden via split.<component>.image.
+*/}}
+{{- define "marvin.backendImage" -}}
+{{- $repo := .Values.split.backend.image.repository | default (printf "%s-backend" .Values.image.repository) -}}
+{{- $tag := .Values.split.backend.image.tag | default .Values.image.tag | default .Chart.AppVersion -}}
+{{- printf "%s:%s" $repo $tag -}}
+{{- end -}}
+
+{{- define "marvin.frontendImage" -}}
+{{- $repo := .Values.split.frontend.image.repository | default (printf "%s-frontend" .Values.image.repository) -}}
+{{- $tag := .Values.split.frontend.image.tag | default .Values.image.tag | default .Chart.AppVersion -}}
+{{- printf "%s:%s" $repo $tag -}}
+{{- end -}}
+
+{{/*
+Shared API environment, sourced from the ConfigMap and Secret. Used by the combined container and
+the split backend. Frontend-only variables (FRONTEND_PORT, PUBLIC_MARVIN_API_URL, MARVIN_API_URL)
+are added by each caller. Keep in step with configmap.yaml / secret.yaml.
+*/}}
+{{- define "marvin.apiEnv" -}}
+- name: PRODUCTION
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: production
+- name: ALLOW_SIGNUP
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: allowSignup
+- name: LOG_LEVEL
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: logLevel
+- name: DB_ENGINE
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: dbEngine
+- name: DATA_DIR
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: dataDir
+- name: API_PORT
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: apiPort
+- name: API_HOST
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: apiHost
+- name: SCHEDULER_INTERVAL_SECONDS
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: schedulerInterval
+- name: CORS_ORIGINS
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: corsOrigins
+{{- if .Values.config.environmentLabel }}
+- name: ENVIRONMENT_LABEL
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: environmentLabel
+{{- end }}
+{{- if .Values.config.platformWorkspaceName }}
+- name: DEFAULT_GROUP
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: platformWorkspaceName
+{{- end }}
+- name: SMTP_HOST
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: smtpHost
+- name: SMTP_PORT
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: smtpPort
+- name: SMTP_USER
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: smtpUser
+      optional: true
+- name: SMTP_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: smtpPassword
+      optional: true
+- name: SMTP_FROM_EMAIL
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: smtpFromEmail
+{{- with include "marvin.postgresEnv" . | trim }}
+{{ . }}
+{{- end }}
+{{- with include "marvin.webPushEnv" . | trim }}
+{{ . }}
+{{- end }}
+{{- with include "marvin.backupRunnerEnv" . | trim }}
+{{ . }}
+{{- end }}
+{{- end -}}
+
+{{/*
+run_backup_target (services/backup_runner.py): start a target's run as a Job from its CronJob. Only with
+backup.scheduledTasks.enabled, which also renders the Role that lets the backend do it.
+*/}}
+{{- define "marvin.backupRunnerEnv" -}}
+{{- if and .Values.backup.targets .Values.backup.scheduledTasks.enabled }}
+- name: BACKUP_RUNNER
+  value: kubernetes
+- name: BACKUP_CRONJOB_PREFIX
+  value: {{ printf "%s-backup-" (include "marvin.fullname" .) | quote }}
+- name: BACKUP_TARGETS
+  value: {{ $names := list }}{{ range .Values.backup.targets }}{{ $names = append $names (printf "%s:%s" (toString .name) (toString .type)) }}{{ end }}{{ join "," $names | quote }}
+{{- end }}
+{{- end -}}
+
+{{/*
+Database engine guard: only the two engines the app knows.
+*/}}
+{{- define "marvin.dbEngine" -}}
+{{- $engine := .Values.config.dbEngine | default "sqlite" -}}
+{{- if not (has $engine (list "sqlite" "postgres")) -}}
+{{- fail (printf "config.dbEngine must be sqlite or postgres, not %q" $engine) -}}
+{{- end -}}
+{{- $engine -}}
+{{- end -}}
+
+{{/*
+CloudNativePG cluster name (postgres.cluster.name, else "<fullname>-pg") and the Secret holding the
+app's connection: postgres.existingSecret, else the "<cluster>-app" Secret CNPG keeps for the owner.
+*/}}
+{{- define "marvin.pgClusterName" -}}
+{{- .Values.postgres.cluster.name | default (printf "%s-pg" (include "marvin.fullname" .)) | trunc 50 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "marvin.pgSecretName" -}}
+{{- if .Values.postgres.existingSecret -}}
+{{- .Values.postgres.existingSecret -}}
+{{- else if .Values.postgres.cluster.enabled -}}
+{{- printf "%s-app" (include "marvin.pgClusterName" .) -}}
+{{- else -}}
+{{- fail "config.dbEngine=postgres needs postgres.existingSecret, or postgres.cluster.enabled to use the chart's CloudNativePG cluster" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+POSTGRES_* for the app (and the backup job) from the connection Secret — nothing with sqlite, so a
+sqlite render is unchanged. Keys default to CloudNativePG's <cluster>-app Secret.
+*/}}
+{{- define "marvin.postgresEnv" -}}
+{{- if eq (include "marvin.dbEngine" .) "postgres" }}
+{{- $secret := include "marvin.pgSecretName" . }}
+{{- $k := .Values.postgres.secretKeys }}
+{{- range $env, $key := dict "POSTGRES_SERVER" $k.host "POSTGRES_PORT" $k.port "POSTGRES_USER" $k.username "POSTGRES_PASSWORD" $k.password "POSTGRES_DB" $k.database }}
+- name: {{ $env }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ $secret }}
+      key: {{ $key }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+VAPID_* for Web Push (the installable admin app's notifications) from webPush.existingSecret — nothing
+without it, so push stays off and the render is unchanged. Optional refs: a values file may name the
+Secret before the operator creates it; until then the pod starts with push off.
+*/}}
+{{- define "marvin.webPushEnv" -}}
+{{- $push := .Values.webPush | default dict }}
+{{- with $push.existingSecret }}
+{{- $secret := . }}
+{{- $k := $push.secretKeys | default dict }}
+{{- range $env, $key := dict "VAPID_PUBLIC_KEY" ($k.publicKey | default "VAPID_PUBLIC_KEY") "VAPID_PRIVATE_KEY" ($k.privateKey | default "VAPID_PRIVATE_KEY") "VAPID_SUBJECT" ($k.subject | default "VAPID_SUBJECT") }}
+- name: {{ $env }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ $secret }}
+      key: {{ $key }}
+      optional: true
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+Graceful shutdown of the API container (combined, or the split backend). An agent run is one
+synchronous request that can take minutes; on a deploy the pod is told to stop (SIGTERM) and killed
+outright terminationGracePeriodSeconds later. Kubernetes counts the preStop sleep inside that grace,
+so the server's own drain window is what is left after it, less a margin for the app's shutdown
+hooks and process exit. A run still going at the deadline is lost; the next process marks it failed
+(AI_INTERRUPTED_RUN_SWEEP_DELAY_SECONDS) — only once the draining pod is surely gone, since a rolling
+update starts the new pod while the old one is still finishing its runs.
+*/}}
+{{/*
+The API pod's update strategy: the split backend's own when set, else the shared `strategy`.
+*/}}
+{{- define "marvin.apiStrategy" -}}
+{{- $s := .Values.strategy -}}
+{{- if and (eq .Values.mode "split") .Values.split.backend.strategy -}}
+{{- $s = .Values.split.backend.strategy -}}
+{{- end -}}
+{{- toYaml $s -}}
+{{- end -}}
+
+{{- define "marvin.shutdownEnv" -}}
+{{- $grace := int .Values.shutdown.terminationGracePeriodSeconds -}}
+{{- $preStop := int .Values.shutdown.preStopSleepSeconds -}}
+{{- $exitMargin := 15 -}}{{/* seconds kept for lifespan shutdown + exit after the drain */}}
+{{- $sweepMargin := 60 -}}{{/* seconds past the old pod's kill deadline before sweeping its runs */}}
+{{- $strategy := include "marvin.apiStrategy" . | fromYaml -}}
+- name: GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS
+  value: {{ max 1 (sub $grace (add $preStop $exitMargin)) | quote }}
+- name: AI_INTERRUPTED_RUN_SWEEP_DELAY_SECONDS
+  {{- /* Recreate stops the old pod before the new one starts: none of its runs can still be going. */}}
+  value: {{ if eq (toString $strategy.type) "Recreate" }}"0"{{ else }}{{ add $grace $sweepMargin | quote }}{{ end }}
+{{- end -}}
+
+{{/*
+Site-wide plugins (plugins.packages): one pip install into a shared emptyDir that goes on PYTHONPATH,
+in every pod that runs Marvin code (the backend, split or combined, and each backup CronJob). Each
+helper renders nothing while the list is empty, so a release without plugins renders as before.
+
+PYTHONPATH comes ahead of the image's site-packages, so anything the image already has must not be
+left in /plugins: a vendor SDK's dependencies (pydantic, httpx, anyio, ...) would replace Marvin's
+own. The install runs in the backend image itself (plugins.image empty) so it can see them: pip is
+constrained to the image's exact versions (a plugin that needs other versions fails the install
+instead of shadowing them), then every distribution the image already has is removed from /plugins.
+marvin-integration-sdk is the one left unpinned: a plugin may list it (a tarball) only to satisfy
+pip, and the image's pinned copy is the one imported.
+*/}}
+{{- define "marvin.plugins.initContainer" -}}
+{{- if .Values.plugins.packages }}
+- name: install-plugins
+  image: {{ .Values.plugins.image | default (include "marvin.backendImage" .) | quote }}
+  {{- with .Values.securityContext }}
+  securityContext:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  command: ["sh", "-c"]
+  args:
+    - |
+      set -eu
+      unset PYTHONPATH
+      img=/app/.venv/bin/python; [ -x "$img" ] || img=python3
+      pip_python=/usr/local/bin/python3; [ -x "$pip_python" ] || pip_python=python3
+      "$img" - > /plugins/.image-pins.txt <<'PY'
+      import importlib.metadata as m, re
+      skip = {"marvin", "marvin-integration-sdk"}
+      for d in m.distributions():
+          name = re.sub(r"[-_.]+", "-", d.metadata["Name"]).lower()
+          if name not in skip:
+              print(f"{name}=={d.version}")
+      PY
+      "$pip_python" -m pip install --no-cache-dir --disable-pip-version-check --target=/plugins \
+        -c /plugins/.image-pins.txt \
+      {{- range .Values.plugins.packages }}
+        {{ . | squote }} \
+      {{- end }}
+        ;
+      rm -rf /plugins/.image-pins.txt /plugins/bin
+      "$img" - <<'PY'
+      import importlib.metadata as m, pathlib, re, shutil
+      norm = lambda n: re.sub(r"[-_.]+", "-", n).lower()
+      image = {norm(d.metadata["Name"]) for d in m.distributions()}
+      root = pathlib.Path("/plugins").resolve()
+      for d in list(m.distributions(path=[str(root)])):
+          name, version = d.metadata["Name"], d.version
+          if norm(name) not in image:
+              continue
+          for f in d.files or []:
+              p = pathlib.Path(d.locate_file(f)).resolve()
+              if p.is_relative_to(root) and p.is_file():
+                  p.unlink()
+          shutil.rmtree(d._path, ignore_errors=True)
+          print(f"using the image's {name} (dropped the plugin install's {version})")
+      for p in sorted(root.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+          if p.is_dir() and not any(p.iterdir()):
+              p.rmdir()
+      PY
+      echo "--- installed into /plugins ---"
+      ls -1 /plugins
+  {{- with .Values.plugins.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  volumeMounts:
+    - name: plugins
+      mountPath: /plugins
+{{- end }}
+{{- end -}}
+
+{{- define "marvin.plugins.volume" -}}
+{{- if .Values.plugins.packages }}
+- name: plugins
+  emptyDir: {}
+{{- end }}
+{{- end -}}
+
+{{- define "marvin.plugins.volumeMount" -}}
+{{- if .Values.plugins.packages }}
+- name: plugins
+  mountPath: /plugins
+{{- end }}
+{{- end -}}
+
+{{- define "marvin.plugins.env" -}}
+{{- if .Values.plugins.packages }}
+- name: PYTHONPATH
+  value: /plugins
+{{- end }}
+{{- end -}}
+
+{{/*
+The split frontend's preStop sleep: split.frontend.preStopSleepSeconds when set (0 disables it), else
+the shared shutdown.preStopSleepSeconds. The SSR server holds no long requests, so it needs only the
+sleep — long enough for the Service/Route to stop sending it traffic — not the API's drain window.
+*/}}
+{{- define "marvin.frontendPreStopSleepSeconds" -}}
+{{- $v := .Values.split.frontend.preStopSleepSeconds -}}
+{{- if or (kindIs "invalid" $v) (eq (toString $v) "") -}}
+{{- int .Values.shutdown.preStopSleepSeconds -}}
+{{- else -}}
+{{- int $v -}}
+{{- end -}}
+{{- end -}}

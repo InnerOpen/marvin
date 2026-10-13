@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 
 from pydantic import UUID4
+from sqlalchemy.orm import Session
 
 
 class SecretBackend(ABC):
@@ -19,13 +20,17 @@ class SecretBackend(ABC):
         ...
 
     @abstractmethod
-    def set(self, slug: str, value: str, group_id: UUID4 | None = None) -> None:
-        """Store or overwrite a secret value."""
+    def set(self, slug: str, value: str, group_id: UUID4 | None = None, session: Session | None = None) -> None:
+        """Store or overwrite a secret value.
+
+        `session` is the caller's open transaction: a backend that stores secrets in Marvin's own database writes
+        through it without committing, so the secret lands (or rolls back) with the caller's save. Other backends
+        ignore it."""
         ...
 
     @abstractmethod
-    def delete(self, slug: str, group_id: UUID4 | None = None) -> None:
-        """Remove a secret."""
+    def delete(self, slug: str, group_id: UUID4 | None = None, session: Session | None = None) -> None:
+        """Remove a secret. `session`: as for `set`."""
         ...
 
     @abstractmethod

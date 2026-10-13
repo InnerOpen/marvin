@@ -1,9 +1,9 @@
 """Entry schemas."""
 
 from datetime import datetime
-from typing import Annotated, TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
-from pydantic import BaseModel, ConfigDict, StringConstraints, UUID4, field_validator, field_serializer, model_validator, Field, AliasChoices
+from pydantic import UUID4, AliasChoices, BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 from marvin.schemas._marvin import _MarvinModel
 
@@ -20,7 +20,12 @@ ENTRY_STATUSES = {
     "approved",
     "published",
     "archived",
+    "trashed",
 }
+
+TRASHED = "trashed"
+"""The Trash: an entry moved there by Delete (or the `trash` workflow op / trash_entries tool). Hidden from
+every listing but the Trash collection, restorable, and permanently deleted only when the Trash is emptied."""
 
 
 class AssetAttachment(BaseModel):
@@ -75,12 +80,16 @@ class EntryCreate(_MarvinModel):
     resource_ids: list[UUID4] | None = None
     asset_attachments: list[AssetAttachment] | None = None
     resource_attachments: list[ResourceAttachment] | None = None
+    tag_ids: list[UUID4] | None = None
+    """Existing tag IDs to apply to this entry (resolve typed names via POST /tags first)."""
 
     @field_validator("status")
     @classmethod
     def validate_status(cls, value: str) -> str:
         if value not in ENTRY_STATUSES:
             raise ValueError(f"status must be one of: {', '.join(sorted(ENTRY_STATUSES))}")
+        if value == TRASHED:
+            raise ValueError("an entry can't be created in the Trash")
         return value
 
     @model_validator(mode="after")
@@ -132,6 +141,8 @@ class EntryUpdate(_MarvinModel):
     resource_attachments: list[ResourceAttachment] | None = Field(
         default=None, validation_alias=AliasChoices("resource_attachments", "resourceAttachments")
     )
+    tag_ids: list[UUID4] | None = Field(default=None, validation_alias=AliasChoices("tag_ids", "tagIds"))
+    """Existing tag IDs to replace this entry's tags (resolve typed names via POST /tags first)."""
 
     @field_validator("status")
     @classmethod
@@ -142,7 +153,7 @@ class EntryUpdate(_MarvinModel):
 
     @field_validator("published_at", "publish_at", "expire_at", mode="before")
     @classmethod
-    def validate_datetime_fields(cls, value: str | datetime | None) -> datetime | None:
+    def validate_datetime_fields(cls, value: str | datetime | None) -> str | datetime | None:
         """Convert empty strings to None for datetime fields."""
         if value == "":
             return None
@@ -159,6 +170,19 @@ class EntryUpdate(_MarvinModel):
         return self
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class ScheduledPublishBlock(_MarvinModel):
+    """Why the Publish Scheduled Entries task is holding a due entry back (entries.scheduled_publish_blocked)."""
+
+    waiting_for: str = "requirements"
+    """"requirements" (the publish gate refused it) or "approval" (the workspace only publishes approved entries on schedule)."""
+    reason: str = ""
+    """One line: the issues joined, or "Waiting for approval"."""
+    issues: list[str] = []
+    """Each unmet requirement, as the publish gate words it."""
+    at: datetime | None = None
+    """When the task first held it back for this reason."""
 
 
 class EntryRead(_MarvinModel):
@@ -194,6 +218,8 @@ class EntryRead(_MarvinModel):
         description="Pending AI-proposed changes staged for review (write-back)",
         serialization_alias="suggestionJson",
     )
+    scheduled_publish_blocked: ScheduledPublishBlock | None = None
+    """Set while the entry's publish_at has arrived but the scheduled publish is holding it back, and why."""
     created_by: UUID4 | None = None
     created_at: datetime | None = None
     update_at: datetime | None = None
@@ -203,8 +229,14 @@ class EntryRead(_MarvinModel):
     """Assets included in this entry with placement info."""
     collections: list["EntryCollectionRead"] = []
     """Collections this entry belongs to, with placement info."""
+    tags: list[str] = []
+    """Tag slugs applied to this entry (shared vocabulary)."""
     order: int | None = None
     """Sort order within a collection. Only populated when querying entries for a specific collection."""
+    page_url: str | None = None
+    """Absolute URL of the entry's page on the workspace's site (its type's page URL pattern joined to the
+    workspace's Canonical URL). Only populated on a single-entry read; null when either isn't configured.
+    Not gated on status — a draft's URL isn't live until it is published."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -218,6 +250,7 @@ class EntryRead(_MarvinModel):
             joinedload(Entries.entry_collections).joinedload(EntryCollections.collection),
             joinedload(Entries.entry_assets).joinedload(EntryAssets.asset),
             joinedload(Entries.entry_resources).joinedload(EntryResources.resource),
+            joinedload(Entries.tags),
         ]
 
     @classmethod
@@ -225,10 +258,18 @@ class EntryRead(_MarvinModel):
         """Custom validation to extract collection IDs and build asset/resource details."""
         data = {field: getattr(obj, field, None) for field in cls.model_fields}
 
-        if hasattr(obj, "collections") and obj.collections:
-            if obj.collections and hasattr(obj.collections[0], "id"):
-                data["collections"] = [c.id for c in obj.collections]
+        # `obj.tags` is the ORM relationship (Tag objects); the schema field is list[str] of slugs.
+        # tag_names is the property over the junction — use it so validation gets strings, not rows.
+        if "tags" in cls.model_fields:
+            data["tags"] = list(getattr(obj, "tag_names", None) or [])
 
+        # Collections come from the junction rows only (they carry the placement fields). The plain
+        # `collections` relationship can be loaded later than `entry_collections` and disagree with it —
+        # e.g. after the smart-collection listener commits a membership in its own session — so it
+        # must never feed this field. (An object without junction rows — an EntryRead being re-validated —
+        # keeps the summaries it already has.)
+        if hasattr(obj, "entry_collections"):
+            data["collections"] = []
         if hasattr(obj, "entry_collections") and obj.entry_collections:
             from marvin.schemas.platform.collections import EntryCollectionRead
 
@@ -258,7 +299,8 @@ class EntryRead(_MarvinModel):
 
             assets = []
             for junction in obj.entry_assets:
-                if hasattr(junction, "asset") and junction.asset:
+                # An asset in the Trash is out of sight; its link stays for a restore (services/trash.py).
+                if hasattr(junction, "asset") and junction.asset and getattr(junction.asset, "trashed_at", None) is None:
                     asset_data = {
                         **{k: getattr(junction.asset, k, None) for k in EntryAssetRead.model_fields if hasattr(junction.asset, k)},
                         "role": junction.role,
@@ -273,7 +315,7 @@ class EntryRead(_MarvinModel):
 
             resources = []
             for junction in obj.entry_resources:
-                if hasattr(junction, "resource") and junction.resource:
+                if hasattr(junction, "resource") and junction.resource and getattr(junction.resource, "trashed_at", None) is None:
                     resource_data = {
                         **{k: getattr(junction.resource, k, None) for k in EntryResourceRead.model_fields if hasattr(junction.resource, k)},
                         "role": junction.role,

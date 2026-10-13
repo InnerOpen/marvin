@@ -1,0 +1,80 @@
+---
+// "Versions made from this": the crops, sizes, conversions and grades workflows made from an asset, as small linked
+// thumbnails, with a link to the library filtered to them. Nothing when there are none.
+import { getAssets } from "@/lib/api/platform";
+
+interface Props {
+  assetId: string;
+  authToken: string | null | undefined;
+}
+
+const { assetId, authToken } = Astro.props;
+const SHOWN = 12;
+let versions: any[] = [];
+if (authToken) {
+  try {
+    versions = await getAssets(authToken, { source: assetId, sort: "newest" });
+  } catch {
+    versions = []; // the page still shows the asset
+  }
+}
+---
+
+{versions.length > 0 && (
+  <section class="asset-versions">
+    <h4>Versions made from this <span class="count">{versions.length}</span></h4>
+    <ul>
+      {versions.slice(0, SHOWN).map((v) => (
+        <li>
+          <a href={`/workspace/assets/${v.id}/view`} title={v.name}>
+            {v.publicUrl && v.mimeType?.startsWith("image/") ? <img src={v.publicUrl} alt={v.altText ?? v.name} loading="lazy" /> : <span class="file">📎</span>}
+            <span class="dims">{v.width && v.height ? `${v.width}×${v.height}` : v.mimeType}</span>
+          </a>
+        </li>
+      ))}
+    </ul>
+    <a class="all" href={`/workspace/assets?source=${assetId}`}>{versions.length > SHOWN ? `All ${versions.length} versions` : "Open them in the library"}</a>
+  </section>
+)}
+
+<style>
+  .asset-versions {
+    margin-top: 1rem;
+  }
+  .asset-versions h4 {
+    margin: 0 0 0.5rem;
+  }
+  .asset-versions .count {
+    color: var(--muted);
+    font-weight: normal;
+  }
+  .asset-versions ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 0 0.5rem;
+    padding: 0;
+    list-style: none;
+  }
+  .asset-versions li a {
+    display: grid;
+    gap: 0.25rem;
+    justify-items: center;
+    text-decoration: none;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+  .asset-versions img,
+  .asset-versions .file {
+    width: 72px;
+    height: 72px;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    display: grid;
+    place-items: center;
+  }
+  .asset-versions .all {
+    font-size: 0.875rem;
+  }
+</style>

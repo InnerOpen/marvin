@@ -2,9 +2,9 @@ from logging import Logger
 
 from pydantic import ConfigDict
 
-from marvin.core.config import get_app_dirs, get_app_settings, get_app_plugins
+from marvin.core.config import get_app_dirs, get_app_plugins, get_app_settings
 from marvin.core.root_logger import get_logger
-from marvin.core.settings import AppSettings, AppPlugins
+from marvin.core.settings import AppPlugins, AppSettings
 from marvin.core.settings.directories import AppDirectories
 
 

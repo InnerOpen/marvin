@@ -1,20 +1,21 @@
 ---
+import AssetField from "./schema-fields/AssetField.astro";
+import AssetListField from "./schema-fields/AssetListField.astro";
+import BooleanField from "./schema-fields/BooleanField.astro";
+import DateField from "./schema-fields/DateField.astro";
+import DateTimeField from "./schema-fields/DateTimeField.astro";
+import EmbedField from "./schema-fields/EmbedField.astro";
+import MarkdownField from "./schema-fields/MarkdownField.astro";
+import NumberField from "./schema-fields/NumberField.astro";
+import ResourceField from "./schema-fields/ResourceField.astro";
+import ResourceListField from "./schema-fields/ResourceListField.astro";
+import SelectField from "./schema-fields/SelectField.astro";
+import TextareaField from "./schema-fields/TextareaField.astro";
 /**
  * SchemaForm Component
  * Dynamically renders a form based on an entry type's schema definition
  */
-import TextField from './schema-fields/TextField.astro';
-import TextareaField from './schema-fields/TextareaField.astro';
-import MarkdownField from './schema-fields/MarkdownField.astro';
-import NumberField from './schema-fields/NumberField.astro';
-import BooleanField from './schema-fields/BooleanField.astro';
-import SelectField from './schema-fields/SelectField.astro';
-import DateField from './schema-fields/DateField.astro';
-import DateTimeField from './schema-fields/DateTimeField.astro';
-import AssetField from './schema-fields/AssetField.astro';
-import AssetListField from './schema-fields/AssetListField.astro';
-import ResourceField from './schema-fields/ResourceField.astro';
-import ResourceListField from './schema-fields/ResourceListField.astro';
+import TextField from "./schema-fields/TextField.astro";
 
 export interface FieldSchema {
   key: string;
@@ -39,7 +40,7 @@ export interface Props {
 const { schema, values = {}, errors = {} } = Astro.props;
 
 // If no schema provided, show empty state
-if (!schema || !schema.fields || schema.fields.length === 0) {
+if (!schema?.fields || schema.fields.length === 0) {
   // Don't render anything - parent component should handle empty state
   return;
 }
@@ -63,40 +64,43 @@ function getFieldError(key: string) {
     // Render appropriate component based on field type
     switch (field.type) {
       case 'text':
-        return <TextField field={field} value={value} error={error} />;
+        return <TextField field={field as any} value={value} error={error} />;
 
       case 'textarea':
-        return <TextareaField field={field} value={value} error={error} />;
+        return <TextareaField field={field as any} value={value} error={error} />;
 
       case 'markdown':
-        return <MarkdownField field={field} value={value} error={error} />;
+        return <MarkdownField field={field as any} value={value} error={error} />;
 
       case 'number':
-        return <NumberField field={field} value={value} error={error} />;
+        return <NumberField field={field as any} value={value} error={error} />;
 
       case 'boolean':
-        return <BooleanField field={field} value={value} error={error} />;
+        return <BooleanField field={field as any} value={value} error={error} />;
 
       case 'select':
-        return <SelectField field={field} value={value} error={error} />;
+        return <SelectField field={field as any} value={value} error={error} />;
 
       case 'date':
-        return <DateField field={field} value={value} error={error} />;
+        return <DateField field={field as any} value={value} error={error} />;
 
       case 'datetime':
-        return <DateTimeField field={field} value={value} error={error} />;
+        return <DateTimeField field={field as any} value={value} error={error} />;
 
       case 'asset':
-        return <AssetField field={field} value={value} error={error} />;
+        return <AssetField field={field as any} value={value} error={error} />;
 
       case 'asset-list':
-        return <AssetListField field={field} value={value} error={error} />;
+        return <AssetListField field={field as any} value={value} error={error} />;
+
+      case 'embed':
+        return <EmbedField field={field as any} value={value} error={error} />;
 
       case 'resource':
-        return <ResourceField field={field} value={value} error={error} />;
+        return <ResourceField field={field as any} value={value} error={error} />;
 
       case 'resource-list':
-        return <ResourceListField field={field} value={value} error={error} />;
+        return <ResourceListField field={field as any} value={value} error={error} />;
 
       case 'json':
         // JSON field - allow free-form JSON input

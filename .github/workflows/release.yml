@@ -8,6 +8,10 @@ on:
     branches:
       - main
       - develop
+  # Manual trigger. Without this the workflow can only be exercised by landing a commit on a
+  # release branch, so a change to it cannot be validated before merge — and a push whose commit
+  # message carries the CI-skip marker leaves no way to run it at all.
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -27,27 +31,32 @@ env:
 jobs:
   release:
     name: Semantic Release
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER || 'ubuntu-latest' }}
     outputs:
       version: ${{ steps.version.outputs.version }}
       released: ${{ steps.version.outputs.released }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
+      # uv is needed by semantic-release's build_command, which runs `uv lock` so the refreshed
+      # lockfile is committed alongside the version bump (see [tool.semantic_release] in
+      # pyproject.toml). Without uv on PATH the build_command fails and no release is cut.
       - name: Install Python Semantic Release
         run: |
           python -m pip install --upgrade pip
-          pip install python-semantic-release
+          pip install python-semantic-release uv
 
       - name: Configure Git
         run: |
@@ -58,28 +67,29 @@ jobs:
         id: version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Run semantic-release to determine next version
-          semantic-release version --print > version_info.txt || true
+        # semantic-release populates $GITHUB_OUTPUT itself — released, version, tag, is_prerelease,
+        # link, previous_version, commit_sha, release_notes — so this step needs no detection logic
+        # of its own. It previously ran `version --print` and grepped a version out of the result,
+        # which reported a release on every push: with nothing to release, --print still writes the
+        # *current* version to stdout and explains itself on stderr ("No release will be made, X has
+        # already been released!"). Nothing published spuriously only because the real
+        # `semantic-release version` call ran afterwards and overwrote `released` with the correct
+        # value, last write winning. Reading semantic-release's own output removes that coincidence,
+        # and drops a redundant second invocation with it.
+        #
+        # Exits 0 when no release is due, so an ordinary commit does not fail the job.
+        run: semantic-release version
 
-          # Check if a new version was created
-          if [ -f "version_info.txt" ] && [ -s "version_info.txt" ]; then
-            NEW_VERSION=$(cat version_info.txt | grep -oP 'v\K[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+\.[0-9]+)?')
-            echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
-            echo "released=true" >> $GITHUB_OUTPUT
-            echo "📦 New version: $NEW_VERSION"
-          else
-            echo "released=false" >> $GITHUB_OUTPUT
-            echo "ℹ️ No release needed"
-          fi
-
-          # Actually create the release
-          semantic-release version
-          semantic-release publish
+      # Attaches build artifacts to the GitHub release, so it is only meaningful once one exists.
+      - name: Publish release assets
+        if: steps.version.outputs.released == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: semantic-release publish
 
       - name: Upload version info
         if: steps.version.outputs.released == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: version-info
           path: |
@@ -88,22 +98,51 @@ jobs:
 
   # Build and publish Docker image if release was created
   docker-release:
-    name: Build & Publish Docker Image
-    runs-on: ubuntu-latest
+    name: Build & Publish Docker Image (${{ matrix.target }})
+    runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER || 'ubuntu-latest' }}
     needs: release
     if: needs.release.outputs.released == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Same three images as docker.yml — combined + the two split halves — under version tags.
+          # suffix names the image; expect is the entrypoint the guard asserts. `target:` is REQUIRED:
+          # with none, the build defaults to the last Dockerfile stage (lambda), which resets the
+          # entrypoint to the Mangum handler and crash-loops under a normal docker run / Helm deploy.
+          - target: production
+            suffix: ""
+            expect: start.sh
+          - target: backend
+            suffix: "-backend"
+            expect: marvin-server
+          - target: frontend
+            suffix: "-frontend"
+            expect: start-frontend.sh
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.ref }}
           fetch-depth: 0
 
+      - name: Record unreleased commits
+        # Built from the release commit, which carries the tag: the file lists nothing, and the
+        # changelog already has this release's section.
+        run: docker/write-unreleased.sh UNRELEASED.txt
+
+      - name: Log in to Docker Hub
+        # buildkit and the base images come from Docker Hub, whose anonymous pull limit shared runners use up.
+        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -111,42 +150,68 @@ jobs:
 
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.suffix }}
           tags: |
             type=semver,pattern={{version}},value=${{ needs.release.outputs.version }}
             type=semver,pattern={{major}}.{{minor}},value=${{ needs.release.outputs.version }}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ./docker/Dockerfile
+          target: ${{ matrix.target }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
           build-args: |
             COMMIT=${{ github.sha }}
+
+      # Guard: pull the image we just published and prove it is the intended target by its
+      # entrypoint. Inspects the actual pushed artifact by digest, so it fails the release whatever
+      # caused a wrong image (missing/wrong target, reordered stages, mismatched matrix pairing).
+      - name: Verify the published image target
+        run: |
+          set -euo pipefail
+          # GHCR image paths must be lowercase; IMAGE_NAME is github.repository, which keeps the
+          # org's casing (InnerOpen). Lowercase it to match what metadata-action pushed.
+          name=$(printf '%s' "${{ env.IMAGE_NAME }}${{ matrix.suffix }}" | tr '[:upper:]' '[:lower:]')
+          img="${{ env.REGISTRY }}/${name}@${{ steps.build.outputs.digest }}"
+          echo "Inspecting $img"
+          docker pull "$img"
+          entrypoint=$(docker inspect --format '{{json .Config.Entrypoint}}' "$img")
+          echo "Entrypoint: $entrypoint"
+          case "$entrypoint" in
+            *${{ matrix.expect }}*)
+              echo "✅ ${{ matrix.target }} image"
+              ;;
+            *)
+              echo "::error::Published ${{ matrix.suffix }} image is NOT the ${{ matrix.target }} target (entrypoint=$entrypoint, expected to contain '${{ matrix.expect }}'). The build likely lost its target."
+              exit 1
+              ;;
+          esac
 
   # Package and publish Helm chart if release was created
   helm-release:
     name: Package & Publish Helm Chart
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER || 'ubuntu-latest' }}
     needs: release
     if: needs.release.outputs.released == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.ref }}
           fetch-depth: 0
 
       - name: Setup Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: 'v3.14.0'
 
@@ -161,7 +226,7 @@ jobs:
           helm package marvin-chart/ --destination .helm-packages/
 
       - name: Upload Helm package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: helm-chart
           path: .helm-packages/*.tgz
@@ -176,7 +241,7 @@ jobs:
   # Release summary
   release-summary:
     name: Release Summary
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER || 'ubuntu-latest' }}
     needs:
       - release
       - docker-release

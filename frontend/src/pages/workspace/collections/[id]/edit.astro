@@ -1,14 +1,19 @@
 ---
-import AppLayout from "@/layouts/AppLayout.astro";
+import CollectionVisibilityField from "@/components/CollectionVisibilityField.astro";
 import EmojiPicker from "@/components/EmojiPicker.astro";
 import SmartCollectionFields from "@/components/SmartCollectionFields.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getCollection, getCollectionEntries } from "@/lib/api/collections";
+import type { CollectionRead, EntryRead } from "@/lib/api/entries";
 import { listEntries } from "@/lib/api/entries";
-import type { EntryRead, CollectionRead } from "@/lib/api/entries";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
+import { EDITORS_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
+// Editing a collection is EDITOR+ (the API answers others with 403).
+const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 let collection: CollectionRead | null = null;
 let allEntries: EntryRead[] = [];
@@ -29,15 +34,21 @@ if (!authToken) {
 
     // Sort collection entries by order field (already sorted by API, but ensure it)
     collectionEntries.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
-
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
-    console.error('[Collection] Failed to load:', error);
+    console.error("[Collection] Failed to load:", error);
   }
 }
 ---
 
-<AppLayout title={collection ? `Edit ${collection.name}` : "Edit Collection"}>
+<AppLayout
+  restrictedNote={access.canEdit ? null : EDITORS_ONLY}
+  title={collection ? `Edit ${collection.name}` : "Edit Collection"}
+  entityType="collection"
+  entityId={id}
+  entityLabel={collection?.name}
+>
+  <div id="delete-error" class="error-banner" style="margin-bottom:1rem;display:none;"></div>
   {error ? (
     <div class="error-banner">
       <p><strong>Error loading collection:</strong> {error}</p>
@@ -118,7 +129,9 @@ if (!authToken) {
             <p class="form-help">Lower numbers appear first</p>
           </div>
 
-          <SmartCollectionFields checked={collection.isSmart === true} rules={collection.smartRules} />
+          <CollectionVisibilityField checked={collection.isPublic !== false} locked={collection.isSystem === true} />
+
+          <SmartCollectionFields checked={collection.isSmart === true} rules={collection.smartRules} targetType={(collection as any).targetType ?? 'entry'} />
 
           <div class="form-group">
             <label for="metadata">Metadata (JSON)</label>
@@ -235,9 +248,46 @@ if (!authToken) {
 </AppLayout>
 
 <script>
+  import { isPublicFromForm } from '@/lib/collectionForm';
+  import { bindMetadataPreview } from '@/lib/metadataPreview';
   import { createSdkClient } from '@/lib/sdk';
 
   const sdk = createSdkClient();
+
+  // Intercept the delete submit so a failed delete (e.g. 409 — collection still in
+  // use by entries) shows an inline banner instead of navigating to the /delete
+  // endpoint and rendering raw JSON. The button's onclick confirm() already gated it.
+  document.addEventListener('submit', async (e) => {
+    const formEl = e.target as HTMLFormElement;
+    if (!(formEl instanceof HTMLFormElement)) return;
+    if (!/\/api\/collections\/[^/]+\/delete$/.test(formEl.getAttribute('action') || '')) return;
+
+    e.preventDefault();
+    const res = await fetch(formEl.action, { method: 'POST' });
+    if (res.ok) {
+      window.location.href = '/workspace/collections';
+      return;
+    }
+
+    let msg = 'Failed to delete collection';
+    try {
+      const data = await res.json();
+      if (data?.error) msg = data.error;
+    } catch {
+      // keep the generic message
+    }
+    const banner = document.getElementById('delete-error');
+    if (banner) {
+      const strong = document.createElement('strong');
+      strong.textContent = "Couldn't delete collection:";
+      const p = document.createElement('p');
+      p.append(strong, ` ${msg}`);
+      banner.replaceChildren(p);
+      banner.style.display = 'flex';
+      banner.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  });
+
   const form = document.getElementById('collection-form') as HTMLFormElement;
   const submitButton = form?.querySelector('button[type="submit"]') as HTMLButtonElement;
 
@@ -255,6 +305,8 @@ if (!authToken) {
       const description = formData.get('description') as string;
       const sortOrder = formData.get('sort_order') as string;
       const isSmart = formData.get('is_smart') === 'true';
+      const isPublic = isPublicFromForm(formData);
+      const targetType = (formData.get('target_type') as string) || 'entry';
       const smartRulesStr = formData.get('smartRules') as string;
       const metadataStr = formData.get('metadata') as string;
 
@@ -290,6 +342,8 @@ if (!authToken) {
           description: description?.trim() || null,
           sortOrder: sortOrder ? parseInt(sortOrder) : 0,
           isSmart,
+          isPublic,
+          targetType,
           smartRules: smartRules,
           metadataJson: metadataJson,
         });
@@ -305,66 +359,27 @@ if (!authToken) {
   }
 
   // Metadata preview update
-  const metadataEditor = document.getElementById('metadata') as HTMLTextAreaElement;
-  const metadataPreviewContainer = metadataEditor?.closest('.form-group')?.querySelector('.metadata-preview');
-
+  const metadataEditor = document.getElementById('metadata') as HTMLTextAreaElement | null;
   if (metadataEditor) {
-    metadataEditor.addEventListener('input', () => {
-      const value = metadataEditor.value.trim();
-
-      if (!value) {
-        if (metadataPreviewContainer) {
-          metadataPreviewContainer.remove();
-        }
-        return;
-      }
-
-      try {
-        const parsed = JSON.parse(value);
-        const entries = Object.entries(parsed);
-
-        if (entries.length === 0) {
-          if (metadataPreviewContainer) {
-            metadataPreviewContainer.remove();
-          }
-          return;
-        }
-
-        let previewHTML = `
-          <div class="metadata-preview">
-            <p class="metadata-preview-title">Current Metadata:</p>
-            <dl class="metadata-preview-list">
-        `;
-
-        entries.forEach(([key, value]) => {
-          const displayValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
-          previewHTML += `
-            <div class="metadata-preview-item">
-              <dt>${key}</dt>
-              <dd>${displayValue}</dd>
-            </div>
-          `;
-        });
-
-        previewHTML += `</dl></div>`;
-
-        if (metadataPreviewContainer) {
-          metadataPreviewContainer.outerHTML = previewHTML;
-        } else {
-          const helpText = metadataEditor.closest('.form-group')?.querySelector('.form-help');
-          if (helpText) {
-            helpText.insertAdjacentHTML('afterend', previewHTML);
-          }
-        }
-      } catch (error) {
-        if (metadataPreviewContainer) {
-          metadataPreviewContainer.remove();
-        }
-      }
-    });
+    bindMetadataPreview(metadataEditor, '.form-group', () => metadataEditor.closest('.form-group')?.querySelector('.form-help'));
   }
 
   // --- Entry attachment card management ---
+  // Build an element with string children as text nodes (never markup).
+  function node(tag: string, className: string, ...children: (Node | string)[]): HTMLElement {
+    const n = document.createElement(tag);
+    if (className) n.className = className;
+    n.append(...children);
+    return n;
+  }
+
+  function actionBtn(className: string, title: string, text: string): HTMLButtonElement {
+    const b = node('button', `${className} icon-btn`, text) as HTMLButtonElement;
+    b.type = 'button';
+    b.title = title;
+    return b;
+  }
+
   const collectionId = window.location.pathname.split('/').filter(Boolean).slice(-2)[0]!;
   const entriesContainer = document.getElementById('attached-entries') as HTMLElement;
   const saveEntriesBtn = document.getElementById('save-entries-btn') as HTMLButtonElement;
@@ -502,33 +517,43 @@ if (!authToken) {
       card.dataset.entryId = entryId;
       card.dataset.entryTitle = title;
       card.dataset.entryStatus = entryStatus;
-      card.innerHTML = `
-        <div class="attachment-header">
-          <div class="drag-handle" draggable="true">⋮⋮</div>
-          <div class="sortable-order">${idx + 1}</div>
-          <div class="attachment-name">
-            <strong>${title}</strong>
-            <span class="picker-meta">
-              <span class="pill ${entryStatus}">${entryStatus}</span>
-            </span>
-          </div>
-          <div class="attachment-actions">
-            <button type="button" class="move-up-btn icon-btn" title="Move up">↑</button>
-            <button type="button" class="move-down-btn icon-btn" title="Move down">↓</button>
-            <button type="button" class="remove-btn icon-btn" title="Remove">×</button>
-          </div>
-        </div>
-        <div class="attachment-fields">
-          <div class="field-row">
-            <label>Role</label>
-            <input type="text" class="junction-role" value="" placeholder="e.g. primary, featured" />
-          </div>
-          <div class="field-row field-row-full">
-            <label>Metadata</label>
-            <textarea class="junction-metadata attachment-metadata" rows="2" placeholder='{"featured": true}'></textarea>
-          </div>
-        </div>
-      `;
+      // The title and status come from entries anyone with edit access can name, so they go in as text.
+      const handle = node('div', 'drag-handle', '⋮⋮');
+      handle.draggable = true;
+      const role = node('input', 'junction-role') as HTMLInputElement;
+      role.type = 'text';
+      role.defaultValue = '';
+      role.placeholder = 'e.g. primary, featured';
+      const metadata = node('textarea', 'junction-metadata attachment-metadata') as HTMLTextAreaElement;
+      metadata.rows = 2;
+      metadata.placeholder = '{"featured": true}';
+      card.append(
+        node(
+          'div',
+          'attachment-header',
+          handle,
+          node('div', 'sortable-order', String(idx + 1)),
+          node(
+            'div',
+            'attachment-name',
+            node('strong', '', title),
+            node('span', 'picker-meta', node('span', `pill ${entryStatus}`, entryStatus)),
+          ),
+          node(
+            'div',
+            'attachment-actions',
+            actionBtn('move-up-btn', 'Move up', '↑'),
+            actionBtn('move-down-btn', 'Move down', '↓'),
+            actionBtn('remove-btn', 'Remove', '×'),
+          ),
+        ),
+        node(
+          'div',
+          'attachment-fields',
+          node('div', 'field-row', node('label', '', 'Role'), role),
+          node('div', 'field-row field-row-full', node('label', '', 'Metadata'), metadata),
+        ),
+      );
 
       entriesContainer.appendChild(card);
       setupEntryCard(card);

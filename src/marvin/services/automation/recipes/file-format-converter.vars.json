@@ -1,0 +1,10 @@
+{
+  "recipe": "file-format-converter",
+  "variables": {
+    "quality": {
+      "type": "integer",
+      "description": "WebP quality, 1–100 (80–85 keeps photos looking the same at a fraction of the size).",
+      "example": 82
+    }
+  }
+}

@@ -1,0 +1,141 @@
+---
+// The permission checkboxes for the API client create and edit forms. Each ticked box submits
+// `permission=<key>`; read them back with permissionsFromChecked(formData.getAll("permission")).
+import {
+  API_CLIENT_PERMISSIONS,
+  initiallyGranted,
+  PERMISSION_GROUPS,
+  unlistedGrantedKeys,
+} from "@/lib/apiClientPermissions";
+
+interface Props {
+  /** The client's current permissions; omit on create to tick the backend defaults. */
+  permissions?: Record<string, unknown> | null;
+}
+const { permissions } = Astro.props;
+const granted = initiallyGranted(permissions);
+const unlisted = unlistedGrantedKeys(permissions);
+---
+
+<section class="form-section">
+  <h3>Permissions</h3>
+  <p class="section-description">What this client can access</p>
+  {PERMISSION_GROUPS.map((group) => (
+    <fieldset class="permission-group">
+      <legend>{group}</legend>
+      <div class="permissions-grid">
+        {API_CLIENT_PERMISSIONS.filter((p) => p.group === group).map((p) => (
+          <label class="checkbox-label">
+            <input type="checkbox" name="permission" value={p.key} checked={granted.has(p.key)} />
+            <div>
+              <strong>{p.label}</strong>
+              <small>{p.description}</small>
+              <code class="permission-key">{p.key}</code>
+            </div>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  ))}
+  {unlisted.length > 0 && (
+    <fieldset class="permission-group">
+      <legend>Other</legend>
+      <div class="permissions-grid">
+        {unlisted.map((key) => (
+          <label class="checkbox-label">
+            <input type="checkbox" name="permission" value={key} checked />
+            <div>
+              <strong><code>{key}</code></strong>
+              <small>Not checked by the publishing API — untick to remove it</small>
+            </div>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  )}
+</section>
+
+<style>
+  .form-section {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 24px;
+  }
+
+  .form-section h3 {
+    margin: 0 0 4px;
+    font-size: 18px;
+    font-weight: 600;
+  }
+
+  .section-description {
+    margin: 0 0 20px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .permission-group {
+    border: 0;
+    margin: 0 0 20px;
+    padding: 0;
+  }
+
+  .permission-group:last-child {
+    margin-bottom: 0;
+  }
+
+  .permission-group legend {
+    margin-bottom: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+  }
+
+  .permissions-grid {
+    display: grid;
+    gap: 12px;
+  }
+
+  .checkbox-label {
+    display: flex;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .checkbox-label:hover {
+    background: var(--panel-2);
+  }
+
+  .checkbox-label input[type="checkbox"] {
+    margin-top: 2px;
+    cursor: pointer;
+  }
+
+  .checkbox-label strong {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 2px;
+  }
+
+  .checkbox-label small {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .permission-key {
+    display: inline-block;
+    margin-top: 4px;
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+</style>

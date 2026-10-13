@@ -5,24 +5,22 @@ within the Marvin application.
 Publishers are responsible for taking a processed event and dispatching it
 to external services or URLs. It includes:
 - `PublisherLike`: A protocol defining the interface for publisher classes.
-- `ApprisePublisher`: Publishes events to various notification services using the Apprise library.
 - `WebhookPublisher`: Publishes events to specified URLs via HTTP requests (e.g., POST, GET).
 """
 
+import re
 import time
 from datetime import UTC, datetime
 from typing import Any, Protocol  # For defining structural subtyping (interfaces)
 
-import apprise  # Library for sending notifications to many services
 import requests  # For making HTTP requests (used by WebhookPublisher)
 from fastapi.encoders import jsonable_encoder  # For encoding Pydantic models to JSON
 
 from marvin.core.root_logger import get_logger
 from marvin.db.db_setup import session_context
-from marvin.db.models.groups.notification_execution_logs import NotificationExecutionLogModel
-from marvin.db.models.groups.webhook_execution_logs import WebhookExecutionLogModel
 from marvin.db.models._model_utils.guid import GUID
-from marvin.services.event_bus_service.event_types import Event  # Core Event model
+from marvin.db.models.groups.webhook_execution_logs import WebhookExecutionLogModel
+from marvin.services.event_bus_service.event_types import Event, event_entity  # Core Event model
 
 # from marvin.db.models.groups import Method # Method enum was imported but not used directly by string comparison in WebhookPublisher.
 # If strict enum usage is desired, this import would be necessary.
@@ -57,67 +55,6 @@ class PublisherLike(Protocol):
                       implementations might require (e.g., HTTP method for webhooks).
         """
         ...  # Ellipsis indicates this is a protocol method to be implemented.
-
-
-class ApprisePublisher:
-    """
-    Publishes events using the Apprise library to various notification services.
-    """
-
-    def __init__(self, hard_fail: bool = False) -> None:
-        self.hard_fail: bool = hard_fail
-
-    def publish(
-        self,
-        event: Event,
-        notification_urls: list[str],
-        notifier_id: GUID | None = None,
-        group_id: GUID | None = None,
-        event_type: str | None = None,
-        **_: Any,
-    ) -> None:
-        if not notification_urls:
-            return
-
-        asset = apprise.AppriseAsset(async_mode=False, image_url_mask="")
-        ap = apprise.Apprise(asset=asset)
-
-        tags: list[str] = []
-        for dest_url in notification_urls:
-            tag = str(event.event_id)
-            tags.append(tag)
-            added = ap.add(dest_url, tag=tag)
-            if not added and self.hard_fail:
-                raise Exception(f"Apprise failed to add URL: {dest_url}")
-
-        if not tags:
-            return
-
-        try:
-            result = ap.notify(
-                title=event.message.title,
-                body=event.message.body,
-                tag=list(set(tags)),
-            )
-            success = bool(result)
-        except Exception as exc:
-            _log_notification_execution(
-                notifier_id=notifier_id,
-                group_id=group_id,
-                status="failed",
-                event_type=event_type,
-                error_message=str(exc),
-                request_payload={"title": event.message.title, "body": event.message.body},
-            )
-            return
-
-        _log_notification_execution(
-            notifier_id=notifier_id,
-            group_id=group_id,
-            status="success" if success else "failed",
-            event_type=event_type,
-            request_payload={"title": event.message.title, "body": event.message.body},
-        )
 
 
 def _log_webhook_execution(
@@ -155,40 +92,78 @@ def _log_webhook_execution(
         logger.error(f"Failed to log webhook execution: {e}")
 
 
-def _log_notification_execution(
-    notifier_id: GUID | None,
-    group_id: GUID | None,
-    status: str,
-    event_type: str | None = None,
-    error_message: str | None = None,
-    request_payload: dict | None = None,
-) -> None:
-    """Log Apprise notification execution to database."""
-    if notifier_id is None or group_id is None:
-        return
-
-    try:
-        with session_context() as session:
-            log = NotificationExecutionLogModel(
-                session=session,
-                notifier_id=notifier_id,
-                group_id=group_id,
-                executed_at=datetime.now(UTC),
-                status=status,
-                event_type=event_type,
-                error_message=error_message,
-                request_payload=request_payload,
-            )
-            session.add(log)
-            session.commit()
-    except Exception as e:
-        logger = get_logger()
-        logger.error(f"Failed to log notification execution: {e}")
-
-
 def _calculate_retry_delay(attempt: int) -> float:
     """Calculate exponential backoff: 2^attempt seconds, capped at 60."""
     return min(RETRY_BACKOFF_BASE**attempt, RETRY_BACKOFF_MAX)
+
+
+def _delivery_error(error: Exception, response: requests.Response | None) -> str:
+    """What went wrong, safe to put in an event: the HTTP status, or the kind of error. Never str(error) —
+    requests quotes the URL (which can carry a token) in its connection errors."""
+    if response is not None:
+        return f"HTTP {response.status_code}"
+    return type(error).__name__  # ConnectionError, ConnectTimeout, ReadTimeout, SSLError, …
+
+
+def _announce_delivery_failure(
+    event: Event,
+    webhook_id: GUID | None,
+    group_id: GUID | None,
+    webhook_name: str | None,
+    status_code: int | None,
+    error: str,
+) -> None:
+    """One `webhook_delivery_failed` per delivery that failed after its retries: the webhook's name and id, the
+    event it carried, the HTTP status or error — never its URL, headers or a body."""
+    if webhook_id is None or group_id is None:
+        return
+    delivered = getattr(event.event_type, "name", None)
+    if delivered == "webhook_delivery_failed":
+        return  # a webhook subscribed to this event failing too must not announce itself in a loop
+    try:
+        from .event_bus_service import EventBusService
+        from .event_types import EventTypes, EventWebhookDeliveryData
+
+        name = webhook_name or "Webhook"
+        EventBusService(bg_tasks=None).dispatch(
+            integration_id="webhook_delivery",
+            group_id=group_id,
+            event_type=EventTypes.webhook_delivery_failed,
+            document_data=EventWebhookDeliveryData(
+                webhook_id=webhook_id,
+                webhook_name=webhook_name,
+                delivered_event_type=delivered,
+                status_code=status_code,
+                error_message=error,
+                attempts=MAX_RETRY_ATTEMPTS,
+            ),
+            message=f"Outgoing webhook '{name}' couldn't deliver {delivered or 'an event'}: {error}",
+            entity_id=webhook_id,
+            entity_type="webhook",
+        )
+    except Exception as e:  # announcing a failure must never break the delivery path
+        get_logger().error(f"Failed to announce webhook delivery failure: {e}")
+
+
+# What the console never prints: a string under a key that names a credential, and a `token=` query value in a URL.
+# Marvin's own events carry no credential (their payloads say who and what, never a token or a link that holds one);
+# this is for what they relay from outside — an incoming webhook's request body — and for whatever comes next.
+_CREDENTIAL_KEY_PARTS = ("token", "secret", "password", "apikey", "authorization", "credential", "cookie")
+_TOKEN_IN_URL = re.compile(r"(?i)([?&](?:token|access_token|key|api_key|signature)=)[^&\s\"']+")
+_MASK = "[redacted]"
+
+
+def _masked(value: Any, key: str = "") -> Any:
+    """`value` with every credential-looking string replaced (counts and flags under such keys are kept)."""
+    if isinstance(value, dict):
+        return {k: _masked(v, str(k)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_masked(v, key) for v in value]
+    if isinstance(value, str):
+        if any(part in key.lower().replace("_", "").replace("-", "") for part in _CREDENTIAL_KEY_PARTS):
+            return _MASK
+        return _TOKEN_IN_URL.sub(rf"\1{_MASK}", value)
+    return value
 
 
 class ConsolePublisher:
@@ -220,9 +195,9 @@ class ConsolePublisher:
         self.logger.info(f"   Integration: {event.integration_id}")
         self.logger.info(f"   Message: {event.message.title}")
         if event.message.body and event.message.body != "generic":
-            self.logger.info(f"   Body: {event.message.body}")
+            self.logger.info(f"   Body: {_masked(event.message.body)}")
         if event.document_data:
-            data_dict = jsonable_encoder(event.document_data)
+            data_dict = _masked(jsonable_encoder(event.document_data))
             self.logger.info(f"   Document Type: {data_dict.get('documentType') or 'unknown'}")
             self.logger.info(f"   Operation: {data_dict.get('operation', 'unknown')}")
             for key, value in data_dict.items():
@@ -254,7 +229,16 @@ class WebhookPublisher:
         self.logger = get_logger()
 
     def publish(
-        self, event: Event, notification_urls: list[str], method: str = "POST", webhook_id: GUID | None = None, group_id: GUID | None = None, headers: dict[str, str] | None = None, payload_override: dict | None = None, **_: Any
+        self,
+        event: Event,
+        notification_urls: list[str],
+        method: str = "POST",
+        webhook_id: GUID | None = None,
+        group_id: GUID | None = None,
+        headers: dict[str, str] | None = None,
+        payload_override: dict | None = None,
+        webhook_name: str | None = None,
+        **_: Any,
     ) -> None:
         """
         Publishes event data to a list of notification URLs using the specified HTTP method.
@@ -272,6 +256,8 @@ class WebhookPublisher:
                                     Defaults to "POST".
             webhook_id (GUID | None, optional): The ID of the webhook being executed (for logging).
             group_id (GUID | None, optional): The ID of the group the webhook belongs to (for logging).
+            webhook_name (str | None, optional): Its name, for the `webhook_delivery_failed` event sent when
+                                    a delivery fails after its retries.
             **_ (Any): Catches any additional keyword arguments (ignored by this publisher).
 
 
@@ -334,7 +320,7 @@ class WebhookPublisher:
                     failed_response = getattr(e, "response", None)
 
                     # Capture response body for debugging (truncate to 4KB)
-                    resp_body: str | None = None
+                    resp_body = None
                     if failed_response is not None:
                         try:
                             resp_body = failed_response.text[:4096]
@@ -355,6 +341,14 @@ class WebhookPublisher:
                     if is_last_attempt:
                         # Final attempt failed
                         self.logger.error(f"Webhook to {url} failed after {MAX_RETRY_ATTEMPTS} attempts: {e}")
+                        _announce_delivery_failure(
+                            event,
+                            webhook_id,
+                            group_id,
+                            webhook_name,
+                            getattr(failed_response, "status_code", None),
+                            _delivery_error(e, failed_response),
+                        )
                         if self.hard_fail:
                             raise
                         # Don't retry further, move to next URL
@@ -391,47 +385,13 @@ class AuditLogPublisher:
             from marvin.db.models.platform.event_log import EventLogModel
             from marvin.repos.repository_factory import AllRepositories
 
-            # Extract entity information from document_data
-            entity_id = None
-            entity_type = None
+            entity_type, entity_id = event_entity(event)
             operation = None
-
-            if event.document_data:
-                # Extract entity_id from document_data if available
-                if hasattr(event.document_data, "entry_id"):
-                    entity_id = event.document_data.entry_id
-                    entity_type = "entry"
-                elif hasattr(event.document_data, "collection_id"):
-                    entity_id = event.document_data.collection_id
-                    entity_type = "collection"
-                elif hasattr(event.document_data, "asset_id"):
-                    entity_id = event.document_data.asset_id
-                    entity_type = "asset"
-                elif hasattr(event.document_data, "workspace_id") and hasattr(event.document_data, "document_type"):
-                    # For workspace-level events
-                    if event.document_data.document_type.value == "workspace":
-                        entity_id = event.document_data.workspace_id
-                        entity_type = "workspace"
-                elif hasattr(event.document_data, "api_client_id"):
-                    entity_id = event.document_data.api_client_id
-                    entity_type = "api_client"
-                elif hasattr(event.document_data, "user_id") and hasattr(event.document_data, "document_type"):
-                    if event.document_data.document_type.value == "member":
-                        entity_id = event.document_data.user_id
-                        entity_type = "member"
-
-                # Extract operation if available
-                if hasattr(event.document_data, "operation"):
-                    operation = event.document_data.operation.value
-
-            # Override with event-level entity_id and entity_type if set
-            if event.entity_id:
-                entity_id = event.entity_id
-            if event.entity_type:
-                entity_type = event.entity_type
+            if event.document_data and hasattr(event.document_data, "operation"):
+                operation = event.document_data.operation.value
 
             with session_context() as session:
-                repos = AllRepositories(session=session, group_id=event.workspace_id)
+                AllRepositories(session=session, group_id=event.workspace_id)
 
                 log_entry = EventLogModel(
                     event_id=event.event_id,
@@ -445,6 +405,7 @@ class AuditLogPublisher:
                     entity_type=entity_type,
                     integration_id=event.integration_id,
                     operation=operation,
+                    correlation_id=getattr(event, "correlation_id", None),
                     event_data=jsonable_encoder(event),
                     message_title=event.message.title,
                     message_body=event.message.body if event.message.body != "generic" else None,

@@ -27,7 +27,7 @@ class EntryCollections(SqlAlchemyBase):
     sort_order: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0, server_default="0")
     role: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     metadata_json: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
-    created_at: Mapped[datetime | None] = mapped_column(NaiveDateTime, nullable=True, server_default=sa.text("NOW()"))
+    created_at: Mapped[datetime | None] = mapped_column(NaiveDateTime, nullable=True)
     update_at: Mapped[datetime | None] = mapped_column(NaiveDateTime, nullable=True)
 
     # Relationships for easier access

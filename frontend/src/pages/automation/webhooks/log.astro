@@ -1,57 +1,46 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
-import { createSdkClient } from "@/lib/sdk";
 import { getAuthToken } from "@/lib/api/client";
+import { createSdkClient } from "@/lib/sdk";
+import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
 
-const filter = Astro.url.searchParams.get('filter') || 'all';
+const filter = Astro.url.searchParams.get("filter") || "all";
 
 let logs: any[] = [];
 let webhooks: any[] = [];
 let error: string | null = null;
+let adminOnly = false;
 
 try {
-  [logs, webhooks] = await Promise.all([
-    sdk.webhooks.log({ limit: 200 }),
-    sdk.webhooks.list(),
-  ]);
+  [logs, webhooks] = await Promise.all([sdk.webhooks.log({ limit: 200 }), sdk.webhooks.list()]);
 } catch (e) {
-  console.error('[webhooks/log] Error:', e);
-  error = e instanceof Error ? e.message : String(e);
+  console.error("[webhooks/log] Error:", e);
+  if (isForbidden(e)) adminOnly = true;
+  else error = e instanceof Error ? e.message : String(e);
 }
 
 // API returns camelCase due to _MarvinModel alias_generator
 const webhookMap = new Map(webhooks.map((w: any) => [w.id, w]));
-const filteredLogs = filter === 'all' ? logs : logs.filter((l: any) => l.status === filter);
+const filteredLogs = filter === "all" ? logs : logs.filter((l: any) => l.status === filter);
 
 function getField(log: any, camel: string, snake: string) {
   return log[camel] ?? log[snake];
 }
 
-function formatDate(isoStr: string): string {
-  if (!isoStr) return '—';
-  const normalized = isoStr.replace(/(\.\d{3})\d+/, '$1');
-  const d = new Date(normalized);
-  return isNaN(d.getTime()) ? isoStr : d.toLocaleString();
-}
-
 function statusClass(status: string): string {
-  if (status === 'success') return 'success';
-  if (status === 'failed') return 'failed';
-  if (status === 'retrying') return 'timeout';
-  return 'none';
+  if (status === "success") return "success";
+  if (status === "failed") return "failed";
+  if (status === "retrying") return "timeout";
+  return "none";
 }
 ---
 
-<AppLayout title="Webhook Activity Log" eyebrow="Automation">
+<AppLayout crumb="automation.webhooks.log" adminOnly={adminOnly}>
   <div class="page-header">
-    <div class="breadcrumb">
-      <a href="/automation/webhooks">Webhooks</a>
-      <span>›</span>
-      <span>Activity Log</span>
-    </div>
     <h2>Webhook Activity Log</h2>
     <p>Execution history for all webhooks in this workspace</p>
   </div>
@@ -105,7 +94,7 @@ function statusClass(status: string): string {
                       <button class="expand-btn" data-target={`detail-${i}`}>▶</button>
                     )}
                   </td>
-                  <td class="nowrap">{formatDate(executedAt)}</td>
+                  <td class="nowrap"><LocalTime iso={executedAt} /></td>
                   <td>
                     {webhook
                       ? <a href={`/automation/webhooks/${webhookId}`} class="webhook-link">{webhook.name}</a>
@@ -178,18 +167,6 @@ function statusClass(status: string): string {
     padding-bottom: 20px;
     border-bottom: 1px solid var(--line);
   }
-
-  .breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--muted);
-    margin-bottom: 12px;
-  }
-
-  .breadcrumb a { color: var(--muted); text-decoration: none; }
-  .breadcrumb a:hover { color: var(--ink); }
 
   .page-header h2 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
   .page-header p { margin: 0; color: var(--muted); font-size: 14px; }

@@ -6,8 +6,9 @@ Helm chart for deploying Marvin event bus application to Kubernetes/OpenShift.
 
 Marvin is an event bus application with webhook delivery, scheduling, and state persistence. This Helm chart provides:
 
-- Automated database migrations via Helm hooks
-- Multi-environment support (dev, staging, production)
+- Automated database migrations on application startup
+- API and server-rendered web UI from a single image, exposed on separate ports
+- Multi-environment support (per-install values files)
 - OpenShift Route integration
 - Persistent storage for SQLite database
 - Configurable resource limits
@@ -32,16 +33,6 @@ helm install marvin ./marvin-chart
 helm install marvin ./marvin-chart --namespace marvin-dev --create-namespace
 ```
 
-### Staging Deployment
-
-```bash
-helm install marvin ./marvin-chart \
-  --namespace marvin-staging \
-  --create-namespace \
-  --values marvin-chart/values-staging.yaml \
-  --set image.tag=$(git rev-parse --short HEAD)
-```
-
 ### Production Deployment
 
 ```bash
@@ -59,11 +50,10 @@ helm upgrade --install marvin ./marvin-chart \
 
 ### Values Files
 
-The chart includes three values files for different environments:
-
-- **values.yaml** - Development defaults (1 replica, debug logging, local SMTP)
-- **values-staging.yaml** - Staging overrides (2 replicas, info logging)
+- **values.yaml** - Defaults (1 replica, combined mode, debug logging, local SMTP)
 - **values-production.yaml** - Production settings (2+ replicas, strict security)
+- **values-k8s.yaml** - Plain Kubernetes (no OpenShift Route)
+- **values-iwobble.yaml** / **values-dev.yaml** - iwobble's production and its pre-production copy (`marvin-dev`)
 
 ### Key Configuration Options
 
@@ -80,7 +70,9 @@ image:
 
 ```yaml
 config:
-  production: false          # Enable production mode
+  production: true           # container mode; false = laptop-dev (known signing key, auto-reload: ~2x memory)
+  environmentLabel: ""       # e.g. DEV / STAGING: UI badge + "[DEV] " tab titles; empty = nothing shown
+  platformWorkspaceName: ""  # name of the admin's workspace on a fresh install; empty = "Default"
   allowSignup: true          # Allow user signups
   logLevel: DEBUG            # Logging level (DEBUG, INFO, WARNING, ERROR)
   dbEngine: sqlite           # Database engine
@@ -89,6 +81,18 @@ config:
   webhookRetryAttempts: 3    # Webhook retry count
   webhookTimeout: 30         # Webhook timeout in seconds
 ```
+
+`config.environmentLabel` marks a non-production instance so nobody mistakes it for production: the app
+and admin headers and the login page show it as a badge, and every tab title starts with `[DEV] `. It
+becomes the API's `ENVIRONMENT_LABEL` (upper-cased, at most 12 characters). Left empty — the default,
+and what production uses — neither the ConfigMap key nor the env var is rendered. `values-dev.yaml`
+sets `DEV`.
+
+`config.platformWorkspaceName` names the platform (admin's) workspace — the one platform alerts and
+shared services run from — when a fresh install creates it; its slug is derived from the name. Empty
+(the default) means `Default`. It becomes the API's `DEFAULT_GROUP`. On an existing install it is only
+informational: the workspace keeps its name (the API logs a hint at startup when they differ), and a
+super admin renames it — name and slug — in Admin → Workspaces.
 
 #### Resource Limits
 
@@ -112,6 +116,73 @@ persistence:
   accessMode: ReadWriteOnce
 ```
 
+#### Backups
+
+`backup.targets[]` (empty by default) runs the backup engine, `python -m marvin.scripts.backup`, as one
+CronJob `<release>-backup-<name>` per target, each with its own schedule, retention and exit code: the
+database (a consistent SQLite snapshot or a `pg_dump`), a config archive (`.secret`,
+`scheduler_state.json`, `templates/`) and an incremental mirror of `assets/`, from the backend image on
+the backend pod's node (the PVC is ReadWriteOnce). `type` is `local` (built in: a directory on a volume
+of its own) or a storage plugin's target slug, e.g. `s3` from `marvin-storage-s3` (from
+`plugins.packages`, which these CronJobs get as well).
+
+```yaml
+plugins:
+  packages:
+    - https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/heads/develop.tar.gz
+    - https://github.com/InnerOpen/marvin-storage-s3/archive/refs/heads/main.tar.gz
+backup:
+  targets:
+    - name: r2                                        # S3-compatible bucket (R2, AWS, MinIO, B2)
+      type: s3
+      schedule: "0 * * * *"
+      existingSecret: marvin-r2-backup                # every key becomes an env var: AWS_ACCESS_KEY_ID,
+                                                      # AWS_SECRET_ACCESS_KEY, BACKUP_S3_ENDPOINT, BACKUP_S3_BUCKET
+      retention: {hourly: 48, daily: 30, weekly: 8}   # → BACKUP_KEEP_*; engine default 48 / 30 / 0
+    - name: nas-nightly
+      type: local
+      schedule: "30 2 * * *"
+      timeZone: America/New_York
+      retention: {hourly: 0, daily: 30, weekly: 8}
+      volume:
+        nfs: {server: 192.168.30.10, path: /tank/backups/marvin}   # or existingClaim: <pvc>
+        subPath: prod                                 # created by the kubelet if missing
+```
+
+`volume.nfs` renders a static PV `<namespace>-<release>-backup-<name>` (ReadWriteMany, `Retain`,
+`storageClassName: ""`, `hard,nfsvers=4.2`, `claimRef`) and its PVC; OpenShift's `restricted-v2` SCC
+doesn't allow inline `nfs:` volumes. `helm template` fails on a local target without a volume or on
+the data volume (`marvin-data`, `<release>-data`, `persistence.existingClaim`); the engine also refuses
+a directory on the data volume's filesystem. A target holds the installation `.secret`, which decrypts
+every secret Marvin stores: keep it private and its token scoped to it. One-off run:
+`oc create job --from=cronjob/marvin-backup-r2 marvin-r2-now`. Every key is described in
+`values.yaml`; runbook (restore, retention):
+[docs/manual/offsite-backup.md](../docs/manual/offsite-backup.md).
+
+The retired single-target job (`backup.enabled`, `marvin.scripts.offsite_backup`) was removed in storage
+slice 7 (2026-10-10).
+
+#### Web Push (app notifications)
+
+The admin UI installs as an app; push notifications to people's phones and browsers need a VAPID key
+pair on the backend. The chart reads it from a Secret it never renders:
+
+```yaml
+webPush:
+  existingSecret: marvin-vapid   # keys VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT
+```
+
+Create it once per installation (a new pair means every device turns notifications on again):
+
+```bash
+uv run python -m marvin.scripts.vapid --subject mailto:ops@example.com > vapid.env
+oc create secret generic marvin-vapid -n <namespace> --from-env-file=vapid.env && rm vapid.env
+```
+
+The references are optional: until the Secret exists the backend starts with push off (the app hides its
+push controls). Restart the backend after creating it. Key names are configurable (`webPush.secretKeys`);
+runbook: [docs/manual/app-and-push.md](../docs/manual/app-and-push.md).
+
 #### OpenShift Route
 
 ```yaml
@@ -134,7 +205,6 @@ route:
 kubectl create secret generic marvin-secrets \
   --from-literal=SMTP_HOST=smtp.example.com \
   --from-literal=SMTP_PORT=587 \
-  --from-literal=JWT_SECRET=your-secret-here \
   --dry-run=client -o yaml | \
   kubeseal -o yaml > marvin-chart/templates/sealed-secret.yaml
 
@@ -142,21 +212,151 @@ kubectl create secret generic marvin-secrets \
 # and reference the sealed secret in deployment
 ```
 
+## Deployment Modes
+
+The chart runs Marvin in one of two topologies, chosen with `mode`:
+
+- **`combined`** (default) — one Deployment whose container runs the API and the server-rendered
+  frontend together (via the `marvin` image). Simplest to operate; the API and UI scale and roll as
+  a unit.
+- **`split`** — two Deployments, the API (`marvin-backend` image) and the frontend (`marvin-frontend`
+  image), each with its own Service, scaled and rolled independently. The frontend reaches the API
+  over the in-cluster `<release>-backend` Service; the public route points at the frontend. Use this
+  when you want to scale the stateless UI separately from the API, or roll one without restarting the
+  other.
+
+  The backend Service is internal only (ClusterIP, no route). With local storage the frontend serves
+  uploaded media itself — it proxies `/assets/*` to the backend — so images resolve against the
+  frontend origin and the backend never needs public exposure. (With S3 storage, media URLs point at
+  the bucket directly and neither is involved.)
+
+```yaml
+# split mode
+mode: split
+split:
+  backend:
+    replicaCount: 2
+  frontend:
+    replicaCount: 3
+# The browser-facing API URL must be set so injected pages can reach the API from outside the
+# cluster (the API is otherwise only on an internal Service):
+config:
+  publicApiUrl: https://marvin.example.com
+```
+
+The backend and frontend images default to `<image.repository>-backend` / `-frontend` at
+`image.tag`; override `split.backend.image` / `split.frontend.image` for a different registry. Both
+images come from the same build as the combined one — see the Dockerfile's `backend` and `frontend`
+targets.
+
 ## Database Migrations
 
-Database migrations run automatically via Helm pre-upgrade hooks:
+The application runs `alembic upgrade head` itself during startup, before it begins serving. The
+chart does not schedule a separate migration Job — one less moving part, and it keeps the schema in
+lockstep with the image that owns it.
 
-1. User runs `helm upgrade`
-2. Migration job executes `alembic upgrade head`
-3. Job must complete successfully before deployment proceeds
-4. New pods start with updated schema
+Because migrations are part of startup, the readiness probe (`/readyz`) is what gates traffic: a pod
+stays out of the Service until its schema is current and the database answers. Give `--timeout`
+enough room on upgrades that introduce long migrations.
 
-To view migration logs:
+To watch a migration:
 
 ```bash
-MIGRATION_JOB=$(oc get jobs -l job-type=migration --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].metadata.name}')
-oc logs job/$MIGRATION_JOB
+kubectl logs -f deployment/marvin -n <namespace>
 ```
+
+## Integration Plugins
+
+Marvin core ships no integration providers. It discovers them through the `marvin.integrations`
+entry-point group, read from installed distribution metadata when the process starts. Three
+consequences worth knowing before you pick an approach:
+
+- A provider has to be a real installed distribution. A loose `.py` file on a volume registers
+  nothing, because there is no `dist-info` to read an entry point from.
+- Whether the integrations API surface exists at all is decided at import. With no provider
+  installed, the `marvin_integration_sdk` package is absent and those routes are never registered.
+- Adding or removing a plugin therefore requires a pod restart. Nothing is hot-loaded.
+
+### Marvin's own plugins: baked in
+
+The site-wide plugins Marvin runs (the integrations, `marvin-storage-s3`, `marvin-ai-openai`) are baked
+into every Marvin image: the `plugins` dependency group in `pyproject.toml`, each at the commit `uv.lock`
+pins, installed by the Dockerfile (`uv sync --group plugins`). The image tag therefore pins every plugin,
+nothing is downloaded when a pod or a backup job starts, and CI fails the build if one is missing or
+doesn't import (`docker/check-plugins.py`). To update one: `uv lock --upgrade-package <name>`, commit,
+and let CI build and promote it. `plugins.packages` (below) stays for an extra plugin or a hot fix
+ahead of a build.
+
+### Recommended for your own plugins: a derived image
+
+Pin the plugin set into an image and let the tag describe it. Dependency conflicts surface as a
+build failure rather than an import error in a running pod, and the deployment stays immutable.
+
+```dockerfile
+FROM ghcr.io/inneropen/marvin:1.0.0-rc.10
+RUN /app/.venv/bin/pip install marvin-integration-slack
+```
+
+```yaml
+image:
+  repository: ghcr.io/your-org/marvin-with-slack
+  tag: "1.0.0-rc.10"
+```
+
+### Without rebuilding: `plugins.packages` (empty by default)
+
+List the plugins as pip requirements and the chart installs them at pod start into a shared
+`emptyDir` on `PYTHONPATH`, in every pod that runs Marvin code: the backend (split or combined) and
+each backup CronJob, so a storage plugin's backup target is there too. Entry points are discovered
+from any `sys.path` entry, so this is enough for the loader to find the plugins.
+
+```yaml
+plugins:
+  packages:
+    - https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/heads/develop.tar.gz
+    - https://github.com/InnerOpen/marvin-integration-slack/archive/refs/heads/main.tar.gz
+```
+
+The SDK is listed so pip can resolve the plugins' requirement. The init container runs in the backend
+image: pip is constrained to the exact versions the image already has, and afterwards every package the
+image has (the SDK included) is removed from `/plugins`. `PYTHONPATH` comes before site-packages, so
+this is what keeps a plugin's dependencies (a vendor SDK's `pydantic`, `httpx`, ...) from replacing
+Marvin's own; a plugin that needs different versions fails the install instead, and the rollout stops
+with the old pods still serving. The init log lists what was dropped. `plugins.image` (empty = the
+backend image) and `plugins.resources` tune the init container.
+
+### By hand: an init container plus PYTHONPATH
+
+The raw `initContainers` / `extraVolumes` / `extraVolumeMounts` / `extraEnv` values remain as the
+escape hatch (they reach the backend only, not the backup CronJob):
+
+```yaml
+initContainers:
+  - name: install-plugins
+    image: python:3.12-slim
+    command: ["sh", "-c", "pip install --target /plugins marvin-integration-slack"]
+    volumeMounts:
+      - name: plugins
+        mountPath: /plugins
+
+extraVolumes:
+  - name: plugins
+    emptyDir: {}
+
+extraVolumeMounts:
+  - name: plugins
+    mountPath: /plugins
+
+extraEnv:
+  - name: PYTHONPATH
+    value: /plugins
+```
+
+Two things to watch. `pip install --target` resolves nothing against the venv already in the image,
+so the plugin's transitive dependencies have to land in `/plugins` too. And `PYTHONPATH` is searched
+before site-packages, so anything vendored there shadows the image's own copy — pin versions
+deliberately. An `emptyDir` also means the install re-runs on every pod start, which needs egress to
+your package index; swap in a PVC if you would rather do it once.
 
 ## Upgrading
 
@@ -194,7 +394,7 @@ For breaking migrations (like TIME → DATETIME conversion):
    oc cp $POD:/tmp/backup.tar.gz ./marvin-backup-$(date +%Y%m%d).tar.gz
    ```
 
-2. **Run upgrade** (migration happens automatically via hook)
+2. **Run upgrade** (migration happens automatically as the new pod starts)
 
 3. **Verify** migration success before traffic resumes
 
@@ -238,7 +438,7 @@ See `ROLLBACK_PROCEDURES.md` for detailed rollback instructions.
 ROUTE=$(oc get route marvin -o jsonpath='{.spec.host}')
 
 # Check health endpoint
-curl -v https://$ROUTE/api/health
+curl -v https://$ROUTE/healthz
 ```
 
 ### View Logs
@@ -257,8 +457,10 @@ oc logs $POD | grep ERROR
 ### Verify Migration Status
 
 ```bash
-oc exec $POD -- bash -c 'cd /app/src/marvin && uv run alembic current'
+oc exec $POD -- alembic -c /app/.venv/lib/python3.12/site-packages/marvin/alembic.ini current
 ```
+
+Or simply read it off the startup log — the application logs its migration run before serving.
 
 ### Check Scheduler State
 
@@ -268,16 +470,17 @@ oc exec $POD -- cat /app/data/scheduler_state.json
 
 ## Troubleshooting
 
-### Migration Job Failed
+### Migration Failed
+
+Migrations run inside the application pod at startup, so a failure shows up as a pod that never
+becomes ready:
 
 ```bash
-# View migration job logs
-MIGRATION_JOB=$(oc get jobs -l job-type=migration --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].metadata.name}')
-oc logs job/$MIGRATION_JOB
+# The migration output is at the top of the startup log
+kubectl logs -n <namespace> deployment/marvin | head -50
 
-# Delete failed job and retry
-oc delete job $MIGRATION_JOB
-helm upgrade marvin ./marvin-chart [options]
+# If the pod already restarted, read the previous container's log
+kubectl logs -n <namespace> $POD --previous
 ```
 
 ### Pod CrashLoopBackOff

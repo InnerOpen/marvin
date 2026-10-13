@@ -63,7 +63,9 @@ class RepositoryUsers(GroupRepositoryGeneric[PrivateUser, UsersModel]):
             all_users = self.session.query(self.model).all()
             self.logger.error(f"User {user_uuid} not found. Available users: {[str(u.id) for u in all_users]}")
 
-            from fastapi import HTTPException, status as http_status
+            from fastapi import HTTPException
+            from fastapi import status as http_status
+
             from marvin.schemas.response import ErrorResponse
 
             raise HTTPException(
@@ -107,7 +109,7 @@ class RepositoryUsers(GroupRepositoryGeneric[PrivateUser, UsersModel]):
         # `new_user` here is already a Pydantic `PrivateUser` schema due to `super().create`'s return type.
         return new_user
 
-    def update(self, match_value: UUID4 | str, new_data: UserUpdate | dict) -> PrivateUser:
+    def update(self, match_value: UUID4 | str, new_data: UserUpdate | dict, match_key: str | None = None) -> PrivateUser:
         """
         Updates an existing user.
 
@@ -128,7 +130,8 @@ class RepositoryUsers(GroupRepositoryGeneric[PrivateUser, UsersModel]):
         entry = self.session.query(self.model).filter_by(id=user_uuid).first()
 
         if not entry:
-            from fastapi import HTTPException, status as http_status
+            from fastapi import HTTPException
+            from fastapi import status as http_status
 
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,

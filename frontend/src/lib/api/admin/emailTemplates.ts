@@ -2,39 +2,26 @@
  * Admin Email Templates API - manage system-wide email templates
  */
 
-import { fetchApi } from '../client';
+import { fetchApi } from "../client";
 import type {
-  EmailTemplateSummary,
-  EmailTemplateRead,
   EmailTemplateCreate,
+  EmailTemplateRead,
+  EmailTemplateSummary,
   EmailTemplateUpdate,
-} from '../emailTemplates';
+} from "../emailTemplates";
 
 /**
  * List all system-wide email templates
  */
-export async function listSystemEmailTemplates(
-  authToken?: string
-): Promise<EmailTemplateSummary[]> {
-  return fetchApi<EmailTemplateSummary[]>(
-    `/api/admin/email/templates`,
-    { method: 'GET' },
-    authToken
-  );
+export async function listSystemEmailTemplates(authToken?: string): Promise<EmailTemplateSummary[]> {
+  return fetchApi<EmailTemplateSummary[]>(`/api/admin/email/templates`, { method: "GET" }, authToken);
 }
 
 /**
  * Get a specific system email template
  */
-export async function getSystemEmailTemplate(
-  templateId: string,
-  authToken?: string
-): Promise<EmailTemplateRead> {
-  return fetchApi<EmailTemplateRead>(
-    `/api/admin/email/templates/${templateId}`,
-    { method: 'GET' },
-    authToken
-  );
+export async function getSystemEmailTemplate(templateId: string, authToken?: string): Promise<EmailTemplateRead> {
+  return fetchApi<EmailTemplateRead>(`/api/admin/email/templates/${templateId}`, { method: "GET" }, authToken);
 }
 
 /**
@@ -42,16 +29,16 @@ export async function getSystemEmailTemplate(
  */
 export async function createSystemEmailTemplate(
   data: EmailTemplateCreate,
-  authToken?: string
+  authToken?: string,
 ): Promise<EmailTemplateRead> {
   return fetchApi<EmailTemplateRead>(
     `/api/admin/email/templates`,
     {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     },
-    authToken
+    authToken,
   );
 }
 
@@ -61,31 +48,24 @@ export async function createSystemEmailTemplate(
 export async function updateSystemEmailTemplate(
   templateId: string,
   data: EmailTemplateUpdate,
-  authToken?: string
+  authToken?: string,
 ): Promise<EmailTemplateRead> {
   return fetchApi<EmailTemplateRead>(
     `/api/admin/email/templates/${templateId}`,
     {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     },
-    authToken
+    authToken,
   );
 }
 
 /**
  * Delete a system email template
  */
-export async function deleteSystemEmailTemplate(
-  templateId: string,
-  authToken?: string
-): Promise<void> {
-  await fetchApi<void>(
-    `/api/admin/email/templates/${templateId}`,
-    { method: 'DELETE' },
-    authToken
-  );
+export async function deleteSystemEmailTemplate(templateId: string, authToken?: string): Promise<void> {
+  await fetchApi<void>(`/api/admin/email/templates/${templateId}`, { method: "DELETE" }, authToken);
 }
 
 /**
@@ -94,15 +74,15 @@ export async function deleteSystemEmailTemplate(
 export async function sendSystemTemplateTestEmail(
   templateId: string,
   recipientEmail: string,
-  authToken?: string
+  authToken?: string,
 ): Promise<{ message: string }> {
   return fetchApi<{ message: string }>(
     `/api/admin/email/templates/${templateId}/test`,
     {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ recipient_email: recipientEmail }),
     },
-    authToken
+    authToken,
   );
 }

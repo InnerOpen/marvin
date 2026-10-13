@@ -7,16 +7,14 @@ Provides methods for managing workspace memberships including:
 - Querying workspace members
 """
 
-from typing import Optional
-from uuid import UUID
-
 from pydantic import UUID4
-from sqlalchemy import select, delete
+from sqlalchemy import delete, select
 from sqlalchemy.orm import joinedload
 
-from marvin.db.models.users.workspace_members import WorkspaceMembers as WorkspaceMembersModel
 from marvin.db.models.users.roles import WorkspaceRole
+from marvin.db.models.users.workspace_members import WorkspaceMembers as WorkspaceMembersModel
 from marvin.schemas.user.user import WorkspaceMembershipRead
+
 from .repository_generic import RepositoryGeneric
 
 
@@ -69,7 +67,7 @@ class RepositoryWorkspaceMembers(RepositoryGeneric[WorkspaceMembershipRead, Work
         results = self.session.execute(stmt).scalars().all()
         return [WorkspaceMembershipRead.model_validate(member) for member in results]
 
-    def get_membership(self, user_id: UUID4, workspace_id: UUID4) -> Optional[WorkspaceMembershipRead]:
+    def get_membership(self, user_id: UUID4, workspace_id: UUID4) -> WorkspaceMembershipRead | None:
         """
         Get a specific user's membership in a workspace.
 
@@ -82,22 +80,14 @@ class RepositoryWorkspaceMembers(RepositoryGeneric[WorkspaceMembershipRead, Work
         """
         stmt = (
             select(WorkspaceMembersModel)
-            .where(
-                WorkspaceMembersModel.user_id == user_id,
-                WorkspaceMembersModel.group_id == workspace_id
-            )
+            .where(WorkspaceMembersModel.user_id == user_id, WorkspaceMembersModel.group_id == workspace_id)
             .options(joinedload(WorkspaceMembersModel.user))
         )
 
         result = self.session.execute(stmt).scalar_one_or_none()
         return WorkspaceMembershipRead.model_validate(result) if result else None
 
-    def add_member(
-        self,
-        user_id: UUID4,
-        workspace_id: UUID4,
-        role: WorkspaceRole
-    ) -> WorkspaceMembershipRead:
+    def add_member(self, user_id: UUID4, workspace_id: UUID4, role: WorkspaceRole) -> WorkspaceMembershipRead:
         """
         Add a user to a workspace with a specific role.
 
@@ -112,12 +102,7 @@ class RepositoryWorkspaceMembers(RepositoryGeneric[WorkspaceMembershipRead, Work
         Raises:
             IntegrityError: If the user is already a member (unique constraint)
         """
-        member = WorkspaceMembersModel(
-            session=self.session,
-            user_id=user_id,
-            group_id=workspace_id,
-            workspace_role=role
-        )
+        member = WorkspaceMembersModel(session=self.session, user_id=user_id, group_id=workspace_id, workspace_role=role)
 
         self.session.add(member)
         self.session.flush()
@@ -125,12 +110,7 @@ class RepositoryWorkspaceMembers(RepositoryGeneric[WorkspaceMembershipRead, Work
 
         return WorkspaceMembershipRead.model_validate(member)
 
-    def update_role(
-        self,
-        user_id: UUID4,
-        workspace_id: UUID4,
-        new_role: WorkspaceRole
-    ) -> Optional[WorkspaceMembershipRead]:
+    def update_role(self, user_id: UUID4, workspace_id: UUID4, new_role: WorkspaceRole) -> WorkspaceMembershipRead | None:
         """
         Update a user's role in a workspace.
 
@@ -142,13 +122,7 @@ class RepositoryWorkspaceMembers(RepositoryGeneric[WorkspaceMembershipRead, Work
         Returns:
             The updated membership, or None if membership doesn't exist
         """
-        stmt = (
-            select(WorkspaceMembersModel)
-            .where(
-                WorkspaceMembersModel.user_id == user_id,
-                WorkspaceMembersModel.group_id == workspace_id
-            )
-        )
+        stmt = select(WorkspaceMembersModel).where(WorkspaceMembersModel.user_id == user_id, WorkspaceMembersModel.group_id == workspace_id)
 
         member = self.session.execute(stmt).scalar_one_or_none()
         if not member:
@@ -171,10 +145,7 @@ class RepositoryWorkspaceMembers(RepositoryGeneric[WorkspaceMembershipRead, Work
         Returns:
             True if a membership was deleted, False if it didn't exist
         """
-        stmt = delete(WorkspaceMembersModel).where(
-            WorkspaceMembersModel.user_id == user_id,
-            WorkspaceMembersModel.group_id == workspace_id
-        )
+        stmt = delete(WorkspaceMembersModel).where(WorkspaceMembersModel.user_id == user_id, WorkspaceMembersModel.group_id == workspace_id)
 
         result = self.session.execute(stmt)
         self.session.flush()
@@ -193,12 +164,8 @@ class RepositoryWorkspaceMembers(RepositoryGeneric[WorkspaceMembershipRead, Work
         Returns:
             Number of members with OWNER role
         """
-        stmt = (
-            select(WorkspaceMembersModel)
-            .where(
-                WorkspaceMembersModel.group_id == workspace_id,
-                WorkspaceMembersModel.workspace_role == WorkspaceRole.OWNER
-            )
+        stmt = select(WorkspaceMembersModel).where(
+            WorkspaceMembersModel.group_id == workspace_id, WorkspaceMembersModel.workspace_role == WorkspaceRole.OWNER
         )
 
         result = self.session.execute(stmt).scalars().all()
@@ -215,13 +182,7 @@ class RepositoryWorkspaceMembers(RepositoryGeneric[WorkspaceMembershipRead, Work
         Returns:
             True if user is a member, False otherwise
         """
-        stmt = (
-            select(WorkspaceMembersModel)
-            .where(
-                WorkspaceMembersModel.user_id == user_id,
-                WorkspaceMembersModel.group_id == group_id
-            )
-        )
+        stmt = select(WorkspaceMembersModel).where(WorkspaceMembersModel.user_id == user_id, WorkspaceMembersModel.group_id == group_id)
 
         result = self.session.execute(stmt).scalar_one_or_none()
         return result is not None

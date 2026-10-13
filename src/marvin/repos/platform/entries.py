@@ -1,5 +1,6 @@
 """Entry repositories."""
 
+from datetime import UTC
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -7,14 +8,15 @@ from pydantic import UUID4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from marvin.db.models.platform import Entries, EntryTypes, EntryCollections, EntryAssets, EntryResources
+from marvin.db.models.platform import Entries, EntryAssets, EntryCollections, EntryResources, EntryTags, EntryTypes
+from marvin.repos.platform._suggestions import SuggestionWritebackMixin
 from marvin.repos.repository_generic import GroupRepositoryGeneric
 from marvin.schemas.platform import EntryRead
 from marvin.schemas.platform.entry_type_schema import EntryTypeSchemaDefinition
 from marvin.services.content_validator import ContentValidationError, ContentValidator
 
 
-class EntriesRepository(GroupRepositoryGeneric[EntryRead, Entries]):
+class EntriesRepository(SuggestionWritebackMixin, GroupRepositoryGeneric[EntryRead, Entries]):
     """Repository for workspace-scoped entries.
 
     Validates entry content (data_json) against entry type schema (schema_json)
@@ -105,7 +107,7 @@ class EntriesRepository(GroupRepositoryGeneric[EntryRead, Entries]):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Entry type has invalid schema: {e}",
-            )
+            ) from e
 
         # Validate content against schema
         try:
@@ -114,10 +116,11 @@ class EntriesRepository(GroupRepositoryGeneric[EntryRead, Entries]):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Content validation failed: {e.message}",
-            )
+            ) from e
 
     def create(self, data: Any) -> EntryRead:
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         from slugify import slugify
 
         data_dict = data if isinstance(data, dict) else data.model_dump()
@@ -133,9 +136,7 @@ class EntriesRepository(GroupRepositoryGeneric[EntryRead, Entries]):
         base_slug = data_dict.get("slug")
         if base_slug:
             slug, n = base_slug, 2
-            while self.session.query(self.model.id).filter_by(
-                group_id=data_dict.get("group_id"), slug=slug
-            ).first():
+            while self.session.query(self.model.id).filter_by(group_id=data_dict.get("group_id"), slug=slug).first():
                 slug, n = f"{base_slug}-{n}", n + 1
             data_dict["slug"] = slug
 
@@ -150,9 +151,12 @@ class EntriesRepository(GroupRepositoryGeneric[EntryRead, Entries]):
         if "data_json" in data_dict:
             self._validate_content(data_dict["entry_type_id"], data_dict["data_json"])
 
-        # Auto-set published_at when creating with status 'published'
-        if data_dict.get("status") == "published" and not data_dict.get("published_at"):
-            data_dict["published_at"] = datetime.now(timezone.utc)
+        # Auto-set published_at when creating with status 'published'; a schedule is moot then
+        # (see update)
+        if data_dict.get("status") == "published":
+            if not data_dict.get("published_at"):
+                data_dict["published_at"] = datetime.now(UTC)
+            data_dict["publish_at"] = None
 
         # Extract relationship IDs before creating entry
         collection_ids = data_dict.pop("collection_ids", None)
@@ -161,6 +165,7 @@ class EntriesRepository(GroupRepositoryGeneric[EntryRead, Entries]):
         resource_ids = data_dict.pop("resource_ids", None)
         asset_attachments = data_dict.pop("asset_attachments", None)
         resource_attachments = data_dict.pop("resource_attachments", None)
+        tag_ids = data_dict.pop("tag_ids", None)
 
         new_entry = self.model(session=self.session, **data_dict)
         self.session.add(new_entry)
@@ -178,19 +183,25 @@ class EntriesRepository(GroupRepositoryGeneric[EntryRead, Entries]):
             self._attach_resource_attachments(new_entry.id, resource_attachments)
         elif resource_ids:
             self._attach_resources(new_entry.id, resource_ids)
+        if tag_ids:
+            self._attach_tags(new_entry.id, tag_ids)
 
         self.session.commit()
 
-        return self.get_one(new_entry.id)
+        created = self.get_one(new_entry.id)
+        assert created is not None  # just created
+        return created
 
     def update(self, match_value: Any, new_data: Any, match_key: str | None = None) -> EntryRead:
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         from slugify import slugify
 
         data_dict = new_data if isinstance(new_data, dict) else new_data.model_dump(exclude_unset=True)
 
         # Get existing entry to check publish status
         existing_entry = self.get_one(match_value, key=match_key)
+        assert existing_entry is not None  # updating an existing entry
 
         # Slug handling based on publish status
         if existing_entry.status == "published":
@@ -212,15 +223,27 @@ class EntriesRepository(GroupRepositoryGeneric[EntryRead, Entries]):
         # Handle published_at based on status changes
         if "status" in data_dict:
             if data_dict["status"] == "published":
+                # Publishing by any route consumes the schedule, so the Publish Scheduled Entries
+                # task can't put the entry live again after a later unpublish.
+                data_dict["publish_at"] = None
                 # Only set published_at if not already provided (first publish)
                 if "published_at" not in data_dict:
                     # Get current entry to check if it was already published
                     current_entry = self.get_one(match_value, key=match_key)
                     if current_entry and not current_entry.published_at:
-                        data_dict["published_at"] = datetime.now(timezone.utc)
+                        data_dict["published_at"] = datetime.now(UTC)
             else:
                 # If unpublishing (changing to draft/etc), clear published_at
                 data_dict["published_at"] = None
+
+        # A scheduled publish the task is holding back (services/entries/scheduled_block.py): publishing,
+        # archiving or rescheduling ends the wait; any other edit re-arms its notification.
+        from marvin.services.entries.scheduled_block import after_edit
+
+        stored = self.session.get(Entries, existing_entry.id)
+        block_changed, block = after_edit(stored.scheduled_publish_blocked if stored else None, data_dict, existing_entry.publish_at)
+        if block_changed:
+            data_dict["scheduled_publish_blocked"] = block
 
         # Validate entry type exists if being changed
         entry_type_id = data_dict.get("entry_type_id")
@@ -251,6 +274,7 @@ class EntriesRepository(GroupRepositoryGeneric[EntryRead, Entries]):
         resource_ids = data_dict.pop("resource_ids", None)
         asset_attachments = data_dict.pop("asset_attachments", None)
         resource_attachments = data_dict.pop("resource_attachments", None)
+        tag_ids = data_dict.pop("tag_ids", None)
 
         # Update the entry
         entry = super().update(match_value, data_dict, match_key=match_key)
@@ -276,6 +300,9 @@ class EntriesRepository(GroupRepositoryGeneric[EntryRead, Entries]):
         elif resource_ids is not None:
             self._replace_resources(entry.id, resource_ids)
             has_rel_changes = True
+        if tag_ids is not None:
+            self._replace_tags(entry.id, tag_ids)
+            has_rel_changes = True
 
         if has_rel_changes:
             self.session.commit()
@@ -290,15 +317,28 @@ class EntriesRepository(GroupRepositoryGeneric[EntryRead, Entries]):
         """Apply a {target: value} map onto an entry and commit.
 
         Targets: a top-level column ("summary"/"title"/"description"), a "data_json.<key>"
-        path, or a "metadata_json.<key>" path. `_meta` keys are ignored.
+        path, a "metadata_json.<key>" path, the special "tags" target (a list of tag names
+        that get find-or-created and linked, unioned with the entry's existing tags), or the
+        special "resources" target (a list of refs — id/slug/name — attached reuse-only, unioned
+        with the entry's existing resources). `_meta` keys are ignored.
         """
+        from marvin.services.entries.scheduled_block import after_edit
+
         entry = self.session.get(Entries, entry_id)
         if not entry:
             return
+        columns = {t: v for t, v in fields.items() if t not in ("_meta", "tags", "resources") and "." not in t}
+        block_changed, block = after_edit(entry.scheduled_publish_blocked, columns, entry.publish_at)
+        if block_changed:
+            entry.scheduled_publish_blocked = block
         for target, value in fields.items():
             if target == "_meta":
                 continue
-            if target.startswith("data_json."):
+            if target == "tags":
+                self._apply_tag_names(entry, value)
+            elif target == "resources":
+                self._apply_resource_refs(entry, value)
+            elif target.startswith("data_json."):
                 data = dict(entry.data_json or {})
                 data[target.split(".", 1)[1]] = value
                 entry.data_json = data
@@ -310,34 +350,77 @@ class EntriesRepository(GroupRepositoryGeneric[EntryRead, Entries]):
                 setattr(entry, target, value)
         self.session.commit()
 
-    def stage_suggestion(self, entry_id: Any, fields: dict) -> None:
-        """Merge proposed fields into the entry's pending suggestion_json (for later review)."""
-        entry = self.session.get(Entries, entry_id)
-        if not entry:
+    def _apply_tag_names(self, entry: Entries, names: Any) -> None:
+        """Find-or-create each tag name (group-scoped, by slug) and link it to the entry.
+
+        Additive (union with existing tags) — generate-tags SUGGESTS tags, it doesn't replace
+        the curated set. No-op for a non-list value.
+        """
+        if not isinstance(names, list | tuple):
             return
-        staged = dict(entry.suggestion_json or {})
-        staged.update(fields)
-        entry.suggestion_json = staged
-        self.session.commit()
+        from slugify import slugify
 
-    def apply_suggestion(self, entry_id: Any) -> EntryRead | None:
-        """Apply the staged suggestion_json onto the entry and clear it."""
-        entry = self.session.get(Entries, entry_id)
-        if not entry:
+        from marvin.db.models.platform import Tags
+
+        have = {t.slug for t in entry.tags}
+        for raw in names:
+            slug = slugify(str(raw))
+            if not slug or slug in have:
+                continue
+            tag = self.session.query(Tags).filter(Tags.group_id == entry.group_id, Tags.slug == slug).first()
+            if tag is None:
+                tag = Tags(session=self.session, group_id=entry.group_id, name=str(raw).strip(), slug=slug)
+                self.session.add(tag)
+                self.session.flush()
+            self.session.add(EntryTags(entry_id=entry.id, tag_id=tag.id))
+            have.add(slug)
+
+    def _apply_resource_refs(self, entry: Entries, refs: Any) -> None:
+        """Attach existing resources (reuse-only) referenced by id, slug, OR name — additive.
+
+        The grounding lists resources by name, so a suggestion carries names; matching by name is
+        essential. Unknown refs are ignored (never invents resources). No-op for a non-list value.
+        """
+        if not isinstance(refs, list | tuple):
+            return
+        import uuid as _uuid
+
+        from marvin.db.models.platform import Resources
+
+        have = {er.resource_id for er in self.session.query(EntryResources).filter_by(entry_id=entry.id)}
+        for raw in refs:
+            ref = str(raw).strip()
+            if not ref:
+                continue
+            resource = None
+            try:
+                resource = self.session.get(Resources, _uuid.UUID(ref))
+            except (ValueError, TypeError):
+                resource = (
+                    self.session.query(Resources)
+                    .filter(Resources.group_id == entry.group_id)
+                    .filter((Resources.slug == ref) | (Resources.name == ref))
+                    .first()
+                )
+            if not resource or resource.group_id != entry.group_id or resource.id in have:
+                continue
+            self.session.add(EntryResources(entry_id=entry.id, resource_id=resource.id, position=0))
+            have.add(resource.id)
+
+    # ── Suggested (pending-review) asset links ─────────────────────────────
+
+    def get_suggested_asset_link(self, entry_id: Any, asset_id: Any) -> EntryAssets | None:
+        """The entry↔asset junction flagged ``suggested`` in its metadata_json, or None.
+
+        Only pending AI-suggested links qualify — a normal (confirmed) link returns None, so
+        approve/reject can never touch a curated asset.
+        """
+        junction = self.session.query(EntryAssets).filter(EntryAssets.entry_id == entry_id, EntryAssets.asset_id == asset_id).first()
+        if junction is None or not (junction.metadata_json or {}).get("suggested"):
             return None
-        if entry.suggestion_json:
-            self.apply_fields(entry_id, {k: v for k, v in entry.suggestion_json.items() if k != "_meta"})
-            entry.suggestion_json = None
-            self.session.commit()
-        return self.get_one(entry_id)
+        return junction
 
-    def clear_suggestion(self, entry_id: Any) -> EntryRead | None:
-        """Discard the staged suggestion_json without applying it."""
-        entry = self.session.get(Entries, entry_id)
-        if entry and entry.suggestion_json is not None:
-            entry.suggestion_json = None
-            self.session.commit()
-        return self.get_one(entry_id)
+    # stage_suggestion / apply_suggestion / clear_suggestion come from SuggestionWritebackMixin.
 
     def _attach_collections(self, entry_id: UUID4, collection_ids: list[UUID4]) -> None:
         """Attach collections to an entry."""
@@ -347,7 +430,10 @@ class EntriesRepository(GroupRepositoryGeneric[EntryRead, Entries]):
         self.session.flush()
 
     def _attach_assets(self, entry_id: UUID4, asset_ids: list[UUID4]) -> None:
-        """Attach assets to an entry."""
+        """Attach assets to an entry (an Ask file among them moves to the library first)."""
+        from marvin.services.assets.scope import move_to_library
+
+        move_to_library(self.session, self.group_id, asset_ids, commit=False)
         for position, asset_id in enumerate(asset_ids):
             junction = EntryAssets(entry_id=entry_id, asset_id=asset_id, position=position)
             self.session.add(junction)
@@ -360,6 +446,22 @@ class EntriesRepository(GroupRepositoryGeneric[EntryRead, Entries]):
             self.session.add(junction)
         self.session.flush()
 
+    def _attach_tags(self, entry_id: UUID4, tag_ids: list[UUID4]) -> None:
+        """Attach tags to an entry, skipping any already present (idempotent)."""
+        existing = {row.tag_id for row in self.session.query(EntryTags.tag_id).filter(EntryTags.entry_id == entry_id).all()}
+        for tag_id in tag_ids:
+            if tag_id in existing:
+                continue
+            existing.add(tag_id)
+            self.session.add(EntryTags(entry_id=entry_id, tag_id=tag_id))
+        self.session.flush()
+
+    def _replace_tags(self, entry_id: UUID4, tag_ids: list[UUID4]) -> None:
+        """Replace all tags on an entry (empty list clears them)."""
+        self.session.query(EntryTags).filter(EntryTags.entry_id == entry_id).delete()
+        if tag_ids:
+            self._attach_tags(entry_id, tag_ids)
+
     def _replace_collections(self, entry_id: UUID4, collection_ids: list[UUID4]) -> None:
         """Replace all collections for an entry."""
         # Delete existing
@@ -368,24 +470,45 @@ class EntriesRepository(GroupRepositoryGeneric[EntryRead, Entries]):
         if collection_ids:
             self._attach_collections(entry_id, collection_ids)
 
+    def _clear_links(self, junction, key: str, model, entry_id: UUID4) -> set[str]:
+        """Delete an entry's asset or resource links before a replace — except those to one in the Trash: no
+        editor sees it, so it is never in the new list, and its link must survive for a restore to put it back
+        (services/trash.py). Returns the ids kept, as strings."""
+        column = getattr(junction, key)
+        kept = {
+            str(row[0])
+            for row in self.session.query(column)
+            .join(model, model.id == column)
+            .filter(junction.entry_id == entry_id, model.trashed_at.isnot(None))
+            .all()
+        }
+        in_trash = self.session.query(model.id).filter(model.trashed_at.isnot(None))
+        self.session.query(junction).filter(junction.entry_id == entry_id, column.notin_(in_trash)).delete()
+        return kept
+
     def _replace_assets(self, entry_id: UUID4, asset_ids: list[UUID4]) -> None:
-        """Replace all assets for an entry."""
-        # Delete existing
-        self.session.query(EntryAssets).filter(EntryAssets.entry_id == entry_id).delete()
-        # Add new
+        """Replace all assets for an entry (links to trashed assets stay; see _clear_links)."""
+        from marvin.db.models.platform import Assets
+
+        kept = self._clear_links(EntryAssets, "asset_id", Assets, entry_id)
+        asset_ids = [a for a in asset_ids or [] if str(a) not in kept]
         if asset_ids:
             self._attach_assets(entry_id, asset_ids)
 
     def _replace_resources(self, entry_id: UUID4, resource_ids: list[UUID4]) -> None:
-        """Replace all resources for an entry."""
-        # Delete existing
-        self.session.query(EntryResources).filter(EntryResources.entry_id == entry_id).delete()
-        # Add new
+        """Replace all resources for an entry (links to trashed resources stay; see _clear_links)."""
+        from marvin.db.models.platform import Resources
+
+        kept = self._clear_links(EntryResources, "resource_id", Resources, entry_id)
+        resource_ids = [r for r in resource_ids or [] if str(r) not in kept]
         if resource_ids:
             self._attach_resources(entry_id, resource_ids)
 
     def _attach_asset_attachments(self, entry_id: UUID4, attachments: list) -> None:
-        """Attach assets with rich placement data."""
+        """Attach assets with rich placement data (an Ask file among them moves to the library first)."""
+        from marvin.services.assets.scope import move_to_library
+
+        move_to_library(self.session, self.group_id, [(a if isinstance(a, dict) else a.model_dump())["asset_id"] for a in attachments], commit=False)
         for idx, att in enumerate(attachments):
             att_dict = att if isinstance(att, dict) else att.model_dump()
             junction = EntryAssets(
@@ -412,15 +535,25 @@ class EntriesRepository(GroupRepositoryGeneric[EntryRead, Entries]):
             self.session.add(junction)
         self.session.flush()
 
+    @staticmethod
+    def _without(attachments: list, key: str, kept: set[str]) -> list:
+        return [a for a in attachments or [] if str((a if isinstance(a, dict) else a.model_dump())[key]) not in kept]
+
     def _replace_asset_attachments(self, entry_id: UUID4, attachments: list) -> None:
-        """Replace all asset attachments for an entry."""
-        self.session.query(EntryAssets).filter(EntryAssets.entry_id == entry_id).delete()
+        """Replace all asset attachments for an entry (links to trashed assets stay; see _clear_links)."""
+        from marvin.db.models.platform import Assets
+
+        kept = self._clear_links(EntryAssets, "asset_id", Assets, entry_id)
+        attachments = self._without(attachments, "asset_id", kept)
         if attachments:
             self._attach_asset_attachments(entry_id, attachments)
 
     def _replace_resource_attachments(self, entry_id: UUID4, attachments: list) -> None:
-        """Replace all resource attachments for an entry."""
-        self.session.query(EntryResources).filter(EntryResources.entry_id == entry_id).delete()
+        """Replace all resource attachments for an entry (links to trashed resources stay; see _clear_links)."""
+        from marvin.db.models.platform import Resources
+
+        kept = self._clear_links(EntryResources, "resource_id", Resources, entry_id)
+        attachments = self._without(attachments, "resource_id", kept)
         if attachments:
             self._attach_resource_attachments(entry_id, attachments)
 

@@ -1,0 +1,30 @@
+{
+  "recipe": "weekly-digest",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entries the digest gathers (published in the last 7 days).",
+      "example": "article"
+    },
+    "body_field": {
+      "type": "field_key",
+      "description": "Their text field, for the AI to read.",
+      "example": "body"
+    },
+    "newsletter_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type the digest is drafted as.",
+      "example": "newsletter-issue"
+    },
+    "newsletter_body_field": {
+      "type": "field_key",
+      "description": "That type's field for the newsletter text.",
+      "example": "body"
+    },
+    "timezone": {
+      "type": "text",
+      "description": "The time zone the schedule runs in (IANA name).",
+      "example": "America/New_York"
+    }
+  }
+}

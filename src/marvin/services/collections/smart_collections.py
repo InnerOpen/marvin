@@ -9,11 +9,27 @@ junction rows exactly as for a manually-curated collection.
 Rule shape (every dimension optional; an absent/empty dimension is not constrained)::
 
     {
-      "entry_types": ["bench-note", "article"],   # entry_type slugs
+      "entry_types": ["<slug>", "<slug>"],         # entry_type slugs
       "statuses": ["published"],                   # entry.status values
-      "tags": ["leather", "waxed"],                # RESERVED — matches once entries carry tags
+      "tags": ["<tag>", "<tag>"],                  # RESERVED — matches once entries carry tags
+      "published_within_days": 30,                 # entries published in the last N days
+      "created_within_days": 30,                   # any item created in the last N days
+      "where": [{"field": "price", "op": "gt", "value": 100}],  # entry field conditions
       "match": "all" | "any"                       # combine dimensions (default "all")
     }
+
+``where`` is the workflow entry query's field condition (services/entries/query.py), matched by the
+same function, so ``field`` is a field key or ``metadata.<key>`` and ``op`` is one of ``WHERE_OPS``.
+Each condition is its own dimension, so ``match: "any"`` ORs them with the rest. An unknown op is a
+dimension that never holds — a typo must not widen the collection. The other keys of a workflow
+query (``entry_type``, ``status``, ``text``, date ranges…) are not smart rules; ``ignored_keys``
+names them so a preview can say so instead of quietly matching nothing.
+
+The ``*_within_days`` dimensions are *rolling*: an item silently ages out of the window. Membership
+is materialized, so nothing re-evaluates it on its own — the nightly ``resync_smart_collections``
+task is what evicts items that have aged out. A collection using them is therefore accurate to
+within one reconcile pass, which is the right trade for "recent": exact-to-the-second membership
+would mean re-evaluating every smart collection on every read.
 
 An empty rule set matches **nothing** — so a misconfigured smart collection can't silently
 swallow the whole workspace.
@@ -30,36 +46,135 @@ preserved. Mixed smart+manual collections are a later enhancement.
 The sync helpers never commit — the caller owns the transaction.
 """
 
+from datetime import UTC, datetime, timedelta
+
 from marvin.core.root_logger import get_logger
 
 logger = get_logger(__name__)
 
 
-def entry_matches_rules(entry, rules: dict | None) -> bool:
-    """Return True if ``entry`` satisfies a smart collection's ``rules``.
+TARGET_TYPES = ("entry", "asset", "resource")
 
-    ``entry`` may be an ORM ``Entries`` instance or any object exposing ``status`` and
-    ``entry_type.slug``. An empty/None rule set matches nothing.
+_UNIVERSAL_KEYS = ("tags", "created_within_days", "match")
+RULE_KEYS = {
+    "entry": ("entry_types", "statuses", "published_within_days", "where", *_UNIVERSAL_KEYS),
+    "asset": ("asset_types", "mime_types", "origins", "made_from", *_UNIVERSAL_KEYS),
+    "resource": ("resource_types", *_UNIVERSAL_KEYS),
+}
+"""The rule keys each target type reads; anything else in ``smart_rules`` is ignored."""
+
+
+def has_rules(rules: dict | None, target_type: str = "entry") -> bool:
+    """True when ``rules`` sets at least one dimension this target type reads (``match`` alone doesn't)."""
+    return any(k != "match" and (rules or {}).get(k) not in (None, "", [], {}) for k in RULE_KEYS.get(target_type, ()))
+
+
+def ignored_keys(rules: dict | None, target_type: str = "entry") -> list[str]:
+    """Keys in ``rules`` that ``matches_rules`` doesn't read for ``target_type``."""
+    known = RULE_KEYS.get(target_type, ())
+    return sorted(k for k in (rules or {}) if k not in known)
+
+
+def _within_days(value, days) -> bool:
+    """True when ``value`` is a datetime no older than ``days`` days.
+
+    Fails closed: a missing date, an unparseable window, or a non-positive one matches nothing
+    rather than dropping the constraint — a misconfigured window must never widen a collection to
+    the whole workspace. Date columns are naive UTC (``NaiveDateTime``), so naive values are read
+    as UTC rather than local time.
     """
-    if not rules:
+    if value is None:
+        return False
+    try:
+        days = float(days)
+    except (TypeError, ValueError):
+        return False
+    if days <= 0:
+        return False
+    if getattr(value, "tzinfo", None) is None:
+        value = value.replace(tzinfo=UTC)
+    return value >= datetime.now(UTC) - timedelta(days=days)
+
+
+def _made_from(item, refs) -> bool:
+    """Whether ``item`` is a version made from one of ``refs`` (asset ids or slugs)."""
+    source_id = getattr(item, "source_asset_id", None)
+    if source_id is None:
+        return False
+    refs = {str(r) for r in (refs if isinstance(refs, list) else [refs])}
+    if str(source_id) in refs:
+        return True
+    from sqlalchemy.orm import object_session
+
+    from marvin.db.models.platform.assets import Assets
+
+    session = object_session(item)
+    slug = session.query(Assets.slug).filter(Assets.id == source_id).scalar() if session is not None else None
+    return slug in refs
+
+
+def matches_rules(item, rules: dict | None, target_type: str = "entry") -> bool:
+    """Return True if ``item`` satisfies a smart collection's ``rules`` for ``target_type``.
+
+    Dimensions are type-specific except ``tags`` (universal, matched on slugs):
+      entry    → entry_types (entry_type.slug), statuses (status), published_within_days (published_at),
+                 where (field conditions, one dimension each)
+      asset    → asset_types (asset_type), mime_types (mime_type, exact e.g. image/svg+xml), origins (origin: upload |
+                 derived | generated), made_from (the versions made from these assets, by id or slug)
+      resource → resource_types (resource_type)
+    ``tags`` and ``created_within_days`` are universal. An empty/None rule set — or one with no recognized dimension — matches nothing.
+    An Ask file (a chat attachment, services/assets/scope.py) is in no collection until it's moved to the library.
+    """
+    if not rules or (target_type == "asset" and getattr(item, "scope", "library") != "library"):
         return False
 
     dimensions: list[bool] = []
 
-    entry_types = rules.get("entry_types")
-    if entry_types:
-        entry_type = getattr(entry, "entry_type", None)
-        dimensions.append(getattr(entry_type, "slug", None) in entry_types)
+    if target_type == "entry":
+        # A trashed entry belongs only to a collection that asks for trashed entries (the Trash): it is out
+        # of sight everywhere else until restored, whatever else the rules match (`match: any` included).
+        if getattr(item, "status", None) == "trashed" and "trashed" not in (rules.get("statuses") or []):
+            return False
+        entry_types = rules.get("entry_types")
+        if entry_types:
+            dimensions.append(getattr(getattr(item, "entry_type", None), "slug", None) in entry_types)
+        statuses = rules.get("statuses")
+        if statuses:
+            dimensions.append(getattr(item, "status", None) in statuses)
+        published_within = rules.get("published_within_days")
+        if published_within is not None:
+            dimensions.append(_within_days(getattr(item, "published_at", None), published_within))
+        dimensions.extend(_where_dimensions(item, rules.get("where")))
+    elif target_type == "asset":
+        asset_types = rules.get("asset_types")
+        if asset_types:
+            dimensions.append(getattr(item, "asset_type", None) in asset_types)
+        mime_types = rules.get("mime_types")
+        if mime_types:  # exact MIME (e.g. "image/svg+xml") — finer than the asset_type bucket
+            dimensions.append(getattr(item, "mime_type", None) in mime_types)
+        origins = rules.get("origins")
+        if origins:  # where it came from: an upload, a version made from another asset, a generated image
+            dimensions.append((getattr(item, "origin", None) or "upload") in origins)
+        made_from = rules.get("made_from")
+        if made_from:
+            dimensions.append(_made_from(item, made_from))
+    elif target_type == "resource":
+        resource_types = rules.get("resource_types")
+        if resource_types:
+            dimensions.append(getattr(item, "resource_type", None) in resource_types)
 
-    statuses = rules.get("statuses")
-    if statuses:
-        dimensions.append(getattr(entry, "status", None) in statuses)
+    created_within = rules.get("created_within_days")
+    if created_within is not None:
+        dimensions.append(_within_days(getattr(item, "created_at", None), created_within))
 
-    # Forward-compatible: inert until entries/assets/resources carry tags (shared vocabulary).
     tags = rules.get("tags")
     if tags:
-        entry_tags = getattr(entry, "tags", None) or []
-        dimensions.append(bool(set(tags) & set(entry_tags)))
+        # Compare on slugs so a rule matches whether it stored "Chore Coat" or "chore-coat".
+        from slugify import slugify
+
+        want = {slugify(str(t)) for t in tags}
+        have = set(getattr(item, "tag_names", None) or [])
+        dimensions.append(bool(want & have))
 
     if not dimensions:
         return False
@@ -69,30 +184,60 @@ def entry_matches_rules(entry, rules: dict | None) -> bool:
     return all(dimensions)
 
 
+def _where_dimensions(entry, where) -> list[bool]:
+    """One bool per well-formed ``where`` condition; an unknown op never holds."""
+    from marvin.services.entries.query import WHERE_OPS, condition_matches
+
+    if not isinstance(where, list):
+        return []
+    conditions = [c for c in where if isinstance(c, dict) and c.get("field")]
+    return [(c.get("op") or "eq") in WHERE_OPS and condition_matches(entry, c) for c in conditions]
+
+
+def entry_matches_rules(entry, rules: dict | None) -> bool:
+    """Back-compat shim — entry-target matching. Prefer ``matches_rules(item, rules, target_type)``."""
+    return matches_rules(entry, rules, "entry")
+
+
+def _membership(target_type: str):
+    """(model, junction, fk_field) for a target type's membership junction."""
+    from marvin.db.models.platform import (
+        Assets,
+        CollectionAssets,
+        CollectionResources,
+        Entries,
+        EntryCollections,
+        Resources,
+    )
+
+    return {
+        "entry": (Entries, EntryCollections, "entry_id"),
+        "asset": (Assets, CollectionAssets, "asset_id"),
+        "resource": (Resources, CollectionResources, "resource_id"),
+    }[target_type]
+
+
 def _smart_collections(session, group_id):
     from marvin.db.models.platform.collections import Collections
 
     return session.query(Collections).filter_by(group_id=group_id, is_smart=True).all()
 
 
-def sync_entry(session, group_id, entry) -> int:
-    """Sync one entry's membership across every smart collection in its workspace.
+def sync_item(session, group_id, item, target_type: str = "entry") -> int:
+    """Sync one item's membership across every smart collection of its ``target_type``.
 
-    Adds the entry to smart collections whose rules it now matches and removes it from those it
-    no longer matches. Returns the number of membership rows changed. Does not commit.
+    Adds the item to smart collections whose rules it now matches and removes it from those it no
+    longer matches. Returns the number of membership rows changed. Does not commit.
     """
-    from marvin.db.models.platform.entry_collections import EntryCollections
-
+    _model, junction, fk = _membership(target_type)
     changed = 0
     for collection in _smart_collections(session, group_id):
-        desired = entry_matches_rules(entry, collection.smart_rules)
-        existing = (
-            session.query(EntryCollections)
-            .filter_by(entry_id=entry.id, collection_id=collection.id)
-            .first()
-        )
+        if getattr(collection, "target_type", "entry") != target_type:
+            continue
+        desired = matches_rules(item, collection.smart_rules, target_type)
+        existing = session.query(junction).filter(getattr(junction, fk) == item.id, junction.collection_id == collection.id).first()
         if desired and existing is None:
-            session.add(EntryCollections(entry_id=entry.id, collection_id=collection.id, sort_order=0))
+            session.add(junction(**{fk: item.id, "collection_id": collection.id, "sort_order": 0}))
             changed += 1
         elif not desired and existing is not None:
             session.delete(existing)
@@ -100,8 +245,26 @@ def sync_entry(session, group_id, entry) -> int:
     return changed
 
 
+def sync_entry(session, group_id, entry) -> int:
+    """Sync one entry's smart-collection membership. Thin wrapper over ``sync_item``."""
+    return sync_item(session, group_id, entry, "entry")
+
+
+def matching_items(session, group_id, rules: dict | None, target_type: str = "entry") -> list:
+    """Every item of ``target_type`` in the workspace that ``rules`` match, newest first.
+
+    The one evaluation behind both materialization (``sync_collection``) and the editor's preview of
+    unsaved rules, so a preview is exactly the membership a save would produce.
+    """
+    if not rules:
+        return []
+    model, _junction, _fk = _membership(target_type)
+    items = session.query(model).filter_by(group_id=group_id).order_by(model.created_at.desc(), model.id).all()
+    return [i for i in items if matches_rules(i, rules, target_type)]
+
+
 def sync_collection(session, group_id, collection) -> int:
-    """Re-evaluate one smart collection's membership across all of the workspace's entries.
+    """Re-evaluate one smart collection's membership across all items of its target type.
 
     Used when a collection's rules change and by the reconcile/backfill task. Returns the number
     of membership rows changed. Does not commit. A non-smart collection is left untouched.
@@ -109,25 +272,20 @@ def sync_collection(session, group_id, collection) -> int:
     if not getattr(collection, "is_smart", False):
         return 0
 
-    from marvin.db.models.platform.entries import Entries
-    from marvin.db.models.platform.entry_collections import EntryCollections
+    target_type = getattr(collection, "target_type", "entry") or "entry"
+    _model, junction, fk = _membership(target_type)
 
-    rules = collection.smart_rules or {}
-    entries = session.query(Entries).filter_by(group_id=group_id).all()
-    desired = {e.id for e in entries if entry_matches_rules(e, rules)}
-    current = {
-        row.entry_id
-        for row in session.query(EntryCollections).filter_by(collection_id=collection.id).all()
-    }
+    desired = {i.id for i in matching_items(session, group_id, collection.smart_rules, target_type)}
+    current = {getattr(row, fk) for row in session.query(junction).filter_by(collection_id=collection.id).all()}
 
     to_add = desired - current
     to_remove = current - desired
-    for entry_id in to_add:
-        session.add(EntryCollections(entry_id=entry_id, collection_id=collection.id, sort_order=0))
+    for item_id in to_add:
+        session.add(junction(**{fk: item_id, "collection_id": collection.id, "sort_order": 0}))
     if to_remove:
-        session.query(EntryCollections).filter(
-            EntryCollections.collection_id == collection.id,
-            EntryCollections.entry_id.in_(to_remove),
+        session.query(junction).filter(
+            junction.collection_id == collection.id,
+            getattr(junction, fk).in_(to_remove),
         ).delete(synchronize_session=False)
 
     return len(to_add) + len(to_remove)

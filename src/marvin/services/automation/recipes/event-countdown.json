@@ -1,0 +1,130 @@
+{
+  "name": "Event countdown",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{event_entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "wait",
+        "id": "week",
+        "until": "${entry.{{event_date}}}",
+        "offset": "-7d",
+        "at": "{{remind_at}}"
+      },
+      {
+        "kind": "operation",
+        "id": "week_post",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "“${entry.title}” is one week away (${entry.{{event_date}}}). Write a short, warm reminder post from what the entry says: what it is, when and where, and why to come. Invent nothing.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "body": {
+              "type": "string",
+              "minLength": 20
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ]
+        },
+        "when": {
+          "field": "steps.week.output.late",
+          "op": "neq",
+          "value": true
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{draft_entry_type}}",
+        "title": "${steps.week_post.output.title}",
+        "data": {
+          "{{draft_body_field}}": "${steps.week_post.output.body}"
+        },
+        "metadata": {
+          "reminder_for": "${entry.slug}"
+        },
+        "status": "draft",
+        "when": {
+          "field": "steps.week.output.late",
+          "op": "neq",
+          "value": true
+        }
+      },
+      {
+        "kind": "wait",
+        "id": "day",
+        "until": "${entry.{{event_date}}}",
+        "offset": "-1d",
+        "at": "{{remind_at}}"
+      },
+      {
+        "kind": "operation",
+        "id": "day_post",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "“${entry.title}” is tomorrow (${entry.{{event_date}}}). Write a short last-call reminder from what the entry says: when and where, and one reason to come. Invent nothing.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "body": {
+              "type": "string",
+              "minLength": 20
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ]
+        },
+        "when": {
+          "field": "steps.day.output.late",
+          "op": "neq",
+          "value": true
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{draft_entry_type}}",
+        "title": "${steps.day_post.output.title}",
+        "data": {
+          "{{draft_body_field}}": "${steps.day_post.output.body}"
+        },
+        "metadata": {
+          "reminder_for": "${entry.slug}"
+        },
+        "status": "draft",
+        "when": {
+          "field": "steps.day.output.late",
+          "op": "neq",
+          "value": true
+        }
+      }
+    ]
+  }
+}

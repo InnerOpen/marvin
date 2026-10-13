@@ -1,0 +1,143 @@
+"""
+Tool categories — the rows of an agent's permission matrix.
+
+Every tool an agent can bind belongs to exactly one category: registry tools by name (below),
+AI operations to `ai_ops`, external MCP tools to `mcp_read` / `mcp` / `mcp_destructive` by the
+server's tool annotations. A category says whether its actions write.
+The matrix is data-driven from this file plus the registry, so a new tool only needs a line here.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class ToolCategory:
+    id: str
+    label: str
+    writes: bool
+    description: str
+
+
+CATEGORIES: tuple[ToolCategory, ...] = (
+    ToolCategory("entries_read", "Entries: read", False, "Search and read entries, entry types and history"),
+    ToolCategory("entries_author", "Entries: author", True, "Compose and revise entries (always as drafts for review)"),
+    ToolCategory("entries_archive", "Entries: archive", True, "Archive entries, retiring them but keeping them (a published entry asks first)"),
+    ToolCategory(
+        "entries_trash",
+        "Entries: move to Trash",
+        True,
+        "Delete entries, assets and resources to the Trash and restore them (taking something off the site asks first). Never empties the Trash",
+    ),
+    ToolCategory("links", "Links", True, "Attach or detach tags, assets and resources; add to or remove from collections"),
+    ToolCategory("library_read", "Library: read", False, "List and read collections, resources, tags and assets"),
+    ToolCategory("assets_import", "Assets: import", True, "Import files as assets"),
+    ToolCategory("automation_read", "Automation: read", False, "Events, workflows, scheduled tasks and their history; how to write a workflow"),
+    ToolCategory("automation_run", "Automation: run", True, "Trigger workflows"),
+    ToolCategory(
+        "automation_manage",
+        "Automation: switch on/off",
+        True,
+        "Switch an existing workflow or integration action on or off — always asks first; never edits one",
+    ),
+    ToolCategory(
+        "automation_author",
+        "Automation: author",
+        True,
+        "Draft workflows and revise drafts — always created switched off; never enables or runs one",
+    ),
+    ToolCategory("insights", "AI insights", False, "AI executions and settings"),
+    ToolCategory("docs_read", "Read Marvin's documentation", False, "Search and read Marvin's user manual (how Marvin works, not workspace data)"),
+    ToolCategory("agents_read", "Agents: read", False, "List the workspace's agents"),
+    # A hand-off is not a write: the child's tools are already capped by the caller's role.
+    ToolCategory("agents_run", "Agents: delegate", False, "Run another agent on the caller's behalf"),
+    ToolCategory("ai_ops", "AI operations", True, "LLM generations with write-back: summaries, tags, alt text, rewrites"),
+    ToolCategory("mcp_read", "External MCP: read", False, "Connected-server tools the server marks read-only (readOnlyHint)"),
+    ToolCategory("mcp", "External MCP: write", True, "Connected-server tools that write, or send no hints (assumed to write)"),
+    ToolCategory("mcp_destructive", "External MCP: destructive", True, "Connected-server tools the server marks destructive (delete, move…)"),
+    ToolCategory("other_read", "Other: read", False, "Read-only tools not yet categorised"),
+    ToolCategory("other_write", "Other: write", True, "Writing tools not yet categorised"),
+)
+CATEGORY_BY_ID: dict[str, ToolCategory] = {c.id: c for c in CATEGORIES}
+
+CATEGORY_BY_TOOL: dict[str, str] = {
+    "search_content": "entries_read",
+    "find_entries": "entries_read",
+    "get_entry": "entries_read",
+    "list_entry_types": "entries_read",
+    "get_entry_type": "entries_read",
+    "get_entity_history": "entries_read",
+    "preview_embed": "entries_read",  # what a media link becomes; writes no entry
+    "compose_entry": "entries_author",
+    "revise_entry": "entries_author",
+    "add_embed": "entries_author",  # staged as a suggestion, like a staged revise
+    "archive_entries": "entries_archive",
+    "trash_entries": "entries_trash",
+    "restore_entries": "entries_trash",  # the Trash's Restore: whoever may trash may take back out
+    "attach_tag": "links",
+    "detach_tag": "links",
+    "attach_asset": "links",
+    "detach_asset": "links",
+    "attach_resource": "links",
+    "detach_resource": "links",
+    "add_to_collection": "links",
+    "remove_from_collection": "links",
+    "list_collections": "library_read",
+    "get_collection": "library_read",
+    "get_collection_entries": "library_read",
+    "list_resources": "library_read",
+    "get_resource": "library_read",
+    "list_tags": "library_read",
+    "list_assets": "library_read",
+    "get_asset": "library_read",
+    "view_image": "library_read",  # reads pixels via a vision model; writes nothing back
+    "read_attachment": "library_read",  # reads a document's text; writes nothing back
+    "workspace_overview": "library_read",  # counts + index coverage; the "what is in the RAG?" answer
+    "import_asset": "assets_import",
+    "move_to_assets": "assets_import",  # files an Ask file (chat attachment) in the library; reversible
+    "list_events": "automation_read",
+    "describe_event": "automation_read",
+    "list_scheduled_tasks": "automation_read",
+    "list_workflows": "automation_read",
+    "get_workflow": "automation_read",
+    "workflow_authoring_guide": "automation_read",
+    "get_scheduled_task_history": "automation_read",
+    "run_workflow": "automation_run",
+    "set_automation_enabled": "automation_manage",
+    "draft_workflow": "automation_author",
+    "update_workflow_draft": "automation_author",
+    "get_ai_execution": "insights",
+    "list_ai_executions": "insights",
+    "get_ai_settings": "insights",
+    "search_docs": "docs_read",
+    "read_doc": "docs_read",
+    "list_agents": "agents_read",
+    "suggest_agent": "agents_read",  # a referral runs nothing
+    "run_agent": "agents_run",
+}
+
+
+MCP_CATEGORIES = ("mcp_read", "mcp", "mcp_destructive")
+
+
+def category_of(name: str, *, read_only: bool | None = None, destructive: bool | None = None) -> str:
+    """Category id for a bound tool name. Unknown registry tools fall back on their read_only flag.
+
+    External `mcp__*` tools are placed by the server's own annotations: read-only → `mcp_read`,
+    destructive → `mcp_destructive`, anything else (including "no hints sent") → `mcp` (writes).
+    """
+    if name in CATEGORY_BY_TOOL:
+        return CATEGORY_BY_TOOL[name]
+    if name.startswith("mcp__"):
+        if destructive:
+            return "mcp_destructive"
+        return "mcp_read" if read_only else "mcp"
+    if read_only is None:
+        return "other_write"
+    return "other_read" if read_only else "other_write"
+
+
+def category_writes(category_id: str) -> bool:
+    cat = CATEGORY_BY_ID.get(category_id)
+    return True if cat is None else cat.writes

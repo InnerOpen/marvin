@@ -1,0 +1,142 @@
+---
+/**
+ * Reusable tag chip input. Renders the current tags as removable chips plus a create-on-type
+ * text input with autocomplete over the workspace vocabulary. Maintains a hidden input
+ * (#tags-payload) holding a JSON array of {name, id?} — the host page reads it on save and
+ * resolves it to tag_ids via `resolveTagIds` (see lib/api/tagChips.ts).
+ *
+ * Props:
+ *   attachedTags — the entity's current tags, resolved to {id, name}
+ *   allTags      — the workspace vocabulary, for autocomplete + name→id resolution
+ */
+interface TagLite {
+  id: string;
+  name: string;
+  slug?: string;
+}
+interface Props {
+  attachedTags?: TagLite[];
+  allTags?: TagLite[];
+  label?: string;
+}
+const { attachedTags = [], allTags = [], label = "Tags" } = Astro.props;
+---
+
+<div class="form-group tag-chips-field">
+  <div class="label-row">
+    <label>{label} (<span id="tag-count">{attachedTags.length}</span>)</label>
+  </div>
+  <div id="tag-chips" class="tag-chips">
+    {attachedTags.map((t) => (
+      <span class="tag-chip" data-tag-id={t.id} data-tag-name={t.name}>
+        <span class="tag-chip-label">{t.name}</span>
+        <button type="button" class="tag-chip-remove" title="Remove" aria-label={`Remove ${t.name}`}>×</button>
+      </span>
+    ))}
+  </div>
+  <input type="text" id="tag-input" list="tag-suggestions" placeholder="Add a tag…" autocomplete="off" class="tag-input" />
+  <datalist id="tag-suggestions">
+    {allTags.map((t) => (<option value={t.name}></option>))}
+  </datalist>
+  <small class="form-help">Press Enter or comma to add. New tags are created on save.</small>
+  <input type="hidden" id="tags-payload" />
+  <script type="application/json" id="all-tags-data" set:html={JSON.stringify(allTags.map((t) => ({ id: t.id, name: t.name }))).replace(/</g, "\\u003c")}></script>
+</div>
+
+<script>
+  // Chip logic — mirrors the entry editor's, but reusable. Writes {name,id?}[] to #tags-payload.
+  (() => {
+    const chipsEl = document.getElementById("tag-chips");
+    const inputEl = document.getElementById("tag-input") as HTMLInputElement | null;
+    const payloadEl = document.getElementById("tags-payload") as HTMLInputElement | null;
+    const countEl = document.getElementById("tag-count");
+    const dataEl = document.getElementById("all-tags-data");
+    if (!chipsEl || !inputEl || !payloadEl) return;
+
+    type Chip = { name: string; id?: string };
+    const vocab = new Map<string, { id: string; name: string }>();
+    try {
+      for (const t of JSON.parse(dataEl?.textContent || "[]")) {
+        vocab.set(String(t.name).toLowerCase(), { id: t.id, name: t.name });
+      }
+    } catch { /* no vocabulary — every chip is treated as new */ }
+
+    const keyOf = (c: Chip) => (c.id ? `id:${c.id}` : `name:${c.name.toLowerCase()}`);
+    const chipFromEl = (el: HTMLElement): Chip => ({ name: el.dataset.tagName || "", id: el.dataset.tagId || undefined });
+    const state: Chip[] = Array.from(chipsEl.querySelectorAll(".tag-chip")).map((el) => chipFromEl(el as HTMLElement));
+
+    function sync() {
+      payloadEl!.value = JSON.stringify(state);
+      if (countEl) countEl.textContent = String(state.length);
+    }
+
+    function makeChip(c: Chip): HTMLElement {
+      const span = document.createElement("span");
+      span.className = "tag-chip";
+      if (c.id) span.dataset.tagId = c.id;
+      span.dataset.tagName = c.name;
+      span.innerHTML = '<span class="tag-chip-label"></span><button type="button" class="tag-chip-remove" title="Remove">×</button>';
+      (span.querySelector(".tag-chip-label") as HTMLElement).textContent = c.name;
+      span.querySelector(".tag-chip-remove")!.setAttribute("aria-label", `Remove ${c.name}`);
+      return span;
+    }
+
+    function addTag(raw: string) {
+      const name = raw.replace(/,+$/, "").trim();
+      if (!name) return;
+      const match = vocab.get(name.toLowerCase());
+      const chip: Chip = match ? { name: match.name, id: match.id } : { name };
+      if (state.some((c) => keyOf(c) === keyOf(chip))) return;
+      state.push(chip);
+      chipsEl!.appendChild(makeChip(chip));
+      sync();
+    }
+
+    chipsEl.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest(".tag-chip-remove");
+      if (!btn) return;
+      const chipEl = btn.closest(".tag-chip") as HTMLElement;
+      const key = keyOf(chipFromEl(chipEl));
+      const idx = state.findIndex((c) => keyOf(c) === key);
+      if (idx >= 0) state.splice(idx, 1);
+      chipEl.remove();
+      sync();
+    });
+
+    inputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === ",") {
+        e.preventDefault();
+        addTag(inputEl.value);
+        inputEl.value = "";
+      } else if (e.key === "Backspace" && !inputEl.value && state.length) {
+        state.pop();
+        chipsEl.querySelector(".tag-chip:last-child")?.remove();
+        sync();
+      }
+    });
+    inputEl.addEventListener("change", () => {
+      if (inputEl.value.trim()) { addTag(inputEl.value); inputEl.value = ""; }
+    });
+
+    sync();
+  })();
+</script>
+
+<style is:global>
+  /* Global so JS-created chips are styled too. Class names are tag-specific. */
+  .tag-chips { display: flex; flex-wrap: wrap; gap: 0.375rem; margin: 0.25rem 0 0.5rem; min-height: 0.5rem; }
+  .tag-chip {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    padding: 0.15rem 0.35rem 0.15rem 0.55rem;
+    background: var(--panel-2, var(--bg)); border: 1px solid var(--border, var(--line));
+    border-radius: 999px; font-size: 0.75rem; line-height: 1.4; color: var(--text, var(--ink));
+  }
+  .tag-chip-label { white-space: nowrap; }
+  .tag-chip-remove {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1rem; height: 1rem; padding: 0; border: none; border-radius: 999px;
+    background: transparent; color: var(--muted); font-size: 0.9rem; line-height: 1; cursor: pointer;
+  }
+  .tag-chip-remove:hover { background: var(--border, var(--line)); color: var(--text, var(--ink)); }
+  .tag-chips-field .tag-input { width: 100%; padding: 0.4rem 0.55rem; font-size: 0.8rem; }
+</style>

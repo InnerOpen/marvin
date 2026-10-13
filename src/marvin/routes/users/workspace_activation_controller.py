@@ -7,17 +7,12 @@ Endpoints:
 - GET /self/workspaces - List all accessible workspaces
 """
 
-from typing import Annotated
+from fastapi import APIRouter, HTTPException, status
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import UUID4
-
-from marvin.core.dependencies import get_current_user
 from marvin.db.models.users.roles import PlatformRole
 from marvin.routes._base.base_controllers import BaseUserController
 from marvin.routes._base.controller import controller
 from marvin.schemas.group.group import GroupRead
-from marvin.schemas.user.user import PrivateUser
 from marvin.schemas.workspace.workspace_activation import (
     WorkspaceActivationRequest,
     WorkspaceWithMembership,
@@ -88,12 +83,11 @@ class WorkspaceActivationController(BaseUserController):
                 )
 
         # Update user's active workspace
-        from marvin.db.models.users.users import Users
         from sqlalchemy import select
 
-        user_model = self.repos.session.execute(
-            select(Users).where(Users.id == self.user.id)
-        ).scalar_one_or_none()
+        from marvin.db.models.users.users import Users
+
+        user_model = self.repos.session.execute(select(Users).where(Users.id == self.user.id)).scalar_one_or_none()
 
         if not user_model:
             raise HTTPException(
@@ -113,6 +107,9 @@ class WorkspaceActivationController(BaseUserController):
             event_type=EventTypes.workspace_activated,
             document_data=None,
             message=f"User '{self.user.username}' activated workspace '{workspace.name}'",
+            user_id=self.user.id,
+            entity_id=workspace.id,
+            entity_type="workspace",
         )
 
         return workspace
@@ -128,21 +125,24 @@ class WorkspaceActivationController(BaseUserController):
         Returns:
             List of workspaces with membership details.
         """
+        # The platform workspace comes first whatever it is named, then the rest by name (_platform_first).
         current_workspace_id = self.user.active_group_id or self.user.group_id
 
         # SUPER_ADMIN sees all workspaces
         if self.user.platform_role == PlatformRole.SUPER_ADMIN:
             from marvin.db.models.users.roles import WorkspaceRole
 
-            all_workspaces = self.repos.groups.get_all()
-            return [
-                WorkspaceWithMembership(
-                    workspace=GroupRead.model_validate(ws),
-                    role=self.user.get_workspace_role(ws.id) or WorkspaceRole.OWNER,
-                    is_active=(ws.id == current_workspace_id),
-                )
-                for ws in all_workspaces
-            ]
+            all_workspaces = self.repos.groups.get_all_models()
+            return _platform_first(
+                [
+                    WorkspaceWithMembership(
+                        workspace=GroupRead.model_validate(ws),
+                        role=self.user.get_workspace_role(ws.id) or WorkspaceRole.OWNER,
+                        is_active=(ws.id == current_workspace_id),
+                    )
+                    for ws in all_workspaces
+                ]
+            )
 
         # Regular users see only their memberships
         memberships = self.repos.workspace_members.get_user_memberships(self.user.id)
@@ -159,4 +159,9 @@ class WorkspaceActivationController(BaseUserController):
                     )
                 )
 
-        return result
+        return _platform_first(result)
+
+
+def _platform_first(workspaces: list[WorkspaceWithMembership]) -> list[WorkspaceWithMembership]:
+    """The switcher's order: the platform workspace on top (it can be renamed, so not by name), then by name."""
+    return sorted(workspaces, key=lambda w: (not w.workspace.is_platform, w.workspace.name.casefold()))

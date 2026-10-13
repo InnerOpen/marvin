@@ -2,8 +2,7 @@
 This module defines the SQLAlchemy model for user groups.
 
 It includes the `Groups` model, which represents a user group within the application.
-Groups can have associated users, preferences, invite tokens, webhooks, reports,
-and event notifiers.
+Groups can have associated users, preferences, invite tokens, webhooks, and reports.
 """
 
 from typing import TYPE_CHECKING
@@ -26,12 +25,24 @@ if TYPE_CHECKING:
     from .ai_executions import AIExecutionModel
     from .ai_providers import AIProviderModel
     from .ai_settings import WorkspaceAISettingsModel
-    from .events import GroupEventNotifierModel
+    from .automations import WorkspaceAutomationModel
+    from .incoming_webhooks import WorkspaceIncomingWebhookModel
+    from .integration_event_subscriptions import IntegrationEventSubscriptionModel
+    from .integrations import IntegrationModel
     from .invite_tokens import GroupInviteToken
+    from .mcp_servers import WorkspaceMcpServerModel
     from .reports import ReportModel
     from .secrets import WorkspaceSecret
+    from .slug_aliases import GroupSlugAlias
+    from .smtp_profiles import WorkspaceSMTPProfileModel
     from .variables import WorkspaceVariable
     from .webhooks import GroupWebhooksModel
+
+
+def _new_storage_code() -> str:
+    from marvin.services.storage.keys import new_code
+
+    return new_code()
 
 
 class Groups(SqlAlchemyBase, BaseMixins):
@@ -43,10 +54,44 @@ class Groups(SqlAlchemyBase, BaseMixins):
     """
 
     __tablename__ = "groups"
+    # At most one platform workspace: a partial unique index over the true rows only. Postgres and
+    # SQLite (3.8+) both enforce it natively, so the guarantee doesn't depend on the code path.
+    __table_args__ = (
+        sa.Index(
+            "uq_groups_is_platform",
+            "is_platform",
+            unique=True,
+            postgresql_where=sa.text("is_platform"),
+            sqlite_where=sa.text("is_platform"),
+        ),
+    )
 
     id: Mapped[GUID] = mapped_column(GUID, primary_key=True, default=GUID.generate, doc="Unique identifier for the group.")
     name: Mapped[str] = mapped_column(sa.String, index=True, nullable=False, unique=True, doc="Human-readable name of the group, must be unique.")
     slug: Mapped[str | None] = mapped_column(sa.String, index=True, unique=True, doc="URL-friendly slug for the group, must be unique if set.")
+
+    # The platform (admin's) workspace: platform alerts and shared services run from it. Exactly one
+    # group carries the marker; find it with services.group.platform_workspace.platform_workspace(),
+    # never by name — its name and slug can be changed (the DEFAULT_GROUP setting only names it on a fresh install).
+    is_platform: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, default=False, server_default=sa.false(), doc="True on the one platform (admin's) workspace."
+    )
+
+    # Per-workspace Fernet key that wraps secret values inside export bundles, stored encrypted with
+    # the instance secret. Generated on first backup, downloadable, never included in a bundle.
+    backup_key_encrypted: Mapped[str | None] = mapped_column(
+        sa.Text, nullable=True, doc="Instance-encrypted per-workspace backup key (see services.backup.keys)."
+    )
+
+    # Storage (services/storage/keys.py): the opaque first segment of every key this workspace's files get,
+    # made once and never changed; and the public domain its files on a remote provider are served from
+    # (a platform admin's setting, Admin → Storage; empty means the provider's own, STORAGE_REMOTE_PUBLIC_URL).
+    storage_code: Mapped[str | None] = mapped_column(
+        sa.String(16), unique=True, nullable=True, default=_new_storage_code, doc="Opaque, stable key prefix of this workspace's stored files."
+    )
+    asset_public_base_url: Mapped[str | None] = mapped_column(
+        sa.String(255), nullable=True, doc="Public base URL of this workspace's remote-stored assets (platform admin); None: the provider's."
+    )
 
     # Relationship to Users model (one-to-many: one group has many users)
     # DEPRECATED: Use `members` relationship instead for role-based access
@@ -103,20 +148,24 @@ class Groups(SqlAlchemyBase, BaseMixins):
         "GroupWebhooksModel", **_common_relationship_args, doc="Webhooks configured for this group."
     )
     # Relationship to WorkspaceSecret (one-to-many)
-    secrets: Mapped[list["WorkspaceSecret"]] = orm.relationship(
-        "WorkspaceSecret", **_common_relationship_args, doc="Workspace secrets."
+    secrets: Mapped[list["WorkspaceSecret"]] = orm.relationship("WorkspaceSecret", **_common_relationship_args, doc="Workspace secrets.")
+
+    smtp_profiles: Mapped[list["WorkspaceSMTPProfileModel"]] = orm.relationship(
+        "WorkspaceSMTPProfileModel", **_common_relationship_args, doc="Named SMTP profiles for this workspace."
     )
     # Relationship to WorkspaceVariable (one-to-many)
-    variables: Mapped[list["WorkspaceVariable"]] = orm.relationship(
-        "WorkspaceVariable", **_common_relationship_args, doc="Workspace variables."
+    variables: Mapped[list["WorkspaceVariable"]] = orm.relationship("WorkspaceVariable", **_common_relationship_args, doc="Workspace variables.")
+
+    integrations: Mapped[list["IntegrationModel"]] = orm.relationship(
+        "IntegrationModel", **_common_relationship_args, doc="External service integrations for this workspace."
+    )
+
+    integration_event_subscriptions: Mapped[list["IntegrationEventSubscriptionModel"]] = orm.relationship(
+        "IntegrationEventSubscriptionModel", **_common_relationship_args, doc="Integration actions wired to events."
     )
     # Relationship to ReportModel (one-to-many)
     group_reports: Mapped[list["ReportModel"]] = orm.relationship(
         "ReportModel", **_common_relationship_args, doc="Reports generated for or by this group."
-    )
-    # Relationship to GroupEventNotifierModel (one-to-many)
-    group_event_notifiers: Mapped[list["GroupEventNotifierModel"]] = orm.relationship(
-        "GroupEventNotifierModel", **_common_relationship_args, doc="Event notifiers configured for this group."
     )
 
     # Relationship to AIProviderModel (one-to-many)
@@ -129,6 +178,26 @@ class Groups(SqlAlchemyBase, BaseMixins):
         "AIExecutionModel", **_common_relationship_args, doc="AI execution audit log for this workspace."
     )
 
+    # Relationship to WorkspaceMcpServerModel (one-to-many) — external MCP servers for the agent.
+    mcp_servers: Mapped[list["WorkspaceMcpServerModel"]] = orm.relationship(
+        "WorkspaceMcpServerModel", **_common_relationship_args, doc="External MCP servers registered for this workspace."
+    )
+
+    # Relationship to WorkspaceAutomationModel (one-to-many) — Flavor B user-configured automations.
+    automations: Mapped[list["WorkspaceAutomationModel"]] = orm.relationship(
+        "WorkspaceAutomationModel", **_common_relationship_args, doc="User-configured automations for this workspace."
+    )
+
+    # Relationship to WorkspaceIncomingWebhookModel (one-to-many) — tokened ingress endpoints.
+    incoming_webhooks: Mapped[list["WorkspaceIncomingWebhookModel"]] = orm.relationship(
+        "WorkspaceIncomingWebhookModel", **_common_relationship_args, doc="Incoming (ingress) webhooks for this workspace."
+    )
+
+    # Slugs it had before a rename, so old Publishing API URLs and the like keep resolving to it.
+    slug_aliases: Mapped[list["GroupSlugAlias"]] = orm.relationship(
+        "GroupSlugAlias", **_common_relationship_args, doc="Former slugs of this workspace."
+    )
+
     model_config = ConfigDict(
         arbitrary_types_allowed=True,  # Standard Pydantic config
         # Fields to exclude from Pydantic model serialization by default.
@@ -139,7 +208,7 @@ class Groups(SqlAlchemyBase, BaseMixins):
             "webhooks",
             "preferences",
             "invite_tokens",
-            # "group_reports" and "group_event_notifiers" might also be candidates for exclusion
+            # "group_reports" might also be a candidate for exclusion
             # depending on serialization needs.
         },
     )

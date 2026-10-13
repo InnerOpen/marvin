@@ -18,7 +18,7 @@ from marvin.core.root_logger import get_logger  # Application logger
 from marvin.services import BaseService  # Base service class
 
 # Email sender implementations
-from .email_senders import ABCEmailSender, DefaultEmailSender
+from .email_senders import ABCEmailSender, email_ready, platform_sender
 
 # Current working directory of this file, used to locate the 'templates' subdirectory.
 CWD = Path(__file__).parent
@@ -74,7 +74,7 @@ class EmailService(BaseService):
 
     This service handles the construction of email content using `EmailTemplate`
     and dispatches emails through a configured email sender (which defaults to
-    `DefaultEmailSender` if not provided). It provides methods for sending
+    `platform_sender()` if not provided). It provides methods for sending
     specific types of application emails like password resets and invitations.
     """
 
@@ -84,7 +84,7 @@ class EmailService(BaseService):
 
         Args:
             sender (ABCEmailSender | None, optional): An email sender instance.
-                If None, `DefaultEmailSender` is used. Defaults to None.
+                If None, the workspace's sender (with `group_id`) or `platform_sender()`. Defaults to None.
             locale (str | None, optional): The locale string (e.g., "en_US") for
                 email localization. Currently, the translator part is commented out,
                 so this parameter's effect is pending full i18n implementation.
@@ -94,9 +94,7 @@ class EmailService(BaseService):
         self.default_template: Path = self.templates_dir / "default.html"  # Path to the default email template
 
         if Path(self.templates_dir / self.settings.EMAIL_TEMPLATE).is_file():
-            self.default_template: Path = (
-                self.templates_dir / self.settings.EMAIL_TEMPLATE
-            )  # Path to the default email template per settings
+            self.default_template = self.templates_dir / self.settings.EMAIL_TEMPLATE  # Path to the default email template per settings
 
         if Path(self.directories.TEMPLATE_DIR / self.settings.EMAIL_TEMPLATE).is_file():
             self.templates_dir = self.directories.TEMPLATE_DIR
@@ -110,14 +108,31 @@ class EmailService(BaseService):
 
         self.logger.debug(f"Loading {self.templates_dir} in {self.default_template}")
 
-        # Use provided sender or instantiate DefaultEmailSender
-        self.sender: ABCEmailSender = sender or DefaultEmailSender()
+        # Sender resolution:
+        #  - explicit sender wins
+        #  - otherwise, when scoped to a workspace, route through its active SMTP profile
+        #    (WorkspaceEmailSender falls back to the platform's sender when none is active)
+        #  - unscoped uses the platform's sender: the platform SMTP settings, else the
+        #    platform workspace's active SMTP profile (email_senders.platform_sender)
+        if sender is not None:
+            self.sender: ABCEmailSender = sender
+        elif group_id:
+            from marvin.services.email.email_senders import WorkspaceEmailSender
+
+            self.sender = WorkspaceEmailSender(group_id)
+        else:
+            self.sender = platform_sender()
 
         # Placeholder for localization/translation functionality.
         # If uncommented, `local_provider` would need to be defined and return a Translator instance.
         # self.translator: Translator = local_provider(locale)
         # For now, string keys in EmailTemplate will be used as-is if no translation occurs.
         self.logger.info(f"EmailService initialized. Sender: {type(self.sender).__name__}. Locale: {locale or 'default'}.")
+
+    def _can_send(self) -> bool:
+        """Whether email can be dispatched: global SMTP is configured, OR this service's workspace
+        or the platform workspace has an active SMTP profile (email_senders.email_ready)."""
+        return email_ready(getattr(self.sender, "group_id", None))
 
     def send_email(self, email_to: str, email_data: EmailTemplate) -> bool:  # Renamed `data` to `email_data`
         """
@@ -136,7 +151,7 @@ class EmailService(BaseService):
                   False otherwise. Note: Returning True when SMTP is disabled might
                   be misleading; consider alternative return or logging.
         """
-        if not self.settings.SMTP_ENABLED:
+        if not self._can_send():
             self.logger.info(f"SMTP is disabled. Email not sent to {email_to} (Subject: {email_data.subject}).")
             # Returning False might be more indicative that no email was actually sent.
             # However, if the intent is "operation considered successful if SMTP off", True is okay.
@@ -191,35 +206,49 @@ class EmailService(BaseService):
         group_id: str | None = None,
         workspace_name: str = "",
         inviter_name: str = "",
+        variables: dict | None = None,
     ) -> bool:
         """
         Sends a group invitation email to a prospective user.
 
-        The email contains a unique URL for accepting the invitation and registering.
-        Looks for a database template first, falls back to filesystem/hardcoded template.
+        The email contains a unique URL for accepting the invitation and registering. The link is a live credential,
+        so it's sent from here — never through the event bus, whose events every member can read. The template is
+        Marvin's own invitation email, or the workspace's template that replaces it (services/email/
+        system_email_events.py `system_email_route`, the rule the email settings and event pages show), always to
+        `recipient_address`; with neither, the built-in one.
 
         Args:
             recipient_address (str): The email address of the person being invited.
             invitation_url (str): The URL the recipient will click to accept the invitation.
             group_id (str | None): Workspace ID for workspace-specific templates.
+            variables (dict | None): More template variables (the invitation_sent event's payload fields).
 
         Returns:
             bool: True if the email was sent successfully, False otherwise.
         """
-        # Try to load template from database
-        db_template = self._get_db_template("invitation", group_id)
+        from marvin.db.db_setup import session_context
+        from marvin.db.models.groups.email_templates import EmailTemplateModel
+        from marvin.services.email.system_email_events import SYSTEM_TEMPLATE_EVENT_MAP, system_email_route
+        from marvin.services.events.event_variables import enrich_variables
 
-        if db_template:
-            return self._send_db_template(
-                recipient_address,
-                db_template,
+        with session_context() as session:
+            route = system_email_route(session, group_id, SYSTEM_TEMPLATE_EVENT_MAP["invitation"]["event_type"]) or []
+            db_templates = [t for t in (session.get(EmailTemplateModel, r.template_id) for r in route) if t is not None]
+
+        if db_templates:
+            template_variables = enrich_variables(
                 {
+                    **(variables or {}),
+                    "email_address": recipient_address,
                     "invitation_url": invitation_url,
                     "button_link": invitation_url,
                     "workspace_name": workspace_name,
                     "inviter_name": inviter_name,
                 },
+                group_id,
             )
+            results = [self._send_db_template(recipient_address, t, template_variables) for t in db_templates]
+            return all(results)
 
         # Fallback to hardcoded template
         invitation_template = EmailTemplate(
@@ -296,8 +325,8 @@ class EmailService(BaseService):
 
         # Headings (must run before paragraph splitting, line-by-line)
         text = re.sub(r"^### (.+)$", r"<h3>\1</h3>", text, flags=re.MULTILINE)
-        text = re.sub(r"^## (.+)$",  r"<h2>\1</h2>", text, flags=re.MULTILINE)
-        text = re.sub(r"^# (.+)$",   r"<h1>\1</h1>", text, flags=re.MULTILINE)
+        text = re.sub(r"^## (.+)$", r"<h2>\1</h2>", text, flags=re.MULTILINE)
+        text = re.sub(r"^# (.+)$", r"<h1>\1</h1>", text, flags=re.MULTILINE)
 
         # Bold and italic
         text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
@@ -340,8 +369,39 @@ class EmailService(BaseService):
         Returns:
             bool: True if email sent successfully
         """
-        # Validate required variables BEFORE the rendering try-block so ValueError propagates
+        try:
+            subject, html_content = self.render_db_template(db_template, variables)
+        except ValueError:
+            raise  # Missing-required-variable errors propagate to the caller.
+        except Exception as e:
+            self.logger.error(f"Error rendering database template: {e}")
+            return False
+
+        # Send via configured sender
+        if not self._can_send():
+            self.logger.info(f"SMTP is disabled. Email not sent to {recipient_address} (Subject: {subject}).")
+            return False
+
+        success = self.sender.send(recipient_address, subject, html_content)
+        if success:
+            self.logger.info(f"Email '{subject}' sent successfully to {recipient_address} (DB template: {db_template.name}).")
+        else:
+            self.logger.error(f"Failed to send email '{subject}' to {recipient_address}.")
+        return success
+
+    def render_db_template(self, db_template, variables: dict) -> tuple[str, str]:
+        """Render a DB email template to ``(subject, html_content)``.
+
+        Supports two modes (custom_html takes priority):
+        1. custom_html: Full HTML rendered with Jinja2 and sent as-is (no chrome wrapper).
+        2. body_markdown: Markdown → HTML, injected into the default.html chrome.
+
+        {{SLUG}} workspace secrets/variables are resolved before Jinja2 rendering.
+        Raises ValueError if the template is missing required variables.
+        """
         from marvin.services.email.system_templates import validate_template_content
+
+        # Validate required variables first so ValueError propagates to the caller.
         has_custom_html = bool(db_template.custom_html and db_template.custom_html.strip())
         if not has_custom_html:
             content_fields = {
@@ -352,68 +412,55 @@ class EmailService(BaseService):
             if missing:
                 raise ValueError(f"Template is missing required variables: {', '.join('{{' + v + '}}' for v in missing)}")
 
+        from jinja2 import Template
+
+        from marvin.services.secrets.resolver import resolve
+
+        group_id = getattr(db_template, "group_id", None)
+
+        def _r(text: str | None) -> str:
+            return resolve(text or "", group_id, allow_secrets=False, context=variables)
+
+        # Render subject with Jinja2
         try:
-            from jinja2 import Template
-            from marvin.services.secrets.resolver import resolve
+            subject = Template(_r(db_template.subject)).render(**variables)
+        except Exception:
+            subject = db_template.subject or "(no subject)"
 
-            group_id = getattr(db_template, "group_id", None)
+        # Shared button_link derivation
+        button_link = (
+            variables.get("invitation_url")
+            or variables.get("reset_url")
+            or variables.get("login_url")
+            or variables.get("action_url")
+            or variables.get("button_link", "")
+        )
 
-            def _r(text: str | None) -> str:
-                return resolve(text or "", group_id, allow_secrets=False, context=variables)
-
-            # Render subject with Jinja2
+        def _render_safe(text: str) -> str:
+            """Render Jinja2 template, falling back to raw text on syntax/render errors."""
             try:
-                subject = Template(_r(db_template.subject)).render(**variables)
-            except Exception:
-                subject = db_template.subject or "(no subject)"
+                return Template(_r(text)).render(**variables)
+            except Exception as exc:
+                self.logger.warning(f"Template render error (sending raw): {exc}")
+                return text
 
-            # Shared button_link derivation
-            button_link = (
-                variables.get("invitation_url") or variables.get("reset_url")
-                or variables.get("login_url") or variables.get("action_url")
-                or variables.get("button_link", "")
-            )
+        # Determine rendering mode
+        raw_custom = db_template.custom_html or ""
+        if raw_custom.strip():
+            # Mode 1: custom_html — render Jinja2 variables and send as-is (no chrome wrapper)
+            return subject, _render_safe(raw_custom)
 
-            def _render_safe(text: str) -> str:
-                """Render Jinja2 template, falling back to raw text on syntax/render errors."""
-                try:
-                    return Template(_r(text)).render(**variables)
-                except Exception as exc:
-                    self.logger.warning(f"Template render error (sending raw): {exc}")
-                    return text
-
-            # Determine rendering mode
-            raw_custom = db_template.custom_html or ""
-            if raw_custom.strip():
-                # Mode 1: custom_html — render Jinja2 variables and send as-is (no chrome wrapper)
-                html_content = _render_safe(raw_custom)
-            else:
-                # Mode 2: body_markdown — render Jinja2 variables, convert to HTML, inject into default.html chrome
-                raw_markdown = db_template.body_markdown or ""
-                rendered_markdown = _render_safe(raw_markdown)
-                body_html = self._markdown_to_html(rendered_markdown)
-                template_data = EmailTemplate(
-                    subject=subject,
-                    header_text=variables.get("message_title", ""),
-                    message_top=body_html,
-                    message_bottom="",
-                    button_link=button_link,
-                    button_text="",
-                    workspace_name=variables.get("workspace_name", ""),
-                )
-                html_content = template_data.render_html(self.default_template)
-
-            # Send via configured sender
-            if not self.settings.SMTP_ENABLED:
-                self.logger.info(f"SMTP is disabled. Email not sent to {recipient_address} (Subject: {subject}).")
-                return False
-
-            success = self.sender.send(recipient_address, subject, html_content)
-            if success:
-                self.logger.info(f"Email '{subject}' sent successfully to {recipient_address} (DB template: {db_template.name}).")
-            else:
-                self.logger.error(f"Failed to send email '{subject}' to {recipient_address}.")
-            return success
-        except Exception as e:
-            self.logger.error(f"Error rendering database template: {e}")
-            return False
+        # Mode 2: body_markdown — render Jinja2 variables, convert to HTML, inject into default.html chrome
+        raw_markdown = db_template.body_markdown or ""
+        rendered_markdown = _render_safe(raw_markdown)
+        body_html = self._markdown_to_html(rendered_markdown)
+        template_data = EmailTemplate(
+            subject=subject,
+            header_text=variables.get("message_title", ""),
+            message_top=body_html,
+            message_bottom="",
+            button_link=button_link,
+            button_text="",
+            workspace_name=variables.get("workspace_name", ""),
+        )
+        return subject, template_data.render_html(self.default_template)

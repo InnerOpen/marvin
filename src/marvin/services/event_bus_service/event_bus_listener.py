@@ -3,28 +3,24 @@ This module defines the base class and concrete implementations for event listen
 within the Marvin application's event bus system.
 
 Event listeners are responsible for:
-1. Identifying relevant subscribers (e.g., Apprise URLs, webhook configurations)
-   for a given event.
+1. Identifying relevant subscribers (e.g., webhook configurations) for a given event.
 2. Publishing the event data to these subscribers using an appropriate publisher
-   (e.g., `ApprisePublisher`, `WebhookPublisher`).
+   (e.g., `WebhookPublisher`).
 
 The module includes:
 - `EventListenerBase`: An abstract base class defining the event listener interface
   and providing context managers for resource management (DB sessions, repositories).
-- `AppriseEventListener`: A listener that finds Apprise URLs subscribed to an event
-  and publishes event data to them, potentially enriching URLs with event parameters.
 - `WebhookEventListener`: A listener that finds scheduled webhooks relevant to an event
   (specifically `webhook_task` events), potentially processes data based on webhook
   type, and publishes to the webhook URLs.
 """
 
 import contextlib  # For contextmanager decorator
-import json  # For serializing event data
 from abc import ABC, abstractmethod  # For abstract base classes
 from collections.abc import Generator  # For generator type hints
 from datetime import UTC, datetime  # For datetime operations
-from typing import Any, cast  # For type casting
-from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit  # For URL manipulation
+from logging import Logger
+from typing import Any, ClassVar, cast  # For type casting
 
 from fastapi.encoders import jsonable_encoder  # For encoding Pydantic models to JSON-compatible dicts
 from pydantic import UUID4  # For UUID type hinting
@@ -32,25 +28,36 @@ from sqlalchemy import select  # For SQLAlchemy select statements
 
 # from sqlalchemy import func # `func` was imported but not used
 from sqlalchemy.orm.session import Session  # SQLAlchemy session type
-from logging import Logger
 
 # Marvin specific imports
 from marvin.core.root_logger import get_logger  # Application logger
 from marvin.db.db_setup import session_context  # Context manager for DB sessions
 from marvin.db.models.groups.webhooks import GroupWebhooksModel  # , Method # Method enum not directly used here
 from marvin.repos.repository_factory import AllRepositories  # Central repository access
-from marvin.schemas.group.event import GroupEventNotifierPrivate  # Schema for private notifier details
 from marvin.schemas.group.webhook import WebhookRead  # Schema for reading webhook configurations
+from marvin.services.publish_visibility import is_publishable_type, item_visible_to_sites  # What the publishing API serves
 from marvin.services.webhooks.all_webhooks import AllWebhooks, get_webhooks  # For accessing webhook runners
 
 from .event_types import (  # Core event system types
     Event,
-    EventNameSpace,
     EventOperation,
+    EventScheduledTaskData,
     EventTypes,
     EventWebhookData,
+    WebhookMode,
+    event_entity,
 )
-from .publisher import ApprisePublisher, PublisherLike, WebhookPublisher  # Publisher implementations
+from .publisher import PublisherLike, WebhookPublisher  # Publisher implementations
+
+
+def _platform_event(event: Event) -> bool:
+    """A platform-scope event (services/events/event_catalog.py): a sign-up, a password reset, a workspace or personal
+    token change… It's stored under the workspace it touched, but it isn't the workspace's: no subscription a
+    workspace admin can make — webhook, integration action, workflow, email — hears it. Checked here, as the event is
+    sent, so a subscription made before the routes refused platform events is covered too."""
+    from marvin.services.events.event_catalog import is_platform_event
+
+    return is_platform_event(event.event_type.name)
 
 
 class EventListenerBase(ABC):
@@ -79,7 +86,7 @@ class EventListenerBase(ABC):
         Args:
             group_id (UUID4): The ID of the group this listener is associated with.
                               Events processed may be scoped to this group.
-            publisher (PublisherLike): An instance of a publisher (e.g., ApprisePublisher)
+            publisher (PublisherLike): An instance of a publisher (e.g., WebhookPublisher)
                                        used to send out notifications.
         """
         self.group_id: UUID4 = group_id
@@ -108,7 +115,7 @@ class EventListenerBase(ABC):
         Abstract method to get a list of all subscribers for a given event.
 
         Subclasses must implement this to determine who should receive the event
-        (e.g., list of Apprise URLs, list of WebhookRead objects).
+        (e.g., a list of WebhookRead objects).
 
         Args:
             event (Event): The event for which to find subscribers.
@@ -210,155 +217,13 @@ class EventListenerBase(ABC):
             yield self._webhooks
 
 
-class AppriseEventListener(EventListenerBase):
-    """
-    Event listener that publishes events to Apprise-compatible notification services.
-
-    It retrieves configured Apprise URLs for a group that are subscribed to the
-    specific event type. It can also update these URLs with event-specific data
-    as query parameters for certain Apprise URL schemes (e.g., JSON, XML).
-    """
-
-    _option_value_field_name: str = "option"  # Field name on GroupEventNotifierOptionsSummary to get "namespace.slug"
-
-    def __init__(self, group_id: UUID4) -> None:
-        """
-        Initializes the AppriseEventListener for a specific group.
-
-        Args:
-            group_id (UUID4): The ID of the group whose Apprise notifiers will be used.
-        """
-        super().__init__(group_id, ApprisePublisher())  # Uses ApprisePublisher for dispatching
-
-    def get_subscribers(self, event: Event) -> list[GroupEventNotifierPrivate]:
-        """
-        Retrieves a list of enabled notifier objects subscribed to the given event.
-
-        Returns the matching `GroupEventNotifierPrivate` objects so that
-        `publish_to_subscribers` can fire and log per-notifier.
-        """
-        if event.event_type == EventTypes.webhook_task:
-            return []
-
-        target_option = f"{EventNameSpace.namespace.value}.{event.event_type.name.replace('-', '_')}"
-        self.logger.debug(f"Target Event {target_option}")
-
-        matching: list[GroupEventNotifierPrivate] = []
-        with self.ensure_repos(self.group_id) as repos:
-            enabled_notifiers: list[GroupEventNotifierPrivate] = repos.group_event_notifier.multi_query(
-                {"enabled": True}, override_schema=GroupEventNotifierPrivate
-            )
-            for notifier in enabled_notifiers:
-                if not notifier.apprise_url:
-                    continue
-                for option_summary in notifier.options:
-                    if getattr(option_summary, self._option_value_field_name, None) == target_option:
-                        matching.append(notifier)
-                        break
-
-        return matching
-
-    def publish_to_subscribers(self, event: Event, subscribers: list[GroupEventNotifierPrivate]) -> None:
-        """
-        Publishes the event to each notifier individually, logging per-notifier.
-        """
-        from marvin.services.secrets.resolver import resolve
-
-        for notifier in subscribers:
-            resolved_url = resolve(notifier.apprise_url, group_id=self.group_id)
-            enriched = self.update_urls_with_event_data([resolved_url], event)
-            self.logger.info(f"Notifier '{notifier.name}' → {resolved_url}")
-            self.publisher.publish(
-                event,
-                enriched,
-                notifier_id=notifier.id,
-                group_id=self.group_id,
-                event_type=event.event_type.name,
-            )
-
-    @staticmethod
-    def update_urls_with_event_data(apprise_urls: list[str], event: Event) -> list[str]:
-        """
-        Updates Apprise URLs with event-specific data as query parameters.
-
-        For certain URL schemes (JSON, XML, FORM), it adds event details (like type, ID,
-        timestamp, and document_data) as query parameters prefixed with ":". This allows
-        Apprise to include this data in the notification payload for those services.
-
-        Args:
-            apprise_urls (list[str]): The list of raw Apprise URLs.
-            event (Event): The event containing data to be added to URLs.
-
-        Returns:
-            list[str]: The list of Apprise URLs, potentially updated with event data.
-        """
-        # Prepare event data parameters for URL encoding
-        event_params = {
-            "event_type": event.event_type.name,
-            "integration_id": event.integration_id,
-            # Serialize document_data to a JSON string for URL parameter
-            "document_data": json.dumps(jsonable_encoder(event.document_data)),
-            "event_id": str(event.event_id),  # Convert UUID to string
-            "timestamp": event.timestamp.isoformat() if event.timestamp else "",  # ISO format or empty string
-        }
-        # Filter out None values from params, as they shouldn't be in query string
-        filtered_event_params = {k: v for k, v in event_params.items() if v is not None}
-
-        processed_urls = []
-        for url in apprise_urls:
-            if AppriseEventListener.is_custom_data_url_scheme(url):  # Check if URL scheme supports custom data
-                # Prepend ":" to keys for Apprise custom key-value pairs via query params
-                apprise_custom_params = {f":{k}": v for k, v in filtered_event_params.items()}
-                processed_urls.append(AppriseEventListener.merge_query_parameters(url, apprise_custom_params))
-            else:
-                processed_urls.append(url)  # URL scheme does not support custom data, use as is
-        return processed_urls
-
-    @staticmethod
-    def merge_query_parameters(url_string: str, params_to_add: dict[str, str]) -> str:  # Renamed params
-        """
-        Merges additional query parameters into an existing URL string.
-
-        Args:
-            url_string (str): The original URL, which may or may not have existing query parameters.
-            params_to_add (dict[str, str]): A dictionary of query parameters to add or update.
-
-        Returns:
-            str: The new URL string with merged query parameters.
-        """
-        scheme, netloc, path, query_string, fragment = urlsplit(url_string)
-        existing_query_params = parse_qs(query_string)  # Parse existing query string into a dict
-
-        # Update with new parameters. parse_qs values are lists, so ensure new params are also lists for consistency.
-        for key, value in params_to_add.items():
-            existing_query_params[key] = [value]  # Override or add as a list with one item
-
-        new_query_string = urlencode(existing_query_params, doseq=True)  # Re-encode query parameters
-        return urlunsplit((scheme, netloc, path, new_query_string, fragment))  # Reconstruct the URL
-
-    @staticmethod
-    def is_custom_data_url_scheme(url_string: str) -> bool:  # Renamed from is_custom_url
-        """
-        Checks if the given URL string uses a scheme that supports Apprise custom key-value data via query parameters.
-
-        Args:
-            url_string (str): The Apprise URL string.
-
-        Returns:
-            bool: True if the scheme is one of "form(s)", "json(s)", or "xml(s)"; False otherwise.
-        """
-        # Ensure URL is a string before splitting
-        scheme = str(url_string).split(":", 1)[0].lower()
-        # List of Apprise schemes that are known to support custom data via query parameters prefixed with ":"
-        return scheme in ["form", "forms", "json", "jsons", "xml", "xmls"]
-
-
 def _resolve_webhook_headers(webhook_config: "WebhookRead", group_id) -> dict[str, str] | None:
     """Resolve {{SLUG}} references in webhook headers using the configured secret backend."""
     raw = getattr(webhook_config, "headers", None) or getattr(webhook_config, "headers_json", None)
     if not raw:
         return None
     from marvin.services.secrets.resolver import resolve_dict
+
     return resolve_dict(raw, group_id)
 
 
@@ -403,26 +268,31 @@ class WebhookEventListener(EventListenerBase):
             self.logger.debug(f"webhook_task: {len(scheduled)} scheduled webhook(s) in window")
             return scheduled
 
-        # Event-driven: find webhooks subscribed to this event type
-        with self.ensure_session() as session:
-            db_webhooks = session.execute(
-                select(GroupWebhooksModel).where(
-                    GroupWebhooksModel.enabled == True,  # noqa: E712
-                    GroupWebhooksModel.group_id == self.group_id,
-                )
-            ).scalars().all()
+        if _platform_event(event):
+            return []
 
-            filtered = [
-                wh for wh in db_webhooks
-                if wh.subscribed_events
-                and event.event_type.name in wh.subscribed_events
-                and getattr(wh.webhook_type, "value", None) == "event_driven"
-            ]
+        # Event-driven: find webhooks subscribed to this event type
+        from marvin.db.models.groups.webhook_event_subscriptions import WebhookEventSubscriptionModel
+
+        with self.ensure_session() as session:
+            filtered = (
+                session.execute(
+                    select(GroupWebhooksModel)
+                    .join(WebhookEventSubscriptionModel, WebhookEventSubscriptionModel.webhook_id == GroupWebhooksModel.id)
+                    .where(
+                        GroupWebhooksModel.enabled == True,  # noqa: E712
+                        GroupWebhooksModel.group_id == self.group_id,
+                        GroupWebhooksModel.webhook_type == WebhookMode.event_driven,
+                        WebhookEventSubscriptionModel.event_type == event.event_type.name,
+                    )
+                )
+                .scalars()
+                .all()
+            )
 
             if filtered:
                 self.logger.info(
-                    f"event:{event.event_type.name} → {len(filtered)} webhook(s): "
-                    + ", ".join(wh.name or str(wh.id) for wh in filtered)
+                    f"event:{event.event_type.name} → {len(filtered)} webhook(s): " + ", ".join(wh.name or str(wh.id) for wh in filtered)
                 )
             else:
                 self.logger.debug(f"event:{event.event_type.name} → no webhook subscribers")
@@ -436,10 +306,7 @@ class WebhookEventListener(EventListenerBase):
         if event.event_type != EventTypes.webhook_task:
             # Event-driven path
             for webhook_config in subscribers_webhooks:
-                self.logger.debug(
-                    f"  → firing event-driven webhook '{webhook_config.name}' "
-                    f"[{webhook_config.method.name} {webhook_config.url}]"
-                )
+                self.logger.debug(f"  → firing event-driven webhook '{webhook_config.name}' [{webhook_config.method.name} {webhook_config.url}]")
                 resolved_headers = _resolve_webhook_headers(webhook_config, self.group_id)
                 payload_override = None
                 if webhook_config.custom_payload:
@@ -461,9 +328,7 @@ class WebhookEventListener(EventListenerBase):
                     base = jsonable_encoder(event, exclude_none=True)
                     if "eventType" in base and hasattr(event.event_type, "name"):
                         base["eventType"] = event.event_type.name
-                    base["meta"] = apply_substitutions(
-                        webhook_config.custom_payload, self.group_id, ctx
-                    )
+                    base["meta"] = apply_substitutions(webhook_config.custom_payload, self.group_id, ctx)
                     payload_override = base
                 self.publisher.publish(
                     event,
@@ -473,14 +338,13 @@ class WebhookEventListener(EventListenerBase):
                     group_id=self.group_id,
                     headers=resolved_headers,
                     payload_override=payload_override,
+                    webhook_name=webhook_config.name,
                 )
             return
 
         # Scheduled webhook_task path
         if not isinstance(event.document_data, EventWebhookData):
-            self.logger.warning(
-                f"WebhookEventListener: unexpected document_data type: {type(event.document_data)}"
-            )
+            self.logger.warning(f"WebhookEventListener: unexpected document_data type: {type(event.document_data)}")
             return
 
         webhook_event_data: EventWebhookData = cast(EventWebhookData, event.document_data)
@@ -522,10 +386,7 @@ class WebhookEventListener(EventListenerBase):
                         try:
                             handler_data = handler.info(webhook_config, context)
                         except Exception as e:
-                            self.logger.error(
-                                f"Error calling .info() for webhook {webhook_config.name} "
-                                f"(type={webhook_type_name}): {e}"
-                            )
+                            self.logger.error(f"Error calling .info() for webhook {webhook_config.name} (type={webhook_type_name}): {e}")
 
             # Mirror event-driven shape: context at top level, stats in data
             clean_payload: dict = {
@@ -538,9 +399,7 @@ class WebhookEventListener(EventListenerBase):
             if handler_data:
                 clean_payload["documentData"] = handler_data
             if webhook_config.custom_payload:
-                clean_payload["meta"] = apply_substitutions(
-                    webhook_config.custom_payload, self.group_id, context
-                )
+                clean_payload["meta"] = apply_substitutions(webhook_config.custom_payload, self.group_id, context)
 
             self.logger.info(
                 f"WEBHOOK FIRING: '{webhook_config.name}' "
@@ -556,6 +415,7 @@ class WebhookEventListener(EventListenerBase):
                 group_id=self.group_id,
                 headers=resolved_headers,
                 payload_override=clean_payload,
+                webhook_name=webhook_config.name,
             )
 
     def get_scheduled_webhooks(self, start_datetime: datetime, end_datetime: datetime) -> list[WebhookRead]:  # Renamed params
@@ -588,7 +448,29 @@ class WebhookEventListener(EventListenerBase):
             return [WebhookRead.model_validate(db_webhook) for db_webhook in db_webhooks]
 
 
-class ScheduledTaskListener(EventListenerBase):
+class BuiltinReaction(EventListenerBase):
+    """A reaction Marvin ships in code, as opposed to one a person wired up (workflows, webhooks, emails,
+    integration actions). It says what it does (`label`) and which events it reacts to (`reacts_to()`), and
+    `get_subscribers` matches on that same set — so what the Events hub lists can't drift from what runs.
+    `builtin_reactions()` (end of this module) lists them."""
+
+    label: ClassVar[str]
+    """What it does, in a few words ("Queues a site rebuild")."""
+    subscriber: ClassVar[str]
+    """The subscriber name `get_subscribers` returns; the listener acts on the event itself."""
+    REACTS_TO: ClassVar[frozenset[EventTypes]] = frozenset()
+
+    @classmethod
+    def reacts_to(cls) -> frozenset[EventTypes]:
+        """The events it reacts to."""
+        return cls.REACTS_TO
+
+    def get_subscribers(self, event: Event) -> list[str]:
+        """Act only on the events it reacts to; cheap check, no DB access."""
+        return [self.subscriber] if event.event_type in self.reacts_to() else []
+
+
+class ScheduledTaskListener(BuiltinReaction):
     """
     Event listener that executes scheduled tasks when triggered.
 
@@ -600,6 +482,10 @@ class ScheduledTaskListener(EventListenerBase):
     5. Updating task execution state
     """
 
+    label = "Runs the scheduled task"
+    subscriber = "scheduled_task_handler"
+    REACTS_TO = frozenset({EventTypes.scheduled_task_triggered})
+
     def __init__(self, group_id: UUID4) -> None:
         """
         Initializes the ScheduledTaskListener for a specific group.
@@ -610,22 +496,6 @@ class ScheduledTaskListener(EventListenerBase):
         from .publisher import ConsolePublisher  # We don't actually publish anything, but need a publisher
 
         super().__init__(group_id, ConsolePublisher())
-
-    def get_subscribers(self, event: Event) -> list[str]:
-        """
-        Returns a list indicating this listener should handle the event.
-
-        Only subscribes to scheduled_task.triggered events.
-
-        Args:
-            event (Event): The event to check.
-
-        Returns:
-            list[str]: Returns ["scheduled_task_handler"] if this is a triggered event, else empty list.
-        """
-        if event.event_type == EventTypes.scheduled_task_triggered:
-            return ["scheduled_task_handler"]
-        return []
 
     def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
         """
@@ -672,26 +542,38 @@ class ScheduledTaskListener(EventListenerBase):
                     event_type=EventTypes.scheduled_task_started,
                     document_data=event.document_data,  # Reuse same task data
                     message=f"Scheduled task '{task.name}' execution started",
+                    entity_id=task.id,
+                    entity_type="scheduled_task",
                 )
 
                 # Get and execute handler
                 handler = TaskHandlerRegistry.get_handler(task.task_type)
-                self.logger.info(f"Executing scheduled task: {task.name} (type: {task.task_type})")
+                self.logger.debug(f"Executing scheduled task: {task.name} (type: {task.task_type})")
                 output = handler.execute(task, event_bus)
 
                 # Calculate duration
                 end_time = datetime.now(UTC)
                 duration_ms = int((end_time - start_time).total_seconds() * 1000)
 
-                # Log successful execution
-                repos.scheduled_task_executions.log_execution(
-                    task_id=task.id,
-                    group_id=task.group_id,
-                    status="success",
-                    executed_at=start_time,
-                    duration_ms=duration_ms,
-                    output=output,
-                )
+                # Log the run (execution row and scheduled_task_completed event) — unless a handler
+                # said there was nothing to report and nobody was watching. A frequent task (every 2
+                # minutes is 720 runs a day) otherwise buries its own real events under identical
+                # "nothing happened" rows. Liveness is not lost: last_run_at/last_status below are
+                # updated either way. A run someone triggered by hand always logs, because they asked
+                # and deserve an answer; so does the first success after a failure (the workspace's
+                # notifications send "working again" on it); a failure always logs (_handle_task_failure).
+                by_hand = event.integration_id != "scheduled_tasks"
+                recovered = (task.failure_count or 0) > 0  # the run that ends a failure streak is news
+                worth_recording = output is not None or by_hand or recovered
+                if worth_recording:
+                    repos.scheduled_task_executions.log_execution(
+                        task_id=task.id,
+                        group_id=task.group_id,
+                        status="success",
+                        executed_at=start_time,
+                        duration_ms=duration_ms,
+                        output=output if output is not None else "Nothing to do.",
+                    )
 
                 # Update task state
                 repos.scheduled_tasks.update_execution_state(
@@ -710,28 +592,32 @@ class ScheduledTaskListener(EventListenerBase):
                     # One-time task — clear next_run_at so scheduler won't re-fire it
                     repos.scheduled_tasks.update_next_run(task.id, None)
 
-                # Emit completed event
-                event_bus.dispatch(
-                    integration_id="scheduled_tasks",
-                    group_id=task.group_id,
-                    event_type=EventTypes.scheduled_task_completed,
-                    document_data=event.document_data,
-                    message=f"Scheduled task '{task.name}' completed successfully in {duration_ms}ms",
-                )
+                if worth_recording:
+                    event_bus.dispatch(
+                        integration_id="scheduled_tasks",
+                        group_id=task.group_id,
+                        event_type=EventTypes.scheduled_task_completed,
+                        document_data=event.document_data,
+                        message=f"Scheduled task '{task.name}' completed successfully in {duration_ms}ms",
+                        entity_id=task.id,
+                        entity_type="scheduled_task",
+                    )
 
-                self.logger.info(f"Scheduled task '{task.name}' completed successfully in {duration_ms}ms")
+                # The console follows the execution log: a nothing-happened run is a DEBUG line, not an INFO one.
+                log = self.logger.info if worth_recording else self.logger.debug
+                log(f"Scheduled task '{task.name}' completed successfully in {duration_ms}ms")
 
             except ValueError as e:
                 # Handler not found
                 self.logger.error(f"Scheduled task handler error: {e}")
-                self._handle_task_failure(repos, task, start_time, str(e), None, event_bus, event)
+                self._handle_task_failure(repos, task, start_time, str(e), None, event_bus, event, e)
 
             except Exception as e:
                 # Handler execution failed
                 error_msg = str(e)
                 error_trace = traceback.format_exc()
                 self.logger.error(f"Scheduled task '{task.name}' failed: {error_msg}\n{error_trace}")
-                self._handle_task_failure(repos, task, start_time, error_msg, error_trace, event_bus, event)
+                self._handle_task_failure(repos, task, start_time, error_msg, error_trace, event_bus, event, e)
 
     def _handle_task_failure(
         self,
@@ -742,8 +628,16 @@ class ScheduledTaskListener(EventListenerBase):
         error_traceback: str | None,
         event_bus,
         event: Event,
+        exc: BaseException | None = None,
     ) -> None:
         """Helper to handle task execution failures."""
+        from marvin.services.integrations.http_client import is_transient_network_error
+        from marvin.services.scheduled_tasks.blips import defer_alert
+
+        in_a_row = task.failure_count + 1  # read before the update below, which may change `task` in place
+        # Decided before this failure is logged: the streak so far is the runs that failed before it.
+        deferred = defer_alert(repos.session, task, exc)
+
         end_time = datetime.now(UTC)
         duration_ms = int((end_time - start_time).total_seconds() * 1000)
 
@@ -764,7 +658,7 @@ class ScheduledTaskListener(EventListenerBase):
             last_run_at=start_time,
             last_status="failed",
             last_duration_ms=duration_ms,
-            failure_count=task.failure_count + 1,
+            failure_count=in_a_row,
         )
 
         # Still recalculate next_run_at so the task keeps retrying on schedule
@@ -772,54 +666,84 @@ class ScheduledTaskListener(EventListenerBase):
         if next_run:
             repos.scheduled_tasks.update_next_run(task.id, next_run)
 
-        # Emit failed event
+        # Emit failed event — saying how many runs in a row have failed and whether this was a network blip, so
+        # alerts (workspace_alerts, the bell) can wait out a passing timeout instead of announcing every one.
+        document_data = event.document_data
+        if isinstance(document_data, EventScheduledTaskData):
+            document_data = document_data.model_copy(
+                update={
+                    "consecutive_failures": in_a_row,
+                    "transient": is_transient_network_error(exc),
+                    "alert_deferred": deferred,
+                    "last_status": "failed",
+                }
+            )
         event_bus.dispatch(
             integration_id="scheduled_tasks",
             group_id=task.group_id,
             event_type=EventTypes.scheduled_task_failed,
-            document_data=event.document_data,
+            document_data=document_data,
             message=f"Scheduled task '{task.name}' failed: {error_message}",
+            entity_id=task.id,
+            entity_type="scheduled_task",
         )
 
 
-class AIEmbeddingReactionListener(EventListenerBase):
+class IndexingReactionListener(BuiltinReaction):
     """
-    Reaction listener that keeps the RAG index fresh: when an entry is published
-    (or a live entry's content is edited) it embeds that single entry so it is
-    immediately answerable via semantic search (answer-workspace-question) with no
-    manual or scheduled reindex.
+    Reaction listener that keeps the RAG index fresh for every registered indexable type.
 
-    This is a code-defined "reaction" (event -> action). It is deliberately:
-      - best-effort: any failure is logged and swallowed, so it can never break publish;
+    Driven entirely by the indexable-type registry (``embeddings_registry``): it reacts to each
+    type's index/delete events, (re)embeds on index events (gated per-type via ``should_index``),
+    and purges embeddings on delete events. Adding a new indexable type needs NO change here — just
+    a ``register_indexable(...)``.
+
+    Deliberately:
+      - best-effort: any failure is logged and swallowed, so it can never break a write;
       - a no-op when the workspace has AI disabled or a provider without embeddings;
-      - acyclic: it only emits ai_embeddings_reindexed (which re-triggers nothing here),
-        so there is no cascade. A depth/provenance guard is only needed once a reaction
-        can mutate content and re-fire entry events.
+      - acyclic: it only emits ai_embeddings_reindexed, which re-triggers nothing here.
     """
-
-    # Events that should refresh an entry's embeddings.
-    #   entry_published: a (re)publish transition — (re)index the entry.
-    #   entry_updated:   a content edit of an already-live, already-indexed entry — re-index.
-    # entry_updated fires on *every* save (drafts, inbox, etc.), so it is gated hard in
-    # publish_to_subscribers; see _should_index_on_update for the judgment call.
-    _TRIGGERS = (EventTypes.entry_published, EventTypes.entry_updated)
 
     def __init__(self, group_id: UUID4) -> None:
         from .publisher import ConsolePublisher  # We act on the event; we don't publish through it.
 
         super().__init__(group_id, ConsolePublisher())
 
-    def get_subscribers(self, event: Event) -> list[str]:
-        """Act only on the trigger events; cheap check, no DB access."""
-        return ["ai_embed"] if event.event_type in self._TRIGGERS else []
+    label = "Refreshes AI search"
+    subscriber = "ai_index"
+
+    @classmethod
+    def reacts_to(cls) -> frozenset[EventTypes]:
+        """Every registered indexable type's index and delete events."""
+        from marvin.services.ai.embeddings_registry import trigger_events
+
+        return frozenset(trigger_events())
 
     def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
-        entry_id = getattr(event.document_data, "entry_id", None) or event.entity_id
-        if not entry_id:
-            self.logger.error("AIEmbeddingReactionListener: event carried no entry_id")
+        from marvin.services.ai.embeddings_registry import delete_descriptor_for, index_descriptor_for
+
+        del_desc = delete_descriptor_for(event.event_type)
+        idx_desc = index_descriptor_for(event.event_type)
+        desc = idx_desc or del_desc
+        if desc is None:
+            return
+        entity_id = getattr(event.document_data, desc.id_field, None) or event.entity_id
+        if not entity_id:
+            self.logger.error(f"IndexingReactionListener: {event.event_type} carried no {desc.id_field}")
             return
 
-        from marvin.services.ai.embeddings import default_embedding_model, index_entry
+        from marvin.services.ai.embeddings import default_embedding_model, index_entity, purge_embeddings
+
+        # Delete → purge the entity's embeddings; no provider needed.
+        if del_desc is not None:
+            with self.ensure_session() as session:
+                n = purge_embeddings(session, self.group_id, del_desc.entity_type, entity_id)
+            self.logger.info(f"Purged {n} embedding chunk(s) for deleted {del_desc.entity_type} {entity_id}")
+            return
+
+        # Index → (re)embed, gated by the type's should_index.
+        # del_desc handled and returned above; `desc = idx_desc or del_desc` was non-None, so idx_desc holds here.
+        assert idx_desc is not None
         from marvin.services.ai.factory import AIDisabledError, get_workspace_ai_provider
 
         with self.ensure_session() as session:
@@ -829,76 +753,60 @@ class AIEmbeddingReactionListener(EventListenerBase):
             except AIDisabledError:
                 return
             except Exception as e:
-                self.logger.warning(f"AIEmbeddingReactionListener: provider unavailable: {e}")
+                self.logger.warning(f"IndexingReactionListener: provider unavailable: {e}")
                 return
-
             if not getattr(provider, "supports_embeddings", False):
                 return
             model = default_embedding_model(provider.provider_type)
             if not model:
                 return
 
-            from marvin.db.models.platform.entries import Entries
-            entry = session.get(Entries, entry_id)
-            if not entry or entry.group_id != self.group_id:
-                self.logger.warning(f"AIEmbeddingReactionListener: entry {entry_id} not found for this workspace")
+            obj = session.get(idx_desc.model, entity_id)
+            if not obj or obj.group_id != self.group_id:
+                self.logger.warning(f"IndexingReactionListener: {idx_desc.entity_type} {entity_id} not found for this workspace")
+                return
+            has_index = self._has_index(session, idx_desc.entity_type, entity_id, model)
+            if not idx_desc.should_index(obj, event.event_type, has_index):
+                return
+            # Content gate: a too-thin object (e.g. a bare icon/logo asset) doesn't belong in the
+            # semantic index. Skip it — and purge any stale embedding if it just lost its content.
+            if not idx_desc.content_ok(obj):
+                if has_index:
+                    from marvin.services.ai.embeddings import purge_embeddings
+
+                    purge_embeddings(session, self.group_id, idx_desc.entity_type, entity_id, model)
+                    session.commit()
                 return
 
-            # An entry_updated fires on every save. Only re-embed a live entry whose
-            # content actually changed, and never double-embed the publish transition
-            # (which emits entry_updated *and* entry_published). See _should_index_on_update.
-            is_update = event.event_type == EventTypes.entry_updated
-            if is_update and not self._should_index_on_update(
-                entry.status, self._has_embedding_index(session, entry_id, model)
-            ):
-                return
+            from marvin.services.ai.embeddings import chunks_unchanged, entity_chunks
 
+            text = idx_desc.text(obj)
+            # Most saves of a published item don't change what's indexed (a workflow writing metadata,
+            # a status flag): skip the embedding call — and the event — when the chunks are identical.
+            if chunks_unchanged(session, self.group_id, idx_desc.entity_type, obj.id, model, entity_chunks(text)):
+                return
             try:
-                chunks = index_entry(session, self.group_id, entry, provider, model)
+                chunks = index_entity(session, self.group_id, idx_desc.entity_type, obj.id, text, provider, model)
             except Exception as e:
-                self.logger.warning(f"AIEmbeddingReactionListener: embed failed for entry {entry_id}: {e}")
+                self.logger.warning(f"IndexingReactionListener: embed failed for {idx_desc.entity_type} {entity_id}: {e}")
                 return
 
-        verb = "on update" if is_update else "on publish"
-        self.logger.info(f"Auto-embedded entry {entry_id} ({chunks} chunk(s)) {verb}")
-        self._emit_reindexed(model, chunks, verb)
+        verb = "on " + event.event_type.name.split("_", 1)[-1]  # e.g. "on published", "on updated"
+        self.logger.info(f"Auto-indexed {idx_desc.entity_type} {entity_id} ({chunks} chunk(s)) {verb}")
+        self._emit_reindexed(model, chunks, idx_desc.entity_type, verb, entity_id=obj.id)
 
-    @staticmethod
-    def _should_index_on_update(status: str, has_existing_index: bool) -> bool:
-        """
-        Gate for re-embedding on entry_updated (the key judgment call).
-
-        Re-embed ONLY when both hold:
-          1. the entry is currently published — never index draft/inbox/archived saves,
-             which would otherwise fire on every keystroke-save; and
-          2. the entry already has an embedding index for this model — i.e. it is a
-             live, already-indexed entry whose content changed.
-
-        Condition (2) also prevents a redundant double-embed on the publish transition:
-        the controller emits entry_updated *then* entry_published for the same request,
-        but on first publish there is no prior index yet, so entry_updated no-ops here
-        and entry_published owns the initial indexing.
-        """
-        return status == "published" and has_existing_index
-
-    def _has_embedding_index(self, session: Session, entry_id: UUID4, model: str) -> bool:
-        """True if this entry already has embedding chunks for the given model."""
+    def _has_index(self, session: Session, entity_type: str, entity_id: UUID4, model: str) -> bool:
+        """True if this entity already has embedding chunks for the given model."""
         from marvin.db.models.groups.ai_embeddings import AIEmbeddingModel
 
         return (
-            session.query(AIEmbeddingModel)
-            .filter_by(
-                group_id=self.group_id,
-                entity_type="entry",
-                entity_id=entry_id,
-                model_id=model,
-            )
-            .first()
+            session.query(AIEmbeddingModel).filter_by(group_id=self.group_id, entity_type=entity_type, entity_id=entity_id, model_id=model).first()
             is not None
         )
 
-    def _emit_reindexed(self, model: str, chunks: int, verb: str = "on publish") -> None:
-        """Surface the auto-index as an ai_embeddings_reindexed event (audit log + notifications)."""
+    def _emit_reindexed(self, model: str, chunks: int, entity_type: str = "entry", verb: str = "on publish", entity_id: UUID4 | None = None) -> None:
+        """Surface the auto-index as an ai_embeddings_reindexed event (audit log + notifications), about
+        the one item it indexed."""
         from marvin.services.event_bus_service.event_bus_service import EventBusService
 
         from .event_types import EventAIEmbeddingsData
@@ -919,18 +827,20 @@ class AIEmbeddingReactionListener(EventListenerBase):
                     workspace_id=self.group_id,
                     workspace_name=workspace_name,
                 ),
-                message=f"Auto-indexed 1 entry ({chunks} chunks) {verb}",
+                message=f"Auto-indexed 1 {entity_type} ({chunks} chunks) {verb}",
+                entity_id=entity_id,
+                entity_type=entity_type if entity_id else None,
             )
         except Exception as e:
-            self.logger.error(f"AIEmbeddingReactionListener: failed to emit reindexed event: {e}")
+            self.logger.error(f"IndexingReactionListener: failed to emit reindexed event: {e}")
 
 
-class SmartCollectionReactionListener(EventListenerBase):
+class SmartCollectionReactionListener(BuiltinReaction):
     """
     Reaction listener that keeps smart-collection membership in sync.
 
     When an entry's type or status changes (created / updated / published / unpublished /
-    archived / restored), re-evaluate which of the workspace's smart collections it belongs to
+    archived / restored / trashed), re-evaluate which of the workspace's smart collections it belongs to
     and add or remove EntryCollections rows accordingly. The read path (renderers-core,
     publishing) is unchanged — it reads junction rows exactly as for a manually-curated
     collection. Declarative rules, imperative materialization, unchanged reads.
@@ -940,23 +850,24 @@ class SmartCollectionReactionListener(EventListenerBase):
     can never break entry writes.
     """
 
-    _TRIGGERS = (
-        EventTypes.entry_created,
-        EventTypes.entry_updated,
-        EventTypes.entry_published,
-        EventTypes.entry_unpublished,
-        EventTypes.entry_archived,
-        EventTypes.entry_restored,
+    label = "Updates smart collections"
+    subscriber = "smart_collections"
+    REACTS_TO = frozenset(
+        {
+            EventTypes.entry_created,
+            EventTypes.entry_updated,
+            EventTypes.entry_published,
+            EventTypes.entry_unpublished,
+            EventTypes.entry_archived,
+            EventTypes.entry_restored,
+            EventTypes.entry_trashed,
+        }
     )
 
     def __init__(self, group_id: UUID4) -> None:
         from .publisher import ConsolePublisher  # We act on the event; we don't publish through it.
 
         super().__init__(group_id, ConsolePublisher())
-
-    def get_subscribers(self, event: Event) -> list[str]:
-        """Act only on entry lifecycle events; cheap check, no DB access."""
-        return ["smart_collections"] if event.event_type in self._TRIGGERS else []
 
     def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
         entry_id = getattr(event.document_data, "entry_id", None) or event.entity_id
@@ -974,14 +885,311 @@ class SmartCollectionReactionListener(EventListenerBase):
                 changed = sync_entry(session, self.group_id, entry)
                 if changed:
                     session.commit()
-                    self.logger.info(
-                        f"Smart collections: synced entry {entry_id} ({changed} membership change(s))"
-                    )
+                    self.logger.info(f"Smart collections: synced entry {entry_id} ({changed} membership change(s))")
             except Exception as e:
                 session.rollback()
-                self.logger.warning(
-                    f"SmartCollectionReactionListener: sync failed for entry {entry_id}: {e}"
+                self.logger.warning(f"SmartCollectionReactionListener: sync failed for entry {entry_id}: {e}")
+
+
+class MediaEmbedReactionListener(BuiltinReaction):
+    """
+    Warms the platform-wide media-embed cache when an entry is saved, so the publishing API (which
+    never calls a provider) has titles, thumbnails and players for the entry's media links by the time
+    the site rebuilds. Runs before the site-rebuild listener for that reason.
+
+    Best-effort: at most ``MAX_URLS`` links per save, only links without a fresh cache row, and any
+    failure is logged and swallowed — it can never break a write. Emits nothing.
+    """
+
+    label = "Warms the media-embed cache"
+    subscriber = "media_embeds"
+    REACTS_TO = frozenset({EventTypes.entry_created, EventTypes.entry_updated, EventTypes.entry_published})
+    MAX_URLS = 20
+
+    def __init__(self, group_id: UUID4) -> None:
+        from .publisher import ConsolePublisher  # We act on the event; we don't publish through it.
+
+        super().__init__(group_id, ConsolePublisher())
+
+    def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
+        entry_id = getattr(event.document_data, "entry_id", None) or event.entity_id
+        if not entry_id:
+            return
+
+        from marvin.db.models.platform.entries import Entries
+        from marvin.db.models.platform.entry_types import EntryTypes
+        from marvin.services.media_embeds.cache import warm
+        from marvin.services.media_embeds.extract import entry_embed_urls
+
+        with self.ensure_session() as session:
+            entry = session.get(Entries, entry_id)
+            if not entry or entry.group_id != self.group_id:
+                return
+            entry_type = session.get(EntryTypes, entry.entry_type_id) if entry.entry_type_id else None
+            urls = entry_embed_urls(entry_type.schema_json if entry_type else None, entry.data_json)
+            if not urls:
+                return
+            try:
+                n = warm(session, urls, limit=self.MAX_URLS)
+                if n:
+                    self.logger.info(f"Media embeds: resolved {n} link(s) for entry {entry_id}")
+            except Exception as e:
+                session.rollback()
+                self.logger.warning(f"MediaEmbedReactionListener: resolving links for entry {entry_id} failed: {e}")
+
+
+class SiteRebuildReactionListener(BuiltinReaction):
+    """
+    Requests a static-site rebuild when published content changes, so a publish, an edit to a live
+    entry, a collection change or a site-settings change reaches the site without a workflow.
+
+    Requests are coalesced per workspace (services/site_rebuild): a burst of edits becomes one build,
+    sent once they go quiet. Changes nothing a visitor can see are ignored: a draft saved or moved
+    between workflow collections, anything done to an entry of a non-publishable type (a newsletter
+    signup confirmed), and changes to a collection that isn't "Visible to sites" — unless that change
+    is the visibility toggle itself. Visibility follows the publishing API (services/publish_visibility,
+    `Collections.is_public`). An asset or resource going into or out of the Trash counts when a site can
+    see it (publish_visibility.item_visible_to_sites). Off when the workspace turns off "Rebuild the site
+    automatically" (preferences.site_auto_rebuild). Best-effort: never breaks the write.
+    """
+
+    # Events that can change what a static site renders. Entry-scoped ones count only for a published
+    # entry (or one leaving 'published') of a publishable type; an entry delete counts for any entry of
+    # a publishable type (the row is gone, so its status is too). Collection events count only for a
+    # public collection, or one changing visibility.
+    ENTRY_EVENTS = frozenset(
+        {
+            EventTypes.entry_published,
+            EventTypes.entry_unpublished,
+            EventTypes.entry_archived,
+            EventTypes.entry_trashed,
+            EventTypes.entry_updated,
+            EventTypes.entry_added_to_collection,
+            EventTypes.entry_removed_from_collection,
+            EventTypes.entry_tag_attached,
+            EventTypes.entry_tag_detached,
+            EventTypes.entry_resource_attached,
+            EventTypes.entry_resource_detached,
+            EventTypes.asset_attached_to_entry,
+            EventTypes.asset_detached_from_entry,
+        }
+    )
+    ALWAYS_EVENTS = frozenset(
+        {
+            EventTypes.entry_deleted,
+            EventTypes.collection_updated,
+            EventTypes.collection_deleted,
+            EventTypes.asset_updated,
+            EventTypes.asset_deleted,
+            EventTypes.resource_updated,
+            EventTypes.resource_deleted,
+            EventTypes.workspace_settings_changed,
+        }
+    )
+    # An asset or resource moved into or out of the Trash: counts only when a site can see it.
+    TRASH_EVENTS = {
+        EventTypes.asset_trashed: "asset",
+        EventTypes.asset_restored: "asset",
+        EventTypes.resource_trashed: "resource",
+        EventTypes.resource_restored: "resource",
+    }
+    label = "Queues a site rebuild"
+    subscriber = "site_rebuild"
+    REACTS_TO = ENTRY_EVENTS | ALWAYS_EVENTS | frozenset(TRASH_EVENTS)
+    # Leaving 'published' is visible even though the entry no longer is.
+    LEAVING_EVENTS = frozenset({EventTypes.entry_unpublished, EventTypes.entry_archived})
+    COLLECTION_EVENTS = frozenset({EventTypes.collection_updated, EventTypes.collection_deleted})
+    MEMBERSHIP_EVENTS = frozenset({EventTypes.entry_added_to_collection, EventTypes.entry_removed_from_collection})
+    # Document-data fields that name the changed thing, for a change line whose message doesn't.
+    TITLE_FIELDS = ("entry_title", "collection_name", "resource_name", "name")
+    # EventBusMessage stores an empty body as the "generic" placeholder — not a description.
+    EMPTY_BODY = "generic"
+    # Workspace settings no site renders: a settings change touching only these queues no rebuild. A field
+    # counts by its first dotted segment, so "agents" covers every "agents.<slug>[.<field>]" an agent edit names.
+    UNSEEN_SETTINGS = frozenset({"audit_overrides", "agents", "trash_auto_empty_days", "notifications"})
+
+    def __init__(self, group_id: UUID4) -> None:
+        from .publisher import ConsolePublisher
+
+        super().__init__(group_id, ConsolePublisher())
+
+    def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
+        try:
+            with self.ensure_session() as session:
+                if not self._enabled(session):
+                    return
+                if not self._visible(session, event):
+                    self.logger.debug(f"Site rebuild skipped: {event.event_type.name} changes nothing a site can see")
+                    return
+                from marvin.services.site_rebuild import request_rebuild
+
+                request_rebuild(
+                    session,
+                    self.group_id,
+                    f"content change: {event.message.body if event.message else event.event_type.name}"[:200],
+                    change=self._change(event),
                 )
+        except Exception as e:
+            self.logger.warning(f"SiteRebuildReactionListener: could not queue a rebuild: {e}")
+
+    @classmethod
+    def _change(cls, event: Event) -> dict:
+        """The line this event adds to the rebuild's "what changed" list, worded like the event log."""
+        from marvin.services.site_rebuild import rebuild_change
+
+        message = getattr(event, "message", None)
+        body = getattr(message, "body", None)
+        label = body if body and body != cls.EMPTY_BODY else getattr(message, "title", None) or event.event_type.name.replace("_", " ").capitalize()
+        names = (getattr(event.document_data, field, None) for field in cls.TITLE_FIELDS)
+        title = next((n for n in names if isinstance(n, str) and n), None)
+        if title and title not in label:
+            label = f"{label} — {title}"
+        entity_type, entity_id = event_entity(event)
+        return rebuild_change(label, event.event_type.name, entity_type, entity_id)
+
+    def _enabled(self, session: Session) -> bool:
+        """On unless the workspace turned it off — and only where a rebuild reaches something: with no deploy
+        hook or deploy integration on `webhook_triggered`, a queued rebuild would build nothing and only toast."""
+        from marvin.db.models.groups.preferences import GroupPreferencesModel
+        from marvin.services.site_rebuild import deploy_targets
+
+        prefs = session.query(GroupPreferencesModel).filter_by(group_id=self.group_id).first()
+        if getattr(prefs, "site_auto_rebuild", True) is False:
+            return False
+        return bool(deploy_targets(session, self.group_id))
+
+    def _visible(self, session: Session, event: Event) -> bool:
+        """Whether this event changes what a site can see. When it can't tell, it says yes — a spare
+        (coalesced) rebuild beats a stale site."""
+        if event.event_type in self.COLLECTION_EVENTS:
+            return self._collection_visible(session, event)
+        if event.event_type == EventTypes.entry_deleted:
+            return self._deleted_entry_visible(session, event)
+        if event.event_type == EventTypes.workspace_settings_changed:
+            changed = getattr(event.document_data, "changed_fields", None)
+            return not changed or not {str(f).split(".", 1)[0] for f in changed} <= self.UNSEEN_SETTINGS
+        if event.event_type in self.ALWAYS_EVENTS:
+            return True
+        if event.event_type in self.TRASH_EVENTS:
+            return self._item_visible(session, event)
+        return self._entry_visible(session, event)
+
+    def _item_visible(self, session: Session, event: Event) -> bool:
+        kind = self.TRASH_EVENTS[event.event_type]
+        item_id = getattr(event.document_data, f"{kind}_id", None) or event.entity_id
+        if not item_id:
+            return True
+        from marvin.db.models.platform import Assets, Resources
+
+        row = session.get(Assets if kind == "asset" else Resources, item_id)
+        return row is None or item_visible_to_sites(session, kind, row)
+
+    def _entry_visible(self, session: Session, event: Event) -> bool:
+        entry_id = getattr(event.document_data, "entry_id", None) or event.entity_id
+        if not entry_id:
+            return True
+        from marvin.db.models.platform.entries import Entries
+
+        entry = session.get(Entries, entry_id)
+        if entry is None:
+            return True
+        if entry.entry_type is not None and not is_publishable_type(entry.entry_type):
+            return False  # never served, whatever its status
+        if event.event_type in self.MEMBERSHIP_EVENTS and not self._collection_public(session, event.document_data):
+            return False  # entries list only their public collections
+        if event.event_type in self.LEAVING_EVENTS or entry.status == "published":
+            return True
+        # An update that took the entry out of 'published' (status in its changed fields) is visible too.
+        before = getattr(event.document_data, "before", None) or {}
+        return before.get("status") == "published"
+
+    def _deleted_entry_visible(self, session: Session, event: Event) -> bool:
+        """The row is gone; its type survives by slug in the event."""
+        slug = getattr(event.document_data, "entry_type", None)
+        if not slug:
+            return True
+        from marvin.db.models.platform import EntryTypes
+
+        entry_type = session.query(EntryTypes).filter_by(group_id=self.group_id, slug=slug).first()
+        return entry_type is None or is_publishable_type(entry_type)
+
+    def _collection_visible(self, session: Session, event: Event) -> bool:
+        data = event.document_data
+        is_public = self._collection_public(session, data, getattr(data, "collection_id", None) or event.entity_id)
+        was_public = (getattr(data, "before", None) or {}).get("is_public")
+        return is_public or (was_public is not None and bool(was_public) != is_public)
+
+    @staticmethod
+    def _collection_public(session: Session, data, collection_id=None) -> bool:
+        """The collection's visibility as the event recorded it, else as stored; unknown counts as public."""
+        recorded = getattr(data, "is_public", None)
+        if recorded is not None:
+            return bool(recorded)
+        collection_id = collection_id or getattr(data, "collection_id", None)
+        if not collection_id:
+            return True
+        from marvin.db.models.platform import Collections
+
+        collection = session.get(Collections, collection_id)
+        return collection is None or bool(collection.is_public)
+
+
+class AutomationReactionListener(EventListenerBase):
+    """Flavor B: run the workspace's *user-configured* automations for a triggering event.
+
+    Where the reaction listeners above are hardcoded (Flavor A — developer-defined), this one loads
+    data-defined automations (`WorkspaceAutomationModel`) and runs their `event → conditions →
+    actions` pipelines via the automation engine. Best-effort: any failure is logged and swallowed,
+    so an automation can never break event dispatch.
+
+    Loop-guard: an automation's `emit_event`/write-back re-dispatches at `reaction_depth + 1`; we
+    refuse to react once depth reaches `MAX_REACTION_DEPTH`, so data-defined chains stay finite.
+    """
+
+    # Automation lifecycle events drive the chained / on-error trigger types (not the event dropdown).
+    _AUTOMATION_EVENT_NAMES = ("automation_ran", "automation_failed")
+
+    def __init__(self, group_id: UUID4) -> None:
+        from .publisher import ConsolePublisher  # We act on the event; we don't publish through it.
+
+        super().__init__(group_id, ConsolePublisher())
+
+    def get_subscribers(self, event: Event) -> list[str]:
+        from marvin.services.automation.engine import MAX_REACTION_DEPTH
+        from marvin.services.events.event_catalog import TRIGGERABLE_EVENT_TYPES
+
+        if getattr(event, "reaction_depth", 0) >= MAX_REACTION_DEPTH:
+            return []  # loop-guard: a chain has gone deep enough — stop reacting
+        if _platform_event(event):
+            return []  # none is triggerable today; a workflow is a workspace's, so it never may be
+        name = event.event_type.name
+        if name in TRIGGERABLE_EVENT_TYPES or name == "incoming_webhook" or name in self._AUTOMATION_EVENT_NAMES:
+            return ["automation"]
+        return []
+
+    def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
+        from marvin.services.automation.context import event_context_from_event
+        from marvin.services.automation.engine import run_automations_for_event
+        from marvin.services.automation.recorder import ExecutionRecorder
+
+        # The event's document_data flattened into `$event.*` (see automation.context) — the same
+        # builder a workflow dry run replays a logged event through.
+        event_ctx = event_context_from_event(event)
+        with self.ensure_session() as session:
+            try:
+                ran = run_automations_for_event(
+                    session,
+                    self.group_id,
+                    event_ctx,
+                    logger=self.logger,
+                    recorder=ExecutionRecorder(session, self.group_id),
+                )
+            except Exception as e:
+                session.rollback()
+                self.logger.warning(f"AutomationReactionListener: engine error: {e}")
+                return
+        if ran:
+            self.logger.info(f"Ran {ran} automation(s) for {event.event_type.name}")
 
 
 class ConsoleEventListener(EventListenerBase):
@@ -1016,14 +1224,9 @@ class ConsoleEventListener(EventListenerBase):
         Returns:
             list[str]: Always returns ["console"] to log all events.
         """
-        _INTERNAL = {
-            EventTypes.webhook_task,
-            EventTypes.scheduled_task_triggered,
-            EventTypes.scheduled_task_started,
-            EventTypes.scheduled_task_completed,
-            EventTypes.scheduled_task_failed,
-        }
-        if event.event_type in _INTERNAL:
+        from marvin.services.events.event_catalog import INTERNAL_EVENT_TYPES
+
+        if event.event_type.name in INTERNAL_EVENT_TYPES:  # scheduler plumbing stays out of the console
             return []
         return ["console"]
 
@@ -1055,80 +1258,46 @@ class EmailEventListener(EventListenerBase):
         super().__init__(group_id, ConsolePublisher())
 
     def get_subscribers(self, event: Event) -> list[Any]:
-        from marvin.db.models.groups.email_templates import EmailTemplateModel
-        from marvin.services.email.system_email_events import (
-            VirtualEmailSubscription,
-            get_template_type_for_event,
-            SYSTEM_TEMPLATE_EVENT_MAP,
-        )
+        from marvin.services.email.system_email_events import SENT_DIRECTLY, get_template_type_for_event, system_email_route
 
         if event.event_type == EventTypes.webhook_task:
             return []
 
+        name = event.event_type.name
+        # A platform event (a sign-up, a password reset…) is the platform's, not the workspace it's stored under:
+        # none of the workspace's subscriptions hears it — only Marvin's own email for it (the welcome email).
+        platform = _platform_event(event)
+
         with self.ensure_repos(self.group_id) as repos:
-            workspace_subs = repos.email_event_subscriptions.multi_query(
-                {"event_type": event.event_type.name, "enabled": True}
+            # A platform event dispatched with no workspace (backup_failed) has no workspace subscribers: the
+            # repository only scopes by group when it has one, and would otherwise match every workspace's.
+            workspace_subs = (
+                repos.email_event_subscriptions.multi_query({"event_type": name, "enabled": True}) if self.group_id and not platform else []
             )
+            # A connection's "working again" notice also goes to every email route that delivered its alert.
+            from marvin.db.models.groups.email_event_subscriptions import EmailEventSubscriptionModel
+            from marvin.services.integrations.errors import resolved_channel_rows
 
-            # Check for system template mapping for this event
-            system_template_type = get_template_type_for_event(event.event_type.name)
-            if not system_template_type:
+            delivered = resolved_channel_rows(repos.session, self.group_id, event, EmailEventSubscriptionModel, "email")
+            if delivered:
+                known = {sub.id for sub in workspace_subs}
+                workspace_subs = [*workspace_subs, *(row for row in delivered if row.id not in known)]
+
+            # Marvin's own email for the event (invitation, welcome): a connected workspace template of its type
+            # replaces it — and then only those send; with none, the enabled system template sends instead of every
+            # subscription. One that carries a live link (the invitation) is sent by the code that mints the link,
+            # not from here.
+            route = system_email_route(repos.session, self.group_id, name)
+            if route is None:
                 return workspace_subs
-
-            system_mapping = SYSTEM_TEMPLATE_EVENT_MAP[system_template_type]
-
-            # Find workspace templates of this type
-            ws_templates_of_type = (
-                repos.session.query(EmailTemplateModel)
-                .filter(
-                    EmailTemplateModel.template_type == system_template_type,
-                    EmailTemplateModel.group_id == self.group_id,
-                    EmailTemplateModel.enabled == True,  # noqa: E712
-                )
-                .all()
-            )
-            ws_template_ids = {t.id for t in ws_templates_of_type}
-
-            # Find subscriptions that explicitly connect a workspace template of this type
-            connected_subs = [
-                sub for sub in workspace_subs
-                if sub.template_id in ws_template_ids
-            ]
-
-            if connected_subs:
-                # Explicit connection via Events page — use only those
-                self.logger.info(
-                    f"EmailEventListener: {len(connected_subs)} explicitly connected "
-                    f"workspace template(s) for '{system_template_type}'"
-                )
-                return connected_subs
-
-            # No explicit connection — fall through to system template
-            system_template = (
-                repos.session.query(EmailTemplateModel)
-                .filter(
-                    EmailTemplateModel.group_id.is_(None),
-                    EmailTemplateModel.template_type == system_template_type,
-                )
-                .first()
-            )
-
-            if system_template and system_template.enabled:
-                return [VirtualEmailSubscription(
-                    template_id=system_template.id,
-                    event_type=event.event_type.name,
-                    recipient_type=system_mapping["recipient_type"],
-                    recipient_field=system_mapping.get("recipient_field"),
-                    recipient_email=system_mapping.get("recipient_email"),
-                )]
-
-            return workspace_subs
+            template_type = get_template_type_for_event(name)
+            if template_type in SENT_DIRECTLY:
+                return []
+            self.logger.info(f"EmailEventListener: Marvin's '{template_type}' email for {name} ({len(route)} template(s))")
+            return route
 
     def publish_to_subscribers(self, event: Event, subscribers: list[Any]) -> None:
         from marvin.db.models.groups.email_templates import EmailTemplateModel
-        from marvin.db.models.users.workspace_members import WorkspaceMembers
-        from marvin.db.models.users.roles import WorkspaceRole
-        from marvin.db.models.users import Users
         from marvin.services.email.email_service import EmailService
         from marvin.services.events.event_variables import build_event_variables, enrich_variables
 
@@ -1138,37 +1307,28 @@ class EmailEventListener(EventListenerBase):
         with self.ensure_session() as session:
             for sub in subscribers:
                 template = session.get(EmailTemplateModel, sub.template_id)
+                if template is not None and template.group_id is not None and str(template.group_id) != str(sub.group_id):
+                    # Only this workspace's templates or system ones; never another workspace's.
+                    template = None
                 if template is None or not template.enabled:
                     self.logger.warning(f"EmailEventListener: template {sub.template_id} not found or disabled")
                     continue
 
                 recipients = self._resolve_recipients(sub, variables, session)
                 if not recipients:
-                    self.logger.info(
-                        f"EmailEventListener: no recipients for subscription {sub.id} "
-                        f"(event={event.event_type.name})"
-                    )
+                    self.logger.info(f"EmailEventListener: no recipients for subscription {sub.id} (event={event.event_type.name})")
                     continue
 
                 for addr in recipients:
                     try:
-                        self.logger.info(
-                            f"EmailEventListener: sending template '{template.name}' "
-                            f"to {addr} for event {event.event_type.name}"
-                        )
+                        self.logger.info(f"EmailEventListener: sending template '{template.name}' to {addr} for event {event.event_type.name}")
                         email_service._send_db_template(addr, template, variables)
                     except Exception as exc:
                         self.logger.error(
-                            f"EmailEventListener: failed sending to {addr} "
-                            f"(template={template.name}, event={event.event_type.name}): {exc}"
+                            f"EmailEventListener: failed sending to {addr} (template={template.name}, event={event.event_type.name}): {exc}"
                         )
 
     def _resolve_recipients(self, sub: Any, variables: dict, session) -> list[str]:
-        from marvin.db.models.users.workspace_members import WorkspaceMembers
-        from marvin.db.models.users.roles import WorkspaceRole
-        from marvin.db.models.users import Users
-        from sqlalchemy.orm import Session
-
         match sub.recipient_type:
             case "event_field":
                 field = sub.recipient_field
@@ -1187,18 +1347,9 @@ class EmailEventListener(EventListenerBase):
                     return []
                 return [a.strip() for a in sub.recipient_email.split(",") if a.strip()]
             case "admins":
-                stmt = (
-                    select(Users.email)
-                    .join(WorkspaceMembers, WorkspaceMembers.user_id == Users.id)
-                    .where(
-                        WorkspaceMembers.group_id == self.group_id,
-                        WorkspaceMembers.workspace_role.in_(
-                            [WorkspaceRole.OWNER, WorkspaceRole.ADMIN]
-                        ),
-                    )
-                )
-                rows = session.execute(stmt).scalars().all()
-                return [r for r in rows if r]
+                from marvin.services.workspace_alerts import admin_emails
+
+                return admin_emails(session, self.group_id)
             case _:
                 return []
 
@@ -1228,23 +1379,18 @@ class AuditLogListener(EventListenerBase):
         """
         Returns a list of subscribers for audit logging.
 
-        For AuditLogListener, we always return ["database"] to indicate
-        that all events should be persisted to the event_log table.
-
         Args:
             event (Event): The event to persist.
 
         Returns:
-            list[str]: ["database"] to persist the event, or [] to skip persistence
-                       for non-audited internal plumbing events (the "nolog" set).
+            list[str]: ["database"] to persist the event, or [] when this workspace doesn't audit its type.
         """
-        # Audit policy is declared per-event in the catalog (its `audited` flag). Events with no
-        # catalog entry default to audited (safe). Set audited=False on a CatalogEntry to keep it
-        # out of the audit trail — toggleable per event, no code change here.
-        from marvin.services.events.event_catalog import get_catalog_entry
+        # The catalog declares each type's default (`audited`); a workspace admin may override it per type
+        # (services/events/audit_settings.py). Locked (security) types and types without a catalog entry are
+        # always audited, and so is everything if the workspace's setting can't be read.
+        from marvin.services.events.audit_settings import is_audited
 
-        entry = get_catalog_entry(event.event_type.name)
-        if entry is not None and not entry.audited:
+        if not is_audited(self.group_id, event.event_type.name):
             return []
         return ["database"]
 
@@ -1258,3 +1404,215 @@ class AuditLogListener(EventListenerBase):
         """
         # Use the AuditLogPublisher to persist the event
         self.publisher.publish(event, subscribers)
+
+
+class IntegrationEventListener(EventListenerBase):
+    """Runs integration actions wired to events (the integration_event_subscriptions table).
+
+    This is how integrations are *consumed*: connect an integration's action to an event type and
+    it fires whenever that event happens — the same subscribe-to-an-event model webhooks
+    and email use. The provider runs directly (no publisher), so there's no channel indirection.
+    """
+
+    def __init__(self, group_id: UUID4) -> None:
+        super().__init__(group_id, cast(Any, None))  # runs provider actions directly; no publisher
+
+    def get_subscribers(self, event: Event) -> list[dict]:
+        if event.event_type == EventTypes.webhook_task or _platform_event(event):
+            return []
+
+        from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel
+        from marvin.db.models.groups.integrations import IntegrationModel
+
+        event_name = event.event_type.name
+        subs: list[dict] = []
+        with self.ensure_session() as session:
+            rows = (
+                session.query(IntegrationEventSubscriptionModel)
+                .filter(
+                    IntegrationEventSubscriptionModel.group_id == self.group_id,
+                    IntegrationEventSubscriptionModel.event_type == event_name,
+                    IntegrationEventSubscriptionModel.enabled.is_(True),
+                )
+                .all()
+            )
+            # A connection's "working again" notice also goes to every route that delivered its alert.
+            from marvin.services.integrations.errors import resolved_channel_rows
+
+            known = {row.id for row in rows}
+            rows += [
+                row
+                for row in resolved_channel_rows(session, self.group_id, event, IntegrationEventSubscriptionModel, "integration")
+                if row.id not in known
+            ]
+            for row in rows:
+                integ = session.get(IntegrationModel, row.integration_id)
+                if not integ or not integ.enabled:
+                    continue
+                # Snapshot everything needed so publish_to_subscribers is session-independent.
+                subs.append(
+                    {
+                        "integration_id": integ.id,
+                        "name": integ.name,
+                        "provider": integ.provider,
+                        "config": integ.config or {},
+                        "secret_ref": integ.secret_ref,
+                        "action": row.action,
+                        "args": row.args or {},
+                    }
+                )
+        if subs:
+            self.logger.debug(f"event:{event_name} → {len(subs)} integration action(s)")
+        return subs
+
+    def publish_to_subscribers(self, event: Event, subscribers: list[dict]) -> None:
+        if not subscribers:
+            return
+
+        try:
+            from marvin.services.integrations import IntegrationContext, build_http, get_provider
+        except ImportError:
+            return
+        from marvin.services.integrations import errors
+        from marvin.services.secrets.resolver import resolve_secret
+
+        ctx_data = self._event_context(event)
+        # Loop guard: delivering an integration alert never opens, bumps or resolves one — a broken
+        # Slack connection must not alert about itself through itself.
+        track = event.event_type.name not in errors.ALERT_EVENTS
+        for sub in subscribers:
+            try:
+                provider = get_provider(sub["provider"])
+            except KeyError:
+                self.logger.warning(f"integration provider '{sub['provider']}' not installed; skipping")
+                continue
+            secret = resolve_secret(sub["secret_ref"], self.group_id) if sub["secret_ref"] else None
+            ctx = IntegrationContext(config=sub["config"], secret=secret, logger=self.logger, http=build_http())
+            args = self._template(sub["args"], ctx_data)
+            try:
+                provider.run_action(sub["action"], args, ctx)
+                self.logger.info(f"integration '{sub['name']}' ran '{sub['action']}' on {event.event_type.name}")
+            except Exception as e:  # noqa: BLE001 — one action failing must not affect the others
+                self.logger.warning(f"integration '{sub['name']}' action '{sub['action']}' failed: {e}")
+                if track:  # connection scope: the provider's notify only — no entry to review, nothing to retry
+                    errors.connection_failed(
+                        self.group_id, sub.get("integration_id"), provider, sub["action"], e, source="subscription", secrets=(secret,)
+                    )
+                continue
+            if track:
+                errors.connection_succeeded(self.group_id, sub.get("integration_id"))
+
+    def _event_context(self, event: Event) -> dict:
+        """Flatten the event into a dict of {{placeholder}} values for action args."""
+        data: dict = {}
+        try:
+            if event.document_data is not None:
+                encoded = jsonable_encoder(event.document_data)
+                if isinstance(encoded, dict):
+                    data.update(encoded)
+        except Exception:  # noqa: BLE001 — templating context is best-effort
+            pass
+        data.setdefault("event_type", event.event_type.name)
+        if getattr(event, "entity_id", None) is not None:
+            data.setdefault("entity_id", str(event.entity_id))
+        if getattr(event, "entity_type", None) is not None:
+            data.setdefault("entity_type", event.entity_type)
+        if getattr(event, "message", None):
+            data.setdefault("message", event.message)
+        return data
+
+    @staticmethod
+    def _template(args: dict, ctx: dict):
+        """Substitute {{field}} placeholders in string args with event-context values."""
+        import re
+
+        def render(value):
+            if isinstance(value, str):
+                return re.sub(r"\{\{\s*(\w+)\s*\}\}", lambda m: str(ctx.get(m.group(1), m.group(0))), value)
+            if isinstance(value, dict):
+                return {k: render(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [render(v) for v in value]
+            return value
+
+        return {k: render(v) for k, v in (args or {}).items()}
+
+
+class PlatformAlertListener(EventListenerBase):
+    """Sends platform events past the bell — email, chat — as Admin → Platform alerts says
+    (services/platform_alerts.py). Once per dispatched event, whatever workspace it's stored under; any
+    event type that can't alert costs one set lookup."""
+
+    def __init__(self, group_id: UUID4) -> None:
+        super().__init__(group_id, cast(Any, None))  # sends directly; no publisher
+
+    def get_subscribers(self, event: Event) -> list[str]:
+        from marvin.services import platform_alerts
+
+        if event.event_type.name not in platform_alerts.ALERT_EVENT_TYPES:
+            return []
+        with self.ensure_session() as session:
+            settings = platform_alerts.load(session)
+        return ["platform_alerts"] if settings.enabled_kind(event.event_type.name, platform_alerts.event_data(event)) else []
+
+    def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
+        from marvin.services import platform_alerts
+
+        with self.ensure_session() as session:
+            platform_alerts.deliver(session, event)
+
+
+class WorkspaceAlertListener(EventListenerBase):
+    """Sends the workspace's own failures past the bell — email, chat — as Settings → Automation →
+    Notifications says (services/workspace_alerts.py): once per incident, and a note when it works again.
+    Never a platform event or one without a workspace; any other event type costs one set lookup."""
+
+    def __init__(self, group_id: UUID4) -> None:
+        super().__init__(group_id, cast(Any, None))  # sends directly; no publisher
+
+    def get_subscribers(self, event: Event) -> list[str]:
+        from marvin.services import workspace_alerts
+
+        return ["workspace_notifications"] if workspace_alerts.wants(self.group_id, event) else []
+
+    def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
+        from marvin.services import workspace_alerts
+
+        with self.ensure_session() as session:
+            workspace_alerts.deliver(session, self.group_id, event)
+
+
+class PushNotificationListener(EventListenerBase):
+    """Pushes what the bell asks a person to act on — an AI approval, a form submission, a scheduled publish
+    that's waiting — to the devices of the people it's for (services/push_notifications.py). Inert unless Web
+    Push is configured; any other event type costs one set lookup."""
+
+    def __init__(self, group_id: UUID4) -> None:
+        super().__init__(group_id, cast(Any, None))  # sends directly; no publisher
+
+    def get_subscribers(self, event: Event) -> list[str]:
+        from marvin.services import push_notifications
+
+        return ["web_push"] if push_notifications.wants(self.group_id, event) else []
+
+    def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
+        from marvin.services import push_notifications
+
+        with self.ensure_session() as session:
+            push_notifications.deliver(session, self.group_id, event)
+
+
+BUILTIN_REACTIONS: tuple[type[BuiltinReaction], ...] = (
+    ScheduledTaskListener,
+    IndexingReactionListener,
+    MediaEmbedReactionListener,
+    SiteRebuildReactionListener,
+    SmartCollectionReactionListener,
+)
+"""Every built-in reaction, in the order EventBusService runs them."""
+
+
+def builtin_reactions(event_type: EventTypes | str) -> list[tuple[str, type[BuiltinReaction]]]:
+    """The built-in reactions to an event type (a member or its name), as (label, listener class) pairs."""
+    name = getattr(event_type, "name", event_type)
+    return [(cls.label, cls) for cls in BUILTIN_REACTIONS if name in {e.name for e in cls.reacts_to()}]

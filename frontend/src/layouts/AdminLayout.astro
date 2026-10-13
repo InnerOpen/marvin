@@ -1,54 +1,112 @@
 ---
+import ThemeInit from "@/components/ThemeInit.astro";
 import "../styles/global.css";
+import ActivityToaster from "@/components/ActivityToaster.astro";
+import EnvironmentBadge from "@/components/EnvironmentBadge.astro";
+import NavDrawerToggle from "@/components/NavDrawerToggle.astro";
+import NavTrail from "@/components/NavTrail.astro";
+import Pwa from "@/components/Pwa.astro";
+import RuntimeConfig from "@/components/RuntimeConfig.astro";
 import ThemeSwitcher from "@/components/ThemeSwitcher.astro";
+import UpdateBanner from "@/components/UpdateBanner.astro";
+import LocalTimeScript from "@/components/LocalTimeScript.astro";
+import { getEnvironmentLabel, withEnvironmentPrefix } from "@/lib/environmentLabel";
+import { navHref, navNode, navTitle, navTrail } from "@/lib/navTree";
 
 interface Props {
-  title: string;
-  eyebrow?: string;
+  /** This page's node in lib/navTree.ts; the layout builds the breadcrumb trail from it. */
+  crumb: string;
+  /** The H1 when it isn't the node's title (detail pages: the user's name, the task's name). */
+  title?: string;
 }
 
-const { title, eyebrow = "Admin" } = Astro.props;
+const { crumb, title = navTitle(crumb) } = Astro.props;
+const trail = navTrail(crumb);
 const path = Astro.url.pathname;
+// Non-production instances (backend ENVIRONMENT_LABEL) badge the header and prefix the tab title.
+const environmentLabel = await getEnvironmentLabel();
 
-// Admin-specific navigation
-const adminNavGroups = [
+interface AdminNavItem {
+  href: string;
+  label: string;
+  icon: string;
+  /** Other path prefixes that belong to this item, so its sub-pages keep it highlighted. */
+  alsoMatches?: string[];
+}
+
+interface AdminNavGroup {
+  label: string | null;
+  /** Names an unlabelled group's <nav> for screen readers. */
+  ariaLabel?: string;
+  items: AdminNavItem[];
+}
+
+const OVERVIEW_PATH = navHref("admin");
+
+/** A sidebar row for a node in lib/navTree.ts: its link and label come from the map. */
+function item(id: string, icon: string, extra: Partial<AdminNavItem> = {}): AdminNavItem {
+  const node = navNode(id);
+  return { href: node.href, label: node.label, icon, ...extra };
+}
+
+// Grouped by what an operator is doing, so new areas (more plugin kinds) have an obvious home.
+const adminNavGroups: AdminNavGroup[] = [
   {
     label: null,
-    items: [
-      { href: "/admin", label: "Dashboard", icon: "⌂" },
-    ]
+    items: [item("admin", "⌂", { label: navTitle("admin") })],
   },
   {
-    label: "Platform Management",
+    label: "People & access",
     items: [
-      { href: "/admin/users", label: "Users", icon: "👥" },
-      { href: "/admin/workspaces", label: "Workspaces", icon: "◫" },
-      { href: "/admin/system", label: "System", icon: "📊" },
-    ]
+      item("admin.users", "👥"),
+      // A workspace's detail page still lives under its legacy /admin/groups/{id} path.
+      item("admin.workspaces", "◫", { alsoMatches: ["/admin/groups"] }),
+      item("admin.roles", "🔑"),
+    ],
   },
   {
-    label: "Configuration",
+    label: "Settings",
     items: [
-      { href: "/admin/site-settings", label: "Site Settings", icon: "⚙" },
-      { href: "/admin/email-settings", label: "Email Settings", icon: "📧" },
-      { href: "/admin/backups", label: "Backups", icon: "💾" },
-      { href: "/admin/maintenance", label: "Maintenance", icon: "🔧" },
-    ]
+      item("admin.site-settings", "⚙"),
+      item("admin.email", "📧"),
+      item("admin.submission-protection", "🛡"),
+      item("admin.storage", "🗄"),
+      item("admin.ai-pricing", "💲"),
+    ],
   },
   {
-    label: "Back to User",
+    label: "Extensions",
+    items: [item("admin.plugins", "🧩"), item("admin.character-library", "🎭")],
+  },
+  {
+    label: "Operations",
     items: [
-      { href: "/", label: "User Settings", icon: "◄" },
-    ]
+      item("admin.system", "📊"),
+      item("admin.events", "🗂"),
+      item("admin.scheduled-tasks", "⏱"),
+      item("admin.backups", "💾"),
+      item("admin.backup-health", "🩺"),
+      item("admin.alerts", "🔔"),
+      item("admin.maintenance", "🔧"),
+    ],
+  },
+  {
+    label: null,
+    ariaLabel: "Leave admin",
+    items: [{ href: "/", label: "Back to workspace", icon: "◄" }],
   },
 ];
 
-// Helper to check if path is active
-function isActive(itemPath: string, currentPath: string): boolean {
-  if (itemPath === "/admin") {
-    return currentPath === "/admin";
+function isUnder(prefix: string, currentPath: string): boolean {
+  return currentPath === prefix || currentPath.startsWith(`${prefix}/`);
+}
+
+// The overview only matches itself; every other item also owns its sub-pages (/admin/users/123).
+function isActive(item: AdminNavItem, currentPath: string): boolean {
+  if (item.href === OVERVIEW_PATH) {
+    return currentPath === OVERVIEW_PATH || currentPath === `${OVERVIEW_PATH}/`;
   }
-  return currentPath === itemPath || currentPath.startsWith(itemPath + "/");
+  return [item.href, ...(item.alsoMatches ?? [])].some((prefix) => isUnder(prefix, currentPath));
 }
 ---
 
@@ -56,13 +114,16 @@ function isActive(itemPath: string, currentPath: string): boolean {
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <ThemeInit />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Marvin platform admin" />
-    <title>{title} | Marvin Admin</title>
+    <title>{withEnvironmentPrefix(`${title} | Marvin Admin`, environmentLabel)}</title>
+    <RuntimeConfig />
+    <Pwa environmentLabel={environmentLabel} />
   </head>
   <body>
     <div class="app-shell">
-      <aside class="sidebar admin-sidebar">
+      <aside class="sidebar admin-sidebar" id="app-sidebar" aria-label="Navigation">
         <a class="brand" href="/admin">
           <strong>Marvin Admin</strong>
           <span>Platform administration</span>
@@ -72,9 +133,9 @@ function isActive(itemPath: string, currentPath: string): boolean {
             {group.label && (
               <div class="nav-group-label">{group.label}</div>
             )}
-            <nav class="nav" aria-label={group.label || "Primary"}>
+            <nav class="nav" aria-label={group.label ?? group.ariaLabel ?? "Primary"}>
               {group.items.map((item) => (
-                <a href={item.href} aria-current={isActive(item.href, path) ? "page" : undefined}>
+                <a href={item.href} aria-current={isActive(item, path) ? "page" : undefined}>
                   <span aria-hidden="true">{item.icon}</span>
                   <span>{item.label}</span>
                 </a>
@@ -86,13 +147,17 @@ function isActive(itemPath: string, currentPath: string): boolean {
       <main class="main">
         <header class="topbar">
           <div class="topbar-left">
+            <NavDrawerToggle controls="app-sidebar" />
+            <EnvironmentBadge label={environmentLabel} />
             <div class="topbar-title">
-              <p>{eyebrow}</p>
+              <NavTrail trail={trail} />
               <h1>{title}</h1>
             </div>
           </div>
           <div class="topbar-actions">
-            <a class="button secondary" href="/">Back to User View</a>
+            {/* Admin pages are super admin only (requireAdmin): the bell also shows platform events, a failed backup. */}
+            <ActivityToaster platformFeed />
+            <a class="button secondary" href="/">Back to workspace</a>
             <form method="POST" action="/api/auth/logout" style="display:inline;">
               <button type="submit" class="button secondary">Logout</button>
             </form>
@@ -104,6 +169,8 @@ function isActive(itemPath: string, currentPath: string): boolean {
       </main>
       <ThemeSwitcher />
     </div>
+    <UpdateBanner />
+    <LocalTimeScript />
   </body>
 </html>
 

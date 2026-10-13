@@ -7,17 +7,22 @@ initialization and scheduler startup), registers API routes, and provides a `mai
 function to run the application using Uvicorn, primarily for development purposes.
 """
 
-from collections.abc import AsyncGenerator  # For async generator type hint
+import asyncio  # Delayed startup sweep of interrupted AI runs
+import copy  # Deep-copy Uvicorn's logging config before customizing it
+import logging  # Access-log filtering (silence health probes)
+from collections.abc import AsyncGenerator, Mapping  # Type hints
 from contextlib import asynccontextmanager  # For creating async context managers (lifespan)
+from pathlib import Path  # The package directory the dev reloader watches
 
 import uvicorn  # ASGI server for running FastAPI
 from fastapi import FastAPI  # The main FastAPI class
 from fastapi.middleware.cors import CORSMiddleware  # Middleware for CORS
 from fastapi.middleware.gzip import GZipMiddleware  # Middleware for GZip compression
-from fastapi.staticfiles import StaticFiles  # Static file serving
+from fastapi.responses import JSONResponse  # Default response class (subclassed below)
+from fastapi.utils import is_body_allowed_for_status_code  # 204/304/1xx carry no body
 
 # Marvin core components
-from marvin.core.config import get_app_settings  # Access application settings
+from marvin.core.config import get_app_dirs, get_app_settings  # Access application settings and data directories
 from marvin.core.root_logger import get_logger  # Application logger
 from marvin.core.settings.static import APP_VERSION  # Static application version
 from marvin.routes import router as main_api_router  # Main API router combining all app routes
@@ -29,6 +34,7 @@ from marvin.routes.handlers import (  # Registers custom exception handlers
 # Scheduler components
 from marvin.services.scheduler import SchedulerRegistry, SchedulerService
 from marvin.services.scheduler import tasks as scheduler_tasks
+from marvin.services.storage.static import LocalAssetFiles  # The local provider's files at /assets
 
 # Initialize global settings and logger instances
 settings = get_app_settings()
@@ -67,6 +73,34 @@ async def lifespan_fn(_app: FastAPI) -> AsyncGenerator[None, None]:  # Renamed a
     """
     # --- Startup ---
     logger.info("------ SYSTEM STARTUP INITIATED ------")
+    # No request of this process has run yet: any AI run still `running` from before now belongs to
+    # an older process (see _sweep_interrupted_runs).
+    from marvin.db.models._model_utils.datetime import get_utc_now
+
+    process_started_at = get_utc_now()
+
+    # Asset storage must resolve before anything is served: an unknown STORAGE_PROVIDER (a storage
+    # plugin that isn't installed) or incomplete provider settings stop startup here, rather than
+    # falling back to local and handing out broken asset URLs.
+    from marvin.services.storage import StorageConfigError, validate_storage_config
+
+    try:
+        validate_storage_config()
+    except StorageConfigError as e:
+        logger.critical(f"Storage is misconfigured, refusing to start: {e}")
+        raise
+
+    # AI providers: core's built-ins plus installed `marvin.ai_providers` plugins (a plugin replaces the
+    # built-in of the same slug). AI_DEFAULT_PROVIDER set to a provider nothing provides stops startup, like
+    # an unknown STORAGE_PROVIDER, rather than failing every platform-mode workspace's AI call; left at its
+    # default without the OpenAI plugin it only warns (validate_ai_config).
+    from marvin.services.ai.factory import AIConfigError, validate_ai_config
+
+    try:
+        logger.info("AI providers: " + ", ".join(validate_ai_config()))
+    except AIConfigError as e:
+        logger.critical(f"AI is misconfigured, refusing to start: {e}")
+        raise
 
     logger.info("Starting: Database initialization...")
     import marvin.db.init_db as init_db  # Local import to avoid premature DB calls if app is imported elsewhere
@@ -78,10 +112,25 @@ async def lifespan_fn(_app: FastAPI) -> AsyncGenerator[None, None]:  # Renamed a
         logger.exception(f"Database initialization failed: {e}")
         # Depending on severity, might want to raise or exit here.
 
+    # Where new uploads go: an admin's choice (Admin → Storage) that is no longer available falls back
+    # to STORAGE_PROVIDER rather than stopping the app (provider_factory.upload_target says why).
+    from marvin.services.storage.provider_factory import reset_upload_choice, upload_target
+
+    reset_upload_choice()
+    uploads = upload_target()
+    if uploads.error:
+        logger.critical(
+            f"Storage: new uploads should go to {uploads.chosen!r} (Admin → Storage) but it is unavailable ({uploads.error}); "
+            f"they go to {uploads.effective!r} until it is fixed or the choice is changed"
+        )
+    else:
+        logger.info(f"Storage: new uploads go to {uploads.effective!r}" + (" (admin's choice)" if uploads.chosen else " (STORAGE_PROVIDER)"))
+
     logger.info("Starting: Email template seeder...")
     try:
         from marvin.db.db_setup import session_context
         from marvin.services.email.system_templates import seed_system_templates
+
         with session_context() as session:
             count = seed_system_templates(session)
             if count:
@@ -93,6 +142,7 @@ async def lifespan_fn(_app: FastAPI) -> AsyncGenerator[None, None]:  # Renamed a
     try:
         from marvin.db.db_setup import session_context
         from marvin.services.scheduled_tasks.system_tasks import seed_system_scheduled_tasks
+
         with session_context() as session:
             count = seed_system_scheduled_tasks(session)
             if count:
@@ -104,6 +154,7 @@ async def lifespan_fn(_app: FastAPI) -> AsyncGenerator[None, None]:  # Renamed a
     try:
         from marvin.db.db_setup import session_context
         from marvin.services.collections.system_collections import seed_all_workspaces
+
         with session_context() as session:
             count = seed_all_workspaces(session)
             if count:
@@ -111,12 +162,17 @@ async def lifespan_fn(_app: FastAPI) -> AsyncGenerator[None, None]:  # Renamed a
     except Exception as e:
         logger.exception(f"System collections seeder failed: {e}")
 
-    logger.info("Starting: Scheduler service...")
-    try:
-        await start_scheduler()  # Register and start scheduled tasks
-        logger.info("Completed: Scheduler service started.")
-    except Exception as e:
-        logger.exception(f"Scheduler service failed to start: {e}")
+    sweep_task = _start_interrupted_run_sweep(process_started_at)
+
+    if settings.SCHEDULER_ENABLED:
+        logger.info("Starting: Scheduler service...")
+        try:
+            await start_scheduler()  # Register and start scheduled tasks
+            logger.info("Completed: Scheduler service started.")
+        except Exception as e:
+            logger.exception(f"Scheduler service failed to start: {e}")
+    else:
+        logger.info("Scheduler service disabled by SCHEDULER_ENABLED=False.")
 
     logger.info("------ APPLICATION SETTINGS (Non-Sensitive) ------")
     # Log application settings, excluding potentially sensitive fields
@@ -132,11 +188,37 @@ async def lifespan_fn(_app: FastAPI) -> AsyncGenerator[None, None]:  # Renamed a
 
     # --- Shutdown ---
     logger.info("------ SYSTEM SHUTDOWN INITIATED ------")
-    # Add any cleanup tasks here (e.g., closing connections, flushing buffers)
-    # For example:
-    # if hasattr(some_service, 'shutdown'):
-    #     await some_service.shutdown()
+
+    if sweep_task is not None:
+        sweep_task.cancel()
+
+    if settings.SCHEDULER_ENABLED:
+        # Drop the scheduler lease so a surviving replica picks the work up on its next tick
+        # instead of waiting out the TTL. Best-effort: a rolling restart must not hang on it.
+        try:
+            from marvin.db.db_setup import session_context
+            from marvin.services.scheduler.leader import release as release_scheduler_lease
+
+            with session_context() as session:
+                release_scheduler_lease(session)
+        except Exception as e:
+            logger.warning(f"Could not release the scheduler lease on shutdown: {e}")
+
     logger.info("------ SYSTEM SHUTDOWN COMPLETE ------")
+
+
+class MarvinJSONResponse(JSONResponse):
+    """FastAPI's JSON response, except that a status with no body (204 No Content) gets no Content-Type.
+
+    FastAPI empties a 204's body but leaves ``content-type: application/json`` on it. A client that
+    trusts the header parses the empty body and fails: SDK 3.x took that for a network error and sent
+    the DELETE again, so a delete that had worked surfaced as "Resource not found".
+    """
+
+    def init_headers(self, headers: Mapping[str, str] | None = None) -> None:
+        if not is_body_allowed_for_status_code(self.status_code):
+            self.media_type = None
+        super().init_headers(headers)
 
 
 # Initialize the FastAPI application instance
@@ -147,6 +229,7 @@ app = FastAPI(
     docs_url=settings.DOCS_URL,  # URL for Swagger UI (None if disabled in settings)
     redoc_url=settings.REDOC_URL,  # URL for ReDoc (None if disabled in settings)
     lifespan=lifespan_fn,  # Register the lifespan context manager
+    default_response_class=MarvinJSONResponse,  # JSON, minus the Content-Type on a 204
 )
 
 # Add GZip middleware to compress responses for supported clients
@@ -165,13 +248,29 @@ if not settings.PRODUCTION:
         allow_headers=["*"],  # Allow all headers
     )
 else:
-    logger.info("CORS middleware not enabled in production environment (or using different production CORS config).")
+    # Production: no wildcard/localhost origins. Enable CORS only when explicit origins
+    # are configured (CORS_ORIGINS) — needed for SPLIT deployments where the UI and API
+    # are on different hosts and the browser calls the API cross-origin. Same-origin /
+    # combined deployments configure nothing and get no CORS middleware.
+    cors_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
+    if cors_origins:
+        logger.info(f"CORS enabled for production. Allowed origins: {cors_origins}")
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_origins,  # exact origins only — never "*" in production
+            allow_credentials=True,  # UI calls the API with the session cookie
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+    else:
+        logger.info("CORS middleware not enabled in production (set CORS_ORIGINS for split UI/API deployments).")
 
 # Add request logging middleware for development
 if not settings.PRODUCTION:
+    import time
+
     from starlette.middleware.base import BaseHTTPMiddleware
     from starlette.requests import Request
-    import time
 
     class RequestLoggingMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
@@ -196,6 +295,36 @@ if not settings.PRODUCTION:
     logger.info("Request logging middleware enabled for development.")
 
 
+def _sweep_interrupted_runs(process_started_at) -> None:
+    """Mark AI runs a previous process left `running` (killed mid-run) as failed. Best-effort."""
+    try:
+        from marvin.db.db_setup import session_context
+        from marvin.services.ai.interrupted_runs import mark_interrupted_runs
+
+        with session_context() as session:
+            count = mark_interrupted_runs(session, process_started_at)
+        if count:
+            logger.info(f"Interrupted AI runs: marked {count} run(s) left running by a previous process as failed.")
+    except Exception as e:
+        logger.exception(f"Interrupted AI run sweep failed: {e}")
+
+
+async def _sweep_interrupted_runs_later(process_started_at, delay_seconds: int) -> None:
+    await asyncio.sleep(delay_seconds)
+    await asyncio.to_thread(_sweep_interrupted_runs, process_started_at)
+
+
+def _start_interrupted_run_sweep(process_started_at) -> "asyncio.Task | None":
+    """Sweep now, or — when a draining predecessor may still own those runs (rolling update) — after
+    AI_INTERRUPTED_RUN_SWEEP_DELAY_SECONDS. Returns the delayed task so shutdown can cancel it."""
+    delay = settings.AI_INTERRUPTED_RUN_SWEEP_DELAY_SECONDS
+    if delay <= 0:
+        _sweep_interrupted_runs(process_started_at)
+        return None
+    logger.info(f"Interrupted AI run sweep scheduled in {delay}s.")
+    return asyncio.create_task(_sweep_interrupted_runs_later(process_started_at, delay))
+
+
 async def start_scheduler() -> None:
     """
     Registers scheduled tasks with the `SchedulerRegistry` and starts the `SchedulerService`.
@@ -218,10 +347,19 @@ async def start_scheduler() -> None:
         scheduler_tasks.ping,
         scheduler_tasks.post_group_webhooks,
         scheduler_tasks.check_scheduled_tasks,
+        scheduler_tasks.dispatch_site_rebuilds,
+        scheduler_tasks.sweep_integration_retries,
+        scheduler_tasks.check_backup_health,
+        scheduler_tasks.resume_workflow_waits,
     )
 
     # Register hourly tasks
     SchedulerRegistry.register_hourly(
+        scheduler_tasks.expire_parked_runs,
+        scheduler_tasks.expire_workflow_approvals,
+        scheduler_tasks.empty_expired_trash,
+        scheduler_tasks.remind_trash_auto_empty,
+        scheduler_tasks.check_unpriced_models,
         # scheduler_tasks.locked_user_reset,
     )
 
@@ -248,6 +386,12 @@ def include_api_routers() -> None:  # Renamed from api_routers for clarity
     are aggregated under `main_api_router` (imported from `marvin.routes`).
     """
     app.include_router(main_api_router)  # Include all routes defined in marvin.routes
+
+    # Root-level health probes (/healthz, /livez, /health, /readyz) — mounted outside the /api
+    # prefix so infra doesn't need to know where the API lives.
+    from marvin.routes.health_root import router as health_router
+
+    app.include_router(health_router)
     logger.info("API routers included.")
 
 
@@ -255,19 +399,44 @@ def include_api_routers() -> None:  # Renamed from api_routers for clarity
 include_api_routers()
 
 
-# Mount static files for local storage provider
-if settings.STORAGE_PROVIDER == "local":
-    from marvin.core.config import get_app_dirs
+# Mount the local provider's files whatever provider new uploads go to (the admin's choice or
+# STORAGE_PROVIDER): local is always built in, rows on it are served from here until they are moved,
+# and keys moved to another provider redirect there (services/storage/static.py).
+storage_root = settings.STORAGE_LOCAL_ROOT or get_app_dirs().ASSETS_DIR
+storage_root.mkdir(parents=True, exist_ok=True)
 
-    storage_root = settings.STORAGE_LOCAL_ROOT or get_app_dirs().ASSETS_DIR
-    storage_root.mkdir(parents=True, exist_ok=True)
+app.mount(
+    settings.STORAGE_LOCAL_PUBLIC_URL,
+    LocalAssetFiles(directory=str(storage_root)),
+    name="assets",
+)
+logger.info(f"Static file serving enabled for local storage at {storage_root} (public URL: {settings.STORAGE_LOCAL_PUBLIC_URL})")
 
-    app.mount(
-        settings.STORAGE_LOCAL_PUBLIC_URL,
-        StaticFiles(directory=str(storage_root)),
-        name="assets",
-    )
-    logger.info(f"Static file serving enabled for local storage at {storage_root} (public URL: {settings.STORAGE_LOCAL_PUBLIC_URL})")
+
+class HealthCheckAccessFilter(logging.Filter):
+    """Drop Uvicorn access-log lines for infrastructure probes.
+
+    The k8s liveness/readiness probes (/healthz, /readyz) and the frontend's per-probe login-info
+    poll hit the API every few seconds; logging each one buries real traffic. Uvicorn's access
+    record carries the request path in args[2] (msg '%s - "%s %s HTTP/%s" %d').
+    """
+
+    _NOISY_PATHS = frozenset({"/healthz", "/readyz", "/livez", "/api/app/about/login-info"})
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        path = args[2] if isinstance(args, tuple) and len(args) >= 3 else None
+        if isinstance(path, str) and path.split("?", 1)[0] in self._NOISY_PATHS:
+            return False
+        return True
+
+
+def _uvicorn_log_config() -> dict:
+    """Uvicorn's default logging config with a filter that silences health-probe access lines."""
+    config = copy.deepcopy(uvicorn.config.LOGGING_CONFIG)
+    config.setdefault("filters", {})["health_probes"] = {"()": f"{__name__}.HealthCheckAccessFilter"}
+    config["handlers"]["access"].setdefault("filters", []).append("health_probes")
+    return config
 
 
 def main() -> None:
@@ -286,17 +455,22 @@ def main() -> None:
         host="0.0.0.0",  # Listen on all available network interfaces
         port=settings.API_PORT,  # Port from application settings
         reload=not settings.PRODUCTION,  # Enable auto-reloading in non-production environments
-        reload_dirs=["."] if not settings.PRODUCTION else None,  # Directories to watch for changes
+        # The package's own source, never "." — that is "/" in a container (every file on it polled) and the whole
+        # checkout, frontend/node_modules included, on a laptop. Reload is for laptops only: its parent process has
+        # imported the app as well, so a reloading server needs about twice the memory (keep PRODUCTION=true in pods).
+        reload_dirs=[str(Path(__file__).parent)] if not settings.PRODUCTION else None,
         reload_delay=2 if not settings.PRODUCTION else None,  # Delay before reloading
         log_level="info",  # Uvicorn's own log level
         use_colors=True,  # Enable colored logging output
-        log_config=None,  # Use Uvicorn's default logging config (can be customized)
+        log_config=_uvicorn_log_config(),  # Uvicorn defaults + a filter that drops health-probe lines
         workers=1,  # Number of worker processes (typically 1 for dev, more for prod)
         forwarded_allow_ips="*",  # Trust X-Forwarded-For headers from any IP (specific IPs better for prod)
+        # On SIGTERM: stop accepting, let in-flight requests (agent runs) finish for this long, then shut down.
+        timeout_graceful_shutdown=settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
     )
 
 
-__all__ = ["main", "__version__"]
+__all__ = ["main"]
 
 if __name__ == "__main__":
     # This block executes when the script is run directly (e.g., `python marvin/app.py`)

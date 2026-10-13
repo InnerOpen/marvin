@@ -6,8 +6,8 @@ modules. This allows Alembic migration scripts to refer to these custom types
 in a simpler way, without needing to import them from deeper module paths.
 """
 
-from marvin.db.models._model_utils.datetime import datetime as _custom_datetime  # Alias to avoid naming conflict
 from marvin.db.models._model_utils.datetime import NaiveDateTime as _naive_datetime
+from marvin.db.models._model_utils.datetime import datetime as _custom_datetime  # Alias to avoid naming conflict
 from marvin.db.models._model_utils.guid import GUID as _custom_guid  # Alias for clarity
 from marvin.db.models._model_utils.httpurl import HttpUrlType as _http_url_type
 

@@ -1,17 +1,38 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
-import { getCollection, getCollectionEntries } from "@/lib/api/collections";
+import {
+  type CollectionMember,
+  getCollection,
+  getCollectionEntries,
+  getCollectionMembers,
+} from "@/lib/api/collections";
+import type { CollectionRead, EntryRead } from "@/lib/api/entries";
+import LocalTime from "@/components/LocalTime.astro";
+import TrashView from "@/components/TrashView.astro";
 import { listEntryTypes } from "@/lib/api/entryTypes";
-import type { EntryRead, CollectionRead } from "@/lib/api/entries";
+import type { AssetRead } from "@/lib/api/assets";
+import type { ResourceRead } from "@/lib/api/resources";
+import { getTrashCounts, listTrashedAssets, listTrashedResources, type TrashAutoEmpty } from "@/lib/api/trash";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
+import { EDITORS_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
+// Everyone reads; changing a collection is EDITOR+.
+const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+const { canEdit } = access;
 
 let collection: CollectionRead | null = null;
 let entries: EntryRead[] = [];
+let members: CollectionMember[] = [];
 let typeMap = new Map<string, string>();
 let error: string | null = null;
+// The Trash (system collection `trash`): restore / delete forever / empty instead of a plain list.
+let isTrash = false;
+let trashAutoEmpty: TrashAutoEmpty | null = null;
+let trashedAssets: AssetRead[] = [];
+let trashedResources: ResourceRead[] = [];
 
 if (!authToken) {
   error = "Authentication required";
@@ -19,19 +40,39 @@ if (!authToken) {
   error = "Collection ID is required";
 } else {
   try {
-    const [col, ents, types] = await Promise.all([
-      getCollection(id, authToken),
-      getCollectionEntries(id, authToken),
-      listEntryTypes(authToken),
-    ]);
-    collection = col;
-    entries = ents;
-    typeMap = new Map(types.map((t) => [t.id, t.name]));
+    collection = await getCollection(id, authToken);
+    const targetType = (collection as any).targetType ?? "entry";
+    if (targetType === "entry") {
+      const [ents, types] = await Promise.all([getCollectionEntries(id, authToken), listEntryTypes(authToken)]);
+      entries = ents;
+      typeMap = new Map(types.map((t) => [t.id, t.name]));
+      isTrash = Boolean(collection.isSystem) && collection.slug === "trash";
+      if (isTrash) {
+        // One Trash, three tabs: the collection lists the entries; trashed assets and resources come from /trash.
+        [trashAutoEmpty, trashedAssets, trashedResources] = await Promise.all([
+          getTrashCounts(authToken).catch(() => null),
+          listTrashedAssets(authToken).catch(() => []),
+          listTrashedResources(authToken).catch(() => []),
+        ]);
+      }
+    } else {
+      // Asset/resource smart collections: fetch the uniform member list.
+      members = await getCollectionMembers(id, authToken);
+    }
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
     console.error("[Collection view] Failed to load:", error);
   }
 }
+
+const targetType = ((collection as any)?.targetType ?? "entry") as string;
+const memberHref = (m: CollectionMember) =>
+  m.type === "asset"
+    ? `/workspace/assets/${m.id}`
+    : m.type === "resource"
+      ? `/workspace/resources/${m.id}`
+      : `/workspace/entries/${m.id}`;
+const totalCount = targetType === "entry" ? entries.length : members.length;
 
 const statusMeta: Record<string, { label: string; cls: string }> = {
   inbox: { label: "Inbox", cls: "s-inbox" },
@@ -41,19 +82,16 @@ const statusMeta: Record<string, { label: string; cls: string }> = {
   approved: { label: "Approved", cls: "s-approved" },
   published: { label: "Published", cls: "s-published" },
   archived: { label: "Archived", cls: "s-archived" },
+  trashed: { label: "In Trash", cls: "s-archived" },
 };
-
-function fmtDate(d?: string | null): string {
-  if (!d) return "";
-  try {
-    return new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  } catch {
-    return "";
-  }
-}
 ---
 
-<AppLayout title={collection ? collection.name : "Collection"}>
+<AppLayout
+  title={collection ? collection.name : "Collection"}
+  entityType="collection"
+  entityId={id}
+  entityLabel={collection?.name}
+>
   {error ? (
     <div class="error-banner">
       <p><strong>Error loading collection:</strong> {error}</p>
@@ -67,24 +105,41 @@ function fmtDate(d?: string | null): string {
           <h2 class="col-title">
             {collection.icon && <span class="col-icon">{collection.icon}</span>}
             {collection.name}
-            <span class="col-count">{entries.length}</span>
+            <span class="col-count">{totalCount}</span>
             {collection.isSmart && <span class="pill">Smart</span>}
+            {targetType !== "entry" && <span class="pill target-pill">{targetType}s</span>}
             {collection.isSystem && <span class="pill system-pill">System</span>}
+            {collection.isPublic === false && !collection.isSystem && (
+              <span class="pill system-pill" title="Hidden from the publishing API — sites can't list or read it">Private</span>
+            )}
           </h2>
           {collection.description && <p class="col-desc">{collection.description}</p>}
         </div>
-        {!collection.isSystem && (
+        {canEdit && !collection.isSystem && (
           <a class="button secondary" href={`/workspace/collections/${id}/edit`}>Edit collection</a>
         )}
       </div>
+      {!canEdit && !collection.isSystem && <div class="alert alert-info" role="status">{EDITORS_ONLY}</div>}
 
-      {entries.length === 0 ? (
+      {isTrash ? (
+        <TrashView
+          entries={entries}
+          assets={trashedAssets}
+          resources={trashedResources}
+          typeMap={typeMap}
+          mayChange={access.canEditEntry}
+          mayChangeItems={canEdit}
+          canEmpty={access.canManage}
+          canConfigure={access.canManage}
+          autoEmpty={trashAutoEmpty}
+        />
+      ) : totalCount === 0 ? (
         <div class="empty-state">
           <div class="empty-icon">📭</div>
-          <h3>No entries</h3>
-          <p>Entries matching this collection will appear here.</p>
+          <h3>No {targetType === "entry" ? "entries" : `${targetType}s`}</h3>
+          <p>{targetType === "entry" ? "Entries" : `${targetType[0].toUpperCase()}${targetType.slice(1)}s`} matching this collection will appear here.</p>
         </div>
-      ) : (
+      ) : targetType === "entry" ? (
         <ul class="inbox">
           {entries.map((entry) => {
             const s = statusMeta[entry.status] ?? { label: entry.status, cls: "s-default" };
@@ -101,12 +156,29 @@ function fmtDate(d?: string | null): string {
                       <span class="inbox-type">{typeMap.get(entry.entryTypeId)}</span>
                     )}
                     <span class={`status-pill ${s.cls}`}>{s.label}</span>
-                    <span class="inbox-date">{fmtDate(entry.updateAt ?? entry.createdAt)}</span>
+                    <span class="inbox-date"><LocalTime iso={entry.updateAt ?? entry.createdAt} format="short-date" fallback="" /></span>
                   </span>
                 </a>
               </li>
             );
           })}
+        </ul>
+      ) : (
+        <ul class="inbox">
+          {members.map((m) => (
+            <li class="inbox-row">
+              <a class="inbox-link" href={memberHref(m)}>
+                <span class="status-dot s-published" title={m.type}></span>
+                <span class="inbox-main">
+                  <span class="inbox-title">{m.label || "Untitled"}</span>
+                  <span class="inbox-summary">{m.slug}</span>
+                </span>
+                <span class="inbox-meta">
+                  <span class="inbox-type">{m.type}</span>
+                </span>
+              </a>
+            </li>
+          ))}
         </ul>
       )}
     </>

@@ -1,18 +1,17 @@
 ---
-import AppLayout from "@/layouts/AppLayout.astro";
-import Breadcrumb from "@/components/Breadcrumb.astro";
-import SlugInput from "@/components/SlugInput.astro";
 import EmojiPicker from "@/components/EmojiPicker.astro";
 import SchemaEditor from "@/components/SchemaEditor.astro";
+import SlugInput from "@/components/SlugInput.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
+
+const authToken = getAuthToken(Astro.cookies);
+// Entry types are admin-only to change (the API answers members with 403); if the role can't be read, let the API decide.
+const adminOnly = !!authToken && !(await canManageCurrentWorkspace(authToken).catch(() => true));
 ---
 
-<AppLayout title="Create Entry Type">
-  <Breadcrumb items={[
-    { label: "Workspace Settings", href: "/workspace/settings?tab=entry-types" },
-    { label: "Entry Types", href: "/workspace/entry-types" },
-    { label: "New" }
-  ]} />
-
+<AppLayout crumb="settings.entry-types.new" adminOnly={adminOnly}>
   <div class="toolbar">
     <div>
       <h2 style="margin:0;font-size:20px;">New Entry Type</h2>
@@ -77,6 +76,20 @@ import SchemaEditor from "@/components/SchemaEditor.astro";
         <p class="form-help">Lower numbers appear first</p>
       </div>
 
+      <div class="form-group">
+        <label for="page_url_pattern">Page URL pattern</label>
+        <input
+          type="text"
+          id="page_url_pattern"
+          name="page_url_pattern"
+          placeholder="/works/{slug}"
+          pattern="(/|https?://).*"
+          title="Start with / (a path on your site) or http(s):// (a full URL)"
+          spellcheck="false"
+        />
+        <p class="form-help">Optional. Where your site shows an entry of this type, so Marvin can link to it (the AI assistant, "View on site", the publishing API's <code>url</code>). Use <code>{"{slug}"}</code>, <code>{"{id}"}</code> or <code>{"{entry_type}"}</code>; a path is joined to the Canonical URL in site settings. Leave blank if entries of this type have no page.</p>
+      </div>
+
       {/* Schema Editor */}
       <div class="schema-section">
         <SchemaEditor schema={null} />
@@ -139,6 +152,19 @@ import SchemaEditor from "@/components/SchemaEditor.astro";
         <details id="recipe-details">
           <summary class="section-heading">Recipe (authoring)</summary>
           <div class="config-fields">
+            <label for="recipe_voice" style="display:block;font-weight:600;margin:0 0 4px;">Voice</label>
+            <p style="margin:0 0 6px;color:var(--muted);font-size:13px;">
+              Overrides the tone for AI drafts of this type. e.g. "Warm and first person; short sentences."
+              Leave blank to use the tone.
+            </p>
+            <input
+              id="recipe_voice"
+              type="text"
+              placeholder="How drafts of this type should sound…"
+              style="width:100%;font-size:14px;padding:9px 10px;box-sizing:border-box;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg);color:var(--ink);margin-bottom:14px;"
+            />
+
+            <label for="recipe_json" style="display:block;font-weight:600;margin:0 0 4px;">Structured contract</label>
             <p style="margin:0 0 8px;color:var(--muted);font-size:13px;">
               What to gather &amp; derive to build one — assets contract, resource extraction, enrichment. JSON for now.
             </p>
@@ -268,6 +294,8 @@ import SchemaEditor from "@/components/SchemaEditor.astro";
 </style>
 
 <script>
+  import { foldRecipe } from '@/lib/recipeForm';
+
   function syncRenderingJson() {
     const name = (document.getElementById('renderer_name') as HTMLInputElement).value.trim();
     const pkg = (document.getElementById('renderer_package') as HTMLInputElement).value.trim();
@@ -314,6 +342,16 @@ import SchemaEditor from "@/components/SchemaEditor.astro";
       capabilitiesDetails.open = false;
     }
   });
+
+  // Fold the Voice box into recipe_json on create (lib/recipeForm); this page has no instructions box, so any
+  // typed in the JSON are kept.
+  function syncRecipeJson() {
+    const voice = (document.getElementById('recipe_voice') as HTMLInputElement)?.value ?? '';
+    const jsonEl = document.getElementById('recipe_json') as HTMLTextAreaElement;
+    const folded = foldRecipe(jsonEl.value, null, voice);
+    if (folded !== null) jsonEl.value = folded;  // invalid JSON goes as typed, as before
+  }
+  document.querySelector('form[action="/api/entry-types/create"]')?.addEventListener('submit', syncRecipeJson);
 
   syncCapabilitiesJson();
 </script>

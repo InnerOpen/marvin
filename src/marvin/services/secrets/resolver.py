@@ -31,9 +31,10 @@ def _get_variable(slug: str, group_id: UUID4 | None) -> str | None:
     if group_id is None:
         return None
     try:
+        from sqlalchemy import and_, select
+
         from marvin.db.db_setup import session_context
         from marvin.db.models.groups.variables import WorkspaceVariable
-        from sqlalchemy import select, and_
 
         with session_context() as session:
             result = session.execute(
@@ -96,7 +97,14 @@ def resolve(
             if result is not None:
                 return result
         logger.warning(f"'{{{{ {slug} }}}}' not resolved for group {group_id}")
+        # Only UPPER_CASE refs are secrets/variables, where leaking a placeholder into a header is
+        # the risk the sentinel guards against. A lower_case ref is per-send template context: leave
+        # it for the Jinja2 render that follows, which drops an undefined variable as empty text
+        # instead of mailing "__MARVIN_UNRESOLVED__" to someone.
+        if slug != slug.upper():
+            return match.group(0)
         from marvin.core.config import get_app_settings
+
         if get_app_settings().PRODUCTION:
             return UNRESOLVED_SENTINEL
         return match.group(0)

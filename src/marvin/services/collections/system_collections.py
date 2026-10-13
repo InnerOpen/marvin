@@ -1,7 +1,8 @@
 """System workflow collections.
 
 Every workspace gets a small set of **system** collections that mirror the entry review
-pipeline: Inbox → Drafts → Needs Review → Approved. They are:
+pipeline: Inbox → Drafts → Needs Review → Approved → Archive, plus the Trash (deleted entries, waiting
+to be restored or emptied). They are:
 
 - **smart** — membership is derived from entry status (see smart_collections), so entries move
   between them automatically as they progress;
@@ -18,15 +19,48 @@ logger = get_logger(__name__)
 
 # Ordered before user collections via negative sort_order. `statuses` becomes the smart rule.
 WORKFLOW_COLLECTIONS: list[dict] = [
-    {"slug": "inbox", "name": "Inbox", "icon": "📥",
-     "description": "New, unprocessed entries.", "sort_order": -40, "statuses": ["inbox"]},
-    {"slug": "drafts", "name": "Drafts", "icon": "✏️",
-     "description": "Entries being written.", "sort_order": -30, "statuses": ["draft"]},
-    {"slug": "needs-review", "name": "Needs Review", "icon": "👀",
-     "description": "Entries awaiting review.", "sort_order": -20, "statuses": ["needs_review"]},
-    {"slug": "approved", "name": "Approved", "icon": "✅",
-     "description": "Approved and ready to publish.", "sort_order": -10, "statuses": ["approved"]},
+    {"slug": "inbox", "name": "Inbox", "icon": "📥", "description": "New, unprocessed entries.", "sort_order": -40, "statuses": ["inbox"]},
+    {"slug": "drafts", "name": "Drafts", "icon": "✏️", "description": "Entries being written.", "sort_order": -30, "statuses": ["draft"]},
+    {
+        "slug": "needs-review",
+        "name": "Needs Review",
+        "icon": "👀",
+        "description": "Entries awaiting review.",
+        "sort_order": -20,
+        "statuses": ["needs_review"],
+    },
+    {
+        "slug": "approved",
+        "name": "Approved",
+        "icon": "✅",
+        "description": "Approved and ready to publish.",
+        "sort_order": -10,
+        "statuses": ["approved"],
+    },
+    {
+        "slug": "archive",
+        "name": "Archive",
+        "icon": "🗄️",
+        "description": "Archived entries, retired from the active pipeline.",
+        "sort_order": -5,
+        "statuses": ["archived"],
+    },
+    {
+        "slug": "trash",
+        "name": "Trash",
+        "icon": "🗑️",
+        "description": "Deleted entries. Restore them or empty the trash.",
+        "sort_order": -1,
+        "statuses": ["trashed"],
+    },
 ]
+
+TRASH_COLLECTION_SLUG = "trash"
+
+# The slugs of Marvin-managed workflow collections. They are seeded per workspace and locked from
+# create/edit, and they are status-driven (an entry appears in them by its status, not by explicit
+# membership) — so a backup restore must skip them rather than try to recreate them.
+SYSTEM_COLLECTION_SLUGS: frozenset[str] = frozenset(c["slug"] for c in WORKFLOW_COLLECTIONS)
 
 
 def seed_system_workflow_collections(session, group_id) -> int:
@@ -39,10 +73,7 @@ def seed_system_workflow_collections(session, group_id) -> int:
     from marvin.db.models.platform.collections import Collections
     from marvin.services.collections.smart_collections import sync_collection
 
-    existing_slugs = {
-        row[0]
-        for row in session.query(Collections.slug).filter(Collections.group_id == group_id).all()
-    }
+    existing_slugs = {row[0] for row in session.query(Collections.slug).filter(Collections.group_id == group_id).all()}
 
     created = 0
     for defn in WORKFLOW_COLLECTIONS:

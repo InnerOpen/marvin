@@ -1,0 +1,99 @@
+{
+  "name": "Project milestone report",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_updated"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{project_type}}"
+      },
+      {
+        "field": "entry.data.{{status_field}}",
+        "op": "eq",
+        "value": "{{done_value}}"
+      },
+      {
+        "field": "entry.metadata.reported",
+        "op": "exists",
+        "value": false
+      }
+    ],
+    "actions": [
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "reported": true
+        }
+      },
+      {
+        "kind": "collect",
+        "id": "log",
+        "entity": "entry",
+        "query": {
+          "entry_type": "{{log_entry_type}}",
+          "data": {
+            "{{project_field}}": "${entry.slug}"
+          },
+          "sort": {
+            "by": "created_at",
+            "direction": "asc"
+          }
+        },
+        "fields": [
+          "data.{{body_field}}"
+        ],
+        "limit": 50
+      },
+      {
+        "kind": "collect",
+        "id": "materials",
+        "entity": "resource",
+        "query": {
+          "entry": "${entry.id}"
+        },
+        "limit": 50
+      },
+      {
+        "kind": "operation",
+        "id": "report",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "“${entry.title}” is finished. Write a short project report from the entry, its log and its materials below: what was made, how it went, what was learned. Use only what's here.\n\nLog:\n${steps.log.output.text}\n\nMaterials:\n${steps.materials.output.text}",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "body": {
+              "type": "string",
+              "minLength": 40
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ]
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{report_entry_type}}",
+        "title": "${steps.report.output.title}",
+        "data": {
+          "{{report_body_field}}": "${steps.report.output.body}"
+        },
+        "status": "draft"
+      }
+    ]
+  }
+}

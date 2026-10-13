@@ -1,55 +1,52 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
-import { createSdkClient } from "@/lib/sdk";
 import { getAuthToken } from "@/lib/api/client";
+import { createSdkClient } from "@/lib/sdk";
+import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
 
 let tasks: any[] = [];
 let error: string | null = null;
+let adminOnly = false;
 
 try {
   const result = await sdk.scheduledTasks.list();
   tasks = Array.isArray(result) ? result : ((result as any)?.items ?? []);
 } catch (e) {
-  console.error('[scheduled-tasks] Error loading:', e);
-  error = e instanceof Error ? e.message : String(e);
+  console.error("[scheduled-tasks] Error loading:", e);
+  if (isForbidden(e)) adminOnly = true;
+  else error = e instanceof Error ? e.message : String(e);
 }
 
 function formatSchedule(task: any): string {
   const scheduleType = task.scheduleType ?? task.schedule_type;
   const sc = task.scheduleConfig ?? task.schedule_config;
-  if (!sc) return 'No schedule';
-  if (scheduleType === 'interval') {
+  if (!sc) return "No schedule";
+  if (scheduleType === "interval") {
     const s = sc.intervalSeconds ?? sc.interval_seconds;
     if (s >= 86400) return `Every ${s / 86400} day(s)`;
     if (s >= 3600) return `Every ${s / 3600} hour(s)`;
     if (s >= 60) return `Every ${s / 60} minute(s)`;
     return `Every ${s}s`;
   }
-  if (scheduleType === 'cron') return `Cron: ${sc.cronExpression ?? sc.cron_expression}`;
-  if (scheduleType === 'once') return `Once: ${(sc.runAt ?? sc.run_at) || '—'}`;
-  return '—';
-}
-
-function formatDate(isoStr: string | null): string {
-  if (!isoStr) return '—';
-  const normalized = isoStr.replace(/(\.\d{3})\d+/, '$1');
-  const d = new Date(normalized);
-  return isNaN(d.getTime()) ? isoStr : d.toLocaleString();
+  if (scheduleType === "cron") return `Cron: ${sc.cronExpression ?? sc.cron_expression}`;
+  if (scheduleType === "once") return `Once: ${(sc.runAt ?? sc.run_at) || "—"}`;
+  return "—";
 }
 
 function statusClass(status: string | null): string {
-  if (status === 'success') return 'success';
-  if (status === 'failed') return 'failed';
-  if (status === 'timeout') return 'timeout';
-  if (status === 'cancelled') return 'cancelled';
-  return 'none';
+  if (status === "success") return "success";
+  if (status === "failed") return "failed";
+  if (status === "timeout") return "timeout";
+  if (status === "cancelled") return "cancelled";
+  return "none";
 }
 ---
 
-<AppLayout title="Scheduled Tasks" eyebrow="Automation">
+<AppLayout crumb="automation.scheduled-tasks" adminOnly={adminOnly}>
   <div class="toolbar">
     <div>
       <h2>Scheduled Tasks</h2>
@@ -101,14 +98,14 @@ function statusClass(status: string | null): string {
                 <span class="meta-label">Last Run</span>
                 <span class="meta-value">
                   {(task.lastRunAt ?? task.last_run_at)
-                    ? <>{formatDate(task.lastRunAt ?? task.last_run_at)} <span class={`run-status status-${statusClass(task.lastStatus ?? task.last_status)}`}>({task.lastStatus ?? task.last_status})</span></>
+                    ? <><LocalTime iso={task.lastRunAt ?? task.last_run_at} /> <span class={`run-status status-${statusClass(task.lastStatus ?? task.last_status)}`}>({task.lastStatus ?? task.last_status})</span></>
                     : <span class="muted">Never</span>}
                 </span>
               </div>
               <div class="meta-item">
                 <span class="meta-label">Next Run</span>
                 <span class="meta-value">
-                  {(task.nextRunAt ?? task.next_run_at) ? formatDate(task.nextRunAt ?? task.next_run_at) : <span class="muted">Not scheduled</span>}
+                  {(task.nextRunAt ?? task.next_run_at) ? <LocalTime iso={task.nextRunAt ?? task.next_run_at} /> : <span class="muted">Not scheduled</span>}
                 </span>
               </div>
             </div>

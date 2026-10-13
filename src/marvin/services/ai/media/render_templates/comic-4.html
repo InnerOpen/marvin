@@ -1,0 +1,25 @@
+{# Four panels in a 2×2 grid, each with a caption box; a panel without a picture gets a halftone fill. #}
+<style>
+  .c { box-sizing: border-box; width: 100vw; height: 100vh; padding: 3vw; background: #fffdf5; color: #111; display: flex; flex-direction: column; gap: 2vw;
+       font-family: "Comic Neue", "Comic Sans MS", Lato, "DejaVu Sans", sans-serif; }
+  h1 { margin: 0; text-align: center; font-size: 5.4vw; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; }
+  .grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2vw; min-height: 0; }
+  .panel { position: relative; border: .7vw solid #111; background-color: #fde68a;
+           background-image: radial-gradient(#f59e0b 18%, transparent 19%); background-size: 2.2vw 2.2vw; background-repeat: repeat; }
+  .panel.pic { background-size: cover; background-position: center; background-repeat: no-repeat; }
+  .cap { position: absolute; left: 1.4vw; right: 1.4vw; bottom: 1.4vw; padding: 1.2vw 1.6vw; background: #fff; border: .4vw solid #111;
+         font-size: 2.8vw; line-height: 1.25; font-weight: 700; }
+  .n { position: absolute; top: 1vw; left: 1vw; width: 4vw; height: 4vw; display: grid; place-items: center; background: #111; color: #fff; font-weight: 900; font-size: 2.4vw; }
+  .foot { text-align: right; font-size: 2.2vw; font-style: italic; }
+</style>
+<div class="c">
+  {% if fields.title %}<h1>{{ fields.title }}</h1>{% endif %}
+  <div class="grid">
+    {% for i in [1, 2, 3, 4] %}{% set img = images["panel" ~ i] %}
+    <div class="panel{% if img %} pic{% endif %}" {% if img %}style="background-image: url('{{ img }}')"{% endif %}>
+      <span class="n">{{ i }}</span><div class="cap">{{ fields["caption" ~ i] }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% if fields.footer %}<div class="foot">{{ fields.footer }}</div>{% endif %}
+</div>

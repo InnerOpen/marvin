@@ -1,8 +1,10 @@
 ---
 import AdminLayout from "@/layouts/AdminLayout.astro";
-import { requireAdmin } from "@/lib/auth";
-import { createSdkClient } from '@/lib/sdk';
 import { getAuthToken } from "@/lib/api/client";
+import { getPlatformTrashSettings } from "@/lib/api/trash";
+import { requireAdmin } from "@/lib/auth";
+import { createSdkClient } from "@/lib/sdk";
+import { AUTO_EMPTY_CHOICES, autoEmptyLabel } from "@/lib/trash";
 
 const currentUser = await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
 
@@ -13,8 +15,10 @@ let settings: any = null;
 try {
   settings = await sdk.adminSystem.getStartupInfo();
 } catch (e) {
-  console.error('Could not fetch settings:', e);
+  console.error("Could not fetch settings:", e);
 }
+// The platform default for how long the Trash keeps deleted entries; workspaces inherit it unless they override.
+const trashDefault = await getPlatformTrashSettings(authToken).catch(() => null);
 
 // Group settings by prefix
 const settingsGroups: Record<string, any> = {};
@@ -23,23 +27,23 @@ const featureSettings: any[] = [];
 if (settings) {
   Object.entries(settings).forEach(([key, value]) => {
     // Extract features (enabled/feature pairs)
-    if (key.endsWith('Enabled') || key.endsWith('Ready')) {
-      const baseName = key.replace(/Enabled$|Ready$/, '');
-      const featureKey = baseName + 'Feature';
+    if (key.endsWith("Enabled") || key.endsWith("Ready")) {
+      const baseName = key.replace(/Enabled$|Ready$/, "");
+      const featureKey = `${baseName}Feature`;
       featureSettings.push({
         name: baseName,
         enabled: value,
-        feature: settings[featureKey]
+        feature: settings[featureKey],
       });
       return;
     }
-    if (key.endsWith('Feature')) {
+    if (key.endsWith("Feature")) {
       return; // Skip, handled above
     }
 
     // Group by prefix (first word before capital letter)
     const match = key.match(/^([a-z]+)/);
-    const prefix = match ? match[1] : 'general';
+    const prefix = match ? match[1] : "general";
 
     if (!settingsGroups[prefix]) {
       settingsGroups[prefix] = [];
@@ -51,13 +55,13 @@ if (settings) {
 // Convert camelCase to Title Case
 function toTitleCase(str: string) {
   return str
-    .replace(/([A-Z])/g, ' $1')
+    .replace(/([A-Z])/g, " $1")
     .replace(/^./, (s) => s.toUpperCase())
     .trim();
 }
 ---
 
-<AdminLayout title="Site Settings">
+<AdminLayout crumb="admin.site-settings">
   <div class="toolbar">
     <div>
       <h2>Site Settings</h2>
@@ -67,6 +71,26 @@ function toTitleCase(str: string) {
 
   <div class="page-container">
     <div class="settings-grid">
+      {trashDefault && (
+        <section class="card" id="trash">
+          <h3>Trash</h3>
+          <p class="card-description">
+            How long a deleted entry stays in a workspace's Trash before it is deleted forever. Workspaces use this
+            unless they choose their own (Settings → General → Trash).
+          </p>
+          <form id="trash-default-form" class="trash-default">
+            <select name="auto_empty_days" class="input">
+              {AUTO_EMPTY_CHOICES.map((days) => (
+                <option value={String(days)} selected={trashDefault.auto_empty_days === days}>
+                  {days ? `After ${autoEmptyLabel(days)}` : "Never"}
+                </option>
+              ))}
+            </select>
+            <button type="submit" class="button">Save</button>
+          </form>
+        </section>
+      )}
+
       <!-- Feature Status -->
       {featureSettings.length > 0 && (
         <section class="card">
@@ -96,16 +120,22 @@ function toTitleCase(str: string) {
           <h3>{toTitleCase(prefix)} Settings</h3>
           <p class="card-description">Configuration for {prefix}</p>
           <div class="settings-display">
-            {items.map(({key, value}) => (
-              <div class="setting-item">
-                <span class="setting-label">{toTitleCase(key)}</span>
-                <span class="setting-value">
-                  {typeof value === 'boolean' ? (value ? 'Yes' : 'No') :
-                   typeof value === 'object' && value !== null ? JSON.stringify(value) :
-                   value?.toString() || '(not set)'}
-                </span>
-              </div>
-            ))}
+            {items.map(({key, value}) => {
+              const isObject = typeof value === 'object' && value !== null;
+              return (
+                <div class={`setting-item ${isObject ? 'is-block' : ''}`}>
+                  <span class="setting-label">{toTitleCase(key)}</span>
+                  {isObject ? (
+                    <pre class="setting-value setting-json">{JSON.stringify(value, null, 2)}</pre>
+                  ) : (
+                    <span class="setting-value">
+                      {typeof value === 'boolean' ? (value ? 'Yes' : 'No') :
+                       value?.toString() || '(not set)'}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </section>
       ))}
@@ -113,7 +143,32 @@ function toTitleCase(str: string) {
   </div>
 </AdminLayout>
 
+<script>
+  import { updatePlatformTrashSettings } from '@/lib/api/trash';
+
+  const trashForm = document.getElementById('trash-default-form') as HTMLFormElement | null;
+  trashForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const button = trashForm.querySelector('button') as HTMLButtonElement;
+    button.disabled = true;
+    try {
+      await updatePlatformTrashSettings(Number(new FormData(trashForm).get('auto_empty_days')));
+      button.textContent = 'Saved';
+    } catch (err) {
+      alert('Error: ' + (err instanceof Error ? err.message : 'Failed to save the Trash default'));
+    } finally {
+      button.disabled = false;
+    }
+  });
+</script>
+
 <style>
+  .trash-default {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+  }
+
   .toolbar {
     display: flex;
     justify-content: space-between;
@@ -188,6 +243,30 @@ function toTitleCase(str: string) {
     font-size: 14px;
     font-family: ui-monospace, monospace;
     color: var(--text);
+    min-width: 0;
+    text-align: right;
+    word-break: break-word;
+  }
+
+  /* Object values render as a wrapping JSON block; stack label above so nothing overflows the card. */
+  .setting-item.is-block {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .setting-json {
+    margin: 0;
+    text-align: left;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 320px;
+    overflow: auto;
+    padding: 10px 12px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    font-size: 13px;
+    line-height: 1.5;
   }
 
   .features-list {

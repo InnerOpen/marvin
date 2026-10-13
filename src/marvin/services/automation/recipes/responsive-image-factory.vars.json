@@ -1,0 +1,10 @@
+{
+  "recipe": "responsive-image-factory",
+  "variables": {
+    "image_role": {
+      "type": "text",
+      "description": "The role an entry's main picture is attached in; its sizes are attached as <role>-1600, <role>-800 and <role>-400.",
+      "example": "hero"
+    }
+  }
+}

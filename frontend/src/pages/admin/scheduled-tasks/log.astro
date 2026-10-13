@@ -1,57 +1,43 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
-import { requireAdmin } from "@/lib/auth";
-import { getAuthToken } from "@/lib/api/client";
-import { getGlobalLog, listAllTasks } from "@/lib/api/admin/scheduledTasks";
 import type { ScheduledTaskExecutionLogRead } from "@/lib/api/admin/scheduledTasks";
+import { getGlobalLog, listAllTasks } from "@/lib/api/admin/scheduledTasks";
+import { getAuthToken } from "@/lib/api/client";
+import { requireAdmin } from "@/lib/auth";
 
 await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
 const authToken = getAuthToken(Astro.cookies);
 
-const filter = Astro.url.searchParams.get('filter') || 'all';
+const filter = Astro.url.searchParams.get("filter") || "all";
 
 let logs: ScheduledTaskExecutionLogRead[] = [];
 let error: string | null = null;
 let taskMap = new Map<string, { name: string; task_type: string }>();
 
 try {
-  const [logsResult, tasksResult] = await Promise.all([
-    getGlobalLog(200, authToken),
-    listAllTasks(authToken),
-  ]);
-  logs = Array.isArray(logsResult) ? logsResult : (logsResult as any)?.items ?? [];
-  const tasks = Array.isArray(tasksResult) ? tasksResult : (tasksResult as any)?.items ?? [];
-  taskMap = new Map(tasks.map((t: any) => [t.id, { name: t.name, task_type: t.task_type ?? t.taskType ?? '' }]));
+  const [logsResult, tasksResult] = await Promise.all([getGlobalLog(200, authToken), listAllTasks(authToken)]);
+  logs = Array.isArray(logsResult) ? logsResult : ((logsResult as any)?.items ?? []);
+  const tasks = Array.isArray(tasksResult) ? tasksResult : ((tasksResult as any)?.items ?? []);
+  taskMap = new Map(tasks.map((t: any) => [t.id, { name: t.name, task_type: t.task_type ?? t.taskType ?? "" }]));
 } catch (e) {
-  console.error('[admin/scheduled-tasks/log] Error:', e);
+  console.error("[admin/scheduled-tasks/log] Error:", e);
   error = e instanceof Error ? e.message : String(e);
 }
 
-const filteredLogs = filter === 'all' ? logs : logs.filter(l => l.status === filter);
-
-function formatDate(isoStr: string): string {
-  if (!isoStr) return '—';
-  const normalized = isoStr.replace(/(\.\d{3})\d+/, '$1');
-  const d = new Date(normalized);
-  return isNaN(d.getTime()) ? isoStr : d.toLocaleString();
-}
+const filteredLogs = filter === "all" ? logs : logs.filter((l) => l.status === filter);
 
 function statusClass(status: string): string {
-  if (status === 'success') return 'success';
-  if (status === 'failed') return 'failed';
-  if (status === 'timeout') return 'timeout';
-  if (status === 'cancelled') return 'cancelled';
-  return 'none';
+  if (status === "success") return "success";
+  if (status === "failed") return "failed";
+  if (status === "timeout") return "timeout";
+  if (status === "cancelled") return "cancelled";
+  return "none";
 }
 ---
 
-<AdminLayout title="Global Execution Log">
+<AdminLayout crumb="admin.scheduled-tasks.log">
   <div class="page-header">
-    <div class="breadcrumb">
-      <a href="/admin/scheduled-tasks">Scheduled Tasks</a>
-      <span>›</span>
-      <span>Activity Log</span>
-    </div>
     <h2>Global Execution Log</h2>
     <p>Execution history across all tasks and workspaces</p>
   </div>
@@ -86,8 +72,8 @@ function statusClass(status: string): string {
         </thead>
         <tbody>
           {filteredLogs.map((log, i) => {
-            const hasDetails = log.output || log.error_message || log.error_traceback;
-            const taskInfo = taskMap.get(log.task_id);
+            const hasDetails = log.output || log.errorMessage || log.errorTraceback;
+            const taskInfo = taskMap.get(log.taskId);
             return (
               <>
                 <tr class:list={['log-row', { 'has-details': hasDetails }]}>
@@ -96,18 +82,18 @@ function statusClass(status: string): string {
                       <button class="expand-btn" data-target={`details-${i}`} aria-label="Toggle details">▶</button>
                     )}
                   </td>
-                  <td class="nowrap">{formatDate(log.executed_at)}</td>
+                  <td class="nowrap"><LocalTime iso={log.executedAt} /></td>
                   <td class="mono task-id">
-                    {log.task_id
-                      ? <a href={`/admin/scheduled-tasks/${log.task_id}`} title={taskInfo?.name}>{log.task_id.slice(0, 8)}…</a>
+                    {log.taskId
+                      ? <a href={`/admin/scheduled-tasks/${log.taskId}`} title={taskInfo?.name}>{log.taskId.slice(0, 8)}…</a>
                       : <span>—</span>}
                   </td>
                   <td class="type-cell">{taskInfo?.task_type || '—'}</td>
-                  <td class="mono">{log.group_id ? log.group_id.slice(0, 8) + '…' : 'System'}</td>
+                  <td class="mono">{log.groupId ? log.groupId.slice(0, 8) + '…' : 'System'}</td>
                   <td>
                     <span class={`status-chip status-${statusClass(log.status)}`}>{log.status}</span>
                   </td>
-                  <td class="nowrap">{log.duration_ms != null ? `${log.duration_ms}ms` : '—'}</td>
+                  <td class="nowrap">{log.durationMs != null ? `${log.durationMs}ms` : '—'}</td>
                 </tr>
                 {hasDetails && (
                   <tr class="detail-row" id={`details-${i}`} style="display:none">
@@ -119,16 +105,16 @@ function statusClass(status: string): string {
                             <div class="detail-output">{log.output}</div>
                           </div>
                         )}
-                        {log.error_message && (
+                        {log.errorMessage && (
                           <div class="detail-section">
                             <div class="detail-label">Error</div>
-                            <div class="detail-message">{log.error_message}</div>
+                            <div class="detail-message">{log.errorMessage}</div>
                           </div>
                         )}
-                        {log.error_traceback && (
+                        {log.errorTraceback && (
                           <div class="detail-section">
                             <div class="detail-label">Traceback</div>
-                            <pre class="detail-trace">{log.error_traceback}</pre>
+                            <pre class="detail-trace">{log.errorTraceback}</pre>
                           </div>
                         )}
                       </div>
@@ -150,18 +136,6 @@ function statusClass(status: string): string {
     padding-bottom: 20px;
     border-bottom: 1px solid var(--line);
   }
-
-  .breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--muted);
-    margin-bottom: 12px;
-  }
-
-  .breadcrumb a { color: var(--muted); text-decoration: none; }
-  .breadcrumb a:hover { color: var(--ink); }
 
   .page-header h2 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
   .page-header p { margin: 0; color: var(--muted); font-size: 14px; }

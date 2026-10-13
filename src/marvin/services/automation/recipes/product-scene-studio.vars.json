@@ -1,0 +1,20 @@
+{
+  "recipe": "product-scene-studio",
+  "variables": {
+    "tag": {
+      "type": "text",
+      "description": "Tag on the pictures to set in a scene (run it, and each tagged picture is asked about).",
+      "example": "product"
+    },
+    "scene": {
+      "type": "text",
+      "description": "The scene, in a few words.",
+      "example": "a sunlit oak workbench with a few hand tools"
+    },
+    "image_integration": {
+      "type": "integration_slug",
+      "description": "Slug of a connected OpenAI Images integration (it needs v0.3.0+ for edit).",
+      "example": "openai-images"
+    }
+  }
+}

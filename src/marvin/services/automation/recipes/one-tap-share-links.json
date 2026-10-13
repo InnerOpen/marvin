@@ -1,0 +1,59 @@
+{
+  "name": "One-tap share links",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      },
+      {
+        "field": "entry.url",
+        "op": "starts_with",
+        "value": "http"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "post",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "Write one short social post inviting people to “${entry.title}”, from what the entry says, in {{voice}}. No link (it's added after), no more than two hashtags, nothing invented.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 200
+            }
+          },
+          "required": [
+            "text"
+          ]
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "share_text": "${steps.post.output.text}",
+          "share_links": {
+            "Bluesky": "https://bsky.app/intent/compose?text=${steps.post.output.text|url}%0A%0A${entry.url|url}%3Futm_source%3Dbluesky%26utm_medium%3Dsocial%26utm_campaign%3D${entry.slug|url}",
+            "Mastodon": "https://{{mastodon_server}}/share?text=${steps.post.output.text|url}%0A%0A${entry.url|url}%3Futm_source%3Dmastodon%26utm_medium%3Dsocial%26utm_campaign%3D${entry.slug|url}",
+            "Threads": "https://www.threads.com/intent/post?text=${steps.post.output.text|url}&url=${entry.url|url}%3Futm_source%3Dthreads%26utm_medium%3Dsocial%26utm_campaign%3D${entry.slug|url}",
+            "LinkedIn": "https://www.linkedin.com/sharing/share-offsite/?url=${entry.url|url}%3Futm_source%3Dlinkedin%26utm_medium%3Dsocial%26utm_campaign%3D${entry.slug|url}",
+            "Email": "mailto:?subject=${entry.title|url}&body=${steps.post.output.text|url}%0A%0A${entry.url|url}%3Futm_source%3Demail%26utm_medium%3Dsocial%26utm_campaign%3D${entry.slug|url}"
+          }
+        }
+      }
+    ]
+  }
+}

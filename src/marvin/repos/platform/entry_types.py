@@ -10,7 +10,7 @@ from marvin.core.root_logger import get_logger
 from marvin.db.models.platform import Entries, EntryTypes
 from marvin.repos.repository_generic import GroupRepositoryGeneric
 from marvin.schemas.platform import EntryTypeRead
-from marvin.schemas.platform.entry_type_rendering import CapabilitiesDefinition, KNOWN_CORE_RENDERERS, RenderingDefinition
+from marvin.schemas.platform.entry_type_rendering import KNOWN_CORE_RENDERERS, CapabilitiesDefinition, RenderingDefinition
 from marvin.schemas.platform.entry_type_schema import EntryTypeSchemaDefinition
 
 logger = get_logger(__name__)
@@ -46,24 +46,43 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
         """
         Apply custom group_id filter to include both workspace and system types.
 
+        A workspace type shadows a system type of the same slug: when this
+        workspace defines its own type for a slug, the same-slug system type is
+        excluded so slug resolution is deterministic (the workspace type
+        overrides the shared default, the way a local config overrides a global
+        one). System types remain visible for slugs the workspace hasn't
+        customized.
+
         Args:
             query: SQLAlchemy query to filter
 
         Returns:
             Filtered query
         """
-        from sqlalchemy import or_
+        from sqlalchemy import and_, exists, not_, or_
+        from sqlalchemy.orm import aliased
 
-        if self.group_id:
-            return query.filter(
-                or_(
-                    self.model.group_id == self.group_id,
-                    self.model.group_id.is_(None),
-                )
-            )
-        else:
-            # If no group_id, only show system types
+        if not self.group_id:
+            # No workspace context: only system types are visible.
             return query.filter(self.model.group_id.is_(None))
+
+        query = query.filter(
+            or_(
+                self.model.group_id == self.group_id,
+                self.model.group_id.is_(None),
+            )
+        )
+
+        # Drop a system row (group_id IS NULL) when this workspace already has
+        # its own type with the same slug — the workspace row wins.
+        workspace_twin = aliased(self.model)
+        shadowed_system = exists().where(
+            and_(
+                workspace_twin.group_id == self.group_id,
+                workspace_twin.slug == self.model.slug,
+            )
+        )
+        return query.filter(not_(and_(self.model.group_id.is_(None), shadowed_system)))
 
     def page_all(self, pagination, override_schema=None, search=None):
         """Override to add custom group_id filtering for system types."""
@@ -163,7 +182,7 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid rendering definition: {e}",
-            )
+            ) from e
 
     def _validate_capabilities_json(self, capabilities_json: dict | None) -> None:
         if capabilities_json is None:
@@ -174,19 +193,46 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid capabilities definition: {e}",
+            ) from e
+
+    @staticmethod
+    def _validate_match_field(schema_json: dict | None, capabilities_json: dict | None) -> None:
+        """A submission ``match_field`` must name a field of the type's own schema — checked against the
+        schema being saved, so dropping the field while it's still the match field is refused too."""
+        submission = (capabilities_json or {}).get("submission") or {}
+        match_field = submission.get("matchField", submission.get("match_field")) if isinstance(submission, dict) else None
+        if not match_field:
+            return
+        keys = {f.get("key") for f in ((schema_json or {}).get("fields") or []) if isinstance(f, dict)}
+        if match_field not in keys:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid capabilities definition: submission match field '{match_field}' is not a field of this entry type",
             )
 
     def _validate_recipe_json(self, recipe_json: dict | None) -> None:
         if recipe_json is None:
             return
         from marvin.schemas.platform.entry_type_recipe import EntryTypeRecipe
+
         try:
             EntryTypeRecipe.model_validate(recipe_json)
         except ValidationError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid recipe definition: {e}",
-            )
+            ) from e
+
+    def _normalize_page_url_pattern(self, data_dict: dict) -> None:
+        """Dict callers (seeding, blueprints) bypass the request schema, so normalize here too."""
+        if "page_url_pattern" not in data_dict:
+            return
+        from marvin.services.entry_urls import normalize_page_url_pattern
+
+        try:
+            data_dict["page_url_pattern"] = normalize_page_url_pattern(data_dict["page_url_pattern"])
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid page URL pattern: {e}") from e
 
     def _check_renderer_warnings(self, data_dict: dict) -> list[str]:
         if not data_dict.get("is_rendered"):
@@ -238,6 +284,8 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
             self._validate_capabilities_json(data_dict["capabilities_json"])
         if "recipe_json" in data_dict:
             self._validate_recipe_json(data_dict["recipe_json"])
+        self._validate_match_field(data_dict.get("schema_json"), data_dict.get("capabilities_json"))
+        self._normalize_page_url_pattern(data_dict)
 
         warnings = self._check_renderer_warnings(data_dict)
         result = super().create(data_dict)
@@ -279,6 +327,13 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
             self._validate_capabilities_json(data_dict["capabilities_json"])
         if "recipe_json" in data_dict:
             self._validate_recipe_json(data_dict["recipe_json"])
+        if "schema_json" in data_dict or "capabilities_json" in data_dict:
+            # Either side may change alone, so check the pair as it will be stored.
+            self._validate_match_field(
+                data_dict["schema_json"] if "schema_json" in data_dict else (entry_type.content_schema if entry_type else None),
+                data_dict["capabilities_json"] if "capabilities_json" in data_dict else (entry_type.capabilities if entry_type else None),
+            )
+        self._normalize_page_url_pattern(data_dict)
 
         warnings = self._check_renderer_warnings(data_dict)
         data_dict.pop("slug", None)
@@ -297,7 +352,7 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
                 detail="System entry types cannot be deleted.",
             )
 
-        entry_count = self._count_attribute("entry_type_id", value)
+        entry_count = self._count_entries_with_attribute("entry_type_id", value)
         if entry_count:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -305,7 +360,7 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
             )
         return super().delete(value, match_key=match_key)
 
-    def _count_attribute(self, attribute_name: str, attr_match: Any | None = None) -> int:
+    def _count_entries_with_attribute(self, attribute_name: str, attr_match: Any | None = None) -> int:
         count_query = self.session.query(Entries).filter(getattr(Entries, attribute_name) == attr_match)
         if self.group_id:
             count_query = count_query.filter(Entries.group_id == self.group_id)

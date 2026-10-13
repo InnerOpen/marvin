@@ -1,11 +1,8 @@
 """Business logic for asset upload and storage."""
 
-import re
 import tempfile
-import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import BinaryIO
 
 from fastapi import UploadFile
 from pydantic import UUID4
@@ -14,8 +11,33 @@ from marvin.repos import AllRepositories
 from marvin.schemas.platform.assets import AssetCreateInternal, AssetRead, AssetUploadRequest
 from marvin.services import BaseService
 from marvin.services.storage.base_provider import BaseStorageProvider
+from marvin.services.storage.keys import new_key, object_metadata, workspace_code
 
 from .metadata_extractor import AssetMetadataExtractor
+
+
+class AssetRejected(ValueError):
+    """The file isn't taken here: too big (ASSET_MAX_FILE_SIZE, 413) or of a type ASSET_ALLOWED_MIME_TYPES leaves
+    out (415)."""
+
+    def __init__(self, message: str, status_code: int) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def check_allowed(size: int, mime_type: str) -> None:
+    """Raise AssetRejected unless the server's upload settings take a file of this size and (detected) type."""
+    from fnmatch import fnmatch
+
+    from marvin.core.config import get_app_settings
+
+    settings = get_app_settings()
+    limit = settings.ASSET_MAX_FILE_SIZE
+    if limit and size > limit:
+        raise AssetRejected(f"The file is {size / 1048576:.1f} MB; uploads are limited to {limit / 1048576:.0f} MB.", 413)
+    allowed = settings.ASSET_ALLOWED_MIME_TYPES
+    if allowed and not any(fnmatch(mime_type or "", pattern) for pattern in allowed):
+        raise AssetRejected(f"Files of type {mime_type or 'unknown'} can't be uploaded here.", 415)
 
 
 class AssetStorageService(BaseService):
@@ -45,7 +67,7 @@ class AssetStorageService(BaseService):
         Complete upload pipeline for a new asset.
 
         Steps:
-        1. Validate file
+        1. Validate file (size and detected type against the upload settings: AssetRejected)
         2. Save to temporary location
         3. Extract metadata
         4. Generate storage key
@@ -66,7 +88,7 @@ class AssetStorageService(BaseService):
             ValueError: If file validation fails
             Exception: If upload or storage fails
         """
-        # Get workspace slug for storage key generation
+        # The workspace must exist (its storage code names the key)
         group = self.repos.groups.get_one(group_id)
         if not group:
             raise ValueError(f"Workspace not found: {group_id}")
@@ -86,25 +108,23 @@ class AssetStorageService(BaseService):
             try:
                 # Extract metadata from temporary file
                 metadata = self.metadata_extractor.extract_metadata(temp_path)
+                check_allowed(metadata.size, metadata.mime_type)
 
-                # Generate storage key
-                storage_key = self.generate_storage_key(
-                    workspace_slug=group.slug,
-                    filename=original_filename,
-                    upload_date=datetime.now(),
-                )
+                # Generate storage key (opaque: no workspace slug, no filename)
+                storage_key = self.generate_storage_key(group_id, original_filename, metadata.mime_type)
 
-                # Reset file pointer and store via provider
+                # Reset file pointer and store via provider; the original name travels as the
+                # object's Content-Disposition where the provider stores one.
                 upload_file.file.seek(0)
-                storage_metadata = self.storage.put(
+                self.storage.put(
                     storage_key=storage_key,
                     file_data=upload_file.file,
                     content_type=metadata.mime_type,
-                    metadata=upload_request.metadata_json,
+                    metadata=object_metadata(original_filename, upload_request.metadata_json),
                 )
 
                 # Get public URL
-                public_url = self.storage.get_public_url(storage_key)
+                public_url = self.public_url(group_id, storage_key)
 
                 # Parse filename and extension
                 path = Path(original_filename)
@@ -131,6 +151,7 @@ class AssetStorageService(BaseService):
                     alt_text=upload_request.alt_text,
                     description=upload_request.description,
                     metadata_json=upload_request.metadata_json,
+                    scope=upload_request.scope,
                 )
 
                 # Create database record
@@ -138,12 +159,127 @@ class AssetStorageService(BaseService):
                 asset_data["group_id"] = group_id
                 asset_data["uploaded_by"] = user_id
                 asset = self.repos.assets.create(asset_data)
+                self._join_smart_collections(asset)
 
                 return AssetRead.model_validate(asset)
 
             finally:
                 # Clean up temporary file
                 temp_path.unlink(missing_ok=True)
+
+    def create_derivative(
+        self,
+        *,
+        source,
+        data: bytes,
+        group_id: UUID4,
+        derivation: str,
+        slug: str,
+        name: str,
+        user_id: UUID4 | None = None,
+        extra_metadata: dict | None = None,
+        extension: str | None = None,
+    ) -> AssetRead:
+        """Persist transformed image `data` as a NEW asset derived from `source`.
+
+        Used by the media pipeline (grade/crop, a workflow's media step) to store a produced image with provenance
+        (`metadata_json.derived_from` / `.derivation`, plus `extra_metadata`) linking it back to the source asset. The
+        source asset is left untouched. `slug` must be unique in the workspace — callers keep this idempotent by not
+        re-deriving the same (source, derivation) pair. `extension` names the file type when it differs from the
+        source's (a conversion). `source` may be None for an image made from nothing (a generated one): no
+        `derived_from` then, and `user_id` is its uploader. The upload limits apply (AssetRejected).
+        """
+        group = self.repos.groups.get_one(group_id)
+        if not group:
+            raise ValueError(f"Workspace not found: {group_id}")
+
+        ext = (extension or getattr(source, "extension", None) or "jpg").lstrip(".")
+        original_filename = f"{slug}.{ext}"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as temp_file:
+            temp_path = Path(temp_file.name)
+            temp_file.write(data)
+            temp_file.flush()
+            try:
+                metadata = self.metadata_extractor.extract_metadata(temp_path)
+                check_allowed(metadata.size, metadata.mime_type)
+                storage_key = self.generate_storage_key(group_id, original_filename, metadata.mime_type)
+                provenance = {
+                    **({"derived_from": str(source.id)} if source is not None else {}),
+                    "derivation": derivation,
+                    **(extra_metadata or {}),
+                }
+                with open(temp_path, "rb") as fh:
+                    self.storage.put(
+                        storage_key=storage_key,
+                        file_data=fh,
+                        content_type=metadata.mime_type,
+                        metadata=object_metadata(original_filename),
+                    )
+                public_url = self.public_url(group_id, storage_key)
+                asset_create = AssetCreateInternal(
+                    slug=slug,
+                    name=name,
+                    original_filename=original_filename,
+                    filename=slug,
+                    extension=ext,
+                    file_size=metadata.size,
+                    mime_type=metadata.mime_type,
+                    asset_type=metadata.asset_type,
+                    checksum=metadata.checksum,
+                    width=metadata.width,
+                    height=metadata.height,
+                    orientation=metadata.orientation,
+                    storage_provider=self._get_provider_name(),
+                    storage_key=storage_key,
+                    public_url=public_url,
+                    alt_text=getattr(source, "alt_text", None),
+                    metadata_json=provenance,
+                    origin="derived" if source is not None else "generated",
+                    source_asset_id=getattr(source, "id", None),
+                )
+                asset_data = asset_create.model_dump(exclude_unset=True)
+                asset_data["group_id"] = group_id
+                # A derivative inherits the source asset's uploader when no actor is supplied
+                # (system/AI-produced images still need a non-null uploaded_by).
+                asset_data["uploaded_by"] = user_id or getattr(source, "uploaded_by", None)
+                if asset_data["uploaded_by"] is None:
+                    raise ValueError("a derivative needs an uploader: pass user_id when there is no source asset")
+                asset = self.repos.assets.create(asset_data)
+                self._join_smart_collections(asset)
+                return AssetRead.model_validate(asset)
+            finally:
+                temp_path.unlink(missing_ok=True)
+
+    def _join_smart_collections(self, asset) -> None:
+        """A new library asset joins the asset smart collections whose rules it matches now, not at the nightly
+        resync. Best-effort: a rule that can't be read never fails the upload."""
+        from marvin.services.collections.smart_collections import sync_item
+
+        session = self.repos.session
+        try:
+            if sync_item(session, asset.group_id, asset, "asset"):
+                session.commit()
+        except Exception as e:  # noqa: BLE001
+            session.rollback()
+            self.logger.warning(f"Smart collections: couldn't sync new asset {asset.id}: {e}")
+
+    def storage_for(self, asset) -> BaseStorageProvider:
+        """The provider an existing asset row lives in: this service's own provider when the row is on
+        it, else the row's (assets on different providers are served side by side)."""
+        slug = getattr(asset, "storage_provider", None)
+        if not slug or slug == self._get_provider_name():
+            return self.storage
+        from marvin.services.storage.provider_factory import provider_for
+
+        return provider_for(slug)
+
+    def read_bytes(self, asset) -> bytes:
+        """Read an asset's raw bytes (source for a derivation) from the provider it lives in. A bare
+        storage key reads from this service's provider."""
+        if isinstance(asset, str):
+            return self.storage.get(asset).read()
+        with self.storage_for(asset).get(asset.storage_key) as fh:
+            return fh.read()
 
     def delete_asset(self, asset_id: UUID4) -> bool:
         """
@@ -156,98 +292,59 @@ class AssetStorageService(BaseService):
             True if asset was deleted, False if not found
 
         Raises:
-            Exception: If deletion fails
+            Exception: If the file can't be deleted from storage — the row is kept then, so the file isn't
+            orphaned: an asset in the Trash stays there, and the next Empty trash or auto-empty tries again.
         """
         # Get asset from database
         asset = self.repos.assets.get_one(asset_id)
         if not asset:
             return False
 
-        # Delete from storage
+        # Delete from storage (the provider the row lives in). A file that is already gone is fine (the providers
+        # don't raise for a missing key); a failure is not — dropping the row then would leave the file orphaned.
         try:
-            self.storage.delete(asset.storage_key)
+            self.storage_for(asset).delete(asset.storage_key)
         except Exception as e:
-            # Log but don't fail if storage deletion fails
-            # The database record should still be removed
-            self.logger.warning(f"Failed to delete asset from storage: {e}")
+            self.logger.warning(f"Failed to delete asset {asset_id} from storage, kept it for a retry: {e}")
+            raise
+        self._delete_old_copies(asset_id)
 
         # Delete database record
         self.repos.assets.delete(asset_id)
 
         return True
 
+    def _delete_old_copies(self, asset_id: UUID4) -> None:
+        """Delete the copies an asset left at its old keys (``storage_migrate --rekey``, not pruned yet)
+        and forget those keys: the asset is gone, so nothing should redirect to it."""
+        from marvin.db.models.platform import StorageKeyAliasModel
+        from marvin.services.storage.provider_factory import provider_for
+
+        session = self.repos.session
+        for alias in session.query(StorageKeyAliasModel).filter(StorageKeyAliasModel.asset_id == asset_id).all():
+            if alias.pruned_at is None:
+                try:
+                    provider_for(alias.provider).delete(alias.storage_key)
+                except Exception as e:
+                    self.logger.warning(f"Failed to delete the old copy {alias.storage_key!r} of asset {asset_id}: {e}")
+            session.delete(alias)
+
     def generate_storage_key(
-        self,
-        workspace_slug: str,
-        filename: str,
-        upload_date: datetime,
+        self, group_id: UUID4, filename: str | None, content_type: str | None = None, upload_date: datetime | None = None
     ) -> str:
-        """
-        Generate storage key with format:
-        {workspace_slug}/assets/{YYYY}/{MM}/{uuid}-{sanitized_filename}
+        """A new opaque key for one of the workspace's files: ``<workspace code>/<yyyy>/<mm>/<uuid>.<ext>``
+        (services/storage/keys.py). Neither the workspace's slug nor the filename appears in it."""
+        code = workspace_code(self.repos.session, group_id)
+        return new_key(code, filename, content_type, upload_date or datetime.now(UTC))
 
-        Args:
-            workspace_slug: Workspace slug for namespacing
-            filename: Original filename
-            upload_date: Date of upload
+    def public_url(self, group_id: UUID4, storage_key: str) -> str:
+        """The URL a new file on this service's provider is served at (with the workspace's public domain)."""
+        from marvin.services.storage.provider_factory import public_url_for
 
-        Returns:
-            Storage key string
-        """
-        # Generate UUID
-        file_uuid = uuid.uuid4()
-
-        # Sanitize filename
-        sanitized_filename = self._sanitize_filename(filename)
-
-        # Format: workspace-slug/assets/YYYY/MM/uuid-filename.ext
-        year = upload_date.strftime("%Y")
-        month = upload_date.strftime("%m")
-
-        storage_key = f"{workspace_slug}/assets/{year}/{month}/{file_uuid}-{sanitized_filename}"
-
-        return storage_key
-
-    def _sanitize_filename(self, filename: str) -> str:
-        """
-        Sanitize filename for safe storage.
-
-        Removes unsafe characters and limits length.
-
-        Args:
-            filename: Original filename
-
-        Returns:
-            Sanitized filename
-        """
-        # Convert to lowercase
-        filename = filename.lower()
-
-        # Replace spaces and unsafe characters with hyphens
-        filename = re.sub(r"[^a-z0-9._-]", "-", filename)
-
-        # Remove consecutive hyphens
-        filename = re.sub(r"-+", "-", filename)
-
-        # Remove leading/trailing hyphens
-        filename = filename.strip("-")
-
-        # Limit length (keep extension)
-        max_length = 100
-        if len(filename) > max_length:
-            path = Path(filename)
-            ext = path.suffix
-            stem = path.stem[: max_length - len(ext)]
-            filename = f"{stem}{ext}"
-
-        return filename
+        return public_url_for(self._get_provider_name(), storage_key, group_id, provider=self.storage)
 
     def _get_provider_name(self) -> str:
-        """Get the storage provider name from the provider instance."""
-        provider_class = self.storage.__class__.__name__
-        if "Local" in provider_class:
-            return "local"
-        elif "S3" in provider_class:
-            return "s3"
-        else:
-            return "unknown"
+        """The slug new rows record as their ``storage_provider``."""
+        from marvin.services.storage.provider_factory import provider_slug
+
+        return provider_slug(self.storage)

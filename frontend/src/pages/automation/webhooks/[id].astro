@@ -1,7 +1,9 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
-import { createSdkClient } from "@/lib/sdk";
 import { getAuthToken } from "@/lib/api/client";
+import { createSdkClient } from "@/lib/sdk";
+import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
@@ -11,61 +13,61 @@ let webhook: any = null;
 let history: any[] = [];
 let eventOptions: any[] = [];
 let error: string | null = null;
+let adminOnly = false;
 
 try {
   [webhook, eventOptions] = await Promise.all([
     sdk.webhooks.get(id!),
-    sdk.events.getOptions().then((r: any) => Array.isArray(r) ? r : (r?.items ?? [])).catch(() => []),
+    sdk.events
+      .getOptions()
+      .then((r: any) => (Array.isArray(r) ? r : (r?.items ?? [])))
+      .catch(() => []),
   ]);
 } catch (e) {
-  console.error('[webhooks/edit] Error:', e);
-  error = e instanceof Error ? e.message : String(e);
+  console.error("[webhooks/edit] Error:", e);
+  if (isForbidden(e)) adminOnly = true;
+  else error = e instanceof Error ? e.message : String(e);
 }
 
 if (webhook) {
   try {
     history = await sdk.webhooks.logs(id!, { limit: 50 });
   } catch (e) {
-    console.error('[webhooks/edit] Error loading history:', e);
+    console.error("[webhooks/edit] Error loading history:", e);
   }
 }
 
-function formatDate(isoStr: string): string {
-  if (!isoStr) return '—';
-  const normalized = isoStr.replace(/(\.\d{3})\d+/, '$1');
-  const d = new Date(normalized);
-  return isNaN(d.getTime()) ? isoStr : d.toLocaleString();
-}
-
 function statusClass(status: string): string {
-  if (status === 'success') return 'success';
-  if (status === 'failed') return 'failed';
-  if (status === 'retrying') return 'timeout';
-  return 'none';
+  if (status === "success") return "success";
+  if (status === "failed") return "failed";
+  if (status === "retrying") return "timeout";
+  return "none";
 }
 
 // Convert UTC time to local for input
-let localDateTime = '';
+let localDateTime = "";
 if (webhook) {
   const scheduledTime = (webhook as any).scheduledTime ?? (webhook as any).scheduled_time;
   if (scheduledTime) {
-    const normalized = scheduledTime.replace(/(\.\d{3})\d+/, '$1');
+    const normalized = scheduledTime.replace(/(\.\d{3})\d+/, "$1");
     const date = new Date(normalized);
-    if (!isNaN(date.getTime())) {
+    if (!Number.isNaN(date.getTime())) {
       localDateTime = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     }
   }
 }
 
-const webhookType = (webhook as any)?.webhookType ?? (webhook as any)?.webhook_type ?? 'generic';
-const isEventDriven = webhookType === 'event_driven';
+const webhookType = (webhook as any)?.webhookType ?? (webhook as any)?.webhook_type ?? "generic";
+const isEventDriven = webhookType === "event_driven";
+const isWorkflow = webhookType === "workflow";
 const existingHeaders = (webhook as any)?.headers ?? {};
-const existingSubscribedEvents: string[] = (webhook as any)?.subscribedEvents ?? (webhook as any)?.subscribed_events ?? [];
+const existingSubscribedEvents: string[] =
+  (webhook as any)?.subscribedEvents ?? (webhook as any)?.subscribed_events ?? [];
 const existingCustomPayload = (webhook as any)?.customPayload ?? (webhook as any)?.custom_payload ?? null;
-const customPayloadStr = existingCustomPayload ? JSON.stringify(existingCustomPayload, null, 2) : '';
+const customPayloadStr = existingCustomPayload ? JSON.stringify(existingCustomPayload, null, 2) : "";
 ---
 
-<AppLayout title="Edit Webhook" eyebrow="Automation">
+<AppLayout crumb="automation.webhooks.webhook" adminOnly={adminOnly}>
   <div class="page-header">
     <div>
       <h2>Edit Webhook</h2>
@@ -109,6 +111,7 @@ const customPayloadStr = existingCustomPayload ? JSON.stringify(existingCustomPa
                 <option value="user" selected={webhookType === 'user'}>User</option>
                 <option value="entries" selected={webhookType === 'entries'}>Entries</option>
                 <option value="event_driven" selected={webhookType === 'event_driven'}>Event-Driven</option>
+                <option value="workflow" selected={webhookType === 'workflow'}>Workflow (called from a workflow step)</option>
               </select>
             </label>
           </div>
@@ -233,7 +236,7 @@ const customPayloadStr = existingCustomPayload ? JSON.stringify(existingCustomPa
                         <td class="expand-cell">
                           {hasDetails && <button class="expand-btn" data-target={`h-${i}`}>▶</button>}
                         </td>
-                        <td class="nowrap">{formatDate(executedAt)}</td>
+                        <td class="nowrap"><LocalTime iso={executedAt} /></td>
                         <td>
                           <span class={`run-status status-${statusClass(exec.status)}`}>{exec.status}</span>
                         </td>
@@ -298,10 +301,11 @@ const customPayloadStr = existingCustomPayload ? JSON.stringify(existingCustomPa
     user: 'Fires on a schedule and includes workspace member statistics (total members, new members since last run) alongside your custom payload.',
     entries: 'Fires on a schedule and includes content entry statistics (totals, published, draft, new since last run) alongside your custom payload.',
     event_driven: 'Fires immediately when a subscribed workspace event occurs (e.g. entry published, member added). Connect events from the Events page after creating.',
+    workflow: 'Never fires on its own. A workflow’s “Call webhook” step sends it — URL, method, headers and payload live here so the workflow just points at it. Templates (${event…}, {{SECRET}}) resolve at send time.',
   };
 
   function updateFieldVisibility() {
-    const isEventDriven = typeSelect.value === 'event_driven';
+    const isEventDriven = typeSelect.value === 'event_driven' || typeSelect.value === 'workflow';
     if (scheduledField) scheduledField.style.display = isEventDriven ? 'none' : '';
     if (scheduledInput) scheduledInput.required = !isEventDriven;
     if (typeDesc) typeDesc.textContent = TYPE_DESCRIPTIONS[typeSelect.value] ?? '';
@@ -377,7 +381,7 @@ const customPayloadStr = existingCustomPayload ? JSON.stringify(existingCustomPa
       if (k && v) headers[k] = v;
     });
 
-    const isEventDriven = typeSelect.value === 'event_driven';
+    const isEventDriven = typeSelect.value === 'event_driven' || typeSelect.value === 'workflow';
     const selectedEvents = Array.from(evCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
 
     const payload: Record<string, unknown> = {
@@ -684,4 +688,13 @@ const customPayloadStr = existingCustomPayload ? JSON.stringify(existingCustomPa
   :global(.header-sep) { color: var(--muted); flex-shrink: 0; }
   :global(.header-remove) { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 14px; padding: 4px; border-radius: 3px; flex-shrink: 0; }
   :global(.header-remove:hover) { color: var(--color-error); background: var(--color-error-bg); }
+
+  /* Phones: paired fields stack, and the checkbox rows get a finger-sized line. */
+  @media (max-width: 640px) {
+    .form-section { padding: 16px; }
+    .form-row { grid-template-columns: minmax(0, 1fr); }
+    .checkbox-field { min-height: 32px; }
+    .button.small,
+    .link-button { min-height: 36px; }
+  }
 </style>

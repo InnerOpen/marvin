@@ -15,10 +15,11 @@ from collections import OrderedDict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, NamedTuple
+from urllib.parse import urlparse
 
 from dateutil.tz import tzlocal
 from dotenv import dotenv_values
-from pydantic import PlainSerializer, field_validator, SecretStr
+from pydantic import PlainSerializer, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .db_providers import AbstractDBProvider, db_provider_factory
@@ -102,6 +103,10 @@ def determine_secrets(data_dir: Path, production: bool) -> str:
         return new_secret
 
 
+ENVIRONMENT_LABEL_MAX_LENGTH = 12
+"""Longest ``ENVIRONMENT_LABEL`` kept; longer values are truncated so the badge stays small."""
+
+
 class AppSettings(BaseSettings):
     """
     Main application settings.
@@ -119,11 +124,151 @@ class AppSettings(BaseSettings):
 
     IS_DEMO: bool = False
 
+    ENVIRONMENT_LABEL: str = ""
+    """Short tag naming a non-production instance (e.g. ``DEV``, ``STAGING``). When set, the UI shows
+    it as a badge in the app/admin headers and on the login page, and prefixes page titles with
+    ``[LABEL]``. Stripped, upper-cased and capped at 12 characters. Empty (the default) shows nothing.
+    Independent of ``PRODUCTION`` (container runtime mode) and ``IS_DEMO`` (public demo mode)."""
+
+    @field_validator("ENVIRONMENT_LABEL", mode="before")
+    @classmethod
+    def _normalize_environment_label(cls, v: object) -> str:
+        return str(v or "").strip().upper()[:ENVIRONMENT_LABEL_MAX_LENGTH]
+
     BASE_URL: str = "http://localhost:8080"
     """trailing slashes are trimmed (ex. `http://localhost:8080/` becomes ``http://localhost:8080`)"""
 
     FRONTEND_URL: str = "http://localhost:4322"
     """URL of the frontend app. Used for OIDC callback redirects in dev. In production same-origin deployments, set to BASE_URL."""
+
+    CORS_ORIGINS: str = ""
+    """Comma-separated list of browser origins allowed to call the API in PRODUCTION
+    (e.g. ``https://marvin.example.com``). Required for SPLIT deployments where the UI
+    and API are served from different hosts and the browser calls the API cross-origin.
+    Leave empty for same-origin/combined deployments — no CORS middleware is added.
+    In non-production, all localhost origins are allowed automatically and this is ignored."""
+
+    SCHEDULER_ENABLED: bool = True
+    """
+    Whether this process runs the scheduler at all.
+
+    Leadership is elected against the database, so leaving this on across every replica is safe —
+    exactly one of them runs each tick. Turn it off to keep a process out of the election
+    entirely, which is what you want when the scheduler runs as its own single-replica deployment
+    and the API pods should only serve requests.
+    """
+
+    SCHEDULER_INTERVAL_SECONDS: int = 60
+    """
+    How often the scheduler runs its frequent tick — the loop that delivers webhooks, fires due
+    scheduled tasks, and renews the leadership lease. Lower = snappier task delivery and lease
+    renewal at more database load; higher = the reverse. Also the cadence at which a due scheduled
+    task can fire, so tasks may run up to one interval late.
+    """
+
+    SCHEDULER_LEASE_TTL_SECONDS: int = 150
+    """
+    How long the scheduler leadership lease lasts before it must be renewed.
+
+    The leader renews it from the frequent tick (SCHEDULER_INTERVAL_SECONDS), so this must outlast
+    the gap between renews or leadership flaps between replicas. It is validated to be at least
+    twice the interval — enough to survive one fully missed renew. Longer = a dead leader is
+    replaced more slowly; shorter = faster failover but less headroom.
+    """
+
+    @field_validator("SCHEDULER_INTERVAL_SECONDS")
+    @classmethod
+    def _validate_scheduler_interval(cls, v: int) -> int:
+        # A sanity floor so a misconfiguration can't hammer the database every second.
+        if v < 10:
+            raise ValueError("SCHEDULER_INTERVAL_SECONDS must be >= 10")
+        return v
+
+    @model_validator(mode="after")
+    def _validate_scheduler_lease(self) -> "AppSettings":
+        # The lease is renewed once per interval; to survive a single missed renew it must last at
+        # least two intervals. Below that, a normal renew delay drops the lease and flaps leadership.
+        floor = self.SCHEDULER_INTERVAL_SECONDS * 2
+        if self.SCHEDULER_LEASE_TTL_SECONDS < floor:
+            raise ValueError(
+                f"SCHEDULER_LEASE_TTL_SECONDS ({self.SCHEDULER_LEASE_TTL_SECONDS}) must be >= 2x "
+                f"SCHEDULER_INTERVAL_SECONDS ({self.SCHEDULER_INTERVAL_SECONDS}) = {floor}, or leadership flaps"
+            )
+        return self
+
+    INTEGRATION_HTTP_MAX_BYTES: int = 5_000_000
+    """
+    The largest response an integration provider may download through Marvin's HTTP client, in
+    bytes. A bigger response is refused (the provider sees an error). Bounds memory per call; raise
+    it for providers that move files — e.g. Square uploads an item's picture, up to 15 MB.
+    """
+
+    @field_validator("INTEGRATION_HTTP_MAX_BYTES")
+    @classmethod
+    def _validate_integration_http_max_bytes(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("INTEGRATION_HTTP_MAX_BYTES must be >= 1")
+        return v
+
+    MCP_TOOL_TIMEOUT_SECONDS: float = 45.0
+    """
+    How long the assistant waits for one tool call on a workspace's external MCP server, in seconds.
+    A call that runs longer is reported to the model as an error. Some servers are slow — a vault
+    search can take 20 s — but every call holds the chat request open, so keep it well under the
+    proxy's request timeout.
+    """
+
+    MCP_TOOL_RESULT_MAX_CHARS: int = 20_000
+    """
+    The most text from one external MCP tool call the assistant sees; longer results are cut, with a
+    note asking the model to narrow the call. A broad vault search can return 400 KB, which would
+    cost ~100k tokens a call or overflow the model's context.
+    """
+
+    @field_validator("MCP_TOOL_TIMEOUT_SECONDS", "MCP_TOOL_RESULT_MAX_CHARS")
+    @classmethod
+    def _validate_mcp_limits(cls, v, info):
+        if v <= 0:
+            raise ValueError(f"{info.field_name} must be > 0")
+        return v
+
+    SITE_REBUILD_QUIET_SECONDS: int = 60
+    """
+    How long rebuild requests must stop arriving before a workspace's queued site rebuild is sent.
+
+    `request_site_rebuild` (usually from a workflow) only queues a rebuild; the scheduler tick sends
+    one per workspace once requests go quiet, so a bulk edit costs one static-site build. Lower =
+    a single change starts building sooner; higher = longer bursts still collapse into one build.
+    Checked on the scheduler tick, so the real delay is this plus up to SCHEDULER_INTERVAL_SECONDS.
+    """
+
+    SITE_REBUILD_MAX_WAIT_SECONDS: int = 600
+    """
+    The longest a queued site rebuild waits for requests to go quiet. A steady stream (requests
+    closer together than SITE_REBUILD_QUIET_SECONDS) still gets a build at least this often.
+    Validated to be >= SITE_REBUILD_QUIET_SECONDS.
+    """
+
+    @model_validator(mode="after")
+    def _validate_site_rebuild_waits(self) -> "AppSettings":
+        if self.SITE_REBUILD_QUIET_SECONDS < 0:
+            raise ValueError("SITE_REBUILD_QUIET_SECONDS must be >= 0")
+        if self.SITE_REBUILD_MAX_WAIT_SECONDS < self.SITE_REBUILD_QUIET_SECONDS:
+            raise ValueError(
+                f"SITE_REBUILD_MAX_WAIT_SECONDS ({self.SITE_REBUILD_MAX_WAIT_SECONDS}) must be >= "
+                f"SITE_REBUILD_QUIET_SECONDS ({self.SITE_REBUILD_QUIET_SECONDS})"
+            )
+        return self
+
+    FRONTEND_PORT: int | None = None
+    """
+    Port the frontend server binds to on startup.
+
+    Left unset it is derived from FRONTEND_URL, so that URL is the single knob: change the port
+    there and the server actually listens on it. Set this explicitly only when the bind port has
+    to differ from the advertised one — behind a proxy that terminates on 443 and forwards to a
+    high port, for example, where FRONTEND_URL names the public address rather than the socket.
+    """
 
     API_DOCS: bool = True
 
@@ -134,6 +279,37 @@ class AppSettings(BaseSettings):
     API_HOST: str = "0.0.0.0"
 
     API_PORT: int = 8080
+
+    GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: int | None = None
+    """
+    On SIGTERM the server stops accepting connections and waits this long for in-flight requests —
+    an agent run is one synchronous request that can take minutes — before cancelling them and
+    running shutdown. Unset waits indefinitely (until the orchestrator's SIGKILL). Under Kubernetes
+    keep it a little below the pod's terminationGracePeriodSeconds so shutdown still gets to run;
+    the Helm chart derives it from that value.
+    """
+
+    AI_INTERRUPTED_RUN_SWEEP_DELAY_SECONDS: int = 0
+    """
+    How long after startup to mark AI runs left `running` by a previous process as failed
+    (services/ai/interrupted_runs.py). 0 sweeps at startup. Under a rolling update the old pod is
+    still draining its runs when the new one starts, so the sweep must wait until the old pod is
+    surely gone — the Helm chart sets terminationGracePeriodSeconds plus a margin.
+    """
+
+    AI_PARKED_RUN_TTL_HOURS: int = 168
+    """
+    How long an agent run waiting for the user's approval stays decidable (default 7 days). Older parks
+    are ended by the hourly sweep (services/ai/parked_runs.py): pending calls denied, the execution
+    failed "expired", an approval_rejected event with reason "expired". 0 keeps parks forever.
+    """
+
+    AI_HANDOFF_MAX_DEPTH: int = 1
+    """
+    How deep agent hand-offs may nest: 1 lets Marvin hand off to a specialist that cannot hand off
+    further; 2 lets that specialist hand off once more, and so on. An agent already in the chain is
+    never handed to again. Each level runs inside the request of the level above it.
+    """
 
     # JWT token lifetime in hours
     # Security vs. UX trade-off considerations:
@@ -146,11 +322,32 @@ class AppSettings(BaseSettings):
     #   - Compliance requirements (SOC2, HIPAA, etc.)
     TOKEN_TIME: int = 48
 
+    AUTO_MIGRATE: bool = True
+    """Apply pending Alembic migrations automatically at startup.
+
+    Set to false in development to get a review gate: the dev server reloads on file changes and
+    runs migrations at startup, so a freshly generated revision otherwise reaches the database
+    before anyone has read it. When off, startup logs which revisions are pending and leaves the
+    schema alone — apply them yourself with `task py:migrate:apply`.
+    Leave true for deployments, where migrating on boot is the desired behaviour."""
+
     LOG_CONFIG_OVERRIDE: Path | None = None
     """ path to custom logging configuration file"""
 
     LOG_LEVEL: str = "info"
     """ corresponds to standard Python Log levels """
+
+    BACKUP_RUNNER: str = ""
+    """ how the `run_backup_target` scheduled task starts a backup (services/backup_runner.py): "kubernetes"
+    (a Job from the target's CronJob; the chart sets it with backup.scheduledTasks.enabled), "process" (a child
+    of the backend, for installs without Kubernetes), or "" (off: the task refuses to run). """
+
+    BACKUP_TARGETS: str = ""
+    """ the targets `run_backup_target` may start: `name` or `name:type`, comma separated (type defaults to
+    the name). The chart fills it from backup.targets. """
+
+    BACKUP_CRONJOB_PREFIX: str = ""
+    """ kubernetes runner: a target's CronJob is this + its name (the chart's `<fullname>-backup-`). """
 
     EVENT_LOG_RETENTION_DAYS: int = 90
     """ default retention for the event_log audit trail; the prune_event_logs task deletes
@@ -167,12 +364,23 @@ class AppSettings(BaseSettings):
 
     GITHUB_VERSION_URL: str = "https://api.github.com/repos/InnerOpen/marvin/tags"
 
+    DOCS_BASE_URL: str = "https://inneropen.github.io/marvin/"
+    """Where the user manual is published. The docs tools (search_docs / read_doc) read the manual
+    bundled with this install and link each hit to this site. Not the API docs (see DOCS_URL)."""
+
     GIT_COMMIT_HASH: str = "unknown"
 
     ALLOW_SIGNUP: bool = False
 
     DATA_DIR: Path | None = None
     """Root directory for application data (database, assets, seeds, etc.)"""
+
+    SEED_ON_STARTUP: bool = False
+    """Import workspace bundles from {DATA_DIR}/seeds on startup even in production.
+
+    Off by default: outside production the seed directory is always imported, but a production
+    instance ignores it so a stray bundle in the data volume can't silently import a workspace.
+    Load bundles there through the admin backup/import endpoints, or set this to opt back in."""
 
     @property
     def logger(self) -> logging.Logger:
@@ -227,9 +435,28 @@ class AppSettings(BaseSettings):
     # Security Configuration
 
     SECURITY_MAX_LOGIN_ATTEMPTS: int = 5
+    "failed sign-ins on one account name before it is refused for SECURITY_LOGIN_LOCKOUT_MINUTES (services/security/login_throttle.py)"
+
+    SECURITY_LOGIN_LOCKOUT_MINUTES: int = 15
+    "how long an account name is refused after SECURITY_MAX_LOGIN_ATTEMPTS failures"
+
+    SECURITY_LOGIN_LONG_LOCKOUT_MINUTES: int = 60
+    "how long from twice SECURITY_MAX_LOGIN_ATTEMPTS failures on: the refusal grows while the guessing goes on"
+
+    SECURITY_LOGIN_IP_MAX_FAILURES: int = 20
+    "failed sign-ins from one client IP, across any account names, before that IP is refused the same way"
+
+    SECURITY_LOGIN_FAILURE_WINDOW_HOURS: int = 24
+    "failures are counted over this long; a successful sign-in clears its account's count"
+
+    SECURITY_PASSWORD_RESET_MAX_PER_HOUR: int = 3
+    "password-reset emails one address can be sent per hour (more are dropped silently: no email bombing)"
+
+    SECURITY_PASSWORD_RESET_IP_MAX_PER_HOUR: int = 10
+    "password-reset requests one client IP can make per hour"
 
     SECURITY_USER_LOCKOUT_TIME: int = 24
-    "time in hours"
+    "time in hours; only for a lock set before sign-in throttling (users.locked_at), which nothing sets now"
 
     # Token Security Settings
     SECURITY_TOKEN_PREFIX_USER: str = "marvin_tk_"
@@ -262,8 +489,31 @@ class AppSettings(BaseSettings):
     PUBLISHING_MAX_PAGE_SIZE: int = 100
     """Maximum number of entries per page in publishing API. Default: 100"""
 
+    PUBLISHING_MAX_EXPANDED_ENTRIES: int = 500
+    """Most entries an unpaginated publishing endpoint (a collection, a resource's entries) returns in the
+    full single-read shape for ``?expand=full``. A larger set comes back as plain list items, as from a
+    server without ``expand``, and clients fall back to per-entry reads. Default: 500"""
+
     PUBLISHING_UNKNOWN_ENTRY_TYPE: str = "unknown"
     """Fallback value when entry type is missing. Default: unknown"""
+
+    MEDIA_RENDER_BROWSER: str | None = None
+    """The headless Chromium a workflow's render step screenshots its HTML with (`chromium-headless-shell`).
+    Unset: found on PATH (the image installs Debian's at /usr/bin/chromium-headless-shell), else in a local
+    Playwright cache. No browser: render steps fail saying so; nothing else needs it. Default: unset"""
+
+    MEDIA_RENDER_TIMEOUT_SECONDS: int = 30
+    """How long one render may take before the step fails. Default: 30"""
+
+    MEDIA_PDF_TIMEOUT_SECONDS: int = 60
+    """How long reading or rendering one PDF may take (in its own process, services/ai/media/pdf_worker.py) before the
+    step — or Ask's file read — fails. Default: 60"""
+
+    MEDIA_EMBEDS_FETCH_ENABLED: bool = True
+    """Ask media providers' oEmbed endpoints (YouTube, Vimeo, Spotify, …) for a pasted link's title and
+    thumbnail, and for the player id of links that don't carry one (Simplecast episodes, short links).
+    Off: players are built from the link alone and links that need a lookup show as link cards.
+    The test suite turns it off so no test reaches the network. Default: true"""
 
     # ===============================================
     # Storage Configuration
@@ -276,6 +526,14 @@ class AppSettings(BaseSettings):
 
     STORAGE_LOCAL_PUBLIC_URL: str = "/assets"
     """Base URL for accessing local files. Default: /assets"""
+
+    STORAGE_LOCAL_PUBLIC_BASE_URL: str | None = None
+    """Absolute public base URL for local assets — set when the site is served from a different
+    origin than the API (a CDN, a tunnel host, or a decoupled static frontend), e.g.
+    https://api.example.com/assets. When set, asset URLs are fully-qualified with this base; files
+    are still mounted at STORAGE_LOCAL_PUBLIC_URL (which must stay a "/"-rooted path — it is the
+    mount path). Unset (default) keeps the relative path for same-origin serving. Mirrors
+    STORAGE_REMOTE_PUBLIC_URL for the local provider."""
 
     STORAGE_S3_ENDPOINT: str | None = None
     """S3-compatible endpoint URL (for R2, MinIO, etc). Optional for AWS S3."""
@@ -354,6 +612,30 @@ class AppSettings(BaseSettings):
 
         return v
 
+    @model_validator(mode="after")
+    def derive_frontend_port(self) -> "AppSettings":
+        """Fill FRONTEND_PORT from FRONTEND_URL when it was not set explicitly.
+
+        FRONTEND_URL advertised a port that nothing bound to, so changing it moved the OIDC
+        redirect target while the server kept listening where it always had. Deriving the bind
+        port from it makes the one setting mean what it says.
+        """
+        if self.FRONTEND_PORT is not None:
+            return self
+
+        parsed = urlparse(self.FRONTEND_URL)
+        if parsed.port is not None:
+            self.FRONTEND_PORT = parsed.port
+        elif parsed.scheme == "https":
+            self.FRONTEND_PORT = 443
+        elif parsed.scheme == "http":
+            self.FRONTEND_PORT = 80
+        else:
+            # Unparseable or scheme-less: keep the historical dev default rather than guess.
+            self.FRONTEND_PORT = 4322
+
+        return self
+
     @property
     def DOCS_URL(self) -> str | None:
         """URL for the FastAPI documentation (Swagger UI). Disabled if API_DOCS is False."""
@@ -395,13 +677,14 @@ class AppSettings(BaseSettings):
     DEFAULT_EMAIL: str = "changeme@example.com"
     """Default email for the initial admin user, if created."""
 
-    DEFAULT_PASSWORD: str | None = None
+    DEFAULT_PASSWORD: MaskedNoneString = None
     """
     Default password for the initial admin user, if created.
 
     Security: This is generated randomly at runtime rather than hardcoded.
     Set via environment variable DEFAULT_PASSWORD, or auto-generated if not set.
     The generated password is logged during database seeding for admin access.
+    Masked when serialized, so a settings dump (the startup-info endpoints) never carries it.
     """
 
     def model_post_init(self, __context) -> None:
@@ -410,7 +693,11 @@ class AppSettings(BaseSettings):
             self.DEFAULT_PASSWORD = secrets.token_urlsafe(16)
 
     DEFAULT_GROUP: str = "Default"
-    """Default group for the initial admin user, if created."""
+    """Name of the platform (admin's) workspace, used only when a fresh install creates it (slug derived
+    from it). Choose it at install time (chart value ``config.platformWorkspaceName``). On an existing
+    install it is informational: the marked workspace keeps its name until a super admin renames it
+    (Admin → Workspaces). Never look the workspace up by this name — use
+    ``services.group.platform_workspace.platform_workspace()``."""
 
     _DEFAULT_INTEGRATION_ID: str = "generic"
     """# Default identifier for integrations if not specified when creating an API token."""
@@ -532,6 +819,23 @@ class AppSettings(BaseSettings):
         return FeatureDetails(enabled=not_none, description=description)
 
     # ===============================================
+    # Web Push (VAPID)
+
+    VAPID_PUBLIC_KEY: str | None = None
+    """The VAPID public key (base64url, uncompressed P-256 point) browsers subscribe with. Generate a pair
+    with ``python -m marvin.scripts.vapid``."""
+    VAPID_PRIVATE_KEY: MaskedNoneString = None
+    """The VAPID private key (base64url) push messages are signed with (masked in logs/output)."""
+    VAPID_SUBJECT: str | None = None
+    """Who push services contact about this server: ``mailto:ops@example.com`` or an https URL."""
+
+    @property
+    def WEB_PUSH_ENABLED(self) -> bool:
+        """Web Push is on: all three VAPID settings are set (and the subject is a mailto: or https: URL)."""
+        subject = (self.VAPID_SUBJECT or "").strip()
+        return bool((self.VAPID_PUBLIC_KEY or "").strip() and (self.VAPID_PRIVATE_KEY or "").strip() and subject.startswith(("mailto:", "https://")))
+
+    # ===============================================
     # LDAP Configuration
 
     LDAP_AUTH_ENABLED: bool = False
@@ -650,7 +954,7 @@ class AppSettings(BaseSettings):
     """The base URL for the OpenAI API. Leave this unset for most use cases."""
     OPENAI_API_KEY: MaskedNoneString = None
     """Your OpenAI API key. Required to enable OpenAI features (masked)."""
-    OPENAI_MODEL: str = "gpt-4o"
+    OPENAI_MODEL: str = "gpt-4o-mini"
     """Which OpenAI model to send requests to. Leave this unset for most use cases."""
     OPENAI_CUSTOM_HEADERS: dict[str, str] = {}
     """Custom HTTP headers to send with each OpenAI request."""
@@ -695,20 +999,43 @@ class AppSettings(BaseSettings):
     # ===============================================
     # Additional AI Providers (platform credential mode)
 
-    AI_DEFAULT_PROVIDER: str = "openai"
-    """Provider used by workspaces in platform credential mode (openai | anthropic | google)."""
+    AI_DEFAULT_PROVIDER: str = ""
+    """Provider used by workspaces in platform credential mode, by slug (openai, anthropic, google, azure, ollama or
+    a plugin's). Empty: the first installed of openai, anthropic, google, azure, ollama (services/ai/registry.py
+    default_provider). Set to a provider nothing provides, startup refuses."""
+    AI_PRICE_FEED_URL: str = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+    """The daily AI price feed's default URL (LiteLLM's format; services/ai/price_feed.py). Admin → AI Pricing can
+    point it elsewhere or switch it off; https only."""
     AI_ALLOW_WORKSPACE_CREDENTIALS: bool = True
     """Whether workspaces may use their own AI credentials (credential_mode='workspace').
     When false, only platform-provided credentials are allowed and the workspace option is
     rejected + hidden in the UI."""
     ANTHROPIC_API_KEY: MaskedNoneString = None
     """Anthropic API key for platform credential mode (masked)."""
+    ANTHROPIC_BASE_URL: str | None = None
+    """Override the Anthropic API base URL. Leave unset for the default endpoint."""
     ANTHROPIC_MODEL: str = "claude-sonnet-5"
     """Default Anthropic model for platform credential mode."""
+
     GOOGLE_API_KEY: MaskedNoneString = None
     """Google Gemini API key for platform credential mode (masked)."""
+    GOOGLE_BASE_URL: str | None = None
+    """Override the Google API base URL. Leave unset for the default endpoint."""
     GOOGLE_MODEL: str = "gemini-2.0-flash"
     """Default Google model for platform credential mode."""
+
+    AZURE_API_KEY: MaskedNoneString = None
+    """Azure OpenAI API key for platform credential mode (masked)."""
+    AZURE_BASE_URL: str | None = None
+    """Azure OpenAI endpoint, e.g. https://<resource>.openai.azure.com — required for the azure provider.
+    Note: a custom api_version can only be set via a workspace provider row's metadata, not env;
+    platform mode uses the provider default."""
+
+    OLLAMA_API_KEY: MaskedNoneString = None
+    """Unused — Ollama requires no API key. Declared so platform-mode credential lookup is explicit."""
+    OLLAMA_BASE_URL: str | None = None
+    """Ollama REST endpoint. Leave unset to use http://localhost:11434
+    (e.g. http://host.docker.internal:11434 when the backend runs in Docker)."""
 
     AI_BUDGET_WARNING_PERCENT: float = 80.0
     """Percent (0-100) of a workspace's monthly AI cost limit at which to fire the
@@ -729,34 +1056,11 @@ class AppSettings(BaseSettings):
     """Character overlap between consecutive embedded chunks."""
 
     # ── Generation defaults ──
-    AI_DEFAULT_TEMPERATURE: float = 0.7
-    """Default sampling temperature for AI operations."""
+    AI_DEFAULT_TEMPERATURE: float | None = None
+    """Sampling temperature sent with every AI call. Unset (the default) sends none, so each model uses its
+    own default — reasoning models refuse any other value. Set it only to force one for every model."""
     AI_DEFAULT_MAX_TOKENS: int | None = None
     """Default max output tokens for AI operations (None = provider default)."""
-
-    # ===============================================
-    # Apprise Configuration
-
-    APPRISE_ENABLED: bool = True
-    """Flag to enable Apprise notification service."""
-    APPRISE_URL: str | None = None
-    """Base URL for Apprise API server. If None, uses local Apprise library."""
-
-    @property
-    def APPRISE_FEATURE(self) -> FeatureDetails:
-        """Details about the Apprise feature status."""
-        description = None if self.APPRISE_ENABLED else "APPRISE_ENABLED is false"
-
-        # Apprise is available if enabled (URL is optional - can use library directly)
-        return FeatureDetails(
-            enabled=self.APPRISE_ENABLED,
-            description=description,
-        )
-
-    @property
-    def APPRISE_READY(self) -> bool:
-        """Indicates if Apprise notification service is configured and ready to use."""
-        return self.APPRISE_FEATURE.enabled
 
     # ===============================================
     # TLS
@@ -804,7 +1108,7 @@ def app_settings_constructor(
     production: bool,
     env_file: Path,
     env_secrets: Path,
-    secrets_dir: Path,
+    secrets_dir: Path | None,
     env_encoding: str = "utf-8",
 ) -> AppSettings:
     """
@@ -847,11 +1151,11 @@ def app_settings_constructor(
 def app_plugin_settings_constructor(
     name: str,
     version: str,
-    env_file: Path,
+    env_file: Path | None,
     data_dir: Path,
     production: bool,
-    env_secrets: Path,
-    secrets_dir: Path,
+    env_secrets: Path | None,
+    secrets_dir: Path | None,
     env_encoding: str = "utf-8",
     description: str | None = None,
     author: str | None = None,

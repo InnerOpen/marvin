@@ -1,0 +1,49 @@
+{
+  "name": "Personal project radar",
+  "definition": {
+    "trigger": {
+      "type": "schedule",
+      "schedule_type": "cron",
+      "schedule_config": {
+        "cron_expression": "0 9 * * 1",
+        "timezone": "{{timezone}}"
+      }
+    },
+    "target": {
+      "entity": "entry",
+      "query": {
+        "entry_type": "{{project_type}}",
+        "status": "draft",
+        "updated_before": "-14d"
+      }
+    },
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "next",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "“${entry.title}” hasn't moved in two weeks. From what the entry says, suggest two or three small, concrete next actions (each under 15 words).",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "actions": {
+              "type": "string",
+              "minLength": 10
+            }
+          },
+          "required": [
+            "actions"
+          ]
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "request_review",
+        "reason": "Stalled for two weeks — next: ${steps.next.output.actions}"
+      }
+    ]
+  }
+}

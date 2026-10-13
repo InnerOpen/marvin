@@ -20,17 +20,38 @@ from marvin.core import root_logger
 from marvin.core.config import get_app_settings
 from marvin.services.scheduler.runner import repeat_every  # Decorator for periodic tasks
 
+from .leader import acquire_or_renew  # Leader election — only one process may run a tick
 from .scheduler_registry import SchedulerRegistry  # Central registry for scheduled functions
 
 # Logger instance for this module
 logger = root_logger.get_logger("scheduler")
+
+
+def _is_leader() -> bool:
+    """Whether this process holds the scheduler lease and may run the callbacks.
+
+    Checked once per tick rather than per callback, so a batch either runs whole or not at all.
+    A failure to reach the database is treated as "not the leader": skipping a tick is recoverable,
+    while every replica assuming leadership is what this exists to prevent.
+    """
+    from marvin.db.db_setup import session_context
+
+    try:
+        with session_context() as session:
+            return acquire_or_renew(session, ttl_seconds=get_app_settings().SCHEDULER_LEASE_TTL_SECONDS)
+    except Exception as e:  # noqa: BLE001 — a scheduler tick must never take the process down
+        logger.error(f"scheduler leader election failed, skipping tick: {e}", exc_info=True)
+        return False
+
 
 # Current working directory of this file (not actively used in this module's logic)
 CWD = Path(__file__).parent
 
 # Constants for intervals in minutes
 MINUTES_DAY = 1440  # Number of minutes in a day (24 * 60)
-MINUTES = 1  # 1 minute interval
+# The frequent-tick interval, from SCHEDULER_INTERVAL_SECONDS. @repeat_every takes minutes, and the
+# value is read once here at import — it is startup config, fixed for the process lifetime.
+MINUTES = get_app_settings().SCHEDULER_INTERVAL_SECONDS / 60
 MINUTES_HOUR = 60  # Number of minutes in an hour
 
 
@@ -136,6 +157,17 @@ def _scheduled_task_wrapper(task_callable: Callable[[], None]) -> None:  # Renam
         logger.error(f"Error in scheduled task func='{task_name_for_error}': exception='{e}'", exc_info=True)
 
 
+async def _scheduled_async_task_wrapper(task_callable) -> None:
+    """`_scheduled_task_wrapper` for an async callback: awaited, its exceptions logged, never raised."""
+    task_name = getattr(task_callable, "__name__", repr(task_callable))
+    try:
+        logger.debug(f"Executing scheduled task: {task_name}")
+        await task_callable()
+        logger.debug(f"Finished scheduled task: {task_name}")
+    except Exception as e:
+        logger.error(f"Error in scheduled task func='{task_name}': exception='{e}'", exc_info=True)
+
+
 @repeat_every(minutes=MINUTES_DAY, wait_first=False, logger=logger)  # Runs daily; first run is triggered by schedule_daily
 async def run_daily() -> None:  # Made async to align with await in schedule_daily
     """
@@ -150,8 +182,13 @@ async def run_daily() -> None:  # Made async to align with await in schedule_dai
     current_time_utc = datetime.now(UTC)
     next_run_time = current_time_utc + timedelta(minutes=MINUTES_DAY)
     logger.info(
-        f"Running daily callbacks at {current_time_utc.strftime('%Y-%m-%d %H:%M:%S %Z')}. Next run approx: {next_run_time.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+        f"Running daily callbacks at {current_time_utc.strftime('%Y-%m-%d %H:%M:%S %Z')}. "
+        f"Next run approx: {next_run_time.strftime('%Y-%m-%d %H:%M:%S %Z')}"
     )
+    if not _is_leader():
+        logger.debug("Not the scheduler leader — skipping daily callbacks.")
+        return
+
     for registered_func in SchedulerRegistry._daily:
         _scheduled_task_wrapper(registered_func)
     logger.info("Finished processing daily callbacks.")
@@ -169,8 +206,13 @@ async def run_hourly() -> None:  # Made async as repeat_every can handle it
     current_time_utc = datetime.now(UTC)
     next_run_time = current_time_utc + timedelta(minutes=MINUTES_HOUR)
     logger.info(
-        f"Running hourly callbacks at {current_time_utc.strftime('%Y-%m-%d %H:%M:%S %Z')}. Next run approx: {next_run_time.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+        f"Running hourly callbacks at {current_time_utc.strftime('%Y-%m-%d %H:%M:%S %Z')}. "
+        f"Next run approx: {next_run_time.strftime('%Y-%m-%d %H:%M:%S %Z')}"
     )
+    if not _is_leader():
+        logger.debug("Not the scheduler leader — skipping hourly callbacks.")
+        return
+
     for registered_func in SchedulerRegistry._hourly:
         _scheduled_task_wrapper(registered_func)
     logger.info("Finished processing hourly callbacks.")
@@ -187,9 +229,18 @@ async def run_minutely() -> None:  # Made async
     """
     current_time_utc = datetime.now(UTC)
     next_run_time = current_time_utc + timedelta(minutes=MINUTES)
-    logger.info(
-        f" {MINUTES} mins) callbacks at {current_time_utc.strftime('%Y-%m-%d %H:%M:%S %Z')}. Next run approx: {next_run_time.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+    # DEBUG, like the per-minute lines below it: once a minute is a heartbeat, not an event.
+    logger.debug(
+        f"Running minutely (every {MINUTES} mins) callbacks at {current_time_utc.strftime('%Y-%m-%d %H:%M:%S %Z')}. "
+        f"Next run approx: {next_run_time.strftime('%Y-%m-%d %H:%M:%S %Z')}"
     )
+    if not _is_leader():
+        logger.debug("Not the scheduler leader — skipping minutely callbacks.")
+        return
+
     for registered_func in SchedulerRegistry._minutely:
-        _scheduled_task_wrapper(registered_func)
-    logger.info(f"Finished processing minutely (every {MINUTES} mins) callbacks.")
+        if asyncio.iscoroutinefunction(registered_func):
+            await _scheduled_async_task_wrapper(registered_func)  # e.g. work it moves off the event loop itself
+        else:
+            _scheduled_task_wrapper(registered_func)
+    logger.debug(f"Finished processing minutely (every {MINUTES} mins) callbacks.")

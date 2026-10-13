@@ -1,0 +1,257 @@
+---
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { listTags, type TagRead } from "@/lib/api/tags";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
+
+const authToken = getAuthToken(Astro.cookies);
+// Everyone reads; adding a tag is AUTHOR+, renaming or deleting one EDITOR+.
+const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+
+let tags: TagRead[] = [];
+let error: string | null = null;
+
+if (!authToken) {
+  error = "Authentication required";
+} else {
+  try {
+    tags = await listTags(authToken);
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
+    console.error("[Tags] Failed to load:", error);
+  }
+}
+
+// Alphabetical by display name.
+const sortedTags = tags.sort((a, b) => a.name.localeCompare(b.name));
+---
+
+<AppLayout crumb="settings.tags">
+  {error ? (
+    <div class="error-banner">
+      <p><strong>Error loading tags:</strong> {error}</p>
+    </div>
+  ) : (
+    <section class="tags-admin">
+      <header class="tags-head">
+        <div>
+          <h1>Tags</h1>
+          <p class="sub">The shared vocabulary applied across entries. Smart collections can match on tags.</p>
+        </div>
+      </header>
+
+      {access.canAuthor && (
+        <form id="new-tag-form" class="new-tag">
+          <input type="text" id="new-tag-name" placeholder="New tag name…" autocomplete="off" />
+          <input type="color" id="new-tag-color" value="#a94d3f" title="Color" />
+          <button type="submit" class="button">Add Tag</button>
+        </form>
+      )}
+      <p id="tags-status" class="tags-status" role="status" hidden></p>
+
+      {sortedTags.length === 0 ? (
+        <div class="empty">{access.canAuthor ? "No tags yet. Add one above, or create them on the fly while editing an entry." : "No tags yet."}</div>
+      ) : (
+        <table class="tags-table">
+          <thead>
+            <tr>
+              <th class="col-color">Color</th>
+              <th class="col-name">Name</th>
+              <th class="col-slug">Slug</th>
+              <th class="col-count" title="Entries + assets + resources using this tag">Uses</th>
+              <th class="col-actions"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedTags.map((tag) => (
+              <tr class="tag-row" data-tag-id={tag.id} data-orig-name={tag.name} data-orig-color={tag.color || ""}>
+                <td class="col-color">
+                  <input type="color" class="tag-color" value={tag.color || "#a94d3f"} disabled={!access.canEdit} />
+                </td>
+                <td class="col-name">
+                  <input type="text" class="tag-name" value={tag.name} disabled={!access.canEdit} />
+                </td>
+                <td class="col-slug"><code>{tag.slug}</code></td>
+                <td class="col-count">{tag.usageCount ?? tag.entryCount ?? 0}</td>
+                <td class="col-actions">
+                  {access.canEdit && (
+                    <>
+                      <button type="button" class="button small save-tag" disabled>Save</button>
+                      <button type="button" class="button small danger delete-tag">Delete</button>
+                    </>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  )}
+</AppLayout>
+
+<script>
+  import { createSdkClient } from "@/lib/sdk";
+  import { isForbidden } from "@/lib/workspaceRole";
+
+  const sdk = createSdkClient();
+  const statusEl = document.getElementById("tags-status") as HTMLElement | null;
+
+  const failure = (e: unknown) =>
+    isForbidden(e) ? "You don't have permission to do this." : e instanceof Error ? e.message : String(e);
+
+  function showStatus(msg: string, isError = false) {
+    if (!statusEl) return;
+    statusEl.textContent = msg;
+    statusEl.hidden = false;
+    statusEl.classList.toggle("err", isError);
+    if (!isError) window.setTimeout(() => { statusEl.hidden = true; }, 2500);
+  }
+
+  // Enable a row's Save button only when its name/color differs from the loaded values.
+  function refreshDirty(row: HTMLElement) {
+    const name = (row.querySelector(".tag-name") as HTMLInputElement).value.trim();
+    const color = (row.querySelector(".tag-color") as HTMLInputElement).value;
+    const dirty = name !== row.dataset.origName || color !== (row.dataset.origColor || "#a94d3f");
+    const saveBtn = row.querySelector<HTMLButtonElement>(".save-tag");
+    if (saveBtn) saveBtn.disabled = !dirty || !name;
+  }
+
+  document.querySelectorAll<HTMLElement>(".tag-row").forEach((row) => {
+    // Normalize a blank stored color to the default so dirty-checking is stable.
+    if (!row.dataset.origColor) row.dataset.origColor = "#a94d3f";
+
+    row.querySelector(".tag-name")?.addEventListener("input", () => refreshDirty(row));
+    row.querySelector(".tag-color")?.addEventListener("input", () => refreshDirty(row));
+
+    row.querySelector(".save-tag")?.addEventListener("click", async () => {
+      const id = row.dataset.tagId!;
+      const name = (row.querySelector(".tag-name") as HTMLInputElement).value.trim();
+      const color = (row.querySelector(".tag-color") as HTMLInputElement).value;
+      const btn = row.querySelector(".save-tag") as HTMLButtonElement;
+      btn.disabled = true;
+      try {
+        await sdk.tags.update(id, { name, color });
+        row.dataset.origName = name;
+        row.dataset.origColor = color;
+        showStatus(`Saved “${name}”.`);
+      } catch (e) {
+        showStatus(`Failed to save: ${failure(e)}`, true);
+        btn.disabled = false;
+      }
+    });
+
+    row.querySelector(".delete-tag")?.addEventListener("click", async () => {
+      const id = row.dataset.tagId!;
+      const name = row.dataset.origName || "this tag";
+      if (!window.confirm(`Delete “${name}”? It will be removed from every entry that carries it.`)) return;
+      try {
+        await sdk.tags.delete(id);
+        row.remove();
+        showStatus(`Deleted “${name}”.`);
+      } catch (e) {
+        showStatus(`Failed to delete: ${failure(e)}`, true);
+      }
+    });
+  });
+
+  // Create — find-or-create by slug server-side, then reload so the new row sorts into place.
+  document.getElementById("new-tag-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const nameEl = document.getElementById("new-tag-name") as HTMLInputElement;
+    const colorEl = document.getElementById("new-tag-color") as HTMLInputElement;
+    const name = nameEl.value.trim();
+    if (!name) return;
+    try {
+      await sdk.tags.create({ name, color: colorEl.value });
+      window.location.reload();
+    } catch (err) {
+      showStatus(`Failed to add: ${failure(err)}`, true);
+    }
+  });
+</script>
+
+<style>
+  .tags-admin { max-width: 860px; }
+  .tags-head { margin-bottom: 1.25rem; }
+  .tags-head h1 { margin: 0 0 0.25rem; font-size: 1.4rem; }
+  .sub { margin: 0; color: var(--muted); font-size: 0.85rem; }
+
+  .new-tag {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.75rem;
+  }
+  .new-tag input[type="text"] {
+    flex: 1;
+    padding: 0.5rem 0.7rem;
+    background: var(--panel-2, var(--bg));
+    border: 1px solid var(--border, var(--line));
+    border-radius: 6px;
+    color: var(--text, var(--ink));
+    font-size: 0.875rem;
+  }
+  .new-tag input[type="color"] {
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    border: 1px solid var(--border, var(--line));
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .tags-status { margin: 0 0 0.75rem; font-size: 0.8rem; color: var(--muted); }
+  .tags-status.err { color: var(--color-error, #d66); }
+
+  .empty {
+    padding: 1.5rem;
+    border: 1px dashed var(--border, var(--line));
+    border-radius: 8px;
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+
+  .tags-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+  .tags-table th {
+    text-align: left;
+    padding: 0.5rem 0.6rem;
+    color: var(--muted);
+    font-weight: 500;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border-bottom: 1px solid var(--border, var(--line));
+  }
+  .tags-table td {
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--border, var(--line));
+    vertical-align: middle;
+  }
+  .col-color { width: 3rem; }
+  .col-count { width: 4.5rem; text-align: center; color: var(--muted); }
+  .col-actions { width: 9rem; text-align: right; white-space: nowrap; }
+
+  .tag-color { width: 2rem; height: 2rem; padding: 0; border: 1px solid var(--border, var(--line)); border-radius: 6px; background: transparent; cursor: pointer; }
+  .tag-name {
+    width: 100%;
+    padding: 0.35rem 0.5rem;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--text, var(--ink));
+    font-size: 0.875rem;
+  }
+  .tag-name:hover, .tag-name:focus { border-color: var(--border, var(--line)); background: var(--panel-2, var(--bg)); outline: none; }
+  .col-slug code { color: var(--muted); font-size: 0.8rem; }
+
+  .button.small { padding: 0.3rem 0.6rem; font-size: 0.78rem; }
+  .button.small:disabled { opacity: 0.45; cursor: default; }
+  .button.danger { background: transparent; border: 1px solid var(--color-error, #d66); color: var(--color-error, #d66); margin-left: 0.35rem; }
+  .button.danger:hover { background: var(--color-error, #d66); color: #fff; }
+</style>

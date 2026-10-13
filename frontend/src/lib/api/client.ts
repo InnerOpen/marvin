@@ -1,4 +1,4 @@
-import { getApiUrl, hasApiBackend, SITE_CLIENT_TOKEN } from "./config";
+import { getApiUrl, getCookieName, getSiteClientToken, hasApiBackend } from "./config";
 
 export class ApiRequestError extends Error {
   status: number;
@@ -17,22 +17,17 @@ export class ApiRequestError extends Error {
 const DEV_MODE = import.meta.env.DEV;
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 1000;
+/** Retried after a 5xx answer: reads only. The server may already have acted on anything else, and a
+ *  retried DELETE then answers 404 — "not found" for a delete that worked. */
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+/** Retried when no answer arrived at all (the request failed on the network): methods a server may see twice. */
+const IDEMPOTENT_METHODS = new Set([...SAFE_METHODS, "PUT", "DELETE"]);
 
 /**
  * Sleep for specified milliseconds
  */
 function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/**
- * Check if error is retryable (network errors or 5xx)
- */
-function isRetryable(error: unknown): boolean {
-  if (error instanceof ApiRequestError) {
-    return error.status >= 500;
-  }
-  return true; // Network errors are retryable
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -41,7 +36,7 @@ function isRetryable(error: unknown): boolean {
  */
 export function getAuthToken(cookies?: { get: (name: string) => { value?: string } | undefined }): string | undefined {
   if (!cookies) return undefined;
-  const cookie = cookies.get('marvin.access_token');
+  const cookie = cookies.get(getCookieName());
   return cookie?.value;
 }
 
@@ -61,70 +56,74 @@ export async function fetchApi<T>(path: string, init: RequestInit = {}, authToke
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
 
-  // Use authToken if provided (SSR context), otherwise check for SITE_CLIENT_TOKEN
+  // Use authToken if provided (SSR context), otherwise fall back to the site-client token.
+  // getSiteClientToken() reads process.env, so it only yields a token server-side — in the
+  // browser it is empty, which is correct: the site token is a server-only credential.
+  const siteClientToken = getSiteClientToken();
   if (authToken) {
     headers.set("Authorization", `Bearer ${authToken}`);
-  } else if (SITE_CLIENT_TOKEN && !headers.has("Authorization")) {
-    headers.set("Authorization", `Bearer ${SITE_CLIENT_TOKEN}`);
+  } else if (siteClientToken && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${siteClientToken}`);
   }
 
   // Include credentials to send cookies with requests
   const fetchInit: RequestInit = {
     ...init,
     headers,
-    credentials: 'include', // Send cookies with cross-origin requests
+    credentials: "include", // Send cookies with cross-origin requests
   };
 
+  const method = (init.method || "GET").toUpperCase();
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    let answered = false;
     try {
       if (DEV_MODE && attempt === 0) {
-        const context = typeof window === 'undefined' ? 'SSR' : 'Client';
-        console.log(`[${context}] ➡️  ${init.method || 'GET'} ${path}`);
+        const context = typeof window === "undefined" ? "SSR" : "Client";
+        console.debug(`[${context}] ➡️  ${init.method || "GET"} ${path}`);
         if (authToken) {
-          console.log(`[${context}]    Auth: ${authToken.substring(0, 20)}...`);
+          console.debug(`[${context}]    Auth: ${authToken.substring(0, 20)}...`);
         }
       }
 
       const startTime = DEV_MODE ? Date.now() : 0;
       const response = await fetch(url, fetchInit);
+      answered = true;
 
       if (DEV_MODE && attempt === 0) {
         const duration = Date.now() - startTime;
-        const context = typeof window === 'undefined' ? 'SSR' : 'Client';
-        const statusEmoji = response.ok ? '✅' : '❌';
-        console.log(`[${context}] ${statusEmoji} ${init.method || 'GET'} ${path} → ${response.status} (${duration}ms)`);
+        const context = typeof window === "undefined" ? "SSR" : "Client";
+        const statusEmoji = response.ok ? "✅" : "❌";
+        console.debug(
+          `[${context}] ${statusEmoji} ${init.method || "GET"} ${path} → ${response.status} (${duration}ms)`,
+        );
       }
 
       // Handle 401 Unauthorized - redirect to login
       if (response.status === 401) {
         if (DEV_MODE) {
-          console.warn('[API] 401 Unauthorized - user needs to login');
+          console.warn("[API] 401 Unauthorized - user needs to login");
         }
         // In SSR context we can't redirect, throw error instead
-        throw new ApiRequestError(
-          'Unauthorized - please log in',
-          response.status,
-          url.toString()
-        );
+        throw new ApiRequestError("Unauthorized - please log in", response.status, url.toString());
       }
 
       // Handle other errors
       if (!response.ok) {
-        let errorBody;
-        const contentType = response.headers.get('content-type');
+        let errorBody: any;
+        const contentType = response.headers.get("content-type");
 
         try {
           // Clone response to allow reading body multiple times if needed
-          const responseClone = response.clone();
+          const _responseClone = response.clone();
 
-          if (contentType?.includes('application/json')) {
+          if (contentType?.includes("application/json")) {
             errorBody = await response.json();
           } else {
             errorBody = await response.text();
           }
-        } catch (parseError) {
+        } catch (_parseError) {
           // If parsing fails, try to get text from the clone
           try {
             errorBody = await response.text();
@@ -136,29 +135,24 @@ export async function fetchApi<T>(path: string, init: RequestInit = {}, authToke
         // FastAPI error `detail` may be a string, or an array/object (e.g. 422 validation
         // errors). Never String() an object — that yields "[object Object]".
         let detailText: string | undefined;
-        if (typeof errorBody === 'object' && errorBody !== null && 'detail' in errorBody) {
+        if (typeof errorBody === "object" && errorBody !== null && "detail" in errorBody) {
           const d = (errorBody as { detail: unknown }).detail;
-          if (typeof d === 'string') {
+          if (typeof d === "string") {
             detailText = d;
           } else if (Array.isArray(d)) {
             detailText = d
-              .map((x) => (x && typeof x === 'object' ? ((x as any).msg ?? JSON.stringify(x)) : String(x)))
-              .join('; ');
+              .map((x) => (x && typeof x === "object" ? ((x as any).msg ?? JSON.stringify(x)) : String(x)))
+              .join("; ");
           } else if (d != null) {
             detailText = JSON.stringify(d);
           }
         }
         const errorMessage = detailText ?? `API request failed with ${response.status}`;
 
-        const error = new ApiRequestError(
-          errorMessage,
-          response.status,
-          url.toString(),
-          errorBody
-        );
+        const error = new ApiRequestError(errorMessage, response.status, url.toString(), errorBody);
 
-        // Retry on 5xx errors
-        if (attempt < MAX_RETRIES && error.status >= 500) {
+        // Retry a read on 5xx errors
+        if (attempt < MAX_RETRIES && error.status >= 500 && SAFE_METHODS.has(method)) {
           if (DEV_MODE) {
             console.warn(`[API] Retrying after ${RETRY_DELAY_MS}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
           }
@@ -169,19 +163,18 @@ export async function fetchApi<T>(path: string, init: RequestInit = {}, authToke
         throw error;
       }
 
-      const data = await response.json() as T;
-      return data;
-
+      // 204 / empty bodies (DELETE) have nothing to parse.
+      if (response.status === 204 || response.headers.get("content-length") === "0") {
+        return undefined as T;
+      }
+      const text = await response.text();
+      return (text.trim() ? JSON.parse(text) : undefined) as T;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
 
-      // Don't retry on non-retryable errors
-      if (!isRetryable(error)) {
-        throw lastError;
-      }
-
-      // Don't retry on last attempt
-      if (attempt === MAX_RETRIES) {
+      // Once the server has answered, never send the request again (an error answer, or a body that
+      // didn't parse); without an answer, only a method the server may see twice — and not forever.
+      if (answered || !IDEMPOTENT_METHODS.has(method) || attempt === MAX_RETRIES) {
         throw lastError;
       }
 
@@ -193,5 +186,5 @@ export async function fetchApi<T>(path: string, init: RequestInit = {}, authToke
     }
   }
 
-  throw lastError || new Error('Request failed after retries');
+  throw lastError || new Error("Request failed after retries");
 }

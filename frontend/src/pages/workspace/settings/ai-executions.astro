@@ -1,29 +1,35 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
-import { createSdkClient } from "@/lib/sdk";
 import { getAuthToken } from "@/lib/api/client";
+import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
+import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
 const authed = !!authToken;
 
-const filter = Astro.url.searchParams.get('filter') || 'all';
+const filter = Astro.url.searchParams.get("filter") || "all";
 
 let executions: any[] = [];
 let error: string | null = null;
 let aiEnabled = true;
+// Workspace OWNERs/ADMINs see every run; other members only their own (the API filters).
+let seesAll = false;
 
 // Read-only history still requires auth; also surface whether AI is currently enabled.
 if (authed) {
   const sdk = createSdkClient(authToken);
   try {
-    const [execs, settings] = await Promise.all([
+    const [execs, settings, admin] = await Promise.all([
       sdk.ai.executions.list({ limit: 200 }),
       sdk.ai.settings.get().catch(() => null),
+      canManageCurrentWorkspace(authToken!).catch(() => false),
     ]);
     executions = execs;
+    seesAll = admin;
     if (settings) aiEnabled = (settings as any).enabled !== false;
   } catch (e) {
-    console.error('[ai-executions] Error:', e);
+    console.error("[ai-executions] Error:", e);
     error = e instanceof Error ? e.message : String(e);
   }
 }
@@ -33,52 +39,50 @@ function getField(row: any, camel: string, snake: string) {
   return row[camel] ?? row[snake];
 }
 
-const filteredExecutions = filter === 'all'
-  ? executions
-  : executions.filter((e: any) => e.status === filter);
+const filteredExecutions = filter === "all" ? executions : executions.filter((e: any) => e.status === filter);
 
-function formatDate(isoStr: string): string {
-  if (!isoStr) return '—';
-  const normalized = isoStr.replace(/(\.\d{3})\d+/, '$1');
-  const d = new Date(normalized);
-  return isNaN(d.getTime()) ? isoStr : d.toLocaleString();
+/** What an agent run did, from the tool names it recorded (metadata.tools; older runs: the logged steps). */
+function toolsUsed(meta: any, output: any): string[] {
+  const names: unknown[] = Array.isArray(meta?.tools) ? meta.tools : Array.isArray(output?.steps) ? output.steps.map((s: any) => s?.tool) : [];
+  return [...new Set(names.filter((n): n is string => typeof n === "string" && !!n))].map((n) => n.replace(/_/g, " "));
 }
 
 function statusClass(status: string): string {
-  if (status === 'completed') return 'success';
-  if (status === 'failed') return 'failed';
-  if (status === 'running' || status === 'pending') return 'running';
-  return 'none';
+  if (status === "completed") return "success";
+  if (status === "failed") return "failed";
+  if (status === "running" || status === "pending" || status === "awaiting_approval") return "running";
+  return "none";
 }
 
 function formatTokens(n: number | null): string {
-  return n == null ? '—' : n.toLocaleString();
+  return n == null ? "—" : n.toLocaleString();
 }
 
 function formatCost(cost: number | null): string {
-  if (cost == null) return '—';
-  if (cost === 0) return 'Free';
-  if (cost < 0.0001) return '<$0.0001';
+  if (cost == null) return "—";
+  if (cost === 0) return "Free";
+  if (cost < 0.0001) return "<$0.0001";
   return `$${cost.toFixed(4)}`;
 }
 
 function formatDuration(ms: number | null): string {
-  if (ms == null) return '—';
+  if (ms == null) return "—";
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
 }
 ---
 
-<AppLayout title="AI Executions" eyebrow="Settings">
+<AppLayout crumb="settings.ai-executions">
   <div class="page-header">
-    <div class="breadcrumb">
-      <a href="/workspace/settings?tab=ai">AI</a>
-      <span>›</span>
-      <span>AI Executions</span>
-    </div>
     <h2>AI Executions</h2>
     <p>History of every AI operation run in this workspace — tokens, cost, and output</p>
   </div>
+
+  {authed && !seesAll && !error && (
+    <div class="alert alert-info">
+      Showing your runs. Workspace owners and admins see every run in the workspace.
+    </div>
+  )}
 
   {!authed ? (
     <div class="alert alert-error"><strong>Authentication required.</strong> Sign in to view AI executions.</div>
@@ -125,6 +129,7 @@ function formatDuration(ms: number | null): string {
         <tbody>
           {filteredExecutions.map((exec: any, i: number) => {
             const operationSlug = getField(exec, 'operationSlug', 'operation_slug');
+            const operationLabel = getField(exec, 'operationLabel', 'operation_label') || operationSlug;
             const providerType = getField(exec, 'providerType', 'provider_type');
             const modelId = getField(exec, 'modelId', 'model_id');
             const createdAt = getField(exec, 'createdAt', 'created_at');
@@ -137,6 +142,7 @@ function formatDuration(ms: number | null): string {
             const entityId = getField(exec, 'entityId', 'entity_id');
             const triggerType = getField(exec, 'triggerType', 'trigger_type');
             const hasDetails = !!(errorMsg || outputJson || entityType);
+            const tools = toolsUsed(getField(exec, 'metadataJson', 'metadata_json'), outputJson);
             return (
               <>
                 <tr class:list={['log-row', { 'has-details': hasDetails }]}>
@@ -145,8 +151,11 @@ function formatDuration(ms: number | null): string {
                       <button class="expand-btn" data-target={`detail-${i}`}>▶</button>
                     )}
                   </td>
-                  <td class="nowrap">{formatDate(createdAt)}</td>
-                  <td><code class="op-badge">{operationSlug}</code></td>
+                  <td class="nowrap"><LocalTime iso={createdAt} /></td>
+                  <td>
+                    <code class="op-badge" title={operationSlug}>{operationLabel}</code>
+                    {tools.length > 0 && <div class="tools-used">used {tools.slice(0, 4).join(", ")}{tools.length > 4 ? ` +${tools.length - 4} more` : ""}</div>}
+                  </td>
                   <td>
                     <span class="model-cell">
                       <span class="muted">{providerType}</span>
@@ -214,23 +223,12 @@ function formatDuration(ms: number | null): string {
 </script>
 
 <style>
+  .tools-used { margin-top: 2px; font-size: 0.75rem; color: var(--muted); }
   .page-header {
     margin-bottom: 24px;
     padding-bottom: 20px;
     border-bottom: 1px solid var(--line);
   }
-
-  .breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--muted);
-    margin-bottom: 12px;
-  }
-
-  .breadcrumb a { color: var(--muted); text-decoration: none; }
-  .breadcrumb a:hover { color: var(--ink); }
 
   .page-header h2 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
   .page-header p { margin: 0; color: var(--muted); font-size: 14px; }

@@ -1,0 +1,54 @@
+# Cloudflare Tunnel connector for the `marvin` namespace.
+# Remotely-managed tunnel: hostname→service routing is configured in the Zero Trust dashboard
+# (Public Hostnames), not here. The token comes from the `cloudflared-token` Secret, created out
+# of band via:  oc create secret generic cloudflared-token -n marvin --from-literal=token=eyJ...
+#
+# Two replicas = Cloudflare's recommended minimum so connector restarts/updates are zero-downtime.
+# OpenShift-safe: runs as an arbitrary non-root UID under the restricted-v2 SCC (no runAsUser set).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: marvin
+  labels:
+    app: cloudflared
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:2026.7.3
+          # TUNNEL_TOKEN (env) keeps the credential out of the process args / `ps` output.
+          args: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:2000", "run"]
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cloudflared-token
+                  key: token
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault

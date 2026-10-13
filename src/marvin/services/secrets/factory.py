@@ -14,20 +14,25 @@ def get_secret_backend() -> SecretBackend:
 
     if backend == "vault":
         from .backends.vault import VaultSecretBackend
+
         return VaultSecretBackend()
 
     if backend == "bitwarden":
         from .backends.bitwarden import BitwardenSecretBackend
+
         return BitwardenSecretBackend()
 
     if backend == "disk":
         from .backends.disk import DiskSecretBackend
+
         return DiskSecretBackend()
 
     if backend == "env":
         from .backends.env import EnvSecretBackend
+
         return EnvSecretBackend()
 
     # Default: database
     from .backends.database import DatabaseSecretBackend
+
     return DatabaseSecretBackend()

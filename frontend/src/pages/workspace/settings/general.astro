@@ -1,12 +1,13 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
-import Breadcrumb from "@/components/Breadcrumb.astro";
-import { requireAuth } from "@/lib/auth";
 import { getAuthToken } from "@/lib/api/client";
-import { getCurrentWorkspace } from "@/lib/api/workspaces";
-import { getWorkspacePreferences } from "@/lib/api/workspaceSettings";
-import { listWorkspaceMembers } from "@/lib/api/workspaceMembers";
 import type { WorkspaceRole } from "@/lib/api/types";
+import { getWorkspaceTrashSettings, type TrashAutoEmpty } from "@/lib/api/trash";
+import { listWorkspaceMembers } from "@/lib/api/workspaceMembers";
+import { getWorkspacePreferences } from "@/lib/api/workspaceSettings";
+import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import { requireAuth } from "@/lib/auth";
+import { AUTO_EMPTY_CHOICES, autoEmptyLabel } from "@/lib/trash";
 
 const currentUser = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
 
@@ -16,6 +17,7 @@ let preferences = null;
 let error: string | null = null;
 let currentUserRole: WorkspaceRole | null = null;
 let isPlatformAdmin = false;
+let trashSettings: TrashAutoEmpty | null = null;
 
 try {
   workspace = await getCurrentWorkspace(authToken);
@@ -25,35 +27,33 @@ try {
     try {
       preferences = await getWorkspacePreferences(workspace.id, authToken);
     } catch (e) {
-      console.error('[settings] Error loading preferences:', e);
+      console.error("[settings] Error loading preferences:", e);
     }
+    trashSettings = await getWorkspaceTrashSettings(workspace.id, authToken).catch(() => null);
 
     // Get current user's role and admin status
     const members = await listWorkspaceMembers(workspace.id, authToken);
-    const currentMembership = members.find(m => (m as any).userId === currentUser.id || (m as any).user_id === currentUser.id);
+    const currentMembership = members.find(
+      (m) => (m as any).userId === currentUser.id || (m as any).user_id === currentUser.id,
+    );
     currentUserRole = (currentMembership as any)?.workspaceRole || (currentMembership as any)?.workspace_role || null;
     isPlatformAdmin = currentUser.admin === true;
     if (!currentUserRole && isPlatformAdmin) {
-      currentUserRole = 'ADMIN' as WorkspaceRole;
+      currentUserRole = "ADMIN" as WorkspaceRole;
     }
   }
 } catch (e) {
-  console.error('[settings] Error loading:', e);
+  console.error("[settings] Error loading:", e);
   error = e instanceof Error ? e.message : String(e);
 }
 
-const canManage = currentUserRole && (currentUserRole === 'OWNER' || currentUserRole === 'ADMIN');
+const canManage = currentUserRole && (currentUserRole === "OWNER" || currentUserRole === "ADMIN");
 
 const urlParams = Astro.url.searchParams;
-const success = urlParams.get('success') === '1';
+const success = urlParams.get("success") === "1";
 ---
 
-<AppLayout title="Workspace Details" eyebrow="Workspace">
-  <Breadcrumb items={[
-    { label: "Workspace Settings", href: "/workspace/settings" },
-    { label: "General" }
-  ]} />
-
+<AppLayout crumb="settings.general">
   <div class="toolbar">
     <div>
       <h2>Workspace Details</h2>
@@ -81,31 +81,22 @@ const success = urlParams.get('success') === '1';
 
       <section class="settings-section">
         <h3>General Settings</h3>
-        <form
-          id="workspace-settings-form"
-          data-workspace-id={workspace.id}
-          class="settings-form"
-        >
-          <div class="form-grid">
-            <label>
-              <span>Workspace Name</span>
-              <input
-                type="text"
-                name="name"
-                value={workspace.name}
-                disabled={!canManage}
-              />
-              <small>Slug is auto-generated from the name</small>
-            </label>
-          </div>
-
-          {canManage && (
-            <div class="form-actions">
-              <button type="submit" id="submit-btn" class="button">Save Changes</button>
-              <button type="reset" class="button secondary">Reset</button>
-            </div>
-          )}
-        </form>
+        {/* Renaming changes the slug sites read content by (the old one stays an alias), so only a platform admin
+            renames a workspace — in Admin → Workspaces, which handles the alias. */}
+        <div class="form-grid">
+          <label>
+            <span>Workspace Name</span>
+            <input type="text" value={workspace.name} readonly />
+            <small>
+              Slug <code>{workspace.slug}</code>.{" "}
+              {isPlatformAdmin ? (
+                <a href={`/admin/groups/${workspace.id}`}>Rename in Admin → Workspaces</a>
+              ) : (
+                "Only a platform admin can rename a workspace: it changes the slug your site uses."
+              )}
+            </small>
+          </label>
+        </div>
       </section>
 
       <section class="settings-section">
@@ -160,7 +151,7 @@ const success = urlParams.get('success') === '1';
                 disabled={!canManage}
                 placeholder="https://example.com"
               />
-              <small>The canonical URL where this site is published</small>
+              <small>The canonical URL where this site is published. Also the base for entry links when an entry type has a Page URL pattern.</small>
             </label>
 
             <label>
@@ -170,9 +161,9 @@ const success = urlParams.get('success') === '1';
                 name="site_logo"
                 value={preferences?.siteLogo || ''}
                 disabled={!canManage}
-                placeholder="/assets/logo.png"
+                placeholder="logo"
               />
-              <small>Path or URL to the site logo</small>
+              <small>An asset's slug (follows the asset wherever it's stored), or a path or URL</small>
             </label>
 
             <label>
@@ -182,9 +173,9 @@ const success = urlParams.get('success') === '1';
                 name="site_favicon"
                 value={preferences?.siteFavicon || ''}
                 disabled={!canManage}
-                placeholder="/assets/favicon.ico"
+                placeholder="favicon"
               />
-              <small>Path or URL to the site favicon</small>
+              <small>An asset's slug (follows the asset wherever it's stored), or a path or URL</small>
             </label>
 
             <label>
@@ -223,6 +214,36 @@ const success = urlParams.get('success') === '1';
               <small>Primary contact email for the site</small>
             </label>
 
+            <label class="checkbox-row">
+              <span>Rebuild the site automatically</span>
+              <span>
+                <input
+                  type="checkbox"
+                  name="site_auto_rebuild"
+                  checked={preferences?.siteAutoRebuild !== false}
+                  disabled={!canManage}
+                />
+                When published content changes — a publish, an edit to a live entry, a collection or site-settings
+                change — Marvin requests one rebuild, sent once edits go quiet (~1 minute). Needs an outgoing webhook
+                (your host's deploy hook) on <strong>Site Rebuild Sent</strong>.
+              </span>
+            </label>
+
+            <label class="checkbox-row">
+              <span>Scheduled publish only for approved entries</span>
+              <span>
+                <input
+                  type="checkbox"
+                  name="scheduled_publish_requires_approval"
+                  checked={preferences?.scheduledPublishRequiresApproval === true}
+                  disabled={!canManage}
+                />
+                When an entry's Scheduled Publish time arrives, publish it only if its status is <strong>Approved</strong>.
+                Other entries keep their schedule and wait; the entry editor and the activity bell say they're waiting
+                for approval. Off: any due entry that isn't archived (or in the Trash) is published.
+              </span>
+            </label>
+
             <label>
               <span>Social Links (JSON)</span>
               <textarea
@@ -257,6 +278,38 @@ const success = urlParams.get('success') === '1';
         </form>
       </section>
 
+      {trashSettings && (
+        <section class="settings-section" id="trash">
+          <h3>Trash</h3>
+          <form id="trash-settings-form" data-workspace-id={workspace.id} class="settings-form">
+            <div class="form-grid">
+              <label>
+                <span>Empty the Trash automatically</span>
+                <select name="trash_auto_empty_days" disabled={!canManage}>
+                  <option value="" selected={trashSettings.workspace_override_days === null}>
+                    Use platform default ({autoEmptyLabel(trashSettings.platform_default_days)})
+                  </option>
+                  {AUTO_EMPTY_CHOICES.map((days) => (
+                    <option value={String(days)} selected={trashSettings?.workspace_override_days === days}>
+                      {days ? `After ${autoEmptyLabel(days)}` : "Never"}
+                    </option>
+                  ))}
+                </select>
+                <small>
+                  Deleted entries wait in the Trash, where they can be restored. Entries in the Trash longer than this
+                  are deleted forever (checked hourly). Never keeps them until someone empties the Trash.
+                </small>
+              </label>
+            </div>
+            {canManage && (
+              <div class="form-actions">
+                <button type="submit" id="submit-trash-btn" class="button">Save Trash Settings</button>
+              </div>
+            )}
+          </form>
+        </section>
+      )}
+
       <section class="settings-section">
         <h3>Workspace Information</h3>
         <div class="info-grid">
@@ -283,7 +336,12 @@ const success = urlParams.get('success') === '1';
         <h3>Danger Zone</h3>
         <p>Irreversible and destructive actions.</p>
 
-        {isPlatformAdmin ? (
+        {workspace.isPlatform ? (
+          <p class="muted">
+            This is the platform (admin's) workspace — platform alerts and shared services run from it — so it
+            can't be deleted.{isPlatformAdmin && <> Rename it in <a href={`/admin/groups/${workspace.id}`}>Admin → Workspaces</a>.</>}
+          </p>
+        ) : isPlatformAdmin ? (
           <div class="danger-actions">
             <button
               type="button"
@@ -312,39 +370,26 @@ const success = urlParams.get('success') === '1';
   // HttpOnly cookie is automatically sent with credentials: 'include'
   import { createSdkClient } from '@/lib/sdk';
   const sdk = createSdkClient();
-  const form = document.getElementById('workspace-settings-form') as HTMLFormElement;
-  const submitBtn = document.getElementById('submit-btn') as HTMLButtonElement;
   const siteForm = document.getElementById('site-settings-form') as HTMLFormElement;
   const submitSiteBtn = document.getElementById('submit-site-btn') as HTMLButtonElement;
   const deleteBtn = document.getElementById('delete-workspace-btn') as HTMLButtonElement;
 
-  // Settings form submission
-  if (form && submitBtn) {
-    form.addEventListener('submit', async (e) => {
+  // Trash settings: "" = inherit the platform default (null), else 0 (never) / 7 / 30 / 90 days.
+  const trashForm = document.getElementById('trash-settings-form') as HTMLFormElement | null;
+  const submitTrashBtn = document.getElementById('submit-trash-btn') as HTMLButtonElement | null;
+  if (trashForm && submitTrashBtn) {
+    trashForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-
-      const workspaceId = form.dataset.workspaceId;
-      if (!workspaceId) {
-        alert('Workspace ID not found');
-        return;
-      }
-
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Saving...';
-
+      const workspaceId = trashForm.dataset.workspaceId;
+      if (!workspaceId) return;
+      submitTrashBtn.disabled = true;
       try {
-        const formData = new FormData(form);
-        const data = {
-          name: formData.get('name') as string,
-        };
-
-        await sdk.workspaces.updatePreferences(workspaceId, data);
-
-        window.location.href = '/workspace/settings?success=1';
+        const value = new FormData(trashForm).get('trash_auto_empty_days') as string;
+        await sdk.workspaces.updatePreferences(workspaceId, { trash_auto_empty_days: value === '' ? null : Number(value) } as any);
+        window.location.href = '/workspace/settings/general?success=1#trash';
       } catch (err) {
-        alert('Error: ' + (err instanceof Error ? err.message : 'Failed to update workspace settings'));
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Save Changes';
+        alert('Error: ' + (err instanceof Error ? err.message : 'Failed to update the Trash settings'));
+        submitTrashBtn.disabled = false;
       }
     });
   }
@@ -375,6 +420,8 @@ const success = urlParams.get('success') === '1';
           site_locale: formData.get('site_locale') as string || null,
           site_timezone: formData.get('site_timezone') as string || null,
           site_contact_email: formData.get('site_contact_email') as string || null,
+          site_auto_rebuild: formData.has('site_auto_rebuild'),
+          scheduled_publish_requires_approval: formData.has('scheduled_publish_requires_approval'),
         };
 
         // Parse JSON fields
@@ -467,6 +514,9 @@ const success = urlParams.get('success') === '1';
 </script>
 
 <style>
+  .checkbox-row input[type="checkbox"] { width: auto; margin: 0 6px 0 0; vertical-align: middle; }
+  /* Beside a taller field (the JSON editors) the row's grid would spread its text to the bottom. */
+  .form-grid label.checkbox-row { align-content: start; }
   .toolbar {
     display: flex;
     justify-content: space-between;
@@ -692,5 +742,10 @@ const success = urlParams.get('success') === '1';
   .button:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+  }
+
+  /* Phones: the Trash select has no box styling of its own; give it a finger-sized row. */
+  @media (max-width: 640px) {
+    #trash select { min-height: 40px; }
   }
 </style>

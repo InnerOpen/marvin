@@ -1,3 +1,5 @@
+> **Superseded (2026-09-25):** this page predates the current API. See the manual — https://inneropen.github.io/marvin/whats-new/publishing-api/ — which follows the code.
+
 # Publishing API
 
 The Publishing API is a read-only interface for external sites to consume published content from Marvin workspaces. It is authenticated via site client tokens and scoped to one workspace.
@@ -81,6 +83,7 @@ Returns all published entries, optionally filtered by collection.
 - `limit`: Entries per page (default: 20, max: 100)
 - `collection_slug`: Filter by collection slug (optional)
 - `entry_type`: Filter by entry type (optional)
+- `expand`: `full` returns each entry in the [Get Entry](#get-entry) shape (optional; see [Expanded lists](#expanded-lists-expandfull))
 
 **Response:**
 
@@ -124,7 +127,8 @@ GET /api/publish/{group_slug}/entries/{entry_slug}
 Authorization: Bearer <site_client_token>
 ```
 
-Returns a single published entry with full Markdown content and metadata.
+Returns a single published entry with full Markdown content and metadata. Media links in the entry are
+resolved under `embeds` (see [Media embeds](#media-embeds)); list items carry the same `embeds`.
 
 **Response:**
 
@@ -271,6 +275,149 @@ Downloads or redirects to the asset file.
 May return:
 - `200 OK` with file content and appropriate `Content-Type` header
 - `302 Found` redirect to cloud storage (S3, etc)
+
+## Expanded lists (`expand=full`)
+
+List items carry asset and resource slugs, not their placements. A site that needs an asset's role
+(the hero image), the resources or every collection membership would otherwise read each item again
+through [Get Entry](#get-entry): one request per entry, hundreds on a large site. `expand=full`
+returns the full entries in the list response instead.
+
+```http
+GET /api/publish/{group_slug}/collections/{collection_slug}?expand=full
+GET /api/publish/{group_slug}/entries?collection=projects&expand=full&limit=100
+GET /api/publish/{group_slug}/resources/{resource_slug}/entries?expand=full
+Authorization: Bearer <site_client_token>
+```
+
+Each entry is the same JSON [Get Entry](#get-entry) returns for it (`PublishedEntryRead`), with
+`order` set on a collection's entries:
+
+```json
+{
+  "slug": "projects",
+  "name": "Projects",
+  "entryCount": 1,
+  "entries": [
+    {
+      "slug": "waxed-tote",
+      "title": "Waxed Tote",
+      "entryType": "project",
+      "data": {"body": "…"},
+      "collections": [{"role": "item", "position": 0, "collection": {"slug": "projects", "name": "Projects", "isSmart": false, "entryCount": 0, "sortOrder": 0}}],
+      "assets": [{"role": "hero", "position": 0, "asset": {"slug": "tote-hero", "publicUrl": "…", "mimeType": "image/jpeg", "tags": []}}],
+      "resources": [{"role": "primary-material", "position": 0, "resource": {"slug": "waxed-canvas", "name": "Waxed Canvas", "resourceType": "material"}}],
+      "tags": [],
+      "embeds": {},
+      "order": 0
+    }
+  ]
+}
+```
+
+**Rules:**
+- Without `expand` every response is exactly as before. Any value other than `full` is a 422.
+- Filters and pagination are unchanged. `/entries` keeps its page cap (`limit` at most
+  `PUBLISHING_MAX_PAGE_SIZE`, 100). The unpaginated endpoints (a collection, a resource's entries)
+  expand up to `PUBLISHING_MAX_EXPANDED_ENTRIES` entries (default 500). Past that they return plain
+  list items, as a server without `expand` does.
+- Visibility and permissions are the single read's: only published entries of publishable types
+  (a `read:all_entries` token's drafts are left out of an expanded collection), only public
+  collections and no pending AI-suggested assets. The token needs `read:published_entries` or
+  `read:all_entries` in addition to the endpoint's own permission, or the request is a 403.
+- A response costs a fixed number of database queries whatever its size: attachments, their tags
+  and the media embeds are loaded for the whole page at once.
+- An older server ignores `expand`. Tell the two apart by the items: a list item has `assetSlugs`,
+  an expanded entry has `assets[]`. `marvin-astro` (`hydrate: true`) asks for `expand=full` and
+  reads entries one at a time only when the items come back unexpanded.
+
+## Media embeds
+
+Entries carry their media players under `embeds`, on both the entry (`GET .../entries/{slug}`) and every
+list item (`GET .../entries`, collection and resource entry lists). Stored markdown is never rewritten:
+`data` still holds the link, and a site that ignores `embeds` keeps showing it as a link.
+
+A link becomes an embed when it is from an allow-listed provider (YouTube, Vimeo, Spotify, SoundCloud,
+Apple Music, Apple Podcasts, TIDAL, Simplecast, Transistor; Bandcamp only from its embed code) and either
+
+- sits **alone on its own line** in a markdown field (a paragraph that is exactly the URL; `<https://…>`,
+  `[text](https://…)` and a URL inside a sentence, list, quote or code stay links), unless the field sets
+  `autoEmbed: false`; or
+- is the value of an `embed` field.
+
+`embeds` is keyed by the **URL exactly as written** in the field (trimmed; http(s) only), so a renderer
+that meets a paragraph consisting of one link looks the link's text up in `embeds` and, on a hit, uses
+the entry's `html` in place of the paragraph. `embeds` is `{}` when the entry has none.
+
+```json
+"embeds": {
+  "https://www.youtube.com/watch?v=dQw4w9WgXcQ": {
+    "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "canonicalUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "provider": "youtube",
+    "providerName": "YouTube",
+    "kind": "video",
+    "status": "ok",
+    "title": "Never Gonna Give You Up",
+    "authorName": "Rick Astley",
+    "thumbnailUrl": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+    "iframe": {
+      "src": "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+      "title": "Never Gonna Give You Up",
+      "allow": "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen",
+      "sandbox": "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation",
+      "referrerpolicy": "strict-origin-when-cross-origin",
+      "aspectRatio": "16/9",
+      "height": null
+    },
+    "link": { "href": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "title": "Never Gonna Give You Up", "providerName": "YouTube" },
+    "html": "<figure class=\"marvin-embed marvin-embed--video marvin-embed--facade\" …>…</figure>"
+  }
+}
+```
+
+| Field | Notes |
+|---|---|
+| `kind` | `video`, `audio`, `podcast` or `playlist` |
+| `status` | `ok` — `iframe` is set; `link` — no safe player (a plain Bandcamp page, a link whose player id needs a lookup that hasn't happened yet); `unavailable` — the provider says private, removed or blocked. For `link`/`unavailable` show `link` |
+| `title`, `authorName`, `thumbnailUrl` | from the provider's oEmbed; `null` until Marvin has looked the link up. The thumbnail is the provider's URL — loading it contacts the provider |
+| `iframe` | only when `status` is `ok`. Every attribute comes from Marvin's provider registry; the `src` is rebuilt by Marvin and always on one of `site.embeds.frameSources`. Video players carry `aspectRatio` (e.g. `"16/9"`, `"9/16"` for Shorts), audio/podcast/playlist players a fixed `height` in px |
+| `html` | ready-to-insert HTML built by Marvin per `site.embeds.mode`; every attribute is escaped |
+
+**`html` shapes.**
+
+- *click_to_load* (the default):
+  `<figure class="marvin-embed marvin-embed--{kind} marvin-embed--facade" data-provider="youtube" style="--marvin-embed-aspect:16/9">`
+  holding a `<button type="button" class="marvin-embed__load" data-marvin-embed-src="…" data-marvin-embed-attrs="{…}" data-marvin-embed-hosts="[…]">`
+  (spans `marvin-embed__provider`, `marvin-embed__title`, `marvin-embed__consent`) and then a plain
+  `<a class="marvin-embed__link" href="…" rel="noopener noreferrer">` fallback. Nothing third-party loads
+  until the visitor clicks; no remote thumbnail is used. `data-marvin-embed-attrs` is a JSON object of
+  string attributes for the iframe (`src`, `title`, `allow`, `sandbox`, `referrerpolicy`, `loading`);
+  `data-marvin-embed-hosts` is a JSON list of the hostnames the src may load from. A loader should check
+  the src host against that list before creating the iframe. Fullscreen is granted through `allow`.
+- *direct*: the same figure (without `marvin-embed--facade`) holding the `<iframe>` itself.
+- *link card* (`status` `link`/`unavailable`): `<a class="marvin-embed-link" href="…" rel="noopener noreferrer" data-provider="…">`.
+
+Sizing travels on the figure as a CSS custom property: `--marvin-embed-aspect:{ratio}` for video players,
+`--marvin-embed-height:{n}px` for fixed-height ones.
+
+Publishing reads never contact a provider: details come from Marvin's embed cache, which the editor's
+preview and a save of the entry fill. A link with nothing cached yet still publishes, as a player when
+the link alone is enough to build one, else as a link card.
+
+**`site.embeds`** (on `GET /api/publish/{workspace_slug}/site`, beside `site.seo`, always present):
+
+```json
+"embeds": {
+  "mode": "click_to_load",
+  "consentText": "Loading this player connects to {provider}, which may set cookies.",
+  "frameSources": ["https://bandcamp.com", "https://embed.music.apple.com", "https://www.youtube-nocookie.com", "…"]
+}
+```
+
+`mode` is `click_to_load` or `direct` (Site settings → Embeds & privacy). `consentText` may contain
+`{provider}`, replaced with the provider's name; Marvin's own facade html already has it substituted.
+`frameSources` lists every origin a Marvin-built player may load from, for a site's `frame-src` CSP.
 
 ## Error Responses
 

@@ -1,22 +1,33 @@
 ---
-import AppLayout from "@/layouts/AppLayout.astro";
 import FilterBar from "@/components/FilterBar.astro";
+import ResourceRow from "@/components/ResourceRow.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { listResources, type ResourceRead } from "@/lib/api/resources";
+import { listTrashedResources } from "@/lib/api/trash";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
+// Everyone reads; adding, editing and deleting resources is EDITOR+.
+const { canEdit } = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 let resources: ResourceRead[] = [];
+// Trashed resources aren't in the list: loaded so the Trash group lists them and "In the Trash" in Statuses
+// shows them. "All Statuses" leaves them out, as on Entries and Assets.
+let trashedResources: ResourceRead[] = [];
 let error: string | null = null;
 
 if (!authToken) {
-  error = 'Authentication required';
+  error = "Authentication required";
 } else {
   try {
-    resources = await listResources(authToken);
+    [resources, trashedResources] = await Promise.all([
+      listResources(authToken),
+      listTrashedResources(authToken).catch(() => []),
+    ]);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
-    console.error('[Resources] Failed to load:', error);
+    console.error("[Resources] Failed to load:", error);
   }
 }
 
@@ -52,10 +63,15 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
               value: type,
               label: type
             }))
-          }
+          },
+          ...(trashedResources.length > 0 ? [{
+            id: "status-filter",
+            label: "Statuses",
+            options: [{ value: "trashed", label: "In the Trash" }]
+          }] : [])
         ]}
       />
-      <a href="/workspace/resources/new" class="button">Add Resource</a>
+      {canEdit && <a href="/workspace/resources/new" class="button">Add Resource</a>}
     </div>
   </div>
 
@@ -64,12 +80,12 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
       <p><strong>Error loading resources:</strong> {error}</p>
       <button onclick="location.reload()" class="button secondary">Retry</button>
     </div>
-  ) : resources.length === 0 ? (
+  ) : resources.length === 0 && trashedResources.length === 0 ? (
     <div class="empty-state">
       <div class="empty-icon">🔗</div>
       <h3>No resources yet</h3>
       <p>Resources are external references like suppliers, tools, fabrics, or documentation.</p>
-      <a href="/workspace/resources/new" class="button">Add Your First Resource</a>
+      {canEdit && <a href="/workspace/resources/new" class="button">Add Your First Resource</a>}
     </div>
   ) : (
     <>
@@ -98,32 +114,10 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
           </thead>
           <tbody>
             {resources.map((resource) => (
-              <tr class="resource-row" data-type={resource.resourceType}>
-                <td class="resource-name"><strong>{resource.name}</strong></td>
-                <td><span class="type-badge">{resource.resourceType}</span></td>
-                <td class="description-cell">{resource.description || '—'}</td>
-                <td>{resource.externalId ? <code>{resource.externalId}</code> : '—'}</td>
-                <td>
-                  {resource.url ? (
-                    <a href={resource.url} target="_blank" rel="noopener noreferrer" class="external-link">
-                      {new URL(resource.url).hostname} ↗
-                    </a>
-                  ) : '—'}
-                </td>
-                <td>
-                  <div class="actions">
-                    <a href={`/workspace/resources/${resource.id}`} class="button secondary small">Edit</a>
-                    <button
-                      type="button"
-                      class="button secondary small danger delete-resource-btn"
-                      data-resource-id={resource.id}
-                      data-resource-name={resource.name}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </td>
-              </tr>
+              <ResourceRow resource={resource} canEdit={canEdit} />
+            ))}
+            {trashedResources.map((resource) => (
+              <ResourceRow resource={resource} canEdit={canEdit} inTrash />
             ))}
           </tbody>
         </table>
@@ -152,48 +146,54 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
               </thead>
               <tbody>
                 {groupResources.map((resource) => (
-                  <tr class="resource-row" data-type={resource.resourceType}>
-                    <td class="resource-name"><strong>{resource.name}</strong></td>
-                    <td><span class="type-badge">{resource.resourceType}</span></td>
-                    <td class="description-cell">{resource.description || '—'}</td>
-                    <td>{resource.externalId ? <code>{resource.externalId}</code> : '—'}</td>
-                    <td>
-                      {resource.url ? (
-                        <a href={resource.url} target="_blank" rel="noopener noreferrer" class="external-link">
-                          {new URL(resource.url).hostname} ↗
-                        </a>
-                      ) : '—'}
-                    </td>
-                    <td>
-                      <div class="actions">
-                        <a href={`/workspace/resources/${resource.id}`} class="button secondary small">Edit</a>
-                        <button
-                          type="button"
-                          class="button secondary small danger delete-resource-btn"
-                          data-resource-id={resource.id}
-                          data-resource-name={resource.name}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                  <ResourceRow resource={resource} canEdit={canEdit} />
                 ))}
               </tbody>
             </table>
           </details>
         ))}
+        {trashedResources.length > 0 && (
+          <details class="collection-group" data-group-type="trash">
+            <summary class="collection-header">
+              <h3 class="collection-title">
+                <span class="collapse-chevron"></span>
+                Trash
+                <span class="collection-count">{trashedResources.length}</span>
+              </h3>
+            </summary>
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Description</th>
+                  <th>External ID</th>
+                  <th>URL</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trashedResources.map((resource) => (
+                  <ResourceRow resource={resource} canEdit={canEdit} inTrash />
+                ))}
+              </tbody>
+            </table>
+          </details>
+        )}
       </div>
     </>
   )}
 </AppLayout>
 
 <script>
+  import { showsForStatus } from '@/lib/trashFilter';
   import { createSdkClient } from '@/lib/sdk';
+  import { isForbidden } from '@/lib/workspaceRole';
 
   const sdk = createSdkClient();
   const searchInput = document.getElementById('filter-search') as HTMLInputElement;
   const typeFilter = document.getElementById('type-filter') as HTMLSelectElement;
+  const statusFilter = document.getElementById('status-filter') as HTMLSelectElement | null;
   const tableView = document.getElementById('table-view');
   const groupedView = document.getElementById('grouped-view');
   const viewTableBtn = document.getElementById('view-table');
@@ -223,21 +223,18 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
       const resourceId = btn.dataset.resourceId!;
       const resourceName = btn.dataset.resourceName!;
 
-      if (!confirm(`Delete "${resourceName}"? This cannot be undone.`)) {
-        return;
-      }
-
+      // Move to Trash: reversible, so no confirm (restore it from the Trash).
       btn.disabled = true;
-      btn.textContent = 'Deleting...';
+      btn.textContent = 'Moving…';
 
       try {
         await sdk.resources.delete(resourceId);
         btn.closest('tr')?.remove();
       } catch (error: any) {
-        const message = error?.message || error?.detail || 'Failed to delete resource';
+        const message = isForbidden(error) ? "You don't have permission to do this." : error?.message || error?.detail || `Failed to move "${resourceName}" to the Trash`;
         alert(message);
         btn.disabled = false;
-        btn.textContent = 'Delete';
+        btn.textContent = 'Move to Trash';
       }
     });
   });
@@ -245,16 +242,20 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
   function filterResources() {
     const searchQuery = searchInput?.value.toLowerCase() || '';
     const typeQuery = typeFilter?.value || '';
+    const statusQuery = statusFilter?.value || '';
     const rows = document.querySelectorAll('.resource-row');
 
     rows.forEach(row => {
       const name = row.querySelector('.resource-name')?.textContent?.toLowerCase() || '';
       const type = row.getAttribute('data-type') || '';
+      const trashed = row.hasAttribute('data-in-trash');
+      const inTrashGroup = Boolean(row.closest('[data-group-type="trash"]'));
 
       const matchesSearch = !searchQuery || name.includes(searchQuery);
       const matchesType = !typeQuery || type === typeQuery;
+      const matchesStatus = showsForStatus(statusQuery, trashed, inTrashGroup);
 
-      (row as HTMLElement).style.display = (matchesSearch && matchesType) ? '' : 'none';
+      (row as HTMLElement).style.display = (matchesSearch && matchesType && matchesStatus) ? '' : 'none';
     });
 
     document.querySelectorAll('.collection-group').forEach(group => {
@@ -267,6 +268,7 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
 
   searchInput?.addEventListener('input', filterResources);
   typeFilter?.addEventListener('change', filterResources);
+  statusFilter?.addEventListener('change', filterResources);
 </script>
 
 <style>
@@ -312,52 +314,6 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
     max-width: 32rem;
   }
 
-  .type-badge {
-    display: inline-block;
-    padding: 0.25rem 0.5rem;
-    background: var(--panel-2);
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 500;
-    text-transform: capitalize;
-  }
-
-  .description-cell {
-    max-width: 300px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .external-link {
-    color: var(--accent);
-    text-decoration: none;
-    font-size: 0.875rem;
-  }
-
-  .external-link:hover {
-    text-decoration: underline;
-  }
-
-  .actions {
-    display: flex;
-    gap: 0.5rem;
-  }
-
-  .button.small {
-    min-height: 32px;
-    padding: 6px 10px;
-    font-size: 0.875rem;
-  }
-
-  .button.danger {
-    color: var(--color-error);
-    border-color: var(--color-error);
-  }
-
-  .button.danger:hover {
-    background: var(--color-error-bg);
-  }
 
   .view-toggle {
     display: flex;

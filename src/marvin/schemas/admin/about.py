@@ -32,6 +32,11 @@ class AppStatistics(_MarvinModel):
     total_api_clients: int  # The total number of API clients.
     total_webhooks: int  # The total number of configured webhooks.
 
+    # AI usage, aggregated across every account/workspace.
+    total_ai_operations: int = 0  # Total AI executions run platform-wide.
+    total_ai_tokens: int = 0  # Total AI tokens consumed platform-wide.
+    total_ai_cost_usd: float = 0.0  # Total estimated AI cost (USD) platform-wide.
+
 
 class AppInfo(_MarvinModel):
     """
@@ -42,6 +47,7 @@ class AppInfo(_MarvinModel):
     production: bool  # Indicates if the application is running in production mode.
     version: str  # The current version of the application (e.g., "1.0.0", "develop").
     demo_status: bool  # Indicates if the application is running in demo mode.
+    environment_label: str = ""  # Non-production instance tag (e.g. "DEV"); empty in production.
     allow_signup: bool  # Indicates if new user signups are currently allowed.
     default_group_slug: str | None = None  # Slug of the default group for new users, if applicable.
     default_household_slug: str | None = None  # Legacy or alternative naming for default group slug.
@@ -80,7 +86,7 @@ class AdminAboutInfo(AppInfo):
     api_docs: bool  # Indicates if API documentation (e.g., Swagger UI) is enabled.
     db_type: str  # The type of database being used (e.g., "sqlite", "postgres").
     db_url: str | None = None  # The database connection URL (potentially masked for security).
-    default_group: str  # The name of the default group for new users.
+    default_group: str  # The platform (admin's) workspace's current name.
     build_id: str  # The Git commit hash or build identifier for the current application build.
 
 
@@ -94,6 +100,5 @@ class CheckAppConfig(_MarvinModel):
     ldap_ready: bool  # True if LDAP authentication settings are configured and enabled.
     oidc_ready: bool  # True if OIDC authentication settings are configured and enabled.
     enable_openai: bool  # True if OpenAI integration is configured and enabled.
-    apprise_ready: bool  # True if Apprise notification service is configured and enabled.
     base_url_set: bool  # True if the application's BASE_URL has been changed from its default value.
     is_up_to_date: bool  # True if the current application version is the latest available, or if it's a development build.

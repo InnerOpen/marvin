@@ -1,26 +1,30 @@
 ---
-import AppLayout from "@/layouts/AppLayout.astro";
 import SlugInput from "@/components/SlugInput.astro";
-import { createResource } from "@/lib/api/resources";
+import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import { createResource } from "@/lib/api/resources";
+import { getContentAccess } from "@/lib/api/workspaces";
+import { EDITORS_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 if (!authToken) {
-  return Astro.redirect('/auth/login');
+  return Astro.redirect("/auth/login");
 }
+// Creating resources is EDITOR+ (the API answers others with 403).
+const access = await getContentAccess(authToken);
 
 let error: string | null = null;
 
 // Handle form submission (server-side)
-if (Astro.request.method === 'POST') {
+if (Astro.request.method === "POST") {
   try {
     const formData = await Astro.request.formData();
     const data: Record<string, any> = {};
 
     formData.forEach((value, key) => {
-      if (value !== '') {
+      if (value !== "") {
         // Handle JSON metadata field
-        if (key === 'metadata_') {
+        if (key === "metadata_") {
           try {
             data[key] = JSON.parse(value as string);
           } catch (e) {
@@ -32,18 +36,18 @@ if (Astro.request.method === 'POST') {
       }
     });
 
-    console.log('[NewResource] Creating resource with data:', data);
+    console.log("[NewResource] Creating resource with data:", data);
     const resource = await createResource(data, authToken);
-    console.log('[NewResource] Resource created:', resource);
+    console.log("[NewResource] Resource created:", resource);
     return Astro.redirect(`/workspace/resources/${resource.id}`);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
-    console.error('[NewResource] Failed to create resource:', e);
+    console.error("[NewResource] Failed to create resource:", e);
   }
 }
 ---
 
-<AppLayout title="New Resource" eyebrow="Resources">
+<AppLayout restrictedNote={access.canEdit ? null : EDITORS_ONLY} title="New Resource" eyebrow="Resources">
   <div class="toolbar">
     <div>
       <h2 style="margin:0;font-size:20px;">New Resource</h2>

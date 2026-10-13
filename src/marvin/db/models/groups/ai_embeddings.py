@@ -20,9 +20,7 @@ class AIEmbeddingModel(SqlAlchemyBase, BaseMixins):
     __tablename__ = "ai_embeddings"
 
     id: Mapped[GUID] = mapped_column(GUID, primary_key=True, default=GUID.generate)
-    group_id: Mapped[GUID] = mapped_column(
-        GUID, sa.ForeignKey("groups.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    group_id: Mapped[GUID] = mapped_column(GUID, sa.ForeignKey("groups.id", ondelete="CASCADE"), nullable=False, index=True)
 
     entity_type: Mapped[str] = mapped_column(sa.String, nullable=False)  # entry | resource | asset
     entity_id: Mapped[GUID] = mapped_column(GUID, nullable=False)
@@ -36,7 +34,10 @@ class AIEmbeddingModel(SqlAlchemyBase, BaseMixins):
 
     __table_args__ = (
         sa.UniqueConstraint(
-            "entity_type", "entity_id", "chunk_index", "model_id",
+            "entity_type",
+            "entity_id",
+            "chunk_index",
+            "model_id",
             name="uq_ai_embeddings_entity_chunk_model",
         ),
         sa.Index("ix_ai_embeddings_entity", "entity_type", "entity_id"),

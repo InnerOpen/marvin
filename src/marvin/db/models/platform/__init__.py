@@ -1,16 +1,31 @@
 """Platform models."""
 
 from .api_clients import APIClients
+from .asset_tags import AssetTags
 from .assets import Assets
+from .auth_throttles import AuthThrottleModel
+from .backup_runs import BackupRunModel
+from .character_packs import CharacterPackModel
+from .collection_assets import CollectionAssets
+from .collection_resources import CollectionResources
 from .collections import Collections
 from .entries import Entries
 from .entry_assets import EntryAssets
 from .entry_collections import EntryCollections
 from .entry_resources import EntryResources
+from .entry_tags import EntryTags
 from .entry_types import EntryTypes
 from .event_log import EventLogModel
+from .media_embed_cache import MediaEmbedCacheModel
+from .platform_settings import PlatformSettingsModel
+from .resource_tags import ResourceTags
 from .resources import Resources
 from .scheduled_tasks import ScheduledTaskExecutionLogModel, ScheduledTaskModel
+from .scheduler_lock import SCHEDULER_LOCK_ID, SchedulerLockModel
+from .site_rebuild_requests import SiteRebuildRequestModel
+from .storage_key_aliases import StorageKeyAliasModel
+from .submission_rate_limits import SubmissionRateLimits
+from .tags import Tags
 
 # isort: split
 # CODE_GEN_ID: PLATFORM_MODEL_IMPORTS
@@ -18,17 +33,33 @@ from .scheduled_tasks import ScheduledTaskExecutionLogModel, ScheduledTaskModel
 
 __all__ = [
     "APIClients",
+    "AssetTags",
     "Assets",
+    "BackupRunModel",
+    "CharacterPackModel",
+    "CollectionAssets",
+    "CollectionResources",
     "Collections",
     "Entries",
     "EntryAssets",
     "EntryCollections",
     "EntryResources",
+    "EntryTags",
     "EntryTypes",
     "EventLogModel",
+    "MediaEmbedCacheModel",
+    "PlatformSettingsModel",
+    "ResourceTags",
     "Resources",
+    "SCHEDULER_LOCK_ID",
     "ScheduledTaskExecutionLogModel",
     "ScheduledTaskModel",
+    "SchedulerLockModel",
+    "SiteRebuildRequestModel",
+    "StorageKeyAliasModel",
+    "SubmissionRateLimits",
+    "AuthThrottleModel",
+    "Tags",
     # CODE_GEN_ID: PLATFORM_MODEL_ALL
     # END: PLATFORM_MODEL_ALL
 ]

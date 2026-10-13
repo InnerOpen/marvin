@@ -1,0 +1,763 @@
+---
+import CharacterPicker from "@/components/CharacterPicker.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { matrixState } from "@/lib/agentMatrix";
+import { type Agent, type Catalog, getCatalog, listAgents } from "@/lib/api/aiAgents";
+import { getTones } from "@/lib/api/aiTones";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { createSdkClient } from "@/lib/sdk";
+import { BUILTIN_TONES, type Tone, toneOptions } from "@/lib/tones";
+
+const authToken = getAuthToken(Astro.cookies);
+
+let agents: Agent[] = [];
+let catalog: Catalog = { categories: [], tools: [] };
+let models: { id: string; label: string; tools: boolean }[] = [];
+// Bubble characters: the platform's library to choose from, and the file names each state picks up.
+let characterLibrary: { id: string; name: string; states?: Record<string, string> }[] = [];
+let characterCatalog: { key: string; aliases: string[] }[] = [];
+// The workspace's tones (built-ins + its own) for each agent's default tone (AI settings → Tones).
+let tones: Tone[] = BUILTIN_TONES;
+let error: string | null = null;
+
+try {
+  const [a, c, providers, lib, states, t] = await Promise.all([
+    listAgents(authToken),
+    getCatalog(authToken),
+    createSdkClient(authToken)
+      .ai.providers.list()
+      .catch(() => [] as any[]),
+    fetchApi<{ id: string; name: string }[]>("/api/groups/ai-settings/character/library", {}, authToken).catch(() => []),
+    fetchApi<{ key: string; aliases: string[] }[]>("/api/groups/ai-settings/character/catalog", {}, authToken).catch(() => []),
+    getTones(authToken)
+      .then((state) => state.tones)
+      .catch(() => BUILTIN_TONES),
+  ]);
+  agents = a;
+  tones = t;
+  catalog = c;
+  characterLibrary = lib;
+  characterCatalog = states;
+  models = (providers as any[])
+    .filter((p) => p.enabled !== false)
+    .flatMap((p) =>
+      (p.models ?? [])
+        .filter((m: any) => m.enabled !== false)
+        .map((m: any) => ({ id: m.modelId, label: `${m.modelId} — ${p.name}`, tools: !!m.supportsTools })),
+    );
+} catch (e) {
+  console.error("[ai-agents] load error:", e);
+  error = e instanceof Error ? e.message : String(e);
+}
+
+const ROLES = [
+  [1, "Viewer"],
+  [2, "Author"],
+  [3, "Editor"],
+  [4, "Admin"],
+  [5, "Owner"],
+] as const;
+const roleName = (n: number) => ROLES.find(([v]) => v === n)?.[1] ?? String(n);
+const custom = agents.filter((a) => !a.isSystem);
+const builtins = agents.filter((a) => a.isSystem);
+---
+
+<AppLayout crumb="settings.ai-agents">
+  <div class="page-header">
+    <div>
+      <h2>Agents</h2>
+      <p>Define agents: what they're for, how they speak, which model they use, and exactly which tools they may touch. An agent never does more than the person using it.</p>
+    </div>
+    <div class="header-actions">
+      <a href="/workspace/settings/ai-ask" class="button secondary small">Open Ask</a>
+    </div>
+  </div>
+
+  {error && <div class="alert"><strong>Couldn't load agents.</strong> {error}</div>}
+
+  <div class="agents-root" data-catalog={JSON.stringify(catalog)} data-agents={JSON.stringify(agents)} data-tones={JSON.stringify(tones)}>
+    <!-- New agent -->
+    <div class="section-card">
+      <div class="section-header">
+        <div>
+          <h3>New agent</h3>
+          <p>Instructions plus a tool matrix. Start read-only; turn on writes only when it needs to author or link.</p>
+        </div>
+        <button id="new-toggle" class="button small" type="button" aria-expanded="false">+ New agent</button>
+      </div>
+      <form id="new-form" class="agent-form" hidden>
+        <div class="form-row icon-name">
+          <div class="form-field">
+            <label class="label" for="n-icon">Icon</label>
+            <input class="input" id="n-icon" name="icon" placeholder="🧵" maxlength="4" />
+          </div>
+          <div class="form-field">
+            <label class="label" for="n-name">Name</label>
+            <input class="input" id="n-name" name="name" placeholder="Workshop" required />
+          </div>
+          <div class="form-field">
+            <label class="label" for="n-slug">Slug <span class="muted">(URL-safe id)</span></label>
+            <input class="input mono" id="n-slug" name="slug" placeholder="workshop" pattern="[a-z0-9][a-z0-9-]{1,63}" required />
+          </div>
+        </div>
+        <p class="hint new-character-hint">A bubble character can be chosen once the agent exists: <strong>Edit</strong> → Bubble character, under Icon and Name.</p>
+        <div class="form-field">
+          <label class="label" for="n-desc">Description <span class="muted">(shown in pickers)</span></label>
+          <textarea class="input" id="n-desc" name="description" rows="2" placeholder="What this agent is for"></textarea>
+        </div>
+        <div class="form-field">
+          <label class="label" for="n-handoff">Hand off when… <span class="muted">(one line — when the main assistant should route a question here)</span></label>
+          <input class="input" id="n-handoff" name="handoffHint" maxlength="300" placeholder="the question is about materials, suppliers or stock" />
+        </div>
+        <div class="form-field">
+          <label class="label" for="n-prompt">Instructions <span class="muted">(system prompt)</span></label>
+          <textarea class="input" id="n-prompt" name="systemPrompt" rows="6" placeholder="How it should behave, what it should and shouldn't do. Leave empty for the main assistant's default instructions."></textarea>
+        </div>
+        <div class="form-field">
+          <label class="label" for="n-sugg">Suggested prompts <span class="muted">(one per line, up to 8 — shown as chips in Ask)</span></label>
+          <textarea class="input" id="n-sugg" name="suggestions" rows="3" placeholder="What's on the bench right now?"></textarea>
+        </div>
+        <div class="form-row four">
+          <div class="form-field">
+            <label class="label" for="n-model">Model</label>
+            <select class="input" id="n-model" name="modelOverride">
+              <option value="">Workspace default</option>
+              {models.map((m) => <option value={m.id}>{m.label}{m.tools ? "" : " (no tools)"}</option>)}
+            </select>
+          </div>
+          <div class="form-field">
+            <label class="label" for="n-kind">Kind</label>
+            <select class="input" id="n-kind" name="kind">
+              <option value="persona">Persona — instructions + tools</option>
+              <option value="model">Model — plain chat, no tools</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label class="label" for="n-register">Default tone</label>
+            <select class="input" id="n-register" name="defaultRegister" set:html={toneOptions(tones, "", { inherit: "Workspace default" })}></select>
+          </div>
+          <div class="form-field">
+            <label class="label" for="n-role">Who may talk to it</label>
+            <select class="input" id="n-role" name="minRole">
+              {ROLES.map(([v, n]) => <option value={v}>{n} and above</option>)}
+            </select>
+          </div>
+        </div>
+        <div class="form-row toggles">
+          <label class="toggle-label">
+            <input type="checkbox" id="n-writes" name="allowWrites" class="toggle-input" />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            <span class="toggle-text">Allow writes <span class="muted">(authoring, links, AI operations, external tools)</span></span>
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" id="n-enabled" name="enabled" class="toggle-input" checked />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            <span class="toggle-text">Enabled</span>
+          </label>
+        </div>
+        <div class="form-field">
+          <div class="section-title"><h4>Tools</h4><p>Each row inherits the group default (reads allow; with writes on, every write group asks first). Override per group or per tool. Ask first binds the tool but pauses the run for your approval on the Ask page; where there is no conversation to pause (bubble, MCP, hand-off children) it behaves like Block.</p></div>
+          <div class="matrix" data-role="matrix"></div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="button">Save agent</button>
+          <button type="button" id="new-preview" class="button secondary">Preview prompt</button>
+          <button type="button" id="new-cancel" class="button secondary">Cancel</button>
+          <span class="save-status" id="new-status"></span>
+        </div>
+        <div class="prompt-preview" id="new-preview-box" hidden aria-live="polite"></div>
+      </form>
+    </div>
+
+    <!-- Your agents -->
+    <div class="section-card">
+      <div class="section-title"><h3>Your agents</h3></div>
+      <div class="empty" id="empty-note" style={custom.length ? "display:none" : ""}>No custom agents yet. The built-ins below are always available.</div>
+      <div id="agent-list">
+        {custom.map((a) => (
+          <div class="agent" data-slug={a.slug}>
+            <div class="agent-top">
+              <div class="agent-id">
+                <div class="agent-name">
+                  <span class="agent-icon">{a.icon ?? "🤖"}</span>
+                  <img class="agent-character" alt="" src={a.character?.states?.idle} hidden={!a.character?.states?.idle} />
+                  <strong>{a.name}</strong> <code class="slug">{a.slug}</code>
+                </div>
+                <div class="agent-desc">{a.description ?? ""}</div>
+              </div>
+              <label class="toggle-label">
+                <input type="checkbox" class="toggle-input enable" checked={a.enabled} />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                <span class="toggle-text" data-role="enable-text">{a.enabled ? "On" : "Off"}</span>
+              </label>
+            </div>
+            <div class="agent-meta">
+              <div class="pills">
+                <span class="pill">{a.kind}</span>
+                <span class:list={["pill", a.allowWrites ? "warn" : ""]}>{a.allowWrites ? "can write" : "read-only"}</span>
+                <span class="pill">{roleName(a.minRole)}+</span>
+                {a.modelOverride && <span class="pill mono">{a.modelOverride}</span>}
+              </div>
+              <div class="agent-actions">
+                <button class="button secondary small edit-btn" type="button">Edit</button>
+                <button class="button secondary small perms-btn" type="button">Permissions</button>
+                <button class="button secondary small character-btn" type="button">Character</button>
+                <button class="button secondary small del-btn" type="button">Delete</button>
+              </div>
+            </div>
+            <div class="perms" data-role="perms" hidden></div>
+            <div class="edit" data-role="edit" hidden></div>
+            <div class="character-box" data-role="character" hidden>
+              <div class="section-title">
+                <h4>Bubble character</h4>
+                <p>Shown in the Ask bubble while this agent talks (<code>/use {a.slug}</code>) or works a hand-off. A state its character lacks plays the workspace's; with none, the workspace's character shows.</p>
+              </div>
+              <CharacterPicker
+                api={`/api/ai/agents/${encodeURIComponent(a.slug)}/character`}
+                character={a.character ?? null}
+                catalog={characterCatalog}
+                library={characterLibrary}
+                noneLabel="None — the workspace's character"
+                removeConfirm="This agent's uploaded character files are deleted. Continue?"
+              />
+            </div>
+            <span class="save-status" data-role="status"></span>
+          </div>
+        ))}
+      </div>
+    </div>
+
+    <!-- Built-ins -->
+    <div class="section-card">
+      <div class="section-title"><h3>Built-in agents</h3><p>Always present, defined in code. Admins can change which tools a built-in may use in this workspace — its permissions — but not its name, instructions or model. They show the workspace's bubble character (AI settings → Persona).</p></div>
+      {builtins.map((a) => (
+        <div class="agent builtin" data-slug={a.slug}>
+          <div class="agent-top">
+            <div class="agent-id">
+              <div class="agent-name"><span class="agent-icon">{a.icon ?? (a.slug === "ask" ? "🔎" : a.slug === "chat" ? "💬" : "🤖")}</span><strong>{a.name}</strong> <code class="slug">{a.slug}</code> <span class="tag">built-in</span></div>
+              <div class="agent-desc">{a.description ?? ""}</div>
+            </div>
+          </div>
+          <div class="agent-meta">
+            <div class="pills">
+              <span class="pill">{a.kind}</span>
+              <span class:list={["pill", a.allowWrites ? "warn" : ""]}>{a.allowWrites ? "can write" : "read-only"}</span>
+              {a.kind === "persona" && (
+                <span
+                  class:list={["pill", "matrix-state", a.toolPolicyOverridden ? "changed" : ""]}
+                  title={a.toolPolicyOverridden ? "This workspace changed its permissions" : "Its permissions are the built-in defaults"}
+                >permissions: {matrixState(a)}</span>
+              )}
+            </div>
+            <div class="agent-actions">
+              <button class="button secondary small perms-btn" type="button">Permissions</button>
+              {a.kind === "persona" && <button class="button secondary small matrix-btn" type="button" aria-expanded="false">Edit permissions</button>}
+              {a.kind === "persona" && a.toolPolicyOverridden && <button class="button secondary small reset-btn" type="button">Reset to default</button>}
+              <button class="button secondary small preview-btn" type="button" aria-expanded="false">Preview prompt</button>
+            </div>
+          </div>
+          <div class="perms" data-role="perms" hidden></div>
+          <div class="edit" data-role="matrix-edit" hidden></div>
+          <div class="prompt-preview agent-preview" data-role="preview" hidden aria-live="polite"></div>
+          <span class="save-status" data-role="status"></span>
+        </div>
+      ))}
+    </div>
+  </div>
+</AppLayout>
+
+<style>
+  .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid var(--line); gap: 16px; }
+  .page-header h2 { margin: 0 0 6px; font-size: 22px; font-weight: 600; }
+  .page-header p { margin: 0; color: var(--muted); font-size: 14px; max-width: 70ch; }
+  .header-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .alert { padding: 14px 16px; margin-bottom: 20px; border-radius: var(--radius); background: var(--color-error-bg); color: var(--color-error); border: 1px solid var(--color-error); font-size: 14px; }
+  .section-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; margin-bottom: 16px; }
+  .section-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+  .section-title { margin-bottom: 12px; }
+  .section-title h3, .section-header h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+  .section-title h4 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+  .section-title p, .section-header p { margin: 0; font-size: 13px; color: var(--muted); }
+  .agent-form { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line); }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .form-row.icon-name { grid-template-columns: 90px 1fr 1fr; }
+  .form-row.four { grid-template-columns: repeat(4, 1fr); }
+  .form-row.toggles { display: flex; gap: 28px; flex-wrap: wrap; }
+  .form-field { display: grid; gap: 8px; align-content: start; margin-bottom: 16px; }
+  .form-row .form-field { margin-bottom: 0; }
+  .label { font-size: 13px; font-weight: 500; }
+  .muted { color: var(--muted); font-weight: 400; }
+  .input { width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 14px; background: var(--bg); color: var(--ink); box-sizing: border-box; font-family: inherit; }
+  .input:focus { border-color: var(--accent); outline: none; }
+  .mono, .slug { font-family: ui-monospace, monospace; }
+  .slug { font-size: 12px; color: var(--muted); }
+  .form-actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; padding-top: 20px; border-top: 1px solid var(--line); }
+  .save-status { font-size: 13px; color: var(--muted); }
+  .save-status.success { color: var(--accent); }
+  .save-status.error { color: var(--color-error); }
+  .toggle-label { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+  .toggle-input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .toggle-track { display: inline-block; width: 40px; height: 22px; background: var(--line); border-radius: 11px; position: relative; transition: background 0.2s; flex-shrink: 0; }
+  .toggle-input:checked + .toggle-track { background: var(--accent); }
+  .toggle-thumb { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; background: white; border-radius: 50%; transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+  .toggle-input:checked + .toggle-track .toggle-thumb { transform: translateX(18px); }
+  .toggle-text { font-size: 14px; }
+  .empty { font-size: 14px; color: var(--muted); padding: 8px 0; }
+  .agent { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; background: var(--bg); }
+  .agent-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .agent-name { font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .agent-icon { font-size: 18px; }
+  .agent-desc { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .tag { font-family: ui-monospace, monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+  .agent-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
+  .pill.warn { color: #a16207; border-color: rgba(234,179,8,0.45); background: rgba(234,179,8,0.1); }
+  .pill.matrix-state.changed { color: var(--accent); border-color: var(--accent); }
+  .agent-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .perms, .edit { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .agent-preview { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  /* On the card (Character button) it's a section of its own; inside the Edit form it sits under Icon and Name. */
+  .character-box { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .edit .character-box { margin: 0 0 16px; padding-top: 0; border-top: 0; }
+  .new-character-hint { margin: -6px 0 16px; font-size: 12px; color: var(--muted); }
+  .agent-character { height: 28px; width: auto; max-width: 56px; object-fit: contain; }
+  /* Injected via innerHTML → :global */
+  .matrix :global(.mx-group), .perms :global(.mx-group) { border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 8px; overflow: hidden; }
+  .matrix :global(.mx-head), .perms :global(.mx-head) { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; background: var(--panel-2); font-size: 13px; }
+  .matrix :global(.mx-head strong), .perms :global(.mx-head strong) { font-weight: 600; }
+  .matrix :global(.mx-head .mx-desc), .perms :global(.mx-head .mx-desc) { color: var(--muted); font-weight: 400; }
+  .matrix :global(.mx-row), .perms :global(.mx-row) { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 14px; border-top: 1px solid var(--line); font-size: 13px; }
+  .matrix :global(.mx-row code), .perms :global(.mx-row code) { font-size: 12px; }
+  .matrix :global(.mx-row .mx-tdesc), .perms :global(.mx-row .mx-tdesc) { color: var(--muted); font-size: 12px; margin-left: 8px; display: -webkit-box; -webkit-line-clamp: 1; line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+  .matrix :global(select.mx-sel) { padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 12px; flex-shrink: 0; }
+  .matrix :global(select.mx-sel.block) { color: var(--color-error); border-color: var(--color-error); }
+  .matrix :global(select.mx-sel.allow) { color: var(--accent); border-color: var(--accent); }
+  .matrix :global(select.mx-sel.ask) { color: var(--warn); border-color: var(--warn); }
+  .perms :global(.mx-dec) { font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; flex-shrink: 0; }
+  .perms :global(.mx-dec.allow) { color: var(--accent); }
+  .perms :global(.mx-dec.ask) { color: var(--warn); }
+  .perms :global(.mx-dec.block) { color: var(--color-error); }
+  .perms :global(.mx-why) { color: var(--muted); font-size: 12px; margin-left: 6px; }
+  .perms :global(.mx-title) { font-size: 13px; margin-bottom: 10px; color: var(--muted); }
+  .edit :global(.agent-form) { margin-top: 0; padding-top: 0; border-top: 0; }
+  .edit :global(.form-row) { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .edit :global(.form-row.icon-name) { grid-template-columns: 90px 1fr; }
+  .edit :global(.form-row.four) { grid-template-columns: repeat(4, 1fr); }
+  .edit :global(.form-row.toggles) { display: flex; gap: 28px; flex-wrap: wrap; }
+  .edit :global(.form-field) { display: grid; gap: 8px; align-content: start; margin-bottom: 16px; }
+  .edit :global(.form-row .form-field) { margin-bottom: 0; }
+  .edit :global(.label) { font-size: 13px; font-weight: 500; }
+  .edit :global(.input) { width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 14px; background: var(--bg); color: var(--ink); box-sizing: border-box; font-family: inherit; }
+  .edit :global(.form-actions) { display: flex; align-items: center; gap: 12px; margin-top: 8px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .edit :global(.toggle-label) { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+  .edit :global(.toggle-input) { position: absolute; opacity: 0; width: 0; height: 0; }
+  .edit :global(.toggle-track) { display: inline-block; width: 40px; height: 22px; background: var(--line); border-radius: 11px; position: relative; }
+  .edit :global(.toggle-input:checked + .toggle-track) { background: var(--accent); }
+  .edit :global(.toggle-thumb) { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; background: white; border-radius: 50%; transition: transform 0.2s; }
+  .edit :global(.toggle-input:checked + .toggle-track .toggle-thumb) { transform: translateX(18px); }
+  .edit :global(.section-title h4) { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+  .edit :global(.section-title p) { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+  .edit :global(.matrix .mx-group) { border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 8px; overflow: hidden; }
+  .edit :global(.matrix .mx-head) { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; background: var(--panel-2); font-size: 13px; }
+  .edit :global(.matrix .mx-row) { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 14px; border-top: 1px solid var(--line); font-size: 13px; }
+  .edit :global(.matrix select.mx-sel) { padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 12px; }
+  .edit :global(.matrix select.mx-sel.block) { color: var(--color-error); border-color: var(--color-error); }
+  .edit :global(.matrix select.mx-sel.allow) { color: var(--accent); border-color: var(--accent); }
+  .edit :global(.matrix select.mx-sel.ask) { color: var(--warn); border-color: var(--warn); }
+  /* A row's text gives way to its select on a narrow screen instead of pushing the page sideways. */
+  /* The matrix is injected (no scope attribute), so the Edit forms' copy needs its own rules: one-line tool
+     descriptions as in the New form, and a row's text giving way to its select on a narrow screen. */
+  .edit :global(.matrix .mx-row code) { font-size: 12px; }
+  .edit :global(.matrix .mx-head .mx-desc) { color: var(--muted); font-weight: 400; }
+  .edit :global(.matrix .mx-row .mx-tdesc) { color: var(--muted); font-size: 12px; margin-left: 8px; display: -webkit-box; -webkit-line-clamp: 1; line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+  .matrix, .edit :global(.matrix) { min-width: 0; }
+  .matrix :global(.mx-head > div), .matrix :global(.mx-row > div), .perms :global(.mx-head > div), .perms :global(.mx-row > div), .edit :global(.matrix .mx-head > div), .edit :global(.matrix .mx-row > div) { min-width: 0; overflow-wrap: anywhere; }
+  @media (max-width: 600px) {
+    .matrix :global(.mx-head), .matrix :global(.mx-row), .edit :global(.matrix .mx-head), .edit :global(.matrix .mx-row) { flex-wrap: wrap; }
+  }
+  @media (max-width: 900px) { .form-row, .form-row.four, .form-row.icon-name { grid-template-columns: 1fr; } }
+</style>
+
+<script>
+  import {
+    createAgent,
+    deleteAgent,
+    getPermissions,
+    previewAgentPrompt,
+    previewNewAgentPrompt,
+    resetAgentToolPolicy,
+    updateAgent,
+    type Agent,
+    type Catalog,
+    type PolicyValue,
+  } from "@/lib/api/aiAgents";
+  import { inheritedDefaults, inheritLabel, matrixCategories, matrixTools, policyFromChoices } from "@/lib/agentMatrix";
+  import { agentPreviewView, promptPreviewHtml, promptPreviewMessage } from "@/lib/promptPreview";
+  import { type Tone, toneOptions } from "@/lib/tones";
+
+  const root = document.querySelector<HTMLElement>(".agents-root");
+  if (root) {
+    const tones: Tone[] = JSON.parse(root.dataset.tones || "[]");
+    const catalog: Catalog = JSON.parse(root.dataset.catalog || '{"categories":[],"tools":[]}');
+    const agents: Agent[] = JSON.parse(root.dataset.agents || "[]");
+
+    const esc = (s: unknown) =>
+      String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const status = (el: Element | null, msg: string, kind: "" | "success" | "error" = "") => {
+      if (!el) return;
+      (el as HTMLElement).textContent = msg;
+      el.classList.remove("success", "error");
+      if (kind) el.classList.add(kind);
+    };
+    const slugify = (s: string) =>
+      s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
+
+    // ── Matrix editor (inherit | allow | block per group and per tool) ──
+    function sel(key: string, value: PolicyValue | null | undefined, inheritLabel: string) {
+      const v = value ?? "";
+      return `<select class="mx-sel ${v}" data-key="${esc(key)}">
+        <option value=""${v === "" ? " selected" : ""}>${esc(inheritLabel)}</option>
+        <option value="allow"${v === "allow" ? " selected" : ""}>Allow</option>
+        <option value="ask"${v === "ask" ? " selected" : ""}>Ask first</option>
+        <option value="block"${v === "block" ? " selected" : ""}>Block</option>
+      </select>`;
+    }
+    /**
+     * `opts` for a built-in: `inherited` — each row's own default (from its permissions), so "Default (…)" says
+     * what the built-in really does — and its `allowlist`, which limits the rows to the tools it can reach.
+     */
+    function renderMatrix(
+      container: HTMLElement,
+      policy: Record<string, PolicyValue> | null | undefined,
+      allowWrites: boolean,
+      opts: { inherited?: Record<string, PolicyValue>; allowlist?: string[] | null } = {},
+    ) {
+      const p = policy ?? {};
+      const tools = matrixTools(catalog.tools, opts.allowlist);
+      container.innerHTML = matrixCategories(catalog.categories, tools, opts.allowlist)
+        .map((c) => {
+          const inherit = inheritLabel(c, allowWrites, opts.inherited?.[c.id]);
+          const rows = tools
+            .filter((t) => t.category === c.id)
+            .map(
+              (t) =>
+                `<div class="mx-row"><div><code>${esc(t.name)}</code><span class="mx-tdesc" title="${esc(t.description)}">${esc(t.description)}</span></div>${sel(t.name, p[t.name], "Inherit")}</div>`,
+            )
+            .join("");
+          const note =
+            c.id.startsWith("mcp") && !rows
+              ? `<div class="mx-row"><span class="mx-tdesc">No connected-server tools in this row right now; the group policy applies to any discovered at run time.</span></div>`
+              : "";
+          return `<div class="mx-group"><div class="mx-head"><div><strong>${esc(c.label)}</strong> <span class="mx-desc">· ${esc(c.description)}${c.writes ? " · writes" : ""}</span></div>${sel(c.id, p[c.id], inherit)}</div>${rows}${note}</div>`;
+        })
+        .join("");
+      container.querySelectorAll<HTMLSelectElement>("select.mx-sel").forEach((s) =>
+        s.addEventListener("change", () => {
+          s.className = `mx-sel ${s.value}`;
+        }),
+      );
+    }
+    function collectPolicy(container: HTMLElement): Record<string, PolicyValue> | null {
+      return policyFromChoices(
+        Array.from(container.querySelectorAll<HTMLSelectElement>("select.mx-sel")).map((s) => [s.dataset.key ?? "", s.value] as [string, string]),
+      );
+    }
+    function renderPermissions(container: HTMLElement, agentName: string, rows: any[], allowWrites: boolean) {
+      container.innerHTML =
+        `<div class="mx-title">What <strong>${esc(agentName)}</strong> can do as you${allowWrites ? "" : " (read-only agent)"}.</div>` +
+        rows
+          .map((r) => {
+            const tools = r.tools.length
+              ? r.tools
+                  .map(
+                    (t: any) =>
+                      `<div class="mx-row"><div><code>${esc(t.name)}</code><span class="mx-why">${esc(t.reason)}</span></div><span class="mx-dec ${t.decision}">${t.decision}</span></div>`,
+                  )
+                  .join("")
+              : `<div class="mx-row"><span class="mx-why">discovered at run time</span></div>`;
+            return `<div class="mx-group"><div class="mx-head"><div><strong>${esc(r.label)}</strong>${r.writes ? ' <span class="mx-desc">· writes</span>' : ""}</div><span class="mx-dec ${r.default}">${r.default}</span></div>${tools}</div>`;
+          })
+          .join("");
+    }
+
+    // ── Form helpers ──
+    function readForm(form: HTMLFormElement, matrix: HTMLElement) {
+      const fd = new FormData(form);
+      const str = (k: string) => String(fd.get(k) ?? "").trim();
+      const sugg = str("suggestions").split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 8);
+      return {
+        icon: str("icon") || null,
+        name: str("name"),
+        description: str("description") || null,
+        handoffHint: str("handoffHint") || null,
+        systemPrompt: str("systemPrompt") || null,
+        suggestions: sugg.length ? sugg : null,
+        modelOverride: str("modelOverride") || null,
+        kind: (str("kind") || "persona") as "persona" | "model",
+        defaultRegister: str("defaultRegister") || null,
+        minRole: Number(str("minRole") || 1),
+        allowWrites: fd.get("allowWrites") === "on",
+        enabled: fd.get("enabled") === "on",
+        toolPolicy: collectPolicy(matrix),
+      };
+    }
+    const allowWritesOf = (form: HTMLFormElement) => (form.querySelector<HTMLInputElement>('[name="allowWrites"]')?.checked ?? false);
+
+    // ── Prompt preview (POST /api/ai/agents/{slug}/preview-prompt, or /api/ai/agents/preview-prompt for the
+    // New form's unsaved agent; rendered by lib/promptPreview) ──
+    async function showPreview(box: HTMLElement, load: () => ReturnType<typeof previewAgentPrompt>) {
+      box.hidden = false;
+      box.innerHTML = promptPreviewMessage("Loading…");
+      try {
+        box.innerHTML = promptPreviewHtml(agentPreviewView(await load()));
+      } catch (e) {
+        box.innerHTML = promptPreviewMessage("Couldn't preview: " + (e instanceof Error ? e.message : e), true);
+      }
+    }
+
+    // ── New agent ──
+    const newToggle = document.getElementById("new-toggle") as HTMLButtonElement | null;
+    const newForm = document.getElementById("new-form") as HTMLFormElement | null;
+    const newMatrix = newForm?.querySelector<HTMLElement>('[data-role="matrix"]') ?? null;
+    const newStatus = document.getElementById("new-status");
+    if (newForm && newMatrix) {
+      renderMatrix(newMatrix, null, false);
+      newForm.querySelector<HTMLInputElement>('[name="allowWrites"]')?.addEventListener("change", () => {
+        renderMatrix(newMatrix, collectPolicy(newMatrix), allowWritesOf(newForm));
+      });
+      const nameEl = newForm.querySelector<HTMLInputElement>('[name="name"]')!;
+      const slugEl = newForm.querySelector<HTMLInputElement>('[name="slug"]')!;
+      let slugTouched = false;
+      slugEl.addEventListener("input", () => (slugTouched = true));
+      nameEl.addEventListener("input", () => {
+        if (!slugTouched) slugEl.value = slugify(nameEl.value);
+      });
+      newToggle?.addEventListener("click", () => {
+        newForm.hidden = !newForm.hidden;
+        newToggle.setAttribute("aria-expanded", String(!newForm.hidden));
+      });
+      document.getElementById("new-cancel")?.addEventListener("click", () => {
+        newForm.hidden = true;
+      });
+      const newSlug = () => String(new FormData(newForm).get("slug") ?? "").trim().toLowerCase();
+      const newPreview = document.getElementById("new-preview-box");
+      document.getElementById("new-preview")?.addEventListener("click", () => {
+        if (!newPreview) return;
+        const data = readForm(newForm, newMatrix);
+        // A name is required to save, not to look: the default instructions just need something to call it.
+        void showPreview(newPreview, () => previewNewAgentPrompt({ slug: newSlug(), ...data, name: data.name || "New agent" }));
+      });
+      newForm.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const data = readForm(newForm, newMatrix);
+        const slug = newSlug();
+        status(newStatus, "Saving…");
+        try {
+          await createAgent({ slug, ...data });
+          location.reload();
+        } catch (e) {
+          status(newStatus, "Couldn't save: " + (e instanceof Error ? e.message : e), "error");
+        }
+      });
+    }
+
+    // ── Per-agent cards ──
+    document.querySelectorAll<HTMLElement>(".agent").forEach((card) => {
+      const slug = card.dataset.slug!;
+      const agent = agents.find((a) => a.slug === slug);
+      const statusEl = card.querySelector('[data-role="status"]');
+      const permsBox = card.querySelector<HTMLElement>('[data-role="perms"]');
+      const editBox = card.querySelector<HTMLElement>('[data-role="edit"]');
+
+      // The bubble character has two homes: under Icon and Name in the Edit form, or on its own from the
+      // card's Character button (no need to open Edit). It's server-rendered (the picker mounts once), so
+      // it's moved between them — and parked on the card before the Edit form is rebuilt, which would
+      // otherwise destroy it.
+      const characterBox = card.querySelector<HTMLElement>('[data-role="character"]');
+      card.querySelector(".character-btn")?.addEventListener("click", () => {
+        if (!characterBox) return;
+        if (editBox && !editBox.hidden && editBox.contains(characterBox)) {
+          characterBox.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          return;
+        }
+        editBox?.after(characterBox);
+        characterBox.hidden = !characterBox.hidden;
+      });
+      // Keep the card's small preview in step with the picker.
+      characterBox?.addEventListener("character-change", (ev) => {
+        const idle = (ev as CustomEvent).detail?.states?.idle;
+        const img = card.querySelector<HTMLImageElement>(".agent-character");
+        if (!img) return;
+        img.hidden = !idle;
+        if (idle) img.src = idle;
+      });
+
+      card.querySelector(".perms-btn")?.addEventListener("click", async () => {
+        if (!permsBox) return;
+        if (!permsBox.hidden) {
+          permsBox.hidden = true;
+          return;
+        }
+        permsBox.hidden = false;
+        permsBox.innerHTML = `<div class="mx-title">Loading…</div>`;
+        try {
+          const p = await getPermissions(slug);
+          renderPermissions(permsBox, agent?.name ?? slug, p.rows, p.allowWrites);
+        } catch (e) {
+          permsBox.innerHTML = `<div class="mx-title">Couldn't load: ${esc(e instanceof Error ? e.message : e)}</div>`;
+        }
+      });
+
+      // Built-ins have no Edit form, so their card previews the prompt as defined in code.
+      const previewBox = card.querySelector<HTMLElement>('[data-role="preview"]');
+      card.querySelector(".preview-btn")?.addEventListener("click", (ev) => {
+        if (!previewBox) return;
+        const opening = previewBox.hidden;
+        (ev.currentTarget as HTMLElement).setAttribute("aria-expanded", String(opening));
+        if (opening) void showPreview(previewBox, () => previewAgentPrompt(slug));
+        else previewBox.hidden = true;
+      });
+
+      // A built-in's permissions: the one thing about it a workspace admin can change (PATCH { toolPolicy }).
+      const matrixBox = card.querySelector<HTMLElement>('[data-role="matrix-edit"]');
+      card.querySelector(".matrix-btn")?.addEventListener("click", async (ev) => {
+        if (!matrixBox || !agent) return;
+        const button = ev.currentTarget as HTMLElement;
+        if (!matrixBox.hidden) {
+          matrixBox.hidden = true;
+          button.setAttribute("aria-expanded", "false");
+          return;
+        }
+        matrixBox.hidden = false;
+        button.setAttribute("aria-expanded", "true");
+        matrixBox.innerHTML = `<div class="mx-title">Loading…</div>`;
+        let inherited: Record<string, PolicyValue>;
+        try {
+          inherited = inheritedDefaults((await getPermissions(slug)).rows);
+        } catch (e) {
+          matrixBox.innerHTML = `<div class="mx-title">Couldn't load: ${esc(e instanceof Error ? e.message : e)}</div>`;
+          return;
+        }
+        matrixBox.innerHTML = `<form class="agent-form">
+          <div class="form-field"><div class="section-title"><h4>${esc(agent.name)}'s permissions</h4><p>Each row starts at ${esc(agent.name)}'s built-in default. Override per group or per tool; <strong>Reset to default</strong> undoes every change. Ask first pauses the run for your approval on the Ask page; where nothing can pause (MCP, hand-off children) it behaves like Block.${slug === "marvin" ? " Direct MCP tool calls follow this matrix too: Allow lets them run, Ask first and Block refuse." : ""} Whatever you choose, a write still needs the person to be an Editor or above, and big bulk writes and archiving a published entry still ask first.</p></div><div class="matrix" data-role="matrix"></div></div>
+          <div class="form-actions"><button type="submit" class="button small">Save permissions</button><button type="button" class="button secondary small m-cancel">Cancel</button><span class="save-status" data-role="mstatus"></span></div>
+        </form>`;
+        const form = matrixBox.querySelector("form") as HTMLFormElement;
+        const matrix = matrixBox.querySelector<HTMLElement>('[data-role="matrix"]')!;
+        const mstatus = matrixBox.querySelector('[data-role="mstatus"]');
+        renderMatrix(matrix, agent.toolPolicy ?? null, agent.allowWrites, { inherited, allowlist: agent.toolAllowlist });
+        matrixBox.querySelector(".m-cancel")?.addEventListener("click", () => {
+          matrixBox.hidden = true;
+          button.setAttribute("aria-expanded", "false");
+        });
+        form.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          status(mstatus, "Saving…");
+          try {
+            await updateAgent(slug, { toolPolicy: collectPolicy(matrix) });
+            location.reload();
+          } catch (err) {
+            status(mstatus, "Couldn't save: " + (err instanceof Error ? err.message : err), "error");
+          }
+        });
+      });
+      card.querySelector(".reset-btn")?.addEventListener("click", async () => {
+        if (!confirm(`Reset ${agent?.name ?? slug}'s permissions to the built-in defaults?`)) return;
+        try {
+          await resetAgentToolPolicy(slug);
+          location.reload();
+        } catch (err) {
+          status(statusEl, "Couldn't reset: " + (err instanceof Error ? err.message : err), "error");
+        }
+      });
+
+      const enableInput = card.querySelector<HTMLInputElement>(".enable");
+      const enableText = card.querySelector<HTMLElement>('[data-role="enable-text"]');
+      enableInput?.addEventListener("change", async () => {
+        const enabled = enableInput.checked;
+        if (enableText) enableText.textContent = enabled ? "On" : "Off";
+        try {
+          await updateAgent(slug, { enabled });
+        } catch (err) {
+          enableInput.checked = !enabled;
+          if (enableText) enableText.textContent = enableInput.checked ? "On" : "Off";
+          status(statusEl, "Couldn't change state: " + (err instanceof Error ? err.message : err), "error");
+        }
+      });
+
+      card.querySelector(".del-btn")?.addEventListener("click", async () => {
+        if (!confirm(`Delete agent "${agent?.name ?? slug}"? This cannot be undone.`)) return;
+        try {
+          await deleteAgent(slug);
+          card.remove();
+          if (!document.querySelector("#agent-list .agent")) (document.getElementById("empty-note") as HTMLElement).style.display = "";
+        } catch (err) {
+          status(statusEl, "Couldn't delete: " + (err instanceof Error ? err.message : err), "error");
+        }
+      });
+
+      card.querySelector(".edit-btn")?.addEventListener("click", () => {
+        if (!editBox || !agent) return;
+        if (!editBox.hidden) {
+          editBox.hidden = true;
+          return;
+        }
+        const modelOptions = Array.from(document.querySelectorAll<HTMLOptionElement>("#n-model option"))
+          .map((o) => `<option value="${esc(o.value)}"${o.value === (agent.modelOverride ?? "") ? " selected" : ""}>${esc(o.textContent)}</option>`)
+          .join("");
+        const roleOptions = [1, 2, 3, 4, 5]
+          .map((v) => `<option value="${v}"${v === agent.minRole ? " selected" : ""}>${["", "Viewer", "Author", "Editor", "Admin", "Owner"][v]} and above</option>`)
+          .join("");
+        if (characterBox) card.append(characterBox);
+        editBox.innerHTML = `<form class="agent-form">
+          <div class="form-row icon-name">
+            <div class="form-field"><label class="label">Icon</label><input class="input" name="icon" maxlength="4" value="${esc(agent.icon ?? "")}" /></div>
+            <div class="form-field"><label class="label">Name</label><input class="input" name="name" required value="${esc(agent.name)}" /></div>
+          </div>
+          <div class="form-field"><label class="label">Description</label><textarea class="input" name="description" rows="2">${esc(agent.description ?? "")}</textarea></div>
+          <div class="form-field"><label class="label">Hand off when…</label><input class="input" name="handoffHint" maxlength="300" value="${esc(agent.handoffHint ?? "")}" /></div>
+          <div class="form-field"><label class="label">Instructions</label><textarea class="input" name="systemPrompt" rows="6">${esc(agent.systemPrompt ?? "")}</textarea></div>
+          <div class="form-field"><label class="label">Suggested prompts (one per line)</label><textarea class="input" name="suggestions" rows="3">${esc((agent.suggestions ?? []).join("\n"))}</textarea></div>
+          <div class="form-row four">
+            <div class="form-field"><label class="label">Model</label><select class="input" name="modelOverride">${modelOptions}</select></div>
+            <div class="form-field"><label class="label">Kind</label><select class="input" name="kind"><option value="persona"${agent.kind === "persona" ? " selected" : ""}>Persona — instructions + tools</option><option value="model"${agent.kind === "model" ? " selected" : ""}>Model — plain chat</option></select></div>
+            <div class="form-field"><label class="label">Default tone</label><select class="input" name="defaultRegister">${toneOptions(tones, agent.defaultRegister, { inherit: "Workspace default" })}</select></div>
+            <div class="form-field"><label class="label">Who may talk to it</label><select class="input" name="minRole">${roleOptions}</select></div>
+          </div>
+          <div class="form-row toggles">
+            <label class="toggle-label"><input type="checkbox" name="allowWrites" class="toggle-input"${agent.allowWrites ? " checked" : ""} /><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-text">Allow writes</span></label>
+            <label class="toggle-label"><input type="checkbox" name="enabled" class="toggle-input"${agent.enabled ? " checked" : ""} /><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-text">Enabled</span></label>
+          </div>
+          <div class="form-field"><div class="section-title"><h4>Tools</h4><p>Inherit follows the group default (with writes on, write groups ask first); override per group or per tool. Ask first binds the tool but pauses the run for your approval on the Ask page; where there is no conversation to pause (bubble, MCP, hand-off children) it behaves like Block.</p></div><div class="matrix" data-role="matrix"></div></div>
+          <div class="form-actions"><button type="submit" class="button small">Save changes</button><button type="button" class="button secondary small e-preview">Preview prompt</button><button type="button" class="button secondary small e-cancel">Cancel</button><span class="save-status" data-role="estatus"></span></div>
+          <div class="prompt-preview" data-role="epreview" hidden aria-live="polite"></div>
+        </form>`;
+        const form = editBox.querySelector("form") as HTMLFormElement;
+        if (characterBox) {
+          form.querySelector(".form-row.icon-name")?.after(characterBox);
+          characterBox.hidden = false;
+        }
+        const matrix = editBox.querySelector<HTMLElement>('[data-role="matrix"]')!;
+        const estatus = editBox.querySelector('[data-role="estatus"]');
+        renderMatrix(matrix, agent.toolPolicy ?? null, agent.allowWrites);
+        form.querySelector<HTMLInputElement>('[name="allowWrites"]')?.addEventListener("change", () => renderMatrix(matrix, collectPolicy(matrix), allowWritesOf(form)));
+        editBox.querySelector(".e-cancel")?.addEventListener("click", () => (editBox.hidden = true));
+        // What this agent would get with the form as it stands — saved or not.
+        const ePreview = editBox.querySelector<HTMLElement>('[data-role="epreview"]')!;
+        editBox.querySelector(".e-preview")?.addEventListener("click", () => void showPreview(ePreview, () => previewAgentPrompt(slug, readForm(form, matrix))));
+        form.addEventListener("submit", async (ev) => {
+          ev.preventDefault();
+          status(estatus, "Saving…");
+          try {
+            await updateAgent(slug, readForm(form, matrix));
+            location.reload();
+          } catch (e) {
+            status(estatus, "Couldn't save: " + (e instanceof Error ? e.message : e), "error");
+          }
+        });
+        editBox.hidden = false;
+      });
+    });
+  }
+</script>

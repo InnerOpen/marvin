@@ -2,10 +2,10 @@
  * Authentication utilities for Astro pages
  */
 
-import type { AstroCookies } from 'astro';
-import type { UserProfile } from '@inneropen/marvin-sdk/platform';
-import { createSdkClient } from './sdk';
-import { getAuthToken } from './api/client';
+import type { UserProfile } from "@inneropen/marvin-sdk/platform";
+import type { AstroCookies } from "astro";
+import { getAuthToken } from "./api/client";
+import { createSdkClient } from "./sdk";
 
 export type User = UserProfile;
 
@@ -24,7 +24,7 @@ export async function getCurrentUser(cookies: AstroCookies): Promise<User | null
   try {
     const sdk = createSdkClient(token);
     return await sdk.user.getProfile();
-  } catch (error) {
+  } catch (_error) {
     return null;
   }
 }
@@ -49,14 +49,12 @@ export async function getCurrentUser(cookies: AstroCookies): Promise<User | null
 export async function requireAuth(
   cookies: AstroCookies,
   redirect: (path: string) => Response,
-  currentPath?: string
+  currentPath?: string,
 ): Promise<User> {
   const user = await getCurrentUser(cookies);
 
   if (!user) {
-    const loginUrl = currentPath && currentPath !== '/'
-      ? `/login?return=${encodeURIComponent(currentPath)}`
-      : '/login';
+    const loginUrl = currentPath && currentPath !== "/" ? `/login?return=${encodeURIComponent(currentPath)}` : "/login";
 
     throw redirect(loginUrl);
   }
@@ -83,12 +81,14 @@ export async function requireAuth(
 export async function requireAdmin(
   cookies: AstroCookies,
   redirect: (path: string) => Response,
-  currentPath?: string
+  currentPath?: string,
 ): Promise<User> {
   const user = await requireAuth(cookies, redirect, currentPath);
 
-  if (!user.admin) {
-    throw redirect('/');
+  // Platform admin section = the SUPER_ADMIN platform role, NOT the legacy `admin` boolean
+  // (which marks workspace-level admins). A workspace ADMIN administers its workspace, not the platform.
+  if (user.platformRole !== "SUPER_ADMIN" && !user.isSuperuser) {
+    throw redirect("/");
   }
 
   return user;
@@ -114,5 +114,6 @@ export async function isAuthenticated(cookies: AstroCookies): Promise<boolean> {
  */
 export async function isAdmin(cookies: AstroCookies): Promise<boolean> {
   const user = await getCurrentUser(cookies);
-  return user?.admin === true;
+  // Platform admin = SUPER_ADMIN (not the workspace-level `admin` boolean).
+  return user?.platformRole === "SUPER_ADMIN" || user?.isSuperuser === true;
 }

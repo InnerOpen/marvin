@@ -2,13 +2,13 @@
 
 from functools import cached_property
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from pydantic import UUID4
 
-from marvin.schemas.platform import APIClientCreate, APIClientRead, APIClientUpdate, APIClientWithToken
 from marvin.repos.platform import APIClientsRepository
 from marvin.routes._base import BaseAdminController, controller
 from marvin.routes._base.mixins import HttpRepo
+from marvin.schemas.platform import APIClientCreate, APIClientRead, APIClientUpdate, APIClientWithToken
 
 router = APIRouter(prefix="/site-clients")
 
@@ -27,9 +27,7 @@ class AdminSiteClientsRoutes(BaseAdminController):
     @property
     def mixins(self) -> HttpRepo[APIClientCreate, APIClientRead, APIClientUpdate]:
         """Mixin for CRUD operations."""
-        return HttpRepo[APIClientCreate, APIClientRead, APIClientUpdate](
-            self.repo, self.logger, self.registered_exceptions
-        )
+        return HttpRepo[APIClientCreate, APIClientRead, APIClientUpdate](self.repo, self.logger, self.registered_exceptions)
 
     @router.get("", response_model=list[APIClientRead], summary="List Site Clients")
     def get_all(self) -> list[APIClientRead]:
@@ -50,15 +48,14 @@ class AdminSiteClientsRoutes(BaseAdminController):
     @router.put("/{client_id}", response_model=APIClientRead, summary="Update Site Client")
     def update(self, client_id: UUID4, schema: APIClientUpdate) -> APIClientRead:
         """Update a site client."""
-        schema.id = client_id
-        return self.mixins.update(schema)
+        return self.mixins.update_one(client_id, schema)
 
     @router.post("/{client_id}/rotate-token", response_model=APIClientWithToken, summary="Rotate API Token")
     def rotate_token(self, client_id: UUID4) -> APIClientWithToken:
         """Generate a new token for this site client. Old token becomes invalid."""
         return self.repo.rotate_token(client_id)
 
-    @router.delete("/{client_id}", summary="Delete Site Client")
-    def delete(self, client_id: UUID4) -> dict:
+    @router.delete("/{client_id}", response_model=APIClientRead, summary="Delete Site Client")
+    def delete(self, client_id: UUID4) -> APIClientRead:
         """Delete a site client."""
-        return self.mixins.delete(client_id)
+        return self.mixins.delete_one(client_id)

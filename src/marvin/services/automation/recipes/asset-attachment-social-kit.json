@@ -1,0 +1,69 @@
+{
+  "name": "Asset attachment social kit",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "asset_attached_to_entry"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      },
+      {
+        "field": "asset.mime_type",
+        "op": "starts_with",
+        "value": "image/"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "kit",
+        "op": "custom",
+        "entity_type": "asset",
+        "see": [
+          "item",
+          "images"
+        ],
+        "prompt": "This image was just added to “${entry.title}”. Write a social media caption for it ({{caption_style}}) and suggest how to crop it for a square post and a tall story.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "caption": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 500
+            },
+            "square_crop": {
+              "type": "string",
+              "description": "What to keep in a 1:1 crop"
+            },
+            "story_crop": {
+              "type": "string",
+              "description": "What to keep in a 9:16 crop"
+            }
+          },
+          "required": [
+            "caption",
+            "square_crop",
+            "story_crop"
+          ]
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "social_caption": "${steps.kit.output.caption}",
+          "social_crops": {
+            "square": "${steps.kit.output.square_crop}",
+            "story": "${steps.kit.output.story_crop}",
+            "asset_id": "${asset.id}"
+          }
+        }
+      }
+    ]
+  }
+}

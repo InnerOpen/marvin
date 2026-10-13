@@ -1,0 +1,53 @@
+{
+  "name": "Fictional debate club",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "target": {
+      "entity": "entry",
+      "query": {
+        "entry_type": "{{entry_type}}",
+        "status": "published"
+      }
+    },
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "debate",
+        "op": "custom",
+        "prompt": "Write a short, clearly fictional dialogue about “${entry.title}” between these viewpoints: {{viewpoints}}. Each makes its best case in its own voice; nobody wins; stay respectful. Give it a title.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 5
+            },
+            "dialogue": {
+              "type": "string",
+              "minLength": 200
+            }
+          },
+          "required": [
+            "title",
+            "dialogue"
+          ]
+        }
+      },
+      {
+        "kind": "entry",
+        "id": "draft",
+        "op": "create",
+        "entry_type": "{{draft_entry_type}}",
+        "title": "${steps.debate.output.title}",
+        "data": {
+          "{{body_field}}": "A fictional debate — the speakers are made up.\n\n${steps.debate.output.dialogue}"
+        },
+        "metadata": {
+          "debate_on": "${entry.id}"
+        }
+      }
+    ]
+  }
+}

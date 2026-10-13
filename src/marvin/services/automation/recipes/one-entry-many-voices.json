@@ -1,0 +1,63 @@
+{
+  "name": "One entry, many voices",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "voices",
+        "op": "custom",
+        "see": [
+          "item",
+          "persona"
+        ],
+        "prompt": "Rewrite “${entry.title}” three ways, keeping its meaning and facts: a LinkedIn post (a few short paragraphs), a short post (under 280 characters), and a friendly community post that invites replies. Don't invent anything.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "linkedin": {
+              "type": "string",
+              "minLength": 40
+            },
+            "short_post": {
+              "type": "string",
+              "minLength": 10
+            },
+            "community": {
+              "type": "string",
+              "minLength": 40
+            }
+          },
+          "required": [
+            "linkedin",
+            "short_post",
+            "community"
+          ]
+        }
+      },
+      {
+        "kind": "entry",
+        "id": "draft",
+        "op": "create",
+        "entry_type": "{{draft_entry_type}}",
+        "title": "Voices: ${entry.title}",
+        "data": {
+          "{{body_field}}": "LinkedIn:\n${steps.voices.output.linkedin}\n\nShort post:\n${steps.voices.output.short_post}\n\nCommunity:\n${steps.voices.output.community}"
+        },
+        "metadata": {
+          "voices_of": "${entry.id}"
+        }
+      }
+    ]
+  }
+}

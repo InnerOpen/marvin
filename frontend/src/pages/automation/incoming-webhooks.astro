@@ -1,0 +1,447 @@
+---
+import AppLayout from "@/layouts/AppLayout.astro";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { getBrowserApiBaseUrl } from "@/lib/api/config";
+import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import { createSdkClient } from "@/lib/sdk";
+
+const authToken = getAuthToken(Astro.cookies);
+const sdk = createSdkClient(authToken);
+
+let workspace: any = null;
+let webhooks: any[] = [];
+let schemes: any[] = [];
+let error: string | null = null;
+
+try {
+  workspace = await getCurrentWorkspace(authToken);
+  if (workspace) webhooks = await sdk.incomingWebhooks.list();
+  // Core presets, presets from installed integrations, then "custom".
+  if (workspace) schemes = await fetchApi<any[]>("/api/incoming-webhooks/signature-schemes", {}, authToken);
+} catch (e) {
+  console.error("[incoming-webhooks] Error loading:", e);
+  error = e instanceof Error ? e.message : String(e);
+}
+
+const listJson = JSON.stringify(webhooks).replace(/</g, "\\u003c");
+const schemesJson = JSON.stringify(schemes).replace(/</g, "\\u003c");
+// Shown to the user to configure an external system that POSTs here, so it must be the publicly
+// reachable address rather than an internal cluster one.
+const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
+---
+
+<AppLayout crumb="automation.incoming-webhooks">
+ <div class="iw-page" data-hook-base={hookBase}>
+  <script type="application/json" id="iw-list-data" is:inline set:html={listJson}></script>
+  <script type="application/json" id="iw-schemes-data" is:inline set:html={schemesJson}></script>
+  <div class="toolbar">
+    <div>
+      <h2>Incoming Webhooks</h2>
+      <p>Give an external system a secret URL. When it POSTs, Marvin fires an event your workflows can react to.</p>
+    </div>
+    <button id="iw-new" class="button">New webhook</button>
+  </div>
+
+  <div class="page-container">
+    {error && <div class="banner error">{error}</div>}
+
+    <!-- Create form (hidden until New) -->
+    <section id="iw-create" class="create-card" hidden>
+      <div class="form-row">
+        <label class="form-field grow">
+          <span class="label">Name</span>
+          <input class="input" id="iw-name" placeholder="e.g. Stripe payments" />
+        </label>
+        <label class="form-field">
+          <span class="label">Enabled</span>
+          <label class="switch"><input type="checkbox" id="iw-enabled" checked /><span class="track"></span></label>
+        </label>
+      </div>
+      <label class="form-field">
+        <span class="label">Description <span class="muted">(optional)</span></span>
+        <input class="input" id="iw-desc" placeholder="What sends to this webhook?" />
+      </label>
+      <div class="form-row">
+        <label class="form-field grow">
+          <span class="label">Signing secret <span class="muted">(optional — slug of a workspace Secret holding the sender's HMAC key)</span></span>
+          <input class="input" id="iw-signing" placeholder="e.g. WEBHOOK_SIGNING_KEY" />
+        </label>
+        <label class="form-field grow">
+          <span class="label">Signature header <span class="muted">(default X-Signature-256)</span></span>
+          <input class="input" id="iw-sig-header" placeholder="e.g. X-Hub-Signature-256" />
+        </label>
+      </div>
+      <p class="hint">With a signing secret set, every request must be signed or it is rejected — by default <code>sha256=&lt;hex HMAC-SHA256 of the raw body&gt;</code> in that header. After creating, pick another scheme under <strong>Signing</strong> (Stripe, Slack, Shopify, Standard Webhooks, an integration's own, or custom).</p>
+      <div class="create-actions">
+        <button id="iw-create-btn" class="button">Create</button>
+        <button id="iw-cancel" class="button ghost" type="button">Cancel</button>
+        <span id="iw-create-status" class="hint"></span>
+      </div>
+    </section>
+
+    <div id="iw-list" class="iw-list"></div>
+    <div id="iw-empty" class="empty" hidden>No incoming webhooks yet. Create one to get a URL.</div>
+  </div>
+ </div>
+</AppLayout>
+
+<script>
+  import { createSdkClient } from "@/lib/sdk";
+
+  const sdk = () => createSdkClient();
+  const $ = (id: string): any => document.getElementById(id);
+  const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+
+  const hookBase = (document.querySelector(".iw-page") as HTMLElement).dataset.hookBase || "";
+  let webhooks: any[] = JSON.parse($("iw-list-data").textContent || "[]");
+  const schemes: any[] = JSON.parse($("iw-schemes-data").textContent || "[]");
+  // What the sender must do, in the selected scheme's own words (its notes), so the hint never
+  // describes a different scheme than the one picked.
+  // Whether the sender makes the key and shows it (Stripe, Slack, Square…): then there is nothing to generate,
+  // only the sender's key to paste into the secret.
+  const senderIssuesKey = (name: string) => Boolean(schemes.find((x) => x.name === name)?.sender_issues_key);
+  const signingHint = (name: string) => {
+    if (name === "custom") return "The sender signs as described in the JSON below.";
+    const notes = schemes.find((x) => x.name === name)?.notes;
+    const how = notes ? `The sender must sign: ${notes}.` : "The sender must sign each request with this scheme.";
+    return senderIssuesKey(name)
+      ? `${how} The sender gives you the signing key: store it as the secret named above (Settings → Secrets), then Save.`
+      : how;
+  };
+  const schemeLabel = (name) => {
+    const s = schemes.find((x) => x.name === name);
+    return s ? `${name}${s.source !== "core" ? ` (from ${s.source})` : ""}` : name;
+  };
+
+  function hookUrl(token) { return `${hookBase}/${token}`; }
+  function fmtWhen(iso) {
+    if (!iso) return "never";
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? "never" : d.toLocaleString();
+  }
+
+  function card(w) {
+    const tokenBlock = w.token
+      ? `<div class="token-live">
+           <input class="input url" readonly value="${esc(hookUrl(w.token))}" data-url />
+           <button class="button ghost sm" data-act="copy">Copy</button>
+           <button class="button ghost sm" data-act="toggle-test">Send test</button>
+           <button class="button ghost sm" data-act="rotate">Rotate</button>
+           <button class="button ghost sm danger" data-act="revoke">Revoke</button>
+         </div>
+         <span class="hint" data-status></span>
+         <div class="test-panel" data-test-panel hidden>
+           <span class="hint">Test payload (JSON) — reaches your workflows as <code>$event.payload.*</code>:</span>
+           <textarea class="input test-payload" rows="4" spellcheck="false">{
+  "entry_slug": ""
+}</textarea>
+           <div class="test-actions">
+             <button class="button sm" data-act="send-test">Send</button>
+             <button class="button ghost sm" data-act="cancel-test">Cancel</button>
+             <span class="hint" data-test-status></span>
+           </div>
+         </div>`
+      : `<div class="token-none">
+           <span class="hint">No token yet — the endpoint is inactive.</span>
+           <button class="button sm" data-act="mint">Create token</button>
+           <span class="hint" data-status></span>
+         </div>`;
+
+    return `<div class="iw-card" data-id="${esc(w.id)}">
+      <div class="iw-head">
+        <div>
+          <strong>${esc(w.name)}</strong>
+          <code class="slug">${esc(w.slug)}</code>
+          ${w.description ? `<span class="desc">${esc(w.description)}</span>` : ""}
+        </div>
+        <div class="iw-head-actions">
+          <label class="switch" title="Enabled"><input type="checkbox" data-act="toggle" ${w.enabled ? "checked" : ""} /><span class="track"></span></label>
+          <button class="button ghost sm danger" data-act="delete" title="Delete">Delete</button>
+        </div>
+      </div>
+      ${tokenBlock}
+      <div class="signing-row">
+        <span class="hint">Signing: ${w.signingSecretRef
+          ? `${esc(schemeLabel(w.signatureScheme || "hmac_sha256_hex"))} with secret <code>${esc(w.signingSecretRef)}</code>${w.signatureHeader ? ` in header <code>${esc(w.signatureHeader)}</code>` : ""}`
+          : "off — the URL token is the only credential"}</span>
+        <button class="button ghost sm" data-act="edit-signing">${w.signingSecretRef ? "Change" : "Set up signing"}</button>
+      </div>
+      <div class="signing-edit" hidden>
+        <input class="input" data-signing-ref placeholder="Secret slug, e.g. WEBHOOK_SIGNING_KEY" value="${esc(w.signingSecretRef || "")}" />
+        <input class="input" data-signing-header placeholder="Header (blank = the scheme's own)" value="${esc(w.signatureHeader || "")}" />
+        <select class="input" data-signing-scheme title="How the sender signs">
+          ${schemes.map((s) => `<option value="${esc(s.name)}" title="${esc(s.notes || "")}" ${(w.signatureScheme || "hmac_sha256_hex") === s.name ? "selected" : ""}>${esc(schemeLabel(s.name))}${s.notes ? ` — ${esc(s.notes)}` : ""}</option>`).join("")}
+        </select>
+        <input class="input url" data-signing-url placeholder="Signed URL — only for schemes that sign the URL (the exact URL you gave the sender)" value="${esc(w.signatureUrl || (w.token ? hookUrl(w.token) : ""))}" />
+        <textarea class="input mono" data-signing-config rows="5" spellcheck="false" ${w.signatureScheme === "custom" ? "" : "hidden"} placeholder='{"algorithm": "sha256", "encoding": "base64", "message": "{url}{body}", "header": "X-Signature"}'>${esc(w.signatureConfig ? JSON.stringify(w.signatureConfig, null, 2) : "")}</textarea>
+        <button class="button sm" data-act="save-signing">Save</button>
+        <button class="button ghost sm" data-act="gen-signing" title="Create a random key, store it as that secret, and show it once so you can paste it into the sender" ${senderIssuesKey(w.signatureScheme || "hmac_sha256_hex") ? "hidden" : ""}>Generate key</button>
+        <button class="button ghost sm" data-act="cancel-signing">Cancel</button>
+        <span class="hint">Leave the secret blank to turn verification off. <span data-signing-hint>${esc(signingHint(w.signatureScheme || "hmac_sha256_hex"))}</span></span>
+        <div class="signing-reveal" hidden>
+          <input class="input url" readonly data-signing-value />
+          <button class="button ghost sm" data-act="copy-signing">Copy</button>
+          <span class="hint">Shown once. Paste it into the sender's signing-key field now; Marvin keeps only the encrypted secret.</span>
+        </div>
+      </div>
+      <div class="iw-meta">
+        <span>${w.receivedCount || 0} received</span>
+        <span>·</span>
+        <span>last: ${esc(fmtWhen(w.lastReceivedAt))}</span>
+        ${!w.enabled ? `<span class="pill">disabled</span>` : ""}
+        ${w.signingSecretRef ? `<span class="pill" title="Requests are verified (${esc(schemeLabel(w.signatureScheme || "hmac_sha256_hex"))}) with secret ${esc(w.signingSecretRef)}${w.signatureHeader ? ` in header ${esc(w.signatureHeader)}` : ""}">verified</span>` : ""}
+      </div>
+    </div>`;
+  }
+
+  function render() {
+    const list = $("iw-list");
+    list.innerHTML = webhooks.map(card).join("");
+    $("iw-empty").toggleAttribute("hidden", webhooks.length > 0);
+  }
+
+  function upsert(w) {
+    const i = webhooks.findIndex((x) => x.id === w.id);
+    if (i >= 0) webhooks[i] = w; else webhooks.push(w);
+    render();
+  }
+
+  // ── Create ────────────────────────────────────────────────────────────────
+  $("iw-new").addEventListener("click", () => $("iw-create").toggleAttribute("hidden"));
+  $("iw-cancel").addEventListener("click", () => $("iw-create").setAttribute("hidden", ""));
+  $("iw-create-btn").addEventListener("click", async () => {
+    const name = ($("iw-name")).value.trim();
+    const status = $("iw-create-status");
+    if (!name) { status.textContent = "Name is required."; return; }
+    status.textContent = "Creating…";
+    try {
+      const w = await sdk().incomingWebhooks.create({
+        name,
+        description: ($("iw-desc")).value.trim() || undefined,
+        enabled: ($("iw-enabled")).checked,
+        signingSecretRef: ($("iw-signing")).value.trim() || undefined,
+        signatureHeader: ($("iw-sig-header")).value.trim() || undefined,
+      } as any);
+      upsert(w);
+      ($("iw-name")).value = ""; ($("iw-desc")).value = ""; ($("iw-signing")).value = ""; ($("iw-sig-header")).value = "";
+      $("iw-create").setAttribute("hidden", "");
+      status.textContent = "";
+    } catch (e) { status.textContent = `Error: ${e?.message ?? e}`; }
+  });
+
+  // Custom is the only scheme with settings of its own — show its JSON box only when it's picked.
+  $("iw-list").addEventListener("change", (ev: Event) => {
+    const sel = ev.target as HTMLElement;
+    if (!sel.matches?.("[data-signing-scheme]")) return;
+    const box = sel.closest(".signing-edit");
+    const picked = (sel as HTMLSelectElement).value;
+    box?.querySelector("[data-signing-config]")?.toggleAttribute("hidden", picked !== "custom");
+    const hint = box?.querySelector("[data-signing-hint]");
+    if (hint) hint.textContent = signingHint(picked);
+    box?.querySelector('[data-act="gen-signing"]')?.toggleAttribute("hidden", senderIssuesKey(picked));
+  });
+
+  // ── Per-card actions (event delegation) ─────────────────────────────────────
+  $("iw-list").addEventListener("click", async (ev: Event) => {
+    const btn: any = (ev.target as HTMLElement).closest("[data-act]");
+    if (!btn) return;
+    const cardEl: any = btn.closest(".iw-card");
+    const id = cardEl?.dataset.id;
+    const w = webhooks.find((x) => x.id === id);
+    if (!w) return;
+    const act = btn.dataset.act;
+    const status = cardEl.querySelector("[data-status]");
+    const setStatus = (t: string, err?: boolean) => { if (status) { status.textContent = t; status.classList.toggle("error", !!err); } };
+
+    try {
+      if (act === "toggle") {
+        const enabled = btn.checked;
+        upsert(await sdk().incomingWebhooks.update(id, { enabled }));
+      } else if (act === "mint" || act === "rotate") {
+        if (act === "rotate" && !confirm("Rotate the token? The current URL will stop working immediately.")) return;
+        setStatus(act === "mint" ? "Creating token…" : "Rotating…");
+        upsert(await sdk().incomingWebhooks.mintToken(id));
+        setStatus("");
+      } else if (act === "revoke") {
+        if (!confirm("Revoke the token? The endpoint will reject all requests until you mint a new one.")) return;
+        upsert(await sdk().incomingWebhooks.revokeToken(id));
+      } else if (act === "delete") {
+        if (!confirm(`Delete “${w.name}”? This can't be undone.`)) return;
+        await sdk().incomingWebhooks.delete(id);
+        webhooks = webhooks.filter((x) => x.id !== id);
+        render();
+      } else if (act === "edit-signing" || act === "cancel-signing") {
+        btn.closest(".iw-card, .iw-item, [data-id]")?.querySelector(".signing-edit")?.toggleAttribute("hidden", act === "cancel-signing");
+      } else if (act === "gen-signing") {
+        const box = btn.closest(".signing-edit");
+        const refInput = box.querySelector("[data-signing-ref]") as HTMLInputElement;
+        const slug = (refInput.value.trim() || `${w.slug}_SIGNING_KEY`).toUpperCase().replace(/[^A-Z0-9_]+/g, "_");
+        const bytes = new Uint8Array(32); crypto.getRandomValues(bytes);
+        const value = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+        setStatus("Creating secret…");
+        try {
+          await sdk().secrets.create({ name: `${w.name} signing key`, slug, description: `HMAC signing key for incoming webhook "${w.slug}"`, value });
+        } catch (err) {
+          // A secret by that name already exists: replacing its value is the user's call (the old key stops working).
+          if (!/already exists|409/.test(String((err as Error)?.message ?? err))) throw err;
+          if (!confirm(`A secret named ${slug} already exists. Replace its value with a new key? Whatever uses the old key stops verifying.`)) {
+            setStatus("");
+            return;
+          }
+          const existing = (await sdk().secrets.list()).find((x: any) => x.slug === slug);
+          if (!existing) throw err;
+          await sdk().secrets.update(existing.id, { value } as any);
+        }
+        const signatureHeader = (box.querySelector("[data-signing-header]") as HTMLInputElement).value.trim() || null;
+        const updated = await sdk().incomingWebhooks.update(id, { signingSecretRef: slug, signatureHeader } as any);
+        // Re-render would drop the one-time reveal, so patch the card in place instead.
+        webhooks = webhooks.map((x) => (x.id === id ? updated : x));
+        refInput.value = slug;
+        const reveal = box.querySelector(".signing-reveal") as HTMLElement;
+        (reveal.querySelector("[data-signing-value]") as HTMLInputElement).value = value;
+        reveal.removeAttribute("hidden");
+        setStatus("");
+      } else if (act === "copy-signing") {
+        const v = (btn.closest(".signing-reveal").querySelector("[data-signing-value]") as HTMLInputElement).value;
+        await navigator.clipboard.writeText(v);
+        setStatus("Key copied.");
+      } else if (act === "save-signing") {
+        const box = btn.closest(".signing-edit");
+        const signingSecretRef = (box.querySelector("[data-signing-ref]") as HTMLInputElement).value.trim() || null;
+        const signatureHeader = (box.querySelector("[data-signing-header]") as HTMLInputElement).value.trim() || null;
+        const scheme = (box.querySelector("[data-signing-scheme]") as HTMLSelectElement).value;
+        const signatureScheme = scheme === "hmac_sha256_hex" ? null : scheme;
+        // Stored for every scheme; only those whose message includes {url} use it.
+        const signatureUrl = (box.querySelector("[data-signing-url]") as HTMLInputElement).value.trim() || null;
+        let signatureConfig = null;
+        if (scheme === "custom") {
+          try { signatureConfig = JSON.parse((box.querySelector("[data-signing-config]") as HTMLTextAreaElement).value || "{}"); }
+          catch { setStatus("Custom config must be valid JSON.", true); return; }
+        }
+        setStatus("Saving…");
+        upsert(await sdk().incomingWebhooks.update(id, { signingSecretRef, signatureHeader, signatureScheme, signatureUrl, signatureConfig } as any));
+        setStatus("");
+      } else if (act === "copy") {
+        await navigator.clipboard.writeText(hookUrl(w.token));
+        setStatus("Copied.");
+        setTimeout(() => setStatus(""), 1500);
+      } else if (act === "toggle-test") {
+        const panel = cardEl.querySelector("[data-test-panel]");
+        panel?.toggleAttribute("hidden");
+        if (panel && !panel.hasAttribute("hidden")) cardEl.querySelector(".test-payload")?.focus();
+      } else if (act === "cancel-test") {
+        cardEl.querySelector("[data-test-panel]")?.setAttribute("hidden", "");
+      } else if (act === "send-test") {
+        // Simulate an external caller with the author's own JSON body; ?wait=1 runs inline.
+        const ta = cardEl.querySelector(".test-payload") as HTMLTextAreaElement | null;
+        const tStatus = cardEl.querySelector("[data-test-status]") as HTMLElement | null;
+        const setT = (t: string, err?: boolean) => { if (tStatus) { tStatus.textContent = t; tStatus.classList.toggle("error", !!err); } };
+        let payload: any;
+        try { payload = JSON.parse(ta?.value || "{}"); }
+        catch (e: any) { setT(`Invalid JSON: ${e?.message ?? e}`, true); return; }
+        setT("Sending…");
+        const res = await fetch(`${hookUrl(w.token)}?wait=1`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (res.ok) {
+          setT(`Fired (${body.status ?? "ok"}).`);
+          upsert(await sdk().incomingWebhooks.get(id));  // refresh counts (re-renders card)
+        } else {
+          setT(`Failed: ${body.detail ?? res.status}`, true);
+        }
+      }
+    } catch (e) { setStatus(`Error: ${e?.message ?? e}`, true); }
+  });
+
+  render();
+</script>
+
+<style>
+  .iw-page { max-width: 900px; }
+  .toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+  .toolbar h2 { margin: 0 0 4px; font-size: 22px; }
+  .toolbar p { margin: 0; color: var(--muted); font-size: 14px; max-width: 60ch; }
+  .page-container { display: flex; flex-direction: column; gap: 16px; }
+
+  .banner { padding: 12px 14px; border-radius: var(--radius); font-size: 14px; }
+  .banner.error { background: var(--color-error-bg, rgba(192,57,43,.1)); color: var(--color-error, #c0392b); border: 1px solid var(--color-error, #c0392b); }
+
+  .button { padding: 8px 14px; border-radius: var(--radius); border: 1px solid var(--accent); background: var(--accent); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .button.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+  .button.sm { padding: 4px 10px; font-size: 12px; }
+  .button.danger { color: var(--color-error, #c0392b); border-color: var(--color-error, #c0392b); }
+  .button.ghost.danger { background: transparent; }
+
+  .create-card, .iw-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+  .create-card[hidden] { display: none; }
+  .form-row { display: flex; gap: 14px; align-items: flex-end; }
+  .form-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  .form-field.grow { flex: 1; }
+  .label { font-size: 13px; font-weight: 600; }
+  .muted { color: var(--muted); font-weight: 400; }
+  .input { padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 14px; background: var(--bg); color: var(--ink); width: 100%; box-sizing: border-box; }
+  .input:focus { border-color: var(--accent); outline: none; }
+  .create-actions { display: flex; align-items: center; gap: 10px; }
+
+  .switch { position: relative; display: inline-block; width: 38px; height: 22px; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch .track { position: absolute; inset: 0; background: var(--line); border-radius: 999px; transition: .2s; }
+  .switch .track::before { content: ""; position: absolute; height: 16px; width: 16px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .2s; }
+  .switch input:checked + .track { background: var(--accent); }
+  .switch input:checked + .track::before { transform: translateX(16px); }
+
+  .iw-list { display: flex; flex-direction: column; gap: 12px; }
+  .hint { font-size: 12px; color: var(--muted); }
+  .hint.error { color: var(--color-error, #c0392b); }
+  .empty { color: var(--muted); font-size: 14px; padding: 24px; text-align: center; border: 1px dashed var(--line); border-radius: var(--radius); }
+
+  /* Card internals are rendered in JS → style via :global(). */
+  .iw-list :global(.iw-card) { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .iw-list :global(.iw-head) { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .iw-list :global(.iw-head strong) { font-size: 15px; }
+  .iw-list :global(.slug) { margin-left: 8px; font-size: 12px; color: var(--muted); background: var(--bg); padding: 1px 6px; border-radius: 4px; }
+  .iw-list :global(.desc) { display: block; margin-top: 4px; font-size: 13px; color: var(--muted); }
+  .iw-list :global(.iw-head-actions) { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .iw-list :global(.button) { padding: 8px 14px; border-radius: var(--radius); border: 1px solid var(--line); background: transparent; color: var(--ink); font-size: 14px; font-weight: 600; cursor: pointer; }
+  .iw-list :global(.button.sm) { padding: 4px 10px; font-size: 12px; }
+  .iw-list :global(.button.danger) { color: var(--color-error, #c0392b); border-color: var(--color-error, #c0392b); }
+  .iw-list :global(.token-live) { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .iw-list :global(.token-live .url) { flex: 1; min-width: 240px; font-family: var(--mono, monospace); font-size: 12px; }
+  .iw-list :global(.token-none) { display: flex; gap: 10px; align-items: center; }
+  .iw-list :global(.signing-row) { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 13px; }
+  .iw-list :global(.signing-edit) { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+  .iw-list :global(.signing-edit .input) { flex: 1; min-width: 200px; }
+  .iw-list :global(.signing-reveal) { flex-basis: 100%; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .iw-list :global(.test-panel) { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+  .iw-list :global(.test-panel[hidden]) { display: none; }
+  .iw-list :global(.test-payload) { width: 100%; box-sizing: border-box; font-family: var(--mono, monospace); font-size: 12px; resize: vertical; }
+  .iw-list :global(.test-actions) { display: flex; align-items: center; gap: 8px; }
+  .iw-list :global(.button.sm.danger) { color: var(--color-error, #c0392b); border-color: var(--color-error, #c0392b); }
+  .iw-list :global(.iw-meta) { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+  .iw-list :global(.pill) { padding: 1px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); font-size: 11px; }
+  .iw-list :global(.switch) { position: relative; display: inline-block; width: 38px; height: 22px; }
+  .iw-list :global(.switch input) { opacity: 0; width: 0; height: 0; }
+  .iw-list :global(.switch .track) { position: absolute; inset: 0; background: var(--line); border-radius: 999px; transition: .2s; }
+  .iw-list :global(.switch .track::before) { content: ""; position: absolute; height: 16px; width: 16px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .2s; }
+  .iw-list :global(.switch input:checked + .track) { background: var(--accent); }
+  .iw-list :global(.switch input:checked + .track::before) { transform: translateX(16px); }
+  .iw-list :global(.hint) { font-size: 12px; color: var(--muted); }
+  .iw-list :global(.hint.error) { color: var(--color-error, #c0392b); }
+
+  /* Phones: the create form's field pairs stack, a long name or slug wraps instead of pushing the
+     toggle and Delete off the card, and the small buttons get finger-sized. */
+  @media (max-width: 640px) {
+    .form-row { flex-wrap: wrap; }
+    .form-field.grow { flex: 1 1 220px; }
+    .create-actions { flex-wrap: wrap; }
+    .iw-list :global(.iw-head > div:first-child) { min-width: 0; overflow-wrap: anywhere; }
+    .iw-list :global(.button.sm),
+    .button.sm { min-height: 36px; }
+    .iw-list :global(.token-live .url) { min-width: 0; flex-basis: 100%; }
+    .iw-list :global(.signing-edit .input) { min-width: 0; flex-basis: 100%; }
+  }
+</style>

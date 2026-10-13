@@ -1,0 +1,88 @@
+---
+// Automation → Approvals: workflow runs waiting at an Approval step that you may decide. Approve or Deny (with an
+// optional note) and the run goes on from the next step with ${steps.<id>.output.decision}. Editors and above; a step
+// may ask for admins. Backend: routes/automations/automations_controller.py, services/automation/approvals.py.
+import LocalTime from "@/components/LocalTime.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { listApprovals, type WorkflowApproval } from "@/lib/api/workflowApprovals";
+import { isForbidden } from "@/lib/workspaceRole";
+
+const authToken = getAuthToken(Astro.cookies);
+let approvals: WorkflowApproval[] = [];
+let error: string | null = null;
+let restricted = false;
+try {
+  approvals = await listApprovals(authToken);
+} catch (e) {
+  if (isForbidden(e)) restricted = true;
+  else error = e instanceof Error ? e.message : String(e);
+}
+---
+
+<AppLayout crumb="automation.approvals" restrictedNote={restricted ? "Approvals are for editors and above." : null}>
+  <div class="toolbar">
+    <div>
+      <h2>Approvals</h2>
+      <p>Workflow runs waiting for a person. Approve or deny and the run goes on from its next step; if nobody decides in time it goes on as expired.</p>
+    </div>
+  </div>
+  {error && <div class="alert error">Could not load approvals: {error}</div>}
+  {!error && approvals.length === 0 && <p class="muted empty">Nothing is waiting for you.</p>}
+  <div class="approvals">
+    {approvals.map((a) => (
+      <article class="approval" data-id={a.id}>
+        <p class="ask">{a.message}</p>
+        <p class="meta">
+          {a.automationName ?? "A workflow"}
+          {a.entryId && (<> · <a href={`/workspace/entries/${a.entryId}`}>{a.entryTitle ?? "the entry"}</a></>)}
+          {" "}· asked <LocalTime iso={a.createdAt} fallback="" /> · expires <LocalTime iso={a.expiresAt} fallback="" />
+          {a.approvers === "admin" && <span class="badge">admins</span>}
+        </p>
+        <div class="decide">
+          <input class="input note" placeholder="Note (optional)" maxlength="500" />
+          <button type="button" class="button js-decide" data-decision="approve">Approve</button>
+          <button type="button" class="button secondary js-decide" data-decision="deny">Deny</button>
+        </div>
+        <p class="result" hidden></p>
+      </article>
+    ))}
+  </div>
+</AppLayout>
+
+<script>
+  import { decideApproval } from "@/lib/api/workflowApprovals";
+
+  document.querySelectorAll<HTMLButtonElement>(".js-decide").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const card = btn.closest<HTMLElement>(".approval")!;
+      const result = card.querySelector<HTMLElement>(".result")!;
+      card.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
+      try {
+        const note = card.querySelector<HTMLInputElement>(".note")!.value.trim();
+        const out = await decideApproval(card.dataset.id!, btn.dataset.decision as "approve" | "deny", note);
+        result.textContent =
+          out.status === "stale"
+            ? "The entry changed after this was asked, so it went on as stale — nothing approved was applied."
+            : `${out.status === "approved" ? "Approved" : "Denied"} — the workflow went on.`;
+        card.querySelector(".decide")!.remove();
+      } catch (e: any) {
+        result.textContent = e?.message ?? String(e);
+        card.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = false));
+      }
+      result.hidden = false;
+    }),
+  );
+</script>
+
+<style>
+  .approvals { display: grid; gap: 12px; max-width: 760px; }
+  .approval { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; background: var(--panel); }
+  .ask { margin: 0 0 6px; font-weight: 600; }
+  .meta { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+  .badge { margin-left: 6px; font-size: 11px; padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; }
+  .decide { display: flex; flex-wrap: wrap; gap: 8px; }
+  .decide .note { flex: 1 1 220px; }
+  .result { margin: 8px 0 0; font-size: 13px; }
+  .empty { margin-top: 12px; }
+</style>

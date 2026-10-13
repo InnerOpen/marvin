@@ -1,0 +1,10 @@
+{
+  "recipe": "soundtrack-brief",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "Which stories get a soundtrack brief when you run it.",
+      "example": "article"
+    }
+  }
+}

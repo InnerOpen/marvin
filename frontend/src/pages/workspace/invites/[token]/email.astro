@@ -12,14 +12,14 @@ let error: string | null = null;
 try {
   workspace = await getCurrentWorkspace(authToken);
 } catch (e) {
-  console.error('[invites/email] Error:', e);
+  console.error("[invites/email] Error:", e);
   error = e instanceof Error ? e.message : String(e);
 }
 
 const registerUrl = `${Astro.url.origin}/register?token=${token}`;
 ---
 
-<AppLayout title="Email Invite" eyebrow="Workspace">
+<AppLayout crumb="settings.invites.email">
   <div class="page-header">
     <div>
       <h2>Send Email Invitation</h2>

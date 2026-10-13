@@ -1,0 +1,35 @@
+{
+  "name": "Content refresh",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_updated"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      },
+      {
+        "field": "entry.status",
+        "op": "eq",
+        "value": "published"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "webhook",
+        "id": "refresh",
+        "webhook_id": "{{refresh_webhook_id}}",
+        "body": {
+          "entry_id": "${entry.id}",
+          "slug": "${entry.slug}",
+          "url": "${entry.url}",
+          "title": "${entry.title}",
+          "changed_fields": "${event.changed_fields}"
+        }
+      }
+    ]
+  }
+}

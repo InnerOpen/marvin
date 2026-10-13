@@ -1,0 +1,151 @@
+# Deployment values for the `marvin` release in namespace `marvin-dev` on the iwobble OpenShift cluster:
+# where changes land before production. Split topology, follows the moving `develop` images, Postgres
+# on a CloudNativePG cluster rendered by this chart. Not for real users.
+#
+#   helm upgrade --install marvin marvin-chart -n marvin-dev -f marvin-chart/values-dev.yaml
+#
+# Prerequisites and the runbook: docs/manual/postgres.md — the CNPG operator (installed) and Secret
+# `marvin-r2-backup` in this namespace (BACKUP_S3_BUCKET=marvin-backups-dev).
+
+mode: split
+
+# Dev tracks develop: every CI build of develop is picked up on the next rollout
+# (`oc rollout restart deploy/marvin-backend deploy/marvin-frontend -n marvin-dev`).
+image:
+  repository: ghcr.io/inneropen/marvin   # backend/frontend derive as -backend / -frontend
+  tag: develop
+  pullPolicy: Always
+
+# The database is Postgres, so the backend can roll: the new pod serves before the old one drains
+# (split.backend.strategy left empty = the shared RollingUpdate). One replica still — uploaded assets
+# live on the RWO data PVC below.
+split:
+  backend:
+    replicaCount: 1
+
+config:
+  production: true      # OpenShift's random UID can't write /app/dev (dev mode); dev uses DATA_DIR too
+  environmentLabel: DEV # badge + "[DEV] " tab titles, so dev is never mistaken for production
+  logLevel: INFO
+  dbEngine: postgres
+  # Public tunnel hosts (Cloudflare, one level deep so the free *.iwobble.com certificate covers them):
+  # admin-dev.iwobble.com → UI, api-dev.iwobble.com → API. The LAN .apps routes below keep working.
+  publicApiUrl: https://api-dev.iwobble.com
+  corsOrigins: "https://admin-dev.iwobble.com,https://marvin-marvin-dev.apps.ocp4.iwobble.com"
+
+# Web Push for the installable admin app: VAPID keys from this Secret (create it first — see
+# docs/manual/app-and-push.md; until it exists the backend starts with push off).
+webPush:
+  existingSecret: marvin-vapid
+
+# Postgres: CloudNativePG cluster `marvin-dev-pg` (Secret `marvin-dev-pg-app` → POSTGRES_*).
+postgres:
+  cluster:
+    enabled: true
+    name: marvin-dev-pg
+    # NFS is the only storage class on this cluster; see docs/manual/postgres.md ("Storage").
+    storage:
+      size: 10Gi
+      storageClass: managed-nfs-storage
+
+# Dev shares worker01 with production: it yields first (PriorityClass marvin-dev-low, never preempts) and bursts to
+# half a CPU per pod. The namespace's quota (.github/deploy/marvin-dev-limits.yaml) is sized for these numbers.
+priorityClassName: marvin-dev-low
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 768Mi
+
+# Same relaxed probe cadence as production (see values-iwobble.yaml for why).
+livenessProbe:
+  periodSeconds: 30
+  timeoutSeconds: 15
+  failureThreshold: 5
+readinessProbe:
+  periodSeconds: 15
+  timeoutSeconds: 10
+
+# Uploaded assets and the installation .secret (the database is in Postgres).
+persistence:
+  enabled: true
+  storageClass: managed-nfs-storage
+  size: 2Gi
+
+# Backups: the backup engine, one CronJob per target (marvin-backup-<name>; docs/manual/offsite-backup.md).
+# r2: hourly pg_dump (+ config + assets) to dev's own bucket, marvin-backups-dev (BACKUP_S3_BUCKET in the
+# Secret), through the s3 target of marvin-storage-s3 (a plugin baked into the image). Same key layout as the
+# old offsite_backup.py job, so it carries on that history. At most an hour of data lost; no point-in-time
+# recovery by choice. Retention 24 hourly + 7 daily, no weekly — less than production's, since dev's data
+# is disposable. Dev has no NAS target.
+backup:
+  # Admin → Scheduled Tasks can start these targets (run_backup_target: Run Now, or a Marvin-owned schedule) as a
+  # Job from the CronJob; renders Role marvin-backup-runner (get cronjobs, create/list jobs, this namespace only).
+  scheduledTasks:
+    enabled: true
+  targets:
+    - name: r2
+      type: s3
+      # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, BACKUP_S3_ENDPOINT, BACKUP_S3_BUCKET (region: the
+      # plugin's default, auto — right for R2).
+      existingSecret: marvin-r2-backup
+      schedule: "0 * * * *"
+      retention: {hourly: 24, daily: 7, weekly: 0}
+      # An hourly run must finish (or give up) well before the next one.
+      activeDeadlineSeconds: 2700
+      startingDeadlineSeconds: 900
+      # Assets on R2 (storage slice 8): the mirror also reads the s3 provider (bucket marvin-assets-dev).
+      env:
+        - {name: BACKUP_ASSET_PROVIDERS, value: s3}
+        - {name: STORAGE_S3_BUCKET, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_BUCKET}}}
+        - {name: STORAGE_S3_ENDPOINT, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_ENDPOINT}}}
+        - {name: STORAGE_S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_ACCESS_KEY}}}
+        - {name: STORAGE_S3_SECRET_KEY, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_SECRET_KEY}}}
+
+route:
+  enabled: true
+  ui:
+    enabled: true
+    host: marvin-marvin-dev.apps.ocp4.iwobble.com
+  api:
+    enabled: true
+    host: marvin-api-marvin-dev.apps.ocp4.iwobble.com
+  tls:
+    enabled: true
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  # Not for search engines, whatever hostname ends up in front of it.
+  responseHeaders:
+    - name: X-Robots-Tag
+      value: "noindex, nofollow"
+
+# --- Site-wide plugins ---------------------------------------------------------------------------
+# Baked into the image (pyproject.toml `plugins` group, pinned by uv.lock): the integrations,
+# marvin-storage-s3 (the r2 backup target) and marvin-ai-openai. Nothing is installed at start-up.
+# To add one or hot-fix one ahead of a build, list it here (see values.yaml).
+plugins:
+  packages: []
+
+extraEnv:
+  # Dev holds a copy of production: no scheduler, so nothing fires on its own (webhook delivery,
+  # scheduled tasks, queued site rebuilds, retries). The copy is also loaded with --pause-outbound.
+  # Turn it on only to test something that needs it, with outbound rows still paused.
+  - name: SCHEDULER_ENABLED
+    value: "false"
+  - name: STORAGE_LOCAL_PUBLIC_BASE_URL
+    value: https://marvin-api-marvin-dev.apps.ocp4.iwobble.com/assets
+  - name: INTEGRATION_HTTP_MAX_BYTES
+    value: "16777216"
+  # Assets on R2 (storage slice 8): the s3 provider is configured (Secret marvin-r2-assets, a token scoped to
+  # marvin-assets-dev only); which provider takes NEW uploads is the admin choice (Admin → Storage).
+  - name: STORAGE_REMOTE_PUBLIC_URL
+    value: https://assets-dev.iwobble.com
+  - name: STORAGE_S3_CACHE_CONTROL
+    value: "public, max-age=86400"
+  - {name: STORAGE_S3_BUCKET, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_BUCKET}}}
+  - {name: STORAGE_S3_ENDPOINT, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_ENDPOINT}}}
+  - {name: STORAGE_S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_ACCESS_KEY}}}
+  - {name: STORAGE_S3_SECRET_KEY, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_SECRET_KEY}}}

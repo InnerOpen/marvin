@@ -1,12 +1,13 @@
 version: "3"
+
+# Environment shared by every task. `.env` and `.dev.env` (when present) layer on top.
 env:
-  _DEFAULT_GROUP: Home
+  DEFAULT_GROUP: Default
   PRODUCTION: false
   API_PORT: 8080
   API_DOCS: True
   TOKEN_TIME: 256 # hours
-  # mailpit SMTP config
-  # start dev:services to use mailpit
+  # mailpit SMTP — run `task dev:services:start` to bring mailpit up
   SMTP_HOST: localhost
   SMTP_PORT: 1025
   SMTP_FROM_NAME: MarvinDev
@@ -15,98 +16,156 @@ env:
   BASE_URL: http://localhost:3000
   LANG: en-US
   LOG_LEVEL: DEBUG
+
 dotenv:
   - .env
   - .dev.env
+
+vars:
+  IMAGE: marvin
+
 tasks:
-  setup:
-    desc: Stup python dependencies
+  default:
+    desc: list all available tasks
     cmds:
-      - uv sync --group dev --group postgres
-      - uv run pre-commit install
-    sources:
-      - uv.lock
-      - pyproject.toml
-      - .pre-commit-config.yaml
-
-  docs:gen:
-    desc: runs the API documentation generator
-    cmds:
-      - uv run src/dev/code_generation/gen_docs_api.py
-
-  docs:
-    desc: runs the documentation server
-    dir: docs
-    deps:
-      - docs:gen
-    cmds:
-      - uv run -m mkdocs serve
-
-  frontend:setup:
-    desc: Install Astro frontend dependencies
-    dir: frontend
-    cmds:
-      - npm install
-
-  frontend:
-    desc: Runs the Astro frontend
-    dir: frontend
-    cmds:
-      - npm run dev
-
-  frontend:build:
-    desc: Builds the Astro frontend
-    dir: frontend
-    cmds:
-      - npm run build
-
-  setup:py:
-    desc: Setup python dependencies
-    cmds:
-      - uv sync --group dev --group postgres
-      - uv run pre-commit install
-    sources:
-      - uv.lock
-      - pyproject.toml
-      - .pre-commit-config.yaml
-
-  dev:generate:
-    desc: Generate the API documentation
-    cmds:
-      - uv run src/dev/code_generation/main.py
-      - task: py:format
+      - task --list
+    silent: true
 
   dev:clean:
-    desc: Cleans up development environment
-    vars:
-      DEV_DATA: ""
+    desc: remove local dev data (sqlite db, log, secret)
     cmds:
       - rm -rf src/dev/data/marvin*.db
       - rm -rf src/dev/data/marvin.log
       - rm -rf src/dev/data/.secret
 
-  py:mypy:
-    desc: Runs python type checking
+  dev:generate:
+    desc: run code generators
     cmds:
-      - uv run mypy src/marvin
+      - uv run src/dev/code_generation/main.py
+      - task: py:format
 
-  py:test:
-    desc: runs python tests (support args after '--')
-    cmds:
-      - uv run pytest {{ .CLI_ARGS }}
+  # dev:reset-and-seed:
+  #   desc: reset the dev environment and seed Mash & Burn Co. demo data
+  #   cmds:
+  #     - echo "Stopping Marvin service..."
+  #     - pkill -f "marvin-server|uvicorn.*marvin" || echo "No service running"
+  #     - sleep 2
+  #     - echo "Cleaning development environment..."
+  #     - task: dev:clean
+  #     - echo "Starting Marvin backend..."
+  #     - task py &
+  #     - sleep 5
+  #     - echo "Seeding demo data..."
+  #     - uv run scripts/seed_mashandburnco.py
+  #     - echo "✅ Reset complete! Marvin running with fresh data."
 
-  py:format:
-    desc: runs python code formater
+  dev:refresh:
+    desc: refresh marvin-dev from production's newest backup (database, outbound paused, missing assets)
     cmds:
-      - uv run ruff format src/marvin
+      - scripts/dev-refresh.sh {{.CLI_ARGS}}
 
-  py:lint:
-    desc: runs python linter
+  dev:services:start:
+    desc: start dev support services (postgres, mailpit, …)
     cmds:
-      - uv run ruff check src/marvin
+      - docker compose -f docker/docker-compose.dev.yml up -d
+
+  dev:services:stop:
+    desc: stop dev support services
+    cmds:
+      - docker compose -f docker/docker-compose.dev.yml down
+
+  docker:build:
+    desc: 'build the production image (override tag with TAG=, default "latest")'
+    cmds:
+      - docker build -f docker/Dockerfile --target production -t {{.IMAGE}}:{{.TAG | default "latest"}} .
+
+  docker:logs:
+    desc: tail production stack logs
+    cmds:
+      - docker compose -f docker/docker-compose.yml logs -f app
+
+  docker:prod:
+    desc: build and run the full production stack via compose
+    dir: docker
+    cmds:
+      - docker compose -f docker-compose.yml -p marvin up -d --build
+
+  docs:
+    desc: serve the manual at http://127.0.0.1:8000/marvin/
+    deps: [docs:openapi]
+    cmds:
+      - uv run mkdocs serve
+
+  docs:openapi:
+    desc: export the OpenAPI spec into docs/manual/openapi.json (no server needed)
+    env:
+      DB_ENGINE: sqlite
+    cmds:
+      - uv run python -c "import json; from marvin.app import app; json.dump(app.openapi(), open('docs/manual/openapi.json', 'w'), indent=2)"
+
+  docs:build:
+    desc: build core + SDK + CLI sites into ./site (expects ../MarvinSDK and ../MarvinCLI checkouts)
+    deps: [docs:openapi]
+    cmds:
+      - uv run mkdocs build --strict
+      - uv run mkdocs build --strict -f ../MarvinSDK/mkdocs.yml --site-dir "{{.ROOT_DIR}}/site/sdk"
+      - uv run mkdocs build --strict -f ../MarvinCLI/mkdocs.yml --site-dir "{{.ROOT_DIR}}/site/cli"
+
+  frontend:
+    desc: run the Astro frontend dev server
+    dir: frontend
+    cmds:
+      - npm run dev
+
+  frontend:build:
+    desc: build the Astro frontend
+    dir: frontend
+    cmds:
+      - npm run build
+
+  frontend:check:
+    desc: type-check the Astro frontend
+    dir: frontend
+    cmds:
+      - npm run check
+
+  frontend:format:
+    desc: format the frontend with Biome (writes changes)
+    dir: frontend
+    cmds:
+      - npm run format
+
+  # NOTE: Astro is configured output:"server" (node adapter), so this emits a server
+  # build into frontend/dist — not a purely static site. Same output as frontend:build
+  # without the preceding `astro check`.
+  frontend:generate:
+    desc: generate the built frontend in frontend/dist
+    dir: frontend
+    cmds:
+      - npx astro build
+
+  # NOTE: the frontend has no linter or test runner yet (no eslint/prettier, no vitest/jest,
+  # and no `lint`/`test` scripts in package.json). These two tasks won't run until that
+  # tooling and the matching npm scripts are added.
+  frontend:lint:
+    desc: run the frontend linter
+    dir: frontend
+    cmds:
+      - npm run lint
+
+  frontend:test:
+    desc: run the frontend tests
+    dir: frontend
+    cmds:
+      - npm run test
+
+  py:
+    desc: run the backend server
+    cmds:
+      - uv run src/marvin/app.py
 
   py:check:
-    desc: runs all linters, type checkers and formaters
+    desc: run all python formatters, linters, type checks and tests
     deps:
       - py:format
       - py:lint
@@ -114,95 +173,104 @@ tasks:
       - py:test
 
   py:coverage:
-    desc: runs python coverage and generates report
+    desc: run tests with coverage and open the HTML report
+    env:
+      # Default to SQLite so the .env loaded above can't aim a schema-dropping test run at a real
+      # Postgres database. An explicit `DB_ENGINE=postgres task py:coverage` still wins — the OS
+      # environment takes precedence over a task's env.
+      DB_ENGINE: sqlite
     cmds:
-      - uv run pytest
+      # --cov is what records the data; a bare `pytest` leaves the reporters below with nothing to
+      # read. `--cov-report=` silences pytest-cov's own terminal report so the explicit reporters
+      # that follow are the only output.
+      - uv run pytest --cov=src/marvin --cov-report=
       - uv run coverage report -m
       - uv run coverage lcov
       - uv run coverage html
       - open htmlcov/index.html
 
-  py:
-    desc: runs the backend server
+  py:format:
+    desc: format python code
     cmds:
-      - uv run src/marvin/app.py
+      - uv run ruff format src/marvin
 
-  py:server:
-    desc: Generate a Running Server for webhook tests
+  py:lint:
+    desc: lint python code
     cmds:
-      - uv run scripts/server.py 8000 &
+      - uv run ruff check src/marvin
 
   py:migrate:
-    desc: generates a new database migration file e.g. task py:migrate -- "add new column"
+    desc: 'generate a new migration, e.g. task py:migrate -- "add new column"'
     cmds:
       - uv run alembic --config src/marvin/alembic.ini revision --autogenerate -m "{{ .CLI_ARGS }}"
       - task: py:format
 
-  docker:services:start:
-    desc: Start Docker services for development
+  py:migrate:apply:
+    desc: apply pending migrations (after reviewing the generated file)
     cmds:
-      - docker-compose -f docker/docker-compose.dev.yml up -d
+      - uv run alembic --config src/marvin/alembic.ini upgrade head
 
-
-  docker:services:stop:
-    desc: Stop Docker services for development
+  py:migrate:pending:
+    desc: show migrations not yet applied to the database
     cmds:
-      - docker-compose -f docker/docker-compose.dev.yml down
+      - uv run alembic --config src/marvin/alembic.ini history -r current:head
 
-  docker:build:
-    desc: Build production Docker image
+  py:mypy:
+    desc: type-check python code
     cmds:
-      - |
-        docker build -f docker/Dockerfile -t marvin-virtualization-njs-api:latest .
+      - uv run mypy src/marvin
 
-  docker:build:prod:
-    desc: Build and tag production Docker image
+  py:postgres:
+    desc: run the backend server against containerized postgres
+    # Task-level env overrides the top-level `env` block (and .env) for this task only.
+    env:
+      DB_ENGINE: postgres
+      POSTGRES_USER: default
+      POSTGRES_PASSWORD: default
+      POSTGRES_SERVER: 127.0.0.1
+      POSTGRES_PORT: 5434
+      POSTGRES_DB: marvin
     cmds:
-      - |
-        docker build -f docker/Dockerfile -t marvin-virtualization-njs-api:{{.VERSION | default "latest"}} .
+      - uv run src/marvin/app.py
 
-  docker:run:
-    desc: Run Docker container in production mode
+  py:server:
+    desc: run a standalone server on :8000 for webhook tests
     cmds:
-      - docker run -p 8080:8080 --env-file .env marvin-virtualization-njs-api:latest
+      - uv run scripts/server.py 8000 &
 
-  docker:up:
-    desc: Start production stack with docker-compose
+  py:test:
+    desc: run python tests (args after '--')
+    env:
+      # Default to SQLite so the .env loaded above can't aim a schema-dropping test run at a real
+      # Postgres database. An explicit `DB_ENGINE=postgres task py:test` still wins — the OS
+      # environment takes precedence over a task's env.
+      DB_ENGINE: sqlite
     cmds:
-      - docker-compose -f docker/docker-compose.yml up -d
+      - uv run pytest {{ .CLI_ARGS }}
 
-  docker:down:
-    desc: Stop production stack with docker-compose
-    cmds:
-      - docker-compose -f docker/docker-compose.yml down
+  setup:
+    desc: install all backend + frontend dependencies
+    deps:
+      - setup:py
+      - setup:frontend
 
-  docker:logs:
-    desc: View production container logs
+  setup:frontend:
+    desc: install Astro frontend dependencies
+    dir: frontend
+    run: once
     cmds:
-      - docker-compose -f docker/docker-compose.yml logs -f app
+      - npm install
+    sources:
+      - package.json
+      - package-lock.json
 
-  docker:prod:
-    desc: Builds and runs the production docker image locally
-    dir: docker
+  setup:py:
+    desc: install python dependencies and git hooks
+    run: once
     cmds:
-      - docker compose -f docker-compose.yml -p marvin up -d --build
-
-  docker:uv:
-    desc: Build up to uv
-    cmds:
-      - docker build -f docker/Dockerfile --target production --build-arg="UV_IMAGE=ghcr.io/astral-sh/uv" --tag=marvin:latest .
-
-  dev:reset-and-seed:
-    desc: Reset dev environment and seed with Mash & Burn Co. data
-    cmds:
-      - echo "Stopping Marvin service..."
-      - pkill -f "marvin-server|uvicorn.*marvin" || echo "No service running"
-      - sleep 2
-      - echo "Cleaning development environment..."
-      - task dev:clean
-      - echo "Starting Marvin backend..."
-      - task py &
-      - sleep 5
-      - echo "Seeding Mash & Burn Co. data..."
-      - uv run scripts/seed_mashandburnco.py
-      - echo "✅ Reset complete! Marvin running with fresh data."
+      - uv sync --group dev --group postgres
+      - uv run pre-commit install
+    sources:
+      - uv.lock
+      - pyproject.toml
+      - .pre-commit-config.yaml

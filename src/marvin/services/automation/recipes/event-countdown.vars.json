@@ -1,0 +1,30 @@
+{
+  "recipe": "event-countdown",
+  "variables": {
+    "event_entry_type": {
+      "type": "entry_type_slug",
+      "description": "Which of your entry types holds the events (Marvin has no built-in event type).",
+      "example": "event"
+    },
+    "event_date": {
+      "type": "entry_date",
+      "description": "The date to count down to: one of their date fields, or a date every entry has (its scheduled publish or expiry date).",
+      "example": "data.date"
+    },
+    "remind_at": {
+      "type": "text",
+      "description": "The time of day the reminders are drafted, in the workspace's time zone.",
+      "example": "09:00"
+    },
+    "draft_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type the reminders are drafted as.",
+      "example": "article"
+    },
+    "draft_body_field": {
+      "type": "field_key",
+      "description": "That type's text field.",
+      "example": "body"
+    }
+  }
+}

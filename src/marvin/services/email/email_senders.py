@@ -16,7 +16,10 @@ from uuid import uuid4  # For generating unique message IDs
 
 from html2text import html2text  # For converting HTML email content to plain text
 
+from marvin.core.root_logger import get_logger
 from marvin.services import BaseService  # Base service class for common functionalities
+
+logger = get_logger()
 
 SMTP_TIMEOUT = 10
 """Timeout in seconds for SMTP connection operations (e.g., connect, login, send)."""
@@ -244,3 +247,143 @@ class DefaultEmailSender(ABCEmailSender, BaseService):
             )
 
         return smtp_response.success
+
+
+class WorkspaceEmailSender(ABCEmailSender, BaseService):
+    """Email sender that routes through a workspace's **active** SMTP profile.
+
+    When the workspace has an active `WorkspaceSMTPProfileModel`, mail is sent via that
+    profile's server/credentials/From. When it has none, this transparently falls back to the
+    platform's sender (`platform_sender`), so behaviour is unchanged until a workspace activates a
+    profile.
+    """
+
+    def __init__(self, group_id) -> None:
+        self.group_id = group_id
+
+    def _active_profile(self) -> dict | None:
+        """Return the active profile's fields as a plain dict, or None. Read into a dict so the
+        values remain usable after the session closes (detached-instance safe)."""
+        from sqlalchemy import select
+
+        from marvin.db.db_setup import session_context
+        from marvin.db.models.groups.smtp_profiles import WorkspaceSMTPProfileModel
+
+        try:
+            with session_context() as session:
+                row = (
+                    session.execute(
+                        select(WorkspaceSMTPProfileModel).where(
+                            WorkspaceSMTPProfileModel.group_id == self.group_id,
+                            WorkspaceSMTPProfileModel.is_active.is_(True),
+                        )
+                    )
+                    .scalars()
+                    .first()
+                )
+                if row is None:
+                    return None
+                return {
+                    "name": row.name,
+                    "host": row.host,
+                    "port": row.port,
+                    "username": row.username,
+                    "secret_ref": row.secret_ref,
+                    "from_name": row.from_name,
+                    "from_email": row.from_email,
+                    "auth_strategy": row.auth_strategy,
+                }
+        except Exception as e:
+            self.logger.warning(f"Could not load active SMTP profile for group {self.group_id}: {e}")
+            return None
+
+    def send(self, email_to: str, subject: str, html_content: str) -> bool:
+        profile = self._active_profile()
+        if not profile:
+            # No active profile — behave exactly like the platform's sender.
+            return platform_sender().send(email_to, subject, html_content)
+
+        from_email = profile["from_email"] or self.settings.SMTP_FROM_EMAIL
+        from_name = profile["from_name"] or self.settings.SMTP_FROM_NAME or "Marvin"
+        if not from_email:
+            self.logger.error(f"Active SMTP profile '{profile['name']}' has no From address and no global SMTP_FROM_EMAIL fallback.")
+            return False
+
+        password = None
+        if profile["secret_ref"]:
+            from marvin.services.secrets.resolver import resolve_secret
+
+            password = resolve_secret(profile["secret_ref"], self.group_id)
+            if password is None:
+                self.logger.error(f"Could not resolve SMTP password (secret '{profile['secret_ref']}') for profile '{profile['name']}'.")
+                return False
+
+        strategy = (profile["auth_strategy"] or "TLS").upper()
+        options = EmailOptions(
+            host=profile["host"],
+            port=int(profile["port"]),
+            username=profile["username"] or None,
+            password=password,
+            tls=strategy == "TLS",
+            ssl=strategy == "SSL",
+        )
+        message = Message(
+            subject=subject,
+            html=html_content,
+            mail_from_name=from_name,
+            mail_from_address=from_email,
+        )
+        result = message.send(to_address=email_to, smtp_config=options)
+        if result.success:
+            self.logger.info(f"Email '{subject}' sent to {email_to} via SMTP profile '{profile['name']}'.")
+        else:
+            self.logger.error(f"SMTP profile '{profile['name']}' failed to send '{subject}' to {email_to}: {result.message}")
+        return result.success
+
+
+def _active_profiles(group_id=None, session=None) -> list:
+    """The workspace ids with an active SMTP profile, among ``group_id`` and the platform workspace."""
+    from sqlalchemy import or_, select
+
+    from marvin.db.db_setup import session_context
+    from marvin.db.models.groups import Groups
+    from marvin.db.models.groups.smtp_profiles import WorkspaceSMTPProfileModel
+
+    stmt = (
+        select(WorkspaceSMTPProfileModel.group_id)
+        .join(Groups, Groups.id == WorkspaceSMTPProfileModel.group_id)
+        .where(
+            WorkspaceSMTPProfileModel.is_active.is_(True),
+            or_(Groups.is_platform.is_(True), WorkspaceSMTPProfileModel.group_id == group_id) if group_id else Groups.is_platform.is_(True),
+        )
+    )
+    try:
+        if session is not None:
+            return list(session.execute(stmt).scalars().all())
+        with session_context() as own:
+            return list(own.execute(stmt).scalars().all())
+    except Exception as e:  # a failed lookup must not stop mail the settings could still send
+        logger.warning(f"Could not look up active SMTP profiles: {e}")
+        return []
+
+
+def platform_sender() -> ABCEmailSender:
+    """Who sends mail that isn't a workspace's own (password resets, platform alerts, the admin test).
+
+    The platform SMTP settings when they're complete; otherwise the platform workspace's active SMTP
+    profile, so an install can send from a profile set up in the admin's workspace without SMTP
+    credentials in its configuration; otherwise the settings anyway (which then refuse, and say why).
+    """
+    from marvin.core.config import get_app_settings
+
+    if not get_app_settings().SMTP_ENABLED and (profiles := _active_profiles()):
+        return WorkspaceEmailSender(profiles[0])
+    return DefaultEmailSender()
+
+
+def email_ready(group_id=None, session=None) -> bool:
+    """Whether mail can go out — for ``group_id``, through its own active SMTP profile; for anything,
+    through the platform SMTP settings or the platform workspace's active profile (``platform_sender``)."""
+    from marvin.core.config import get_app_settings
+
+    return get_app_settings().SMTP_ENABLED or bool(_active_profiles(group_id, session))

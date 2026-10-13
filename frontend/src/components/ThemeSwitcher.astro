@@ -1,20 +1,20 @@
 ---
+import { getAuthToken } from "../lib/api/client";
 /**
  * Theme Switcher Component
  * Toggles between light and dark theme with colors from API
  */
-import { getTheme } from '../lib/api/theme';
-import { getAuthToken } from '../lib/api/client';
+import { getTheme } from "../lib/api/theme";
 
 // Get theme colors from API
-let themeColors;
+let themeColors: any;
 try {
   const authToken = getAuthToken(Astro.cookies);
   if (authToken) {
     themeColors = await getTheme(authToken);
   }
 } catch (error) {
-  console.error('Failed to load theme colors:', error);
+  console.error("Failed to load theme colors:", error);
 }
 ---
 

@@ -1,31 +1,37 @@
 ---
-import AppLayout from "@/layouts/AppLayout.astro";
-import { getSiteClients } from "@/lib/api/platform";
-import { getAuthToken } from "@/lib/api/client";
 import type { PlatformAPIClient } from "@inneropen/marvin-sdk/platform";
+import ApiTokenRevealModal from "@/components/ApiTokenRevealModal.astro";
+import LocalTime from "@/components/LocalTime.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { getSiteClients } from "@/lib/api/platform";
+import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
+import { API_CLIENTS_ADMIN_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 let clients: PlatformAPIClient[] = [];
 let error: string | null = null;
+let canManage = false;
 
 // Check for query params
 const urlParams = Astro.url.searchParams;
-const newToken = urlParams.get('token');
-const newClientName = urlParams.get('client_name');
+const updatedClientName = urlParams.get("updated");
 
 if (!authToken) {
   error = "Authentication required";
 } else {
   try {
-    clients = await getSiteClients(authToken);
+    // The API refuses non-admins with a 403; skip the call and explain instead of showing the error.
+    canManage = await canManageCurrentWorkspace(authToken);
+    if (canManage) clients = await getSiteClients(authToken);
   } catch (e) {
-    console.error('[clients] Error loading:', e);
+    console.error("[clients] Error loading:", e);
     error = e instanceof Error ? e.message : String(e);
   }
 }
 
-// Format last used timestamp
-function formatLastUsed(timestamp: string | null | undefined): string {
+// Relative last-used text; null once it is older than a month (the page then shows the absolute date)
+function formatLastUsed(timestamp: string | null | undefined): string | null {
   if (!timestamp) return "Never";
   const date = new Date(timestamp);
   const now = new Date();
@@ -36,23 +42,38 @@ function formatLastUsed(timestamp: string | null | undefined): string {
   if (diffDays === 1) return "Yesterday";
   if (diffDays < 7) return `${diffDays} days ago`;
   if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-  return date.toLocaleDateString();
+  return null;
+}
+
+// "Last used Oct 1, 2026" for the delete confirmation
+function lastUsedSentence(timestamp: string | null | undefined): string {
+  if (!timestamp) return "Never used";
+  const date = new Date(timestamp);
+  return `Last used ${date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
 }
 ---
 
-<AppLayout title="API Clients" eyebrow="Publishing">
+<AppLayout crumb="publishing.clients">
   <div class="toolbar">
     <div>
       <h2>API Clients</h2>
       <p>Manage API tokens for external sites and integrations</p>
     </div>
-    <a class="button" href="/publishing/clients/new">New Client</a>
+    {canManage && <a class="button" href="/publishing/clients/new">New Client</a>}
   </div>
+
+  {updatedClientName && (
+    <div class="alert alert-success" role="status">
+      Saved changes to <strong>{updatedClientName}</strong>.
+    </div>
+  )}
 
   {error ? (
     <div class="alert alert-error">
       <strong>Error:</strong> {error}
     </div>
+  ) : !canManage ? (
+    <div class="alert alert-info" role="status">{API_CLIENTS_ADMIN_ONLY}</div>
   ) : clients.length === 0 ? (
     <div class="empty-state">
       <div class="empty-icon">⚡</div>
@@ -83,12 +104,12 @@ function formatLastUsed(timestamp: string | null | undefined): string {
           <div class="client-meta">
             <div class="meta-item">
               <span class="meta-label">Last Used</span>
-              <span class="meta-value">{formatLastUsed(client.lastUsedAt)}</span>
+              <span class="meta-value">{formatLastUsed(client.lastUsedAt) ?? <LocalTime iso={client.lastUsedAt} format="date" />}</span>
             </div>
             <div class="meta-item">
               <span class="meta-label">Created</span>
               <span class="meta-value">
-                {new Date(client.createdAt || "").toLocaleDateString()}
+                <LocalTime iso={client.createdAt} format="date" />
               </span>
             </div>
           </div>
@@ -96,15 +117,16 @@ function formatLastUsed(timestamp: string | null | undefined): string {
           {client.permissions && Object.keys(client.permissions).length > 0 && (
             <div class="client-permissions">
               <span class="permissions-label">Permissions:</span>
-              {Object.entries(client.permissions).map(([key, value]) => {
-                // Normalize permission format: convert underscores to colons
-                const normalizedKey = key.replace(/_/g, ':');
-                return value && <span class="permission-badge">{normalizedKey}</span>;
-              })}
+              {Object.entries(client.permissions).map(([key, value]) =>
+                value === true && <span class="permission-badge">{key}</span>
+              )}
             </div>
           )}
 
           <div class="client-actions">
+            <a class="button secondary small" href={`/publishing/clients/${client.id}/edit`}>
+              Edit
+            </a>
             <button
               class="button secondary small"
               data-action="preview"
@@ -129,28 +151,25 @@ function formatLastUsed(timestamp: string | null | undefined): string {
             >
               {client.enabled ? "Disable" : "Enable"}
             </button>
+            {!client.enabled && (
+              <button
+                class="button secondary small danger"
+                data-action="delete"
+                data-client-slug={client.slug}
+                data-client-name={client.name}
+                data-last-used={lastUsedSentence(client.lastUsedAt)}
+              >
+                Delete
+              </button>
+            )}
           </div>
         </article>
       ))}
     </div>
   )}
 
-  <!-- Token Modal (shown after create/rotate) -->
-  <dialog id="token-modal" class="modal">
-    <div class="modal-content">
-      <h3>API Client Token</h3>
-      <p class="warning">⚠️ This token will only be shown once. Copy it now.</p>
-      <div class="token-display-wrapper">
-        <code class="token-display" id="token-value"></code>
-        <button class="copy-button" id="copy-token" title="Copy to clipboard">
-          <span class="copy-icon">📋</span>
-        </button>
-      </div>
-      <div class="modal-actions">
-        <button class="button" id="close-modal">Done</button>
-      </div>
-    </div>
-  </dialog>
+  <!-- Token Modal (shown after rotate) -->
+  <ApiTokenRevealModal />
 
   <!-- Preview Modal -->
   <dialog id="preview-modal" class="modal">
@@ -177,54 +196,17 @@ function formatLastUsed(timestamp: string | null | undefined): string {
   </dialog>
 </AppLayout>
 
-<script define:vars={{ newToken, newClientName }}>
-  // Show token modal if redirected from create/rotate
-  if (newToken && newClientName) {
-    window.addEventListener('DOMContentLoaded', () => {
-      const modal = document.getElementById('token-modal');
-      const tokenValue = document.getElementById('token-value');
-      if (modal && tokenValue) {
-        tokenValue.textContent = newToken;
-        if ('showModal' in modal) {
-          modal.showModal();
-        } else {
-          modal.setAttribute('open', '');
-        }
-      }
-    });
-  }
-</script>
-
 <script>
   // HttpOnly cookie is automatically sent with credentials: 'include'
   import { createSdkClient } from '@/lib/sdk';
+  import { revealTokenOnce } from '@/lib/tokenReveal';
 
   const sdk = createSdkClient();
 
-  // Copy token to clipboard
-  document.getElementById('copy-token')?.addEventListener('click', async () => {
-    const tokenValue = document.getElementById('token-value')?.textContent;
-    if (tokenValue) {
-      await navigator.clipboard.writeText(tokenValue);
-      const button = document.getElementById('copy-token');
-      if (button) {
-        button.innerHTML = '<span class="copy-icon">✓</span>';
-        setTimeout(() => {
-          button.innerHTML = '<span class="copy-icon">📋</span>';
-        }, 2000);
-      }
-    }
-  });
-
-  // Close token modal
-  document.getElementById('close-modal')?.addEventListener('click', () => {
-    const modal = document.getElementById('token-modal');
-    if (modal && 'close' in modal) {
-      (modal as HTMLDialogElement).close();
-    }
-    // Clear query params
+  // Drop the one-off "saved" notice from the URL so a later reload doesn't show it again
+  if (new URLSearchParams(window.location.search).has('updated')) {
     window.history.replaceState({}, '', '/publishing/clients');
-  });
+  }
 
   // Preview payload
   document.querySelectorAll('[data-action="preview"]').forEach(button => {
@@ -266,51 +248,76 @@ function formatLastUsed(timestamp: string | null | undefined): string {
     }
   });
 
+  // Ask in the page's confirm dialog, then run the action
+  function confirmAction(title: string, message: string, onConfirm: () => Promise<void>) {
+    const confirmModal = document.getElementById('confirm-modal') as HTMLDialogElement | null;
+    const confirmTitle = document.getElementById('confirm-title');
+    const confirmMessage = document.getElementById('confirm-message');
+    const confirmYes = document.getElementById('confirm-yes');
+    const confirmNo = document.getElementById('confirm-no');
+
+    if (!confirmModal || !confirmTitle || !confirmMessage || !confirmYes || !confirmNo) return;
+
+    confirmTitle.textContent = title;
+    confirmMessage.textContent = message;
+    confirmModal.showModal();
+
+    confirmNo.onclick = () => confirmModal.close();
+    confirmYes.onclick = async () => {
+      confirmModal.close();
+      await onConfirm();
+    };
+  }
+
   // Rotate token
   document.querySelectorAll('[data-action="rotate"]').forEach(button => {
-    button.addEventListener('click', async (e) => {
+    button.addEventListener('click', (e) => {
       const target = e.currentTarget as HTMLButtonElement;
       const clientSlug = target.dataset.clientSlug;
       const clientName = target.dataset.clientName;
 
       if (!clientSlug || !clientName) return;
 
-      // Show confirmation
-      const confirmModal = document.getElementById('confirm-modal');
-      const confirmTitle = document.getElementById('confirm-title');
-      const confirmMessage = document.getElementById('confirm-message');
-      const confirmYes = document.getElementById('confirm-yes');
-      const confirmNo = document.getElementById('confirm-no');
+      confirmAction(
+        'Rotate Token?',
+        `The old token for "${clientName}" will be immediately invalidated. The new token will be shown once.`,
+        async () => {
+          try {
+            const result = await sdk.apiClients.rotateToken(clientSlug);
+            const dialog = document.getElementById('api-token-modal') as HTMLDialogElement | null;
+            if (!dialog || !revealTokenOnce(dialog, result.token)) {
+              alert('Token rotated, but no new token was returned. Rotate again to get one.');
+            }
+          } catch (error) {
+            console.error('Rotate error:', error);
+            alert('Failed to rotate token: ' + (error instanceof Error ? error.message : 'Unknown error'));
+          }
+        },
+      );
+    });
+  });
 
-      if (!confirmModal || !confirmTitle || !confirmMessage || !confirmYes || !confirmNo) return;
+  // Delete (only offered for disabled clients; the backend refuses enabled ones)
+  document.querySelectorAll('[data-action="delete"]').forEach(button => {
+    button.addEventListener('click', (e) => {
+      const target = e.currentTarget as HTMLButtonElement;
+      const { clientSlug, clientName, lastUsed } = target.dataset;
 
-      confirmTitle.textContent = 'Rotate Token?';
-      confirmMessage.textContent = `The old token for "${clientName}" will be immediately invalidated. The new token will be shown once.`;
+      if (!clientSlug || !clientName) return;
 
-      if ('showModal' in confirmModal) {
-        (confirmModal as HTMLDialogElement).showModal();
-      }
-
-      confirmNo.onclick = () => {
-        if ('close' in confirmModal) {
-          (confirmModal as HTMLDialogElement).close();
-        }
-      };
-      confirmYes.onclick = async () => {
-        if ('close' in confirmModal) {
-          (confirmModal as HTMLDialogElement).close();
-        }
-
-        try {
-          const result = await sdk.apiClients.rotateToken(clientSlug);
-
-          // Redirect with token in query (will be shown in modal)
-          window.location.href = `/publishing/clients?token=${encodeURIComponent(result.token)}&client_name=${encodeURIComponent(clientName)}`;
-        } catch (error) {
-          console.error('Rotate error:', error);
-          alert('Failed to rotate token: ' + (error instanceof Error ? error.message : 'Unknown error'));
-        }
-      };
+      confirmAction(
+        `Delete "${clientName}"?`,
+        `${lastUsed ?? 'Never used'}. Its key stops working permanently and this can't be undone.`,
+        async () => {
+          try {
+            await sdk.apiClients.delete(clientSlug);
+            window.location.reload();
+          } catch (error) {
+            console.error('Delete error:', error);
+            alert('Failed to delete client: ' + (error instanceof Error ? error.message : 'Unknown error'));
+          }
+        },
+      );
     });
   });
 
@@ -373,10 +380,22 @@ function formatLastUsed(timestamp: string | null | undefined): string {
     font-size: 14px;
   }
 
+  .alert-success {
+    background: rgb(53 122 85 / 0.12);
+    color: var(--ink);
+    border: 1px solid var(--good);
+  }
+
   .alert-error {
     background: var(--color-error-bg);
     color: var(--color-error);
     border: 1px solid var(--color-error);
+  }
+
+  .alert-info {
+    background: rgb(47 111 115 / 0.1);
+    color: var(--accent-2);
+    border: 1px solid var(--accent-2);
   }
 
   .empty-state {
@@ -540,6 +559,11 @@ function formatLastUsed(timestamp: string | null | undefined): string {
     font-size: 13px;
   }
 
+  .button.danger {
+    color: var(--color-error);
+    border-color: var(--color-error);
+  }
+
   [data-action] {
     cursor: pointer;
   }
@@ -577,56 +601,6 @@ function formatLastUsed(timestamp: string | null | undefined): string {
     margin: 0 0 16px;
     font-size: 14px;
     color: var(--muted);
-  }
-
-  .warning {
-    margin: 8px 0 16px;
-    padding: 12px;
-    background: rgb(169 99 47 / 0.1);
-    border-left: 3px solid var(--warn);
-    color: var(--warn);
-    font-size: 14px;
-    font-weight: 500;
-  }
-
-  .token-display-wrapper {
-    position: relative;
-    margin-bottom: 20px;
-  }
-
-  .token-display {
-    display: block;
-    padding: 16px 50px 16px 16px;
-    background: var(--bg);
-    color: var(--good);
-    border: 1px solid var(--line);
-    font-family: ui-monospace, monospace;
-    font-size: 13px;
-    border-radius: var(--radius);
-    word-break: break-all;
-    user-select: all;
-    line-height: 1.5;
-  }
-
-  .copy-button {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    padding: 8px 12px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 18px;
-    transition: background 0.2s;
-  }
-
-  .copy-button:hover {
-    background: var(--panel-2);
-  }
-
-  .copy-icon {
-    display: block;
   }
 
   .preview-json {

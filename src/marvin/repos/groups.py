@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError  # For handling database constraint vi
 
 from marvin.db.models.groups import Groups as GroupsModel  # Aliased for clarity
 from marvin.schemas.group import GroupCreate, GroupRead, GroupUpdate
+from marvin.services.group.workspace_rename import find_group_by_slug, slug_is_alias_of_another
 
 from .repository_generic import RepositoryGeneric
 
@@ -64,6 +65,13 @@ class RepositoryGroup(RepositoryGeneric[GroupRead, GroupsModel]):
         while True:
             data_dict["name"] = current_name  # Use current (potentially modified) name
             data_dict["slug"] = slugify(current_name)  # Generate slug from current name
+            if slug_is_alias_of_another(self.session, data_dict["slug"]):
+                # A renamed workspace's old slug: taking it would hijack that workspace's old links.
+                attempts += 1
+                if attempts >= max_attempts:
+                    raise ValueError(f"Can't find a free slug for '{original_name}'.")
+                current_name = f"{original_name} ({attempts})"
+                continue
 
             try:
                 # Attempt to create the group using the generic superclass method
@@ -97,7 +105,7 @@ class RepositoryGroup(RepositoryGeneric[GroupRead, GroupsModel]):
         # we call it for each item instead of using `super().create_many`.
         return [self.create(new_group_data) for new_group_data in data]
 
-    def update(self, match_value: str | int | UUID4, new_data: GroupUpdate | dict) -> GroupRead:
+    def update(self, match_value: str | int | UUID4, new_data: GroupUpdate | dict, match_key: str | None = None) -> GroupRead:
         """
         Updates an existing group, automatically regenerating the slug if the name changes.
 
@@ -123,7 +131,7 @@ class RepositoryGroup(RepositoryGeneric[GroupRead, GroupsModel]):
             # Should not happen if type hints are respected
             raise TypeError("new_data must be of type GroupUpdate or dict")
 
-        return super().update(match_value, data_dict)
+        return super().update(match_value, data_dict, match_key=match_key)
 
     def update_many(self, data: Iterable[GroupUpdate | dict]) -> list[GroupRead]:
         """
@@ -178,7 +186,8 @@ class RepositoryGroup(RepositoryGeneric[GroupRead, GroupsModel]):
         Retrieves a group by its slug or ID.
 
         It first attempts to treat `slug_or_id` as a UUID. If that fails
-        (or if it's not a UUID type), it then tries to match by slug.
+        (or if it's not a UUID type), it then tries to match by slug, including slugs the group
+        had before a rename.
 
         Args:
             slug_or_id (str | PyUUID | UUID4): The slug (string) or ID (UUID) of the group.
@@ -199,14 +208,19 @@ class RepositoryGroup(RepositoryGeneric[GroupRead, GroupsModel]):
             except ValueError:
                 # Conversion to UUID failed, so it's likely a slug
                 pass
-            # If not found by ID (or wasn't a valid UUID string), try by slug
-            return self.get_one(slug_or_id, key="slug")
+            # If not found by ID (or wasn't a valid UUID string), try by slug — current, then former
+            # (a renamed workspace keeps answering to its old slug, see services.group.workspace_rename).
+            group = find_group_by_slug(self.session, slug_or_id)
+            return self.schema.model_validate(group) if group else None
 
         return None  # Should not be reached if type hints are correct
 
-    def get_all(self) -> list[GroupsModel]:
+    def get_all_models(self) -> list[GroupsModel]:
         """
-        Get all groups in the system.
+        Get all groups in the system as raw ORM model instances.
+
+        Distinct from the generic ``get_all`` (which returns ``GroupRead`` schemas);
+        callers that need the ORM objects (e.g. relationship access) use this.
 
         Returns:
             List of all group model instances.

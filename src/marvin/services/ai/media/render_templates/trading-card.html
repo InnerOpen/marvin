@@ -1,0 +1,27 @@
+{# A collectible card. Stats are one "Label: value" per line. #}
+{% set frame = fields.accent or "#1e3a8a" %}
+<style>
+  .t { box-sizing: border-box; width: 100vw; height: 100vh; padding: 3.5vw; background: {{ frame }};
+       font-family: Lato, "Open Sans", "DejaVu Sans", sans-serif; }
+  .in { box-sizing: border-box; height: 100%; border-radius: 3vw; background: #fdfaf3; padding: 4vw; display: flex; flex-direction: column; gap: 3vw; }
+  .head { display: flex; justify-content: space-between; align-items: baseline; }
+  h1 { margin: 0; font-size: 7.4vw; line-height: 1; font-weight: 900; color: #111827; }
+  .no { font-size: 4vw; font-weight: 800; color: {{ frame }}; }
+  .pic { flex: 0 0 52%; border-radius: 2vw; border: .8vw solid {{ frame }}; background: #cbd5e1 center / cover no-repeat; }
+  .type { font-size: 3.6vw; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: {{ frame }}; }
+  table { width: 100%; border-collapse: collapse; font-size: 4vw; }
+  td { padding: 1vw 0; border-bottom: .3vw solid #e5e7eb; }
+  td:last-child { text-align: right; font-weight: 800; }
+  .flavor { margin-top: auto; font-family: "Liberation Serif", "DejaVu Serif", serif; font-style: italic; font-size: 3.8vw; color: #374151; }
+</style>
+<div class="t"><div class="in">
+  <div class="head"><h1>{{ fields.title }}</h1>{% if fields.number %}<span class="no">#{{ fields.number }}</span>{% endif %}</div>
+  <div class="pic" style="background-image: url('{{ images.image }}')"></div>
+  {% if fields.subtitle %}<div class="type">{{ fields.subtitle }}</div>{% endif %}
+  {% if fields.stats %}<table>
+    {% for line in fields.stats.splitlines() if line.strip() %}{% set label, _, value = line.partition(":") %}
+    <tr><td>{{ label.strip() }}</td><td>{{ value.strip() }}</td></tr>
+    {% endfor %}
+  </table>{% endif %}
+  {% if fields.text %}<div class="flavor">{{ fields.text }}</div>{% endif %}
+</div></div>

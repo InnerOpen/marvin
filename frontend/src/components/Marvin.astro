@@ -2,10 +2,21 @@
 // Marvin — the (pluggable) workspace assistant bubble.
 // Renders hidden; the client script reveals it only when AI is enabled for the workspace.
 // Capabilities live in @/lib/marvin/capabilities — adding a skill needs no change here.
+import { getAuthToken } from "@/lib/api/client";
+import { getCurrentWorkspace } from "@/lib/api/workspaces";
+
+// The workspace this page was rendered for: the bubble keeps its threads and transcript per workspace.
+let workspaceId = "";
+const authToken = getAuthToken(Astro.cookies);
+try {
+  if (authToken) workspaceId = (await getCurrentWorkspace(authToken))?.id ?? "";
+} catch {
+  // Unscoped storage still works for a single workspace; it only risks a stale thread after a switch.
+}
 ---
 
-<div id="marvin-root" class="marvin" hidden>
-  <button id="marvin-toggle" class="marvin-toggle" aria-label="Ask Marvin" title="Ask Marvin">🤖</button>
+<div id="marvin-root" class="marvin" data-workspace={workspaceId} hidden>
+  <button id="marvin-toggle" class="marvin-toggle" aria-label="Ask Marvin" title="Ask Marvin"><span id="marvin-icon">🤖</span></button>
 
   <div id="marvin-panel" class="marvin-panel" role="dialog" aria-label="Ask Marvin">
     <div class="marvin-head">
@@ -13,33 +24,70 @@
         <span class="marvin-name">Marvin</span>
         <span id="marvin-sub" class="marvin-sub">here to help, allegedly</span>
       </div>
+      <button id="marvin-clear" class="marvin-clear" aria-label="Clear conversation" title="Clear conversation" hidden>Clear</button>
       <button id="marvin-close" class="marvin-close" aria-label="Close">×</button>
     </div>
+    <div id="marvin-context" class="marvin-context" hidden>
+      <span class="marvin-context-what">Looking at</span>
+      <span id="marvin-context-label" class="marvin-context-label"></span>
+      <button id="marvin-context-clear" class="marvin-context-clear"
+        aria-label="Ignore this page's context" title="Ignore this page's context">×</button>
+    </div>
+    <div id="marvin-tone" class="marvin-context" hidden>
+      <span class="marvin-context-what">Tone</span>
+      <span id="marvin-tone-label" class="marvin-context-label"></span>
+      <button id="marvin-tone-clear" class="marvin-context-clear"
+        aria-label="Back to the default tone" title="Back to the default tone">×</button>
+    </div>
     <div id="marvin-log" class="marvin-log"></div>
+    <div id="marvin-attachments" class="marvin-attachments" hidden></div>
+    <p id="marvin-offline" class="marvin-offline" hidden>You're offline — your draft is kept for when you're back.</p>
     <form id="marvin-form" class="marvin-form">
-      <input id="marvin-input" class="marvin-input" type="text" autocomplete="off"
-        placeholder="Ask Marvin…  (try /help)" />
-      <button type="submit" class="marvin-send" aria-label="Send">➤</button>
+      <input id="marvin-file" type="file" multiple hidden />
+      <button id="marvin-attach" class="marvin-tool" type="button" aria-label="Attach files"
+        title="Attach files — or paste or drop them here" hidden>📎</button>
+      <textarea id="marvin-input" class="marvin-input" rows="1" autocomplete="off"
+        placeholder="Ask Marvin…  (try /help)"></textarea>
+      <button id="marvin-mic" class="marvin-tool" type="button" aria-label="Speak" title="Speak" hidden>🎙</button>
+      <button id="marvin-send" type="submit" class="marvin-send" aria-label="Send">➤</button>
     </form>
   </div>
 </div>
 
 <script>
   import { fetchApi } from '@/lib/api/client';
-  import { resolveCapability, helpHtml, esc } from '@/lib/marvin/capabilities';
-  import { GREETINGS, TAGLINES, THINKING, ERRORS, pick } from '@/lib/marvin/persona';
+  import { resolveCapability, helpHtml, esc, setPendingRegister, resumePendingRun, onRunProgress, getActiveAgent, getSessionTone, setSessionTone, TONE_EVENT, setAskPageAllowed, resumeBubbleRun, parkedCardFor, type MarvinResult } from '@/lib/marvin/capabilities';
+  import { type ApprovalCard, approvalCardHtml, decisionsFrom } from '@/lib/approvals';
+  import { OPEN_BUBBLE_EVENT } from '@/lib/activity/toast';
+  import { createCast, sameStates, type Cast } from '@/lib/marvin/cast';
+  import { createCharacter, dragDirection, type Character, type CharacterEvent, type CharacterStates } from '@/lib/marvin/character';
+  import { MARVIN_VOICE, voiceFor, pick } from '@/lib/marvin/persona';
+  import { askPageAllowed, bubbleAllowed } from '@/lib/marvin/gate';
+  import { getPageContext, contextLabel, setContextSuppressed } from '@/lib/marvin/context';
+  import { forgetConversation, loadPending, rememberThread, scoped, setStorageScope, threadFor } from '@/lib/marvin/pending';
+  import { type BubbleSpot, clampSpot, DEFAULT_SPOT, hiddenAfterScroll, parseSpot, parseTuck, type Inset, PEEK_OUT_MS, peekEveryMs, SCROLL_IDLE_MS, spotFromRect, type Tuck, tuckAt, tuckedPosition, tuckEdge } from '@/lib/marvin/position';
+  import { ATTACH_ACCEPT, ATTACHMENTS_KEY, attachmentIcon, forgetAttachments, loadAttachments, MAX_ATTACHMENTS, roomFor, saveAttachments, withAttachment, withoutAttachment } from '@/lib/marvin/attachments';
+  import { createDictation, speechRecognition } from '@/lib/marvin/dictation';
+  import { getContentAccess } from '@/lib/api/workspaces';
+  import { createSdkClient } from '@/lib/sdk';
+  import { assetName, assetSlug } from '@/lib/share';
 
   const root = document.getElementById('marvin-root');
+  setStorageScope(root?.dataset.workspace);
   if (root) {
     // Gate: stay hidden until we confirm AI is enabled for this workspace.
     (async () => {
       try {
         const settings = await fetchApi<any>('/api/groups/ai-settings');
-        if (settings?.enabled === false) { root.remove(); return; }
+        if (!bubbleAllowed(settings)) { root.remove(); return; } // AI off, or the bubble switched off
+        setAskPageAllowed(askPageAllowed(settings)); // with the Ask page off, approval cards don't link to it
+        applyIdentity(settings);
         root.removeAttribute('hidden');
       } catch {
         root.remove(); // no auth / no AI / error → no bubble
+        return;
       }
+      void resumeIfPending();
     })();
 
     const toggle = document.getElementById('marvin-toggle')!;
@@ -47,13 +95,195 @@
     const panel = document.getElementById('marvin-panel')!;
     const log = document.getElementById('marvin-log')!;
     const form = document.getElementById('marvin-form') as HTMLFormElement;
-    const input = document.getElementById('marvin-input') as HTMLInputElement;
+    const input = document.getElementById('marvin-input') as HTMLTextAreaElement;
     const sub = document.getElementById('marvin-sub')!;
+    const clear = document.getElementById('marvin-clear')!;
+    const sendBtn = document.getElementById('marvin-send') as HTMLButtonElement;
+    const attachBtn = document.getElementById('marvin-attach') as HTMLButtonElement;
+    const micBtn = document.getElementById('marvin-mic') as HTMLButtonElement;
+    const fileInput = document.getElementById('marvin-file') as HTMLInputElement;
+    const chips = document.getElementById('marvin-attachments')!;
+    const offlineNote = document.getElementById('marvin-offline')!;
     let greeted = false;
     let busy = false;
+    // Bumped by "Clear": a reply that resolves after it belongs to the conversation that was cleared.
+    let generation = 0;
     let taglineTimer: number | undefined;
+    let voice = MARVIN_VOICE;
+    // {image URL: inset} — where each character image's drawing sits in its frame (the AI settings' characterInsets).
+    let characterInsets: Record<string, Inset> = {};
 
-    function addMsg(who: 'user' | 'marvin', html: string): HTMLElement {
+    // The workspace's name and icon for its assistant (AI settings → Persona). An icon is an emoji,
+    // or an image URL. The canned lines are the workspace's own bubble lines where it has them, else
+    // Marvin's while it's still named Marvin (see voiceFor).
+    function applyIdentity(settings: any) {
+      const name = (settings?.assistantName || '').trim() || 'Marvin';
+      const icon = (settings?.assistantIcon || '').trim();
+      voice = voiceFor(name, settings?.bubbleLines);
+      document.querySelector('#marvin-root .marvin-name')!.textContent = name;
+      for (const el of [toggle, panel]) el.setAttribute('aria-label', `Ask ${name}`);
+      toggle.title = `Ask ${name}`;
+      input.placeholder = `Ask ${name}…  (try /help)`;
+      sub.textContent = pick(voice.taglines);
+      workspaceIcon = icon;
+      characterInsets = settings?.characterInsets ?? {};
+      cast = createCast(settings?.assistantCharacter?.states, settings?.agentCharacters ?? {}, getActiveAgent());
+      showCast();
+      // Registered whether or not anyone has a character yet: one may be given while this page is open.
+      onRunProgress((progress) => {
+        if (!busy || !cast?.hasAny) return; // a late poll of a finished run, or nothing to animate
+        // A hand-off's delegate shows its own character while it works.
+        if (cast.progress(progress.events)) showCast();
+        if (progress.status === 'awaiting_approval') cue('parked');
+        else if (progress.events.length) cue('progress');
+      });
+    }
+
+    /**
+     * Re-read who has a character: a picker on this page changed one, or `/use` switched to an agent given one
+     * after this page loaded. Without it the bubble keeps what was true when the page opened, so `/use` to a
+     * newly dressed agent changed who answers but not who shows.
+     */
+    async function refreshCast() {
+      if (!cast) return; // the bubble hasn't loaded its settings yet; it will read them itself
+      try {
+        const settings = await fetchApi<any>('/api/groups/ai-settings');
+        const before = cast.states;
+        characterInsets = settings?.characterInsets ?? {};
+        cast = createCast(settings?.assistantCharacter?.states, settings?.agentCharacters ?? {}, getActiveAgent());
+        if (!sameStates(before, cast.states)) showCast();
+      } catch {
+        /* keep what's showing */
+      }
+    }
+    // Pickers (AI settings → Persona, an agent's Character) announce each change: the bubble on the same page follows.
+    document.addEventListener('character-change', () => void refreshCast());
+
+    function applyIcon(icon: string) {
+      const slot = document.getElementById('marvin-icon')!;
+      if (/^(https?:\/\/|\/)/.test(icon)) {
+        const img = document.createElement('img');
+        img.src = icon;
+        img.alt = '';
+        img.className = 'marvin-icon-img';
+        slot.replaceChildren(img);
+      } else if (icon) {
+        slot.textContent = icon;
+      }
+    }
+
+    // ── Animated character (AI settings → Persona → Bubble character; Settings → Agents) ──
+    // Shown instead of the round icon: one animation per bubble state, picked by @/lib/marvin/character
+    // from what happens here (cue). Whose character — the workspace's or the talking agent's — is
+    // @/lib/marvin/cast's call. With prefers-reduced-motion it's a still — each state's image drawn
+    // once to a canvas, which keeps only the first frame.
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let character: Character | null = null;
+    let cast: Cast | null = null;
+    let workspaceIcon = '';
+
+    function cue(event: CharacterEvent) { character?.dispatch(event); }
+
+    /** The talking agent's character, or the icon when nobody involved has one. */
+    function showCast() {
+      if (!applyCharacter(cast?.states, workspaceIcon)) showIcon();
+      if (panel.classList.contains('open')) placePanel(); // a character and the icon differ in size
+    }
+
+    /**
+     * A run ended, or `/use` switched agents. An answer (or an approval card) from a run a hand-off's delegate worked on
+     * stays with the delegate's character until the next message (handBack), so you see who answered; anything else —
+     * an error, Clear, `/use` — gives the bubble back to the active agent now (cast.settle).
+     */
+    function finish(event: CharacterEvent) {
+      if (cast?.settle(event, getActiveAgent())) showCast();
+      cue(event);
+      if (tuck && (event === 'reply' || event === 'parked')) root.classList.add('tuck-pulse'); // an answer is waiting
+    }
+
+    /** The active agent is the one talking again (a new message: the delegate that answered the last one steps back). */
+    function handBack() {
+      if (cast?.use(getActiveAgent())) showCast();
+    }
+
+    function showIcon() {
+      character?.stop(); character = null;
+      toggle.classList.remove('has-character');
+      document.getElementById('marvin-icon')!.textContent = '🤖';
+      applyIcon(workspaceIcon);
+    }
+
+    function applyCharacter(states: CharacterStates | undefined, icon: string): boolean {
+      if (!states?.idle) return false;
+      character?.stop();
+      const slot = document.getElementById('marvin-icon')!;
+      const view = document.createElement(reducedMotion ? 'canvas' : 'img');
+      view.className = 'marvin-character';
+      if (view instanceof HTMLImageElement) { view.alt = ''; view.draggable = false; }
+      slot.replaceChildren(view);
+      toggle.classList.add('has-character');
+      // A file that won't load (its asset was deleted) loses the whole character, not just a state.
+      const giveUp = () => {
+        if (!slot.contains(view)) return; // a character swapped out since; its late error is moot
+        character?.stop(); character = null;
+        toggle.classList.remove('has-character');
+        slot.textContent = '🤖';
+        applyIcon(icon);
+      };
+      if (view instanceof HTMLImageElement) view.onerror = giveUp;
+      const show = (src: string) => {
+        if (view instanceof HTMLCanvasElement) drawStill(view, src, giveUp);
+        else if (view.getAttribute('src') !== src) view.src = src;
+      };
+      character = createCharacter(states, {
+        render: ({ src }) => show(src),
+        reducedMotion,
+        setTimer: (fn, ms) => window.setTimeout(fn, ms),
+        clearTimer: (id) => window.clearTimeout(id as number),
+        random: Math.random,
+      });
+      // Warm the cache so the first switch to each state doesn't flash empty; off the critical path.
+      window.setTimeout(() => { for (const src of new Set(Object.values(states))) new Image().src = src!; }, 0);
+      return true;
+    }
+
+    function drawStill(canvas: HTMLCanvasElement, src: string, onError: () => void) {
+      const img = new Image();
+      img.onload = () => {
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        canvas.getContext('2d')?.drawImage(img, 0, 0);
+      };
+      img.onerror = onError;
+      img.src = src;
+    }
+
+    // ── Session memory: keep the transcript across page navigations (per-tab) ──
+    // sessionStorage, so the conversation follows you as you move around the workspace but doesn't
+    // linger forever or leak between tabs. Only committed turns are stored — never the transient
+    // "thinking…" placeholder, which is replaced in place by the final answer. This is a display
+    // cache: agent conversations themselves live in server threads (@/lib/marvin/pending), which is
+    // where the agent's memory comes from; /chat, /tools, /help, /agents and /use stay local-only.
+    const MEM_KEY = scoped('marvin.transcript');
+    const MEM_CAP = 60; // keep the last N turns; guards both quota and scrollback bloat
+    // `executionId` marks an agent reply, so one recovered from the server isn't appended twice.
+    // `approval` is a parked run's card as data: deciding re-renders the turn from it.
+    type Turn = { who: 'user' | 'marvin'; html: string; executionId?: string; approval?: ApprovalCard };
+    let transcript: Turn[] = [];
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(MEM_KEY) || '[]');
+      if (Array.isArray(saved)) transcript = saved;
+    } catch { /* ignore corrupt transcript */ }
+
+    function saveTranscript() {
+      try {
+        transcript = transcript.slice(-MEM_CAP);
+        sessionStorage.setItem(MEM_KEY, JSON.stringify(transcript));
+      } catch { /* quota or disabled storage — degrade to in-memory only */ }
+      clear.toggleAttribute('hidden', transcript.length === 0);
+    }
+
+    function appendNode(who: 'user' | 'marvin', html: string): HTMLElement {
       const div = document.createElement('div');
       div.className = `mv-msg mv-${who}`;
       div.innerHTML = html;
@@ -62,28 +292,150 @@
       return div;
     }
 
-    function rotateTagline() { sub.textContent = pick(TAGLINES); }
+    // Add a message to the log. Committed turns persist; pass persist=false for the transient
+    // "thinking…" placeholder (its final answer is committed via commitReply once it resolves).
+    function addMsg(who: 'user' | 'marvin', html: string, persist = true, approval?: ApprovalCard): HTMLElement {
+      const div = appendNode(who, html);
+      if (persist) { transcript.push({ who, html, ...(approval ? { approval } : {}) }); saveTranscript(); }
+      return div;
+    }
+
+    // Commit a marvin reply that replaced a "thinking…" node in place.
+    function commitReply(node: HTMLElement, html: string, executionId?: string, approval?: ApprovalCard) {
+      node.innerHTML = html;
+      transcript.push({ who: 'marvin', html, ...(executionId ? { executionId } : {}), ...(approval ? { approval } : {}) });
+      saveTranscript();
+    }
+    const commitResult = (node: HTMLElement, res: MarvinResult) => commitReply(node, res.html, res.executionId, res.approval);
+
+    function thinkingHtml() {
+      return `<span class="mv-thinking">${esc(pick(voice.emotes) + ' ' + pick(voice.thinking))}</span>`;
+    }
+
+    function errorHtml(err: any) {
+      return `<span class="mv-error">${esc(pick(voice.errors))} (${esc(err?.message || 'error')})</span>`;
+    }
+
+    function clearTranscript() {
+      transcript = [];
+      generation += 1;
+      busy = false; // a run still in flight no longer holds the input; its reply is dropped
+      // "Clear" must also drop the model's memory, not just the visible log: the next message opens
+      // a new thread, and nothing waits on the old one any more.
+      forgetConversation();
+      forgetAttachments(sessionStorage, ATTACH_KEY);
+      renderAttachments();
+      finish('rest');
+      try { sessionStorage.removeItem(MEM_KEY); } catch { /* ignore */ }
+      log.innerHTML = '';
+      clear.setAttribute('hidden', '');
+      greeted = false;
+      if (panel.classList.contains('open')) { greeted = true; addMsg('marvin', esc(pick(voice.greetings)), false); }
+    }
+
+    // Rehydrate a stored conversation on page load (before any greeting).
+    if (transcript.length) {
+      for (const t of transcript) appendNode(t.who, t.html);
+      greeted = true; // don't greet over a restored conversation
+      clear.removeAttribute('hidden');
+    }
+
+    // An agent run the previous page sent but didn't live to see answered: the server kept going,
+    // so show the thinking placeholder and fetch the answer from the run's thread.
+    async function resumeIfPending() {
+      const run = loadPending();
+      if (!run || busy) return;
+      busy = true;
+      greeted = true;
+      const gen = generation;
+      const thinking = addMsg('marvin', thinkingHtml(), false);
+      handBack();
+      cue('send');
+      try {
+        const res = await resumePendingRun(run);
+        if (gen !== generation) return;
+        const seen = res?.executionId && transcript.some((t) => t.executionId === res.executionId);
+        if (!res || seen) { thinking.remove(); finish('rest'); }
+        else { commitResult(thinking, res); finish(res.parked ? 'parked' : 'reply'); }
+      } catch (err: any) {
+        if (gen === generation) { commitReply(thinking, errorHtml(err)); finish('error'); }
+      } finally {
+        if (gen === generation) busy = false;
+        log.scrollTop = log.scrollHeight;
+      }
+    }
+
+    // ── Page context chip: show what Marvin is grounded in, and let it be dismissed ──
+    // The chip is honest UI, not decoration: if it's showing, that entity is being sent with
+    // every ask. Dismissing suppresses it for this page load (a navigation resets it).
+    const contextBar = document.getElementById('marvin-context')!;
+    const contextLabelEl = document.getElementById('marvin-context-label')!;
+    const contextClear = document.getElementById('marvin-context-clear')!;
+
+    function renderContext() {
+      const label = contextLabel(getPageContext());
+      if (!label) { contextBar.setAttribute('hidden', ''); return; }
+      contextLabelEl.textContent = label;
+      contextBar.removeAttribute('hidden');
+    }
+
+    contextClear.addEventListener('click', () => {
+      setContextSuppressed(true);
+      contextBar.setAttribute('hidden', '');
+      addMsg('marvin', "Fine — I'll ignore this page and answer about the whole workspace.", false);
+    });
+
+    renderContext();
+
+    // ── Tone chip: the session's `/tone`, sent with every agent run until cleared ──
+    const toneBar = document.getElementById('marvin-tone')!;
+    const toneLabel = document.getElementById('marvin-tone-label')!;
+
+    function renderTone() {
+      const tone = getSessionTone();
+      if (!tone) { toneBar.setAttribute('hidden', ''); return; }
+      toneLabel.textContent = tone.name;
+      toneBar.removeAttribute('hidden');
+    }
+
+    document.getElementById('marvin-tone-clear')!.addEventListener('click', () => {
+      setSessionTone(null);
+      addMsg('marvin', 'Back to the default tone.', false);
+    });
+    document.addEventListener(TONE_EVENT, renderTone);
+    renderTone();
+
+    function rotateTagline() { sub.textContent = pick(voice.taglines); }
 
     // Open the panel on the side of the button with the most room (he may be dragged anywhere).
+    const PANEL_GAP = 12; // between the button (icon or character) and the panel
     function placePanel() {
       const r = toggle.getBoundingClientRect();
       const below = r.top < window.innerHeight / 2;
       const leftSide = r.left < window.innerWidth / 2;
-      panel.style.top = below ? '64px' : 'auto';
-      panel.style.bottom = below ? 'auto' : '64px';
+      const offset = `${toggle.offsetHeight + PANEL_GAP}px`;
+      panel.style.top = below ? offset : 'auto';
+      panel.style.bottom = below ? 'auto' : offset;
       panel.style.left = leftSide ? '0' : 'auto';
       panel.style.right = leftSide ? 'auto' : '0';
     }
 
     function openPanel() {
+      untuck(); // the page (or a toast) asked for it: out of its edge first
+      root.classList.remove('scroll-away');
       placePanel();
       panel.classList.add('open');
       rotateTagline();
       taglineTimer = window.setInterval(rotateTagline, 7000); // cycle like a login fortune
       if (!greeted) {
         greeted = true;
-        addMsg('marvin', esc(pick(GREETINGS)));
+        addMsg('marvin', esc(pick(voice.greetings)), false); // flavor line, not part of the saved transcript
       }
+      cue('open');
+      void checkUploadAccess();
+      // A restored conversation was appended while the panel was display:none, where scrolling is
+      // a no-op — so land on the latest turn now that it has a height.
+      log.scrollTop = log.scrollHeight;
       input.focus();
     }
     function closePanel() {
@@ -92,23 +444,132 @@
     }
 
     // ── Drag the bubble around (pointer events; click vs drag disambiguated) ──
+    // It rests at a viewport-relative spot (see @/lib/marvin/position): bottom-left by default,
+    // otherwise wherever it was dropped, anchored to the nearest edges and kept on screen.
     const POS_KEY = 'marvin.pos';
     let dragging = false, moved = false, sx = 0, sy = 0, ox = 0, oy = 0;
+    let lastX = 0; // where the character last turned to face, for its running direction
 
-    try {
-      const saved = JSON.parse(localStorage.getItem(POS_KEY) || 'null');
-      if (saved && typeof saved.left === 'number') {
-        root.style.left = saved.left + 'px';
-        root.style.top = saved.top + 'px';
-        root.style.right = 'auto';
-        root.style.bottom = 'auto';
-      }
-    } catch { /* ignore bad stored position */ }
+    const viewport = () => ({ width: document.documentElement.clientWidth, height: window.innerHeight });
+    const bubbleBox = () => ({ width: toggle.offsetWidth, height: toggle.offsetHeight });
+
+    function applySpot(s: BubbleSpot) {
+      // env() keeps it clear of a notch or home indicator where the page extends under one.
+      root.style.left = s.x === 'left' ? `max(${s.dx}px, env(safe-area-inset-left, 0px))` : 'auto';
+      root.style.right = s.x === 'right' ? `max(${s.dx}px, env(safe-area-inset-right, 0px))` : 'auto';
+      root.style.top = s.y === 'top' ? `max(${s.dy}px, env(safe-area-inset-top, 0px))` : 'auto';
+      root.style.bottom = s.y === 'bottom' ? `max(${s.dy}px, env(safe-area-inset-bottom, 0px))` : 'auto';
+    }
+
+    function readSpot(): BubbleSpot {
+      let raw: unknown = null;
+      try { raw = JSON.parse(localStorage.getItem(POS_KEY) || 'null'); } catch { /* bad or blocked storage */ }
+      return parseSpot(raw, bubbleBox(), viewport());
+    }
+    function saveSpot(s: BubbleSpot) {
+      try { localStorage.setItem(POS_KEY, JSON.stringify(s)); } catch { /* private window: lasts this page */ }
+    }
+
+    // ── Tucked into an edge (@/lib/marvin/position): dragged mostly off a side and let go, only a sliver stays on
+    // screen. A tap, or a drag, brings it back out; a reply that arrives meanwhile makes the sliver pulse.
+    const TUCK_KEY = 'marvin.tuck';
+    let tuck: Tuck | null = null;
+    function readTuck(): Tuck | null {
+      try { return parseTuck(JSON.parse(localStorage.getItem(TUCK_KEY) || 'null'), bubbleBox(), viewport()); } catch { return null; }
+    }
+    function applyTuck(t: Tuck, peeking = false) {
+      const playing = toggle.querySelector<HTMLImageElement>('img.marvin-character')?.getAttribute('src');
+      const { left, top } = tuckedPosition(t, bubbleBox(), viewport(), peeking, playing ? characterInsets[playing] : null);
+      root.classList.toggle('peeking', peeking);
+      Object.assign(root.style, { left: `${left}px`, top: `${top}px`, right: 'auto', bottom: 'auto' });
+      root.classList.add('tucked');
+      root.dataset.edge = t.edge;
+    }
+    function tuckInto(t: Tuck) {
+      if (panel.classList.contains('open')) closePanel();
+      tuck = t;
+      applyTuck(t);
+      try { localStorage.setItem(TUCK_KEY, JSON.stringify(t)); } catch { /* lasts this page */ }
+      schedulePeek();
+    }
+
+    // Now and then the tucked bubble comes out (all of it, for a couple of seconds, playing the peek for its edge) and
+    // slides back. Not while the page scrolls or is in the background, never with reduced motion.
+    let peekTimer: number | undefined;
+    let lastScrollAt = 0;
+    document.addEventListener('scroll', () => { lastScrollAt = Date.now(); }, { capture: true, passive: true });
+    function schedulePeek() {
+      window.clearTimeout(peekTimer);
+      if (!tuck || reducedMotion) return;
+      peekTimer = window.setTimeout(peek, peekEveryMs(window.__MARVIN_RUNTIME__?.bubblePeekSeconds));
+    }
+    function peek() {
+      if (!tuck) return;
+      if (document.hidden || dragging || Date.now() - lastScrollAt < PEEK_OUT_MS) { schedulePeek(); return; }
+      // The edge's own peek first, so the bubble comes out sized for that animation (reclamp re-places it if the
+      // image is still on its way), then out it slides.
+      cue(`peek_${tuck.edge}` as CharacterEvent);
+      requestAnimationFrame(() => { if (tuck) applyTuck(tuck, true); });
+      peekTimer = window.setTimeout(() => {
+        if (tuck) applyTuck(tuck);
+        schedulePeek();
+      }, PEEK_OUT_MS);
+    }
+    /** Back out to where it last rested. */
+    function untuck() {
+      if (!tuck) return;
+      window.clearTimeout(peekTimer);
+      spot = clampSpot(tuck.restore, bubbleBox(), viewport());
+      tuck = null;
+      root.classList.remove('tucked', 'tuck-pulse', 'peeking');
+      delete root.dataset.edge;
+      applySpot(spot);
+      try { localStorage.removeItem(TUCK_KEY); } catch { /* nothing stored */ }
+    }
+
+    let spot = readSpot();
+    applySpot(spot);
+    tuck = readTuck();
+    if (tuck) {
+      // Straight into its edge on load: no slide from where it rested (it would flash across the screen).
+      root.classList.add('no-slide');
+      applyTuck(tuck);
+      schedulePeek();
+      requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('no-slide')));
+    }
+    // The character swaps in after load and the window can change size or rotate: re-clamp the
+    // remembered spot to what fits now (without overwriting it, so it springs back on a bigger screen).
+    function reclamp() {
+      if (dragging) return;
+      // A peek's animation can differ in size from idle: placed again, it stays out.
+      if (tuck) { applyTuck(tuck, root.classList.contains('peeking')); return; }
+      applySpot(clampSpot(spot, bubbleBox(), viewport()));
+      if (panel.classList.contains('open')) placePanel();
+    }
+    window.addEventListener('resize', reclamp);
+    new ResizeObserver(reclamp).observe(toggle);
+
+    // Pressing the tab of a tucked bubble pulls it out right under the finger, mid-gesture: keep dragging it, or let
+    // go and it stays there (that press isn't also a tap that opens it).
+    let pulledOut = false;
+    function pullOutUnder(x: number, y: number) {
+      const box = bubbleBox();
+      window.clearTimeout(peekTimer);
+      tuck = null;
+      root.classList.remove('tucked', 'tuck-pulse', 'peeking');
+      delete root.dataset.edge;
+      try { localStorage.removeItem(TUCK_KEY); } catch { /* nothing stored */ }
+      spot = spotFromRect(x - box.width / 2, y - box.height / 2, box, viewport());
+      applySpot(spot);
+      saveSpot(spot);
+      pulledOut = true;
+    }
 
     toggle.addEventListener('pointerdown', (e) => {
       dragging = true; moved = false;
-      const r = root.getBoundingClientRect();
-      ox = r.left; oy = r.top; sx = e.clientX; sy = e.clientY;
+      if (tuck) pullOutUnder(e.clientX, e.clientY);
+      const r = toggle.getBoundingClientRect();
+      ox = r.left; oy = r.top; sx = e.clientX; sy = e.clientY; lastX = e.clientX;
       toggle.setPointerCapture(e.pointerId);
     });
     toggle.addEventListener('pointermove', (e) => {
@@ -116,61 +577,395 @@
       const dx = e.clientX - sx, dy = e.clientY - sy;
       if (!moved && Math.abs(dx) + Math.abs(dy) > 4) moved = true;
       if (!moved) return;
-      const left = Math.min(Math.max(8, ox + dx), window.innerWidth - toggle.offsetWidth - 8);
-      const top = Math.min(Math.max(8, oy + dy), window.innerHeight - toggle.offsetHeight - 8);
-      root.style.left = left + 'px'; root.style.top = top + 'px';
-      root.style.right = 'auto'; root.style.bottom = 'auto';
+      if (tuck) { // pulled out of its edge: it comes back under the finger
+        tuck = null;
+        window.clearTimeout(peekTimer);
+        root.classList.remove('tucked', 'tuck-pulse', 'peeking');
+        try { localStorage.removeItem(TUCK_KEY); } catch { /* nothing stored */ }
+      }
+      applySpot(spotFromRect(ox + dx, oy + dy, bubbleBox(), viewport()));
+      // The bubble stays on screen while dragged; where the finger has taken it (past an edge or not) decides a tuck.
+      root.classList.toggle('will-tuck', tuckEdge(ox + dx, oy + dy, bubbleBox(), viewport()) !== null);
       if (panel.classList.contains('open')) placePanel();
+      const facing = dragDirection(e.clientX - lastX);
+      if (facing) { cue(facing); lastX = e.clientX; }
     });
     toggle.addEventListener('pointerup', (e) => {
       if (!dragging) return;
       dragging = false;
       toggle.releasePointerCapture(e.pointerId);
+      root.classList.remove('will-tuck');
       if (moved) {
-        const r = root.getBoundingClientRect();
-        localStorage.setItem(POS_KEY, JSON.stringify({ left: r.left, top: r.top }));
+        cue('drop'); // let go: stop walking, whether it rests here or tucks into an edge
+        const left = ox + e.clientX - sx, top = oy + e.clientY - sy;
+        const edge = tuckEdge(left, top, bubbleBox(), viewport());
+        if (edge) {
+          tuckInto(tuckAt(edge, left, top, bubbleBox(), viewport(), spot)); // comes back to where it rested before
+          return;
+        }
+        const r = toggle.getBoundingClientRect();
+        spot = spotFromRect(r.left, r.top, bubbleBox(), viewport());
+        applySpot(spot);
+        saveSpot(spot);
       }
+    });
+    // Double-click puts him back in his default corner.
+    toggle.addEventListener('dblclick', () => {
+      untuck();
+      spot = clampSpot(DEFAULT_SPOT, bubbleBox(), viewport());
+      applySpot(spot);
+      try { localStorage.removeItem(POS_KEY); } catch { /* nothing stored */ }
+      if (panel.classList.contains('open')) placePanel();
     });
 
     toggle.addEventListener('click', () => {
-      if (moved) { moved = false; return; } // it was a drag, not a click
+      if (moved) { moved = false; pulledOut = false; return; } // it was a drag, not a click
+      if (pulledOut) { pulledOut = false; return; } // that press pulled it out of its edge; the next tap opens it
+      if (tuck) { untuck(); return; } // keyboard: Enter on a tucked bubble brings it back
       panel.classList.contains('open') ? closePanel() : openPanel();
     });
+
+    // ── Out of the way while scrolling, on touch screens (@/lib/marvin/position): a real scroll down moves the bubble
+    // aside; a scroll back up, or a moment without scrolling, brings it back. Not while it's open, dragged or tucked.
+    if (window.matchMedia('(pointer: coarse)').matches) {
+      const lastTop = new WeakMap<object, number>();
+      let away = false;
+      let idle: number | undefined;
+      const setAway = (on: boolean) => { away = on; root.classList.toggle('scroll-away', on); };
+      document.addEventListener('scroll', (e) => {
+        const target = e.target === document ? document.scrollingElement : (e.target as Element | null);
+        if (!target || root.contains(target) || dragging || tuck || panel.classList.contains('open')) return;
+        const top = (target as Element).scrollTop;
+        const delta = top - (lastTop.get(target) ?? top);
+        lastTop.set(target, top);
+        setAway(hiddenAfterScroll(delta, away));
+        window.clearTimeout(idle);
+        if (away) idle = window.setTimeout(() => setAway(false), SCROLL_IDLE_MS);
+      }, { capture: true, passive: true });
+    }
+    // Public hook: any page can drive the bubble without reaching into it or needing a global —
+    //   document.dispatchEvent(new CustomEvent('marvin:ask', { detail: { text: 'review this' } }))
+    // Opens the panel and submits, so the ask flows through the normal capability dispatch
+    // (and therefore picks up page context + history like anything the user typed).
+    // `detail.register` lets the caller ask for a tone register — e.g. the entry editor's
+    // "Review & suggest" sends 'professional' so the findings come back plain and actionable
+    // rather than in character. Cleared after the run so typed messages aren't affected.
+    document.addEventListener('marvin:ask', (e) => {
+      const detail = (e as CustomEvent).detail ?? {};
+      const text = String(detail.text ?? '').trim();
+      if (!text || busy) return;
+      if (detail.register) setPendingRegister(detail.register);
+      if (!panel.classList.contains('open')) openPanel();
+      input.value = text;
+      form.requestSubmit();
+    });
+
+    // ── The input: a textarea that grows with its text; Enter sends, Shift+Enter starts a new line ──
+    const INPUT_MAX_PX = 120;
+    function autosize() {
+      input.style.height = 'auto';
+      const borders = input.offsetHeight - input.clientHeight; // height is border-box; scrollHeight isn't
+      input.style.height = `${Math.min(input.scrollHeight + borders, INPUT_MAX_PX)}px`;
+    }
+    input.addEventListener('input', autosize);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); }
+    });
+
+    // ── Attachments (@/lib/marvin/attachments): 📎, paste or drop files. Each is uploaded as an asset and rides
+    // every agent run of the conversation until removed or cleared. Uploading takes AUTHOR, so the controls
+    // appear once the caller's role is known to allow it (read when the panel first opens).
+    const ATTACH_KEY = scoped(ATTACHMENTS_KEY);
+    fileInput.accept = ATTACH_ACCEPT;
+    let canAttach = false;
+    let uploadAccessRead = false;
+    let uploading = 0;
+    const attached = () => loadAttachments(sessionStorage, ATTACH_KEY, getActiveAgent());
+
+    function renderAttachments() {
+      const list = attached();
+      const rows = list.map((a) =>
+        `<span class="mv-file" title="${esc(a.name)}">${attachmentIcon(a.mimeType)} <span class="mv-file-name">${esc(a.name)}</span>` +
+        `<button type="button" class="mv-file-x" data-remove="${esc(a.id)}" aria-label="Remove ${esc(a.name)}">×</button></span>`);
+      if (uploading) rows.push(`<span class="mv-file uploading">Uploading ${uploading === 1 ? 'a file' : `${uploading} files`}…</span>`);
+      chips.innerHTML = rows.join('');
+      chips.toggleAttribute('hidden', rows.length === 0);
+      attachBtn.disabled = !navigator.onLine || roomFor(list) - uploading <= 0;
+    }
+
+    async function checkUploadAccess() {
+      if (uploadAccessRead) return;
+      uploadAccessRead = true;
+      canAttach = (await getContentAccess()).canAuthor;
+      attachBtn.hidden = !canAttach;
+    }
+
+    async function attachFiles(files: File[]) {
+      if (!canAttach || !files.length) return;
+      if (!navigator.onLine) { addMsg('marvin', esc("You're offline — attach it when you're back."), false); return; }
+      const agent = getActiveAgent();
+      const room = roomFor(attached()) - uploading;
+      if (files.length > room) addMsg('marvin', esc(`${MAX_ATTACHMENTS} files at most per conversation — remove one to attach another.`), false);
+      const batch = files.slice(0, Math.max(0, room));
+      uploading += batch.length;
+      renderAttachments();
+      await Promise.all(batch.map(async (file) => {
+        try {
+          const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+          const asset: any = await createSdkClient().assets.upload(file, {
+            slug: `ask-${assetSlug(file.name, suffix)}`,
+            name: assetName(file.name),
+            metadata: { attachedVia: 'bubble' },
+          });
+          const item = { id: String(asset.id), name: file.name || asset.name, mimeType: asset.mimeType || file.type || '' };
+          saveAttachments(sessionStorage, ATTACH_KEY, agent, withAttachment(loadAttachments(sessionStorage, ATTACH_KEY, agent), item));
+        } catch (err: any) {
+          const denied = err?.statusCode === 403 || /\b403\b|forbidden|role or higher/i.test(String(err?.message));
+          addMsg('marvin', esc(denied ? "You can't upload files in this workspace — that takes the Author role or higher."
+            : `Couldn't attach ${file.name}: ${err?.message || 'the upload failed'}`), false);
+        } finally {
+          uploading -= 1;
+          renderAttachments();
+        }
+      }));
+    }
+
+    chips.addEventListener('click', (e) => {
+      const id = (e.target as HTMLElement).closest<HTMLElement>('[data-remove]')?.dataset.remove;
+      if (!id) return;
+      saveAttachments(sessionStorage, ATTACH_KEY, getActiveAgent(), withoutAttachment(attached(), id));
+      renderAttachments();
+    });
+    attachBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+      void attachFiles([...(fileInput.files ?? [])]);
+      fileInput.value = '';
+    });
+    input.addEventListener('paste', (e) => {
+      const files = [...(e.clipboardData?.files ?? [])];
+      if (!canAttach || !files.length) return; // plain text pastes as usual
+      e.preventDefault();
+      void attachFiles(files);
+    });
+    const carriesFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files');
+    panel.addEventListener('dragover', (e) => {
+      if (!canAttach || !carriesFiles(e)) return;
+      e.preventDefault();
+      panel.classList.add('dropping');
+    });
+    panel.addEventListener('dragleave', (e) => {
+      if (!panel.contains(e.relatedTarget as Node | null)) panel.classList.remove('dropping');
+    });
+    panel.addEventListener('drop', (e) => {
+      panel.classList.remove('dropping');
+      if (!canAttach || !carriesFiles(e)) return;
+      e.preventDefault();
+      void attachFiles([...(e.dataTransfer?.files ?? [])]);
+    });
+    renderAttachments();
+
+    // ── Dictation (@/lib/marvin/dictation): the browser's speech recognition types into the input and never
+    // sends on its own. No button where the browser has none (Firefox).
+    const Recognition = speechRecognition(window);
+    const dictation = Recognition ? createDictation(Recognition, {
+      lang: navigator.language,
+      continuous: !/Android/i.test(navigator.userAgent),
+      read: () => input.value,
+      write: (text) => { input.value = text; autosize(); },
+      onState: (listening) => {
+        micBtn.textContent = listening ? '■' : '🎙';
+        micBtn.classList.toggle('listening', listening);
+        micBtn.title = listening ? 'Stop listening' : 'Speak';
+        micBtn.setAttribute('aria-label', micBtn.title);
+        if (!listening) input.focus();
+      },
+      onError: (message) => addMsg('marvin', esc(message), false),
+    }) : null;
+    micBtn.hidden = !dictation;
+    micBtn.addEventListener('click', () => dictation?.toggle());
+
+    // ── Offline: nothing can be sent (the agent runs on the server), but the draft and the chips stay ──
+    function renderOnline() {
+      const online = navigator.onLine;
+      offlineNote.toggleAttribute('hidden', online);
+      sendBtn.disabled = !online;
+      micBtn.disabled = !online; // Chrome's recognition is a network service too
+      if (!online) dictation?.stop();
+      renderAttachments();
+    }
+    window.addEventListener('online', renderOnline);
+    window.addEventListener('offline', renderOnline);
+    renderOnline();
+
+    // ── Ask first: the inline approval card ──
+    // A parked run's reply is a card (@/lib/approvals). Deciding re-renders its turn as decided, then
+    // resumes the run from the bubble — the reply is the answer, or another card if it asks again.
+    function cardTurn(cardId: string | undefined): Turn | undefined {
+      return cardId ? transcript.find((t) => t.approval?.cardId === cardId) : undefined;
+    }
+    function renderCard(turn: Turn, node: Element | null) {
+      turn.html = approvalCardHtml(turn.approval!, esc);
+      if (node) node.innerHTML = turn.html;
+      saveTranscript();
+    }
+    function cardNode(cardId: string): Element | null {
+      return log.querySelector(`[data-card-id="${CSS.escape(cardId)}"]`)?.closest('.mv-msg') ?? null;
+    }
+    function supersedeCards(threadId: string | undefined) {
+      if (!threadId) return;
+      for (const t of transcript) {
+        if (t.approval && !t.approval.decided && t.approval.threadId === threadId) {
+          t.approval.decided = 'superseded';
+          renderCard(t, cardNode(t.approval.cardId));
+        }
+      }
+    }
+
+    log.addEventListener('click', async (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-mv-approve], [data-mv-deny]');
+      const cardEl = btn?.closest<HTMLElement>('.mv-approval');
+      const turn = cardTurn(cardEl?.dataset.cardId);
+      if (!btn || !cardEl || !turn?.approval || turn.approval.decided || busy) return;
+      const card = turn.approval;
+      const choices = [...cardEl.querySelectorAll<HTMLInputElement>('input[data-call-id]')].map((cb) => ({ id: cb.dataset.callId!, checked: cb.checked }));
+      const decisions = decisionsFrom(choices, btn.hasAttribute('data-mv-deny'));
+      card.decided = decisions;
+      renderCard(turn, cardEl.closest('.mv-msg'));
+
+      busy = true;
+      const gen = generation;
+      const thinking = addMsg('marvin', thinkingHtml(), false);
+      handBack();
+      cue('send');
+      try {
+        const res = await resumeBubbleRun(card, decisions);
+        if (gen === generation) { commitResult(thinking, res); finish(res.parked ? 'parked' : 'reply'); }
+      } catch (err: any) {
+        if (gen !== generation) return;
+        // Not decided after all (e.g. the server refused): put the card back so it can be tried again.
+        card.decided = undefined;
+        renderCard(turn, cardNode(card.cardId));
+        commitReply(thinking, errorHtml(err));
+        finish('error');
+      } finally {
+        if (gen === generation) busy = false;
+        log.scrollTop = log.scrollHeight;
+      }
+    });
+
+    // Public hook: open the bubble, optionally on a thread that waits for the user's approval — the
+    // activity toast uses it while the Ask page is switched off (the bubble is then where you decide).
+    //   document.dispatchEvent(new CustomEvent('marvin:open', { detail: { threadId } }))
+    document.addEventListener(OPEN_BUBBLE_EVENT, async (e) => {
+      if (root.hasAttribute('hidden')) return; // gated off
+      const threadId = String((e as CustomEvent).detail?.threadId ?? '');
+      if (!panel.classList.contains('open')) openPanel();
+      if (!threadId || busy) return;
+      // Already showing an undecided card for it: nothing to add.
+      if (transcript.some((t) => t.approval && !t.approval.decided && t.approval.threadId === threadId)) return;
+      try {
+        const res = await parkedCardFor(threadId);
+        if (!res?.approval) return;
+        // Continue that conversation here too, so the answer and any follow-up land in it.
+        rememberThread(res.approval.agent, res.approval.threadId);
+        addMsg('marvin', res.html, true, res.approval);
+        finish('parked');
+      } catch (err: any) {
+        addMsg('marvin', errorHtml(err), false);
+      }
+    });
+
     close.addEventListener('click', closePanel);
+    clear.addEventListener('click', clearTranscript);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePanel(); });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const text = input.value.trim();
-      if (!text || busy) return;
-      addMsg('user', esc(text));
-      input.value = '';
-
+      if (!text || busy || !navigator.onLine) return;
+      dictation?.cancel(); // what's in the input is what goes; late results mustn't refill it
       const { cap, arg, help } = resolveCapability(text);
+      addMsg('user', esc(text) + (cap?.id === 'agent' ? newlyAttachedHtml() : ''));
+      input.value = '';
+      autosize();
+
       if (help) { addMsg('marvin', helpHtml()); return; }
       if (!cap) {
         addMsg('marvin', "I don't know that command. Try <code>/help</code> — not that it'll lift the mood.");
         return;
       }
-      if (!arg) { addMsg('marvin', "You'll have to give me something to work with."); return; }
+      if (!arg && !cap.noArg) { addMsg('marvin', "You'll have to give me something to work with."); return; }
 
+      // A new message to the agent on a thread that is waiting denies what it waits on (server-side).
+      if (cap.id === 'agent') supersedeCards(threadFor(getActiveAgent()));
       busy = true;
-      const thinking = addMsg('marvin', `<span class="mv-thinking">${esc(pick(THINKING))}</span>`);
+      const gen = generation;
+      const thinking = addMsg('marvin', thinkingHtml(), false);
+      handBack();
+      cue('send');
       try {
         const res = await cap.run(arg);
-        thinking.innerHTML = res.html;
+        // After `/use`, the agent now talking may have a character of its own — possibly given since this page loaded.
+        if (cap.id === 'use') await refreshCast();
+        if (gen === generation) { commitResult(thinking, res); finish(res.parked ? 'parked' : 'reply'); }
       } catch (err: any) {
-        thinking.innerHTML = `<span class="mv-error">${esc(pick(ERRORS))} (${esc(err?.message || 'error')})</span>`;
+        if (gen === generation) { commitReply(thinking, errorHtml(err)); finish('error'); }
       } finally {
-        busy = false;
+        if (gen === generation) busy = false;
+        renderAttachments(); // after `/use`, the chips are the new agent's
         log.scrollTop = log.scrollHeight;
       }
     });
+
+    /** The user's turn names the files that ride a run for the first time; the chips show what is still attached. */
+    function newlyAttachedHtml(): string {
+      const list = attached();
+      const fresh = list.filter((a) => !a.sent);
+      if (!fresh.length) return '';
+      saveAttachments(sessionStorage, ATTACH_KEY, getActiveAgent(), list.map((a) => ({ ...a, sent: true })));
+      return `<div class="mv-attach">📎 ${fresh.map((a) => esc(a.name)).join(', ')}</div>`;
+    }
   }
 </script>
 
 <style>
-  .marvin { position: fixed; right: 20px; bottom: 20px; z-index: 1000; }
+  /* Default resting spot; the script re-applies it (or the remembered one) as viewport-relative insets. */
+  .marvin {
+    position: fixed; left: max(16px, env(safe-area-inset-left, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px));
+    z-index: 1000; --marvin-character-height: 80px;
+  }
+
+  /* Tucked into an edge: a sliver shows; dragging past an edge shows it will tuck; a pulse says a reply waits. */
+  .marvin.will-tuck .marvin-toggle { opacity: 0.55; }
+  .marvin.tucked .marvin-toggle { opacity: 0.85; box-shadow: 0 2px 8px rgb(0 0 0 / 0.25); }
+  /* A character has no circle to shadow: on its image's rectangle the shadow drew a box around it. */
+  .marvin.tucked .marvin-toggle.has-character { box-shadow: none; }
+  /* Sliding out to peek and back in. */
+  .marvin.tucked { --marvin-slide: 0.35s; transition: opacity 0.2s, transform 0.2s, left var(--marvin-slide) ease, top var(--marvin-slide) ease; }
+  .marvin.no-slide { transition: none; }
+  /* The sliver is a solid tab on the visible edge: a character's GIF is mostly transparent there, so its own
+     sliver could be invisible (and nothing to aim a thumb at). Hidden while it peeks out. */
+  .marvin.tucked .marvin-toggle { position: relative; overflow: visible; }
+  .marvin.tucked .marvin-toggle::before {
+    content: ""; position: absolute; z-index: 1; background: var(--accent);
+    /* Back only once the character has slid all the way in (a tab on a half-out character looks stuck on). */
+    box-shadow: 0 1px 6px rgb(0 0 0 / 0.3); transition: opacity 0.2s var(--marvin-slide);
+  }
+  .marvin.peeking .marvin-toggle::before { opacity: 0; transition: opacity 0.1s; }
+  .marvin.tucked[data-edge="right"] .marvin-toggle::before { left: 0; top: 50%; width: 14px; height: 44px; transform: translateY(-50%); border-radius: 8px 0 0 8px; }
+  .marvin.tucked[data-edge="left"] .marvin-toggle::before { right: 0; top: 50%; width: 14px; height: 44px; transform: translateY(-50%); border-radius: 0 8px 8px 0; }
+  .marvin.tucked[data-edge="bottom"] .marvin-toggle::before { top: 0; left: 50%; width: 44px; height: 14px; transform: translateX(-50%); border-radius: 8px 8px 0 0; }
+  .marvin.tucked[data-edge="top"] .marvin-toggle::before { bottom: 0; left: 50%; width: 44px; height: 14px; transform: translateX(-50%); border-radius: 0 0 8px 8px; }
+  .marvin.peeking .marvin-toggle { opacity: 1; }
+  .marvin.tuck-pulse .marvin-toggle { animation: marvin-tuck-pulse 1.6s ease-in-out infinite; }
+  @keyframes marvin-tuck-pulse { 50% { opacity: 1; filter: brightness(1.25); } }
+  /* Stepped aside while the page scrolls (touch screens). */
+  .marvin { transition: opacity 0.2s, transform 0.2s; }
+  .marvin.scroll-away { opacity: 0; transform: translateY(24px) scale(0.9); pointer-events: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .marvin, .marvin.tucked { transition: none; }
+    .marvin.tuck-pulse .marvin-toggle { animation: none; opacity: 1; }
+  }
 
   .marvin-toggle {
     width: 52px; height: 52px; border-radius: 50%;
@@ -182,7 +977,17 @@
     touch-action: none; user-select: none;
   }
   .marvin-toggle:active { cursor: grabbing; }
+  .marvin-toggle :global(.marvin-icon-img) { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; pointer-events: none; }
+  .marvin-toggle:has(.marvin-icon-img) { padding: 0; overflow: hidden; }
   .marvin-toggle:hover { box-shadow: 0 10px 26px rgb(0 0 0 / 0.24); }
+  /* The character stands on its own: no circle, no fill, its own aspect ratio. */
+  .marvin-toggle.has-character {
+    width: auto; height: var(--marvin-character-height); padding: 0;
+    border: none; border-radius: 0; background: none; box-shadow: none;
+  }
+  .marvin-toggle :global(.marvin-character) {
+    height: var(--marvin-character-height); width: auto; display: block; pointer-events: none;
+  }
 
   .marvin-panel {
     position: absolute; right: 0; bottom: 64px;
@@ -202,26 +1007,82 @@
   .marvin-id { display: flex; flex-direction: column; }
   .marvin-name { font-weight: 600; font-size: 15px; color: var(--ink); }
   .marvin-sub { font-size: 11px; color: var(--muted); }
+  .marvin-clear {
+    margin-left: auto; margin-right: 4px;
+    background: none; border: none; cursor: pointer;
+    font-size: 11px; line-height: 1; color: var(--muted); padding: 2px 4px;
+  }
+  .marvin-clear:hover { color: var(--ink); }
   .marvin-close {
     background: none; border: none; cursor: pointer;
     font-size: 22px; line-height: 1; color: var(--muted); padding: 0 4px;
   }
   .marvin-close:hover { color: var(--ink); }
 
+  /* Context chip — static markup, so plain scoped styles reach it. */
+  .marvin-context {
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 14px; border-bottom: 1px solid var(--line);
+    background: var(--bg); font-size: 11px; color: var(--muted);
+  }
+  .marvin-context[hidden] { display: none; }
+  .marvin-context-what { flex: none; }
+  .marvin-context-label {
+    flex: 1; min-width: 0; font-weight: 600; color: var(--ink);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .marvin-context-clear {
+    flex: none; background: none; border: none; cursor: pointer;
+    font-size: 15px; line-height: 1; color: var(--muted); padding: 0 2px;
+  }
+  .marvin-context-clear:hover { color: var(--ink); }
+
   .marvin-log { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 
-  .marvin-form { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--line); background: var(--bg); }
+  .marvin-panel.dropping { outline: 2px dashed var(--accent); outline-offset: -6px; }
+
+  /* Attached files: chips above the input, built in JS (so :global inside). */
+  .marvin-attachments {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    padding: 8px 12px 0; border-top: 1px solid var(--line); background: var(--bg);
+  }
+  .marvin-attachments[hidden] { display: none; }
+  .marvin-attachments :global(.mv-file) {
+    display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+    font-size: 12px; padding: 2px 4px 2px 8px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  }
+  .marvin-attachments :global(.mv-file.uploading) { color: var(--muted); font-style: italic; padding-right: 8px; }
+  .marvin-attachments :global(.mv-file-name) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
+  .marvin-attachments :global(.mv-file-x) {
+    background: none; border: none; cursor: pointer; font-size: 14px; line-height: 1; color: var(--muted); padding: 0 2px;
+  }
+  .marvin-attachments :global(.mv-file-x:hover) { color: var(--ink); }
+  .marvin-offline {
+    margin: 0; padding: 6px 14px; font-size: 11px; color: var(--muted);
+    border-top: 1px solid var(--line); background: var(--bg);
+  }
+
+  .marvin-form { display: flex; align-items: flex-end; gap: 6px; padding: 12px; border-top: 1px solid var(--line); background: var(--bg); }
+  .marvin-attachments:not([hidden]) + .marvin-offline[hidden] + .marvin-form { border-top: none; }
   .marvin-input {
-    flex: 1; padding: 9px 12px; font-size: 14px;
-    border: 1px solid var(--line); border-radius: 999px;
+    flex: 1; min-width: 0; padding: 9px 12px; font: inherit; font-size: 14px; line-height: 20px;
+    border: 1px solid var(--line); border-radius: 19px; resize: none; max-height: 120px; box-sizing: border-box;
     background: var(--panel); color: var(--ink);
   }
   .marvin-input:focus { border-color: var(--accent); outline: none; }
+  .marvin-tool {
+    width: 32px; height: 38px; flex: none; border: none; background: none; cursor: pointer;
+    font-size: 16px; line-height: 1; color: var(--muted); border-radius: 50%;
+  }
+  .marvin-tool:hover:not(:disabled) { color: var(--ink); background: var(--panel); }
+  .marvin-tool.listening { color: var(--color-error); }
   .marvin-send {
-    width: 38px; border: none; border-radius: 50%;
+    width: 38px; height: 38px; flex: none; border: none; border-radius: 50%;
     background: var(--accent); color: #fff; cursor: pointer; font-size: 14px;
   }
-  .marvin-send:hover { filter: brightness(1.05); }
+  .marvin-send:hover:not(:disabled) { filter: brightness(1.05); }
+  .marvin-tool:disabled, .marvin-send:disabled { opacity: 0.4; cursor: default; }
 
   /* Messages are built in JS, so their styles must be :global() to apply. */
   .marvin-log :global(.mv-msg) {
@@ -235,7 +1096,35 @@
     align-self: flex-start; background: var(--bg); color: var(--ink);
     border: 1px solid var(--line); border-bottom-left-radius: 4px;
   }
-  .marvin-log :global(.mv-answer) { white-space: pre-wrap; }
+  /* Rendered markdown: tighten default block spacing so the bubble stays compact. */
+  .marvin-log :global(.mv-answer > :first-child) { margin-top: 0; }
+  .marvin-log :global(.mv-answer > :last-child) { margin-bottom: 0; }
+  .marvin-log :global(.mv-answer p) { margin: 6px 0; }
+  .marvin-log :global(.mv-answer ul), .marvin-log :global(.mv-answer ol) { margin: 6px 0; padding-left: 20px; }
+  .marvin-log :global(.mv-answer li) { margin: 2px 0; }
+  .marvin-log :global(.mv-answer h1), .marvin-log :global(.mv-answer h2),
+  .marvin-log :global(.mv-answer h3), .marvin-log :global(.mv-answer h4) {
+    margin: 10px 0 4px; font-size: 14px; font-weight: 650; line-height: 1.3;
+  }
+  .marvin-log :global(.mv-answer pre) {
+    margin: 6px 0; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 6px; overflow-x: auto; font-size: 12px;
+  }
+  .marvin-log :global(.mv-answer pre code) { background: none; border: 0; padding: 0; }
+  .marvin-log :global(.mv-answer img) { max-width: 100%; height: auto; border-radius: 6px; }
+  .marvin-log :global(.mv-answer blockquote) {
+    margin: 6px 0; padding-left: 10px; border-left: 3px solid var(--line); color: var(--muted);
+  }
+  /* Deterministic thumbnail strip from tool image assets. */
+  .marvin-log :global(.mv-thumbs) {
+    margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  .marvin-log :global(.mv-thumb) {
+    display: block; width: 64px; height: 64px; border-radius: 8px; overflow: hidden;
+    border: 1px solid var(--line); background: var(--panel); flex: 0 0 auto;
+  }
+  .marvin-log :global(.mv-thumb img) { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .marvin-log :global(a.mv-thumb:hover) { border-color: var(--accent); }
   .marvin-log :global(.mv-sources) {
     margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line);
     font-size: 12px; color: var(--muted);
@@ -247,6 +1136,39 @@
     font-size: 12px; background: var(--panel); border: 1px solid var(--line);
     border-radius: 4px; padding: 1px 5px; font-family: ui-monospace, monospace;
   }
+  .marvin-log :global(.mv-tools-group) { margin: 8px 0; }
+  .marvin-log :global(.mv-tools-head) {
+    display: block; font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--muted); margin-bottom: 2px;
+  }
+  .marvin-log :global(.mv-tools ul) { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+  .marvin-log :global(.mv-tools li) { display: flex; gap: 6px; align-items: baseline; font-size: 12px; }
+  .marvin-log :global(.mv-tools li span) { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .marvin-log :global(.mv-tools code) {
+    font-size: 12px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 4px; padding: 1px 5px; font-family: ui-monospace, monospace; flex: none;
+  }
+  .marvin-log :global(.mv-ask-first) { font-size: 11px; color: var(--warn, #b7791f); font-style: normal; flex: none; }
+  /* Ask first: the inline approval card */
+  .marvin-log :global(.mv-approval-title) { font-weight: 600; margin-bottom: 6px; }
+  .marvin-log :global(.mv-approval-list) { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .marvin-log :global(.mv-approval-list label) { display: flex; gap: 6px; align-items: baseline; font-size: 13px; cursor: pointer; }
+  .marvin-log :global(.mv-approval-args) { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .marvin-log :global(.mv-approval-via) { margin: 6px 0 4px; }
+  .marvin-log :global(.mv-chip) {
+    display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--muted);
+  }
+  .marvin-log :global(.mv-approval-actions) { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+  .marvin-log :global(.mv-btn) {
+    font-size: 12px; padding: 5px 10px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--accent); background: var(--accent); color: #fff;
+  }
+  .marvin-log :global(.mv-btn.secondary) { background: none; color: var(--ink); border-color: var(--line); }
+  .marvin-log :global(.mv-approval-open) { font-size: 12px; color: var(--accent); text-decoration: none; }
+  .marvin-log :global(.mv-approval.resolved) { opacity: 0.7; }
+  .marvin-log :global(.mv-approval-done) { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .marvin-log :global(.mv-attach) { margin-top: 4px; font-size: 12px; opacity: 0.85; }
   .marvin-log :global(.mv-thinking) { color: var(--muted); font-style: italic; }
   .marvin-log :global(.mv-error) { color: var(--color-error); }
 </style>

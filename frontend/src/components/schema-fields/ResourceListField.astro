@@ -8,7 +8,7 @@ export interface Props {
   field: {
     key: string;
     label: string;
-    type: 'resource-list';
+    type: "resource-list";
     required?: boolean;
     defaultValue?: string[];
     placeholder?: string;
@@ -23,7 +23,7 @@ export interface Props {
 
 const { field, value, error } = Astro.props;
 const inputId = `field-${field.key}`;
-const displayValue = Array.isArray(value) ? value.join(', ') : (value || '');
+const displayValue = Array.isArray(value) ? value.join(", ") : value || "";
 ---
 
 <div class="field-group">

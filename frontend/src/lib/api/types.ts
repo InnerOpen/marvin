@@ -1,5 +1,5 @@
 // Enums
-export type EntryStatus = "inbox" | "processing" | "draft" | "needs_review" | "approved" | "published" | "archived";
+export type EntryStatus = "inbox" | "processing" | "draft" | "needs_review" | "approved" | "published" | "archived" | "trashed";
 
 export type WorkspaceRole = "OWNER" | "ADMIN" | "EDITOR" | "AUTHOR" | "VIEWER";
 
@@ -48,11 +48,11 @@ export interface MarvinEntry {
 
 // SDK Types - Re-export from SDK for type compatibility
 import type {
+  PlatformAPIClient,
+  PlatformCollection,
   PlatformEntry,
   PlatformEntryType,
-  PlatformCollection,
-  PlatformAPIClient
-} from '@inneropen/marvin-sdk/platform';
+} from "@inneropen/marvin-sdk/platform";
 
 export type EntryRead = PlatformEntry;
 export type EntryTypeRead = PlatformEntryType;

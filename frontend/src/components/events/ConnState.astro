@@ -1,0 +1,44 @@
+---
+/**
+ * The Events catalog's per-type state, both directions: a dot when something in the workspace reacts (a ring
+ * when every reaction is switched off), and "Not sent" when nothing sends the type at all.
+ */
+import { dotState, type EventConnectionCounts } from "@/lib/eventConnections";
+
+interface Props {
+  c?: EventConnectionCounts;
+}
+const { c } = Astro.props;
+const state = dotState(c);
+---
+
+{state !== "none" && (
+  <span
+    class:list={["conn-dot", state]}
+    role="img"
+    aria-label={state === "active" ? "Something reacts to it" : "Its reactions are all switched off"}
+  ></span>
+)}
+{c && c.senders === 0 && <span class="not-sent" title="Nothing in Marvin or this workspace sends this event yet">Not sent</span>}
+
+<style>
+  .conn-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 1.5px solid var(--accent);
+    box-sizing: border-box;
+    flex-shrink: 0;
+  }
+  .conn-dot.active { background: var(--accent); }
+  .not-sent {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--muted);
+    border: 1px dashed var(--line);
+    border-radius: 999px;
+    padding: 0 6px;
+    white-space: nowrap;
+  }
+</style>

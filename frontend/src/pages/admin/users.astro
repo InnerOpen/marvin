@@ -1,8 +1,8 @@
 ---
 import AdminLayout from "@/layouts/AdminLayout.astro";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
-import { createSdkClient } from '@/lib/sdk';
-import { getAuthToken, fetchApi } from "@/lib/api/client";
+import { createSdkClient } from "@/lib/sdk";
 
 const currentUser = await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
 
@@ -15,13 +15,13 @@ let error: string | null = null;
 try {
   const [usersResponse, groupsResponse] = await Promise.all([
     sdk.adminUsers.list(),
-    fetchApi<any>('/api/admin/groups', {}, authToken),
+    fetchApi<any>("/api/admin/groups", {}, authToken),
   ]);
 
   users = usersResponse.items || [];
   groups = groupsResponse.items || [];
 } catch (e) {
-  console.error('[admin/users] Error loading:', e);
+  console.error("[admin/users] Error loading:", e);
   error = e instanceof Error ? e.message : String(e);
 }
 
@@ -29,7 +29,7 @@ try {
 const groupMap = new Map(groups.map((g: any) => [g.id, g.name]));
 ---
 
-<AdminLayout title="Users">
+<AdminLayout crumb="admin.users">
   <div class="toolbar">
     <div>
       <h2>Platform Users</h2>

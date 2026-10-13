@@ -1,0 +1,65 @@
+---
+// Uploads waiting for a connection (lib/uploadQueue.ts): a small note on every app page while any wait, and the
+// sending — when the page opens and whenever the connection comes back.
+---
+
+<div id="upload-queue" class="upload-queue" role="status" aria-live="polite" hidden>
+  <span id="upload-queue-text"></span>
+  <button id="upload-queue-send" class="upload-queue-btn" type="button">Send now</button>
+  <button id="upload-queue-discard" class="upload-queue-btn" type="button">Discard</button>
+</div>
+
+<script>
+  import { queueNote } from "@/lib/uploadQueue";
+  import { discardUploads, QUEUE_EVENT, sendWaitingUploads, waitingUploads } from "@/lib/uploadQueueClient";
+
+  const note = document.getElementById("upload-queue")!;
+  const text = document.getElementById("upload-queue-text")!;
+  const sendBtn = document.getElementById("upload-queue-send") as HTMLButtonElement;
+  let workspace: string | null = null;
+  let flash = "";
+
+  async function render() {
+    const list = await waitingUploads();
+    const line = queueNote(list, workspace ?? list[0]?.workspace ?? null);
+    text.textContent = [flash, line].filter(Boolean).join(" · ");
+    note.hidden = !text.textContent;
+    sendBtn.hidden = !line || !navigator.onLine;
+  }
+
+  async function send() {
+    const result = await sendWaitingUploads();
+    if (result) {
+      workspace = result.sent[0]?.workspace ?? workspace;
+      const parts = [];
+      if (result.sent.length) parts.push(`Uploaded ${result.sent.length} waiting file${result.sent.length === 1 ? "" : "s"}`);
+      if (result.failed.length) parts.push(`${result.failed.map((f) => `${f.upload.fileName}: ${f.error}`).join("; ")}`);
+      flash = parts.join(" · ");
+    }
+    await render();
+  }
+
+  sendBtn.addEventListener("click", () => void send());
+  document.getElementById("upload-queue-discard")!.addEventListener("click", async () => {
+    const n = (await waitingUploads()).length;
+    if (n && !confirm(`Discard ${n} upload${n === 1 ? "" : "s"} that haven't been sent?`)) return;
+    flash = "";
+    await discardUploads();
+  });
+  document.addEventListener(QUEUE_EVENT, () => void render());
+  window.addEventListener("online", () => void send());
+  window.addEventListener("offline", () => void render());
+  void send();
+</script>
+
+<style>
+  .upload-queue {
+    position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px));
+    z-index: 999; display: flex; gap: 8px; align-items: center; max-width: min(520px, calc(100vw - 32px));
+    padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink);
+    font-size: 13px; box-shadow: 0 6px 20px rgb(0 0 0 / 0.15);
+  }
+  .upload-queue[hidden] { display: none; }
+  .upload-queue-btn { background: none; border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; cursor: pointer; color: var(--ink); font-size: 12px; flex: none; }
+  .upload-queue-btn:hover { border-color: var(--accent); }
+</style>

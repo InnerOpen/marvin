@@ -1,7 +1,7 @@
 """Database model for email event subscriptions."""
 
 import sqlalchemy as sa
-from sqlalchemy.orm import Mapped, Session, mapped_column
+from sqlalchemy.orm import Mapped, Session, mapped_column, validates
 
 from marvin.db.models import BaseMixins, SqlAlchemyBase
 from marvin.db.models._model_utils.auto_init import auto_init
@@ -40,6 +40,13 @@ class EmailEventSubscriptionModel(SqlAlchemyBase, BaseMixins):
     recipient_email: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 
     enabled: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=True)
+
+    @validates("event_type")
+    def _canonical_event_type(self, _key: str, value: str) -> str:
+        """An old event name is stored as the event it stands for (site_build_* → site_deployment_*)."""
+        from marvin.services.events.event_catalog import canonical_event_type
+
+        return canonical_event_type(value) if value else value
 
     @auto_init()
     def __init__(self, session: Session, **kwargs) -> None:

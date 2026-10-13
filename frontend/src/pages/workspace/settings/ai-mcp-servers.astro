@@ -1,0 +1,417 @@
+---
+import AppLayout from "@/layouts/AppLayout.astro";
+import type { McpServer } from "@/lib/api/aiMcpServers";
+import { getAiSettings, listMcpServers } from "@/lib/api/aiMcpServers";
+import { getAuthToken } from "@/lib/api/client";
+
+const authToken = getAuthToken(Astro.cookies);
+
+let settings: Awaited<ReturnType<typeof getAiSettings>> | null = null;
+let servers: McpServer[] = [];
+let error: string | null = null;
+
+try {
+  [settings, servers] = await Promise.all([getAiSettings(authToken), listMcpServers(authToken)]);
+} catch (e) {
+  console.error("[ai-mcp-servers] load error:", e);
+  error = e instanceof Error ? e.message : String(e);
+}
+
+const externalMcpEnabled = settings?.externalMcpEnabled ?? false;
+
+// The pill carries the TOOLS state (the enable toggle already shows on/off).
+function summary(sv: any): { text: string; cls: string } {
+  const n = (sv.allowedTools ?? []).length;
+  if (n === 0) return { text: "No tools chosen yet", cls: "warn" };
+  return { text: `${n} tool${n === 1 ? "" : "s"} allowed`, cls: "" };
+}
+---
+
+<AppLayout crumb="settings.ai-mcp-servers">
+  <div class="page-header">
+    <div>
+      <h2>MCP Servers</h2>
+      <p>Connect external MCP servers and choose which of their tools the agent can use.</p>
+    </div>
+  </div>
+
+  {error && <div class="alert"><strong>Couldn't load your servers.</strong> {error}</div>}
+
+  <!-- Master switch -->
+  <div class="section-card">
+    <div class="section-header">
+      <div>
+        <h3>External MCP tools</h3>
+        <p>Let the agent use tools from the servers below. When off, none are available.</p>
+      </div>
+      <label class="toggle-label">
+        <input type="checkbox" id="master-switch" class="toggle-input" checked={externalMcpEnabled} />
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="toggle-text" id="master-text">{externalMcpEnabled ? "On" : "Off"}</span>
+      </label>
+    </div>
+    <div class="info-banner info-banner-warn" style="margin-top:16px">
+      These are third-party servers — their tools run with the agent's access. Register only servers
+      you trust, and choose exactly which tools it can use. HTTP and SSE only.
+    </div>
+  </div>
+
+  <!-- Add a server -->
+  <div class="section-card mcp-dependent">
+    <div class="section-title"><h3>Add a server</h3></div>
+    <form id="add-form">
+      <div class="form-row">
+        <div class="form-field">
+          <label class="label" for="f-name">Name</label>
+          <input class="input" id="f-name" name="name" placeholder="Weather API" required />
+        </div>
+        <div class="form-field">
+          <label class="label" for="f-transport">Transport</label>
+          <select class="input" id="f-transport" name="transport">
+            <option value="http">HTTP (streamable)</option>
+            <option value="sse">SSE</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label class="label" for="f-url">Server URL</label>
+          <input class="input" id="f-url" name="url" placeholder="https://host/mcp" required />
+          <span class="hint">The server's MCP endpoint.</span>
+        </div>
+        <div class="form-field">
+          <label class="label" for="f-secret">Auth secret <span class="muted">(optional)</span></label>
+          <input class="input" id="f-secret" name="secret_ref" placeholder="weather-api-token" />
+          <span class="hint">A workspace secret slug, sent as a Bearer token.</span>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="button">Add server</button>
+        <span class="save-status" id="add-status"></span>
+      </div>
+    </form>
+  </div>
+
+  <!-- Your servers -->
+  <div class="section-card mcp-dependent">
+    <div class="section-title"><h3>Your servers</h3></div>
+
+    <div id="empty-note" class="empty" style={servers.length ? "display:none" : ""}>
+      No servers yet — add one above to give the agent new tools.
+    </div>
+
+    <div id="server-list">
+      {servers.map((sv) => {
+        const sm = summary(sv);
+        return (
+          <div class="server" data-id={sv.id} data-allowed={JSON.stringify(sv.allowedTools ?? [])} data-enabled={String(sv.enabled)}>
+            <div class="server-top">
+              <div class="server-id">
+                <div class="server-name"><strong>{sv.name}</strong> <span class="tag">{sv.transport}</span></div>
+                <div class="server-url">{sv.url}</div>
+              </div>
+              <label class="toggle-label">
+                <input type="checkbox" class="toggle-input enable" checked={sv.enabled} />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                <span class="toggle-text" data-role="enable-text">{sv.enabled ? "On" : "Off"}</span>
+              </label>
+            </div>
+            <div class="server-meta">
+              <span class:list={["pill", sm.cls]} data-role="pill">{sm.text}</span>
+              <div class="server-actions">
+                <button class="button secondary small edit-btn">Edit</button>
+                <button class:list={["button", "small", "load", (sv.allowedTools ?? []).length ? "secondary" : ""]}>Choose tools</button>
+                <button class="button secondary small del">Delete</button>
+              </div>
+            </div>
+            <form class="edit" hidden>
+              <div class="form-row">
+                <div class="form-field">
+                  <label class="label">Name</label>
+                  <input class="input e-name" value={sv.name} />
+                </div>
+                <div class="form-field">
+                  <label class="label">Transport</label>
+                  <select class="input e-transport">
+                    <option value="http" selected={sv.transport === "http"}>HTTP (streamable)</option>
+                    <option value="sse" selected={sv.transport === "sse"}>SSE</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-field">
+                  <label class="label">Server URL</label>
+                  <input class="input e-url" value={sv.url} />
+                </div>
+                <div class="form-field">
+                  <label class="label">Auth secret <span class="muted">(optional)</span></label>
+                  <input class="input e-secret" value={sv.secretRef ?? ""} placeholder="secret slug" />
+                </div>
+              </div>
+              <div class="edit-actions">
+                <button type="button" class="button small e-save">Save changes</button>
+                <button type="button" class="button secondary small e-cancel">Cancel</button>
+              </div>
+            </form>
+            <div class="tools" hidden></div>
+            <span class="save-status" data-role="status"></span>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+</AppLayout>
+
+<style>
+  /* ── App kit (mirrors ai-workflow.astro so this page matches settings) ── */
+  .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid var(--line); gap: 16px; }
+  .page-header h2 { margin: 0 0 6px; font-size: 22px; font-weight: 600; }
+  .page-header p { margin: 0; color: var(--muted); font-size: 14px; }
+  .alert { padding: 14px 16px; margin-bottom: 20px; border-radius: var(--radius); background: var(--color-error-bg); color: var(--color-error); border: 1px solid var(--color-error); font-size: 14px; }
+  .section-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; margin-bottom: 16px; transition: opacity 0.2s; }
+  .section-card > .section-title { margin-bottom: 16px; }
+  .section-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+  .section-title h3, .section-header h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+  .section-title p, .section-header p { margin: 0; font-size: 13px; color: var(--muted); }
+  .toggle-label { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; flex-shrink: 0; }
+  .toggle-input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .toggle-track { display: inline-block; width: 40px; height: 22px; background: var(--line); border-radius: 11px; position: relative; transition: background 0.2s; flex-shrink: 0; }
+  .toggle-input:checked + .toggle-track { background: var(--accent); }
+  .toggle-thumb { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; background: white; border-radius: 50%; transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+  .toggle-input:checked + .toggle-track .toggle-thumb { transform: translateX(18px); }
+  .toggle-text { font-size: 14px; font-weight: 500; color: var(--ink); min-width: 24px; }
+  .info-banner { background: rgba(79,156,132,0.08); border: 1px solid rgba(79,156,132,0.25); border-radius: var(--radius); padding: 12px 16px; font-size: 13px; color: var(--ink); }
+  .info-banner-warn { background: rgba(234,179,8,0.08); border-color: rgba(234,179,8,0.3); }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .form-field { display: grid; gap: 8px; align-content: start; }
+  .label { font-size: 13px; font-weight: 500; }
+  .label .muted, .muted { color: var(--muted); font-weight: 400; }
+  .hint { font-size: 12px; color: var(--muted); }
+  .input { width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 14px; background: var(--bg); color: var(--ink); box-sizing: border-box; }
+  .input:focus { border-color: var(--accent); outline: none; }
+  .form-actions { display: flex; align-items: center; gap: 16px; margin-top: 8px; padding-top: 20px; border-top: 1px solid var(--line); }
+  .save-status { font-size: 13px; color: var(--muted); }
+  .save-status.success { color: var(--accent); }
+  .save-status.error { color: var(--color-error); }
+
+  /* ── This page ── */
+  .empty { font-size: 14px; color: var(--muted); padding: 8px 0; }
+  .server { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; background: var(--bg); }
+  .server:last-child { margin-bottom: 0; }
+  .server-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .server-name { font-size: 14px; }
+  .server-url { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); margin-top: 3px; word-break: break-all; }
+  .tag { font-family: ui-monospace, monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+  .server-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+  .server-actions { display: flex; gap: 8px; }
+  .pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
+  .pill.on { color: var(--accent); border-color: var(--accent); background: rgba(234,88,12,0.06); }
+  .pill.warn { color: #a16207; border-color: rgba(234,179,8,0.45); background: rgba(234,179,8,0.1); }
+  .tools { margin-top: 14px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  /* The tool rows are injected via innerHTML, so scoped styles won't attach — use :global(). */
+  .tools :global(.tools-head) { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); padding: 10px 14px; background: var(--panel-2); }
+  .tools :global(.tool-row) { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-top: 1px solid var(--line); }
+  .tools :global(.tool-row input) { margin-top: 2px; accent-color: var(--accent); flex-shrink: 0; }
+  .tools :global(.tool-row code) { font-size: 13px; }
+  .tools :global(.tool-body) { min-width: 0; }
+  /* Tool descriptions can be huge (schemas/examples) — clamp to 1 line; full text on hover. */
+  .tools :global(.tool-row .desc) {
+    display: -webkit-box; -webkit-line-clamp: 1; line-clamp: 1; -webkit-box-orient: vertical;
+    overflow: hidden; font-size: 12px; color: var(--muted); margin-top: 2px; cursor: help;
+  }
+  .tools :global(.tools-actions) { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--line); }
+  .edit { margin-top: 14px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .edit .form-row { margin-bottom: 12px; }
+  .edit-actions { display: flex; align-items: center; gap: 12px; }
+  @media (max-width: 720px) { .form-row { grid-template-columns: 1fr; } }
+</style>
+
+<script>
+  import {
+    createMcpServer,
+    updateMcpServer,
+    deleteMcpServer,
+    testMcpServer,
+    setExternalMcpEnabled,
+  } from "@/lib/api/aiMcpServers";
+
+  const esc = (s: unknown) =>
+    String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+  function status(el: Element | null, msg: string, kind: "" | "success" | "error" = "") {
+    if (!el) return;
+    (el as HTMLElement).textContent = msg;
+    el.classList.remove("success", "error");
+    if (kind) el.classList.add(kind);
+  }
+
+  function pillFor(count: number): { text: string; cls: string } {
+    if (count === 0) return { text: "No tools chosen yet", cls: "pill warn" };
+    return { text: `${count} tool${count === 1 ? "" : "s"} allowed`, cls: "pill" };
+  }
+
+  function refreshPill(card: HTMLElement) {
+    const pill = card.querySelector('[data-role="pill"]') as HTMLElement;
+    const count = JSON.parse(card.dataset.allowed || "[]").length;
+    const p = pillFor(count);
+    pill.textContent = p.text;
+    pill.className = p.cls;
+    // Once tools are chosen, demote "Choose tools" from primary to secondary.
+    const load = card.querySelector(".load") as HTMLElement;
+    if (load) load.classList.toggle("secondary", count > 0);
+  }
+
+  // ── Master switch (immediate) ──
+  // When off, the whole feature is inert — dim + disable the add form and server list so you
+  // can't register or configure servers that wouldn't run anyway.
+  const master = document.getElementById("master-switch") as HTMLInputElement | null;
+  const masterText = document.getElementById("master-text");
+  function syncMaster() {
+    const on = !!master?.checked;
+    if (masterText) masterText.textContent = on ? "On" : "Off";
+    document.querySelectorAll<HTMLElement>(".mcp-dependent").forEach((el) => {
+      el.style.opacity = on ? "" : "0.45";
+      el.style.pointerEvents = on ? "" : "none";
+    });
+  }
+  syncMaster();
+  master?.addEventListener("change", async () => {
+    syncMaster();
+    try {
+      await setExternalMcpEnabled(master.checked);
+    } catch (e) {
+      master.checked = !master.checked;
+      syncMaster();
+      alert("Couldn't update the switch: " + (e instanceof Error ? e.message : e));
+    }
+  });
+
+  // ── Add server ──
+  const addForm = document.getElementById("add-form") as HTMLFormElement | null;
+  const addStatus = document.getElementById("add-status");
+  addForm?.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(addForm);
+    const create: any = {
+      name: String(fd.get("name")),
+      url: String(fd.get("url")),
+      transport: String(fd.get("transport")),
+    };
+    const secret = String(fd.get("secret_ref") || "").trim();
+    if (secret) create.secretRef = secret;
+    status(addStatus, "Adding…");
+    try {
+      await createMcpServer(create);
+      location.reload();
+    } catch (e) {
+      status(addStatus, "Couldn't add it: " + (e instanceof Error ? e.message : e), "error");
+    }
+  });
+
+  // ── Per-server ──
+  document.querySelectorAll<HTMLElement>(".server").forEach((card) => {
+    const id = card.dataset.id!;
+    const toolsBox = card.querySelector(".tools") as HTMLElement;
+    const statusEl = card.querySelector('[data-role="status"]');
+
+    // Enable toggle — immediate; updates its own On/Off label
+    const enableInput = card.querySelector(".enable") as HTMLInputElement;
+    const enableText = card.querySelector('[data-role="enable-text"]') as HTMLElement;
+    enableInput?.addEventListener("change", async () => {
+      const enabled = enableInput.checked;
+      if (enableText) enableText.textContent = enabled ? "On" : "Off";
+      try {
+        await updateMcpServer(id, { enabled });
+      } catch (err) {
+        enableInput.checked = !enabled;
+        if (enableText) enableText.textContent = enableInput.checked ? "On" : "Off";
+        status(statusEl, "Couldn't change state: " + (err instanceof Error ? err.message : err), "error");
+      }
+    });
+
+    // Choose tools — fetch tools/list, render checkboxes pre-checked from the allowlist
+    card.querySelector(".load")?.addEventListener("click", async () => {
+      status(statusEl, "Connecting…");
+      try {
+        const res = await testMcpServer(id);
+        if (!res.success) { status(statusEl, res.message || "Couldn't connect.", "error"); return; }
+        const allowed: string[] = JSON.parse(card.dataset.allowed || "[]");
+        const tools: any[] = res.tools || [];
+        toolsBox.innerHTML =
+          `<div class="tools-head">Tools the agent can use</div>` +
+          (tools.length
+            ? tools.map((t) => `
+                <label class="tool-row">
+                  <input type="checkbox" class="tool" value="${esc(t.name)}" ${allowed.includes(t.name) ? "checked" : ""}/>
+                  <span class="tool-body"><code>${esc(t.name)}</code><span class="desc" title="${esc(t.description)}">${esc(t.description) || "No description."}</span></span>
+                </label>`).join("")
+            : `<div class="tool-row"><span class="desc">This server exposes no tools.</span></div>`) +
+          `<div class="tools-actions"><button type="button" class="button small save">Save tools</button></div>`;
+        toolsBox.hidden = false;
+        status(statusEl, "");
+
+        toolsBox.querySelector(".save")?.addEventListener("click", async () => {
+          const picked = Array.from(toolsBox.querySelectorAll<HTMLInputElement>(".tool:checked")).map((c) => c.value);
+          status(statusEl, "Saving…");
+          try {
+            await updateMcpServer(id, { allowedTools: picked });
+            card.dataset.allowed = JSON.stringify(picked);
+            refreshPill(card);
+            status(statusEl, "Saved.", "success");
+          } catch (e) {
+            status(statusEl, "Couldn't save: " + (e instanceof Error ? e.message : e), "error");
+          }
+        });
+      } catch (e) {
+        status(statusEl, "Couldn't connect: " + (e instanceof Error ? e.message : e), "error");
+      }
+    });
+
+    // Edit — inline form for name / url / transport / auth secret
+    const editForm = card.querySelector(".edit") as HTMLElement | null;
+    card.querySelector(".edit-btn")?.addEventListener("click", () => {
+      if (editForm) editForm.hidden = !editForm.hidden;
+    });
+    card.querySelector(".e-cancel")?.addEventListener("click", () => {
+      if (editForm) editForm.hidden = true;
+    });
+    card.querySelector(".e-save")?.addEventListener("click", async () => {
+      const name = (card.querySelector(".e-name") as HTMLInputElement).value.trim();
+      const url = (card.querySelector(".e-url") as HTMLInputElement).value.trim();
+      const transport = (card.querySelector(".e-transport") as HTMLSelectElement).value;
+      const secret = (card.querySelector(".e-secret") as HTMLInputElement).value.trim();
+      if (!name || !url) { status(statusEl, "Name and URL are required.", "error"); return; }
+      status(statusEl, "Saving…");
+      try {
+        await updateMcpServer(id, { name, url, transport, secretRef: secret || null });
+        (card.querySelector(".server-name strong") as HTMLElement).textContent = name;
+        (card.querySelector(".server-url") as HTMLElement).textContent = url;
+        (card.querySelector(".tag") as HTMLElement).textContent = transport;
+        if (editForm) editForm.hidden = true;
+        status(statusEl, "Saved.", "success");
+      } catch (e) {
+        status(statusEl, "Couldn't save: " + (e instanceof Error ? e.message : e), "error");
+      }
+    });
+
+    // Delete — idempotent: an already-gone server (404) is treated as success.
+    card.querySelector(".del")?.addEventListener("click", async () => {
+      if (!confirm("Delete this server? The agent will lose its tools.")) return;
+      try {
+        await deleteMcpServer(id);
+      } catch (e: any) {
+        const gone = e?.status === 404 || /not found/i.test(e?.message ?? "");
+        if (!gone) {
+          status(statusEl, "Couldn't delete: " + (e instanceof Error ? e.message : e), "error");
+          return;
+        }
+      }
+      card.remove();
+      const list = document.getElementById("server-list");
+      if (list && !list.querySelector(".server")) {
+        const note = document.getElementById("empty-note");
+        if (note) note.style.display = "";
+      }
+    });
+  });
+</script>

@@ -1,0 +1,10 @@
+{
+  "name": "Null Signal",
+  "description": "a small black boxy robot with a hook-shaped antenna on top and a dark screen face that shows red text ('NULL', 'ERROR') or red pixel eyes",
+  "style": "pixel-art",
+  "rules": [
+    "black body",
+    "hook-shaped antenna on top",
+    "the face is a screen showing red glyphs or red pixel eyes"
+  ]
+}

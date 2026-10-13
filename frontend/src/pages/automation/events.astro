@@ -1,56 +1,53 @@
 ---
+import ConnState from "@/components/events/ConnState.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
-import { createSdkClient } from "@/lib/sdk";
 import { getAuthToken } from "@/lib/api/client";
+import { getEventConnectionsSummary } from "@/lib/api/eventConnections";
+import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
+import { countsTitle, type EventConnectionCounts, isConnected } from "@/lib/eventConnections";
+import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
+// Admin-only page (the API refuses members with a 403); if the role can't be read, let the API decide.
+const adminOnly = !(await canManageCurrentWorkspace(authToken!).catch(() => true));
 const sdk = createSdkClient(authToken);
 
 let eventTypes: any[] = [];
-let webhooks: any[] = [];
-let notifications: any[] = [];
+let summary: EventConnectionCounts[] = [];
 let error: string | null = null;
 
 try {
-  [eventTypes, webhooks] = await Promise.all([
+  // One call counts every connection, both ways: what sends each type and what reacts to it (workflows,
+  // integration actions, emails, webhooks — however they were connected).
+  [eventTypes, summary] = await Promise.all([
     sdk.events.getOptions() as Promise<any[]>,
-    sdk.webhooks.list().catch(() => []),
+    getEventConnectionsSummary(authToken).catch((e) => {
+      console.error("[events] Connections summary failed:", e);
+      return [] as EventConnectionCounts[];
+    }),
   ]);
-  const notifRes = await sdk.notifications.list().catch(() => ({ items: [] }));
-  notifications = Array.isArray(notifRes) ? notifRes : (notifRes as any)?.items ?? [];
 } catch (e) {
-  console.error('[events] Error:', e);
+  console.error("[events] Error:", e);
   error = e instanceof Error ? e.message : String(e);
 }
 
-function getConnections(eventType: string) {
-  const connectedWebhooks = webhooks.filter((w: any) => {
-    const sub = (w as any).subscribedEvents ?? (w as any).subscribed_events ?? [];
-    return Array.isArray(sub) && sub.includes(eventType);
-  });
-  const connectedNotifs = notifications.filter((n: any) => {
-    const opts: any[] = (n as any).options ?? [];
-    return opts.some((o: any) => (o.option || o.slug || o) === ('core.' + eventType));
-  });
-  return { webhooks: connectedWebhooks, notifications: connectedNotifs };
-}
+const counts = new Map(summary.map((c) => [c.eventType, c]));
+const now = new Date();
+const anyNotSent = eventTypes.some((e: any) => counts.get(e.value)?.senders === 0);
 
 const categories = [...new Set(eventTypes.map((e: any) => e.category).filter(Boolean))] as string[];
-const groupedByCategory = categories.map(cat => {
+const groupedByCategory = categories.map((cat) => {
   const events = eventTypes.filter((e: any) => e.category === cat);
-  const connectedCount = events.filter((e: any) => {
-    const c = getConnections(e.value);
-    return c.webhooks.length + c.notifications.length > 0;
-  }).length;
+  const connectedCount = events.filter((e: any) => isConnected(counts.get(e.value))).length;
   return { category: cat, events, connectedCount };
 });
 ---
 
-<AppLayout title="Events" eyebrow="Automation">
+<AppLayout crumb="automation.events" adminOnly={adminOnly}>
   <div class="toolbar">
     <div>
       <h2>Events</h2>
-      <p>Events fire when things happen in your workspace. Subscribe to trigger webhooks, notifications, and emails.</p>
+      <p>Events fire when things happen in your workspace. Open one to see what sends it and everything that reacts to it — workflows, integration actions, emails and webhooks.</p>
     </div>
     <a href="/workspace/events" class="button secondary">View Event Log →</a>
   </div>
@@ -67,6 +64,11 @@ const groupedByCategory = categories.map(cat => {
           placeholder="Search events…"
           autocomplete="off"
         />
+        <p class="legend" aria-label="Legend">
+          <span class="legend-item"><span class="legend-dot active"></span>Something reacts</span>
+          <span class="legend-item"><span class="legend-dot"></span>Reactions switched off</span>
+          {anyNotSent && <span class="legend-item"><span class="legend-not-sent">Not sent</span>Nothing sends it</span>}
+        </p>
         <div class="view-toggle">
           <button class="toggle-btn active" id="view-all">All ({eventTypes.length})</button>
           <button class="toggle-btn" id="view-types">Types</button>
@@ -77,11 +79,12 @@ const groupedByCategory = categories.map(cat => {
       <div id="view-all-section">
         <div class="chips" id="chips-all">
           {eventTypes.map((event: any) => {
-            const conn = getConnections(event.value);
-            const total = conn.webhooks.length + conn.notifications.length;
+            const c = counts.get(event.value);
+            const connected = isConnected(c);
             return (
               <article
-                class:list={['event-chip', { connected: total > 0 }]}
+                class:list={['event-chip', { connected }]}
+                title={countsTitle(c, now) || undefined}
                 data-name={event.label.toLowerCase()}
                 data-type={event.value.toLowerCase()}
                 data-desc={(event.description || '').toLowerCase()}
@@ -96,14 +99,9 @@ const groupedByCategory = categories.map(cat => {
                 </div>
                 <div class="chip-right">
                   <span class="event-category">{event.category}</span>
-                  {total > 0 && (
-                    <span class="conn-dot" title={[
-                      ...conn.webhooks.map((w: any) => w.name),
-                      ...conn.notifications.map((n: any) => n.name),
-                    ].join(', ')}>●</span>
-                  )}
-                  <a href={`/automation/events/${event.value}`} class="button secondary small">
-                    {total > 0 ? 'Manage' : 'Subscribe'}
+                  <ConnState c={c} />
+                  <a href={`/automation/events/${event.value}${connected ? '' : '#subscribe'}`} class="button secondary small">
+                    {connected ? 'Manage' : 'Subscribe'}
                   </a>
                 </div>
               </article>
@@ -124,16 +122,17 @@ const groupedByCategory = categories.map(cat => {
               <span class="category-name">{category}</span>
               <span class="category-count">{events.length}</span>
               {connectedCount > 0 && (
-                <span class="group-conn-dot" title={`${connectedCount} subscribed`}>● {connectedCount}</span>
+                <span class="group-conn-dot" title={`${connectedCount} with reactions in this workspace`}>● {connectedCount}</span>
               )}
             </summary>
             <div class="chips group-chips">
               {events.map((event: any) => {
-                const conn = getConnections(event.value);
-                const total = conn.webhooks.length + conn.notifications.length;
+                const c = counts.get(event.value);
+                const connected = isConnected(c);
                 return (
                   <article
-                    class:list={['event-chip', { connected: total > 0 }]}
+                    class:list={['event-chip', { connected }]}
+                    title={countsTitle(c, now) || undefined}
                     data-name={event.label.toLowerCase()}
                     data-type={event.value.toLowerCase()}
                     data-desc={(event.description || '').toLowerCase()}
@@ -147,14 +146,9 @@ const groupedByCategory = categories.map(cat => {
                       {event.description && <p class="event-desc">{event.description}</p>}
                     </div>
                     <div class="chip-right">
-                      {total > 0 && (
-                        <span class="conn-dot" title={[
-                          ...conn.webhooks.map((w: any) => w.name),
-                          ...conn.notifications.map((n: any) => n.name),
-                        ].join(', ')}>●</span>
-                      )}
-                      <a href={`/automation/events/${event.value}`} class="button secondary small">
-                        {total > 0 ? 'Manage' : 'Subscribe'}
+                      <ConnState c={c} />
+                      <a href={`/automation/events/${event.value}${connected ? '' : '#subscribe'}`} class="button secondary small">
+                        {connected ? 'Manage' : 'Subscribe'}
                       </a>
                     </div>
                   </article>
@@ -241,6 +235,7 @@ const groupedByCategory = categories.map(cat => {
 
   .controls {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 12px;
     margin-bottom: 16px;
@@ -325,7 +320,25 @@ const groupedByCategory = categories.map(cat => {
     letter-spacing: 0.5px; color: var(--muted); white-space: nowrap;
   }
 
-  .conn-dot { font-size: 8px; color: var(--accent); cursor: default; line-height: 1; }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 14px;
+    margin: 0 auto 0 0;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .legend-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .legend-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    border: 1.5px solid var(--accent); box-sizing: border-box;
+  }
+  .legend-dot.active { background: var(--accent); }
+  .legend-not-sent {
+    font-size: 10px; font-weight: 600; border: 1px dashed var(--line);
+    border-radius: 999px; padding: 0 6px;
+  }
 
   .button.small { padding: 4px 10px; font-size: 12px; font-weight: 600; min-height: 26px; }
 
@@ -374,4 +387,12 @@ const groupedByCategory = categories.map(cat => {
   }
 
   .empty-state { padding: 48px; text-align: center; color: var(--muted); font-size: 13px; }
+
+  @media (max-width: 640px) {
+    .legend { order: 3; flex-basis: 100%; }
+    /* Finger-sized search, view toggle and row buttons. */
+    .filter-search,
+    .toggle-btn { min-height: 36px; }
+    .button.small { min-height: 36px; }
+  }
 </style>

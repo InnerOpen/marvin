@@ -1,0 +1,35 @@
+{
+  "recipe": "thread-builder",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entries to turn into a thread when they're published.",
+      "example": "article"
+    },
+    "network": {
+      "type": "text",
+      "description": "Where the thread is for (it shapes the tone and the hashtags).",
+      "example": "Bluesky"
+    },
+    "post_length": {
+      "type": "integer",
+      "description": "The most characters a post may have (Bluesky 300, Mastodon 500, Threads 500).",
+      "example": 300
+    },
+    "voice": {
+      "type": "text",
+      "description": "How the posts should sound.",
+      "example": "a warm, plain voice"
+    },
+    "draft_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type the drafts are made as.",
+      "example": "article"
+    },
+    "draft_body_field": {
+      "type": "field_key",
+      "description": "That type's text field.",
+      "example": "body"
+    }
+  }
+}

@@ -1,19 +1,34 @@
 ---
-import AppLayout from "@/layouts/AppLayout.astro";
+import SaveErrorBanner from "@/components/SaveErrorBanner.astro";
 import SchemaForm from "@/components/SchemaForm.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
-import { getEntry, updateEntry, type EntryRead, type CollectionRead } from "@/lib/api/entries";
-import { listEntryTypes, type EntryTypeRead } from "@/lib/api/entryTypes";
 import { listCollections } from "@/lib/api/collections";
+import { type CollectionRead, type EntryRead, getEntry, updateEntry } from "@/lib/api/entries";
+import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
 import { getAssets } from "@/lib/api/platform";
 import { listResources } from "@/lib/api/resources";
+import { createTag, listTags, type TagRead } from "@/lib/api/tags";
+import { keysHint } from "@/lib/disclosure";
+import { viewOnSite, withSubmittedValues } from "@/lib/entryForm";
+import { integrationErrors, reviewReasons } from "@/lib/reviewReasons";
+import { shareLinks } from "@/lib/shareLinks";
+import { restoresTo } from "@/lib/trash";
+import { describeSaveError, type SaveError } from "@/lib/saveError";
+import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
+import { EDITORS_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
 
-// Handle form submission (server-side)
-if (Astro.request.method === 'POST' && id && authToken) {
+// Handle form submission (server-side). A failed save re-renders the form with what was submitted
+// (`submitted`, laid over the stored entry below) and says why above it (`saveError`).
+let saveError: SaveError | null = null;
+let submitted: Record<string, any> | null = null;
+let submittedMetadataText: string | null = null;
+if (Astro.request.method === "POST" && id && authToken) {
   try {
     const formData = await Astro.request.formData();
 
@@ -22,9 +37,13 @@ if (Astro.request.method === 'POST' && id && authToken) {
     let collIdx = 0;
     while (formData.has(`collection_attachments[${collIdx}].collection_id`)) {
       let collMeta = null;
-      const collMetaStr = (formData.get(`collection_attachments[${collIdx}].metadata`) as string) || '';
+      const collMetaStr = (formData.get(`collection_attachments[${collIdx}].metadata`) as string) || "";
       if (collMetaStr.trim()) {
-        try { collMeta = JSON.parse(collMetaStr); } catch { /* ignore invalid JSON */ }
+        try {
+          collMeta = JSON.parse(collMetaStr);
+        } catch {
+          /* ignore invalid JSON */
+        }
       }
       collectionAttachments.push({
         collection_id: formData.get(`collection_attachments[${collIdx}].collection_id`) as string,
@@ -39,9 +58,13 @@ if (Astro.request.method === 'POST' && id && authToken) {
     let assetIdx = 0;
     while (formData.has(`asset_attachments[${assetIdx}].asset_id`)) {
       let assetMeta = null;
-      const assetMetaStr = (formData.get(`asset_attachments[${assetIdx}].metadata`) as string) || '';
+      const assetMetaStr = (formData.get(`asset_attachments[${assetIdx}].metadata`) as string) || "";
       if (assetMetaStr.trim()) {
-        try { assetMeta = JSON.parse(assetMetaStr); } catch { /* ignore invalid JSON */ }
+        try {
+          assetMeta = JSON.parse(assetMetaStr);
+        } catch {
+          /* ignore invalid JSON */
+        }
       }
       assetAttachments.push({
         asset_id: formData.get(`asset_attachments[${assetIdx}].asset_id`) as string,
@@ -57,9 +80,13 @@ if (Astro.request.method === 'POST' && id && authToken) {
     let resIdx = 0;
     while (formData.has(`resource_attachments[${resIdx}].resource_id`)) {
       let resMeta = null;
-      const resMetaStr = (formData.get(`resource_attachments[${resIdx}].metadata`) as string) || '';
+      const resMetaStr = (formData.get(`resource_attachments[${resIdx}].metadata`) as string) || "";
       if (resMetaStr.trim()) {
-        try { resMeta = JSON.parse(resMetaStr); } catch { /* ignore invalid JSON */ }
+        try {
+          resMeta = JSON.parse(resMetaStr);
+        } catch {
+          /* ignore invalid JSON */
+        }
       }
       resourceAttachments.push({
         resource_id: formData.get(`resource_attachments[${resIdx}].resource_id`) as string,
@@ -70,57 +97,104 @@ if (Astro.request.method === 'POST' && id && authToken) {
       resIdx++;
     }
 
-    // Parse dataJson from schema fields (dataJson.fieldKey format)
+    // Parse dataJson from schema fields (dataJson.fieldKey format). FormData is all strings, so
+    // coerce each value to its declared schema type — a `number` field like "order" must be sent
+    // as a real number or the content validator rejects it and the value silently never saves.
+    const entryTypeId = formData.get("entry_type_id") as string | null;
+    let fieldTypes: Record<string, string> = {};
+    if (entryTypeId) {
+      try {
+        const type = (await listEntryTypes(authToken)).find((t) => t.id === entryTypeId);
+        fieldTypes = fieldTypeMap(type?.schemaJson);
+      } catch (e) {
+        console.error("[Entry] Could not load schema for field coercion:", e);
+      }
+    }
     const dataJson: Record<string, any> = {};
     for (const [key, value] of formData.entries()) {
-      if (key.startsWith('dataJson.')) {
-        const fieldKey = key.replace('dataJson.', '');
-        // Handle boolean checkboxes (only present if checked)
-        if (value === 'true' || value === 'false') {
-          dataJson[fieldKey] = value === 'true';
-        } else {
-          dataJson[fieldKey] = value || null;
-        }
+      if (key.startsWith("dataJson.")) {
+        const fieldKey = key.replace("dataJson.", "");
+        dataJson[fieldKey] = coerceDataJsonValue(fieldTypes[fieldKey], value as string);
       }
     }
 
-    // Parse metadata JSON
-    const metadataJsonStr = formData.get('metadata_json') as string | null;
+    const updateData: Record<string, any> = {
+      entry_type_id: formData.get("entry_type_id") as string,
+      title: formData.get("title") as string,
+      slug: (formData.get("slug") as string) || null,
+      summary: (formData.get("summary") as string) || null,
+      description: (formData.get("description") as string) || null,
+      data_json: Object.keys(dataJson).length > 0 ? dataJson : null,
+      status: formData.get("status") as string,
+      collection_attachments: collectionAttachments,
+      asset_attachments: assetAttachments,
+      resource_attachments: resourceAttachments,
+    };
+    // Schedule fields come from hidden inputs the page script fills with UTC ISO strings (the
+    // datetime-local pickers carry no zone). Sent whenever present, so clearing one clears it.
+    // published_at is never sent: the API stamps it on first publish and clears it on unpublish,
+    // and sending it — even as null — would override that.
+    for (const key of ["publish_at", "expire_at"]) {
+      if (formData.has(key)) updateData[key] = (formData.get(key) as string) || null;
+    }
+    submitted = updateData;
+
+    // Metadata JSON that doesn't parse stops the save (it used to be sent as null, wiping the
+    // entry's metadata); the textarea keeps what was typed.
+    const metadataJsonStr = formData.get("metadata_json") as string | null;
     let metadataJson = null;
     if (metadataJsonStr?.trim()) {
       try {
         metadataJson = JSON.parse(metadataJsonStr);
       } catch (error) {
-        console.error('[Entry] Invalid metadata JSON:', error);
-        // Let it pass as null
+        submittedMetadataText = metadataJsonStr;
+        throw new Error(`Metadata (JSON) isn't valid JSON: ${error instanceof Error ? error.message : error}`);
+      }
+    }
+    updateData.metadata_json = metadataJson;
+
+    // Resolve the tag chips → tag_ids. Each chip is {name, id?}: an id means an existing tag
+    // (use it directly); a bare name is create-on-type — POST /tags is find-or-create by slug,
+    // so it resolves both brand-new names and typos-of-existing to the right id. Field always
+    // present (hidden input), so an empty array clears the entry's tags.
+    let tagIds: string[] | undefined;
+    const tagsPayloadStr = formData.get("tags_payload") as string | null;
+    if (tagsPayloadStr !== null) {
+      tagIds = [];
+      const seen = new Set<string>();
+      let chips: Array<{ name?: string; id?: string }> = [];
+      try {
+        chips = JSON.parse(tagsPayloadStr || "[]");
+      } catch {
+        chips = [];
+      }
+      for (const chip of chips) {
+        let tagId = chip.id;
+        if (!tagId && chip.name?.trim()) {
+          const tag = await createTag({ name: chip.name.trim() }, authToken);
+          tagId = tag.id;
+        }
+        if (tagId && !seen.has(tagId)) {
+          seen.add(tagId);
+          tagIds.push(tagId);
+        }
       }
     }
 
-    const updateData: Record<string, any> = {
-      entry_type_id: formData.get('entry_type_id') as string,
-      title: formData.get('title') as string,
-      slug: (formData.get('slug') as string) || null,
-      summary: (formData.get('summary') as string) || null,
-      description: (formData.get('description') as string) || null,
-      data_json: Object.keys(dataJson).length > 0 ? dataJson : null,
-      status: formData.get('status') as string,
-      metadata_json: metadataJson,
-      collection_attachments: collectionAttachments,
-      asset_attachments: assetAttachments,
-      resource_attachments: resourceAttachments,
-    };
+    if (tagIds !== undefined) updateData.tag_ids = tagIds;
 
     await updateEntry(id, updateData, authToken);
-    return Astro.redirect('/workspace/entries');
+    return Astro.redirect("/workspace/entries");
   } catch (e) {
-    console.error('[Entry] Failed to update entry:', e);
-    // Error will be shown below
+    console.error("[Entry] Failed to update entry:", e);
+    saveError = describeSaveError(e);
   }
 }
 
 let entry: EntryRead | null = null;
 let entryTypes: EntryTypeRead[] = [];
 let collections: CollectionRead[] = [];
+let allTags: TagRead[] = [];
 let allAssets: any[] = [];
 let allResources: any[] = [];
 let error: string | null = null;
@@ -131,30 +205,96 @@ if (!id) {
   error = "Authentication required";
 } else {
   try {
-    [entry, entryTypes, collections, allAssets, allResources] = await Promise.all([
+    [entry, entryTypes, collections, allTags, allAssets, allResources] = await Promise.all([
       getEntry(id, authToken),
       listEntryTypes(authToken),
       listCollections(authToken),
+      listTags(authToken),
       getAssets(authToken),
       listResources(authToken),
     ]);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
-    console.error('[Entry] Failed to load:', error);
+    console.error("[Entry] Failed to load:", error);
   }
 }
 
+// Who may change this entry: EDITOR+ any entry; an AUTHOR their own until it's approved or published
+// (judged on the stored entry, not a failed save). Setting approved/published or a scheduled
+// publish is EDITOR+ only.
+const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+// An entry in the Trash is read-only: whoever may change it can Restore it or delete it forever, nothing else.
+const inTrash = entry?.status === "trashed";
+const mayChangeEntry = entry ? access.canEditEntry(entry) : false;
+const canEditThis = mayChangeEntry && !inTrash;
+const trashCollectionId = collections.find((c: any) => c.isSystem && c.slug === "trash")?.id ?? null;
+const restoresToLabel = inTrash ? restoresTo(entry?.metadataJson as Record<string, unknown> | null).replace("_", " ") : "";
+const canPublish = access.canEdit;
+
+// The page title, slug lock and "not live yet" note follow what's stored, not a failed save.
+const storedStatus = entry?.status;
+// View on site: a link once published; before that a disabled button (the type has a page URL, nothing is live yet).
+const siteLink = viewOnSite(entry?.pageUrl, storedStatus);
+const storedTitle = entry?.title;
+if (entry && submitted) {
+  entry = withSubmittedValues(entry, submitted, {
+    collections,
+    assets: allAssets,
+    resources: allResources,
+    tags: allTags,
+  });
+}
+// Why the Publish Scheduled Entries task is holding this entry back, if it is (set by the task,
+// cleared when the entry publishes or is rescheduled).
+const scheduledBlock = entry?.scheduledPublishBlocked ?? null;
+// Why the entry is in Needs review (a flagged submission, a workflow's request_review step, or an
+// integration whose error policy sent it here — "Square · invalid — <message>").
+const pendingReviewReasons = entry?.status === "needs_review" ? reviewReasons(entry.metadataJson) : [];
+// An integration failure on an entry that isn't in review — a published entry stays published (a
+// failing shop or newsletter never takes it off the site), so the problem is shown here instead.
+const integrationProblems = entry && entry.status !== "needs_review" ? integrationErrors(entry.metadataJson) : [];
+const share = shareLinks(entry?.metadataJson);
+
 const sortedTypes = entryTypes.sort((a, b) => a.sortOrder - b.sortOrder);
 const sortedCollections = collections.sort((a, b) => a.sortOrder - b.sortOrder);
-const attachedCollections = (entry?.collections || []).sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+const attachedCollections = (entry?.collections || []).sort(
+  (a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
+);
 const attachedCollectionIds = new Set(attachedCollections.map((c: any) => c.id));
 const attachedAssets = (entry?.assets || []).sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0));
 const attachedResources = (entry?.resources || []).sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0));
 const attachedAssetIds = new Set(attachedAssets.map((a: any) => a.id));
+// AI-suggested (pending-review) assets are flagged in the entry↔asset junction metadata. They're
+// kept out of the confirmed, form-bound list (a normal Save must not touch them) and surfaced in a
+// separate review block with Approve / Reject actions.
+const suggestedAssets = attachedAssets.filter((a: any) => (a.placementMetadata as any)?.suggested);
+const confirmedAssets = attachedAssets.filter((a: any) => !(a.placementMetadata as any)?.suggested);
+// Image preview at the top of Entry Details. Mirrors the client re-render in the page script,
+// which keeps it in sync with attach / remove / reorder in the Assets section.
+const MAX_PREVIEW_IMAGES = 4;
+const previewImages = confirmedAssets.filter((a: any) => a.publicUrl && a.mimeType?.startsWith("image/"));
+const visiblePreviewImages = previewImages.slice(0, MAX_PREVIEW_IMAGES);
+// On overflow the last tile becomes a dimmed "+N" link to the Assets section, so N counts it too.
+const previewOverflow = previewImages.length > MAX_PREVIEW_IMAGES ? previewImages.length - MAX_PREVIEW_IMAGES + 1 : 0;
 const attachedResourceIds = new Set(attachedResources.map((r: any) => r.id));
 
+// API timestamps as UTC ISO ("…Z") for the date fields; the page script shows them in the
+// viewer's zone. Empty when unset or unparseable.
+function toUtcIso(value: string | Date | null | undefined): string {
+  if (!value) return "";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+}
+
+// entry.tags is a list of slugs (see EntryRead); resolve each to the full tag (id + display
+// name) via the workspace tag list so the chips can render names and post the right tag_ids.
+const tagBySlug = new Map((allTags || []).map((t) => [t.slug, t]));
+const attachedTags = ((entry?.tags as string[] | undefined) || [])
+  .map((slug) => tagBySlug.get(slug))
+  .filter(Boolean) as TagRead[];
+
 // Get entry type schema for schema-driven form
-const entryType = entry ? entryTypes.find(t => t.id === entry.entryTypeId) : null;
+const entryType = entry ? entryTypes.find((t) => t.id === entry.entryTypeId) : null;
 const hasSchema = entryType?.schemaJson && (entryType.schemaJson as any).fields?.length > 0;
 
 // AI assist gating: workspace AI enabled + editor invocation source + auth (fail closed).
@@ -174,21 +314,21 @@ if (entry && authToken) {
 const suggestion = (entry as any)?.suggestionJson as Record<string, any> | null | undefined;
 function suggestionCurrent(target: string): any {
   if (!entry) return undefined;
-  if (target.startsWith('data_json.')) return (entry as any).dataJson?.[target.slice('data_json.'.length)];
-  if (target.startsWith('metadata_json.')) return (entry as any).metadataJson?.[target.slice('metadata_json.'.length)];
+  if (target.startsWith("data_json.")) return (entry as any).dataJson?.[target.slice("data_json.".length)];
+  if (target.startsWith("metadata_json.")) return (entry as any).metadataJson?.[target.slice("metadata_json.".length)];
   return (entry as any)[target];
 }
 function suggestionFormat(v: any): string {
-  if (v == null || v === '') return '—';
-  if (Array.isArray(v)) return v.join(', ');
-  if (typeof v === 'object') return JSON.stringify(v);
+  if (v == null || v === "") return "—";
+  if (Array.isArray(v)) return v.join(", ");
+  if (typeof v === "object") return JSON.stringify(v);
   return String(v);
 }
 const suggestionFields = suggestion
   ? Object.keys(suggestion)
-      .filter((k) => k !== '_meta')
+      .filter((k) => k !== "_meta")
       .map((target) => ({
-        label: target.replace(/^data_json\./, '').replace(/^metadata_json\./, ''),
+        label: target.replace(/^data_json\./, "").replace(/^metadata_json\./, ""),
         current: suggestionFormat(suggestionCurrent(target)),
         proposed: suggestionFormat(suggestion[target]),
       }))
@@ -196,7 +336,12 @@ const suggestionFields = suggestion
 const suggestionOp = suggestion?._meta?.operation as string | undefined;
 ---
 
-<AppLayout title={entry ? entry.title : "Edit Entry"}>
+<AppLayout
+  title={storedTitle ?? "Edit Entry"}
+  entityType="entry"
+  entityId={id}
+  entityLabel={storedTitle}
+>
   {error ? (
     <div class="error-banner">
       <p><strong>Error loading entry:</strong> {error}</p>
@@ -204,19 +349,63 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     </div>
   ) : entry ? (
     <>
+      {saveError && <SaveErrorBanner error={saveError} />}
+
       <div class="toolbar">
         <div>
           <h2 style="margin:0;font-size:20px;">Edit Entry</h2>
           <p style="margin:4px 0 0;color:var(--muted);">Update entry details and content</p>
         </div>
         <div style="display:flex;gap:0.75rem;">
-          <button type="button" id="delete-entry-button" class="button secondary">
-            Delete
-          </button>
+          {aiEditorEnabled && canEditThis && (
+            <div class="ai-menu-wrap">
+              <button type="button" id="ai-menu-btn" class="button secondary"
+                aria-haspopup="menu" aria-expanded="false">✨ AI</button>
+              <div id="ai-menu" class="ai-menu" role="menu" hidden>
+                <button type="button" role="menuitem" class="ai-menu-item" data-ai-action="summary">
+                  Generate summary
+                  <span class="ai-menu-hint">Fills the Summary field for review</span>
+                </button>
+                <button type="button" role="menuitem" class="ai-menu-item" data-ai-action="tags">
+                  Generate tags
+                  <span class="ai-menu-hint">Staged for review, per your approval mode</span>
+                </button>
+                <button type="button" role="menuitem" class="ai-menu-item" data-ai-action="review">
+                  Review &amp; suggest
+                  <span class="ai-menu-hint">Opens Marvin with this entry in context</span>
+                </button>
+              </div>
+            </div>
+          )}
+          {canEditThis && (
+            <button type="button" id="delete-entry-button" class="button secondary" title="Move this entry to the Trash. You can restore it from there.">
+              Move to Trash
+            </button>
+          )}
           <a class="button secondary" href="/workspace/entries">Back</a>
         </div>
       </div>
 
+      {inTrash && (
+        <div class="trash-banner" role="status">
+          <span>
+            <strong>This entry is in the Trash.</strong> It is off the site and out of every list. Restore it to
+            edit it again — it goes back to <strong>{restoresToLabel}</strong>.
+            {trashCollectionId && <a href={`/workspace/collections/${trashCollectionId}`}>Open the Trash</a>}
+          </span>
+          {mayChangeEntry && (
+            <span class="trash-banner-actions" data-trash-id={entry.id} data-trash-collection={trashCollectionId ?? ""}>
+              <button type="button" id="restore-entry-button" class="button">Restore</button>
+              <button type="button" id="delete-forever-button" class="button danger">Delete forever</button>
+            </span>
+          )}
+        </div>
+      )}
+      {!canEditThis && !inTrash && <div class="alert alert-info" role="status">{EDITORS_ONLY}</div>}
+
+      {/* Always mounted (even when empty) so a staged suggestion can be rendered in place
+          after an AI action, without reloading and discarding unsaved form edits. */}
+      <div id="suggestion-mount">
       {suggestionFields.length > 0 && (
         <div class="suggestion-banner">
           <div class="suggestion-head">
@@ -234,16 +423,21 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
               </li>
             ))}
           </ul>
-          <div class="suggestion-actions">
-            <button type="button" id="apply-suggestion" class="button">Apply changes</button>
-            <button type="button" id="reject-suggestion" class="button secondary">Reject</button>
-          </div>
+          {canEditThis && (
+            <div class="suggestion-actions">
+              <button type="button" id="apply-suggestion" class="button">Apply changes</button>
+              <button type="button" id="reject-suggestion" class="button secondary">Reject</button>
+            </div>
+          )}
         </div>
       )}
+      </div>
 
       <div class="editor-layout">
         <section class="main-editor">
           <form id="entry-form" method="POST" class="form">
+            {/* Read-only for a caller who can't change this entry; display:contents keeps the layout. */}
+            <fieldset disabled={!canEditThis} style="display:contents;">
             <div class="form-group">
               <label for="title">Title *</label>
               <input
@@ -288,65 +482,130 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
               </details>
             )}
 
-            <div class="form-group">
-              <label for="data_json_editor">Data JSON (Schema Fields)</label>
-              <p class="form-help">View or edit schema field data as JSON. Paste complete JSON to populate form fields.</p>
-              <textarea
-                id="data_json_editor"
-                rows="8"
-                placeholder='{"text_field": "value", "number_field": 42}'
-                class="data-json-editor"
-              >{entry.dataJson ? JSON.stringify(entry.dataJson, null, 2) : "{}"}</textarea>
-              <button type="button" id="apply-data-json-btn" class="button secondary" style="margin-top: 0.5rem;">Apply JSON to Form</button>
-              <small style="font-size: 11px; color: var(--muted); display: block; margin-top: 0.5rem;">
-                Changes here will update the form fields above when you click "Apply JSON to Form"
-              </small>
-            </div>
+            {/* Raw JSON is for power users: collapsed so it doesn't crowd (or intimidate) the form. A closed
+                <details> still submits its fields, and the JSON sync below works either way. */}
+            <details class="json-disclosure" data-remember="entry-data-json">
+              <summary>
+                Advanced: raw JSON of the fields
+                <span class="json-disclosure-hint">copy/paste all fields</span>
+              </summary>
+              <div class="json-disclosure-body">
+                <p class="form-help">View or edit schema field data as JSON. Paste complete JSON to populate form fields.</p>
+                <textarea
+                  id="data_json_editor"
+                  aria-label="Data JSON (schema fields)"
+                  rows="8"
+                  placeholder='{"text_field": "value", "number_field": 42}'
+                  class="data-json-editor"
+                >{entry.dataJson ? JSON.stringify(entry.dataJson, null, 2) : "{}"}</textarea>
+                <button type="button" id="apply-data-json-btn" class="button secondary" style="margin-top: 0.5rem;">Apply JSON to Form</button>
+                <small style="font-size: 11px; color: var(--muted); display: block; margin-top: 0.5rem;">
+                  Changes here will update the form fields above when you click "Apply JSON to Form"
+                </small>
+              </div>
+            </details>
 
-            <div class="form-group">
-              <label for="metadata_json">Metadata (JSON)</label>
-              <p class="form-help">Custom JSON metadata for this entry</p>
-              <textarea
-                id="metadata_json"
-                name="metadata_json"
-                rows="8"
-                placeholder='{"key": "value"}'
-                form="entry-form"
-                class="metadata-editor"
-              >{entry.metadataJson ? JSON.stringify(entry.metadataJson, null, 2) : ""}</textarea>
-              <small style="font-size: 11px; color: var(--muted);">
-                Must be valid JSON. Example: {`{"seo_title": "My Title", "featured": true}`}
-              </small>
+            {/* Opens by itself when a save was refused for invalid metadata JSON, so the error is in view. */}
+            <details class="json-disclosure" data-remember="entry-metadata-json" open={submittedMetadataText !== null}>
+              <summary>
+                Metadata (JSON)
+                <span class="json-disclosure-hint">{submittedMetadataText !== null ? "not valid JSON — fix it to save" : (keysHint(entry.metadataJson) || "none set")}</span>
+              </summary>
+              <div class="json-disclosure-body">
+                <p class="form-help">Custom JSON metadata for this entry</p>
+                <textarea
+                  id="metadata_json"
+                  aria-label="Metadata (JSON)"
+                  name="metadata_json"
+                  rows="8"
+                  placeholder='{"key": "value"}'
+                  form="entry-form"
+                  class="metadata-editor"
+                >{submittedMetadataText ?? (entry.metadataJson ? JSON.stringify(entry.metadataJson, null, 2) : "")}</textarea>
+                <small style="font-size: 11px; color: var(--muted);">
+                  Must be valid JSON. Example: {`{"seo_title": "My Title", "featured": true}`}
+                </small>
 
-              {entry.metadataJson && Object.keys(entry.metadataJson).length > 0 && (
-                <div class="metadata-preview">
-                  <p class="metadata-preview-title">Current Metadata:</p>
-                  <dl class="metadata-preview-list">
-                    {Object.entries(entry.metadataJson).map(([key, value]) => (
-                      <div class="metadata-preview-item">
-                        <dt>{key}</dt>
-                        <dd>{typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </div>
-              )}
-            </div>
+                {entry.metadataJson && Object.keys(entry.metadataJson).length > 0 && (
+                  <div class="metadata-preview">
+                    <p class="metadata-preview-title">Current Metadata:</p>
+                    <dl class="metadata-preview-list">
+                      {Object.entries(entry.metadataJson).map(([key, value]) => (
+                        <div class="metadata-preview-item">
+                          <dt>{key}</dt>
+                          <dd>{typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                )}
+              </div>
+            </details>
 
-            <div class="form-actions">
-              <button type="submit" id="save-button" class="button">
-                Save
-              </button>
-              <button type="button" id="publish-button" class="button secondary">
-                Publish
-              </button>
-            </div>
+            </fieldset>
+            {canEditThis && (
+              <div class="form-actions">
+                <button type="submit" id="save-button" class="button">
+                  Save
+                </button>
+                {canPublish && (
+                  <button type="button" id="publish-button" class="button secondary">
+                    Publish
+                  </button>
+                )}
+              </div>
+            )}
           </form>
         </section>
 
         <aside class="sidebar-editor">
+          <fieldset disabled={!canEditThis} style="display:contents;">
           <div class="sidebar-section">
             <h3>Entry Details</h3>
+
+            {pendingReviewReasons.length > 0 && (
+              <div class="schedule-waiting review-reasons" role="status">
+                <p class="schedule-waiting-title">Waiting for review because:</p>
+                <ul>
+                  {pendingReviewReasons.map((reason) => (
+                    <li>{reason}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {integrationProblems.length > 0 && (
+              <div class="schedule-waiting review-reasons" role="status">
+                <p class="schedule-waiting-title">An integration failed on this entry:</p>
+                <ul>
+                  {integrationProblems.map((problem) => (
+                    <li>{problem}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div
+              id="entry-image-preview"
+              class="entry-image-preview"
+              data-count={visiblePreviewImages.length}
+              data-max={MAX_PREVIEW_IMAGES}
+              hidden={previewImages.length === 0}
+            >
+              {visiblePreviewImages.map((asset: any, idx: number) => {
+                const isMoreTile = previewOverflow > 0 && idx === MAX_PREVIEW_IMAGES - 1;
+                return (
+                  <a
+                    href={isMoreTile ? "#entry-assets-section" : `/workspace/assets/${asset.id}/view`}
+                    class="entry-image-thumb"
+                    title={isMoreTile ? `${previewOverflow} more images` : asset.name}
+                  >
+                    <img src={asset.publicUrl} alt={asset.altText || asset.name} loading="lazy" />
+                    {isMoreTile && <span class="entry-image-more">+{previewOverflow}</span>}
+                  </a>
+                );
+              })}
+            </div>
 
             <div class="form-group">
               <label for="entry_type_display">Entry Type</label>
@@ -370,16 +629,29 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                 id="slug"
                 name="slug"
                 value={entry.slug}
-                disabled={entry.status === "published"}
-                style={entry.status === "published" ? "background: var(--panel-2); color: var(--muted);" : ""}
+                disabled={storedStatus === "published"}
+                style={storedStatus === "published" ? "background: var(--panel-2); color: var(--muted);" : ""}
                 form="entry-form"
               />
               <small style="font-size: 12px; color: var(--muted);">
-                {entry.status === "published"
+                {storedStatus === "published"
                   ? "Slug is locked for published entries to protect external URLs"
                   : "Auto-generated from title, or enter custom slug"}
               </small>
             </div>
+
+            {siteLink && (
+              <div class="form-group">
+                {"href" in siteLink ? (
+                  <a href={siteLink.href} target="_blank" rel="noopener noreferrer" class="button secondary">View on site ↗</a>
+                ) : (
+                  <>
+                    <a class="button secondary is-disabled" role="link" aria-disabled="true" title={siteLink.hint}>View on site ↗</a>
+                    <p class="form-help">{siteLink.hint}</p>
+                  </>
+                )}
+              </div>
+            )}
 
             <div class="form-group">
               <label for="status">Status</label>
@@ -387,8 +659,9 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                 <option value="inbox" selected={entry.status === "inbox"}>Inbox</option>
                 <option value="draft" selected={entry.status === "draft"}>Draft</option>
                 <option value="needs_review" selected={entry.status === "needs_review"}>Needs Review</option>
-                <option value="approved" selected={entry.status === "approved"}>Approved</option>
-                <option value="published" selected={entry.status === "published"}>Published</option>
+                {/* Only an EDITOR or above may approve or publish (an AUTHOR keeps their own drafts). */}
+                {(canPublish || entry.status === "approved") && <option value="approved" selected={entry.status === "approved"}>Approved</option>}
+                {(canPublish || entry.status === "published") && <option value="published" selected={entry.status === "published"}>Published</option>}
               </select>
             </div>
 
@@ -419,40 +692,98 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
             </div>
 
             <div class="form-group">
-              <label for="published_at">Published Date</label>
-              <input
-                type="datetime-local"
-                id="published_at"
-                name="published_at"
-                value={entry.publishedAt ? new Date(entry.publishedAt).toISOString().slice(0, 16) : ""}
-                form="entry-form"
-              />
-              <p class="form-help">Actual date/time this entry was published</p>
+              <label for="published-at-display">Published</label>
+              <output
+                id="published-at-display"
+                class="readonly-datetime"
+                data-local-datetime={toUtcIso(entry.publishedAt)}
+              >{entry.publishedAt ? `${toUtcIso(entry.publishedAt).slice(0, 16).replace("T", " ")} UTC` : "Not published"}</output>
+              <p class="form-help">Set automatically when the entry is published</p>
             </div>
 
             <div class="form-group">
               <label for="publish_at">Scheduled Publish</label>
-              <input
-                type="datetime-local"
-                id="publish_at"
-                name="publish_at"
-                value={entry.publishAt ? new Date(entry.publishAt).toISOString().slice(0, 16) : ""}
-                form="entry-form"
-              />
-              <p class="form-help">Schedule when this entry should be published</p>
+              {/* Scheduling is EDITOR+; disabled, the hidden field isn't submitted so an AUTHOR's save leaves it alone. */}
+              <input type="datetime-local" id="publish_at" data-utc-input="publish_at_utc" form="entry-form" disabled={!canPublish} />
+              <input type="hidden" id="publish_at_utc" name="publish_at" value={toUtcIso(entry.publishAt)} form="entry-form" disabled={!canPublish} />
+              <p class="form-help" data-schedule-note="publish_at" data-note-prefix="Will publish">
+                Schedule when this entry should be published
+              </p>
+              {scheduledBlock && (
+                <div class="schedule-waiting" role="status">
+                  <p class="schedule-waiting-title">
+                    {scheduledBlock.waitingFor === "approval"
+                      ? "Scheduled publish is waiting for approval"
+                      : "Scheduled publish is waiting — it can't publish yet:"}
+                  </p>
+                  <ul>
+                    {(scheduledBlock.issues?.length ? scheduledBlock.issues : [scheduledBlock.reason]).map((issue) => (
+                      <li>{issue}</li>
+                    ))}
+                  </ul>
+                  {scheduledBlock.at && (
+                    <p class="schedule-waiting-since">
+                      Held back since <span data-local-datetime={toUtcIso(scheduledBlock.at)}>{`${toUtcIso(scheduledBlock.at).slice(0, 16).replace("T", " ")} UTC`}</span>.
+                      It goes out on the next run (every 5 minutes) once this is resolved.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             <div class="form-group">
               <label for="expire_at">Expiration Date</label>
-              <input
-                type="datetime-local"
-                id="expire_at"
-                name="expire_at"
-                value={entry.expireAt ? new Date(entry.expireAt).toISOString().slice(0, 16) : ""}
-                form="entry-form"
-              />
-              <p class="form-help">When this entry should expire and be hidden</p>
+              <input type="datetime-local" id="expire_at" data-utc-input="expire_at_utc" form="entry-form" />
+              <input type="hidden" id="expire_at_utc" name="expire_at" value={toUtcIso(entry.expireAt)} form="entry-form" />
+              <p
+                class="form-help"
+                data-schedule-note="expire_at"
+                data-note-prefix="Will expire"
+                data-past-note="This date has passed — publishing will be refused until it's cleared or moved"
+              >
+                When this entry should expire and be hidden
+              </p>
             </div>
+          </div>
+
+          {share.links.length > 0 && (
+            <div class="sidebar-section share-section">
+              <h3>Share</h3>
+              <p class="section-help">Each opens that network with the post ready — check it and send it yourself.</p>
+              {share.text && <p class="share-text">{share.text}</p>}
+              <div class="share-links">
+                {share.links.map((link) => (
+                  <a class="button secondary" href={link.href} target="_blank" rel="noopener noreferrer">{link.label}</a>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div class="sidebar-section">
+            <h3>Tags (<span id="tag-count">{attachedTags.length}</span>)</h3>
+            <p class="section-help">Lightweight labels; smart collections can match on them</p>
+
+            <div id="tag-chips" class="tag-chips">
+              {attachedTags.map((t) => (
+                <span class="tag-chip" data-tag-id={t.id} data-tag-name={t.name}>
+                  <span class="tag-chip-label">{t.name}</span>
+                  <button type="button" class="tag-chip-remove" title="Remove" aria-label={`Remove ${t.name}`}>×</button>
+                </span>
+              ))}
+            </div>
+
+            <div class="tag-input-row">
+              <input type="text" id="tag-input" list="tag-suggestions" placeholder="Add a tag…" autocomplete="off" />
+            </div>
+            <datalist id="tag-suggestions">
+              {allTags.map((t) => (<option value={t.name}></option>))}
+            </datalist>
+            <small class="tag-help">Press Enter or comma to add. New tags are created on save.</small>
+
+            {/* The source of truth the server reads on save: a JSON array of {name, id?}. */}
+            <input type="hidden" name="tags_payload" id="tags-payload" form="entry-form" />
+            {/* Workspace vocabulary for client-side name→id resolution (reuse existing tags). */}
+            <script type="application/json" id="all-tags-data" set:html={JSON.stringify(allTags.map((t) => ({ id: t.id, name: t.name, slug: t.slug }))).replace(/</g, "\\u003c")}></script>
           </div>
 
           <div class="sidebar-section">
@@ -482,10 +813,10 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                       <label>Role</label>
                       <input type="text" name={`collection_attachments[${idx}].role`} value={coll.role || ''} placeholder="e.g. primary, featured" form="entry-form" />
                     </div>
-                    <div class="field-row field-row-full">
-                      <label>Metadata</label>
-                      <textarea name={`collection_attachments[${idx}].metadata`} rows="2" placeholder='{"featured": true}' form="entry-form" class="attachment-metadata">{coll.placementMetadata ? JSON.stringify(coll.placementMetadata, null, 2) : ''}</textarea>
-                    </div>
+                    <details class="json-disclosure attachment-meta-disclosure">
+                      <summary>Placement metadata (JSON) <span class="json-disclosure-hint">{keysHint(coll.placementMetadata) || "none set"}</span></summary>
+                      <textarea name={`collection_attachments[${idx}].metadata`} aria-label="Placement metadata (JSON)" rows="2" placeholder='{"featured": true}' form="entry-form" class="attachment-metadata">{coll.placementMetadata ? JSON.stringify(coll.placementMetadata, null, 2) : ''}</textarea>
+                    </details>
                   </div>
                 </div>
               ))}
@@ -522,12 +853,49 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
             </details>
           </div>
 
-          <div class="sidebar-section">
-            <h3>Assets (<span id="asset-count">{attachedAssets.length}</span>)</h3>
+          <div class="sidebar-section" id="entry-assets-section">
+            <h3>Assets (<span id="asset-count">{confirmedAssets.length}</span>)</h3>
             <p class="section-help">Attach images, files, and media</p>
 
+            {suggestedAssets.length > 0 && (
+              <div id="suggested-assets" class="suggested-assets" data-entry-id={entry.id}>
+                <div class="suggested-assets-head">
+                  <span class="suggested-assets-title">✨ AI-generated · pending review</span>
+                  <span class="suggested-assets-sub">Approve to keep &amp; publish, or reject to discard.</span>
+                </div>
+                {suggestedAssets.map((asset: any) => {
+                  const meta = (asset.placementMetadata as any) || {};
+                  return (
+                    <div class="suggested-asset-card" data-asset-id={asset.id}>
+                      <div class="attachment-header">
+                        <div class="attachment-preview">
+                          {asset.publicUrl && asset.mimeType?.startsWith('image/') ? (
+                            <img src={asset.publicUrl} alt={asset.altText || asset.name} />
+                          ) : (
+                            <span class="attachment-icon">🖼️</span>
+                          )}
+                        </div>
+                        <div class="attachment-name">
+                          <strong>{asset.name}</strong>
+                          <span class="suggested-badge">AI · pending review</span>
+                          {asset.role && <span class="picker-meta">{asset.role}</span>}
+                        </div>
+                      </div>
+                      {meta.prompt && (
+                        <p class="suggested-prompt"><span class="suggested-prompt-label">Prompt</span> {meta.prompt}</p>
+                      )}
+                      <div class="suggested-asset-actions">
+                        <button type="button" class="button suggested-approve">Approve</button>
+                        <button type="button" class="button secondary suggested-reject">Reject</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             <div id="attached-assets" class="attached-list">
-              {attachedAssets.map((asset: any, idx: number) => (
+              {confirmedAssets.map((asset: any, idx: number) => (
                 <div class="attachment-card" data-asset-id={asset.id}>
                   <div class="attachment-header">
                     <div class="attachment-preview">
@@ -553,10 +921,10 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                       <label>Role</label>
                       <input type="text" name={`asset_attachments[${idx}].role`} value={asset.role || ''} placeholder="e.g. hero, thumbnail" form="entry-form" />
                     </div>
-                    <div class="field-row field-row-full">
-                      <label>Metadata</label>
-                      <textarea name={`asset_attachments[${idx}].metadata`} rows="2" placeholder='{"focal_point": "50% 30%"}' form="entry-form" class="attachment-metadata">{asset.placementMetadata ? JSON.stringify(asset.placementMetadata, null, 2) : ''}</textarea>
-                    </div>
+                    <details class="json-disclosure attachment-meta-disclosure">
+                      <summary>Placement metadata (JSON) <span class="json-disclosure-hint">{keysHint(asset.placementMetadata) || "none set"}</span></summary>
+                      <textarea name={`asset_attachments[${idx}].metadata`} aria-label="Placement metadata (JSON)" rows="2" placeholder='{"focal_point": "50% 30%"}' form="entry-form" class="attachment-metadata">{asset.placementMetadata ? JSON.stringify(asset.placementMetadata, null, 2) : ''}</textarea>
+                    </details>
                   </div>
                 </div>
               ))}
@@ -621,10 +989,10 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                       <label>Role</label>
                       <input type="text" name={`resource_attachments[${idx}].role`} value={resource.role || ''} placeholder="e.g. primary, accent" form="entry-form" />
                     </div>
-                    <div class="field-row field-row-full">
-                      <label>Metadata</label>
-                      <textarea name={`resource_attachments[${idx}].metadata`} rows="2" placeholder='{"quantity": "2.5", "unit": "yards"}' form="entry-form" class="attachment-metadata">{resource.placementMetadata ? JSON.stringify(resource.placementMetadata, null, 2) : ''}</textarea>
-                    </div>
+                    <details class="json-disclosure attachment-meta-disclosure">
+                      <summary>Placement metadata (JSON) <span class="json-disclosure-hint">{keysHint(resource.placementMetadata) || "none set"}</span></summary>
+                      <textarea name={`resource_attachments[${idx}].metadata`} aria-label="Placement metadata (JSON)" rows="2" placeholder='{"quantity": "2.5", "unit": "yards"}' form="entry-form" class="attachment-metadata">{resource.placementMetadata ? JSON.stringify(resource.placementMetadata, null, 2) : ''}</textarea>
+                    </details>
                   </div>
                 </div>
               ))}
@@ -657,6 +1025,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
               </div>
             </details>
           </div>
+          </fieldset>
 
         </aside>
       </div>
@@ -665,6 +1034,22 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
 </AppLayout>
 
 <style is:global>
+  .trash-banner {
+    padding: 0.85rem 1rem;
+    margin-bottom: 1rem;
+    background: rgb(234 88 12 / 0.08);
+    border: 1px solid var(--warn);
+    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+  .trash-banner a { margin-left: 0.35rem; }
+  .trash-banner-actions { display: flex; gap: 0.5rem; }
+  .trash-banner .button.danger { color: var(--color-error); border-color: var(--color-error); background: transparent; }
+  .trash-banner .button.danger:hover { background: var(--color-error-bg); }
   .error-banner {
     padding: 1.5rem;
     background: var(--color-error-bg);
@@ -676,86 +1061,27 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     gap: 1rem;
   }
 
-  /* AI suggestion (write-back) banner */
-  .suggestion-banner {
-    margin: 0 0 1.25rem;
-    padding: 1rem 1.25rem;
-    border: 1px solid var(--accent, #a94d3f);
-    border-left-width: 3px;
-    border-radius: var(--radius);
-    background: color-mix(in srgb, var(--accent, #a94d3f) 6%, var(--panel));
-    display: grid;
-    gap: 0.75rem;
+  /* Entry-level AI menu */
+  .ai-menu-wrap { position: relative; }
+  .ai-menu {
+    position: absolute; right: 0; top: calc(100% + 4px); z-index: 30;
+    min-width: 260px; padding: 4px;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: 0 8px 24px rgb(0 0 0 / 0.16);
+    display: flex; flex-direction: column;
   }
-  .suggestion-head {
-    display: flex;
-    align-items: baseline;
-    gap: 0.5rem;
+  .ai-menu[hidden] { display: none; }
+  .ai-menu-item {
+    display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+    padding: 8px 10px; border: none; border-radius: 6px;
+    background: none; color: var(--ink); text-align: left; cursor: pointer;
+    font-size: 0.85rem;
   }
-  .suggestion-title {
-    font-weight: 600;
-    font-size: 0.9rem;
-  }
-  .suggestion-op {
-    font-size: 0.75rem;
-    color: var(--muted);
-  }
-  .suggestion-op code {
-    font-size: 0.72rem;
-    background: var(--bg);
-    padding: 0.05rem 0.3rem;
-    border-radius: 4px;
-    border: 1px solid var(--line);
-  }
-  .suggestion-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    gap: 0.75rem;
-  }
-  .suggestion-field {
-    display: grid;
-    gap: 0.3rem;
-  }
-  .suggestion-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--ink);
-    text-transform: capitalize;
-  }
-  .suggestion-diff {
-    display: grid;
-    gap: 0.2rem;
-  }
-  .diff-row {
-    display: flex;
-    gap: 0.5rem;
-    align-items: baseline;
-    font-size: 0.8rem;
-    line-height: 1.4;
-  }
-  .diff-tag {
-    flex: 0 0 auto;
-    width: 4.5rem;
-    font-size: 0.65rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--muted);
-  }
-  .diff-current .diff-val {
-    color: var(--muted);
-    text-decoration: line-through;
-    text-decoration-color: color-mix(in srgb, var(--muted) 50%, transparent);
-  }
-  .diff-proposed .diff-val {
-    color: var(--ink);
-  }
-  .suggestion-actions {
-    display: flex;
-    gap: 0.5rem;
-    padding-top: 0.25rem;
-  }
+  .ai-menu-item:hover { background: var(--bg); }
+  .ai-menu-hint { font-size: 0.72rem; color: var(--muted); }
+
+  /* AI suggestion banner styles live in src/styles/global.css — the banner is
+     rendered by JS, and Astro drops rules whose selector is entirely :global(). */
 
   .error-banner p {
     margin: 0;
@@ -790,6 +1116,50 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     margin: -0.25rem 0 0.25rem;
     font-size: 0.8125rem;
     color: var(--muted);
+  }
+
+  .form-help.warn {
+    color: var(--warn);
+  }
+
+  /* The scheduled publish is holding this entry back (entries.scheduled_publish_blocked). */
+  .review-reasons {
+    margin-bottom: 1rem;
+  }
+  .schedule-waiting {
+    margin-top: 0.25rem;
+    padding: 0.625rem 0.75rem;
+    border: 1px solid var(--warn);
+    border-left-width: 3px;
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--warn) 8%, var(--panel));
+    font-size: 0.8125rem;
+    color: var(--ink);
+  }
+
+  .schedule-waiting p {
+    margin: 0;
+  }
+
+  .schedule-waiting-title {
+    font-weight: 600;
+    color: var(--warn);
+  }
+
+  .schedule-waiting ul {
+    margin: 0.375rem 0;
+    padding-left: 1.125rem;
+    display: grid;
+    gap: 0.25rem;
+  }
+
+  .schedule-waiting-since {
+    color: var(--muted);
+  }
+
+  .readonly-datetime {
+    font-size: 0.875rem;
+    color: var(--ink);
   }
 
   label {
@@ -1045,6 +1415,19 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     border-radius: var(--radius);
   }
 
+  .share-text {
+    margin: 0 0 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .share-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
   .sidebar-section h3 {
     margin: 0 0 1rem;
     font-size: 1rem;
@@ -1054,6 +1437,96 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
   .section-help {
     margin: -0.5rem 0 1rem;
     font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  /* Entry Details image preview. Re-rendered client-side, which this is:global block covers. */
+  .entry-image-preview {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.375rem;
+    margin-bottom: 1rem;
+  }
+  .entry-image-preview[hidden] { display: none; }
+  .entry-image-thumb {
+    position: relative;
+    display: block;
+    aspect-ratio: 1;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  .entry-image-preview[data-count="1"] .entry-image-thumb {
+    grid-column: 1 / -1;
+    aspect-ratio: 16 / 9;
+  }
+  .entry-image-thumb:hover,
+  .entry-image-thumb:focus-visible { border-color: var(--accent); }
+  .entry-image-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .entry-image-more {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  /* Tags chip input. In the is:global block so JS-created chips are styled too. */
+  .tag-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    margin-bottom: 0.5rem;
+    min-height: 0.5rem;
+  }
+  .tag-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.15rem 0.35rem 0.15rem 0.55rem;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--text);
+  }
+  .tag-chip-label { white-space: nowrap; }
+  .tag-chip-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1rem;
+    height: 1rem;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .tag-chip-remove:hover { background: var(--border); color: var(--text); }
+  .tag-input-row input {
+    width: 100%;
+    padding: 0.4rem 0.55rem;
+    font-size: 0.8rem;
+  }
+  .tag-help {
+    display: block;
+    margin-top: 0.35rem;
+    font-size: 0.7rem;
     color: var(--muted);
   }
 
@@ -1151,6 +1624,79 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     border: 1px solid var(--line);
     border-radius: 6px;
     overflow: hidden;
+  }
+
+  /* AI-suggested (pending-review) asset block — visually distinct from confirmed attachments. */
+  .suggested-assets {
+    display: grid;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding: 0.6rem;
+    border: 1px dashed var(--accent, #a94d3f);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--accent, #a94d3f) 7%, var(--panel-2));
+  }
+
+  .suggested-assets-head {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .suggested-assets-title {
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
+
+  .suggested-assets-sub {
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .suggested-asset-card {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .suggested-badge {
+    display: inline-block;
+    width: fit-content;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 0.1rem 0.4rem;
+    border-radius: 999px;
+    background: var(--accent, #a94d3f);
+    color: #fff;
+    margin: 0.15rem 0;
+  }
+
+  .suggested-prompt {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin: 0 0.75rem 0.5rem;
+    line-height: 1.35;
+  }
+
+  .suggested-prompt-label {
+    font-weight: 600;
+    color: var(--text, inherit);
+    margin-right: 0.25rem;
+  }
+
+  .suggested-asset-actions {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0 0.75rem 0.6rem;
+  }
+
+  .suggested-asset-actions .button {
+    flex: 1;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.8rem;
   }
 
   .attachment-header {
@@ -1278,6 +1824,56 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     font-size: 11px;
     line-height: 1.4;
     resize: vertical;
+  }
+
+  /* Raw JSON fields, collapsed by default (see the markup). */
+  .json-disclosure {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0 0.75rem;
+  }
+
+  .json-disclosure > summary {
+    cursor: pointer;
+    padding: 0.6rem 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .json-disclosure-hint {
+    margin-left: 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--muted);
+  }
+
+  .json-disclosure-body {
+    display: grid;
+    gap: 0.5rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .attachment-meta-disclosure {
+    border: 0;
+    padding: 0;
+  }
+
+  .attachment-meta-disclosure > summary {
+    padding: 0.125rem 0;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--muted);
+  }
+
+  .attachment-meta-disclosure textarea {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    margin-top: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--bg);
   }
 
   .add-picker {
@@ -1450,13 +2046,10 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     font-family: monospace;
   }
 
+  /* Stacked: the content first, then Entry Details and the rest of the sidebar. */
   @media (max-width: 1024px) {
     .editor-layout {
-      grid-template-columns: 1fr;
-    }
-
-    .sidebar-editor {
-      order: -1;
+      grid-template-columns: minmax(0, 1fr);
     }
   }
   .label-row {
@@ -1492,32 +2085,152 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
 </style>
 
 <script>
+  import { rememberDisclosures } from '@/lib/disclosure';
+  import { formatLocalDateTime, fromDatetimeLocalValue, hasPassed, toDatetimeLocalValue } from '@/lib/localDatetime';
   import { createSdkClient } from '@/lib/sdk';
+  import { isForbidden } from '@/lib/workspaceRole';
+  import { deleteForever, moveToTrash, restoreFromTrash } from '@/lib/api/trash';
 
   const sdk = createSdkClient();
   const form = document.getElementById('entry-form') as HTMLFormElement;
+  rememberDisclosures();
   const deleteButton = document.getElementById('delete-entry-button') as HTMLButtonElement;
 
   // AI suggestion (write-back) apply / reject
   const applySuggestionBtn = document.getElementById('apply-suggestion') as HTMLButtonElement | null;
   const rejectSuggestionBtn = document.getElementById('reject-suggestion') as HTMLButtonElement | null;
   async function suggestionAction(kind: 'apply' | 'reject') {
-    const entryId = window.location.pathname.split('/').pop();
+    const entryId = document.body.dataset.entityId || window.location.pathname.split('/').pop();
     if (!entryId) return;
     applySuggestionBtn?.setAttribute('disabled', 'true');
     rejectSuggestionBtn?.setAttribute('disabled', 'true');
     try {
       const res = await fetch(`/api/entries/${entryId}/${kind}-suggestion`, { method: 'POST' });
-      if (!res.ok) throw new Error(String(res.status));
+      if (!res.ok) throw Object.assign(new Error(String(res.status)), { status: res.status });
       window.location.reload();
     } catch (e) {
-      alert(`Failed to ${kind} suggestion.`);
+      alert(isForbidden(e) ? "You don't have permission to do this." : `Failed to ${kind} suggestion.`);
       applySuggestionBtn?.removeAttribute('disabled');
       rejectSuggestionBtn?.removeAttribute('disabled');
     }
   }
   applySuggestionBtn?.addEventListener('click', () => suggestionAction('apply'));
   rejectSuggestionBtn?.addEventListener('click', () => suggestionAction('reject'));
+
+  // AI-suggested asset review (approve / reject a pending generated image on this entry).
+  const suggestedAssetsEl = document.getElementById('suggested-assets') as HTMLElement | null;
+  if (suggestedAssetsEl) {
+    const entryId = suggestedAssetsEl.dataset.entryId
+      || document.body.dataset.entityId
+      || window.location.pathname.split('/').pop();
+    suggestedAssetsEl.querySelectorAll<HTMLElement>('.suggested-asset-card').forEach((card) => {
+      const assetId = card.dataset.assetId;
+      const approveBtn = card.querySelector('.suggested-approve') as HTMLButtonElement | null;
+      const rejectBtn = card.querySelector('.suggested-reject') as HTMLButtonElement | null;
+      async function reviewAsset(kind: 'approve' | 'reject') {
+        if (!entryId || !assetId) return;
+        if (kind === 'reject' && !window.confirm('Reject this suggested asset? If nothing else uses it, it will be deleted.')) return;
+        approveBtn?.setAttribute('disabled', 'true');
+        rejectBtn?.setAttribute('disabled', 'true');
+        try {
+          const res = await fetch(`/api/entries/${entryId}/suggested-assets/${assetId}/${kind}`, { method: 'POST' });
+          if (!res.ok) throw Object.assign(new Error(String(res.status)), { status: res.status });
+          window.location.reload();
+        } catch (e) {
+          alert(isForbidden(e) ? "You don't have permission to do this." : `Failed to ${kind} suggested asset.`);
+          approveBtn?.removeAttribute('disabled');
+          rejectBtn?.removeAttribute('disabled');
+        }
+      }
+      approveBtn?.addEventListener('click', () => reviewAsset('approve'));
+      rejectBtn?.addEventListener('click', () => reviewAsset('reject'));
+    });
+  }
+
+  // ── Tags chip input ───────────────────────────────────────────────────────
+  // Maintains a JSON array of {name, id?} in the hidden #tags-payload field the SSR save reads.
+  // A chip carrying an id is an existing tag; a name-only chip is create-on-type (the server's
+  // find-or-create resolves it). New chips are created client-side, so their styles live in the
+  // is:global <style> block below, not scoped CSS.
+  (() => {
+    const chipsEl = document.getElementById('tag-chips');
+    const inputEl = document.getElementById('tag-input') as HTMLInputElement | null;
+    const payloadEl = document.getElementById('tags-payload') as HTMLInputElement | null;
+    const countEl = document.getElementById('tag-count');
+    const dataEl = document.getElementById('all-tags-data');
+    if (!chipsEl || !inputEl || !payloadEl) return;
+
+    type Chip = { name: string; id?: string };
+    const vocab = new Map<string, { id: string; name: string }>();
+    try {
+      for (const t of JSON.parse(dataEl?.textContent || '[]')) {
+        vocab.set(String(t.name).toLowerCase(), { id: t.id, name: t.name });
+      }
+    } catch { /* no vocabulary — every chip is treated as new */ }
+
+    const keyOf = (c: Chip) => (c.id ? `id:${c.id}` : `name:${c.name.toLowerCase()}`);
+    const chipFromEl = (el: HTMLElement): Chip => ({ name: el.dataset.tagName || '', id: el.dataset.tagId || undefined });
+
+    // Seed from the server-rendered chips.
+    const state: Chip[] = Array.from(chipsEl.querySelectorAll('.tag-chip')).map((el) => chipFromEl(el as HTMLElement));
+
+    function sync() {
+      payloadEl!.value = JSON.stringify(state);
+      if (countEl) countEl.textContent = String(state.length);
+    }
+
+    function makeChip(c: Chip): HTMLElement {
+      const span = document.createElement('span');
+      span.className = 'tag-chip';
+      if (c.id) span.dataset.tagId = c.id;
+      span.dataset.tagName = c.name;
+      span.innerHTML = '<span class="tag-chip-label"></span><button type="button" class="tag-chip-remove" title="Remove">×</button>';
+      (span.querySelector('.tag-chip-label') as HTMLElement).textContent = c.name;
+      span.querySelector('.tag-chip-remove')!.setAttribute('aria-label', `Remove ${c.name}`);
+      return span;
+    }
+
+    function addTag(raw: string) {
+      const name = raw.replace(/,+$/, '').trim();
+      if (!name) return;
+      const match = vocab.get(name.toLowerCase());
+      const chip: Chip = match ? { name: match.name, id: match.id } : { name };
+      if (state.some((c) => keyOf(c) === keyOf(chip))) return; // dedupe
+      state.push(chip);
+      chipsEl!.appendChild(makeChip(chip));
+      sync();
+    }
+
+    // Remove via delegation — covers both server- and JS-rendered chips.
+    chipsEl.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('.tag-chip-remove');
+      if (!btn) return;
+      const chipEl = btn.closest('.tag-chip') as HTMLElement;
+      const key = keyOf(chipFromEl(chipEl));
+      const idx = state.findIndex((c) => keyOf(c) === key);
+      if (idx >= 0) state.splice(idx, 1);
+      chipEl.remove();
+      sync();
+    });
+
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ',') {
+        e.preventDefault();
+        addTag(inputEl.value);
+        inputEl.value = '';
+      } else if (e.key === 'Backspace' && !inputEl.value && state.length) {
+        state.pop();
+        chipsEl.querySelector('.tag-chip:last-child')?.remove();
+        sync();
+      }
+    });
+    // Picking a datalist suggestion fires 'change' without a keydown.
+    inputEl.addEventListener('change', () => {
+      if (inputEl.value.trim()) { addTag(inputEl.value); inputEl.value = ''; }
+    });
+
+    sync(); // make the hidden payload reflect the initial chips before any edit
+  })();
 
   // Auto-generate slug from title for unpublished entries
   const titleInput = document.getElementById('title') as HTMLInputElement;
@@ -1531,7 +2244,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
   const aiSummaryStatus = document.getElementById('ai-summary-status') as HTMLElement | null;
   if (aiSummaryBtn) {
     aiSummaryBtn.addEventListener('click', async () => {
-      const entryId = window.location.pathname.split('/').pop()!;
+      const entryId = document.body.dataset.entityId || window.location.pathname.split('/').pop()!;
       const original = aiSummaryBtn.textContent;
       aiSummaryBtn.disabled = true;
       aiSummaryBtn.textContent = '…';
@@ -1563,6 +2276,186 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
         aiSummaryBtn.disabled = false;
         aiSummaryBtn.textContent = original;
       }
+    });
+  }
+
+  // ── AI actions: entry-level menu + per-field improve ────────────────────────
+  // Entry id comes from the context the layout stamps on <body>, not from parsing the URL.
+  const aiEntryId = document.body.dataset.entityId || window.location.pathname.split('/').pop() || '';
+  const aiMenuBtn = document.getElementById('ai-menu-btn') as HTMLButtonElement | null;
+  const aiMenu = document.getElementById('ai-menu') as HTMLElement | null;
+
+  function aiToast(msg: string, ok = true) {
+    if (!aiSummaryStatus) return;
+    aiSummaryStatus.textContent = msg;
+    aiSummaryStatus.className = `ai-status ${ok ? 'ok' : 'err'}`;
+    aiSummaryStatus.style.display = 'block';
+  }
+
+  function closeAiMenu() {
+    aiMenu?.setAttribute('hidden', '');
+    aiMenuBtn?.setAttribute('aria-expanded', 'false');
+  }
+  aiMenuBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = !aiMenu?.hasAttribute('hidden');
+    if (open) return closeAiMenu();
+    aiMenu?.removeAttribute('hidden');
+    aiMenuBtn.setAttribute('aria-expanded', 'true');
+  });
+  document.addEventListener('click', closeAiMenu);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAiMenu(); });
+
+  /** Re-render the suggestion banner in place. Avoids a reload, which would drop unsaved edits. */
+  function renderSuggestion(entry: any) {
+    const mount = document.getElementById('suggestion-mount');
+    if (!mount) return;
+    const suggestion = entry?.suggestionJson ?? entry?.suggestion_json;
+    const targets = suggestion ? Object.keys(suggestion).filter((k) => k !== '_meta') : [];
+    if (!targets.length) { mount.innerHTML = ''; return; }
+
+    const esc = (s: unknown) => String(s ?? '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const fmt = (v: any) => v == null || v === '' ? '—'
+      : Array.isArray(v) ? v.join(', ') : typeof v === 'object' ? JSON.stringify(v) : String(v);
+    const current = (t: string) =>
+      t.startsWith('data_json.') ? entry?.dataJson?.[t.slice(10)]
+      : t.startsWith('metadata_json.') ? entry?.metadataJson?.[t.slice(14)]
+      : entry?.[t];
+
+    const rows = targets.map((t) => `
+      <li class="suggestion-field">
+        <span class="suggestion-label">${esc(t.replace(/^(data_json|metadata_json)\./, ''))}</span>
+        <div class="suggestion-diff">
+          <div class="diff-row diff-current"><span class="diff-tag">current</span><span class="diff-val">${esc(fmt(current(t)))}</span></div>
+          <div class="diff-row diff-proposed"><span class="diff-tag">proposed</span><span class="diff-val">${esc(fmt(suggestion[t]))}</span></div>
+        </div>
+      </li>`).join('');
+    const op = suggestion?._meta?.operation;
+
+    mount.innerHTML = `
+      <div class="suggestion-banner">
+        <div class="suggestion-head">
+          <span class="suggestion-title">✨ AI suggested changes</span>
+          ${op ? `<span class="suggestion-op">from <code>${esc(op)}</code></span>` : ''}
+        </div>
+        <ul class="suggestion-list">${rows}</ul>
+        <div class="suggestion-actions">
+          <button type="button" id="apply-suggestion" class="button">Apply changes</button>
+          <button type="button" id="reject-suggestion" class="button secondary">Reject</button>
+        </div>
+      </div>`;
+    // Freshly-created buttons need their handlers bound (the originals are gone).
+    mount.querySelector('#apply-suggestion')?.addEventListener('click', () => suggestionAction('apply'));
+    mount.querySelector('#reject-suggestion')?.addEventListener('click', () => suggestionAction('reject'));
+    mount.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  async function refreshSuggestionBanner() {
+    try {
+      renderSuggestion(await sdk.entries.get(aiEntryId));
+    } catch {
+      aiToast('Staged, but the banner could not refresh — reload to review.', false);
+    }
+  }
+
+  /** Run an operation against this entry; returns its output plus the write-back outcome. */
+  async function runEntryOp(slug: string, input: Record<string, unknown> = {}) {
+    const exec: any = await sdk.ai.operations.execute(slug, {
+      entityType: 'entry', entityId: aiEntryId, input,
+    });
+    const meta = exec?.metadataJson ?? exec?.metadata_json ?? {};
+    return {
+      out: exec?.outputJson ?? exec?.output_json ?? {},
+      // "applied" | "staged" | undefined — depends on the workspace approval_mode, so the UI
+      // must not assume staging. Under allow-automatic-update the entry is already changed.
+      writeback: meta?.writeback as 'applied' | 'staged' | undefined,
+    };
+  }
+
+  async function aiGenerateTags() {
+    aiToast('Generating tags…');
+    try {
+      let existing: string[] = [];
+      try {
+        const meta = JSON.parse((document.getElementById('metadata_json') as HTMLTextAreaElement)?.value || '{}');
+        if (Array.isArray(meta.tags)) existing = meta.tags;
+      } catch { /* invalid metadata JSON — just don't pass existing tags */ }
+      const { out, writeback } = await runEntryOp('generate-tags', { existing_tags: existing });
+      const tags: string[] = out.tags ?? [];
+      if (!tags.length) return aiToast('No tags returned.', false);
+      await refreshSuggestionBanner();
+      // Report what actually happened — it depends on approval_mode, not on our assumptions.
+      if (writeback === 'applied') {
+        aiToast(`${tags.length} tags applied to this entry (approval mode: automatic): ${tags.join(', ')}`);
+      } else if (writeback === 'staged') {
+        aiToast(`${tags.length} tags staged — review the suggestion above.`);
+      } else {
+        aiToast(`Suggested ${tags.length} tags: ${tags.join(', ')}`);
+      }
+    } catch (err: any) {
+      aiToast(err?.message || 'Tag generation failed', false);
+    }
+  }
+
+  function aiReviewAndSuggest() {
+    // Hand off to the bubble; it already sends this page's entity context + history.
+    // 'professional' suppresses the workspace persona for this run — a review written in
+    // character reads well and is useless to act on.
+    document.dispatchEvent(new CustomEvent('marvin:ask', {
+      detail: { text: 'Review this entry and suggest specific improvements.', register: 'professional' },
+    }));
+  }
+
+  aiMenu?.querySelectorAll<HTMLButtonElement>('[data-ai-action]').forEach((item) => {
+    item.addEventListener('click', () => {
+      closeAiMenu();
+      const action = item.dataset.aiAction;
+      if (action === 'summary') aiSummaryBtn?.click();
+      else if (action === 'tags') aiGenerateTags();
+      else if (action === 'review') aiReviewAndSuggest();
+    });
+  });
+
+  // Per-field ✨ Improve — attached to prose textareas only. JSON editors and attachment
+  // metadata are structured, not prose; Summary already has its own Generate.
+  if (aiMenuBtn) {
+    const SKIP_CLASS = ['data-json-editor', 'metadata-editor', 'attachment-metadata'];
+    document.querySelectorAll<HTMLTextAreaElement>('textarea').forEach((field) => {
+      if (field.id === 'summary') return;
+      if (SKIP_CLASS.some((c) => field.classList.contains(c))) return;
+
+      const label = document.querySelector<HTMLLabelElement>(`label[for="${field.id}"]`);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ai-mini-btn';
+      btn.textContent = '✨ Improve';
+      btn.title = 'Rewrite this field for clarity, grammar and style';
+      (label?.parentElement?.classList.contains('label-row') ? label.parentElement : label ?? field.parentElement)
+        ?.appendChild(btn);
+
+      btn.addEventListener('click', async () => {
+        const text = field.value.trim();
+        if (!text) return aiToast('Nothing to improve in that field yet.', false);
+        const original = btn.textContent;
+        btn.disabled = true; btn.textContent = '…';
+        try {
+          const { out } = await runEntryOp('improve-writing', {
+            text, field: label?.textContent?.trim() || field.id,
+          });
+          if (out.improved) {
+            field.value = out.improved;
+            const changes: string[] = out.changes ?? [];
+            aiToast(`Rewrote ${label?.textContent?.trim() || field.id}${changes.length ? ` · ${changes.length} changes` : ''}. Review, then Save.`);
+          } else {
+            aiToast('No improvement returned.', false);
+          }
+        } catch (err: any) {
+          aiToast(err?.message || 'Improve failed', false);
+        } finally {
+          btn.disabled = false; btn.textContent = original;
+        }
+      });
     });
   }
 
@@ -1631,6 +2524,37 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     });
   }
 
+  // Dates in the viewer's zone. The server renders UTC; the read-only Published date is
+  // reformatted locally, and each schedule picker is filled from (and writes back to) a hidden
+  // input holding the UTC ISO value that the form actually posts.
+  document.querySelectorAll<HTMLElement>('[data-local-datetime]').forEach((el) => {
+    const formatted = formatLocalDateTime(el.dataset.localDatetime);
+    if (formatted) el.textContent = formatted;
+  });
+
+  document.querySelectorAll<HTMLInputElement>('input[data-utc-input]').forEach((picker) => {
+    const hidden = document.getElementById(picker.dataset.utcInput || '') as HTMLInputElement | null;
+    if (!hidden) return;
+    const note = document.querySelector<HTMLElement>(`[data-schedule-note="${picker.id}"]`);
+    const defaultNote = note?.textContent?.trim() ?? '';
+    const renderNote = () => {
+      if (!note) return;
+      const when = formatLocalDateTime(hidden.value);
+      // An expiration date already past blocks publishing (the API refuses it); say so here first.
+      const isPast = Boolean(note.dataset.pastNote) && hasPassed(hidden.value);
+      note.textContent = isPast ? (note.dataset.pastNote ?? '') : when ? `${note.dataset.notePrefix} ${when}` : defaultNote;
+      note.classList.toggle('warn', isPast);
+    };
+    picker.value = toDatetimeLocalValue(hidden.value);
+    const sync = () => {
+      hidden.value = fromDatetimeLocalValue(picker.value);
+      renderNote();
+    };
+    picker.addEventListener('input', sync);
+    picker.addEventListener('change', sync);
+    renderNote();
+  });
+
   // Data JSON editor - sync between JSON and form fields
   const dataJsonEditor = document.getElementById('data_json_editor') as HTMLTextAreaElement;
   const applyDataJsonBtn = document.getElementById('apply-data-json-btn') as HTMLButtonElement;
@@ -1644,11 +2568,17 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
       for (const [key, value] of formData.entries()) {
         if (key.startsWith('dataJson.')) {
           const fieldKey = key.replace('dataJson.', '');
-          // Handle boolean checkboxes
-          if (value === 'true' || value === 'false') {
-            dataJson[fieldKey] = value === 'true';
+          const field = form.querySelector(`[name="${key}"]`) as HTMLInputElement | null;
+          // Coerce to the input's type so the JSON preview matches what gets saved.
+          if (field && field.type === 'checkbox') {
+            dataJson[fieldKey] = field.checked;
+          } else if (value === '') {
+            dataJson[fieldKey] = null;
+          } else if (field && field.type === 'number') {
+            const n = Number(value);
+            dataJson[fieldKey] = Number.isNaN(n) ? null : n;
           } else {
-            dataJson[fieldKey] = value || null;
+            dataJson[fieldKey] = value;
           }
         }
       }
@@ -1691,25 +2621,53 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     updateDataJsonFromForm();
   }
 
-  // Handle delete button
+  // Move to Trash: reversible, so no confirmation — the entries list offers Undo.
   if (deleteButton) {
     deleteButton.addEventListener('click', async () => {
-      if (!confirm('Delete this entry? This cannot be undone.')) {
-        return;
-      }
-
       deleteButton.disabled = true;
-      deleteButton.textContent = 'Deleting...';
+      deleteButton.textContent = 'Moving…';
 
       try {
         const entryId = window.location.pathname.split('/').pop()!;
-        await sdk.entries.delete(entryId);
-        window.location.href = '/workspace/entries';
+        await moveToTrash(entryId);
+        window.location.href = `/workspace/entries?trashed=${encodeURIComponent(entryId)}`;
       } catch (error: any) {
-        const message = error?.message || error?.detail || 'Failed to delete entry';
+        const message = isForbidden(error) ? "You don't have permission to do this." : error?.message || error?.detail || 'Failed to move the entry to the Trash';
         alert(message);
         deleteButton.disabled = false;
-        deleteButton.textContent = 'Delete';
+        deleteButton.textContent = 'Move to Trash';
+      }
+    });
+  }
+
+  // In the Trash: Restore, or delete forever.
+  const trashActions = document.querySelector<HTMLElement>('.trash-banner-actions');
+  if (trashActions) {
+    const trashedId = trashActions.dataset.trashId!;
+    const trashCollection = trashActions.dataset.trashCollection;
+    const restoreButton = document.getElementById('restore-entry-button') as HTMLButtonElement;
+    const foreverButton = document.getElementById('delete-forever-button') as HTMLButtonElement;
+    const fail = (error: any, fallback: string) =>
+      alert(isForbidden(error) ? "You don't have permission to do this." : error?.message || fallback);
+    restoreButton.addEventListener('click', async () => {
+      restoreButton.disabled = true;
+      try {
+        await restoreFromTrash(trashedId);
+        window.location.reload();
+      } catch (error: any) {
+        fail(error, 'Failed to restore the entry');
+        restoreButton.disabled = false;
+      }
+    });
+    foreverButton.addEventListener('click', async () => {
+      if (!confirm("Delete this entry forever? This can't be undone.")) return;
+      foreverButton.disabled = true;
+      try {
+        await deleteForever(trashedId);
+        window.location.href = trashCollection ? `/workspace/collections/${trashCollection}` : '/workspace/entries';
+      } catch (error: any) {
+        fail(error, 'Failed to delete the entry');
+        foreverButton.disabled = false;
       }
     });
   }
@@ -1767,6 +2725,53 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     });
   }
 
+  // Keep the Entry Details image preview in sync with the Assets section. The attachment cards
+  // are the source of truth (they're what Save posts), so re-render from them on any attach,
+  // remove or reorder instead of tracking assets separately. Mirrors the SSR markup.
+  const entryImagePreview = document.getElementById('entry-image-preview') as HTMLElement | null;
+
+  function renderEntryImagePreview() {
+    if (!entryImagePreview || !attachedAssetsContainer) return;
+    const maxImages = Number(entryImagePreview.dataset.max) || 4;
+    const images = Array.from(attachedAssetsContainer.querySelectorAll<HTMLElement>('.attachment-card'))
+      .map((card) => ({
+        id: card.dataset.assetId || '',
+        name: card.querySelector('.attachment-name strong')?.textContent || '',
+        img: card.querySelector<HTMLImageElement>('.attachment-preview img'),
+      }))
+      .filter((a): a is { id: string; name: string; img: HTMLImageElement } => Boolean(a.id && a.img));
+    const visible = images.slice(0, maxImages);
+    const overflow = images.length > maxImages ? images.length - maxImages + 1 : 0;
+
+    const tiles = visible.map(({ id, name, img }, idx) => {
+      const isMoreTile = overflow > 0 && idx === maxImages - 1;
+      const link = document.createElement('a');
+      link.className = 'entry-image-thumb';
+      link.href = isMoreTile ? '#entry-assets-section' : `/workspace/assets/${id}/view`;
+      link.title = isMoreTile ? `${overflow} more images` : name;
+      const thumb = document.createElement('img');
+      thumb.src = img.src;
+      thumb.alt = img.alt;
+      thumb.loading = 'lazy';
+      link.appendChild(thumb);
+      if (isMoreTile) {
+        const more = document.createElement('span');
+        more.className = 'entry-image-more';
+        more.textContent = `+${overflow}`;
+        link.appendChild(more);
+      }
+      return link;
+    });
+
+    entryImagePreview.replaceChildren(...tiles);
+    entryImagePreview.dataset.count = String(visible.length);
+    entryImagePreview.hidden = images.length === 0;
+  }
+
+  if (entryImagePreview && attachedAssetsContainer) {
+    new MutationObserver(renderEntryImagePreview).observe(attachedAssetsContainer, { childList: true });
+  }
+
   // Initialize existing resource attachment cards
   const attachedResourcesContainer = document.getElementById('attached-resources') as HTMLElement;
   if (attachedResourcesContainer) {
@@ -1775,155 +2780,189 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     });
   }
 
+  // Build an element: `props` are DOM properties and string children become text nodes. The pickers'
+  // names, slugs, icons, alt text and URLs are user-set, so they always land as text, never markup.
+  function el<K extends keyof HTMLElementTagNameMap>(
+    tag: K,
+    props: Partial<HTMLElementTagNameMap[K]> = {},
+    ...children: (Node | string)[]
+  ): HTMLElementTagNameMap[K] {
+    const node = Object.assign(document.createElement(tag), props);
+    node.append(...children);
+    return node;
+  }
+
+  // Only http(s) and same-origin URLs may become an <img src>.
+  function safeUrl(url: string): string {
+    try {
+      return ['http:', 'https:'].includes(new URL(url, location.href).protocol) ? url : '';
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * A newly attached card, the same markup the server renders for an existing attachment:
+   * header (optional preview, name + meta line, move/remove buttons) and the role + placement metadata fields
+   * named `${prefix}[idx].…`.
+   */
+  function attachmentCard(opts: {
+    prefix: string;
+    idx: number;
+    idField: string;
+    id: string;
+    preview?: HTMLElement;
+    name: string;
+    meta: string;
+    rolePlaceholder: string;
+    metadataPlaceholder: string;
+  }): HTMLElement {
+    const { prefix, idx, idField, id, preview, name, meta, rolePlaceholder, metadataPlaceholder } = opts;
+    const field = <K extends keyof HTMLElementTagNameMap>(tag: K, suffix: string, props: Partial<HTMLElementTagNameMap[K]>) => {
+      const node = el(tag, { name: `${prefix}[${idx}].${suffix}`, ...props } as Partial<HTMLElementTagNameMap[K]>);
+      node.setAttribute('form', 'entry-form');
+      return node;
+    };
+    const actionBtn = (className: string, title: string, text: string) =>
+      el('button', { type: 'button', className: `${className} icon-btn`, title }, text);
+
+    const metadata = field('textarea', 'metadata', { rows: 2, placeholder: metadataPlaceholder, className: 'attachment-metadata' });
+    metadata.setAttribute('aria-label', 'Placement metadata (JSON)');
+    const disclosure = el(
+      'details',
+      { className: 'json-disclosure attachment-meta-disclosure' },
+      el('summary', {}, 'Placement metadata (JSON) ', el('span', { className: 'json-disclosure-hint' }, 'none set')),
+      metadata,
+    );
+
+    const header = el('div', { className: 'attachment-header' });
+    if (preview) header.append(preview);
+    header.append(
+      el('div', { className: 'attachment-name' }, el('strong', {}, name), el('span', { className: 'picker-meta' }, meta)),
+      el(
+        'div',
+        { className: 'attachment-actions' },
+        actionBtn('move-up-btn', 'Move up', '↑'),
+        actionBtn('move-down-btn', 'Move down', '↓'),
+        actionBtn('remove-btn', 'Remove', '×'),
+      ),
+    );
+
+    return el(
+      'div',
+      { className: 'attachment-card' },
+      header,
+      el(
+        'div',
+        { className: 'attachment-fields' },
+        field('input', idField, { type: 'hidden', defaultValue: id }),
+        el(
+          'div',
+          { className: 'field-row' },
+          el('label', {}, 'Role'),
+          field('input', 'role', { type: 'text', defaultValue: '', placeholder: rolePlaceholder }),
+        ),
+        disclosure,
+      ),
+    );
+  }
+
   // Add collection from picker
-  document.querySelectorAll('.add-collection-item').forEach(item => {
+  document.querySelectorAll<HTMLElement>('.add-collection-item').forEach(item => {
     const addBtn = item.querySelector('.add-btn');
     if (!addBtn) return;
     addBtn.addEventListener('click', () => {
-      const el = item as HTMLElement;
-      const id = el.dataset.collectionId!;
-      const name = el.dataset.collectionName!;
-      const slug = el.dataset.collectionSlug || '';
-      const icon = el.dataset.collectionIcon || '📁';
-      const color = el.dataset.collectionColor || '#a94d3f';
-      const idx = attachedCollectionsContainer.querySelectorAll('.attachment-card').length;
+      const id = item.dataset.collectionId!;
+      // style.backgroundColor only takes a color: anything else is dropped, never parsed as more CSS.
+      const preview = el('div', { className: 'attachment-preview' });
+      preview.style.backgroundColor = item.dataset.collectionColor || '#a94d3f';
+      const icon = el('span', { className: 'attachment-icon' }, item.dataset.collectionIcon || '📁');
+      icon.style.fontSize = '18px';
+      preview.append(icon);
 
-      const card = document.createElement('div');
-      card.className = 'attachment-card';
+      const card = attachmentCard({
+        prefix: 'collection_attachments',
+        idx: attachedCollectionsContainer.querySelectorAll('.attachment-card').length,
+        idField: 'collection_id',
+        id,
+        preview,
+        name: item.dataset.collectionName!,
+        meta: item.dataset.collectionSlug || '',
+        rolePlaceholder: 'e.g. primary, featured',
+        metadataPlaceholder: '{"featured": true}',
+      });
       card.dataset.collectionId = id;
-      card.innerHTML = `
-        <div class="attachment-header">
-          <div class="attachment-preview" style="background-color: ${color}">
-            <span class="attachment-icon" style="font-size:18px;">${icon}</span>
-          </div>
-          <div class="attachment-name">
-            <strong>${name}</strong>
-            <span class="picker-meta">${slug}</span>
-          </div>
-          <div class="attachment-actions">
-            <button type="button" class="move-up-btn icon-btn" title="Move up">↑</button>
-            <button type="button" class="move-down-btn icon-btn" title="Move down">↓</button>
-            <button type="button" class="remove-btn icon-btn" title="Remove">×</button>
-          </div>
-        </div>
-        <div class="attachment-fields">
-          <input type="hidden" name="collection_attachments[${idx}].collection_id" value="${id}" form="entry-form" />
-          <div class="field-row">
-            <label>Role</label>
-            <input type="text" name="collection_attachments[${idx}].role" value="" placeholder="e.g. primary, featured" form="entry-form" />
-          </div>
-          <div class="field-row field-row-full">
-            <label>Metadata</label>
-            <textarea name="collection_attachments[${idx}].metadata" rows="2" placeholder='{"featured": true}' form="entry-form" class="attachment-metadata"></textarea>
-          </div>
-        </div>
-      `;
 
       attachedCollectionsContainer.appendChild(card);
       setupCardButtons(card, attachedCollectionsContainer, 'collection_attachments', 'collection-count');
       updateCount('collection-count', attachedCollectionsContainer);
-      (item as HTMLElement).style.display = 'none';
+      item.style.display = 'none';
     });
   });
 
   // Add asset from picker
-  document.querySelectorAll('.add-asset-item').forEach(item => {
+  document.querySelectorAll<HTMLElement>('.add-asset-item').forEach(item => {
     const addBtn = item.querySelector('.add-btn');
     if (!addBtn) return;
     addBtn.addEventListener('click', () => {
-      const el = item as HTMLElement;
-      const id = el.dataset.assetId!;
-      const name = el.dataset.assetName!;
-      const mime = el.dataset.assetMime || '';
-      const url = el.dataset.assetUrl || '';
-      const alt = el.dataset.assetAlt || '';
-      const idx = attachedAssetsContainer.querySelectorAll('.attachment-card').length;
+      const id = item.dataset.assetId!;
+      const name = item.dataset.assetName!;
+      const mime = item.dataset.assetMime || '';
+      const url = safeUrl(item.dataset.assetUrl || '');
+      const alt = item.dataset.assetAlt || '';
 
-      const isImage = mime.startsWith('image/') && url;
-      const previewHtml = isImage
-        ? `<div class="attachment-preview"><img src="${url}" alt="${alt || name}" /></div>`
-        : `<div class="attachment-preview"><span class="attachment-icon">📄</span></div>`;
+      const preview = el('div', { className: 'attachment-preview' });
+      preview.append(
+        mime.startsWith('image/') && url
+          ? el('img', { src: url, alt: alt || name })
+          : el('span', { className: 'attachment-icon' }, '📄'),
+      );
 
-      const card = document.createElement('div');
-      card.className = 'attachment-card';
+      const card = attachmentCard({
+        prefix: 'asset_attachments',
+        idx: attachedAssetsContainer.querySelectorAll('.attachment-card').length,
+        idField: 'asset_id',
+        id,
+        preview,
+        name,
+        meta: mime,
+        rolePlaceholder: 'e.g. hero, thumbnail',
+        metadataPlaceholder: '{"focal_point": "50% 30%"}',
+      });
       card.dataset.assetId = id;
-      card.innerHTML = `
-        <div class="attachment-header">
-          ${previewHtml}
-          <div class="attachment-name">
-            <strong>${name}</strong>
-            <span class="picker-meta">${mime}</span>
-          </div>
-          <div class="attachment-actions">
-            <button type="button" class="move-up-btn icon-btn" title="Move up">↑</button>
-            <button type="button" class="move-down-btn icon-btn" title="Move down">↓</button>
-            <button type="button" class="remove-btn icon-btn" title="Remove">×</button>
-          </div>
-        </div>
-        <div class="attachment-fields">
-          <input type="hidden" name="asset_attachments[${idx}].asset_id" value="${id}" form="entry-form" />
-          <div class="field-row">
-            <label>Role</label>
-            <input type="text" name="asset_attachments[${idx}].role" value="" placeholder="e.g. hero, thumbnail" form="entry-form" />
-          </div>
-          <div class="field-row field-row-full">
-            <label>Metadata</label>
-            <textarea name="asset_attachments[${idx}].metadata" rows="2" placeholder='{"focal_point": "50% 30%"}' form="entry-form" class="attachment-metadata"></textarea>
-          </div>
-        </div>
-      `;
 
       attachedAssetsContainer.appendChild(card);
       setupCardButtons(card, attachedAssetsContainer, 'asset_attachments', 'asset-count');
       updateCount('asset-count', attachedAssetsContainer);
-      (item as HTMLElement).style.display = 'none';
+      item.style.display = 'none';
     });
   });
 
   // Add resource from picker
-  document.querySelectorAll('.add-resource-item').forEach(item => {
+  document.querySelectorAll<HTMLElement>('.add-resource-item').forEach(item => {
     const addBtn = item.querySelector('.add-btn');
     if (!addBtn) return;
     addBtn.addEventListener('click', () => {
-      const el = item as HTMLElement;
-      const id = el.dataset.resourceId!;
-      const name = el.dataset.resourceName!;
-      const type = el.dataset.resourceType || '';
-      const url = el.dataset.resourceUrl || '';
-      const idx = attachedResourcesContainer.querySelectorAll('.attachment-card').length;
+      const id = item.dataset.resourceId!;
+      const type = item.dataset.resourceType || '';
+      const url = item.dataset.resourceUrl || '';
 
-      const card = document.createElement('div');
-      card.className = 'attachment-card';
+      const card = attachmentCard({
+        prefix: 'resource_attachments',
+        idx: attachedResourcesContainer.querySelectorAll('.attachment-card').length,
+        idField: 'resource_id',
+        id,
+        name: item.dataset.resourceName!,
+        meta: `${type}${url ? ` • ${url}` : ''}`,
+        rolePlaceholder: 'e.g. primary, accent',
+        metadataPlaceholder: '{"quantity": "2.5", "unit": "yards"}',
+      });
       card.dataset.resourceId = id;
-      card.innerHTML = `
-        <div class="attachment-header">
-          <div class="attachment-name">
-            <strong>${name}</strong>
-            <span class="picker-meta">${type}${url ? ' • ' + url : ''}</span>
-          </div>
-          <div class="attachment-actions">
-            <button type="button" class="move-up-btn icon-btn" title="Move up">↑</button>
-            <button type="button" class="move-down-btn icon-btn" title="Move down">↓</button>
-            <button type="button" class="remove-btn icon-btn" title="Remove">×</button>
-          </div>
-        </div>
-        <div class="attachment-fields">
-          <input type="hidden" name="resource_attachments[${idx}].resource_id" value="${id}" form="entry-form" />
-          <div class="field-row">
-            <label>Role</label>
-            <input type="text" name="resource_attachments[${idx}].role" value="" placeholder="e.g. primary, accent" form="entry-form" />
-          </div>
-          <div class="field-row field-row-full">
-            <label>Metadata</label>
-            <textarea name="resource_attachments[${idx}].metadata" rows="2" placeholder='{"quantity": "2.5", "unit": "yards"}' form="entry-form" class="attachment-metadata"></textarea>
-          </div>
-        </div>
-      `;
 
       attachedResourcesContainer.appendChild(card);
       setupCardButtons(card, attachedResourcesContainer, 'resource_attachments', 'resource-count');
       updateCount('resource-count', attachedResourcesContainer);
-      (item as HTMLElement).style.display = 'none';
+      item.style.display = 'none';
     });
   });
 
@@ -1967,154 +3006,6 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
       });
     });
   }
-
-  // HttpOnly cookie is automatically sent with credentials: 'include'
-  // Markdown tab switching and preview
-  const tabButtons = document.querySelectorAll('.tab-btn');
-  const tabContents = document.querySelectorAll('.tab-content');
-  const markdownTextarea = document.getElementById('content_markdown');
-  const previewPane = document.querySelector('.markdown-preview');
-
-  // Enhanced markdown to HTML converter
-  function renderMarkdown(markdown: string): string {
-    if (!markdown || markdown.trim() === '') {
-      return '<p style="color:var(--muted);text-align:center;padding:2rem;">Nothing to preview yet. Start writing in the Edit tab!</p>';
-    }
-
-    let html = markdown;
-    let frontmatterHtml = '';
-
-    // Extract YAML frontmatter (only at the very start with content between)
-    const frontmatterMatch = html.match(/^---\n(.+[\s\S]*?)\n---\n/);
-    if (frontmatterMatch && frontmatterMatch[1].includes(':')) {
-      const frontmatterContent = frontmatterMatch[1];
-      // Remove frontmatter from main content
-      html = html.replace(frontmatterMatch[0], '');
-
-      // Parse and display frontmatter as a card
-      const frontmatterLines = frontmatterContent.split('\n')
-        .filter((line: string) => line.trim())
-        .map((line: string) => {
-          const [key, ...valueParts] = line.split(':');
-          const value = valueParts.join(':').trim();
-          return `<div style="display:flex;gap:0.5rem;"><strong>${key.trim()}:</strong> <span>${value}</span></div>`;
-        })
-        .join('');
-
-      frontmatterHtml = `<div class="frontmatter-preview">${frontmatterLines}</div>`;
-    }
-
-    // Markdown tables
-    const tableRegex = /^\|(.+)\|\n\|[-:\s|]+\|\n((?:\|.+\|\n?)*)/gim;
-    html = html.replace(tableRegex, (match: string, header: string, rows: string) => {
-      const headerCells = header.split('|').map((cell: string) => cell.trim()).filter(Boolean);
-      const headerRow = '<tr>' + headerCells.map((cell: string) => `<th>${cell}</th>`).join('') + '</tr>';
-
-      const bodyRows = rows.trim().split('\n').map((row: string) => {
-        const cells = row.split('|').map((cell: string) => cell.trim()).filter(Boolean);
-        return '<tr>' + cells.map((cell: string) => `<td>${cell}</td>`).join('') + '</tr>';
-      }).join('');
-
-      return `<table class="markdown-table"><thead>${headerRow}</thead><tbody>${bodyRows}</tbody></table>`;
-    });
-
-    // Code blocks (fenced) - must come before inline code
-    html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, (match: string, lang: string, code: string) => {
-      const language = lang ? ` class="language-${lang}"` : '';
-      return `<pre><code${language}>${escapeHtml(code.trim())}</code></pre>`;
-    });
-
-    // Blockquotes
-    html = html.replace(/^> (.*$)/gim, '<blockquote>$1</blockquote>');
-
-    // Horizontal rules
-    html = html.replace(/^---$/gim, '<hr>');
-    html = html.replace(/^\*\*\*$/gim, '<hr>');
-
-    // Headers (h1-h6)
-    html = html.replace(/^###### (.*$)/gim, '<h6>$1</h6>');
-    html = html.replace(/^##### (.*$)/gim, '<h5>$1</h5>');
-    html = html.replace(/^#### (.*$)/gim, '<h4>$1</h4>');
-    html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
-    html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
-    html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
-
-    // Images
-    html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;height:auto;border-radius:6px;margin:1rem 0;">');
-
-    // Links
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-
-    // Unordered lists
-    html = html.replace(/^\* (.*$)/gim, '<li>$1</li>');
-    html = html.replace(/^- (.*$)/gim, '<li>$1</li>');
-    html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
-
-    // Ordered lists
-    html = html.replace(/^\d+\. (.*$)/gim, '<li>$1</li>');
-
-    // Strikethrough
-    html = html.replace(/~~(.*?)~~/g, '<del>$1</del>');
-
-    // Bold (must come before italic)
-    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/__(.*?)__/g, '<strong>$1</strong>');
-
-    // Italic
-    html = html.replace(/\*((?!\*).+?)\*/g, '<em>$1</em>');
-    html = html.replace(/_((?!_).+?)_/g, '<em>$1</em>');
-
-    // Inline code
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-    // Task lists
-    html = html.replace(/- \[ \] (.*$)/gim, '<li style="list-style:none;"><input type="checkbox" disabled> $1</li>');
-    html = html.replace(/- \[x\] (.*$)/gim, '<li style="list-style:none;"><input type="checkbox" checked disabled> $1</li>');
-
-    // Paragraphs
-    html = html.split('\n\n').map((block: string) => {
-      // Don't wrap if already has block-level tags
-      if (block.match(/^<(h[1-6]|ul|ol|pre|blockquote|hr)/)) {
-        return block;
-      }
-      return `<p>${block.replace(/\n/g, '<br>')}</p>`;
-    }).join('\n');
-
-    return frontmatterHtml + html;
-  }
-
-  // Helper to escape HTML in code blocks
-  function escapeHtml(text: string): string {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  }
-
-  // Tab switching
-  tabButtons.forEach(button => {
-    button.addEventListener('click', () => {
-      const targetTab = (button as HTMLElement).dataset.tab;
-
-      // Update buttons
-      tabButtons.forEach(btn => btn.classList.remove('active'));
-      button.classList.add('active');
-
-      // Update content
-      tabContents.forEach(content => {
-        if ((content as HTMLElement).dataset.tabContent === targetTab) {
-          content.classList.add('active');
-        } else {
-          content.classList.remove('active');
-        }
-      });
-
-      // Render preview if switching to preview tab
-      if (targetTab === 'preview' && markdownTextarea && previewPane) {
-        const rendered = renderMarkdown((markdownTextarea as HTMLTextAreaElement).value);
-        previewPane.innerHTML = rendered;
-      }
-    });
-  });
 
   // Handle form submission with JSON metadata parsing
   const entryForm = document.getElementById('entry-form') as HTMLFormElement | null;

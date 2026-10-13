@@ -1,0 +1,41 @@
+{
+  "name": "Alternate universe cover",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "approval",
+        "id": "ok",
+        "message": "Make a {{style}} alternate-universe cover for “${entry.title}”? (one paid image)",
+        "approvers": "editor",
+        "expires_in_hours": 72
+      },
+      {
+        "kind": "integration",
+        "id": "cover",
+        "integration": "{{image_integration}}",
+        "action": "generate",
+        "attach_as": "cover-variant",
+        "args": {
+          "prompt": "A book-cover style illustration reimagining “${entry.title}” as {{style}}. ${entry.summary}",
+          "name": "${entry.title} — {{style}} cover"
+        },
+        "when": {
+          "field": "steps.ok.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      }
+    ]
+  }
+}

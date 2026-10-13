@@ -1,6 +1,6 @@
 """Form repositories."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import UUID4
@@ -45,6 +45,7 @@ class FormsRepository(GroupRepositoryGeneric[FormRead, Forms]):
 
         # Get existing form to check publish status
         existing = self.get_one(match_value, key=match_key)
+        assert existing is not None  # updating an existing form
 
         # Protect slug once published to preserve external URLs
         if existing.status == "published":
@@ -62,7 +63,7 @@ class FormsRepository(GroupRepositoryGeneric[FormRead, Forms]):
             .where(Forms.id == form_id)
             .values(
                 submissions_count=Forms.submissions_count + 1,
-                last_submission_at=datetime.now(timezone.utc),
+                last_submission_at=datetime.now(UTC),
             )
         )
         self.session.execute(stmt)

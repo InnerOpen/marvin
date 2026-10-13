@@ -11,6 +11,7 @@ Settings:
 """
 
 from pydantic import UUID4
+from sqlalchemy.orm import Session
 
 from marvin.core.config import get_app_settings
 from marvin.core.root_logger import get_logger
@@ -24,10 +25,7 @@ def _get_client():
     try:
         import hvac
     except ImportError:
-        raise RuntimeError(
-            "The 'hvac' package is required for the Vault secret backend. "
-            "Install it: pip install hvac"
-        )
+        raise RuntimeError("The 'hvac' package is required for the Vault secret backend. Install it: pip install hvac") from None
     settings = get_app_settings()
     if not settings.VAULT_ADDR or not settings.VAULT_TOKEN:
         raise RuntimeError("VAULT_ADDR and VAULT_TOKEN must be set for the vault backend.")
@@ -62,7 +60,7 @@ class VaultSecretBackend(SecretBackend):
             logger.debug(f"Vault get '{slug}': {e}")
             return None
 
-    def set(self, slug: str, value: str, group_id: UUID4 | None = None) -> None:
+    def set(self, slug: str, value: str, group_id: UUID4 | None = None, session: Session | None = None) -> None:
         settings = get_app_settings()
         mount = settings.VAULT_MOUNT or "secret"
         client = _get_client()
@@ -72,7 +70,7 @@ class VaultSecretBackend(SecretBackend):
             mount_point=mount,
         )
 
-    def delete(self, slug: str, group_id: UUID4 | None = None) -> None:
+    def delete(self, slug: str, group_id: UUID4 | None = None, session: Session | None = None) -> None:
         settings = get_app_settings()
         mount = settings.VAULT_MOUNT or "secret"
         client = _get_client()

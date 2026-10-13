@@ -1,0 +1,42 @@
+{
+  "name": "Contact sheet maker",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "set",
+        "entity": "asset",
+        "query": {
+          "asset_type": "image",
+          "tags": [
+            "{{tag}}"
+          ]
+        },
+        "limit": 48
+      },
+      {
+        "kind": "media",
+        "id": "sheet",
+        "op": "render",
+        "template": "grid",
+        "fields": {
+          "title": "{{title}}"
+        },
+        "images": {
+          "tiles": "${steps.set.output.rows}"
+        },
+        "tags": [
+          "contact-sheet"
+        ],
+        "when": {
+          "field": "steps.set.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      }
+    ]
+  }
+}

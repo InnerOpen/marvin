@@ -1,48 +1,51 @@
 ---
+import InstallApp from "@/components/InstallApp.astro";
+import PushSettings from "@/components/PushSettings.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
-import { getUserProfile, updateUserProfile, changePassword } from "@/lib/api/users";
+import { getPushSettings, type PushSettings as PushSettingsData } from "@/lib/api/push";
+import { changePassword, getUserProfile, updateUserProfile } from "@/lib/api/users";
 
 const authToken = getAuthToken(Astro.cookies);
 if (!authToken) {
-  return Astro.redirect('/login');
+  return Astro.redirect("/login");
 }
 
 let error: string | null = null;
 let success: string | null = null;
 
 // Handle form submissions (server-side)
-if (Astro.request.method === 'POST') {
+if (Astro.request.method === "POST") {
   try {
     const formData = await Astro.request.formData();
-    const action = formData.get('action') as string;
+    const action = formData.get("action") as string;
 
-    if (action === 'update_profile') {
+    if (action === "update_profile") {
       const data = {
-        username: formData.get('username') as string || undefined,
-        email: formData.get('email') as string || undefined,
-        fullName: (formData.get('full_name') as string) || null,
+        username: (formData.get("username") as string) || undefined,
+        email: (formData.get("email") as string) || undefined,
+        fullName: (formData.get("full_name") as string) || null,
       };
 
       await updateUserProfile(data, authToken);
-      success = 'Profile updated successfully';
-    } else if (action === 'change_password') {
-      const currentPassword = formData.get('current_password') as string;
-      const newPassword = formData.get('new_password') as string;
-      const confirmPassword = formData.get('confirm_password') as string;
+      success = "Profile updated successfully";
+    } else if (action === "change_password") {
+      const currentPassword = formData.get("current_password") as string;
+      const newPassword = formData.get("new_password") as string;
+      const confirmPassword = formData.get("confirm_password") as string;
 
       if (newPassword !== confirmPassword) {
-        error = 'New passwords do not match';
+        error = "New passwords do not match";
       } else if (newPassword.length < 8) {
-        error = 'Password must be at least 8 characters';
+        error = "Password must be at least 8 characters";
       } else {
         await changePassword({ currentPassword, newPassword }, authToken);
-        success = 'Password changed successfully';
+        success = "Password changed successfully";
       }
     }
   } catch (e) {
-    error = e instanceof Error ? e.message : 'Operation failed';
-    console.error('[Profile] Error:', error);
+    error = e instanceof Error ? e.message : "Operation failed";
+    console.error("[Profile] Error:", error);
   }
 }
 
@@ -51,8 +54,16 @@ let userProfile = null;
 try {
   userProfile = await getUserProfile(authToken);
 } catch (e) {
-  error = e instanceof Error ? e.message : 'Failed to load profile';
-  console.error('[Profile] Failed to load profile:', error);
+  error = e instanceof Error ? e.message : "Failed to load profile";
+  console.error("[Profile] Failed to load profile:", error);
+}
+
+// Web Push: shown only when the server has it configured (VAPID). Best-effort — a failed read hides it.
+let push: PushSettingsData | null = null;
+try {
+  push = await getPushSettings(authToken);
+} catch (e) {
+  console.error("[Profile] Failed to load push settings:", e);
 }
 ---
 
@@ -181,6 +192,25 @@ try {
             </div>
           </form>
         </section>
+
+        <!-- The installable app -->
+        <section class="profile-section">
+          <div class="section-header">
+            <h3>Install the app</h3>
+            <p>Marvin on your home screen or dock, in its own window</p>
+          </div>
+          <InstallApp />
+        </section>
+
+        {push?.enabled && (
+          <section class="profile-section" id="notifications">
+            <div class="section-header">
+              <h3>Notifications</h3>
+              <p>Push notifications on this phone or computer, even when Marvin isn't open</p>
+            </div>
+            <PushSettings settings={push} />
+          </section>
+        )}
 
         <!-- API Tokens -->
         <section class="profile-section">
@@ -319,7 +349,7 @@ try {
 
   .form-group input:focus {
     outline: none;
-    border-color: var(--primary);
+    border-color: var(--accent);
   }
 
   .form-group small {

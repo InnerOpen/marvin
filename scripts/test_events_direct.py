@@ -12,14 +12,12 @@ Usage:
 """
 
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
 # Add src directory to path for imports when running directly
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from fastapi import BackgroundTasks
 
 from marvin.core.config import get_app_settings
 from marvin.db.db_setup import generate_session
@@ -121,13 +119,13 @@ def test_event_dispatching():
     print("Events were dispatched to the event bus.")
     print("They will be delivered to:")
     print("  • Configured webhooks")
-    print("  • Apprise notification URLs")
-    print("  • Email notifiers (if SMTP enabled)")
+    print("  • Integration actions wired to events (e.g. Apprise notifications)")
+    print("  • Email subscriptions (if SMTP enabled)")
     print()
     print("To verify event delivery:")
     print("  1. Check server logs for 'Event dispatched' messages")
     print("  2. Configure a webhook and check delivery")
-    print("  3. Set up Apprise URL and check notifications")
+    print("  3. Connect an integration action (e.g. Apprise) to an event and check delivery")
 
 
 if __name__ == "__main__":

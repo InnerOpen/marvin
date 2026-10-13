@@ -20,9 +20,7 @@ class AIExecutionModel(SqlAlchemyBase, BaseMixins):
     __tablename__ = "ai_executions"
 
     id: Mapped[GUID] = mapped_column(GUID, primary_key=True, default=GUID.generate)
-    group_id: Mapped[GUID] = mapped_column(
-        GUID, sa.ForeignKey("groups.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    group_id: Mapped[GUID] = mapped_column(GUID, sa.ForeignKey("groups.id", ondelete="CASCADE"), nullable=False, index=True)
     group: Mapped[Optional["Groups"]] = orm.relationship("Groups", back_populates="ai_executions")
 
     operation_slug: Mapped[str] = mapped_column(sa.String, nullable=False, index=True)
@@ -36,7 +34,7 @@ class AIExecutionModel(SqlAlchemyBase, BaseMixins):
     # api | action | scheduler | mcp | renderer
     trigger_type: Mapped[str] = mapped_column(sa.String, nullable=False, default="api")
 
-    entity_type: Mapped[str | None] = mapped_column(sa.String, nullable=True)   # entry | asset | resource | ...
+    entity_type: Mapped[str | None] = mapped_column(sa.String, nullable=True)  # entry | asset | resource | ...
     entity_id: Mapped[GUID | None] = mapped_column(GUID, nullable=True, index=True)
 
     # Stored only when workspace logging_config allows
@@ -53,6 +51,9 @@ class AIExecutionModel(SqlAlchemyBase, BaseMixins):
 
     started_at: Mapped[sa.DateTime | None] = mapped_column(sa.DateTime, nullable=True)
     completed_at: Mapped[sa.DateTime | None] = mapped_column(sa.DateTime, nullable=True)
+
+    # Spend/usage is almost always read as "this workspace, most recent first".
+    __table_args__ = (sa.Index("ix_ai_executions_group_created", "group_id", "created_at"),)
 
     @auto_init()
     def __init__(self, session: Session, **kwargs) -> None:

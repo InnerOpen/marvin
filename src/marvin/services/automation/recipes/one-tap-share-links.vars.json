@@ -1,0 +1,20 @@
+{
+  "recipe": "one-tap-share-links",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entries to make share links for (they need a page on the site).",
+      "example": "article"
+    },
+    "voice": {
+      "type": "text",
+      "description": "How the post should sound.",
+      "example": "a warm, plain voice"
+    },
+    "mastodon_server": {
+      "type": "text",
+      "description": "Your Mastodon server, for its share link (just the address, e.g. mastodon.social).",
+      "example": "mastodon.social"
+    }
+  }
+}

@@ -50,7 +50,7 @@ Before deploying to any environment, complete this checklist:
 
 - [ ] Code changes reviewed and approved
 - [ ] Tests passing in CI/CD pipeline
-- [ ] Migration tested on dev/staging environment
+- [ ] Migration tested on dev (marvin-dev)
 - [ ] Database backup procedure tested (test restore)
 - [ ] Maintenance window scheduled (production only)
 - [ ] Users notified of maintenance (production only)
@@ -101,7 +101,7 @@ oc cluster-info
 oc new-project marvin-dev
 
 # Staging
-oc new-project marvin-staging
+oc new-project marvin-dev
 
 # Production
 oc new-project marvin-prod
@@ -165,7 +165,6 @@ kubectl create secret generic marvin-secrets \
   --from-literal=SMTP_USER=youruser \
   --from-literal=SMTP_PASSWORD=yourpassword \
   --from-literal=SMTP_FROM_EMAIL=noreply@yourdomain.com \
-  --from-literal=JWT_SECRET=$(openssl rand -base64 32) \
   --dry-run=client -o yaml | \
   kubeseal -o yaml > marvin-chart/templates/sealed-secret.yaml
 
@@ -208,8 +207,8 @@ oc get pods -w
 Staging deployment with git SHA tagging:
 
 ```bash
-# Switch to staging project
-oc project marvin-staging
+# Switch to the dev project
+oc project marvin-dev
 
 # Get git commit SHA
 GIT_SHA=$(git rev-parse --short HEAD)
@@ -224,23 +223,23 @@ docker push <registry>/marvin:$GIT_SHA
 
 # Dry-run first (preview changes)
 helm upgrade marvin ./marvin-chart \
-  --namespace marvin-staging \
-  --values marvin-chart/values-staging.yaml \
+  --namespace marvin-dev \
+  --values marvin-chart/values-dev.yaml \
   --set image.repository=<registry>/marvin \
   --set image.tag=$GIT_SHA \
   --dry-run --debug
 
-# Deploy to staging
+# Deploy to dev
 helm upgrade --install marvin ./marvin-chart \
-  --namespace marvin-staging \
-  --values marvin-chart/values-staging.yaml \
+  --namespace marvin-dev \
+  --values marvin-chart/values-dev.yaml \
   --set image.repository=<registry>/marvin \
   --set image.tag=$GIT_SHA \
   --wait \
   --timeout 15m
 
 # Verify deployment
-helm status marvin -n marvin-staging
+helm status marvin -n marvin-dev
 oc get pods
 ```
 

@@ -1,0 +1,17 @@
+{# Two pictures side by side, labelled — before and after by default. #}
+<style>
+  .s { box-sizing: border-box; width: 100vw; height: 100vh; display: flex; flex-direction: column; background: #111; color: #fff;
+       font-family: Lato, "Open Sans", "DejaVu Sans", sans-serif; }
+  h1 { margin: 0; padding: 2.2vw 3vw 0; font-size: 3.4vw; font-weight: 800; }
+  .row { flex: 1; display: flex; gap: 1.2vw; padding: 2vw 3vw 3vw; min-height: 0; }
+  .half { flex: 1; position: relative; background: #333 center / contain no-repeat; border-radius: .8vw; }
+  .label { position: absolute; top: 1.2vw; left: 1.2vw; padding: .5vw 1.2vw; border-radius: 99vw; background: rgba(0,0,0,.65);
+           font-size: 1.8vw; font-weight: 800; text-transform: uppercase; letter-spacing: .12em; }
+</style>
+<div class="s">
+  {% if fields.title %}<h1>{{ fields.title }}</h1>{% endif %}
+  <div class="row">
+    <div class="half" style="background-image: url('{{ images.left }}')"><span class="label">{{ fields.left_label or "Before" }}</span></div>
+    <div class="half" style="background-image: url('{{ images.right }}')"><span class="label">{{ fields.right_label or "After" }}</span></div>
+  </div>
+</div>

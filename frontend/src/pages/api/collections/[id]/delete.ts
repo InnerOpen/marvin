@@ -1,21 +1,51 @@
-import type { APIRoute } from 'astro';
-import { getAuthToken } from '@/lib/api/client';
-import { deleteCollection } from '@/lib/api/collections';
+import type { APIRoute } from "astro";
+import { getAuthToken } from "@/lib/api/client";
+import { deleteCollection } from "@/lib/api/collections";
 
-export const POST: APIRoute = async ({ params, redirect, cookies }) => {
+/**
+ * Pull the human-readable message out of an SDK error. Marvin API errors carry a
+ * `responseBody` JSON string like `{"detail": "..."}`; prefer that over the verbose
+ * wrapped message (e.g. "Marvin API error: 409 Conflict at /api/... {...}").
+ */
+function extractErrorMessage(error: unknown): string {
+  const body = (error as { responseBody?: string })?.responseBody;
+  if (body) {
+    try {
+      const parsed = JSON.parse(body);
+      if (typeof parsed?.detail === "string") return parsed.detail;
+    } catch {
+      // fall through to the generic message
+    }
+  }
+  if (error instanceof Error) return error.message;
+  return "Failed to delete collection";
+}
+
+export const POST: APIRoute = async ({ params, cookies }) => {
   try {
     const authToken = getAuthToken(cookies);
-    if (!authToken) return new Response('Unauthorized', { status: 401 });
+    if (!authToken) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     const { id } = params;
-    if (!id) throw new Error('Collection ID required');
+    if (!id) {
+      return new Response(JSON.stringify({ error: "Collection ID required" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
     await deleteCollection(id, authToken);
-    return redirect('/workspace/collections', 303);
+    return new Response(null, { status: 204 });
   } catch (error) {
-    console.error('[collections/delete] Error:', error);
-    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : 'Failed to delete collection' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
+    console.error("[collections/delete] Error:", error);
+    const status = (error as { statusCode?: number })?.statusCode ?? 500;
+    return new Response(JSON.stringify({ error: extractErrorMessage(error) }), {
+      status,
+      headers: { "Content-Type": "application/json" },
     });
   }
 };

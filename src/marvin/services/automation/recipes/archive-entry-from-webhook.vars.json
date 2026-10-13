@@ -1,0 +1,10 @@
+{
+  "recipe": "archive-entry-from-webhook",
+  "variables": {
+    "incoming_webhook": {
+      "type": "incoming_webhook_slug",
+      "description": "Slug of the incoming webhook that carries `{\"slug\": …}` in its body, or `any`.",
+      "example": "any"
+    }
+  }
+}

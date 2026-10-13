@@ -1,8 +1,10 @@
 ---
-import AppLayout from "@/layouts/AppLayout.astro";
-import { createSdkClient } from "@/lib/sdk";
-import { getAuthToken } from "@/lib/api/client";
 import type { TaskTypeInfo } from "@inneropen/marvin-sdk/platform";
+import LocalTime from "@/components/LocalTime.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { createSdkClient } from "@/lib/sdk";
+import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
@@ -12,6 +14,7 @@ let task: any = null;
 let taskTypes: TaskTypeInfo[] = [];
 let history: any[] = [];
 let error: string | null = null;
+let adminOnly = false;
 
 try {
   [task, taskTypes] = await Promise.all([
@@ -19,46 +22,35 @@ try {
     sdk.scheduledTasks.taskTypes({ detailed: true }) as Promise<TaskTypeInfo[]>,
   ]);
 } catch (e) {
-  console.error('[scheduled-tasks/edit] Error loading task:', e);
-  error = e instanceof Error ? e.message : String(e);
+  console.error("[scheduled-tasks/edit] Error loading task:", e);
+  if (isForbidden(e)) adminOnly = true;
+  else error = e instanceof Error ? e.message : String(e);
 }
 
 if (task) {
   try {
     history = await sdk.scheduledTasks.history(id!, { limit: 50 });
   } catch (e) {
-    console.error('[scheduled-tasks/edit] Error loading history:', e);
+    console.error("[scheduled-tasks/edit] Error loading history:", e);
   }
 }
 
-function formatDate(isoStr: string): string {
-  if (!isoStr) return '—';
-  const normalized = isoStr.replace(/(\.\d{3})\d+/, '$1');
-  const d = new Date(normalized);
-  return isNaN(d.getTime()) ? isoStr : d.toLocaleString();
-}
-
 function statusClass(status: string | null): string {
-  if (status === 'success') return 'success';
-  if (status === 'failed') return 'failed';
-  if (status === 'timeout') return 'timeout';
-  if (status === 'cancelled') return 'cancelled';
-  return 'none';
+  if (status === "success") return "success";
+  if (status === "failed") return "failed";
+  if (status === "timeout") return "timeout";
+  if (status === "cancelled") return "cancelled";
+  return "none";
 }
 
 // Normalize camelCase API response fields (alias_generator=camelize on backend)
-const taskType = task ? (task.taskType ?? task.task_type) : '';
-const scheduleType = task ? (task.scheduleType ?? task.schedule_type) : '';
+const taskType = task ? (task.taskType ?? task.task_type) : "";
+const scheduleType = task ? (task.scheduleType ?? task.schedule_type) : "";
 const scheduleConfig = task ? (task.scheduleConfig ?? task.schedule_config) : null;
 ---
 
-<AppLayout title={task ? `Edit: ${task.name}` : 'Scheduled Task'} eyebrow="Automation">
+<AppLayout crumb="automation.scheduled-tasks.task" adminOnly={adminOnly} title={task ? `Edit: ${task.name}` : 'Scheduled Task'}>
   <div class="page-header">
-    <div class="breadcrumb">
-      <a href="/workspace/scheduled-tasks">Scheduled Tasks</a>
-      <span>›</span>
-      <span>{task?.name || 'Edit Task'}</span>
-    </div>
     <h2>{task?.name || 'Edit Scheduled Task'}</h2>
     <p>Configure task settings and view execution history</p>
   </div>
@@ -193,10 +185,10 @@ const scheduleConfig = task ? (task.scheduleConfig ?? task.schedule_config) : nu
               </thead>
               <tbody>
                 {history.map((exec, i) => {
-                  const executedAt = exec.executedAt ?? exec.executed_at;
-                  const durationMs = exec.durationMs ?? exec.duration_ms;
-                  const errorMessage = exec.errorMessage ?? exec.error_message;
-                  const errorTraceback = exec.errorTraceback ?? exec.error_traceback;
+                  const executedAt = exec.executedAt;
+                  const durationMs = exec.durationMs;
+                  const errorMessage = exec.errorMessage;
+                  const errorTraceback = exec.errorTraceback;
                   const output = exec.output ?? null;
                   const hasDetails = output || errorMessage || errorTraceback;
                   return (
@@ -207,7 +199,7 @@ const scheduleConfig = task ? (task.scheduleConfig ?? task.schedule_config) : nu
                             <button class="expand-btn" data-target={`hist-${i}`} aria-label="Toggle details">▶</button>
                           )}
                         </td>
-                        <td class="nowrap">{formatDate(executedAt)}</td>
+                        <td class="nowrap"><LocalTime iso={executedAt} /></td>
                         <td>
                           <span class={`run-status status-${statusClass(exec.status)}`}>
                             {exec.status}
@@ -340,24 +332,6 @@ const scheduleConfig = task ? (task.scheduleConfig ?? task.schedule_config) : nu
     margin-bottom: 32px;
     padding-bottom: 20px;
     border-bottom: 1px solid var(--line);
-  }
-
-  .breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--muted);
-    margin-bottom: 12px;
-  }
-
-  .breadcrumb a {
-    color: var(--muted);
-    text-decoration: none;
-  }
-
-  .breadcrumb a:hover {
-    color: var(--ink);
   }
 
   .page-header h2 {

@@ -3,16 +3,16 @@
  * Migrated to use @inneropen/marvin-sdk
  */
 
-import { createSdkClient } from '../sdk';
 import type {
-  UserProfile,
   ApiToken,
   ApiTokenCreate,
   ApiTokenWithToken,
   PasswordChange,
-} from '@inneropen/marvin-sdk/platform';
+  UserProfile,
+} from "@inneropen/marvin-sdk/platform";
+import { createSdkClient } from "../sdk";
 
-export type { UserProfile, ApiToken, ApiTokenCreate, ApiTokenWithToken, PasswordChange };
+export type { ApiToken, ApiTokenCreate, ApiTokenWithToken, PasswordChange, UserProfile };
 
 /**
  * Get current user profile

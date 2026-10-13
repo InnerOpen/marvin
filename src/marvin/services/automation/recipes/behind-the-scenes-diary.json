@@ -1,0 +1,60 @@
+{
+  "name": "Behind-the-scenes diary",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{update_entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "story",
+        "op": "custom",
+        "see": [
+          "item",
+          "attachments",
+          "images",
+          "persona"
+        ],
+        "prompt": "This project update has notes and process photos. Turn it into a short behind-the-scenes workshop post: what was made, how, and one detail from the photos a reader wouldn't guess. Give it a title.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 5
+            },
+            "body": {
+              "type": "string",
+              "minLength": 80
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ]
+        }
+      },
+      {
+        "kind": "entry",
+        "id": "draft",
+        "op": "create",
+        "entry_type": "{{draft_entry_type}}",
+        "title": "${steps.story.output.title}",
+        "data": {
+          "{{body_field}}": "${steps.story.output.body}"
+        },
+        "metadata": {
+          "diary_of": "${entry.id}"
+        }
+      }
+    ]
+  }
+}

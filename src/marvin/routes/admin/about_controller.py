@@ -16,6 +16,7 @@ from marvin.schemas.admin.about import (  # Pydantic schemas for response models
     AppStatistics,
     CheckAppConfig,
 )
+from marvin.services.email.email_senders import email_ready
 
 # APIRouter for admin "about" section, prefixed with /about
 # All routes in this controller will be under /admin/about due to AdminAPIRouter in main app and this prefix.
@@ -44,7 +45,13 @@ class AdminAboutController(BaseAdminController):
         Returns:
             AdminAboutInfo: A Pydantic model containing various application details.
         """
+        from marvin.services.group.platform_workspace import PlatformWorkspaceMissing, platform_workspace
+
         settings = self.settings  # Access application settings via base controller property
+        try:
+            platform_name = platform_workspace(self.session).name
+        except PlatformWorkspaceMissing:  # uninitialised database: the name it will be created with
+            platform_name = settings.DEFAULT_GROUP
 
         # Construct and return the AdminAboutInfo response model
         return AdminAboutInfo(
@@ -52,11 +59,12 @@ class AdminAboutController(BaseAdminController):
             version=APP_VERSION,
             versionLatest=get_latest_version(settings.GITHUB_VERSION_URL),  # Fetches latest version from GitHub
             demo_status=settings.IS_DEMO,
+            environment_label=settings.ENVIRONMENT_LABEL,
             api_port=settings.API_PORT,
             api_docs=settings.API_DOCS,
             db_type=settings.DB_ENGINE,
             db_url=settings.DB_URL_PUBLIC,  # Public (masked) database URL
-            default_group=settings.DEFAULT_GROUP,
+            default_group=platform_name,
             allow_signup=settings.ALLOW_SIGNUP,
             build_id=settings.GIT_COMMIT_HASH,  # Git commit hash for the build
             enable_oidc=settings.OIDC_AUTH_ENABLED,
@@ -78,6 +86,18 @@ class AdminAboutController(BaseAdminController):
         Returns:
             AppStatistics: A Pydantic model containing application statistics.
         """
+        # Platform-wide AI usage — no group filter, so it spans every account.
+        from sqlalchemy import func
+
+        from marvin.db.models.groups.ai_executions import AIExecutionModel
+
+        session = self.repos.session
+        ai_ops = session.query(AIExecutionModel).count()
+        ai_tokens, ai_cost = session.query(
+            func.coalesce(func.sum(AIExecutionModel.total_tokens), 0),
+            func.coalesce(func.sum(AIExecutionModel.estimated_cost_usd), 0.0),
+        ).one()
+
         # Utilize repositories to fetch counts
         return AppStatistics(
             # User & Group stats
@@ -94,7 +114,48 @@ class AdminAboutController(BaseAdminController):
             total_api_tokens=self.repos.api_tokens.count_all(),
             total_api_clients=self.repos.api_clients.count_all(),
             total_webhooks=self.repos.webhooks.count_all(),
+            # AI usage (platform-wide)
+            total_ai_operations=ai_ops,
+            total_ai_tokens=int(ai_tokens or 0),
+            total_ai_cost_usd=float(ai_cost or 0.0),
         )
+
+    @router.get("/roles-matrix", summary="Workspace role → capability matrix")
+    def get_roles_matrix(self) -> dict:
+        """The workspace roles and what each can do, generated from the enforced
+        `workspace_role_can_*` helpers so it can never drift from actual behaviour."""
+        from marvin.db.models.users.roles import (
+            WORKSPACE_ROLE_HIERARCHY,
+            WorkspaceRole,
+            workspace_role_can_create_entries,
+            workspace_role_can_edit_all_entries,
+            workspace_role_can_manage_members,
+            workspace_role_can_manage_publishing,
+            workspace_role_can_manage_settings,
+        )
+
+        # Highest privilege first.
+        roles = sorted(WorkspaceRole, key=lambda r: -WORKSPACE_ROLE_HIERARCHY.get(r, 0))
+        # (key, label, predicate) — least to most privileged. View is the base level (every role).
+        caps = [
+            ("view_content", "View content", lambda r: True),
+            ("create_entries", "Create entries", workspace_role_can_create_entries),
+            ("edit_all_entries", "Edit all entries", workspace_role_can_edit_all_entries),
+            ("manage_publishing", "Manage publishing", workspace_role_can_manage_publishing),
+            ("manage_members", "Manage workspace members", workspace_role_can_manage_members),
+            ("manage_settings", "Manage workspace settings", workspace_role_can_manage_settings),
+        ]
+        # Platform SUPER_ADMIN sits above every workspace role (level 6): it can do everything a
+        # workspace role can, in every workspace, PLUS it's the only role with platform admin access.
+        SUPER = "SUPER_ADMIN"
+        role_list = [{"role": SUPER, "level": 6, "platform": True}]
+        role_list += [{"role": r.value, "level": WORKSPACE_ROLE_HIERARCHY.get(r, 0), "platform": False} for r in roles]
+
+        capabilities = [{"key": key, "label": label, "roles": [SUPER, *(r.value for r in roles if fn(r))]} for key, label, fn in caps]
+        # Platform-only capability — SUPER_ADMIN alone.
+        capabilities.append({"key": "platform_admin", "label": "Platform administration (/admin)", "roles": [SUPER]})
+
+        return {"roles": role_list, "capabilities": capabilities}
 
     @router.get("/startup-info", summary="Get Application Startup Information (Admin)")
     def get_startup_info(self):
@@ -113,10 +174,14 @@ class AdminAboutController(BaseAdminController):
         settings = self.settings
 
         # Get settings as dict, excluding sensitive fields
+        # DB_PROVIDER is an internal provider object (holds raw connection fields); the useful,
+        # safe view is DB_ENGINE + the masked DB_URL below, so keep the object itself out of the dump.
         data = settings.model_dump(
-            exclude={"theme", "SECRET", "ENV_SECRETS", "_logger"},
+            exclude={"theme", "SECRET", "ENV_SECRETS", "_logger", "DB_PROVIDER"},
             exclude_none=True,
         )
+        # Surface a masked connection URL in place of the excluded provider object.
+        data["DB_URL"] = settings.DB_URL_PUBLIC
 
         # Add computed @property fields that aren't in model_dump
         # FeatureDetails is a NamedTuple, convert to dict with _asdict()
@@ -128,8 +193,6 @@ class AdminAboutController(BaseAdminController):
         data["OIDC_FEATURE"] = settings.OIDC_FEATURE._asdict() if settings.OIDC_FEATURE else None
         data["OPENAI_ENABLED"] = settings.OPENAI_ENABLED
         data["OPENAI_FEATURE"] = settings.OPENAI_FEATURE._asdict() if settings.OPENAI_FEATURE else None
-        data["APPRISE_READY"] = settings.APPRISE_READY
-        data["APPRISE_FEATURE"] = settings.APPRISE_FEATURE._asdict() if settings.APPRISE_FEATURE else None
         data["PLUGIN_ENABLED"] = settings.PLUGIN_ENABLED
         data["PLUGIN_FEATURE"] = settings.PLUGIN_FEATURE._asdict() if settings.PLUGIN_FEATURE else None
 
@@ -157,11 +220,10 @@ class AdminAboutController(BaseAdminController):
         is_up_to_date_status = APP_VERSION in ["develop", "nightly"] or get_latest_version(settings.GITHUB_VERSION_URL) == APP_VERSION
 
         return CheckAppConfig(
-            email_ready=settings.SMTP_ENABLED,  # SMTP (email) configured and enabled
+            email_ready=email_ready(),  # SMTP settings, or the platform workspace's active SMTP profile
             ldap_ready=settings.LDAP_ENABLED,  # LDAP configured and enabled
             base_url_set=settings.BASE_URL != "http://localhost:8080",  # Base URL customized from default
             is_up_to_date=is_up_to_date_status,  # Application version is current
             oidc_ready=settings.OIDC_READY,  # OIDC configured and ready
             enable_openai=settings.OPENAI_ENABLED,  # OpenAI configured and enabled
-            apprise_ready=settings.APPRISE_READY,  # Apprise notification service configured and enabled
         )

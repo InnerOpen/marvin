@@ -155,10 +155,11 @@ class SearchFilter:
         is_postgresql = session.get_bind().name == "postgresql"
         contains_quoted_literals = self.quoted_regex.search(search_query.strip()) is not None
 
+        self.search_type: SearchType
         if is_postgresql and not contains_quoted_literals:
-            self.search_type: SearchType = SearchType.fuzzy
+            self.search_type = SearchType.fuzzy
         else:
-            self.search_type: SearchType = SearchType.tokenized
+            self.search_type = SearchType.tokenized
 
         # Normalize the raw search query.
         self.search: str = self._normalize_search(search_query, normalize_characters)

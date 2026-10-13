@@ -1,0 +1,38 @@
+---
+/**
+ * Read-only tag display — static pills for list/view surfaces (assets, resources, …).
+ * The editable counterpart is TagChips.astro; this one has no input, no remove, no script.
+ * Renders nothing when there are no tags.
+ *
+ * Props:
+ *   tags  — tag slugs (as returned by AssetRead/ResourceRead `tags`)
+ *   label — optional inline label (e.g. "Tags")
+ */
+interface Props {
+  tags?: string[];
+  label?: string;
+}
+const { tags = [], label } = Astro.props;
+---
+
+{tags.length > 0 && (
+  <span class="tag-list">
+    {label && <span class="tag-list-label">{label}</span>}
+    {tags.map((t) => <span class="tag-pill">{t}</span>)}
+  </span>
+)}
+
+<style>
+  .tag-list { display: inline-flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
+  .tag-list-label { font-size: 0.7rem; color: var(--muted); margin-right: 0.15rem; }
+  .tag-pill {
+    display: inline-flex; align-items: center;
+    padding: 0.1rem 0.45rem;
+    background: var(--panel-2, var(--bg));
+    border: 1px solid var(--border, var(--line));
+    border-radius: 999px;
+    font-size: 0.7rem; line-height: 1.4;
+    color: var(--text, var(--ink));
+    white-space: nowrap;
+  }
+</style>

@@ -1,0 +1,45 @@
+{
+  "recipe": "launch-kit",
+  "variables": {
+    "product_type": {
+      "type": "entry_type_slug",
+      "description": "The entries that are launches (products, releases).",
+      "example": "product"
+    },
+    "voice": {
+      "type": "text",
+      "description": "How the posts should sound.",
+      "example": "a warm, plain voice"
+    },
+    "draft_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type the announcement and FAQ are drafted as.",
+      "example": "article"
+    },
+    "draft_body_field": {
+      "type": "field_key",
+      "description": "That type's text field.",
+      "example": "body"
+    },
+    "newsletter_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type the newsletter issue is drafted as.",
+      "example": "newsletter-issue"
+    },
+    "newsletter_body_field": {
+      "type": "field_key",
+      "description": "That type's text field.",
+      "example": "body"
+    },
+    "image_role": {
+      "type": "text",
+      "description": "The role of the product's picture for the launch card (a plain card without one).",
+      "example": "hero"
+    },
+    "footer": {
+      "type": "text",
+      "description": "A line at the bottom of the card, e.g. the shop.",
+      "example": "mashandburn.co"
+    }
+  }
+}

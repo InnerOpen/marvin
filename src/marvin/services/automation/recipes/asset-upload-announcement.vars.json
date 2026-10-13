@@ -1,0 +1,10 @@
+{
+  "recipe": "asset-upload-announcement",
+  "variables": {
+    "upload_webhook_id": {
+      "type": "webhook_id",
+      "description": "Id of the outgoing webhook (Settings → Webhooks, type `workflow`) whose URL is your chat channel's incoming webhook (Slack, Discord, Mattermost…). Its own `custom_payload`, when set, replaces the body above.",
+      "example": "<uuid of the outgoing webhook>"
+    }
+  }
+}

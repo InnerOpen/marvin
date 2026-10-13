@@ -1,0 +1,1427 @@
+---
+import IntegrationMark from "@/components/IntegrationMark.astro";
+import LocalTime from "@/components/LocalTime.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
+import type { IntegrationWithHealth, ProviderActionInfo, ProviderInfo } from "@/lib/api/integrations";
+import { listIntegrations, listProviders } from "@/lib/api/integrations";
+import { CATEGORY_LABEL, focusedCategory, groupByCategory } from "@/lib/integrationCategories";
+import { policyRows } from "@/lib/integrationPolicy";
+import type { Blueprint } from "@/lib/api/blueprints";
+import { listBlueprints } from "@/lib/api/blueprints";
+import { getWorkflowLibrary } from "@/lib/api/workflowLibrary";
+import { type Recipe, recipeHref } from "@/lib/workflowLibrary";
+import { isForbidden } from "@/lib/workspaceRole";
+
+const authToken = getAuthToken(Astro.cookies);
+// Library recipes that need a provider, listed on its card. Optional: started now, read below.
+const libraryRequest = getWorkflowLibrary(authToken).catch(() => null);
+
+let providers: ProviderInfo[] = [];
+let integrations: IntegrationWithHealth[] = [];
+let blueprints: Blueprint[] = [];
+let error: string | null = null;
+let adminOnly = false;
+
+try {
+  [providers, integrations, blueprints] = await Promise.all([
+    listProviders(authToken),
+    listIntegrations(authToken),
+    // A provider declares the workspace content its actions depend on; it can never create it.
+    // The workspace applies it from here, deliberately — nothing is installed behind your back.
+    listBlueprints({}, authToken),
+  ]);
+} catch (e) {
+  console.error("[integrations] load error:", e);
+  if (isForbidden(e)) adminOnly = true;
+  else error = e instanceof Error ? e.message : String(e);
+}
+
+// The workspace's own entry types and collections, for blueprint parameters that pick one. Optional:
+// without them the parameters fall back to plain text inputs.
+const items = (r: any): any[] => (Array.isArray(r) ? r : r?.items ?? []);
+let entryTypeOptions: { slug: string; name: string }[] = [];
+let collectionOptions: { slug: string; name: string }[] = [];
+try {
+  const [types, collections] = await Promise.all([
+    fetchApi<any>("/api/platform/entry-types", {}, authToken),
+    fetchApi<any>("/api/platform/collections", {}, authToken),
+  ]);
+  const unique = (rows: any[]) => [...new Map(rows.map((r) => [r.slug, { slug: r.slug, name: r.name || r.slug }])).values()];
+  entryTypeOptions = unique(items(types)).sort((a, b) => a.name.localeCompare(b.name));
+  collectionOptions = unique(items(collections).filter((c: any) => !c.isSystem && !c.is_system)).sort((a, b) => a.name.localeCompare(b.name));
+} catch (e) {
+  console.error("[integrations] could not load entry types / collections for parameter pickers:", e);
+}
+
+const recipesByProvider = new Map<string, Recipe[]>();
+for (const r of (await libraryRequest)?.recipes ?? []) {
+  if (r.shape !== "workflow") continue;
+  for (const provider of r.providers) recipesByProvider.set(provider, [...(recipesByProvider.get(provider) ?? []), r]);
+}
+
+const needsByProvider = new Map<string, Blueprint[]>();
+for (const b of blueprints) {
+  if (b.source === "core") continue;
+  needsByProvider.set(b.source, [...(needsByProvider.get(b.source) ?? []), b]);
+}
+
+const KIND_NOUN: Record<string, string> = {
+  entry_type: "entry type",
+  entry_fields: "fields on a type",
+  collection: "collection",
+  scheduled_task: "scheduled task",
+  event_subscription: "event connection",
+  incoming_webhook: "incoming webhook",
+  workflow: "workflow",
+};
+
+const providersBySlug = new Map(providers.map((p) => [p.slug, p]));
+
+// Both lists are grouped by category (Notify, Destination, Capability, Source). `?category=notify` (Settings →
+// Automation → Notifications' "Add a notification channel") puts that group first in the catalog, highlights it
+// in both lists and scrolls to it.
+const providerCategory = (slug: string) => providersBySlug.get(slug)?.category;
+const focus = focusedCategory(Astro.url.searchParams.get("category"), [
+  ...providers.map((p) => p.category),
+  ...integrations.map((it) => providerCategory(it.provider) ?? ""),
+]);
+const connectedGroups = groupByCategory(integrations, (it) => providerCategory(it.provider));
+const catalogGroups = groupByCategory(providers, (p) => p.category, focus);
+
+function statusMeta(status: string): { text: string; cls: string } {
+  if (status === "ok") return { text: "Connected", cls: "ok" };
+  if (status === "error") return { text: "Error", cls: "err" };
+  if (status === "unavailable") return { text: "Unavailable", cls: "err" };
+  return { text: "Not configured", cls: "warn" };
+}
+---
+
+<AppLayout crumb="settings.integrations" adminOnly={adminOnly}>
+  <div class="page-header">
+    <div>
+      <h2>Integrations</h2>
+      <p>Connect external services — sources that feed content in, destinations that react when you publish.</p>
+    </div>
+    <div class="header-links">
+      <a href="/workspace/settings/integration-health" class="button secondary small">Alerts, health &amp; plugins</a>
+    </div>
+  </div>
+
+  {error && (
+    <div class="alert"><strong>Couldn't load integrations.</strong> {error}</div>
+  )}
+
+  <!-- Connected -->
+  <section class="block">
+    <h3 class="block-title">Connected</h3>
+    {integrations.length === 0 ? (
+      <div class="empty">
+        <p>No integrations yet.</p>
+        <p class="hint">Add one from the catalog below.</p>
+      </div>
+    ) : (
+      <div class="cat-groups">
+        {connectedGroups.map((group) => (
+          <div
+            class:list={["cat-group", { "is-focused": group.category === focus }]}
+            id={`connected-${group.category}`}
+            data-category={group.category}
+          >
+            <h4 class="cat-title">{group.label}</h4>
+            <div class="conn-list">
+              {group.items.map((it) => {
+              const prov = providersBySlug.get(it.provider);
+              const st = statusMeta(it.status);
+              return (
+                <article class={`conn-card ${it.enabled ? "" : "is-disabled"}`} data-id={it.id}>
+                  <div class="conn-top">
+                    <div class="conn-id">
+                      <strong class="int-named">
+                        {prov && <IntegrationMark slug={prov.slug} icon={prov.icon} hasLogo={prov.hasLogo} />}
+                        {it.name}
+                      </strong>
+                      <span class="conn-sub">
+                        {prov?.name ?? it.provider}
+                        {prov && ` · ${CATEGORY_LABEL[prov.category] ?? prov.category}`}
+                      </span>
+                    </div>
+                    <div class="conn-status">
+                      <span class={`badge ${st.cls}`}>{st.text}</span>
+                      {(it.attention?.length ?? 0) > 0 && <span class="badge warn">Needs attention</span>}
+                      <label class="toggle" title={it.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}>
+                        <input type="checkbox" class="js-toggle" checked={it.enabled} data-id={it.id} />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                      </label>
+                    </div>
+                  </div>
+                  {it.lastError && <p class="conn-error">{it.lastError}</p>}
+                  {(it.attention?.length ?? 0) > 0 && (
+                    <div class="attention" role="status">
+                      {(it.attention ?? []).map((a) => (
+                        <p class="attention-line">
+                          <code>{a.code}</code> {a.message}
+                          <span class="attention-count">
+                            {" "}· {a.count} {a.count === 1 ? "failure" : "failures"} since <LocalTime iso={a.firstAt} fallback="" />
+                          </span>
+                        </p>
+                      ))}
+                      <div class="attention-btns">
+                        <button type="button" class="button small secondary js-check" data-id={it.id} title="Run the health check — a pass resolves this">
+                          Test
+                        </button>
+                        <button type="button" class="button small js-resolve" data-id={it.id} title="I fixed it: resolve, and retry what was waiting for it">
+                          Resolve
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {(it as { credentialSecret?: string }).credentialSecret && (
+                    <p class="conn-meta">Credential: workspace secret <code>{`{{${(it as { credentialSecret?: string }).credentialSecret}}}`}</code></p>
+                  )}
+
+                  {(() => {
+                    const needs = needsByProvider.get(it.provider) ?? [];
+                    if (needs.length === 0) return null;
+                    // Two different things: content an action genuinely reads or writes, and worked
+                    // examples of how you *could* use it. Only the first is a problem when absent.
+                    const required = needs.filter((b) => b.required);
+                    const suggested = needs.filter((b) => !b.required);
+                    const missingRequired = required.filter((b) => !b.applied);
+                    // Parameterised items carry their inputs in the row (prefilled with defaults), so every
+                    // missing item can be added — the Add buttons read those inputs.
+                    const askable = missingRequired;
+
+                    const row = (b: Blueprint) => (
+                      <li class={b.applied ? (b.outdated ? "is-there is-outdated" : "is-there") : "is-missing"}>
+                        <span class="tick" title={b.outdated ? "Update available" : undefined}>{b.applied ? (b.outdated ? "↑" : "✓") : "○"}</span>
+                        <span class="needs-name">{b.name}</span>
+                        <span class="needs-kind">{KIND_NOUN[b.kind] ?? b.kind}</span>
+                        <span class="needs-desc">{b.description}</span>
+                        {!b.applied && b.parameters.length > 0 && (
+                          <span class="needs-params">
+                            {b.parameters.map((p) => {
+                              // Pickers for what the workspace already has; the default is pre-selected —
+                              // for an integration, the card it's shown on.
+                              const options =
+                                p.kind === "entry_type"
+                                  ? entryTypeOptions
+                                  : p.kind === "collection"
+                                    ? collectionOptions
+                                    : p.kind === "integration"
+                                      ? integrations.filter((x) => x.provider === it.provider).map((x) => ({ slug: x.slug, name: x.name }))
+                                      : null;
+                              const selected = p.kind === "integration" ? it.slug : p.default ?? "";
+                              return (
+                                <label title={p.help || ""}>
+                                  <span>{p.label}</span>
+                                  {options && options.length > 0 ? (
+                                    <select class="input tiny" data-bp={b.slug} data-param={p.key} required={p.required}>
+                                      {!options.some((o) => o.slug === selected) && <option value="">Choose…</option>}
+                                      {options.map((o) => (
+                                        <option value={o.slug} selected={o.slug === selected}>{o.name}</option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <input class="input tiny" data-bp={b.slug} data-param={p.key} value={selected} required={p.required} />
+                                  )}
+                                </label>
+                              );
+                            })}
+                          </span>
+                        )}
+                        {b.applied && b.outdated && (
+                          <button
+                            type="button"
+                            class="button tiny secondary js-update-blueprint"
+                            data-source={it.provider}
+                            data-slug={b.slug}
+                            data-name={b.name}
+                            title="The integration ships a newer version of this workflow"
+                          >
+                            Update
+                          </button>
+                        )}
+                        {!b.applied && (
+                          <button
+                            type="button"
+                            class="button tiny secondary js-apply-needs"
+                            data-source={it.provider}
+                            data-slugs={JSON.stringify([b.slug])}
+                          >
+                            Add
+                          </button>
+                        )}
+                      </li>
+                    );
+
+                    return (
+                      <details class="needs" open={missingRequired.length > 0}>
+                        <summary>
+                          Content
+                          <span class={`badge ${missingRequired.length ? "warn" : "ok"}`}>
+                            {missingRequired.length ? `${missingRequired.length} missing` : "ready"}
+                          </span>
+                        </summary>
+
+                        {required.length > 0 && (
+                          <>
+                            <h5 class="needs-head">Needed to work</h5>
+                            <ul>{required.map(row)}</ul>
+                            {askable.length > 0 && (
+                              <button
+                                type="button"
+                                class="button small js-apply-needs"
+                                data-source={it.provider}
+                                data-slugs={JSON.stringify(askable.map((b) => b.slug))}
+                              >
+                                Add {askable.length} missing {askable.length === 1 ? "item" : "items"}
+                              </button>
+                            )}
+                          </>
+                        )}
+
+                        {suggested.length > 0 && (
+                          <>
+                            <h5 class="needs-head">Optional — set these up if you want them</h5>
+                            <ul>{suggested.map(row)}</ul>
+                          </>
+                        )}
+
+                        <p class="needs-note">
+                          Applying only creates what is missing — anything you have already changed is left alone.
+                        </p>
+                      </details>
+                    );
+                  })()}
+
+                  {(recipesByProvider.get(it.provider) ?? []).length > 0 && (
+                    <details class="needs">
+                      <summary>
+                        Recipes <span class="badge">{recipesByProvider.get(it.provider)!.length}</span>
+                      </summary>
+                      <ul>
+                        {recipesByProvider.get(it.provider)!.map((r) => (
+                          <li class="recipe-row">
+                            <span class="needs-name"><a href={recipeHref(r.id)}>{r.title}</a></span>
+                            <span class="needs-desc">{r.outcome}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <p class="needs-note">Each opens in the workflow editor, filled in for this workspace — it saves switched off.</p>
+                    </details>
+                  )}
+
+                  {(() => {
+                    const actions = prov?.actions ?? [];
+                    const emits = prov?.emits ?? [];
+                    if (actions.length === 0 && emits.length === 0) return null;
+                    const args = (a: ProviderActionInfo) => {
+                      const props = Object.keys(a.inputSchema?.properties ?? {});
+                      return props.length ? props.join(", ") : "nothing";
+                    };
+                    return (
+                      <details class="needs possibilities">
+                        <summary>
+                          What you can do with this
+                          <span class="badge">{actions.length} {actions.length === 1 ? "action" : "actions"}</span>
+                        </summary>
+                        <ul class="acts">
+                          {actions.map((a) => (
+                            <li>
+                              <div class="act-head">
+                                <strong>{a.label}</strong>
+                                <code>{a.key}</code>
+                                {a.capability && <span class="badge">{a.capability}</span>}
+                                {a.requiresApproval && <span class="badge warn">needs approval</span>}
+                                {a.costHint && <span class="badge">{a.costHint}</span>}
+                              </div>
+                              {a.description && <p class="act-desc">{a.description}</p>}
+                              <p class="act-args">takes: {args(a)}</p>
+                            </li>
+                          ))}
+                        </ul>
+                        {emits.length > 0 && (
+                          <>
+                            <h5 class="needs-head">Events it can raise</h5>
+                            <ul class="acts">
+                              {emits.map((e) => (
+                                <li>
+                                  <div class="act-head">
+                                    <strong>{e.label}</strong>
+                                    <code>{e.key}</code>
+                                  </div>
+                                  {e.description && <p class="act-desc">{e.description}</p>}
+                                </li>
+                              ))}
+                            </ul>
+                          </>
+                        )}
+                        <p class="needs-note">
+                          Run any of these three ways: from an <strong>automation</strong> when something happens, on a
+                          <strong> schedule</strong> (a Run Integration Action task), or ad hoc with the buttons below. The
+                          optional content above is ready-made wiring for the common cases.
+                        </p>
+                      </details>
+                    );
+                  })()}
+
+                  {(() => {
+                    const labels = Object.fromEntries((prov?.actions ?? []).map((a) => [a.key, a.label]));
+                    const rows = policyRows(prov?.errorPolicy, labels, it.errorOverrides);
+                    if (rows.length === 0) return null;
+                    return (
+                      <details class="needs possibilities policy" data-id={it.id}>
+                        <summary>
+                          How errors are handled
+                          <span class="badge">{rows.length} {rows.length === 1 ? "error" : "errors"}</span>
+                          {rows.some((r) => r.overridden) && <span class="badge warn js-policy-adjusted">adjusted</span>}
+                        </summary>
+                        <table class="policy-table">
+                          <thead>
+                            <tr>
+                              <th>Error</th>
+                              <th>What {prov?.name ?? it.provider} does</th>
+                              <th title="Send the entry to Needs review">Review</th>
+                              <th title="Mark this connection Needs attention and alert admins">Alert</th>
+                              <th></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((r) => (
+                              <tr data-code={r.code} data-default-review={String(r.defaults.review)} data-default-notify={String(r.defaults.notify)}>
+                                <td><code>{r.label}</code></td>
+                                <td>
+                                  {r.declared.map((d) => (
+                                    <div class="policy-what"><span class="policy-scope">{d.scope}:</span> {d.summary}</div>
+                                  ))}
+                                </td>
+                                {(["review", "notify"] as const).map((flag) => (
+                                  <td class="policy-flag">
+                                    <input type="checkbox" class="js-policy" data-flag={flag} checked={r.effective[flag]} aria-label={`${flag === "review" ? "Review" : "Alert"} on ${r.label}`} />
+                                    <span class="policy-default">default {r.defaults[flag] ? "on" : "off"}</span>
+                                  </td>
+                                ))}
+                                <td><button type="button" class="link-btn js-policy-reset" hidden={!r.overridden}>Reset to default</button></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <p class="needs-note">
+                          <strong>Review</strong> sends the entry to Needs review with the reason. <strong>Alert</strong> marks this
+                          connection "Needs attention" and tells admins once per error, not once per item (where it goes: Settings →
+                          Automation → Notifications). Retries stay as {prov?.name ?? it.provider} declares them. A workflow with
+                          its own on-failure steps, or with <code>integration_errors: "fail"</code>, handles failures itself — the alert
+                          still fires.
+                        </p>
+                      </details>
+                    );
+                  })()}
+
+                  <div class="conn-foot">
+                    <code class="conn-slug" title="Reference this integration from automations">{it.slug}</code>
+                    <div class="conn-btns">
+                      {(prov?.actions ?? []).map((a) => (
+                        <button type="button" class="button small secondary js-action" data-id={it.id} data-provider={it.provider} data-action={a.key} title={a.description}>
+                          {a.label}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        class="icon-btn-sm js-edit"
+                        data-provider={it.provider}
+                        data-integration={JSON.stringify({ id: it.id, name: it.name, config: it.config ?? {}, hasCredential: it.hasCredential, credentialSecret: (it as { credentialSecret?: string }).credentialSecret ?? null })}
+                        title="Edit integration"
+                        aria-label="Edit integration"
+                      >✎</button>
+                      <button type="button" class="icon-btn-sm js-check" data-id={it.id} title="Run health check" aria-label="Run health check">↻</button>
+                      <button type="button" class="icon-btn-sm danger js-delete" data-id={it.id} data-name={it.name} title="Delete integration" aria-label="Delete integration">✕</button>
+                    </div>
+                  </div>
+                </article>
+              );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    )}
+  </section>
+
+  <!-- Catalog -->
+  <section class="block">
+    <h3 class="block-title">Add an integration</h3>
+    {providers.length === 0 ? (
+      <div class="empty"><p>No providers available.</p></div>
+    ) : (
+      <div class="cat-groups">
+        {catalogGroups.map((group) => (
+          <div
+            class:list={["cat-group", { "is-focused": group.category === focus }]}
+            id={`add-${group.category}`}
+            data-category={group.category}
+          >
+            <h4 class="cat-title">{group.label}</h4>
+            <div class="catalog">
+              {group.items.map((p) => (
+                <article class="cat-card">
+                  <div class="cat-head">
+                    <strong class="int-named">
+                      <IntegrationMark slug={p.slug} icon={p.icon} hasLogo={p.hasLogo} />
+                      {p.name}
+                    </strong>
+                    <span class="chip">{CATEGORY_LABEL[p.category] ?? p.category}</span>
+                  </div>
+                  <p class="cat-desc">{p.description}</p>
+                  <button type="button" class="button small js-configure" data-slug={p.slug}>Configure</button>
+                </article>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    )}
+  </section>
+
+  <!-- Add panel (hidden until a provider is chosen) -->
+  <div id="add-overlay" class="overlay" hidden>
+    <div class="panel" role="dialog" aria-modal="true" aria-labelledby="add-title">
+      <div class="panel-head">
+        <h3 id="add-title">Configure integration</h3>
+        <button type="button" class="icon-btn" id="add-close" aria-label="Close">×</button>
+      </div>
+      <form id="add-form">
+        <input type="hidden" name="provider" id="add-provider" />
+        <p class="panel-sub" id="add-provider-desc"></p>
+        <label class="field">
+          <span>Name</span>
+          <input type="text" name="name" id="add-name" required placeholder="e.g. Production site" />
+          <small>A label for this connection.</small>
+        </label>
+        <div id="add-fields"></div>
+        <div id="add-error" class="inline-error" hidden></div>
+        <div class="panel-actions">
+          <button type="submit" class="button" id="add-submit">Add integration</button>
+          <button type="button" class="button secondary" id="add-cancel">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Action panel (collects an action's inputs before firing) -->
+  <div id="action-overlay" class="overlay" hidden>
+    <div class="panel" role="dialog" aria-modal="true" aria-labelledby="action-title">
+      <div class="panel-head">
+        <h3 id="action-title">Run action</h3>
+        <button type="button" class="icon-btn" id="action-close" aria-label="Close">×</button>
+      </div>
+      <p class="panel-sub" id="action-sub"></p>
+      <div id="action-fields"></div>
+      <div id="action-error" class="inline-error" hidden></div>
+      <div class="panel-actions">
+        <button type="button" class="button" id="action-run">Run</button>
+        <button type="button" class="button secondary" id="action-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Result panel (what an action returned, e.g. Square's locations) -->
+  <div id="result-overlay" class="overlay" hidden>
+    <div class="panel" role="dialog" aria-modal="true" aria-labelledby="result-title">
+      <div class="panel-head">
+        <h3 id="result-title">Result</h3>
+        <button type="button" class="icon-btn" id="result-close" aria-label="Close">×</button>
+      </div>
+      <pre id="result-body" class="result-body"></pre>
+      <div class="panel-actions">
+        <button type="button" class="button secondary" id="result-copy">Copy</button>
+        <button type="button" class="button" id="result-done">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="application/json" id="providers-data" set:html={JSON.stringify(providers).replace(/</g, "\\u003c")}></script>
+</AppLayout>
+
+<script>
+  // ?category=<cat>: bring the focused group (the catalog's, where a new one is added) into view.
+  (document.querySelector(".cat-group.is-focused[id^='add-']") ?? document.querySelector(".cat-group.is-focused"))?.scrollIntoView({
+    block: "start",
+  });
+
+  import {
+    createIntegration,
+    deleteIntegration,
+    updateIntegration,
+    checkIntegration,
+    resolveAttention,
+    runIntegrationAction,
+    setErrorOverrides,
+  } from "@/lib/api/integrations";
+  import { overridesFrom } from "@/lib/integrationPolicy";
+  import { optionsHint } from "@/lib/integrationOptions";
+  import { optionPicker } from "@/lib/integrationOptionPicker";
+  import { applyBlueprints, updateBlueprint } from "@/lib/api/blueprints";
+  import type { IntegrationProviderInfo } from "@/lib/api/integrations";
+
+  const providers: IntegrationProviderInfo[] = JSON.parse(
+    document.getElementById("providers-data")?.textContent || "[]",
+  );
+  const bySlug = new Map(providers.map((p) => [p.slug, p]));
+
+  const overlay = document.getElementById("add-overlay") as HTMLElement;
+  const form = document.getElementById("add-form") as HTMLFormElement;
+  const fieldsEl = document.getElementById("add-fields") as HTMLElement;
+  const errEl = document.getElementById("add-error") as HTMLElement;
+
+  function reload() {
+    window.location.reload();
+  }
+
+  function toast(message: string, ok = true) {
+    const el = document.createElement("div");
+    el.className = `mv-toast ${ok ? "ok" : "err"}`;
+    el.textContent = message;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 3200);
+  }
+
+  function showError(el: HTMLElement, message: string) {
+    el.textContent = message;
+    el.hidden = false;
+  }
+
+  function errorMessage(e: unknown): string {
+    // SDK errors expose the API detail; fall back to the message.
+    const anyE = e as { body?: { detail?: string }; message?: string };
+    return anyE?.body?.detail || anyE?.message || "Something went wrong.";
+  }
+
+  function isNotFound(e: unknown): boolean {
+    // The SDK raises _MarvinNotFoundError (status 404) when the row no longer exists.
+    const anyE = e as { status?: number; name?: string; message?: string };
+    return anyE?.status === 404 || anyE?.name === "_MarvinNotFoundError" || /not found/i.test(anyE?.message ?? "");
+  }
+
+  // ---- open / build the add panel ----
+  function esc(s: unknown): string {
+    return String(s ?? "").replace(
+      /[&<>"']/g,
+      (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string),
+    );
+  }
+
+  function fieldHtml(o: {
+    kind: "credential" | "config";
+    key: string;
+    label: string;
+    required: boolean;
+    help?: string;
+    type?: string;
+    placeholder?: string;
+    value?: string;
+  }): string {
+    return `
+      <label class="field">
+        <span>${esc(o.label)}${o.required ? ' <em class="req">Required</em>' : ""}</span>
+        <input type="${o.type ?? "text"}" data-kind="${o.kind}" data-key="${esc(o.key)}" value="${esc(o.value ?? "")}"
+               ${o.required ? "required" : ""} placeholder="${esc(o.placeholder ?? "")}" autocomplete="off" />
+        ${o.help ? `<small>${esc(o.help)}</small>` : ""}
+      </label>`;
+  }
+
+  type Existing = { id: string; name: string; config: Record<string, unknown>; hasCredential: boolean; credentialSecret: string | null };
+  // Set while the panel edits a connected integration; null while it creates one.
+  let editing: Existing | null = null;
+
+  function openPanel(slug: string, existing: Existing | null = null) {
+    const p = bySlug.get(slug);
+    if (!p) return;
+    editing = existing;
+    (document.getElementById("add-title") as HTMLElement).textContent = existing ? `Edit ${existing.name}` : "Configure integration";
+    (document.getElementById("add-submit") as HTMLButtonElement).textContent = existing ? "Save changes" : "Add integration";
+    (document.getElementById("add-provider") as HTMLInputElement).value = slug;
+    (document.getElementById("add-provider-desc") as HTMLElement).textContent = p.description;
+    (document.getElementById("add-name") as HTMLInputElement).value = existing?.name ?? "";
+    errEl.hidden = true;
+    // Editing: the credential is optional — blank keeps what's stored, a value or {{SECRET}} replaces it.
+    const keepNote = existing?.credentialSecret
+      ? `Using workspace secret {{${existing.credentialSecret}}} — leave blank to keep it.`
+      : existing?.hasCredential
+        ? "A credential is stored — leave blank to keep it."
+        : "";
+
+    const props = (p.configSchema?.properties ?? {}) as Record<string, any>;
+    const required = (p.configSchema?.required ?? []) as string[];
+    const configKeys = Object.keys(props);
+    // Only show section headers when the form has both kinds — otherwise they're noise.
+    const grouped = p.credentials.length > 0 && configKeys.length > 0;
+
+    const parts: string[] = [];
+    if (p.credentials.length) {
+      if (grouped) parts.push('<p class="group-label">Credentials</p>');
+      for (const c of p.credentials) {
+        parts.push(
+          fieldHtml({
+            kind: "credential",
+            key: c.key,
+            label: c.label,
+            required: c.required && !existing?.hasCredential,
+            help: `${keepNote ? `${keepNote} ` : ""}${c.help ? `${c.help} ` : ""}Paste the value, or {{SECRET_NAME}} to use a workspace secret.`,
+            type: "password",
+            placeholder: existing?.hasCredential ? "Leave blank to keep the current one" : "Value, or {{SECRET_NAME}}",
+          }),
+        );
+      }
+    }
+    if (configKeys.length) {
+      if (grouped) parts.push('<p class="group-label">Settings</p>');
+      for (const key of configKeys) {
+        const prop = props[key];
+        const isUri = prop.format === "uri" || prop.format === "url";
+        parts.push(
+          fieldHtml({
+            kind: "config",
+            key,
+            label: prop.title || key,
+            required: required.includes(key),
+            help: prop.description,
+            type: isUri ? "url" : "text",
+            placeholder: isUri ? "https://…" : "",
+            value: existing?.config?.[key] != null ? String(existing.config[key]) : "",
+          }),
+        );
+      }
+    }
+    fieldsEl.innerHTML = parts.join("");
+    overlay.hidden = false;
+  }
+
+  function closePanel() {
+    overlay.hidden = true;
+  }
+
+  document.querySelectorAll<HTMLButtonElement>(".js-configure").forEach((b) =>
+    b.addEventListener("click", () => openPanel(b.dataset.slug!)),
+  );
+  document.querySelectorAll<HTMLButtonElement>(".js-edit").forEach((b) =>
+    b.addEventListener("click", () => openPanel(b.dataset.provider!, JSON.parse(b.dataset.integration || "null"))),
+  );
+  document.getElementById("add-close")?.addEventListener("click", closePanel);
+  document.getElementById("add-cancel")?.addEventListener("click", closePanel);
+  overlay?.addEventListener("click", (e) => {
+    if (e.target === overlay) closePanel();
+  });
+
+  // ---- submit create ----
+  form?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errEl.hidden = true;
+    const provider = (document.getElementById("add-provider") as HTMLInputElement).value;
+    const name = (document.getElementById("add-name") as HTMLInputElement).value.trim();
+
+    const config: Record<string, unknown> = {};
+    let credential: string | undefined;
+    fieldsEl.querySelectorAll<HTMLInputElement>("input[data-kind]").forEach((inp) => {
+      const v = inp.value.trim();
+      if (!v) return;
+      if (inp.dataset.kind === "config") config[inp.dataset.key!] = v;
+      // Phase A stores a single credential; the first non-empty credential field wins.
+      else if (inp.dataset.kind === "credential" && credential === undefined) credential = v;
+    });
+
+    const submit = document.getElementById("add-submit") as HTMLButtonElement;
+    submit.disabled = true;
+    try {
+      if (editing) {
+        // Config is sent whole (a cleared field is dropped); the credential only when one was typed.
+        await updateIntegration(editing.id, { name, config, ...(credential ? { credential } : {}) } as any);
+      } else {
+        await createIntegration({ provider, name, config, credential });
+      }
+      reload();
+    } catch (err) {
+      showError(errEl, errorMessage(err));
+      submit.disabled = false;
+    }
+  });
+
+  // ---- connected-card actions ----
+  document.querySelectorAll<HTMLInputElement>(".js-toggle").forEach((t) =>
+    t.addEventListener("change", async () => {
+      try {
+        await updateIntegration(t.dataset.id!, { enabled: t.checked });
+      } catch (err) {
+        alert(errorMessage(err));
+        t.checked = !t.checked;
+      }
+    }),
+  );
+
+  document.querySelectorAll<HTMLButtonElement>(".js-check").forEach((b) =>
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      b.classList.add("busy");
+      try {
+        await checkIntegration(b.dataset.id!);
+        reload();
+      } catch (err) {
+        alert(errorMessage(err));
+        b.disabled = false;
+        b.classList.remove("busy");
+      }
+    }),
+  );
+
+  // ---- integration error handling: resolve an alert, adjust the policy ----
+  document.querySelectorAll<HTMLButtonElement>(".js-resolve").forEach((b) =>
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        await resolveAttention(b.dataset.id!);
+        reload();
+      } catch (err) {
+        toast(errorMessage(err), false);
+        b.disabled = false;
+      }
+    }),
+  );
+
+  function policyState(details: HTMLElement) {
+    return [...details.querySelectorAll<HTMLTableRowElement>("tr[data-code]")].map((tr) => {
+      const flag = (name: string) => (tr.querySelector(`.js-policy[data-flag="${name}"]`) as HTMLInputElement).checked;
+      return {
+        tr,
+        code: tr.dataset.code!,
+        defaults: { review: tr.dataset.defaultReview === "true", notify: tr.dataset.defaultNotify === "true" },
+        review: flag("review"),
+        notify: flag("notify"),
+      };
+    });
+  }
+
+  async function savePolicy(details: HTMLElement) {
+    const rows = policyState(details);
+    try {
+      await setErrorOverrides(details.dataset.id!, overridesFrom(rows));
+    } catch (err) {
+      toast(errorMessage(err), false);
+      return;
+    }
+    let adjusted = false;
+    for (const row of rows) {
+      const changed = row.review !== row.defaults.review || row.notify !== row.defaults.notify;
+      (row.tr.querySelector(".js-policy-reset") as HTMLButtonElement).hidden = !changed;
+      adjusted ||= changed;
+    }
+    details.querySelector(".js-policy-adjusted")?.toggleAttribute("hidden", !adjusted);
+    toast("Error handling saved");
+  }
+
+  document.querySelectorAll<HTMLElement>("details.policy").forEach((details) => {
+    details.querySelectorAll<HTMLInputElement>(".js-policy").forEach((box) => box.addEventListener("change", () => savePolicy(details)));
+    details.querySelectorAll<HTMLButtonElement>(".js-policy-reset").forEach((b) =>
+      b.addEventListener("click", () => {
+        const tr = b.closest("tr") as HTMLTableRowElement;
+        for (const name of ["review", "notify"]) {
+          const box = tr.querySelector(`.js-policy[data-flag="${name}"]`) as HTMLInputElement;
+          box.checked = tr.dataset[name === "review" ? "defaultReview" : "defaultNotify"] === "true";
+        }
+        savePolicy(details);
+      }),
+    );
+  });
+
+  // ---- action test-fire (collects inputs first when the action declares any) ----
+  const actionOverlay = document.getElementById("action-overlay") as HTMLElement;
+  const actionFieldsEl = document.getElementById("action-fields") as HTMLElement;
+  const actionErrEl = document.getElementById("action-error") as HTMLElement;
+  let pendingAction: { id: string; key: string } | null = null;
+
+  function closeActionPanel() {
+    actionOverlay.hidden = true;
+    pendingAction = null;
+  }
+
+  async function fireAction(id: string, key: string, args: Record<string, unknown>) {
+    return runIntegrationAction(id, key, args);
+  }
+
+  // An action's return value is the point of running it by hand (list_locations → the location
+  // ids to paste into the config), so show it rather than a bare "Done".
+  const resultOverlay = document.getElementById("result-overlay") as HTMLElement;
+  const resultBody = document.getElementById("result-body") as HTMLElement;
+  function showResult(title: string, result: unknown) {
+    const empty = result == null || (typeof result === "object" && Object.keys(result as object).length === 0);
+    if (empty) return false;
+    (document.getElementById("result-title") as HTMLElement).textContent = title;
+    resultBody.textContent = JSON.stringify(result, null, 2);
+    resultOverlay.hidden = false;
+    return true;
+  }
+  const closeResult = () => (resultOverlay.hidden = true);
+  document.getElementById("result-close")?.addEventListener("click", closeResult);
+  document.getElementById("result-done")?.addEventListener("click", closeResult);
+  resultOverlay?.addEventListener("click", (e) => { if (e.target === resultOverlay) closeResult(); });
+  document.getElementById("result-copy")?.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(resultBody.textContent || "");
+    toast("Copied.", true);
+  });
+
+  document.querySelectorAll<HTMLButtonElement>(".js-action").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const provider = bySlug.get(b.dataset.provider || "");
+      const action = provider?.actions?.find((a) => a.key === b.dataset.action);
+      const schema = (action?.inputSchema || {}) as any;
+      const props = (schema.properties || {}) as Record<string, any>;
+
+      // No inputs → fire straight away. Otherwise open the panel to collect them.
+      if (Object.keys(props).length === 0) {
+        b.disabled = true;
+        try {
+          const res = await fireAction(b.dataset.id!, b.dataset.action!, {});
+          if (!res.ok) toast("Action returned a failure.", false);
+          else if (!showResult(action?.label || "Result", res.result)) toast("Done.", true);
+        } catch (err) {
+          toast(errorMessage(err), false);
+        } finally {
+          b.disabled = false;
+        }
+        return;
+      }
+
+      const required: string[] = schema.required || [];
+      (document.getElementById("action-title") as HTMLElement).textContent = action!.label;
+      (document.getElementById("action-sub") as HTMLElement).textContent = action!.description || "";
+      actionErrEl.hidden = true;
+      // An input with an `x-marvin-options` hint becomes a searchable picker fed through the connection
+      // (free text stays possible); the rest are plain text fields.
+      actionFieldsEl.innerHTML = Object.entries(props)
+        .map(([key, prop]) =>
+          optionsHint(prop)
+            ? `<div class="field"><span>${esc(prop.title || key)}${required.includes(key) ? ' <em class="req">Required</em>' : ""}</span><div class="opt-slot" data-input="${esc(key)}"></div></div>`
+            : fieldHtml({
+                kind: "config",
+                key,
+                label: prop.title || key,
+                required: required.includes(key),
+                type: prop.format === "uri" ? "url" : "text",
+              }),
+        )
+        .join("");
+      actionFieldsEl.querySelectorAll<HTMLElement>(".opt-slot").forEach((slot) => {
+        const key = slot.dataset.input!;
+        slot.replaceWith(
+          optionPicker({
+            integrationId: b.dataset.id!,
+            actionKey: b.dataset.action!,
+            input: key,
+            required: required.includes(key),
+            dataset: { kind: "config", key },
+          }),
+        );
+      });
+      pendingAction = { id: b.dataset.id!, key: b.dataset.action! };
+      actionOverlay.hidden = false;
+    }),
+  );
+
+  document.getElementById("action-close")?.addEventListener("click", closeActionPanel);
+  document.getElementById("action-cancel")?.addEventListener("click", closeActionPanel);
+  actionOverlay?.addEventListener("click", (e) => {
+    if (e.target === actionOverlay) closeActionPanel();
+  });
+
+  document.getElementById("action-run")?.addEventListener("click", async () => {
+    if (!pendingAction) return;
+    actionErrEl.hidden = true;
+    const args: Record<string, unknown> = {};
+    let missing = false;
+    actionFieldsEl.querySelectorAll<HTMLInputElement>("input[data-key]").forEach((inp) => {
+      const v = inp.value.trim();
+      if (v) args[inp.dataset.key!] = v;
+      else if (inp.required) missing = true;
+    });
+    if (missing) {
+      showError(actionErrEl, "Please fill in the required fields.");
+      return;
+    }
+    const runBtn = document.getElementById("action-run") as HTMLButtonElement;
+    runBtn.disabled = true;
+    try {
+      const res = await fireAction(pendingAction.id, pendingAction.key, args);
+      closeActionPanel();
+      if (!res.ok) toast("Action returned a failure.", false);
+      else if (!showResult((document.getElementById("action-title") as HTMLElement).textContent || "Result", res.result)) toast("Sent ✓", true);
+    } catch (err) {
+      showError(actionErrEl, errorMessage(err));
+    } finally {
+      runBtn.disabled = false;
+    }
+  });
+
+  document.querySelectorAll<HTMLButtonElement>(".js-delete").forEach((b) =>
+    b.addEventListener("click", async () => {
+      if (b.disabled) return; // guard against a double-click firing two DELETEs
+      if (!confirm(`Delete integration "${b.dataset.name}"? Its stored credential is removed too.`)) return;
+      b.disabled = true;
+      try {
+        await deleteIntegration(b.dataset.id!);
+        reload();
+      } catch (err) {
+        // A 404 means the row is already gone — that's the outcome we wanted, so treat it as success
+        // (e.g. a duplicate request, or it was deleted elsewhere) rather than surfacing a scary popup.
+        if (isNotFound(err)) {
+          reload();
+          return;
+        }
+        b.disabled = false;
+        alert(errorMessage(err));
+      }
+    }),
+  );
+
+  // A newer version of an applied workflow: replace its steps, after saying what that overwrites.
+  document.querySelectorAll<HTMLButtonElement>("button.js-update-blueprint").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const ok = confirm(
+        `Update "${button.dataset.name}" to the integration's current version?\n\n` +
+          "Its steps are replaced — any edits you made to this workflow are lost. Whether it's switched on stays as it is.",
+      );
+      if (!ok) return;
+      button.disabled = true;
+      button.textContent = "Updating…";
+      try {
+        const result = await updateBlueprint(button.dataset.slug!, button.dataset.source);
+        toast(result.updated ? `Updated ${result.name || result.slug}.` : `Not updated: ${result.detail}`, !!result.updated);
+        if (result.updated) setTimeout(reload, 900);
+        else {
+          button.disabled = false;
+          button.textContent = "Update";
+        }
+      } catch (e) {
+        toast(e instanceof Error ? e.message : String(e), false);
+        button.disabled = false;
+        button.textContent = "Update";
+      }
+    });
+  });
+
+  // "What this needs to work" — apply the provider's declared content. The SDK only ever declares;
+  // creating it is an explicit act here, and it never overwrites anything already in the workspace.
+  document.querySelectorAll<HTMLButtonElement>("button.js-apply-needs").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const source = button.dataset.source!;
+      const slugs: string[] = JSON.parse(button.dataset.slugs || "[]");
+      if (slugs.length === 0) return;
+
+      // Parameter values come from the rows' inputs (prefilled with each blueprint's defaults).
+      const scope = button.closest(".needs") ?? document;
+      const params: Record<string, Record<string, string>> = {};
+      for (const slug of slugs) {
+        scope.querySelectorAll<HTMLInputElement | HTMLSelectElement>(`[data-bp="${CSS.escape(slug)}"]`).forEach((inp) => {
+          (params[slug] ??= {})[inp.dataset.param!] = inp.value.trim();
+        });
+      }
+
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = "Adding…";
+      try {
+        const results = await applyBlueprints(slugs, Object.keys(params).length ? params : undefined, source);
+        const created = results.filter((r) => r.created).length;
+        const skipped = results.filter((r) => !r.created);
+        toast(
+          created === results.length
+            ? `Added ${created} ${created === 1 ? "item" : "items"}.`
+            : `Added ${created} of ${results.length}. ${skipped.map((r) => `${r.slug}: ${r.detail}`).join("; ")}`,
+          created > 0,
+        );
+        if (created > 0) setTimeout(reload, 900);
+        else {
+          button.disabled = false;
+          button.textContent = original;
+        }
+      } catch (e) {
+        toast(e instanceof Error ? e.message : String(e), false);
+        button.disabled = false;
+        button.textContent = original;
+      }
+    });
+  });
+</script>
+
+<style>
+  .conn-meta { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+  .needs li.is-outdated { opacity: 1; }
+  .needs li.is-outdated .tick { color: var(--mv-accent, #2563eb); }
+  .needs li > .js-update-blueprint,
+  .needs li > .js-apply-needs { grid-column: -2; grid-row: 1; justify-self: end; align-self: center; }
+  .needs-params { display: flex; flex-wrap: wrap; gap: 6px 14px; grid-column: 2 / -2; grid-row: 2; }
+  .needs-params label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .needs-params .input.tiny { padding: 3px 6px; font-size: 12px; min-width: 12ch; max-width: 24ch; }
+  .result-body { max-height: 50vh; overflow: auto; background: var(--panel-2, var(--panel)); padding: 12px; border-radius: var(--radius); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 28px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--line);
+  }
+  .page-header h2 { margin: 0; font-size: 24px; font-weight: 600; }
+  .header-links { display: flex; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
+  .page-header p { margin: 8px 0 0; color: var(--muted); font-size: 14px; max-width: 60ch; }
+
+  .alert {
+    padding: 14px 16px;
+    margin-bottom: 20px;
+    border-radius: var(--radius);
+    background: var(--color-error-bg);
+    color: var(--color-error);
+    border: 1px solid var(--color-error);
+    font-size: 14px;
+  }
+
+  .block { margin-bottom: 36px; }
+  .block-title { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+
+  .empty {
+    padding: 40px 24px;
+    text-align: center;
+    color: var(--muted);
+    background: var(--panel);
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
+  }
+  .empty p { margin: 0; }
+  .empty .hint { margin-top: 6px; font-size: 13px; }
+
+  /* category groups (both lists) */
+  .cat-groups { display: grid; gap: 18px; }
+  .cat-title { margin: 0 0 8px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .cat-group { scroll-margin-top: 80px; border-radius: var(--radius); }
+  .cat-group.is-focused { outline: 2px solid var(--accent); padding: 10px 12px 12px; }
+  .cat-group.is-focused .cat-title { color: var(--accent); }
+
+  /* connected list */
+  .conn-list { display: grid; gap: 12px; }
+  .conn-card {
+    padding: 14px 16px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .conn-card.is-disabled { opacity: 0.62; }
+
+  .conn-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .conn-id { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .conn-id strong { font-size: 15px; }
+  .conn-sub { font-size: 13px; color: var(--muted); }
+  .conn-status { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+
+  .conn-error { margin: 10px 0 0; font-size: 13px; color: var(--color-error); }
+  /* A connection that needs attention: open alerts from the provider's error policy. */
+  .attention {
+    margin: 10px 0 0;
+    padding: 8px 12px;
+    border-left: 3px solid var(--warn);
+    background: color-mix(in srgb, var(--warn) 10%, transparent);
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  .attention-line { margin: 0 0 4px; }
+  .attention-count { color: var(--muted); }
+  .attention-btns { display: flex; gap: 8px; margin-top: 6px; }
+  /* "How errors are handled" */
+  .policy-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+  .policy-table th { text-align: left; font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+  .policy-table td { padding: 6px; vertical-align: top; border-bottom: 1px solid var(--line); }
+  .policy-scope { opacity: 0.7; }
+  .policy-flag { white-space: nowrap; }
+  .policy-default { display: block; font-size: 11px; opacity: 0.65; }
+  .link-btn { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font-size: 12px; }
+
+  .conn-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+  .conn-slug { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+  .conn-btns { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+  .icon-btn-sm {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 14px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .icon-btn-sm:hover { color: var(--ink); border-color: var(--muted); }
+  .icon-btn-sm.danger:hover { color: var(--color-error); border-color: var(--color-error); }
+  .icon-btn-sm.busy { opacity: 0.5; pointer-events: none; }
+  .icon-btn-sm:disabled { opacity: 0.5; cursor: default; }
+
+  .badge {
+    font-size: 12px;
+    font-weight: 500;
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+  }
+  .badge.ok { color: var(--good); border-color: var(--good); background: rgb(53 122 85 / 0.08); }
+  .badge.err { color: var(--color-error); border-color: var(--color-error); background: var(--color-error-bg); }
+  .badge.warn { color: #9a7b00; border-color: #d9c07a; background: rgb(217 192 122 / 0.12); }
+  .badge.muted { color: var(--muted); }
+
+  /* catalog */
+  .catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+  .cat-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .cat-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .cat-head strong { font-size: 15px; }
+  .chip { font-size: 11px; font-weight: 500; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
+  .cat-desc { margin: 0; font-size: 13px; color: var(--muted); flex: 1; }
+  .cat-card .button { align-self: flex-start; margin-top: 4px; }
+
+  /* buttons + toggle (local, minimal — align with app tokens) */
+  .button.danger { color: var(--color-error); border-color: var(--color-error); }
+  .toggle { position: relative; display: inline-flex; cursor: pointer; }
+  .toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .toggle-track { width: 36px; height: 20px; background: var(--line); border-radius: 999px; position: relative; transition: background 0.15s; }
+  .toggle-thumb { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: transform 0.15s; }
+  .toggle input:checked + .toggle-track { background: var(--accent); }
+  .toggle input:checked + .toggle-track .toggle-thumb { transform: translateX(16px); }
+
+  /* add panel */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgb(0 0 0 / 0.4);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 8vh 16px;
+    z-index: 50;
+  }
+  .overlay[hidden] { display: none; }
+  .panel {
+    width: 100%;
+    max-width: 480px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px 24px 24px;
+    max-height: 84vh;
+    overflow: auto;
+  }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .panel-head h3 { margin: 0; font-size: 17px; font-weight: 600; }
+  .panel-sub {
+    margin: 0 0 18px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+  .icon-btn { background: none; border: none; font-size: 22px; line-height: 1; cursor: pointer; color: var(--muted); }
+
+  /* NOTE: credential/config fields are injected via innerHTML, so they carry no Astro scope
+     attribute. Target them with :global() (bounded to .panel) or they render completely unstyled. */
+  .panel :global(.group-label) {
+    margin: 22px 0 12px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .panel :global(.group-label:first-child) { margin-top: 0; }
+
+  .panel :global(.field) { display: grid; gap: 7px; margin-bottom: 16px; }
+  .panel :global(.field:last-of-type) { margin-bottom: 0; }
+  .panel :global(.field > span) { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; }
+  .panel :global(.field .req) {
+    font-style: normal;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 1px 7px;
+  }
+  .panel :global(.field input) {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+    font-size: 14px;
+    color: var(--ink);
+    box-sizing: border-box;
+  }
+  .panel :global(.field input::placeholder) { color: var(--muted); opacity: 0.7; }
+  .panel :global(.field input:focus) { outline: none; border-color: var(--accent); }
+  .panel :global(.field small) { font-size: 12px; line-height: 1.45; color: var(--muted); }
+
+  .inline-error { margin-top: 16px; font-size: 13px; color: var(--color-error); }
+
+  .mv-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 60;
+    padding: 10px 18px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-weight: 500;
+    color: #fff;
+    box-shadow: 0 6px 20px rgb(0 0 0 / 0.25);
+  }
+  .mv-toast.ok { background: var(--good, #357a55); }
+  .mv-toast.err { background: var(--color-error, #c0392b); }
+  .panel-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+  }
+  .panel-actions .button { flex: 1; justify-content: center; }
+
+  .needs {
+    border-top: 1px solid var(--mv-border, #e5e7eb);
+    margin-top: 0.75rem;
+    padding-top: 0.6rem;
+    font-size: 0.85rem;
+  }
+  .needs summary {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+  }
+  .needs ul {
+    list-style: none;
+    margin: 0.6rem 0;
+    padding: 0;
+    display: grid;
+    gap: 0.3rem;
+  }
+  .needs li {
+    display: grid;
+    grid-template-columns: 1rem auto auto 1fr;
+    gap: 0.45rem;
+    align-items: baseline;
+  }
+  .needs li.recipe-row { grid-template-columns: auto 1fr; }
+  .needs li.recipe-row a { color: var(--accent); }
+  .needs li.is-missing .needs-name {
+    font-weight: 600;
+  }
+  .needs li.is-there {
+    opacity: 0.65;
+  }
+  .needs .tick {
+    color: var(--mv-ok, #059669);
+  }
+  .needs li.is-missing .tick {
+    color: #b45309;
+  }
+  .needs-kind {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--mv-muted, #6b7280);
+  }
+  .needs-desc {
+    color: var(--mv-muted, #6b7280);
+  }
+  .needs-note {
+    margin: 0.5rem 0 0;
+    font-size: 0.78rem;
+    color: var(--mv-muted, #6b7280);
+  }
+
+  .needs-head {
+    margin: 0.75rem 0 0.25rem;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--mv-muted, #6b7280);
+  }
+  .needs li {
+    grid-template-columns: 1rem auto auto 1fr auto;
+  }
+  .link-btn {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: var(--mv-accent, #2563eb);
+    cursor: pointer;
+    font-size: 0.8rem;
+  }
+
+  .button.tiny {
+    padding: 0.1rem 0.45rem;
+    font-size: 0.72rem;
+    line-height: 1.5;
+  }
+  .possibilities .acts {
+    display: grid;
+    gap: 0.6rem;
+    margin: 0.6rem 0;
+    padding: 0;
+    list-style: none;
+  }
+  .possibilities .acts li {
+    display: block;
+    border-left: 2px solid var(--mv-border, #e5e7eb);
+    padding-left: 0.6rem;
+  }
+  .act-head {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+  .act-head code {
+    font-size: 0.72rem;
+    color: var(--mv-muted, #6b7280);
+  }
+  .act-desc {
+    margin: 0.15rem 0 0;
+    color: var(--mv-muted, #6b7280);
+  }
+  .act-args {
+    margin: 0.15rem 0 0;
+    font-size: 0.75rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--mv-muted, #6b7280);
+  }
+</style>

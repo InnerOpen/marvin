@@ -1,0 +1,22 @@
+{# A vintage travel-poster look: the picture in warm, high-contrast colours under a bold condensed title. #}
+<style>
+  .p { box-sizing: border-box; width: 100vw; height: 100vh; padding: 4vw; background: #efe3c8; color: #2b1d14; display: flex; flex-direction: column;
+       font-family: "Liberation Sans Narrow", "DejaVu Sans Condensed", Lato, sans-serif; }
+  .frame { flex: 1; display: flex; flex-direction: column; border: 1vw solid #2b1d14; padding: 3vw; }
+  .year { text-align: center; font-size: 3.4vw; letter-spacing: .5em; font-weight: 700; margin-bottom: 2vw; }
+  .pic { flex: 1 1 auto; min-height: 0; background: #b45309 center / cover no-repeat;
+         filter: sepia(.55) saturate(1.6) contrast(1.15) hue-rotate(-12deg); box-shadow: inset 0 0 0 .6vw #2b1d14; }
+  h1 { margin: 3vw 0 0; text-align: center; font-size: 13vw; line-height: .9; font-weight: 900; text-transform: uppercase; color: #9a3412;
+       letter-spacing: -.01em; text-shadow: .5vw .5vw 0 #2b1d14; }
+  h2 { margin: 1.5vw 0 0; text-align: center; font-size: 4.4vw; text-transform: uppercase; letter-spacing: .25em; }
+  .tag { margin-top: 2.5vw; text-align: center; font-family: "Liberation Serif", "DejaVu Serif", serif; font-style: italic; font-size: 3.6vw; }
+  .foot { margin-top: 2vw; text-align: center; font-size: 2.4vw; letter-spacing: .3em; text-transform: uppercase; }
+</style>
+<div class="p"><div class="frame">
+  {% if fields.year %}<div class="year">{{ fields.year }}</div>{% endif %}
+  <div class="pic" style="background-image: url('{{ images.image }}')"></div>
+  <h1>{{ fields.title }}</h1>
+  {% if fields.subtitle %}<h2>{{ fields.subtitle }}</h2>{% endif %}
+  {% if fields.tagline %}<div class="tag">{{ fields.tagline }}</div>{% endif %}
+  {% if fields.footer %}<div class="foot">{{ fields.footer }}</div>{% endif %}
+</div></div>

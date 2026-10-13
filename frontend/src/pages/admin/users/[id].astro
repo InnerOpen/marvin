@@ -1,14 +1,14 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
-import Breadcrumb from "@/components/Breadcrumb.astro";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
-import { createSdkClient } from '@/lib/sdk';
-import { getAuthToken, fetchApi } from "@/lib/api/client";
+import { createSdkClient } from "@/lib/sdk";
 
 const { id } = Astro.params;
 
 if (!id) {
-  return Astro.redirect('/admin/users');
+  return Astro.redirect("/admin/users");
 }
 
 const currentUser = await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
@@ -25,39 +25,34 @@ try {
   user = await sdk.adminUsers.get(id);
 
   // Fetch available workspaces for membership management (SDK gap - no adminWorkspaces module)
-  const workspacesResponse = await fetchApi<any>('/api/admin/groups', {}, authToken);
+  const workspacesResponse = await fetchApi<any>("/api/admin/groups", {}, authToken);
   workspaces = workspacesResponse.items || [];
 
   // Create workspace map for easy lookup by ID
-  workspaces.forEach(ws => {
+  workspaces.forEach((ws) => {
     workspaceMap.set(ws.id, ws);
   });
 } catch (e) {
-  console.error('[admin/users/edit] Error:', e);
+  console.error("[admin/users/edit] Error:", e);
   error = e instanceof Error ? e.message : String(e);
 }
 
 // Role options
+// The only two platform roles the backend defines. Workspace roles (OWNER/ADMIN/EDITOR/...) are
+// set per membership below, not here.
 const platformRoles = [
-  { value: 'USER', label: 'User' },
-  { value: 'ADMIN', label: 'Admin' },
-  { value: 'SUPER_ADMIN', label: 'Super Admin' },
+  { value: "NONE", label: "User" },
+  { value: "SUPER_ADMIN", label: "Super admin" },
 ];
 
 const authMethods = [
-  { value: 'MARVIN', label: 'Marvin (Password)' },
-  { value: 'LDAP', label: 'LDAP' },
-  { value: 'OIDC', label: 'OIDC' },
+  { value: "MARVIN", label: "Marvin (Password)" },
+  { value: "LDAP", label: "LDAP" },
+  { value: "OIDC", label: "OIDC" },
 ];
 ---
 
-<AdminLayout title={user?.username || 'Edit User'}>
-  <Breadcrumb items={[
-    { label: "Admin", href: "/admin" },
-    { label: "Users", href: "/admin/users" },
-    { label: user?.username || "Edit User" }
-  ]} />
-
+<AdminLayout crumb="admin.users.user" title={user?.username || 'Edit User'}>
   <div class="page-header">
     <div>
       <h2>{user?.fullName || user?.username || 'Edit User'}</h2>
@@ -123,36 +118,6 @@ const authMethods = [
 
         <div class="form-section">
           <h3>Platform Permissions</h3>
-
-          <label class="checkbox-field">
-            <input
-              type="checkbox"
-              name="can_manage"
-              checked={user.canManage === true}
-            />
-            <span>Can Manage</span>
-            <small>Permission to manage workspace settings and configuration</small>
-          </label>
-
-          <label class="checkbox-field">
-            <input
-              type="checkbox"
-              name="can_invite"
-              checked={user.canInvite === true}
-            />
-            <span>Can Invite</span>
-            <small>Permission to invite other users to the workspace</small>
-          </label>
-
-          <label class="checkbox-field">
-            <input
-              type="checkbox"
-              name="can_organize"
-              checked={user.canOrganize === true}
-            />
-            <span>Can Organize</span>
-            <small>Permission for organizational tasks within the workspace</small>
-          </label>
 
           <label class="form-field">
             <span class="label">Platform Role</span>
@@ -282,7 +247,7 @@ const authMethods = [
             {user.lockedAt && (
               <div class="info-item">
                 <span class="info-label">Locked At</span>
-                <span class="info-value alert">{new Date(user.lockedAt).toLocaleString()}</span>
+                <span class="info-value alert"><LocalTime iso={user.lockedAt} /></span>
               </div>
             )}
           </div>
@@ -332,9 +297,6 @@ const authMethods = [
       username: formData.get('username'),
       email: formData.get('email'),
       auth_method: formData.get('auth_method'),
-      can_manage: formData.get('can_manage') === 'on',
-      can_invite: formData.get('can_invite') === 'on',
-      can_organize: formData.get('can_organize') === 'on',
       platform_role: formData.get('platform_role'),
     };
 
@@ -428,18 +390,6 @@ const authMethods = [
     border-bottom: 1px solid var(--line);
   }
 
-  .back-link {
-    display: inline-block;
-    margin-bottom: 12px;
-    color: var(--accent);
-    text-decoration: none;
-    font-size: 14px;
-  }
-
-  .back-link:hover {
-    text-decoration: underline;
-  }
-
   .page-header h2 {
     margin: 0 0 8px;
     font-size: 24px;
@@ -514,36 +464,6 @@ const authMethods = [
   .input:focus {
     outline: none;
     border-color: var(--accent);
-  }
-
-  .checkbox-field {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 10px;
-    padding: 12px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    cursor: pointer;
-  }
-
-  .checkbox-field input[type="checkbox"] {
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
-    margin-top: 2px;
-  }
-
-  .checkbox-field span {
-    font-size: 14px;
-    font-weight: 500;
-  }
-
-  .checkbox-field small {
-    grid-column: 2;
-    font-size: 12px;
-    color: var(--muted);
-    margin-top: -6px;
   }
 
   small {

@@ -3,7 +3,7 @@
  * User profile and password management
  */
 
-import { createSdkClient } from '../sdk';
+import { createSdkClient } from "../sdk";
 
 export interface UserProfile {
   id: string;

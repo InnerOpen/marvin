@@ -3,9 +3,9 @@ This module provides functions for initializing default and development users
 in the Marvin application.
 
 It includes utilities to:
-- Define data for a set of development users.
+- Define data for a set of sample demo users.
 - Create a default administrative user.
-- Conditionally create development users if the application is not in production mode.
+- Conditionally create sample users only when the application is in demo mode.
 """
 
 from marvin.core import root_logger
@@ -25,7 +25,8 @@ def dev_users() -> list[dict]:
     Provides a list of predefined user data for development and testing purposes.
 
     Each user dictionary contains necessary information like full name, username,
-    email, a hashed default password, group assignment, platform role, and workspace role.
+    email, a hashed default password, platform role, and workspace role. No group is named, so each
+    lands in the platform workspace (found by its marker, see services.group.platform_workspace).
 
     Returns:
         list[dict]: A list of dictionaries, where each dictionary represents a
@@ -36,8 +37,7 @@ def dev_users() -> list[dict]:
             "full_name": "Jason",
             "username": "jason",
             "email": "jason@example.com",
-            "password": hash_password(settings.DEFAULT_PASSWORD),  # Use hashed default password
-            "group": settings.DEFAULT_GROUP,  # Assign to default group
+            "password": hash_password(settings.DEFAULT_PASSWORD or ""),  # Use hashed default password
             "platform_role": PlatformRole.NONE,  # Standard user (no platform-level privileges)
             "admin": False,  # DEPRECATED: Use workspace roles instead
             "workspace_role": WorkspaceRole.ADMIN,  # Workspace administrator role
@@ -46,8 +46,7 @@ def dev_users() -> list[dict]:
             "full_name": "Bob",
             "username": "bob",
             "email": "bob@example.com",
-            "password": hash_password(settings.DEFAULT_PASSWORD),
-            "group": settings.DEFAULT_GROUP,
+            "password": hash_password(settings.DEFAULT_PASSWORD or ""),
             "platform_role": PlatformRole.NONE,
             "admin": False,  # DEPRECATED
             "workspace_role": WorkspaceRole.EDITOR,  # Workspace editor role
@@ -56,8 +55,7 @@ def dev_users() -> list[dict]:
             "full_name": "Sarah",
             "username": "sarah",
             "email": "sarah@example.com",
-            "password": hash_password(settings.DEFAULT_PASSWORD),
-            "group": settings.DEFAULT_GROUP,
+            "password": hash_password(settings.DEFAULT_PASSWORD or ""),
             "platform_role": PlatformRole.NONE,
             "admin": False,  # DEPRECATED
             "workspace_role": WorkspaceRole.AUTHOR,  # Workspace author role
@@ -66,8 +64,7 @@ def dev_users() -> list[dict]:
             "full_name": "Sammy",
             "username": "sammy",
             "email": "sammy@example.com",
-            "password": hash_password(settings.DEFAULT_PASSWORD),
-            "group": settings.DEFAULT_GROUP,
+            "password": hash_password(settings.DEFAULT_PASSWORD or ""),
             "platform_role": PlatformRole.NONE,
             "admin": False,  # DEPRECATED
             "workspace_role": WorkspaceRole.VIEWER,  # Workspace viewer role (read-only)
@@ -77,8 +74,8 @@ def dev_users() -> list[dict]:
 
 def default_user_init(db: AllRepositories) -> None:
     """
-    Initializes the default administrative user and, if not in production,
-    creates additional development users.
+    Initializes the default administrative user and, in demo mode only,
+    creates additional sample users.
 
     The default admin user is created with credentials specified in the application
     settings (e.g., `settings.DEFAULT_EMAIL`, `settings.DEFAULT_PASSWORD`).
@@ -86,7 +83,7 @@ def default_user_init(db: AllRepositories) -> None:
 
     The default admin receives:
     - Platform role: SUPER_ADMIN (unrestricted platform-level access)
-    - Workspace membership: OWNER role in the default workspace
+    - Workspace membership: OWNER role in the platform workspace
 
     Development users receive:
     - Platform role: NONE (standard users)
@@ -103,8 +100,7 @@ def default_user_init(db: AllRepositories) -> None:
         "full_name": "Change Me",  # Default full name, intended to be changed
         "username": "admin",  # Default admin username
         "email": settings.DEFAULT_EMAIL,
-        "password": hash_password(settings.DEFAULT_PASSWORD),
-        "group": settings.DEFAULT_GROUP,  # Assign to the default group
+        "password": hash_password(settings.DEFAULT_PASSWORD or ""),
         "platform_role": PlatformRole.SUPER_ADMIN,  # Platform administrator with unrestricted access
         "admin": True,  # DEPRECATED: Use platform_role instead
         "is_superuser": True,  # DEPRECATED: Use platform_role instead
@@ -116,7 +112,7 @@ def default_user_init(db: AllRepositories) -> None:
     admin_user = db.users.create(default_user)
     logger.info(f"Default admin user created: {admin_user.email} (platform_role={admin_user.platform_role.value})")
 
-    # Create workspace membership for default admin (OWNER role in default workspace)
+    # Create workspace membership for default admin (OWNER role in the platform workspace)
     admin_membership = WorkspaceMembers(
         session=db.session,
         user_id=admin_user.id,
@@ -125,20 +121,19 @@ def default_user_init(db: AllRepositories) -> None:
     )
     db.session.add(admin_membership)
     db.session.commit()
-    logger.info(f"Workspace membership created: {admin_user.username} -> {settings.DEFAULT_GROUP} (OWNER)")
+    logger.info(f"Workspace membership created: {admin_user.username} -> {admin_user.group} (OWNER)")
 
-    # If the application is not in production mode, create development users
-    if not settings.PRODUCTION:
-        logger.info("Non-production environment detected, creating development users.")
+    # Sample users exist only for the demo experience. A real install (production or otherwise)
+    # gets just the Admin — never the seeded cast.
+    if settings.IS_DEMO:
+        logger.info("Demo environment detected, creating sample users.")
         for user_data in dev_users():
             # Extract workspace_role before creating user (it's not a User model field)
             workspace_role = user_data.pop("workspace_role", WorkspaceRole.VIEWER)
 
             # Create the development user
             dev_user = db.users.create(user_data)
-            logger.info(
-                f"Development user created: {dev_user.email} / {settings.DEFAULT_PASSWORD} " f"(platform_role={dev_user.platform_role.value})"
-            )
+            logger.info(f"Development user created: {dev_user.email} / {settings.DEFAULT_PASSWORD} (platform_role={dev_user.platform_role.value})")
 
             # Create workspace membership for the dev user
             dev_membership = WorkspaceMembers(
@@ -149,4 +144,4 @@ def default_user_init(db: AllRepositories) -> None:
             )
             db.session.add(dev_membership)
             db.session.commit()
-            logger.info(f"Workspace membership created: {dev_user.username} -> {settings.DEFAULT_GROUP} ({workspace_role.value})")
+            logger.info(f"Workspace membership created: {dev_user.username} -> {dev_user.group} ({workspace_role.value})")

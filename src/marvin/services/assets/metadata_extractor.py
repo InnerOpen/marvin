@@ -4,7 +4,9 @@ import hashlib
 import mimetypes
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
+
+AssetType = Literal["image", "document", "video", "audio", "archive", "svg", "other"]
 
 try:
     from PIL import Image
@@ -25,7 +27,7 @@ class ExtractedMetadata:
     """File size in bytes."""
     checksum: str
     """SHA-256 checksum."""
-    asset_type: Literal["image", "document", "video", "audio", "archive", "svg", "other"]
+    asset_type: AssetType
     """Classified asset type."""
     width: int | None = None
     """Width in pixels (for images)."""
@@ -163,9 +165,9 @@ class AssetMetadataExtractor:
 
         return hasher.hexdigest()
 
-    def _classify_asset_type(self, mime_type: str) -> str:
+    def _classify_asset_type(self, mime_type: str) -> AssetType:
         """Classify asset type based on MIME type."""
-        return self.MIME_TO_ASSET_TYPE.get(mime_type, "other")
+        return cast(AssetType, self.MIME_TO_ASSET_TYPE.get(mime_type, "other"))
 
     def _extract_image_metadata(self, file_path: Path) -> tuple[int | None, int | None, int | None]:
         """Extract width, height, and orientation from image files."""

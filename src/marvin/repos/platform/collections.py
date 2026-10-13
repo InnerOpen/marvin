@@ -6,9 +6,10 @@ from fastapi import HTTPException, status
 from pydantic import UUID4
 from sqlalchemy.orm import Session
 
-from marvin.db.models.platform import Collections, EntryCollections
+from marvin.db.models.platform import Collections, Entries, EntryCollections
 from marvin.repos.repository_generic import GroupRepositoryGeneric
 from marvin.schemas.platform import CollectionRead
+from marvin.schemas.platform.entries import TRASHED
 
 
 class CollectionsRepository(GroupRepositoryGeneric[CollectionRead, Collections]):
@@ -53,7 +54,9 @@ class CollectionsRepository(GroupRepositoryGeneric[CollectionRead, Collections])
         self._resync_smart_membership(new_collection.id)
 
         # Return via get_one to get all relationships loaded
-        return self.get_one(new_collection.id)
+        created = self.get_one(new_collection.id)
+        assert created is not None  # just created
+        return created
 
     def update(self, match_value: Any, new_data: Any, match_key: str | None = None) -> CollectionRead:
         # System workflow collections are locked (managed by Marvin).
@@ -82,12 +85,16 @@ class CollectionsRepository(GroupRepositoryGeneric[CollectionRead, Collections])
             self._replace_entries(collection.id, entry_ids)
             # Refresh to get updated relationships
             self.session.refresh(self.session.get(Collections, collection.id))
-            collection = self.get_one(collection.id)
+            refreshed = self.get_one(collection.id)
+            assert refreshed is not None
+            collection = refreshed
 
         # Re-materialize membership when this is (or just became) a smart collection, so a
         # rules change immediately re-evaluates which entries belong.
         if self._resync_smart_membership(collection.id):
-            collection = self.get_one(collection.id)
+            resynced = self.get_one(collection.id)
+            assert resynced is not None
+            collection = resynced
 
         return collection
 
@@ -126,7 +133,14 @@ class CollectionsRepository(GroupRepositoryGeneric[CollectionRead, Collections])
         return super().delete(value, match_key=match_key)
 
     def _count_entries_in_collection(self, collection_id: Any) -> int:
-        count_query = self.session.query(EntryCollections).filter(EntryCollections.collection_id == collection_id)
+        """Entries outside the Trash: a trashed entry doesn't keep its collection "in use" (deleting an entry trashes
+        it, so a collection whose entries were all deleted would otherwise never be deletable). Its membership row
+        goes with the collection, so a later restore brings the entry back without it."""
+        count_query = (
+            self.session.query(EntryCollections)
+            .join(Entries, Entries.id == EntryCollections.entry_id)
+            .filter(EntryCollections.collection_id == collection_id, Entries.status != TRASHED)
+        )
         return count_query.count()
 
     def _attach_entries(self, collection_id: UUID4, entry_ids: list[UUID4]) -> None:

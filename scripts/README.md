@@ -46,6 +46,10 @@ uv run scripts/seed_mashandburnco.py
 
 **Documentation:** See [docs/MASH-AND-BURN-SEED.md](../docs/MASH-AND-BURN-SEED.md)
 
+> The Instagram integration used to be seeded by `seed_instagram_auto_reply.py`. It now declares its
+> own content (entry types, collections, scheduled tasks) through the SDK, and the workspace applies
+> it from the blueprint catalog after review — see `services/blueprints/`.
+
 ---
 
 ## Test Scripts

@@ -1,0 +1,180 @@
+"""Schemas for workspace agents (see db/models/groups/agents.py and services/ai/agents.py)."""
+
+import re
+from typing import Literal
+
+from pydantic import UUID4, ConfigDict, Field, field_validator
+
+from marvin.schemas._marvin import _MarvinModel
+from marvin.schemas.group.ai_settings import AssistantCharacter, TonePreview
+from marvin.services.ai.operations.base import INVOCATION_SOURCES
+from marvin.services.ai.tones import SLUG_RE as TONE_SLUG_RE
+
+AgentKind = Literal["persona", "model"]
+PolicyValue = Literal["allow", "block", "ask"]  # ask = bound, but every call waits for the user (Ask threads)
+# Built-in agents are code, not rows; a user-defined agent may not shadow them.
+SYSTEM_AGENT_SLUGS = ("marvin", "ask", "builder", "chat")
+SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
+
+
+def _check_register(v: str | None) -> str | None:
+    """A tone slug's shape. Whether the workspace has that tone is checked on save (it needs the DB)."""
+    if v is None:
+        return None
+    v = v.strip().lower()
+    if not v:
+        return None
+    if not TONE_SLUG_RE.match(v):
+        raise ValueError("default_register must be a tone slug (a-z, 0-9 and '-', at most 40 chars)")
+    return v
+
+
+def _check_sources(v: list[str] | None) -> list[str] | None:
+    if v is None:
+        return None
+    bad = [s for s in v if s not in INVOCATION_SOURCES]
+    if bad:
+        raise ValueError(f"unknown sources {bad}; allowed: {list(INVOCATION_SOURCES)}")
+    return list(dict.fromkeys(v))
+
+
+def _clean_allowlist(v: list[str] | None) -> list[str] | None:
+    if v is None:
+        return None
+    return list(dict.fromkeys(x.strip() for x in v if x and x.strip()))
+
+
+class AgentBase(_MarvinModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    kind: AgentKind = "persona"
+    system_prompt: str | None = Field(default=None, max_length=8000)
+    model_override: str | None = Field(default=None, max_length=120)
+    tool_allowlist: list[str] | None = Field(default=None, max_length=64)
+    default_register: str | None = None
+    min_role: int = Field(default=1, ge=1, le=5)
+    sources: list[str] | None = None
+    enabled: bool = True
+    # Bind non-read-only tools (authoring, links, AI ops, external MCP)? Off by default; the caller
+    # still needs AUTHOR+ for them to actually bind.
+    allow_writes: bool = False
+    # Permission matrix overrides keyed by category id or tool name.
+    tool_policy: dict[str, PolicyValue] | None = None
+    icon: str | None = Field(default=None, max_length=16)
+    suggestions: list[str] | None = Field(default=None, max_length=8)
+    # When the router (marvin) should hand a question to this agent; shown on its roster line.
+    handoff_hint: str | None = Field(default=None, max_length=300)
+
+    @field_validator("default_register")
+    @classmethod
+    def _v_register(cls, v):
+        return _check_register(v)
+
+    @field_validator("sources")
+    @classmethod
+    def _v_sources(cls, v):
+        return _check_sources(v)
+
+    @field_validator("tool_allowlist")
+    @classmethod
+    def _v_allowlist(cls, v):
+        return _clean_allowlist(v)
+
+
+class AgentCreate(AgentBase):
+    slug: str
+
+    @field_validator("slug")
+    @classmethod
+    def _slug_valid(cls, v: str) -> str:
+        v = v.strip().lower()
+        if not SLUG_RE.match(v):
+            raise ValueError("slug must be 2-64 chars of a-z, 0-9 and '-', starting with a letter or digit")
+        if v in SYSTEM_AGENT_SLUGS:
+            raise ValueError(f"'{v}' is a built-in agent; pick another slug")
+        return v
+
+
+class AgentUpdate(_MarvinModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    kind: AgentKind | None = None
+    system_prompt: str | None = Field(default=None, max_length=8000)
+    model_override: str | None = Field(default=None, max_length=120)
+    tool_allowlist: list[str] | None = None
+    default_register: str | None = None
+    min_role: int | None = Field(default=None, ge=1, le=5)
+    sources: list[str] | None = None
+    enabled: bool | None = None
+    allow_writes: bool | None = None
+    tool_policy: dict[str, PolicyValue] | None = None
+    icon: str | None = Field(default=None, max_length=16)
+    suggestions: list[str] | None = Field(default=None, max_length=8)
+    handoff_hint: str | None = Field(default=None, max_length=300)
+
+    @field_validator("default_register")
+    @classmethod
+    def _v_register(cls, v):
+        return _check_register(v)
+
+    @field_validator("sources")
+    @classmethod
+    def _v_sources(cls, v):
+        return _check_sources(v)
+
+    @field_validator("tool_allowlist")
+    @classmethod
+    def _v_allowlist(cls, v):
+        return _clean_allowlist(v)
+
+
+class AgentRead(AgentBase):
+    id: UUID4 | None = None  # system agents have no row
+    slug: str
+    is_system: bool = False
+    # A built-in agent whose permission matrix this workspace changed: `tool_policy` is the effective (merged)
+    # matrix. Reset with DELETE /ai/agents/{slug}/tool-policy (or PATCH `tool_policy: null`).
+    tool_policy_overridden: bool = False
+    # The bubble's character while this agent talks (a library pack resolved to its states); None → the
+    # workspace's. Set through /ai/agents/{slug}/character; see services/ai/character.py.
+    character: AssistantCharacter | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AgentPromptPreviewRequest(AgentUpdate):
+    """The Edit form's unsaved values for a prompt preview; anything left out is the stored agent's."""
+
+
+class AgentDefinitionPreviewRequest(AgentBase):
+    """A whole agent not saved yet (the New form's create payload) for a prompt preview. The slug is
+    optional and unchecked: nothing is stored, and it only keeps the agent off its own roster."""
+
+    slug: str | None = None
+
+
+class AgentToolCategory(_MarvinModel):
+    id: str
+    label: str
+    count: int
+
+
+class AgentPromptPreview(_MarvinModel):
+    """The system prompt a run of this agent sends, in labelled parts, assembled by the run's own code.
+
+    Leaves out what only a run knows: the "what the user is looking at" block, the conversation, and the
+    tool definitions themselves (summarised as counts per permission-matrix category).
+    """
+
+    system: str  # the whole system prompt, in order
+    tokens: int  # rough estimate of `system`
+    kind: AgentKind
+    workspace: str = ""  # from Marvin: the workspace preamble (persona agents only; it names the bound tools)
+    instructions: str  # from the agent: its own instructions, or its kind's default
+    default_instructions: bool  # `instructions` is the default (the agent has none of its own)
+    tone: TonePreview  # the Character / tone section, as the tone preview shows it
+    tone_source: Literal["agent", "workspace"]  # the agent's default tone, or the workspace default
+    roster: str = ""  # the agents it may hand off or refer to, when it can
+    tool_count: int = 0
+    ask_first_count: int = 0  # of those, the ones that pause the run for approval
+    tool_categories: list[AgentToolCategory] = Field(default_factory=list)

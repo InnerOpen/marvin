@@ -1,0 +1,30 @@
+{
+  "recipe": "milestone-celebration",
+  "variables": {
+    "project_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type whose entries are projects.",
+      "example": "project"
+    },
+    "status_field": {
+      "type": "field_key",
+      "description": "The project's field that says where it stands.",
+      "example": "stage"
+    },
+    "done_value": {
+      "type": "text",
+      "description": "The value of that field that means finished.",
+      "example": "complete"
+    },
+    "image_integration": {
+      "type": "integration_slug",
+      "description": "Slug of the connected OpenAI Images integration (Settings → Integrations).",
+      "example": "openai-images"
+    },
+    "image_style": {
+      "type": "text",
+      "description": "How the picture should look.",
+      "example": "A bright, hand-drawn poster"
+    }
+  }
+}

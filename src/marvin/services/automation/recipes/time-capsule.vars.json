@@ -1,0 +1,35 @@
+{
+  "recipe": "time-capsule",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entries to seal in a time capsule when they're first published (projects, plans).",
+      "example": "project"
+    },
+    "body_field": {
+      "type": "field_key",
+      "description": "Their text field — what's kept, to compare with later.",
+      "example": "body"
+    },
+    "open_after": {
+      "type": "text",
+      "description": "How long until the look back: weeks (26w) or days (180d), up to a year.",
+      "example": "26w"
+    },
+    "voice": {
+      "type": "text",
+      "description": "How the look back should sound.",
+      "example": "a warm, plain voice"
+    },
+    "draft_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type the look back is drafted as.",
+      "example": "article"
+    },
+    "draft_body_field": {
+      "type": "field_key",
+      "description": "That type's text field.",
+      "example": "body"
+    }
+  }
+}

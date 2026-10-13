@@ -1,12 +1,12 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
-import Breadcrumb from "@/components/Breadcrumb.astro";
-import { requireAuth } from "@/lib/auth";
 import { getAuthToken } from "@/lib/api/client";
-import { createSdkClient } from '@/lib/sdk';
-import { getCurrentWorkspace } from "@/lib/api/workspaces";
-import { listWorkspaceMembers, type WorkspaceMemberRead } from "@/lib/api/workspaceMembers";
 import type { WorkspaceRole } from "@/lib/api/types";
+import { listWorkspaceMembers, type WorkspaceMemberRead } from "@/lib/api/workspaceMembers";
+import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import { requireAuth } from "@/lib/auth";
+import { createSdkClient } from "@/lib/sdk";
 
 const currentUser = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
 
@@ -28,19 +28,19 @@ try {
 
     // Use authenticated user info to find their role
     currentUserId = currentUser.id;
-    const currentMembership = members.find(m => m.userId === currentUser.id);
+    const currentMembership = members.find((m) => m.userId === currentUser.id);
     currentUserRole = currentMembership?.workspaceRole || null;
 
     // Fetch invite tokens for this workspace
     try {
-      inviteTokens = await sdk.invites.list() || [];
+      inviteTokens = (await sdk.invites.list()) || [];
     } catch (e) {
-      console.error('[members] Error loading invite tokens:', e);
+      console.error("[members] Error loading invite tokens:", e);
       // Don't fail the whole page if invite tokens fail to load
     }
   }
 } catch (e) {
-  console.error('[members] Error loading:', e);
+  console.error("[members] Error loading:", e);
   error = e instanceof Error ? e.message : String(e);
 }
 
@@ -63,18 +63,14 @@ const roleDescriptions: Record<WorkspaceRole, string> = {
 };
 
 // Check if current user can manage members
-const canManage = currentUserRole === 'OWNER' || currentUserRole === 'ADMIN';
+const canManage = currentUserRole === "OWNER" || currentUserRole === "ADMIN";
 
 // Count owners to detect if someone is the last owner
-const ownerCount = members.filter(m => m.workspaceRole === 'OWNER').length;
+const ownerCount = members.filter((m) => m.workspaceRole === "OWNER").length;
 ---
 
-<AppLayout title="Workspace Members" eyebrow="Workspace">
+<AppLayout crumb="settings.members">
   <div data-workspace-id={workspace?.id} data-can-manage={canManage ? 'true' : 'false'} style="display:none;"></div>
-  <Breadcrumb items={[
-    { label: "Workspace Settings", href: "/workspace/settings?tab=members" },
-    { label: "Team Members" }
-  ]} />
 
   <div class="toolbar">
     <div>
@@ -208,7 +204,7 @@ const ownerCount = members.filter(m => m.workspaceRole === 'OWNER').length;
                 <strong>Invitation Token</strong>
                 <span class="invitation-meta">
                   {token.usesLeft} {token.usesLeft === 1 ? 'use' : 'uses'} remaining
-                  {(token.createdAt || token.created_at) && ` • Created ${new Date(token.createdAt || token.created_at).toLocaleDateString()}`}
+                  {(token.createdAt || token.created_at) && (<> • Created <LocalTime iso={token.createdAt || token.created_at} format="date" /></>)}
                 </span>
               </div>
             </div>
@@ -324,7 +320,7 @@ const ownerCount = members.filter(m => m.workspaceRole === 'OWNER').length;
 
         try {
           await sdk.workspaceMembers.updateRole(workspaceId, userId, {
-            workspaceRole: newRole,
+            workspaceRole: newRole as "OWNER" | "ADMIN" | "EDITOR" | "AUTHOR" | "VIEWER",
           });
 
           window.location.reload();
@@ -341,8 +337,8 @@ const ownerCount = members.filter(m => m.workspaceRole === 'OWNER').length;
   }
 
   // Remove member
-  const removeButtons = document.querySelectorAll('.remove-btn');
-  const confirmRemoveModal = document.getElementById('confirm-remove-modal');
+  const removeButtons = document.querySelectorAll<HTMLElement>('.remove-btn');
+  const confirmRemoveModal = document.getElementById('confirm-remove-modal') as HTMLDialogElement | null;
   const removeMessage = document.getElementById('remove-message');
   const confirmRemoveBtn = document.getElementById('confirm-remove');
   const cancelRemoveBtn = document.getElementById('cancel-remove');
@@ -381,7 +377,7 @@ const ownerCount = members.filter(m => m.workspaceRole === 'OWNER').length;
   });
 
   // Copy invitation link
-  document.querySelectorAll('.copy-invitation-btn').forEach(btn => {
+  document.querySelectorAll<HTMLElement>('.copy-invitation-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const token = btn.dataset.token;
       if (token) {
@@ -398,12 +394,12 @@ const ownerCount = members.filter(m => m.workspaceRole === 'OWNER').length;
   });
 
   // Resend invitation email
-  const resendEmailModal = document.getElementById('resend-email-modal');
-  const resendEmailForm = document.getElementById('resend-email-form');
+  const resendEmailModal = document.getElementById('resend-email-modal') as HTMLDialogElement | null;
+  const resendEmailForm = document.getElementById('resend-email-form') as HTMLFormElement | null;
   const cancelResendBtn = document.getElementById('cancel-resend');
   let tokenToResend = null;
 
-  document.querySelectorAll('.resend-invitation-btn').forEach(btn => {
+  document.querySelectorAll<HTMLElement>('.resend-invitation-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       tokenToResend = btn.dataset.token;
       resendEmailModal?.showModal();
@@ -439,7 +435,7 @@ const ownerCount = members.filter(m => m.workspaceRole === 'OWNER').length;
   });
 
   // Revoke invitation
-  document.querySelectorAll('.revoke-invitation-btn').forEach(btn => {
+  document.querySelectorAll<HTMLElement>('.revoke-invitation-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const tokenId = btn.dataset.tokenId;
       if (!tokenId) return;
@@ -536,6 +532,18 @@ const ownerCount = members.filter(m => m.workspaceRole === 'OWNER').length;
     gap: 12px;
     flex: 1;
     min-width: 0;
+  }
+
+  /* Phones: who they are on one row, the role and actions under it. */
+  @media (max-width: 560px) {
+    .member-card {
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .member-info {
+      flex-basis: 100%;
+    }
   }
 
   .member-avatar {

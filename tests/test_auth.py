@@ -4,7 +4,6 @@ Tests for authentication functionality.
 Verifies that authentication flows work correctly and invalid credentials are rejected.
 """
 
-import pytest
 from fastapi.testclient import TestClient
 
 

@@ -3,10 +3,10 @@
 from marvin.routes._base.routers import AdminAPIRouter
 
 from . import (
+    assets_controller,
     collections_controller,
     entries_controller,
     resources_controller,
-    assets_controller,
     site_clients_controller,
 )
 

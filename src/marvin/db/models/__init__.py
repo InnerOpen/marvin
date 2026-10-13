@@ -4,7 +4,7 @@ from sqlalchemy import Integer
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from text_unidecode import unidecode
 
-from ._model_utils.datetime import get_utc_now, NaiveDateTime
+from ._model_utils.datetime import NaiveDateTime, get_utc_now
 
 
 class SqlAlchemyBase(DeclarativeBase):
@@ -31,6 +31,5 @@ class BaseMixins:
 
 
 from .groups import *  # noqa: E402, F401, F403
+from .platform import APIClients, Collections, Entries, EntryCollections, EntryTypes  # noqa: E402, F401
 from .users import *  # noqa: E402, F401, F403
-from .platform import APIClients, Collections, EntryCollections, Entries, EntryTypes  # noqa: E402, F401
-from .events import EventNotifierOptionsModel  # noqa: E402, F401

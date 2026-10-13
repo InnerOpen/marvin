@@ -1,11 +1,16 @@
 ---
-import AppLayout from "@/layouts/AppLayout.astro";
-import Breadcrumb from "@/components/Breadcrumb.astro";
 import SchemaEditor from "@/components/SchemaEditor.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
 import { getEntryType } from "@/lib/api/entryTypes";
-import { getAuthToken } from '@/lib/api/client';
+import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
+import { splitRecipe } from "@/lib/recipeForm";
+import { ADMINS_ONLY } from "@/lib/workspaceRole";
 
 const { id } = Astro.params;
+const authToken = getAuthToken(Astro.cookies);
+// Everyone reads; changing an entry type is admin-only (if the role can't be read, let the API decide).
+const canManage = authToken ? await canManageCurrentWorkspace(authToken).catch(() => true) : true;
 
 let entryType = null;
 let error: string | null = null;
@@ -14,11 +19,10 @@ if (!id) {
   error = "Entry type ID is required";
 } else {
   try {
-    const authToken = await getAuthToken(Astro.cookies);
     entryType = await getEntryType(id, authToken);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
-    console.error('[EntryType] Failed to load:', error);
+    console.error("[EntryType] Failed to load:", error);
   }
 }
 
@@ -26,21 +30,28 @@ const isSystem = entryType?.isSystem ?? false;
 
 const rendering = (entryType?.renderingJson ?? {}) as Record<string, unknown>;
 const capabilities = (entryType?.capabilitiesJson ?? {}) as Record<string, unknown>;
+const submission = (capabilities.submission ?? {}) as Record<string, unknown>;
+const subStr = (k: string) => (submission[k] == null ? "" : String(submission[k]));
+// "Same person = same …": the fields that can identify a submitter (single values, not long text).
+const schemaFields = ((entryType?.schemaJson as { fields?: { key?: string; label?: string; type?: string }[] } | null)?.fields ?? []);
+const matchFieldOptions = schemaFields.filter((f) => f.key && ["text", "number", "select"].includes(f.type ?? ""));
+const matchField = subStr("matchField");
 const recipe = (entryType?.recipeJson ?? {}) as Record<string, unknown>;
-const recipeStr = Object.keys(recipe).length ? JSON.stringify(recipe, null, 2) : '';
+// The authoring instructions and the drafts' voice (`enrichment.voice`) get their own boxes; the JSON textarea
+// holds the rest of the structured contract (lib/recipeForm).
+const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } = splitRecipe(recipe);
 ---
 
-<AppLayout title={entryType ? `Edit ${entryType.name}` : "Edit Entry Type"}>
-  <Breadcrumb items={[
-    { label: "Workspace Settings", href: "/workspace/settings?tab=entry-types" },
-    { label: "Entry Types", href: "/workspace/entry-types" },
-    { label: entryType?.name || "Edit" }
-  ]} />
-
+<AppLayout
+  crumb="settings.entry-types.entry-type"
+  title={entryType ? `Edit ${entryType.name}` : "Edit Entry Type"}
+  entityType="entry_type"
+  entityId={id}
+  entityLabel={entryType?.name}
+>
   {error ? (
     <div class="error-banner">
       <p><strong>Error loading entry type:</strong> {error}</p>
-      <a href="/workspace/entry-types" class="button secondary">Back to Entry Types</a>
     </div>
   ) : entryType ? (
     <>
@@ -51,11 +62,13 @@ const recipeStr = Object.keys(recipe).length ? JSON.stringify(recipe, null, 2) :
             {isSystem ? "System entry types have limited editing" : "Update entry type details"}
           </p>
         </div>
-        <a class="button secondary" href="/workspace/entry-types">Back</a>
       </div>
+
+      {!canManage && <div class="alert alert-info" role="status">{ADMINS_ONLY}</div>}
 
       <section class="form-section">
         <form method="POST" action={`/api/entry-types/${id}/update`} class="form">
+          <fieldset disabled={!canManage} style="border:0;margin:0;padding:0;min-width:0;">
           <div class="form-group">
             <label for="name">Name *</label>
             <input
@@ -127,6 +140,21 @@ const recipeStr = Object.keys(recipe).length ? JSON.stringify(recipe, null, 2) :
             <p class="form-help">Lower numbers appear first</p>
           </div>
 
+          <div class="form-group">
+            <label for="page_url_pattern">Page URL pattern</label>
+            <input
+              type="text"
+              id="page_url_pattern"
+              name="page_url_pattern"
+              value={entryType.pageUrlPattern || ""}
+              placeholder="/works/{slug}"
+              pattern="(/|https?://).*"
+              title="Start with / (a path on your site) or http(s):// (a full URL)"
+              spellcheck="false"
+            />
+            <p class="form-help">Optional. Where your site shows an entry of this type, so Marvin can link to it (the AI assistant, "View on site", the publishing API's <code>url</code>). Use <code>{"{slug}"}</code>, <code>{"{id}"}</code> or <code>{"{entry_type}"}</code>; a path is joined to the Canonical URL in site settings. Leave blank if entries of this type have no page.</p>
+          </div>
+
           {/* Schema Editor */}
           <div class="schema-section">
             <SchemaEditor schema={entryType.schemaJson} />
@@ -179,9 +207,85 @@ const recipeStr = Object.keys(recipe).length ? JSON.stringify(recipe, null, 2) :
                   <input type="checkbox" id="cap_routable" checked={capabilities.routable !== false} />
                   Routable
                 </label>
+
+                <fieldset id="submission-settings" class="submission-settings" hidden={capabilities.submittable !== true}>
+                  <legend>Submission settings</legend>
+                  <p class="form-help">How public submissions to this type are accepted. Spam controls (domain lists, exempt IPs, surge) are set under Workspace Settings → Submission Protection.</p>
+                  <div class="form-group">
+                    <label for="sub_successMessage">Success message</label>
+                    <input type="text" id="sub_successMessage" data-sub="successMessage" value={subStr("successMessage")} placeholder="Thank you for your submission" />
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="sub_redirectUrl">Redirect URL</label>
+                      <input type="text" id="sub_redirectUrl" data-sub="redirectUrl" value={subStr("redirectUrl")} placeholder="/thanks" />
+                    </div>
+                    <div class="form-group">
+                      <label for="sub_titleTemplate">Entry title template</label>
+                      <input type="text" id="sub_titleTemplate" data-sub="titleTemplate" value={subStr("titleTemplate")} placeholder="Newsletter signup: {{ email }}" />
+                      <p class="form-help">Jinja over the submitted fields; blank = first text value</p>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label for="sub_matchField">Same person = same …</label>
+                    <select id="sub_matchField" data-sub="matchField">
+                      <option value="" selected={!matchField}>Off — every submission is a new entry</option>
+                      {matchFieldOptions.map((f) => (
+                        <option value={f.key} selected={matchField === f.key}>{f.label || f.key}</option>
+                      ))}
+                      {matchField && !matchFieldOptions.some((f) => f.key === matchField) && (
+                        <option value={matchField} selected>{matchField}</option>
+                      )}
+                    </select>
+                    <p class="form-help">A repeat submission with the same value (an email ignores case and spaces) updates that person's entry instead of adding another; the visitor sees the same message either way. Lists saved fields, so save a new field before picking it.</p>
+                  </div>
+                  <div class="form-row">
+                    <label class="checkbox-label">
+                      <input type="checkbox" id="sub_enableHoneypot" data-sub="enableHoneypot" checked={submission.enableHoneypot === true} />
+                      Honeypot field
+                    </label>
+                    <div class="form-group">
+                      <label for="sub_honeypotField">Honeypot field name</label>
+                      <input type="text" id="sub_honeypotField" data-sub="honeypotField" value={subStr("honeypotField")} placeholder="_website" />
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <label class="checkbox-label">
+                      <input type="checkbox" id="sub_enableCaptcha" data-sub="enableCaptcha" checked={submission.enableCaptcha === true} />
+                      CAPTCHA
+                    </label>
+                    <div class="form-group">
+                      <label for="sub_captchaProvider">Provider</label>
+                      <select id="sub_captchaProvider" data-sub="captchaProvider">
+                        <option value="" selected={!submission.captchaProvider}>hcaptcha (default)</option>
+                        <option value="hcaptcha" selected={submission.captchaProvider === "hcaptcha"}>hcaptcha</option>
+                        <option value="turnstile" selected={submission.captchaProvider === "turnstile"}>turnstile</option>
+                        <option value="recaptcha" selected={submission.captchaProvider === "recaptcha"}>recaptcha</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label for="sub_captchaSecretRef">Secret ref</label>
+                      <input type="text" id="sub_captchaSecretRef" data-sub="captchaSecretRef" value={subStr("captchaSecretRef")} placeholder={"{{CAPTCHA_SECRET}}"} />
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="sub_rateLimitMax">Rate limit (per IP)</label>
+                      <input type="number" id="sub_rateLimitMax" data-sub="rateLimitMax" data-sub-type="number" min="1" value={subStr("rateLimitMax")} placeholder="off" />
+                    </div>
+                    <div class="form-group">
+                      <label for="sub_rateLimitWindowSeconds">Window (seconds)</label>
+                      <input type="number" id="sub_rateLimitWindowSeconds" data-sub="rateLimitWindowSeconds" data-sub-type="number" min="60" value={subStr("rateLimitWindowSeconds")} placeholder="3600" />
+                    </div>
+                  </div>
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="sub_notify" data-sub="notify" checked={submission.notify !== false} />
+                    Emit <code>form_submission_received</code> (workflows, notifications)
+                  </label>
+                </fieldset>
               </div>
             </details>
-            <input type="hidden" name="capabilities_json" id="capabilities_json" />
+            <input type="hidden" name="capabilities_json" id="capabilities_json" value={JSON.stringify(capabilities)} />
           </div>
 
           {/* Recipe (authoring) */}
@@ -189,9 +293,35 @@ const recipeStr = Object.keys(recipe).length ? JSON.stringify(recipe, null, 2) :
             <details id="recipe-details" open={Object.keys(recipe).length > 0}>
               <summary class="section-heading">Recipe (authoring)</summary>
               <div class="config-fields">
+                <label for="recipe_instructions" style="display:block;font-weight:600;margin:0 0 4px;">Authoring instructions</label>
+                <p style="margin:0 0 6px;color:var(--muted);font-size:13px;">
+                  Plain-language directions the AI follows when composing this type. e.g. "A short
+                  navigation page. No images. One-line blurb linking to a URL."
+                </p>
+                <textarea
+                  id="recipe_instructions"
+                  rows="4"
+                  placeholder="Describe how to author this type…"
+                  style="width:100%;font-size:14px;line-height:1.5;padding:10px;box-sizing:border-box;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg);color:var(--ink);margin-bottom:14px;"
+                >{recipeInstructions}</textarea>
+
+                <label for="recipe_voice" style="display:block;font-weight:600;margin:0 0 4px;">Voice</label>
+                <p style="margin:0 0 6px;color:var(--muted);font-size:13px;">
+                  Overrides the tone for AI drafts of this type. e.g. "Warm and first person; short sentences."
+                  Leave blank to use the tone.
+                </p>
+                <input
+                  id="recipe_voice"
+                  type="text"
+                  value={recipeVoice}
+                  placeholder="How drafts of this type should sound…"
+                  style="width:100%;font-size:14px;padding:9px 10px;box-sizing:border-box;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg);color:var(--ink);margin-bottom:14px;"
+                />
+
+                <label for="recipe_json" style="display:block;font-weight:600;margin:0 0 4px;">Structured contract</label>
                 <p style="margin:0 0 8px;color:var(--muted);font-size:13px;">
-                  What to gather &amp; derive to build one — assets contract (min/max + roles like
-                  hero/gallery, with derive), resource extraction, enrichment. JSON for now.
+                  What to gather &amp; derive — assets contract (min/max + roles like hero/gallery, with
+                  derive), resource extraction, enrichment. JSON for now.
                 </p>
                 <textarea
                   name="recipe_json"
@@ -212,10 +342,13 @@ const recipeStr = Object.keys(recipe).length ? JSON.stringify(recipe, null, 2) :
             </div>
           )}
 
-          <div class="form-actions">
-            <button type="submit" class="button">Save Changes</button>
-            <a href="/workspace/entry-types" class="button secondary">Cancel</a>
-          </div>
+          </fieldset>
+          {canManage && (
+            <div class="form-actions">
+              <button type="submit" class="button">Save Changes</button>
+              <a href="/workspace/entry-types" class="button secondary">Cancel</a>
+            </div>
+          )}
         </form>
       </section>
     </>
@@ -345,6 +478,22 @@ const recipeStr = Object.keys(recipe).length ? JSON.stringify(recipe, null, 2) :
     padding-top: 1rem;
   }
 
+  .submission-settings {
+    margin-top: 0.75rem;
+    padding: 0.75rem 1rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    display: grid;
+    gap: 0.75rem;
+  }
+  .submission-settings legend {
+    font-weight: 600;
+    padding: 0 0.4rem;
+  }
+  .submission-settings .form-row {
+    align-items: end;
+  }
+
   .checkbox-label {
     display: flex;
     align-items: center;
@@ -368,6 +517,8 @@ const recipeStr = Object.keys(recipe).length ? JSON.stringify(recipe, null, 2) :
 </style>
 
 <script>
+  import { foldRecipe } from '@/lib/recipeForm';
+
   function syncRenderingJson() {
     const name = (document.getElementById('renderer_name') as HTMLInputElement)?.value.trim();
     const pkg = (document.getElementById('renderer_package') as HTMLInputElement)?.value.trim();
@@ -385,14 +536,52 @@ const recipeStr = Object.keys(recipe).length ? JSON.stringify(recipe, null, 2) :
     });
   }
 
-  function syncCapabilitiesJson() {
-    const hidden = document.getElementById('capabilities_json') as HTMLInputElement;
-    hidden.value = JSON.stringify({
-      publishable: (document.getElementById('cap_publishable') as HTMLInputElement).checked,
-      submittable: (document.getElementById('cap_submittable') as HTMLInputElement).checked,
-      routable: (document.getElementById('cap_routable') as HTMLInputElement).checked,
-    });
+  // The hidden input is seeded with the stored capabilities so anything this form doesn't edit
+  // (future keys, hand-written submission settings) survives a save instead of being rebuilt away.
+  const capabilitiesHidden = document.getElementById('capabilities_json') as HTMLInputElement;
+  let storedCapabilities: Record<string, unknown> = {};
+  try { storedCapabilities = JSON.parse(capabilitiesHidden.value || '{}'); } catch { storedCapabilities = {}; }
+  const storedSubmission = (storedCapabilities.submission ?? {}) as Record<string, unknown>;
+
+  function readSubmissionSettings(): Record<string, unknown> {
+    const out: Record<string, unknown> = { ...storedSubmission };
+    for (const el of document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-sub]')) {
+      const key = el.dataset.sub as string;
+      if (el instanceof HTMLInputElement && el.type === 'checkbox') {
+        out[key] = el.checked;
+      } else if (el.dataset.subType === 'number') {
+        out[key] = el.value.trim() === '' ? null : Number(el.value);
+      } else {
+        out[key] = el.value.trim() === '' ? null : el.value.trim();
+      }
+    }
+    return out;
   }
+
+  function syncCapabilitiesJson() {
+    const submittable = (document.getElementById('cap_submittable') as HTMLInputElement).checked;
+    const submissionFieldset = document.getElementById('submission-settings') as HTMLFieldSetElement | null;
+    if (submissionFieldset) submissionFieldset.hidden = !submittable;
+    const next: Record<string, unknown> = {
+      ...storedCapabilities,
+      publishable: (document.getElementById('cap_publishable') as HTMLInputElement).checked,
+      submittable,
+      routable: (document.getElementById('cap_routable') as HTMLInputElement).checked,
+    };
+    if (submittable) next.submission = readSubmissionSettings();
+    capabilitiesHidden.value = JSON.stringify(next);
+  }
+
+  // Fold the prose Instructions and Voice boxes back into recipe_json on save (they're edited separately so
+  // authors don't have to hand-write the "instructions" / "enrichment.voice" keys inside the JSON).
+  function syncRecipeJson() {
+    const instr = (document.getElementById('recipe_instructions') as HTMLTextAreaElement)?.value ?? '';
+    const voice = (document.getElementById('recipe_voice') as HTMLInputElement)?.value ?? '';
+    const jsonEl = document.getElementById('recipe_json') as HTMLTextAreaElement;
+    const folded = foldRecipe(jsonEl.value, instr, voice);
+    if (folded !== null) jsonEl.value = folded;  // invalid JSON goes as typed, for the server to reject
+  }
+  document.querySelector('form[action*="/update"]')?.addEventListener('submit', syncRecipeJson);
 
   document.getElementById('renderer_name')?.addEventListener('input', syncRenderingJson);
   document.getElementById('renderer_package')?.addEventListener('input', syncRenderingJson);
@@ -400,6 +589,10 @@ const recipeStr = Object.keys(recipe).length ? JSON.stringify(recipe, null, 2) :
   document.getElementById('cap_publishable')?.addEventListener('change', syncCapabilitiesJson);
   document.getElementById('cap_submittable')?.addEventListener('change', syncCapabilitiesJson);
   document.getElementById('cap_routable')?.addEventListener('change', syncCapabilitiesJson);
+  for (const el of document.querySelectorAll('[data-sub]')) {
+    el.addEventListener('input', syncCapabilitiesJson);
+    el.addEventListener('change', syncCapabilitiesJson);
+  }
 
   const isRenderedCheckbox = document.getElementById('is_rendered') as HTMLInputElement;
   const renderingDetails = document.getElementById('rendering-details') as HTMLDetailsElement;

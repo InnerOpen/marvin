@@ -1,0 +1,10 @@
+{
+  "name": "Codex",
+  "description": "a chubby blue cloud-shaped robot with a dark rounded screen for a face that shows cyan terminal-prompt eyes like '>_', the same glyphs on its belly, and short stubby arms and legs",
+  "style": "glossy chibi",
+  "rules": [
+    "blue all over, cloud-shaped puffy outline",
+    "the face is a dark screen; its eyes are cyan terminal glyphs ('>_', '_<', '^ ^')",
+    "cyan glyphs on the belly"
+  ]
+}

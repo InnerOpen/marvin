@@ -1,0 +1,2364 @@
+---
+import RecipeDialog from "@/components/RecipeDialog.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { listIntegrations } from "@/lib/api/integrations";
+import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import { createSdkClient } from "@/lib/sdk";
+
+const authToken = getAuthToken(Astro.cookies);
+const sdk = createSdkClient(authToken);
+
+let workspace: any = null;
+let automations: any[] = [];
+let options: any = { triggers: [], conditionOps: [], actionKinds: [], operations: [] };
+let integrationNames: Record<string, string> = {};
+let error: string | null = null;
+
+try {
+  workspace = await getCurrentWorkspace(authToken);
+  if (workspace) {
+    let integrations: any[] = [];
+    [automations, options, integrations] = await Promise.all([
+      sdk.automations.list(),
+      sdk.automations.options(),
+      // Names for the "Installed by" badge; without them the badge just says "an integration".
+      listIntegrations(authToken).catch(() => []),
+    ]);
+    integrationNames = Object.fromEntries((integrations ?? []).map((i: any) => [i.id, i.name]));
+  }
+} catch (e) {
+  console.error("[workflows] Error loading:", e);
+  error = e instanceof Error ? e.message : String(e);
+}
+
+// Serialize server data for the client script (read via JSON.parse, so the module script can import).
+const optionsJson = JSON.stringify(options).replace(/</g, "\\u003c");
+const listJson = JSON.stringify(automations).replace(/</g, "\\u003c");
+const integrationNamesJson = JSON.stringify(integrationNames).replace(/</g, "\\u003c");
+const aiActionsAvailable = (options.operations ?? []).length > 0;
+---
+
+<AppLayout crumb="automation.workflows">
+ <div class="workflows-page">
+  <div class="toolbar">
+    <div>
+      <h2>Workflows</h2>
+      <p>When something happens, run steps automatically — no code. AI steps are optional.</p>
+    </div>
+    <div class="toolbar-actions">
+      <button id="wf-from-recipe" class="button secondary">Start from a recipe…</button>
+      <button id="wf-new" class="button">New workflow</button>
+    </div>
+  </div>
+
+  <div class="page-container">
+    {error && <div class="banner error">{error}</div>}
+
+    {!aiActionsAvailable && (
+      <div class="banner info">
+        AI actions aren’t available — <a href="/workspace/settings/ai-workflow">enable AI</a> (and allow the
+        <strong>Workflows</strong> invocation source) to add steps like “generate summary”. Event, task, and webhook steps work regardless.
+      </div>
+    )}
+
+    <!-- Builder (hidden until New/Edit) -->
+    <section id="wf-builder" class="builder" hidden>
+      <div class="builder-head">
+        <h3 id="wf-builder-title">New workflow</h3>
+        <button id="wf-json-toggle" type="button" class="linkish">Edit as JSON</button>
+      </div>
+      <div id="wf-recipe-note" class="banner info" hidden></div>
+
+      <div class="form-field">
+        <label class="label" for="wf-name">Name</label>
+        <input class="input" id="wf-name" placeholder="Summarize published bench notes" />
+      </div>
+
+      <div id="wf-guided">
+        <div class="form-field">
+          <label class="label" for="wf-trigger-type">Trigger</label>
+          <select class="input" id="wf-trigger-type"></select>
+        </div>
+
+        <div class="form-field" id="wf-event-field">
+          <label class="label" for="wf-trigger">On event</label>
+          <select class="input" id="wf-trigger"></select>
+          <span class="hint">The event that starts the workflow.</span>
+        </div>
+        <p class="hint" id="wf-manual-hint" hidden>Runs when you press <strong>Run</strong> on the workflow (or via the API). No event needed.</p>
+        <div class="form-field" id="wf-inputs-field" hidden>
+          <span class="label">Ask when it runs <span class="muted">(optional — steps read them as <code>{"${input.<name>}"}</code>; an <em>entry</em> is the entry the run works on)</span></span>
+          <div id="wf-inputs" class="rows"></div>
+          <button type="button" class="linkish" id="wf-add-input">+ Add input</button>
+        </div>
+        <p class="hint" id="wf-mcp-hint" hidden>Exposed as a named MCP tool (<code>marvin_wf_&lt;slug&gt;</code>) so external MCP hosts can run it. Also runnable via <strong>Run</strong>.</p>
+
+        <div class="form-field" id="wf-schedule-field" hidden>
+          <label class="label" for="wf-sched-kind">Runs</label>
+          <select class="input" id="wf-sched-kind">
+            <option value="interval">Every few minutes, hours or days</option>
+            <option value="cron">At set times (cron)</option>
+          </select>
+          <div class="inline" id="wf-cron-fields" hidden>
+            <input class="input mono" id="wf-cron-expr" placeholder="0 9 * * 1  (Mondays at 9:00)" spellcheck="false" />
+            <input class="input" id="wf-cron-tz" placeholder="America/New_York" spellcheck="false" />
+          </div>
+          <div class="inline" id="wf-interval-fields">
+            <input class="input" id="wf-sched-n" type="number" min="1" value="1" />
+            <select class="input" id="wf-sched-unit">
+              <option value="60">minutes</option>
+              <option value="3600">hours</option>
+              <option value="86400" selected>days</option>
+            </select>
+          </div>
+          <span class="hint">How often to run it. Adds a task to your Scheduler.</span>
+        </div>
+
+        <div class="form-field" id="wf-chained-field" hidden>
+          <label class="label" for="wf-chained-target">Workflow</label>
+          <select class="input" id="wf-chained-target"></select>
+          <span class="hint" id="wf-chained-hint">Runs after the selected workflow completes.</span>
+        </div>
+
+        <div class="form-field" id="wf-webhook-field" hidden>
+          <label class="label" for="wf-webhook-target">Incoming webhook</label>
+          <select class="input" id="wf-webhook-target"></select>
+          <span class="hint">Runs when this webhook receives a POST. Read the payload with <code>$event.payload.*</code>. Manage webhooks under <a href="/automation/incoming-webhooks">Incoming Webhooks</a>.</span>
+        </div>
+
+        <div class="form-field target-block">
+          <label class="check"><input type="checkbox" id="wf-target-on" /> Run on a query <span class="muted">(instead of the triggering item) — runs the steps on each match</span></label>
+          <div id="wf-target-body" hidden>
+            <div class="target-grid">
+              <label class="tf"><span>Of</span>
+                <select class="input" id="wf-t-entity">
+                  <option value="entry">Entries</option>
+                  <option value="asset">Assets</option>
+                  <option value="resource">Resources</option>
+                </select>
+              </label>
+              <label class="tf" data-for="entry"><span>Entry type</span><input class="input" id="wf-t-type" placeholder="any — e.g. recipe" /></label>
+              <label class="tf" data-for="entry"><span>Status</span>
+                <select class="input" id="wf-t-status">
+                  <option value="">any</option>
+                  <option value="draft">draft</option>
+                  <option value="published">published</option>
+                  <option value="archived">archived</option>
+                  <option value="inbox">inbox</option>
+                  <option value="trashed">in the Trash</option>
+                </select>
+              </label>
+              <label class="tf" data-for="asset"><span>Asset type</span>
+                <select class="input" id="wf-t-asset-type">
+                  <option value="">any</option>
+                  {["image", "svg", "document", "video", "audio", "archive", "other"].map((type) => <option value={type}>{type}</option>)}
+                </select>
+              </label>
+              <label class="tf" data-for="asset"><span>MIME type</span><input class="input" id="wf-t-mime" placeholder="any — e.g. image/svg+xml" /></label>
+              <label class="tf" data-for="resource"><span>Resource type</span><input class="input" id="wf-t-resource-type" placeholder="any — e.g. supplier" /></label>
+              <label class="tf"><span id="wf-t-text-label">Title contains</span><input class="input" id="wf-t-text" placeholder="any" /></label>
+              <label class="tf"><span>In collection</span><input class="input" id="wf-t-collection" placeholder="any — slug or name" /></label>
+              <label class="tf" data-for="asset resource"><span>Tagged</span><input class="input" id="wf-t-tags" placeholder="any — tags, comma-separated" /></label>
+              <label class="tf" data-for="asset"><span>Versions</span>
+                <select class="input" id="wf-t-versions" title="Versions are the crops, sizes, conversions and grades a media step made from another image">
+                  <option value="">originals only</option>
+                  <option value="all">originals and versions</option>
+                  <option value="true">only versions</option>
+                </select>
+              </label>
+              <label class="tf" data-for="asset resource"><span>Used by an entry</span>
+                <select class="input" id="wf-t-unattached">
+                  <option value="">either</option>
+                  <option value="true">no — unattached</option>
+                  <option value="false">yes — attached</option>
+                </select>
+              </label>
+            </div>
+            <div class="target-checks" data-for="asset resource">
+              <label class="check small"><input type="checkbox" id="wf-t-trashed" /> in the Trash <span class="muted">(only Trash items — a Restore target)</span></label>
+            </div>
+            <div class="target-checks" data-for="entry">
+              <label class="check small"><input type="checkbox" id="wf-t-images" /> has images</label>
+              <label class="check small"><input type="checkbox" id="wf-t-assets" /> has assets</label>
+              <label class="check small"><input type="checkbox" id="wf-t-resources" /> has resources</label>
+            </div>
+            <div class="tf target-meta" data-for="entry">
+              <span>Metadata equals <span class="muted">(key = value; values may be templates like <code>{"${event.payload.id}"}</code>)</span></span>
+              <div id="wf-t-meta"></div>
+            </div>
+            <div class="tf target-meta" data-for="entry">
+              <span>Fields equal <span class="muted">(a field key of the entry type and the value it must equal — narrows the query before the 250-entry cap)</span></span>
+              <div id="wf-t-data"></div>
+            </div>
+            <div class="target-preview-row">
+              <button type="button" class="button secondary sm" id="wf-preview-btn">Preview matches</button>
+              <span class="hint" id="wf-preview-status"></span>
+            </div>
+            <div id="wf-preview-result" class="preview-result" hidden></div>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label class="label">Only if <span class="muted">(all conditions must match — optional)</span></label>
+          <div id="wf-conditions" class="rows"></div>
+          <button type="button" class="linkish" id="wf-add-condition">+ Add condition</button>
+        </div>
+
+        <div class="form-field">
+          <label class="label">Then do <span class="muted">(steps run in order; each can use the previous step’s output)</span></label>
+          <div id="wf-actions" class="rows"></div>
+          <button type="button" class="linkish" id="wf-add-action">+ Add step</button>
+          <p id="wf-on-failure-note" class="hint small" hidden></p>
+        </div>
+      </div>
+
+      <div id="wf-json-editor" hidden>
+        <div class="form-field">
+          <label class="label" for="wf-json">Workflow JSON</label>
+          <textarea class="input mono" id="wf-json" rows="16" spellcheck="false"></textarea>
+          <span class="hint">
+            The definition — <code>{`{"trigger": {…}, "conditions": […], "actions": […]}`}</code> — or a whole workflow:
+            <code>{`{"name": "Archive old drafts", "definition": {…}}`}</code> (what <strong>Copy JSON</strong> on a
+            workflow gives you). A pasted <code>name</code> fills the Name field; <code>enabled</code> is ignored, so a
+            new workflow stays off until you tick Enabled.
+          </span>
+          <span class="hint" id="wf-json-note" hidden></span>
+        </div>
+      </div>
+
+      <label class="check"><input type="checkbox" id="wf-enabled" /> Enabled</label>
+
+      <div id="wf-warnings" class="banner warn" hidden></div>
+      <div id="wf-error" class="banner error" hidden></div>
+
+      <div class="builder-actions">
+        <button id="wf-save" class="button">Save workflow</button>
+        <button id="wf-cancel" class="button secondary" type="button">Cancel</button>
+        <span id="wf-status" class="status"></span>
+      </div>
+    </section>
+
+    <!-- Workflow list -->
+    <div id="wf-list" class="wf-list"></div>
+    <div id="wf-empty" class="empty" hidden>No workflows yet. Create one to automate a repetitive step.</div>
+  </div>
+
+  <script type="application/json" id="wf-options-data" is:inline set:html={optionsJson}></script>
+  <script type="application/json" id="wf-list-data" is:inline set:html={listJson}></script>
+  <script type="application/json" id="wf-integration-names" is:inline set:html={integrationNamesJson}></script>
+  <RecipeDialog />
+ </div>
+</AppLayout>
+
+<script>
+  import WORKFLOW_LABELS from "@/lib/workflowLabels.json";
+  import {
+    createAutomation,
+    updateAutomation,
+    deleteAutomation,
+    startAutomation,
+    dryRunAutomation,
+    listDryRunSamples,
+    validateAutomation,
+    previewAutomation,
+    listAutomationExecutions,
+    getAutomationExecution,
+  } from "@/lib/api/automations";
+  import { listIntegrations, listProviders, type ProviderInfo } from "@/lib/api/integrations";
+  import { installLogoFallback, markHtml } from "@/lib/integrationLogo";
+  import { getArg, hintedInputs, optionsHint, setArg } from "@/lib/integrationOptions";
+  import { optionPicker } from "@/lib/integrationOptionPicker";
+  import { fetchApi } from "@/lib/api/client";
+  import { ANSWER_KINDS, type AnswerField, fieldsFromSchema, SEE_LABELS, schemaFromFields } from "@/lib/customStep";
+  import { ASPECTS, filledRows, GRADE_PRESETS, MEDIA_FIELDS, MEDIA_OPS, mediaFields, OP_FIELDS, type RenderTemplate, SOURCE_LABELS, type SourceMode, sourceChoice, sourceFromChoice, templateRows, WATERMARK_POSITIONS } from "@/lib/mediaStep";
+  import RENDER_TEMPLATES_JSON from "@/lib/renderTemplates.json";
+  const RENDER_TEMPLATES = RENDER_TEMPLATES_JSON as Record<string, RenderTemplate>;
+  import { triggerableEvents, triggerFromQuery } from "@/lib/eventConnections";
+  import { describeSaveError } from "@/lib/saveError";
+  import { definitionDifferences, freeSlug, parseWorkflowJson, workflowDocument } from "@/lib/workflowJson";
+
+  const read = (id: string) => JSON.parse(document.getElementById(id)!.textContent || "null");
+  const OPTIONS = read("wf-options-data") || { triggers: [], conditionOps: [], actionKinds: [], operations: [] };
+  let workflows: any[] = read("wf-list-data") || [];
+  const INTEGRATION_NAMES: Record<string, string> = read("wf-integration-names") || {};
+
+  const $ = (id: string) => document.getElementById(id)!;
+  const esc = (s: unknown) =>
+    String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+
+  const builder = $("wf-builder");
+  const guided = $("wf-guided");
+  const jsonEditor = $("wf-json-editor");
+  const statusEl = $("wf-status");
+  let editingId: string | null = null; // null = creating
+  let fromRecipe: string | null = null; // the Library recipe a new workflow was started from: recorded when it's saved
+  let jsonMode = false;
+  let pastedSlug: string | null = null; // a slug from pasted workflow JSON; only a new workflow can use it
+
+  // A blocking problem (bad JSON, a refused save), listed under the builder.
+  function showError(message: string, issues: string[] = []) {
+    const el = $("wf-error");
+    el.innerHTML = `${esc(message)}${issues.length ? `<ul>${issues.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>` : ""}`;
+    el.removeAttribute("hidden");
+    statusEl.textContent = "";
+  }
+  function clearError() { $("wf-error").setAttribute("hidden", ""); }
+
+  // ── Option-driven controls ────────────────────────────────────────────────
+  const prettyEvent = (e: string) => e.replace(/_/g, " ");
+  const TRIGGER_TYPE_LABELS: Record<string, string> = WORKFLOW_LABELS.triggerTypes;
+  function webhookName(ref: string | undefined): string {
+    if (!ref || ref === "any") return "any incoming webhook";
+    const w = (OPTIONS.incomingWebhooks || []).find((x: any) => x.slug === ref || x.id === ref);
+    return w ? w.name : ref;
+  }
+  function automationName(ref: string | undefined): string {
+    if (!ref || ref === "any") return "any workflow";
+    const a = (OPTIONS.automations || []).find((x: any) => x.slug === ref || x.id === ref);
+    return a ? a.name : ref;
+  }
+  function humanInterval(secs: number): string {
+    if (!secs) return "—";
+    const [n, unit] = secs % 86400 === 0 ? [secs / 86400, "day"]
+      : secs % 3600 === 0 ? [secs / 3600, "hour"]
+      : [Math.max(1, Math.round(secs / 60)), "minute"];
+    return `${n} ${unit}${n === 1 ? "" : "s"}`;
+  }
+
+  function fillTriggers() {
+    const typeSel = $("wf-trigger-type") as HTMLSelectElement;
+    typeSel.innerHTML = (OPTIONS.triggerTypes || ["event"])
+      .map((t: string) => `<option value="${esc(t)}">${esc(TRIGGER_TYPE_LABELS[t] || t)}</option>`)
+      .join("");
+    const evSel = $("wf-trigger") as HTMLSelectElement;
+    const groups = OPTIONS.triggerGroups as Record<string, string[]> | undefined;
+    if (groups && Object.keys(groups).length) {
+      // Grouped by family (Entries/Assets/Forms/…) — 26 events read better as optgroups.
+      evSel.innerHTML = Object.entries(groups)
+        .map(([label, evs]) => `<optgroup label="${esc(label)}">${
+          evs.map((t) => `<option value="${esc(t)}">${esc(prettyEvent(t))}</option>`).join("")
+        }</optgroup>`).join("");
+    } else {
+      evSel.innerHTML = (OPTIONS.triggers || [])
+        .map((t: string) => `<option value="${esc(t)}">${esc(prettyEvent(t))}</option>`).join("");
+    }
+    const chSel = $("wf-chained-target") as HTMLSelectElement;
+    chSel.innerHTML = `<option value="any">Any workflow</option>` +
+      (OPTIONS.automations || []).map((a: any) => `<option value="${esc(a.slug)}">${esc(a.name)}</option>`).join("");
+    const whSel = $("wf-webhook-target") as HTMLSelectElement;
+    whSel.innerHTML = `<option value="any">Any incoming webhook</option>` +
+      (OPTIONS.incomingWebhooks || []).map((w: any) =>
+        `<option value="${esc(w.slug)}">${esc(w.name)}${w.hasToken ? "" : " (no token yet)"}</option>`).join("");
+  }
+  function syncTriggerType() {
+    const t = ($("wf-trigger-type") as HTMLSelectElement).value;
+    const isChain = t === "chained" || t === "on_error";
+    $("wf-event-field").toggleAttribute("hidden", t !== "event");
+    $("wf-manual-hint").toggleAttribute("hidden", t !== "manual");
+    $("wf-inputs-field").toggleAttribute("hidden", t !== "manual");
+    syncScheduleKind();
+    $("wf-mcp-hint").toggleAttribute("hidden", t !== "mcp");
+    $("wf-schedule-field").toggleAttribute("hidden", t !== "schedule");
+    $("wf-chained-field").toggleAttribute("hidden", !isChain);
+    $("wf-webhook-field").toggleAttribute("hidden", t !== "incoming_webhook");
+    if (isChain) {
+      $("wf-chained-hint").textContent = t === "on_error"
+        ? "Runs when the selected workflow fails."
+        : "Runs after the selected workflow completes.";
+    }
+    populateFieldDatalist(t);
+    revalidate();
+  }
+
+  function syncScheduleKind() {
+    const cron = ($("wf-sched-kind") as HTMLSelectElement).value === "cron";
+    $("wf-cron-fields").toggleAttribute("hidden", !cron);
+    $("wf-interval-fields").toggleAttribute("hidden", cron);
+  }
+
+  /** The Run form: one field per input. Resolves to the values by name, or null when cancelled. */
+  function askRunInputs(name: string, asks: any[]): Promise<Record<string, unknown> | null> {
+    return new Promise((done) => {
+      const dialog = document.createElement("dialog");
+      dialog.className = "run-inputs";
+      const field = (spec: any) => {
+        const label = esc(spec.label || spec.name);
+        const req = spec.required === false ? "" : "required";
+        if (spec.type === "choice") {
+          const opts = (spec.options ?? []).map((o: string) => `<option ${String(spec.default ?? "") === o ? "selected" : ""}>${esc(o)}</option>`).join("");
+          return `<label class="tf"><span>${label}</span><select class="input" name="${esc(spec.name)}" ${req}>${req ? "" : "<option value=''>—</option>"}${opts}</select></label>`;
+        }
+        const type = spec.type === "number" ? "number" : "text";
+        const hint = spec.type === "entry" ? "the entry's slug (from its URL) or id" : spec.description ?? "";
+        return `<label class="tf"><span>${label}${hint ? ` <span class="muted">(${esc(hint)})</span>` : ""}</span>
+          <input class="input" type="${type}" name="${esc(spec.name)}" value="${esc(spec.default ?? "")}" ${req} ${type === "number" ? 'step="any"' : ""} /></label>`;
+      };
+      dialog.innerHTML = `<form method="dialog"><h3>Run “${esc(name)}”</h3>${asks.map(field).join("")}
+        <div class="run-inputs-actions"><button type="button" class="button secondary" value="cancel">Cancel</button><button class="button" value="run">Run</button></div></form>`;
+      const form = dialog.querySelector("form")!;
+      form.querySelector("[value=cancel]")!.addEventListener("click", () => dialog.close("cancel"));
+      dialog.addEventListener("close", () => {
+        const values = Object.fromEntries([...new FormData(form).entries()].filter(([, v]) => String(v).trim() !== ""));
+        dialog.remove();
+        done(dialog.returnValue === "run" ? values : null);
+      });
+      document.body.appendChild(dialog);
+      dialog.showModal();
+    });
+  }
+
+  // ── Run inputs (a manual trigger's `inputs`: what the Run form asks for) ───
+  const INPUT_TYPES: [string, string][] = [["text", "Text"], ["choice", "One of a list"], ["number", "Number"], ["entry", "An entry (the run works on it)"]];
+  function inputRow(spec: any = {}) {
+    const row = document.createElement("div");
+    row.className = "row input-row";
+    const type = spec.type ?? "text";
+    row.innerHTML = `
+      <div class="input-grid">
+        <input class="input mono i-name" value="${esc(spec.name ?? "")}" placeholder="name, e.g. style" spellcheck="false" />
+        <input class="input i-label" value="${esc(spec.label ?? "")}" placeholder="Label, e.g. Remix it as" />
+        <select class="input i-type">${INPUT_TYPES.map(([v, l]) => `<option value="${v}" ${type === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+        <label class="check small"><input type="checkbox" class="i-required" ${spec.required === false ? "" : "checked"} /> required</label>
+        <button type="button" class="icon-btn" title="Remove input">✕</button>
+      </div>
+      <input class="input i-options" value="${esc((spec.options ?? []).join(", "))}" placeholder="Options, comma-separated: a haiku, a fairy tale" ${type === "choice" ? "" : "hidden"} />`;
+    const typeSel = row.querySelector(".i-type") as HTMLSelectElement;
+    typeSel.addEventListener("change", () => (row.querySelector(".i-options") as HTMLElement).toggleAttribute("hidden", typeSel.value !== "choice"));
+    row.querySelector(".icon-btn")!.addEventListener("click", () => { row.remove(); revalidate(); });
+    return row;
+  }
+  function readInputs(): any[] {
+    return [...document.querySelectorAll("#wf-inputs .input-row")].map((r) => {
+      const val = (sel: string) => (r.querySelector(sel) as HTMLInputElement).value.trim();
+      const name = val(".i-name").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+      if (!name) return null;
+      const type = val(".i-type");
+      const spec: any = { name, type };
+      if (val(".i-label")) spec.label = val(".i-label");
+      if (type === "choice") spec.options = val(".i-options").split(",").map((o) => o.trim()).filter(Boolean);
+      if (!(r.querySelector(".i-required") as HTMLInputElement).checked) spec.required = false;
+      return spec;
+    }).filter(Boolean);
+  }
+
+  // ── Live coherence check (advisory) ───────────────────────────────────────
+  let revalidateTimer: any;
+  function revalidate() {
+    clearTimeout(revalidateTimer);
+    revalidateTimer = setTimeout(runRevalidate, 350);
+  }
+  async function runRevalidate() {
+    const banner = $("wf-warnings");
+    if (jsonMode) { banner.setAttribute("hidden", ""); return; }  // JSON mode: don't fight the editor
+    let def: any;
+    try { def = readDefinition(); } catch { banner.setAttribute("hidden", ""); return; }
+    try {
+      const res = await validateAutomation(def);
+      const issues = res?.issues ?? [];
+      if (!issues.length) { banner.setAttribute("hidden", ""); banner.innerHTML = ""; return; }
+      banner.innerHTML = `<strong>Heads up:</strong><ul>${
+        issues.map((i: any) => `<li>${esc(i.message)}</li>`).join("")
+      }</ul><span class="warn-note">These are warnings — you can still save.</span>`;
+      banner.removeAttribute("hidden");
+    } catch {
+      banner.setAttribute("hidden", "");  // never block the builder on the validator
+    }
+  }
+  const KIND_LABELS: Record<string, string> = WORKFLOW_LABELS.stepKinds;
+  const ENTRY_OP_LABELS: Record<string, string> = WORKFLOW_LABELS.entryOps;
+  const COLLECTION_OPS = new Set(["add_to_collection", "remove_from_collection"]);
+  // Trash / restore also act on an asset or a resource (entity_type); every other op is entries only.
+  const ITEM_OPS = new Set(["trash", "restore"]);
+  const METADATA_OPS = new Set(["set_metadata", "create"]);
+  const DATA_OPS = new Set(["set_data", "create"]);
+  const CREATE_OPS = new Set(["create"]); // makes a new entry: no target, its type/title/status instead
+  const REVIEW_OPS = new Set(["request_review"]);
+  const TARGET_MODE_HINTS: Record<string, string> = {
+    default: "Acts on the triggering item (or each item a Run-on target matches).",
+    slug: "Point at one entry by slug — a literal or a template such as <code>$event.payload.entry_slug</code>.",
+    id: "Point at one entry by id — <code>${person.id}</code> for each item of a Repeat, or <code>${steps.&lt;id&gt;.output.entry_id}</code> for one this run created.",
+    query: "Find exactly one entry at run time. Same keys as Run-on: <code>entry_type</code>, <code>status</code>, <code>text</code>, <code>collection</code>, <code>metadata</code> — values may be <code>${event…}</code> / <code>${steps.&lt;id&gt;.output…}</code> templates.",
+  };
+  // The action object each step row was opened with. Saving overlays the form's fields onto it, so
+  // anything the form can't edit (id, input, config, body, a raw-url webhook…) survives a round trip.
+  const ORIGINAL_ACTION = new WeakMap<Element, any>();
+  let originalTarget: any = null;  // same idea for the top-level `target` selector
+  // …and for top-level keys the builder has no fields for (`on_failure`), so a guided save keeps them.
+  const BUILDER_KEYS = new Set(["trigger", "target", "conditions", "actions"]);
+  let originalExtras: Record<string, unknown> = {};
+  const COND_OP_LABELS: Record<string, string> = WORKFLOW_LABELS.conditionOps;
+  // Most-useful-first (backend returns kinds alphabetically). New steps default to the first
+  // available — an AI operation when AI is on, otherwise the first non-AI kind.
+  const KIND_ORDER = ["operation", "entry", "media", "collect", "repeat", "fetch", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
+  // A repeat's inner steps: a run can't park mid-loop, so no wait, approval or repeat inside (backend: NOT_INSIDE).
+  const NOT_IN_REPEAT = new Set(["wait", "approval", "repeat"]);
+  const orderedKinds = (): string[] => {
+    const avail = OPTIONS.actionKinds || [];
+    return KIND_ORDER.filter((k) => avail.includes(k)).concat(avail.filter((k: string) => !KIND_ORDER.includes(k)));
+  };
+  const defaultKind = (): string =>
+    (OPTIONS.operations || []).length ? "operation" : (orderedKinds().find((k) => k !== "operation") || orderedKinds()[0] || "operation");
+
+  // ── Condition rows ────────────────────────────────────────────────────────
+  function conditionRow(c: any = {}) {
+    const row = document.createElement("div");
+    row.className = "row cond-row";
+    const ops = (OPTIONS.conditionOps || []).map((o: string) => `<option value="${esc(o)}" ${c.op === o ? "selected" : ""}>${esc(COND_OP_LABELS[o] || o)}</option>`).join("");
+    row.innerHTML = `
+      <input class="input c-field" list="wf-fields" placeholder="entry.entry_type" value="${esc(c.field ?? "")}" />
+      <select class="input c-op">${ops}</select>
+      <input class="input c-value" placeholder="value" value="${esc(c.value ?? "")}" />
+      <button type="button" class="icon-btn" title="Remove">✕</button>`;
+    row.querySelector(".icon-btn")!.addEventListener("click", () => { row.remove(); revalidate(); });
+    return row;
+  }
+
+  // The workspace's entry types, for "Create an entry" — loaded once, on first use, into a datalist.
+  let entryTypesLoaded = false;
+  async function loadEntryTypes() {
+    if (entryTypesLoaded) return;
+    entryTypesLoaded = true;
+    try {
+      const types: any[] = await fetchApi("/api/platform/entry-types");
+      const dl = document.createElement("datalist");
+      dl.id = "wf-entry-types";
+      dl.innerHTML = (Array.isArray(types) ? types : (types as any)?.items ?? [])
+        .map((t: any) => `<option value="${esc(t.slug)}">${esc(t.name)}</option>`).join("");
+      document.body.appendChild(dl);
+    } catch { entryTypesLoaded = false; } // free text still works
+  }
+
+  // ── A step's `when`: condition rows like the workflow's own, or JSON for a grouped one ({any}, {not}…) ──
+  function isLeaf(c: any): boolean {
+    return !!c && typeof c === "object" && typeof c.field === "string" && !("all" in c || "any" in c || "not" in c);
+  }
+  function whenEditor(when: any): HTMLElement {
+    const wrap = document.createElement("div");
+    const list = when == null ? [] : Array.isArray(when) ? when : [when];
+    if (!list.every(isLeaf)) {
+      wrap.innerHTML = `<textarea class="input mono a-when-json" rows="4" spellcheck="false">${esc(JSON.stringify(when, null, 2))}</textarea>`;
+      return wrap;
+    }
+    const rows = document.createElement("div");
+    rows.className = "rows a-when-rows";
+    list.forEach((c) => rows.appendChild(conditionRow(c)));
+    const add = document.createElement("button");
+    add.type = "button"; add.className = "linkish"; add.textContent = "+ Add condition";
+    add.addEventListener("click", () => rows.appendChild(conditionRow()));
+    wrap.append(rows, add);
+    return wrap;
+  }
+  function withWhen(step: any, row: Element | undefined): any {
+    const json = row?.querySelector(":scope > .a-when .a-when-json") as HTMLTextAreaElement | null;
+    if (json) {
+      const text = json.value.trim();
+      if (!text) delete step.when;
+      else {
+        try { step.when = JSON.parse(text); } catch (e: any) { throw new Error(`A step's “Only run when”: ${e.message}`); }
+      }
+      return step;
+    }
+    const conds = [...(row?.querySelectorAll(":scope > .a-when .a-when-rows .cond-row") ?? [])].map((r) => {
+      const field = (r.querySelector(".c-field") as HTMLInputElement).value.trim();
+      return field ? { field, op: (r.querySelector(".c-op") as HTMLSelectElement).value, value: (r.querySelector(".c-value") as HTMLInputElement).value } : null;
+    }).filter(Boolean);
+    if (conds.length) step.when = conds.length === 1 ? conds[0] : conds;
+    else delete step.when;
+    return step;
+  }
+
+  // ── Key/value list editor (entry metadata to set, target metadata filter) ─
+  function kvRow(key = "", value: unknown = "") {
+    const row = document.createElement("div");
+    row.className = "kv-row";
+    // Non-string values (numbers, booleans, objects) show as JSON; if the text is left untouched the
+    // original value is written back unchanged, so a round trip never retypes it as a string.
+    const text = typeof value === "string" ? value : JSON.stringify(value);
+    if (typeof value !== "string") row.dataset.orig = text;
+    row.innerHTML = `
+      <input class="input kv-key" placeholder="key" value="${esc(key)}" />
+      <input class="input kv-value" placeholder="value" value="${esc(text)}" />
+      <button type="button" class="icon-btn" title="Remove">✕</button>`;
+    row.querySelector(".icon-btn")!.addEventListener("click", () => { row.remove(); revalidate(); });
+    return row;
+  }
+  function kvEditor(entries: Record<string, unknown> | undefined, addLabel = "+ Add key"): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "kv-editor";
+    const rows = document.createElement("div");
+    rows.className = "kv-rows";
+    Object.entries(entries || {}).forEach(([k, v]) => rows.appendChild(kvRow(k, v)));
+    const add = document.createElement("button");
+    add.type = "button"; add.className = "linkish"; add.textContent = addLabel;
+    add.addEventListener("click", () => rows.appendChild(kvRow()));
+    wrap.append(rows, add);
+    return wrap;
+  }
+  // A custom AI step's answer fields: name, kind, what it's for — one row each (customStep.ts builds the schema).
+  function answerFieldsEditor(fields: AnswerField[]): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "af-editor";
+    const rows = document.createElement("div");
+    const row = (f: AnswerField = { name: "", kind: "text", description: "" }) => {
+      const r = document.createElement("div");
+      r.className = "af-row";
+      r.innerHTML = `<input class="input af-name" placeholder="name, e.g. caption" value="${esc(f.name)}" />
+        <select class="input af-kind">${ANSWER_KINDS.map((k) => `<option ${k === f.kind ? "selected" : ""}>${k}</option>`).join("")}</select>
+        <input class="input af-desc" placeholder="what it's for (optional)" value="${esc(f.description)}" />
+        <button type="button" class="linkish af-remove" title="Remove">✕</button>`;
+      r.querySelector(".af-remove")!.addEventListener("click", () => r.remove());
+      return r;
+    };
+    fields.forEach((f) => rows.appendChild(row(f)));
+    const add = document.createElement("button");
+    add.type = "button"; add.className = "linkish"; add.textContent = "+ Add answer field";
+    add.addEventListener("click", () => rows.appendChild(row()));
+    wrap.append(rows, add);
+    return wrap;
+  }
+  function readAnswerFields(editor: Element | null): AnswerField[] {
+    return [...(editor?.querySelectorAll(".af-row") ?? [])].map((r) => ({
+      name: (r.querySelector(".af-name") as HTMLInputElement).value,
+      kind: (r.querySelector(".af-kind") as HTMLSelectElement).value as AnswerField["kind"],
+      description: (r.querySelector(".af-desc") as HTMLInputElement).value,
+    }));
+  }
+
+  function readKv(editor: Element | null): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    editor?.querySelectorAll(".kv-row").forEach((r) => {
+      const key = (r.querySelector(".kv-key") as HTMLInputElement).value.trim();
+      if (!key) return;
+      const text = (r.querySelector(".kv-value") as HTMLInputElement).value;
+      const orig = (r as HTMLElement).dataset.orig;
+      out[key] = orig !== undefined && orig === text ? JSON.parse(orig) : text;
+    });
+    return out;
+  }
+
+  // Parse a JSON-object textarea; the error carries a label so save() can say which step is wrong.
+  function parseJsonObject(text: string | undefined, label: string): any {
+    const raw = (text || "").trim();
+    if (!raw) throw new Error(`${label}: enter a JSON query, or choose another target.`);
+    let parsed: any;
+    try { parsed = JSON.parse(raw); } catch (e: any) { throw new Error(`${label}: ${e.message}`); }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error(`${label}: must be a JSON object such as {"entry_type": "post"}.`);
+    }
+    return parsed;
+  }
+
+  // The schedule a workflow was opened with: a kind the form doesn't edit (once) is saved back unchanged.
+  let ORIGINAL_SCHEDULE: any = null;
+
+  // ── Action rows (kind-dependent fields) ───────────────────────────────────
+  function actionRow(a: any = {}, inner = false) {
+    const row = document.createElement("div");
+    row.className = "row action-row";
+    ORIGINAL_ACTION.set(row, a);
+    const selectedKind = a.kind || defaultKind();
+    const aiOpsAvailable = (OPTIONS.operations || []).length > 0;
+    const kinds = orderedKinds()
+      .filter((k: string) => !inner || !NOT_IN_REPEAT.has(k) || k === selectedKind)
+      .map((k: string) => {
+        // Mark the AI-operation kind unavailable when AI/the automation source is off — unless this
+        // step already is an operation (so an existing step still renders + can be fixed).
+        const off = k === "operation" && !aiOpsAvailable && selectedKind !== "operation";
+        const label = KIND_LABELS[k] || k;
+        return `<option value="${esc(k)}" ${selectedKind === k ? "selected" : ""} ${off ? "disabled" : ""}>${esc(label)}${off ? " (needs AI)" : ""}</option>`;
+      })
+      .join("");
+    row.innerHTML = `
+      <div class="action-head">
+        <span class="a-num" aria-hidden="true"></span>
+        <select class="input a-kind">${kinds}</select>
+        <label class="a-id-wrap small" title="A short name later steps use to read this step's result: \${steps.<id>.output…}">id
+          <input class="input a-id" value="${esc(a.id ?? "")}" placeholder="e.g. story" spellcheck="false" autocomplete="off" /></label>
+        <button type="button" class="icon-btn" title="Remove step">✕</button>
+      </div>
+      <div class="a-fields"></div>
+      <div class="a-key hint small" hidden></div>
+      <details class="a-when" ${a.when ? "open" : ""}>
+        <summary class="small">Only run this step when…${a.when ? " (set)" : ""}</summary>
+        <div class="a-when-body"></div>
+        <span class="hint small">Same as the workflow's conditions, and it can read earlier steps' answers, e.g. <code>steps.check.output.is_spam</code>. When it isn't met the step is skipped (not failed) and the run goes on. Two steps with opposite conditions make an if/else.</span>
+      </details>`;
+    row.querySelector(".a-when-body")!.appendChild(whenEditor(a.when));
+    const kindSel = row.querySelector(".a-kind") as HTMLSelectElement;
+    const fields = row.querySelector(".a-fields") as HTMLElement;
+    const renderKey = () => stepKey(row, kindSel.value);
+    const render = () => { fields.innerHTML = ""; fields.appendChild(kindFields(kindSel.value, a)); renderKey(); };
+    kindSel.addEventListener("change", () => render());
+    // The key follows what's typed: the id, an AI step's answer fields, a media or entry op.
+    row.addEventListener("input", (e) => { if (!(e.target as HTMLElement).closest(".a-when")) renderKey(); });
+    row.addEventListener("change", (e) => { if (!(e.target as HTMLElement).closest(".a-when")) renderKey(); });
+    row.querySelector(".a-key")!.addEventListener("click", (e) => {
+      const chip = (e.target as HTMLElement).closest(".ref-chip") as HTMLElement | null;
+      if (!chip) return;
+      navigator.clipboard?.writeText(chip.dataset.ref ?? "").then(() => {
+        chip.classList.add("copied");
+        setTimeout(() => chip.classList.remove("copied"), 1200);
+      }, () => {});
+    });
+    row.querySelector(".icon-btn")!.addEventListener("click", () => { row.remove(); revalidate(); });
+    render();
+    return row;
+  }
+
+  // ── The step key: what later steps write to read this step's result ──────────
+  /** The output keys a step of this kind (and op) gives later steps — `${steps.<id>.output.<key>}`. */
+  function stepOutputs(kind: string, row: HTMLElement): string[] {
+    const op = (row.querySelector(".a-op") as HTMLSelectElement | null)?.value;
+    switch (kind) {
+      case "operation": // a custom step's answer fields, as named in the form
+        return [...row.querySelectorAll(".af-name")].map((i) => (i as HTMLInputElement).value.trim()).filter(Boolean);
+      case "entry":
+        return op === "create" ? ["entry_id", "slug"] : [];
+      case "collect":
+        return ["text", "count", "rows", "total"];
+      case "fetch":
+        return (row.querySelector(".a-f-links") as HTMLInputElement | null)?.value.trim()
+          ? ["broken_count", "text", "checked"]
+          : ["ok", "status", "title", "text", "found"];
+      case "media": {
+        const mediaOp = (row.querySelector(".a-media-op") as HTMLSelectElement | null)?.value;
+        if (mediaOp === "inspect") return ["width", "height", "sharpness", "orientation"];
+        if (mediaOp === "palette") return ["colors"];
+        if (mediaOp === "extract_text") return ["text", "page_count", "pages"];
+        if (mediaOp === "find_sensitive") return ["count", "regions"];
+        if (mediaOp === "pages") return ["asset.id", "assets", "page_count"];
+        if (mediaOp === "redact") return ["count", "asset.id"];
+        if (mediaOp === "zip") return ["asset.id", "asset.url", "files"];
+        return ["asset.id", "asset.url"];
+      }
+      case "approval":
+        return ["decision"];
+      case "wait":
+        return ["waited_until", "late"];
+      case "repeat":
+        return ["count", "done", "failed", "results"];
+      case "webhook":
+        return ["status_code", "body"];
+      default:
+        return [];
+    }
+  }
+
+  function stepKey(row: HTMLElement, kind: string) {
+    // The row's own box and id — a repeat row holds inner steps with theirs.
+    const box = row.querySelector(":scope > .a-key") as HTMLElement;
+    const keys = stepOutputs(kind, row);
+    box.hidden = keys.length === 0;
+    if (!keys.length) return;
+    const id = (row.querySelector(":scope > .action-head .a-id") as HTMLInputElement).value.trim();
+    if (!id) {
+      box.innerHTML = `To use this step's result later (${keys.map((k) => `<code>${esc(k)}</code>`).join(", ")}), give it an <b>id</b> above.`;
+      return;
+    }
+    const chips = keys
+      .map((k) => { const ref = "${steps." + id + ".output." + k + "}"; return `<button type="button" class="ref-chip" data-ref="${esc(ref)}" title="Copy">${esc(ref)}</button>`; })
+      .join(" ");
+    box.innerHTML = `Use its result: ${chips} <span class="muted">— click to copy. In “Only run this step when…” write it without <code>\${ }</code>: <code>steps.${esc(id)}.output.${esc(keys[0])}</code>.</span>`;
+  }
+
+  // ── Integration steps: the workspace's connections and their providers, loaded once on first use.
+  // They only enrich the step (logo, suggestions, option pickers); without them it stays free text.
+  type IntegrationCatalog = { bySlug: Map<string, any>; providers: Map<string, ProviderInfo> };
+  let integrationCatalog: Promise<IntegrationCatalog> | null = null;
+  function loadIntegrationCatalog(): Promise<IntegrationCatalog> {
+    integrationCatalog ??= Promise.all([listIntegrations(), listProviders()])
+      .then(([integrations, providers]) => {
+        const list = document.getElementById("wf-integrations");
+        if (list) {
+          list.innerHTML = integrations
+            .map((i: any) => `<option value="${esc(i.slug)}" label="${esc(i.name)}"></option>`)
+            .join("");
+        }
+        return {
+          bySlug: new Map(integrations.map((i: any) => [i.slug, i])),
+          providers: new Map(providers.map((p) => [p.slug, p])),
+        };
+      })
+      .catch(() => ({ bySlug: new Map(), providers: new Map() }));
+    return integrationCatalog;
+  }
+  let integrationRowSeq = 0;
+
+  function integrationFields(wrap: HTMLElement, a: any) {
+    const listId = `wf-int-actions-${++integrationRowSeq}`;
+    wrap.innerHTML = `
+      <div class="a-int-head">
+        <span class="a-int-mark"></span>
+        <input class="input a-integration" list="wf-integrations" placeholder="integration slug, e.g. square" value="${esc(a.integration ?? "")}" />
+      </div>
+      <input class="input a-int-action" list="${listId}" placeholder="${a.capability ? `capability: ${esc(a.capability)} (or pick an action)` : "action, e.g. create_listing"}" value="${esc(a.action ?? "")}" />
+      <datalist id="${listId}"></datalist>
+      <div class="a-int-pickers"></div>
+      <textarea class="input mono a-int-args" rows="4" spellcheck="false" placeholder='{"slug": "\${event.entry.slug}"}'>${esc(a.args && Object.keys(a.args).length ? JSON.stringify(a.args, null, 2) : "")}</textarea>
+      <span class="hint small">Runs one action of a workspace integration. To use its result in a later step, give this step an <b>id</b> (next to its kind), then read <code>\${steps.&lt;id&gt;.output…}</code>.</span>
+      <label class="tf"><span>Picture to edit <span class="muted">(actions that edit a picture, e.g. OpenAI Images edit: \${asset.id}, \${entry.image}, role:hero, or an earlier step's \${steps.&lt;id&gt;.output.asset.id} — the result is kept as a version of it)</span></span>
+        <input class="input a-int-source" placeholder="leave blank for actions that make a new picture" value="${esc(a.source ?? "")}" /></label>
+      <label class="tf"><span>Attach as <span class="muted">(actions that make images: link each picture to the entry in this role, e.g. cover-variant)</span></span>
+        <input class="input a-int-attach" placeholder="leave blank to only keep them in Assets" value="${esc(a.attach_as ?? "")}" /></label>
+      <label class="tf"><span>Tag them <span class="muted">(actions that make images; comma-separated)</span></span>
+        <input class="input a-int-tags" placeholder="e.g. generated, cover-ideas" value="${esc((a.tags ?? []).join(", "))}" /></label>`;
+    const slugInput = wrap.querySelector(".a-integration") as HTMLInputElement;
+    const actionInput = wrap.querySelector(".a-int-action") as HTMLInputElement;
+    const argsInput = wrap.querySelector(".a-int-args") as HTMLTextAreaElement;
+    const pickers = wrap.querySelector(".a-int-pickers") as HTMLElement;
+
+    const sync = async () => {
+      const { bySlug, providers } = await loadIntegrationCatalog();
+      const integration = bySlug.get(slugInput.value.trim());
+      const provider = integration ? providers.get(integration.provider) : undefined;
+      (wrap.querySelector(".a-int-mark") as HTMLElement).innerHTML = markHtml(provider);
+      installLogoFallback();
+      (wrap.querySelector(`#${listId}`) as HTMLElement).innerHTML = (provider?.actions ?? [])
+        .map((act) => `<option value="${esc(act.key)}" label="${esc(act.label)}"></option>`)
+        .join("");
+      // Inputs whose valid values come from the service (`x-marvin-options`) get a picker that writes
+      // into the arguments JSON; everything else stays in the JSON.
+      pickers.replaceChildren();
+      const action = provider?.actions?.find((act) => act.key === actionInput.value.trim());
+      for (const key of integration && action ? hintedInputs(action.inputSchema) : []) {
+        const prop = (action!.inputSchema!.properties as Record<string, any>)[key];
+        const source = provider!.actions.find((act) => act.key === optionsHint(prop)!.action);
+        const field = document.createElement("div");
+        field.className = "tf";
+        field.innerHTML = `<span>${esc(prop.title || key)} <span class="muted">(from ${esc(source?.label ?? "the integration")})</span></span>`;
+        const warn = document.createElement("small");
+        warn.className = "hint small";
+        const current = getArg(argsInput.value, key);
+        field.appendChild(
+          optionPicker({
+            integrationId: integration.id,
+            actionKey: action!.key,
+            input: key,
+            value: typeof current === "object" ? undefined : current,
+            onChange: (value) => {
+              const next = setArg(argsInput.value, key, value);
+              warn.textContent = next === null ? "Fix the arguments JSON below to use this picker." : "";
+              if (next !== null) {
+                argsInput.value = next;
+                revalidate();
+              }
+            },
+          }),
+        );
+        field.appendChild(warn);
+        pickers.appendChild(field);
+      }
+    };
+    slugInput.addEventListener("change", () => void sync());
+    actionInput.addEventListener("change", () => void sync());
+    void sync();
+  }
+
+  // "Process an image": the op picks which fields show; the picture comes from the run's asset, an earlier step's
+  // image, the entry's image in a role, or a named asset (lib/mediaStep.ts).
+  function mediaStepFields(wrap: HTMLElement, a: any) {
+    const src = sourceChoice(a.source);
+    const opt = (v: string, label: string, cur: unknown) => `<option value="${esc(v)}" ${String(cur ?? "") === v ? "selected" : ""}>${esc(label)}</option>`;
+    const num = (k: string, label: string, hint = "") =>
+      `<label class="tf a-m-field" data-field="${k}"><span>${label}${hint ? ` <span class="muted">${hint}</span>` : ""}</span><input class="input a-m-${k}" type="number" value="${esc(a[k] ?? "")}" /></label>`;
+    wrap.innerHTML = `
+      <select class="input a-media-op">${MEDIA_OPS.map((o) => opt(o.op, o.label, a.op ?? "resize")).join("")}</select>
+      <div class="a-m-render">
+        <label class="tf"><span>Template</span>
+          <select class="input a-m-template">${Object.entries(RENDER_TEMPLATES).map(([slug, t]) => opt(slug, t.label, a.template ?? (a.html ? "" : "card"))).join("")}${opt("", "My own HTML…", a.html ? "" : "x")}</select></label>
+        <span class="hint small a-m-template-about"></span>
+        <label class="tf a-m-html-wrap"><span>HTML and CSS <span class="muted">— use {{ fields.name }} for text and {{ images.name }} as an image URL; no scripts or outside links (they're blocked)</span></span>
+          <textarea class="input mono a-m-html" rows="8" spellcheck="false" placeholder="<div style=&quot;font: 60px sans-serif&quot;>{{ fields.title }}</div>">${esc(a.html ?? "")}</textarea></label>
+        <div class="tf"><span>Text <span class="muted">(templates allowed, e.g. \${entry.title})</span></span><div class="a-m-fields-wrap"></div></div>
+        <div class="tf"><span>Pictures <span class="muted">(\${entry.image} for the entry's main picture, role:hero, an asset id or slug, or \${steps.&lt;id&gt;.output.asset.id})</span></span><div class="a-m-images-wrap"></div></div>
+      </div>
+      <div class="tf a-m-source-wrap"><span>Which picture</span>
+        <select class="input a-media-source">${(Object.entries(SOURCE_LABELS) as [SourceMode, string][]).map(([m, l]) => opt(m, l, src.mode)).join("")}</select>
+        <input class="input a-media-source-value" value="${esc(src.value)}" /></div>
+      ${num("width", "Width (px)", "— at most; never scales up")}
+      ${num("height", "Height (px)", "— at most")}
+      <label class="tf a-m-field" data-field="fit"><span>Fit</span><select class="input a-m-fit">${opt("inside", "Keep the whole picture inside the box", a.fit ?? "inside")}${opt("cover", "Fill the box exactly (trims the edges)", a.fit)}</select></label>
+      <label class="tf a-m-field" data-field="aspect"><span>Shape</span><input class="input a-m-aspect" list="wf-media-aspects" placeholder="1:1, 4:5, 16:9…" value="${esc(a.aspect ?? "")}" /></label>
+      <datalist id="wf-media-aspects">${ASPECTS.map((x) => `<option value="${x}"></option>`).join("")}</datalist>
+      <label class="tf a-m-field" data-field="focus"><span>Centre on</span><select class="input a-m-focus">${opt("center", "The middle", a.focus ?? "center")}${opt("subject", "The subject (asks the AI model; the middle without one)", a.focus)}</select></label>
+      <label class="tf a-m-field" data-field="preset"><span>Preset</span><input class="input a-m-preset" list="wf-media-presets" placeholder="warm" value="${esc(a.preset ?? "")}" /></label>
+      <datalist id="wf-media-presets">${GRADE_PRESETS.map((x) => `<option value="${x}"></option>`).join("")}</datalist>
+      <label class="tf a-m-field" data-field="format"><span>Format</span><select class="input a-m-format">${opt("", "Keep the picture's format (a printable template: PDF)", a.format ?? "")}${["jpeg", "png", "webp"].map((f) => opt(f, f.toUpperCase(), a.format)).join("")}${opt("pdf", "PDF — a render, printed", a.format)}</select></label>
+      ${num("quality", "Quality", "1–100, default 90 (JPEG and WebP)")}
+      ${num("colors", "How many colours", "1–16, default 5")}
+      <label class="tf a-m-field" data-field="ocr"><span>Scanned pages and photos</span><select class="input a-m-ocr">${opt("auto", "Read them with the AI model (one call per page)", a.ocr ?? "auto")}${opt("never", "Skip them — the PDF's own text only (free)", a.ocr)}</select></label>
+      ${num("page", "From page", "default 1")}
+      ${num("count", "How many pages", "1–10, default 1")}
+      <label class="tf a-m-field" data-field="find"><span>Look for <span class="muted">(comma-separated: face, plate, text — blank for all)</span></span><input class="input a-m-find" value="${esc((a.find ?? []).join(", "))}" /></label>
+      <label class="tf a-m-field" data-field="text"><span>Watermark text <span class="muted">(templates allowed, e.g. © \${site.url})</span></span><input class="input a-m-text" value="${esc(a.text ?? "")}" placeholder="© Your name" /></label>
+      <label class="tf a-m-field" data-field="logo"><span>Logo <span class="muted">(optional: an asset id or slug — a transparent PNG works best)</span></span><input class="input a-m-logo" value="${esc(a.logo ?? "")}" /></label>
+      <label class="tf a-m-field" data-field="position"><span>Where</span><select class="input a-m-position">${WATERMARK_POSITIONS.map(([v, l]) => opt(v, l, a.position ?? "bottom-right")).join("")}</select></label>
+      ${num("opacity", "Opacity (%)", "1–100, default 60")}
+      ${num("size", "Size (% of the picture's width)", "default 25")}
+      <label class="tf a-m-field" data-field="files"><span>Files <span class="muted">(a gather step's rows — entries bring their attached files — or assets: \${steps.&lt;id&gt;.output.rows})</span></span><input class="input a-m-files" value="${esc(typeof a.files === "string" ? a.files : "")}" /></label>
+      <label class="tf a-m-field" data-field="name"><span>Archive name <span class="muted">(templates allowed)</span></span><input class="input a-m-name" value="${esc(a.name ?? "")}" /></label>
+      <label class="tf a-m-field" data-field="boxes"><span>What to blur <span class="muted">(blank: the AI model finds it; or an earlier step's \${steps.&lt;id&gt;.output.regions})</span></span><input class="input a-m-boxes" value="${esc(typeof a.boxes === "string" ? a.boxes : a.boxes ? JSON.stringify(a.boxes) : "")}" /></label>
+      <label class="tf a-m-attach-wrap"><span>Attach as <span class="muted">(link the new picture to the entry in this role, e.g. square — needs a run about an entry)</span></span>
+        <input class="input a-m-attach" value="${esc(a.attach_as ?? "")}" /></label>
+      <label class="tf a-m-attach-wrap"><span>On entry <span class="muted">(optional: an entry id or slug, e.g. \${steps.draft.output.entry_id} for one this run created — blank: the run's entry)</span></span>
+        <input class="input a-m-attach-to" value="${esc(a.attach_to ?? "")}" /></label>
+      <label class="tf a-m-tags-wrap"><span>Tag it <span class="muted">(comma-separated, e.g. web-sizes — find them in the library and smart collections)</span></span>
+        <input class="input a-m-tags" value="${esc((a.tags ?? []).join(", "))}" /></label>
+      <span class="hint small a-m-hint"></span>`;
+    const tplSel = wrap.querySelector(".a-m-template") as HTMLSelectElement;
+    // A template's own text and pictures as rows (what it takes, blank until filled); "My own HTML" keeps the step's.
+    const fillRenderRows = () => {
+      const t = RENDER_TEMPLATES[tplSel.value];
+      const fieldNames = t ? Object.keys(t.fields) : [];
+      const imageNames = t ? Object.keys(t.images) : [];
+      const fieldsWrap = wrap.querySelector(".a-m-fields-wrap")!;
+      const imagesWrap = wrap.querySelector(".a-m-images-wrap")!;
+      const keep = (w: Element, from: Record<string, unknown> | undefined) => (w.querySelector(".kv-row") ? readKv(w) : from);
+      fieldsWrap.replaceChildren(kvEditor(templateRows(fieldNames, keep(fieldsWrap, a.fields)), "+ Add text"));
+      imagesWrap.replaceChildren(kvEditor(templateRows(imageNames, keep(imagesWrap, a.images)), "+ Add picture"));
+      const star = (specs: Record<string, { required?: boolean }>) => Object.entries(specs).map(([k, v]) => (v.required ? `${k}*` : k)).join(", ");
+      (wrap.querySelector(".a-m-template-about") as HTMLElement).textContent = t
+        ? `${t.description} ${t.width}×${t.height} unless you set a size. Text: ${star(t.fields) || "none"}. Pictures: ${star(t.images) || "none"}. (* needed)`
+        : "Your own page, screenshotted at the size you set (1080×1080 by default).";
+      (wrap.querySelector(".a-m-html-wrap") as HTMLElement).hidden = !!t;
+    };
+    tplSel.addEventListener("change", fillRenderRows);
+    fillRenderRows();
+    const opSel = wrap.querySelector(".a-media-op") as HTMLSelectElement;
+    const srcSel = wrap.querySelector(".a-media-source") as HTMLSelectElement;
+    const srcVal = wrap.querySelector(".a-media-source-value") as HTMLInputElement;
+    const sync = () => {
+      const op = opSel.value;
+      const makes = MEDIA_OPS.find((o) => o.op === op)?.makesImage;
+      wrap.querySelectorAll<HTMLElement>(".a-m-field").forEach((el) => { el.hidden = !OP_FIELDS[op].includes(el.dataset.field!); });
+      wrap.querySelectorAll<HTMLElement>(".a-m-attach-wrap").forEach((el) => (el.hidden = !makes));
+      (wrap.querySelector(".a-m-tags-wrap") as HTMLElement).hidden = !makes;
+      (wrap.querySelector(".a-m-hint") as HTMLElement).innerHTML = makes
+        ? "Saves a new asset (the original is never changed) and reuses it when the same picture gets the same treatment again. Later steps read <code>\${steps.&lt;step id&gt;.output.asset.id}</code>; give this step an id."
+        : "Reads the picture and writes nothing. Later steps (and “Only run this step when…”) read <code>\${steps.&lt;step id&gt;.output…}</code>, e.g. <code>steps.check.output.sharpness</code> is less than 60.";
+      srcVal.hidden = srcSel.value === "current";
+      (wrap.querySelector(".a-m-render") as HTMLElement).hidden = op !== "render";
+      (wrap.querySelector(".a-m-source-wrap") as HTMLElement).hidden = op === "render" || op === "zip";
+      srcVal.placeholder = srcSel.value === "step" ? "the earlier step's id, e.g. square" : srcSel.value === "role" ? "the role, e.g. hero" : "the asset's id or slug";
+    };
+    opSel.addEventListener("change", sync);
+    srcSel.addEventListener("change", sync);
+    sync();
+  }
+
+  function kindFields(kind: string, a: any): HTMLElement {
+    const wrap = document.createElement("div");
+    if (kind === "operation") {
+      const ops = (OPTIONS.operations || []);
+      if (!ops.length) {
+        // Empty when AI is off OR the `automation` invocation source is disabled for this workspace.
+        wrap.innerHTML = `<p class="muted small">AI operations aren't available here — AI is off, or the
+          <strong>Workflows</strong> invocation source is turned off. Turn it on in
+          <a href="/workspace/settings/ai-workflow">AI Settings</a>.</p>`;
+        return wrap;
+      }
+      const optList = ops.map((o: any) => `<option value="${esc(o.op)}" ${a.op === o.op ? "selected" : ""}>${esc(o.name)}</option>`).join("");
+      const isCustom = a.op === "custom";
+      // A write-back map (an asset's alt_text, a custom step's answer fields) is edited as rows; `true` stays a checkbox.
+      const wbMap = a.write_back && typeof a.write_back === "object" ? a.write_back : null;
+      const answerFields = fieldsFromSchema(a.output_schema);
+      const see = new Set<string>(a.see ?? ["item"]);
+      wrap.innerHTML = `
+        <select class="input a-op">${optList}</select>
+        <input class="input a-entity-slug" placeholder="Target entry by slug — e.g. $event.payload.entry_slug" value="${esc(a.entity_slug ?? "")}" />
+        <span class="hint small">Which entry to run on. Leave blank to use the triggering entry; for a webhook, point at one by slug (e.g. <code>$event.payload.entry_slug</code>).</span>
+        <div class="a-custom" ${isCustom ? "" : "hidden"}>
+          <label class="tf"><span>Instructions for the AI <span class="muted">(templates such as \${entry.title} are filled in when it runs)</span></span>
+            <textarea class="input a-prompt" rows="5" placeholder="e.g. Write one open question readers of \${entry.title} could discuss.">${esc(a.prompt ?? "")}</textarea></label>
+          <div class="tf"><span>Answer fields <span class="muted">(what the AI must return — later steps read them as \${steps.&lt;step id&gt;.output.&lt;name&gt;}; give this step an id)</span></span>
+            <div class="a-answer-fields"></div>
+            <textarea class="input mono a-schema" rows="6" spellcheck="false" ${answerFields ? "hidden" : ""}>${answerFields ? "" : esc(JSON.stringify(a.output_schema ?? {}, null, 2))}</textarea>
+          </div>
+          <div class="tf"><span>Let the AI see</span>
+            ${Object.entries(SEE_LABELS).map(([k, label]) => `<label class="check small"><input type="checkbox" class="a-see" value="${k}" ${see.has(k) ? "checked" : ""}/> ${esc(label)}</label>`).join("")}
+          </div>
+        </div>
+        <label class="check small a-writeback-wrap" ${isCustom || wbMap ? "hidden" : ""}><input type="checkbox" class="a-writeback" ${a.write_back === true ? "checked" : ""}/> Write the result back to the entry</label>
+        <div class="tf a-wbmap-wrap" ${isCustom || wbMap ? "" : "hidden"}><span>Write back <span class="muted">(answer field → on an entry summary, tags or metadata.&lt;key&gt;; on an asset alt_text, description, name, tags; follows the approval mode)</span></span></div>`;
+      wrap.querySelector(".a-wbmap-wrap")!.appendChild(kvEditor(wbMap ?? undefined, "+ Add a field to write"));
+      if (answerFields) wrap.querySelector(".a-answer-fields")!.appendChild(answerFieldsEditor(answerFields));
+      const opSel = wrap.querySelector(".a-op") as HTMLSelectElement;
+      opSel.addEventListener("change", () => {
+        const custom = opSel.value === "custom";
+        wrap.querySelector(".a-custom")!.toggleAttribute("hidden", !custom);
+        wrap.querySelector(".a-writeback-wrap")!.toggleAttribute("hidden", custom || !!wbMap);
+        wrap.querySelector(".a-wbmap-wrap")!.toggleAttribute("hidden", !(custom || wbMap));
+        if (custom && !wrap.querySelector(".a-answer-fields .af-row") && (wrap.querySelector(".a-schema") as HTMLElement).hidden) {
+          wrap.querySelector(".a-answer-fields")!.replaceChildren(answerFieldsEditor([{ name: "", kind: "text", description: "" }]));
+        }
+      });
+    } else if (kind === "entry") {
+      const opList = Object.entries(ENTRY_OP_LABELS)
+        .map(([op, label]) => `<option value="${esc(op)}" ${a.op === op ? "selected" : ""}>${esc(label)}</option>`).join("");
+      const targetMode = a.entity_query ? "query" : a.entity_slug ? "slug" : a.entity_id ? "id" : "default";
+      const modeOpt = (v: string, label: string) => `<option value="${v}" ${targetMode === v ? "selected" : ""}>${label}</option>`;
+      wrap.innerHTML = `
+        <select class="input a-op">${opList}</select>
+        <label class="a-entity-type-wrap tf" ${ITEM_OPS.has(a.op) ? "" : "hidden"}><span>Acts on <span class="muted">(name an entry, asset or resource by slug, or leave it to the current item)</span></span>
+          <select class="input a-entity-type">
+            ${[["", "The current item (Run-on match or trigger)"], ["entry", "Entry"], ["asset", "Asset"], ["resource", "Resource"]]
+              .map(([v, label]) => `<option value="${v}" ${(a.entity_type ?? "") === v ? "selected" : ""}>${label}</option>`).join("")}
+          </select></label>
+        <div class="a-create-wrap" ${CREATE_OPS.has(a.op) ? "" : "hidden"}>
+          <label class="tf"><span>Entry type <span class="muted">(its slug)</span></span>
+            <input class="input a-entry-type" list="wf-entry-types" placeholder="e.g. article" value="${esc(a.entry_type ?? "")}" /></label>
+          <label class="tf"><span>Title <span class="muted">(templates allowed, e.g. Follow-up: \${entry.title})</span></span>
+            <input class="input a-title" value="${esc(a.title ?? "")}" /></label>
+          <label class="tf"><span>Status</span>
+            <select class="input a-status">${["draft", "inbox"].map((v) => `<option ${(a.status ?? "draft") === v ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+          <span class="hint small">Later steps read the new entry as <code>\${steps.&lt;step id&gt;.output.entry_id}</code>; to publish it, add a Publish step with that as its target. The same event handled twice makes it once.</span>
+        </div>
+        <div class="a-meta-wrap tf" ${METADATA_OPS.has(a.op) ? "" : "hidden"}><span>Metadata to set <span class="muted">(merged into the entry's metadata)</span></span></div>
+        <div class="a-data-wrap tf" ${DATA_OPS.has(a.op) ? "" : "hidden"}><span>Fields to set <span class="muted">(field keys of the entry type and their new values — validated; checkbox and number values may be typed as text)</span></span></div>
+        <label class="a-collection-wrap tf" ${COLLECTION_OPS.has(a.op) ? "" : "hidden"}><span>Collection</span>
+          <input class="input a-collection" placeholder="slug or name — e.g. featured" value="${esc(a.collection_slug ?? "")}" /></label>
+        <label class="a-reason-wrap tf" ${REVIEW_OPS.has(a.op) ? "" : "hidden"}><span>Reason <span class="muted">(optional — shown with the entry in the review queue)</span></span>
+          <input class="input a-reason" placeholder="e.g. Refused: \${error.message}" value="${esc(a.reason ?? "")}" /></label>
+        <div class="a-target-wrap tf" ${CREATE_OPS.has(a.op) ? "hidden" : ""}><span>Target entry</span>
+          <select class="input a-target-mode">
+            ${modeOpt("default", "Triggering entry (default)")}
+            ${modeOpt("slug", "By slug")}
+            ${modeOpt("id", "By id")}
+            ${modeOpt("query", "By query (find exactly one)")}
+          </select>
+          <input class="input a-entity-id" placeholder="e.g. \${person.id}" value="${esc(a.entity_id ?? "")}" ${targetMode === "id" ? "" : "hidden"} spellcheck="false" />
+          <input class="input a-entity-slug" placeholder="e.g. $event.payload.entry_slug" value="${esc(a.entity_slug ?? "")}" ${targetMode === "slug" ? "" : "hidden"} />
+          <textarea class="input mono a-entity-query" rows="4" spellcheck="false" ${targetMode === "query" ? "" : "hidden"}>${esc(a.entity_query ? JSON.stringify(a.entity_query, null, 2) : "")}</textarea>
+          <label class="check small a-if-none-wrap" ${targetMode === "query" ? "" : "hidden"}><input type="checkbox" class="a-if-none-skip" ${a.if_none === "skip" ? "checked" : ""}/> If no entry matches, skip this step instead of failing the run</label>
+          <span class="hint small a-target-hint">${TARGET_MODE_HINTS[targetMode]}</span>
+        </div>`;
+      wrap.querySelector(".a-meta-wrap")!.appendChild(kvEditor(a.metadata, "+ Add field"));
+      wrap.querySelector(".a-data-wrap")!.appendChild(kvEditor(a.data, "+ Add field"));
+      // Show only the fields the chosen op / target mode actually uses.
+      const opSel = wrap.querySelector(".a-op") as HTMLSelectElement;
+      opSel.addEventListener("change", () => {
+        wrap.querySelector(".a-collection-wrap")!.toggleAttribute("hidden", !COLLECTION_OPS.has(opSel.value));
+        wrap.querySelector(".a-entity-type-wrap")!.toggleAttribute("hidden", !ITEM_OPS.has(opSel.value));
+        wrap.querySelector(".a-reason-wrap")!.toggleAttribute("hidden", !REVIEW_OPS.has(opSel.value));
+        wrap.querySelector(".a-meta-wrap")!.toggleAttribute("hidden", !METADATA_OPS.has(opSel.value));
+        wrap.querySelector(".a-data-wrap")!.toggleAttribute("hidden", !DATA_OPS.has(opSel.value));
+        wrap.querySelector(".a-create-wrap")!.toggleAttribute("hidden", !CREATE_OPS.has(opSel.value));
+        wrap.querySelector(".a-target-wrap")!.toggleAttribute("hidden", CREATE_OPS.has(opSel.value));
+        if (CREATE_OPS.has(opSel.value)) loadEntryTypes();
+      });
+      if (CREATE_OPS.has(a.op)) loadEntryTypes();
+      const modeSel = wrap.querySelector(".a-target-mode") as HTMLSelectElement;
+      modeSel.addEventListener("change", () => {
+        wrap.querySelector(".a-entity-slug")!.toggleAttribute("hidden", modeSel.value !== "slug");
+        wrap.querySelector(".a-entity-id")!.toggleAttribute("hidden", modeSel.value !== "id");
+        wrap.querySelector(".a-entity-query")!.toggleAttribute("hidden", modeSel.value !== "query");
+        wrap.querySelector(".a-if-none-wrap")!.toggleAttribute("hidden", modeSel.value !== "query");
+        wrap.querySelector(".a-target-hint")!.innerHTML = TARGET_MODE_HINTS[modeSel.value];
+      });
+    } else if (kind === "emit_event") {
+      // What a step may emit (the event catalog's `emittable`): entry lifecycle events, and site build/deploy
+      // events — e.g. a host's "deploy failed" notification turned into Marvin's own event.
+      const emittable = [...(OPTIONS.emittable || [])];
+      if (a.event && !emittable.includes(a.event)) emittable.unshift(a.event);
+      const evs = emittable.map((t: string) => `<option value="${esc(t)}" ${a.event === t ? "selected" : ""}>${esc(prettyEvent(t))}</option>`).join("");
+      wrap.innerHTML = `<select class="input a-event">${evs}</select>
+        <div class="a-site-wrap" ${String(a.event ?? emittable[0]).startsWith("site_") ? "" : "hidden"}>
+          <input class="input a-site-message" placeholder="Message, e.g. \${event.payload.text}" value="${esc(a.message ?? "")}" />
+          <input class="input a-site-error" placeholder="Failure reason (failed events), e.g. \${event.payload.data.reason}" value="${esc(a.error ?? "")}" />
+          <input class="input a-site-url" placeholder="Site URL (optional)" value="${esc(a.site_url ?? "")}" />
+        </div>
+        <span class="hint small">Entry events re-emit so other workflows can react; site events show as activity toasts (failures stay until dismissed).</span>`;
+      wrap.querySelector(".a-event")!.addEventListener("change", (ev) => {
+        wrap.querySelector(".a-site-wrap")!.toggleAttribute("hidden", !(ev.target as HTMLSelectElement).value.startsWith("site_"));
+      });
+    } else if (kind === "integration") {
+      integrationFields(wrap, a);
+    } else if (kind === "media") {
+      mediaStepFields(wrap, a);
+    } else if (kind === "collect") {
+      const ent = a.entity ?? "entry";
+      wrap.innerHTML = `
+        <label class="tf"><span>Gather</span>
+          <select class="input a-c-entity">${[["entry", "Entries"], ["asset", "Assets"], ["resource", "Resources"]].map(([v, l]) => `<option value="${v}" ${ent === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label class="tf"><span>Matching <span class="muted">(a query like a target's — dates may be relative, e.g. {"status": "published", "published_after": "-7d"})</span></span>
+          <textarea class="input mono a-c-query" rows="4" spellcheck="false" placeholder='{"entry_type": "article", "status": "published", "published_after": "-7d"}'>${esc(a.query && Object.keys(a.query).length ? JSON.stringify(a.query, null, 2) : "")}</textarea></label>
+        <label class="tf"><span>Also include <span class="muted">(extra fields per item, comma-separated, e.g. data.body)</span></span>
+          <input class="input a-c-fields" value="${esc((a.fields ?? []).join(", "))}" /></label>
+        <label class="tf"><span>At most</span><input class="input a-c-limit" type="number" min="1" max="250" value="${esc(a.limit ?? 25)}" /></label>
+        <span class="hint small">Later steps read <code>\${steps.&lt;step id&gt;.output.text}</code> (a ready list for an AI prompt), <code>.rows</code> (each item — a render's pictures can take it whole) and <code>.count</code>. Give this step an id.</span>`;
+    } else if (kind === "fetch") {
+      wrap.innerHTML = `
+        <label class="tf"><span>Read this address <span class="muted">(templates allowed, e.g. \${resource.url})</span></span>
+          <input class="input a-f-url" value="${esc(a.url ?? "")}" placeholder="https://… or \${resource.url}" /></label>
+        <label class="tf"><span>Read</span>
+          <select class="input a-f-method">${[["GET", "The page (status, title, text)"], ["HEAD", "Only whether it answers"]].map(([v, l]) => `<option value="${v}" ${(a.method ?? "GET") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label class="tf"><span>Look for <span class="muted">(words on the page, any case, comma-separated — e.g. sold out; later steps read <code>.found</code>)</span></span>
+          <input class="input a-f-find" value="${esc([a.find ?? []].flat().join(", "))}" placeholder="sold out, discontinued" /></label>
+        <label class="tf"><span>— or check the links in <span class="muted">(a text, e.g. \${entry.data.body}; fill this or the address, not both)</span></span>
+          <input class="input a-f-links" value="${esc(a.links ?? "")}" placeholder="\${entry.data.body}" /></label>
+        <span class="hint small">Public addresses only. A missing page is output, not a failed step: later steps read <code>\${steps.&lt;step id&gt;.output.ok}</code>, <code>.status</code> and <code>.text</code> — or, for links, <code>.broken_count</code> and <code>.text</code> (the broken ones). A dry run doesn't fetch. Give this step an id.</span>`;
+    } else if (kind === "wait") {
+      const untilMode = Boolean(a.until);
+      wrap.innerHTML = `
+        <label class="tf"><span>Wait</span>
+          <select class="input a-w-mode"><option value="for" ${untilMode ? "" : "selected"}>For a while</option><option value="until" ${untilMode ? "selected" : ""}>Until a date</option></select></label>
+        <label class="tf a-w-for-wrap"><span>How long <span class="muted">(30m, 12h, 3d, 2w)</span></span>
+          <input class="input a-w-for" value="${esc(a.for ?? "")}" placeholder="3d" /></label>
+        <div class="a-w-until-wrap">
+          <label class="tf"><span>Until <span class="muted">(a date, or a date and time — e.g. \${entry.data.event_date})</span></span>
+            <input class="input a-w-until" value="${esc(a.until ?? "")}" placeholder="\${entry.data.event_date}" /></label>
+          <label class="tf"><span>Moved by <span class="muted">(optional: -7d is a week before, +1d a day after)</span></span>
+            <input class="input a-w-offset" value="${esc(a.offset ?? "")}" placeholder="-7d" /></label>
+          <label class="tf"><span>At <span class="muted">(for a date: the time of day, default 09:00)</span></span>
+            <input class="input a-w-at" value="${esc(a.at ?? "")}" placeholder="09:00" /></label>
+        </div>
+        <span class="hint small">The run is kept and goes on then, in the workspace's time zone (Settings → Site), re-reading the entry as it is by then. A time already past goes on at once (<code>.late</code>). If the entry goes to the Trash or the workflow is switched off meanwhile, it stops. A year at most.</span>`;
+      const modeSel = wrap.querySelector(".a-w-mode") as HTMLSelectElement;
+      const syncWait = () => {
+        (wrap.querySelector(".a-w-for-wrap") as HTMLElement).hidden = modeSel.value !== "for";
+        (wrap.querySelector(".a-w-until-wrap") as HTMLElement).hidden = modeSel.value !== "until";
+      };
+      modeSel.addEventListener("change", syncWait);
+      syncWait();
+    } else if (kind === "repeat") {
+      const each = typeof a.for_each === "string" ? a.for_each : a.for_each ? JSON.stringify(a.for_each) : "";
+      wrap.innerHTML = `
+        <label class="tf"><span>For each <span class="muted">(a list — usually a Gather items step's rows, e.g. \${steps.people.output.rows}; or comma-separated text)</span></span>
+          <input class="input a-r-each" value="${esc(each)}" placeholder="\${steps.people.output.rows}" spellcheck="false" /></label>
+        <div class="inline">
+          <label class="tf"><span>Call each one <span class="muted">(then \${person.title}…)</span></span>
+            <input class="input a-r-as" value="${esc(a.as ?? "")}" placeholder="item" spellcheck="false" /></label>
+          <label class="tf"><span>At most</span>
+            <input class="input a-r-limit" type="number" min="1" max="25" value="${esc(String(a.limit ?? 25))}" /></label>
+          <label class="tf"><span>If one fails</span>
+            <select class="input a-r-onerr">${[["stop", "Stop"], ["continue", "Note it and go on"]].map(([v, l]) => `<option value="${v}" ${(a.on_item_error ?? "stop") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        </div>
+        <div class="a-r-steps rows"></div>
+        <button type="button" class="linkish a-r-add">+ Add a step to repeat</button>
+        <span class="hint small">These steps run once for each item, in order (up to 5). Each item is <code>\${<i>name</i>.…}</code> and its place <code>\${each.number}</code> of <code>\${each.count}</code>; a step reads an earlier one here for the same item as <code>\${steps.&lt;id&gt;.output…}</code>. No wait, approval or repeat inside — put an approval before this step.</span>`;
+      const box = wrap.querySelector(".a-r-steps") as HTMLElement;
+      for (const step of (Array.isArray(a.steps) && a.steps.length ? a.steps : [{}])) box.appendChild(actionRow(step, true));
+      const add = wrap.querySelector(".a-r-add") as HTMLButtonElement;
+      const syncAdd = () => { add.hidden = box.querySelectorAll(":scope > .action-row").length >= 5; };
+      add.addEventListener("click", () => { box.appendChild(actionRow({}, true)); syncAdd(); revalidate(); });
+      box.addEventListener("click", () => setTimeout(syncAdd));  // a removed inner step frees a place
+      syncAdd();
+    } else if (kind === "approval") {
+      const hours = Number(a.expires_in_hours ?? 72);
+      wrap.innerHTML = `
+        <label class="tf"><span>Ask <span class="muted">(what the approvers decide — templates allowed, e.g. Publish “\${entry.title}”?)</span></span>
+          <input class="input a-message" value="${esc(a.message ?? "")}" placeholder="e.g. Feature \${entry.title} on the home page?" /></label>
+        <label class="tf"><span>Who may decide</span>
+          <select class="input a-approvers">${[["editor", "Editors and above"], ["admin", "Admins and above"]].map(([v, l]) => `<option value="${v}" ${(a.approvers ?? "editor") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label class="tf"><span>Expires after (hours) <span class="muted">— then the run goes on as expired</span></span>
+          <input class="input a-expires" type="number" min="1" max="720" value="${Number.isFinite(hours) ? hours : 72}" /></label>
+        <span class="hint small">The run waits here; they're told (push, and Automation → Approvals). It goes on from the next step once one decides, with <code>\${steps.&lt;step id&gt;.output.decision}</code>: approved, denied, expired or stale (the entry changed after it was asked) — use “Only run this step when…” on the steps after it. Give this step an id.</span>`;
+    } else if (kind === "handler") {
+      wrap.innerHTML = `<input class="input a-task" list="wf-handlers" placeholder="request_site_rebuild" value="${esc(a.task ?? "")}" /><span class="hint small">An internal task to run (e.g. request_site_rebuild, ai_reindex_embeddings).</span>`;
+    } else if (kind === "webhook") {
+      if (a.url && !a.webhook_id) {
+        // The raw-url form (url/method/body/secret_ref/auth_scheme) has no form editor. Show it
+        // read-only; readDefinition() keeps the original object rather than rebuilding it.
+        const method = String(a.method || "POST").toUpperCase();
+        const auth = a.secret_ref ? ` · secret {{${a.secret_ref}}}${a.auth_scheme ? ` via ${a.auth_scheme}` : ""}` : "";
+        const bodyKeys = Object.keys(a.body || {});
+        const body = bodyKeys.length ? ` · body {${bodyKeys.join(", ")}}` : "";
+        wrap.innerHTML = `<div class="step-ro"><code>Raw URL · ${esc(method)} ${esc(a.url)}${esc(auth)}${esc(body)}</code>
+          <span class="hint small">This step has settings the guided builder can't edit — it's saved as-is.
+            <button type="button" class="linkish a-edit-json">Edit as JSON</button></span></div>`;
+        wrap.querySelector(".a-edit-json")!.addEventListener("click", () => setJsonMode(true));
+        return wrap;
+      }
+      const whs = OPTIONS.webhooks || [];
+      if (!whs.length) {
+        wrap.innerHTML = `<p class="muted small">No webhooks configured yet — <a href="/automation/webhooks">add one</a> first.</p>`;
+        return wrap;
+      }
+      const opts = whs.map((w: any) => `<option value="${esc(w.id)}" ${a.webhook_id === w.id ? "selected" : ""}>${esc(w.name)} · ${esc(w.method)}</option>`).join("");
+      wrap.innerHTML = `<select class="input a-webhook">${opts}</select><span class="hint small">Fires one of your configured webhooks (its URL, method, headers, and payload).</span>`;
+    }
+    return wrap;
+  }
+
+  // ── Build / read the definition ───────────────────────────────────────────
+  /** One step row as the step it describes (null: not filled in enough to be one). */
+  function readStep(r: Element, i: number): any {
+    const kind = (r.querySelector(".a-kind") as HTMLSelectElement).value;
+    // Overlay the form's fields onto the action the row was opened with, so nothing the form can't
+    // edit is lost. A changed kind starts fresh — the old fields belong to a different shape.
+    const orig = ORIGINAL_ACTION.get(r);
+    const step: any = orig?.kind === kind ? { ...orig } : { kind };
+    const field = (sel: string) => r.querySelector(sel) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
+    const setOrDrop = (key: string, value: unknown) => { if (value) step[key] = value; else delete step[key]; };
+    setOrDrop("id", field(".a-id")?.value.trim().replace(/\s+/g, "_"));
+    if (kind === "operation") {
+      const op = field(".a-op")?.value;
+      if (!op) return null;
+      step.op = op;
+      setOrDrop("entity_slug", field(".a-entity-slug")?.value.trim());
+      const custom = op === "custom";
+      const wbMapWrap = r.querySelector(".a-wbmap-wrap") as HTMLElement | null;
+      if (wbMapWrap && !wbMapWrap.hidden) {
+        const map = readKv(wbMapWrap);
+        step.write_back = Object.keys(map).length ? map : false;
+      } else {
+        step.write_back = (field(".a-writeback") as HTMLInputElement | null)?.checked || false;
+      }
+      if (custom) {
+        step.prompt = field(".a-prompt")?.value ?? "";
+        const schemaBox = field(".a-schema") as HTMLTextAreaElement | null;
+        try {
+          step.output_schema = schemaBox && !schemaBox.hidden
+            ? parseJsonObject(schemaBox.value, "answer schema")
+            : schemaFromFields(readAnswerFields(r.querySelector(".a-answer-fields")));
+        } catch (e: any) {
+          throw new Error(`Step ${i + 1}: ${e.message}`);
+        }
+        const seen = [...r.querySelectorAll<HTMLInputElement>(".a-see:checked")].map((c) => c.value);
+        setOrDrop("see", seen.length && !(seen.length === 1 && seen[0] === "item") ? seen : null);
+      } else {
+        delete step.prompt; delete step.output_schema; delete step.see;
+      }
+      return step;
+    }
+    if (kind === "entry") {
+      const op = field(".a-op")?.value;
+      if (!op) return null;
+      step.op = op;
+      const mode = field(".a-target-mode")?.value || "default";
+      setOrDrop("entity_slug", mode === "slug" ? field(".a-entity-slug")?.value.trim() : null);
+      setOrDrop("entity_id", mode === "id" ? field(".a-entity-id")?.value.trim() : null);
+      setOrDrop("entity_query", mode === "query" ? parseJsonObject(field(".a-entity-query")?.value, `Step ${i + 1} target query`) : null);
+      setOrDrop("if_none", mode === "query" && (field(".a-if-none-skip") as HTMLInputElement | null)?.checked ? "skip" : null);
+      // Blank = the current item: the engine takes the kind from the Run-on target or the triggering event.
+      setOrDrop("entity_type", ITEM_OPS.has(op) ? field(".a-entity-type")?.value || null : null);
+      setOrDrop("collection_slug", COLLECTION_OPS.has(op) ? field(".a-collection")?.value.trim() : null);
+      setOrDrop("reason", REVIEW_OPS.has(op) ? field(".a-reason")?.value.trim() : null);
+      const metadata = readKv(r.querySelector(".a-meta-wrap"));
+      setOrDrop("metadata", METADATA_OPS.has(op) && Object.keys(metadata).length ? metadata : null);
+      const data = readKv(r.querySelector(".a-data-wrap"));
+      setOrDrop("data", DATA_OPS.has(op) && Object.keys(data).length ? data : null);
+      const creates = CREATE_OPS.has(op);
+      setOrDrop("entry_type", creates ? field(".a-entry-type")?.value.trim() : null);
+      setOrDrop("title", creates ? field(".a-title")?.value.trim() : null);
+      setOrDrop("status", creates ? field(".a-status")?.value : null);
+      if (creates) { delete step.entity_slug; delete step.entity_id; delete step.entity_query; delete step.if_none; }
+      return step;
+    }
+    if (kind === "emit_event") {
+      step.event = field(".a-event")!.value;
+      if (step.event.startsWith("site_")) {
+        for (const [key, cls] of [["message", ".a-site-message"], ["error", ".a-site-error"], ["site_url", ".a-site-url"]]) {
+          const value = field(cls)?.value.trim();
+          if (value) step[key] = value;
+        }
+      }
+      return step;
+    }
+    if (kind === "media") {
+      const op = field(".a-media-op")?.value || "resize";
+      const values = Object.fromEntries(MEDIA_FIELDS.map((k) => [k, field(`.a-m-${k}`)?.value]));
+      try {
+        for (const k of MEDIA_FIELDS) delete step[k];
+        Object.assign(step, { op }, mediaFields(op, values));
+        if (op === "render") {
+          delete step.source;
+          setOrDrop("fields", filledRows(readKv(r.querySelector(".a-m-fields-wrap"))));
+          setOrDrop("images", filledRows(readKv(r.querySelector(".a-m-images-wrap"))));
+        } else if (op === "zip") {
+          delete step.source; delete step.fields; delete step.images;
+        } else {
+          delete step.fields; delete step.images;
+          setOrDrop("source", sourceFromChoice((field(".a-media-source")?.value || "current") as SourceMode, field(".a-media-source-value")?.value ?? ""));
+        }
+      } catch (e: any) {
+        throw new Error(`Step ${i + 1}: ${e.message}`);
+      }
+      const makes = MEDIA_OPS.find((o) => o.op === op)?.makesImage;
+      setOrDrop("attach_as", makes ? field(".a-m-attach")?.value.trim() : null);
+      setOrDrop("attach_to", step.attach_as ? field(".a-m-attach-to")?.value.trim() : null);
+      const tags = (field(".a-m-tags")?.value ?? "").split(",").map((t) => t.trim()).filter(Boolean);
+      setOrDrop("tags", makes && tags.length ? tags : null);
+      return step;
+    }
+    if (kind === "collect") {
+      step.entity = field(".a-c-entity")?.value || "entry";
+      const rawQuery = field(".a-c-query")?.value.trim() ?? "";
+      step.query = rawQuery ? parseJsonObject(rawQuery, `Step ${i + 1} query`) : {};
+      const extra = (field(".a-c-fields")?.value ?? "").split(",").map((f) => f.trim()).filter(Boolean);
+      setOrDrop("fields", extra.length ? extra : null);
+      const limit = Number(field(".a-c-limit")?.value);
+      step.limit = Number.isInteger(limit) && limit >= 1 ? Math.min(limit, 250) : 25;
+      return step;
+    }
+    if (kind === "fetch") {
+      const links = field(".a-f-links")?.value.trim() ?? "";
+      const url = field(".a-f-url")?.value.trim() ?? "";
+      if (!links && !url) return null;
+      setOrDrop("links", links || null);
+      setOrDrop("url", links ? null : url);
+      setOrDrop("method", !links && field(".a-f-method")?.value === "HEAD" ? "HEAD" : null);
+      const find = (field(".a-f-find")?.value ?? "").split(",").map((w) => w.trim()).filter(Boolean);
+      setOrDrop("find", !links && find.length ? find : null);
+      return step;
+    }
+    if (kind === "wait") {
+      const untilMode = field(".a-w-mode")?.value === "until";
+      for (const key of ["for", "until", "offset", "at"]) delete step[key];
+      if (untilMode) {
+        const until = field(".a-w-until")?.value.trim();
+        if (!until) return null;
+        step.until = until;
+        setOrDrop("offset", field(".a-w-offset")?.value.trim());
+        setOrDrop("at", field(".a-w-at")?.value.trim());
+      } else {
+        const span = field(".a-w-for")?.value.trim();
+        if (!span) return null;
+        step.for = span;
+      }
+      return step;
+    }
+    if (kind === "approval") {
+      const message = field(".a-message")?.value.trim();
+      if (!message) return null;
+      step.message = message;
+      step.approvers = field(".a-approvers")?.value || "editor";
+      const hours = Number(field(".a-expires")?.value);
+      step.expires_in_hours = Number.isFinite(hours) && hours >= 1 ? Math.min(Math.round(hours), 720) : 72;
+      return step;
+    }
+    if (kind === "handler") {
+      const task = field(".a-task")!.value.trim();
+      if (!task) return null;
+      step.task = task;
+      return step;
+    }
+    if (kind === "integration") {
+      const integration = field(".a-integration")!.value.trim();
+      const key = field(".a-int-action")!.value.trim();
+      if (!integration || !(key || step.capability)) return null;
+      step.integration = integration;
+      if (key) step.action = key; // else it names a capability (notify), kept from the JSON
+      setOrDrop("attach_as", field(".a-int-attach")?.value.trim());
+      setOrDrop("source", field(".a-int-source")?.value.trim());
+      const intTags = (field(".a-int-tags")?.value ?? "").split(",").map((t) => t.trim()).filter(Boolean);
+      setOrDrop("tags", intTags.length ? intTags : null);
+      const rawArgs = field(".a-int-args")!.value.trim();
+      setOrDrop("args", rawArgs ? parseJsonObject(rawArgs, `Step ${i + 1} arguments`) : null);
+      return step;
+    }
+    if (kind === "repeat") {
+      const each = field(".a-r-each")?.value.trim() ?? "";
+      if (!each) return null;
+      // A list typed as JSON stays a list; anything else (a template, comma-separated text) is kept as written.
+      if (each.startsWith("[")) {
+        try { step.for_each = JSON.parse(each); } catch (e: any) { throw new Error(`Step ${i + 1} “For each”: ${e.message}`); }
+      } else step.for_each = each;
+      const name = field(".a-r-as")?.value.trim() ?? "";
+      setOrDrop("as", name && name !== "item" ? name : null);
+      const limit = parseInt(field(".a-r-limit")?.value ?? "", 10);
+      setOrDrop("limit", Number.isFinite(limit) && limit !== 25 ? Math.min(25, Math.max(1, limit)) : null);
+      setOrDrop("on_item_error", field(".a-r-onerr")?.value === "continue" ? "continue" : null);
+      step.steps = readSteps(r.querySelector(".a-r-steps")!);
+      if (!step.steps.length) throw new Error(`Step ${i + 1}: add a step to repeat.`);
+      return step;
+    }
+    if (kind === "webhook") {
+      const sel = field(".a-webhook");
+      if (sel) { step.webhook_id = sel.value; return step; }
+      return step.url || step.webhook_id ? step : null;  // read-only raw-url step, or nothing to pick
+    }
+    return null;
+  }
+  /** The steps in a list of rows — its own rows only, not a repeat's inner ones. */
+  function readSteps(box: Element): any[] {
+    const rows = [...box.querySelectorAll(":scope > .action-row")];
+    return rows.map((r, i) => readStep(r, i)).map((step, i) => (step ? withWhen(step, rows[i]) : step)).filter(Boolean);
+  }
+
+  function readDefinition() {
+    const conditions = [...$("wf-conditions").querySelectorAll(".cond-row")].map((r) => {
+      const field = (r.querySelector(".c-field") as HTMLInputElement).value.trim();
+      const op = (r.querySelector(".c-op") as HTMLSelectElement).value;
+      const value = (r.querySelector(".c-value") as HTMLInputElement).value;
+      return field ? { field, op, value } : null;
+    }).filter(Boolean);
+
+    const actions = readSteps($("wf-actions"));
+
+    const ttype = ($("wf-trigger-type") as HTMLSelectElement).value;
+    let trigger: any;
+    if (ttype === "event") {
+      trigger = { type: "event", event: ($("wf-trigger") as HTMLSelectElement).value };
+    } else if (ttype === "schedule" && ($("wf-sched-kind") as HTMLSelectElement).value === "cron") {
+      const tz = ($("wf-cron-tz") as HTMLInputElement).value.trim();
+      const cronExpr = ($("wf-cron-expr") as HTMLInputElement).value.trim();
+      trigger = { type: "schedule", schedule_type: "cron", schedule_config: { cron_expression: cronExpr, ...(tz ? { timezone: tz } : {}) } };
+    } else if (ttype === "schedule" && ORIGINAL_SCHEDULE && !["interval", "cron"].includes(ORIGINAL_SCHEDULE.schedule_type)) {
+      trigger = ORIGINAL_SCHEDULE;  // a kind the form doesn't edit (once, at a time): kept as it was
+    } else if (ttype === "schedule") {
+      const n = Math.max(1, parseInt(($("wf-sched-n") as HTMLInputElement).value || "1", 10));
+      const unit = parseInt(($("wf-sched-unit") as HTMLSelectElement).value, 10);
+      trigger = { type: "schedule", schedule_type: "interval", schedule_config: { interval_seconds: n * unit } };
+    } else if (ttype === "manual") {
+      const inputs = readInputs();
+      trigger = { type: "manual", ...(inputs.length ? { inputs } : {}) };
+    } else if (ttype === "chained" || ttype === "on_error") {
+      const target = ($("wf-chained-target") as HTMLSelectElement).value;
+      trigger = { type: ttype, ...(target && target !== "any" ? { automation: target } : {}) };
+    } else if (ttype === "incoming_webhook") {
+      const wh = ($("wf-webhook-target") as HTMLSelectElement).value;
+      trigger = { type: ttype, ...(wh && wh !== "any" ? { webhook: wh } : {}) };
+    } else {
+      trigger = { type: ttype };
+    }
+    return { ...originalExtras, trigger, ...readTarget(), conditions, actions };
+  }
+
+  // The optional "Run on" selector (FROM clause). Returns {} or { target: {...} }.
+  function readTarget() {
+    if (!($("wf-target-on") as HTMLInputElement).checked) return {};
+    const entity = targetEntity();
+    // Overlay onto the loaded query (same entity only) so keys this form doesn't know survive; `query`
+    // is the legacy alias for `text` and is folded into it.
+    const query: any = { ...((originalTarget?.entity ?? "entry") === entity ? originalTarget?.query ?? {} : {}) };
+    delete query.query;
+    const setOrDrop = (key: string, value: unknown) => {
+      if (value || value === false) query[key] = value; else delete query[key];
+    };
+    setOrDrop("text", ($("wf-t-text") as HTMLInputElement).value.trim());
+    setOrDrop("collection", ($("wf-t-collection") as HTMLInputElement).value.trim());
+    if (entity !== "entry") {
+      const tags = ($("wf-t-tags") as HTMLInputElement).value.split(",").map((s) => s.trim()).filter(Boolean);
+      setOrDrop("tags", tags.length ? tags : null);
+      const unattached = ($("wf-t-unattached") as HTMLSelectElement).value;
+      setOrDrop("unattached", unattached ? unattached === "true" : null);
+      setOrDrop("trashed", ($("wf-t-trashed") as HTMLInputElement).checked);
+      if (entity === "asset") {
+        const versions = ($("wf-t-versions") as HTMLSelectElement).value;
+        setOrDrop("versions", versions === "true" ? true : versions || null); // unset: originals only (the target default)
+        setOrDrop("asset_type", ($("wf-t-asset-type") as HTMLSelectElement).value);
+        setOrDrop("mime_type", ($("wf-t-mime") as HTMLInputElement).value.trim());
+      } else {
+        setOrDrop("resource_type", ($("wf-t-resource-type") as HTMLInputElement).value.trim());
+      }
+      return { target: { entity, query } };
+    }
+    setOrDrop("entry_type", ($("wf-t-type") as HTMLInputElement).value.trim());
+    setOrDrop("status", ($("wf-t-status") as HTMLSelectElement).value);
+    // Unchecked means "don't filter": left out, not stored as false.
+    setOrDrop("has_images", ($("wf-t-images") as HTMLInputElement).checked || null);
+    setOrDrop("has_assets", ($("wf-t-assets") as HTMLInputElement).checked || null);
+    setOrDrop("has_resources", ($("wf-t-resources") as HTMLInputElement).checked || null);
+    const metadata = readKv($("wf-t-meta"));
+    setOrDrop("metadata", Object.keys(metadata).length ? metadata : null);
+    const data = readKv($("wf-t-data"));
+    setOrDrop("data", Object.keys(data).length ? data : null);
+    return { target: { entity: "entry", query } };
+  }
+
+  function targetEntity(): string {
+    return ($("wf-t-entity") as HTMLSelectElement).value || "entry";
+  }
+
+  function syncTargetBody() {
+    const on = ($("wf-target-on") as HTMLInputElement).checked;
+    $("wf-target-body").toggleAttribute("hidden", !on);
+    // Show only the filters of the chosen entity (data-for lists the entities a filter applies to).
+    const entity = targetEntity();
+    $("wf-target-body").querySelectorAll<HTMLElement>("[data-for]").forEach((el) => {
+      el.toggleAttribute("hidden", !(el.dataset.for ?? "").split(" ").includes(entity));
+    });
+    $("wf-t-text-label").textContent = entity === "entry" ? "Title contains" : "Name contains";
+  }
+
+  // Dry-run the target selector: show which entries it would act on, without running anything.
+  async function runPreview() {
+    const status = $("wf-preview-status");
+    const result = $("wf-preview-result");
+    status.textContent = "Resolving…"; status.className = "hint";
+    result.setAttribute("hidden", "");
+    try {
+      const res: any = await previewAutomation(readDefinition());
+      if (res.error) { status.textContent = `Query error: ${res.error}`; status.className = "hint error"; return; }
+      const total = res.total ?? 0;
+      const matches = res.matches ?? [];
+      const plural: Record<string, string> = { entry: "entries", asset: "assets", resource: "resources" };
+      const entity = targetEntity();
+      const noun = (n: number) => `${n} ${n === 1 ? entity : plural[entity] ?? `${entity}s`}`;
+      status.textContent = "";
+      const cappedNote = res.capped ? ` <span class="muted">(capped — only the first are shown/run)</span>` : "";
+      const chips = matches.length
+        ? matches.map((m: any) => `<span class="chip">${esc(m.title || m.name || m.slug || m.id)}</span>`).join("")
+        : `<span class="muted">Nothing passes the conditions.</span>`;
+      result.innerHTML =
+        `<div class="preview-head">Query matches <strong>${noun(total)}</strong>${cappedNote}. `
+        + `After conditions, it would run on <strong>${noun(matches.length)}</strong>:</div>`
+        + `<div class="preview-chips">${chips}</div>`;
+      result.removeAttribute("hidden");
+    } catch (e: any) {
+      status.textContent = `Error: ${e?.message ?? e}`; status.className = "hint error";
+    }
+  }
+
+  // ── Open / close the builder ──────────────────────────────────────────────
+  function openBuilder(wf: any = null) {
+    editingId = wf?.id ?? null;
+    pastedSlug = null;
+    fromRecipe = null;
+    $("wf-recipe-note").setAttribute("hidden", "");
+    $("wf-builder-title").textContent = wf ? `Edit: ${wf.name}` : "New workflow";
+    ($("wf-name") as HTMLInputElement).value = wf?.name ?? "";
+    ($("wf-enabled") as HTMLInputElement).checked = wf?.enabled ?? false;
+    const def = wf?.definition ?? {};
+    loadDefinition(def);
+    ($("wf-json") as HTMLTextAreaElement).value = JSON.stringify(def, null, 2);
+    showJsonNote("");
+    // A workflow the guided builder can't show in full (a repeat step, say) opens as JSON, so Save drops nothing.
+    // (A new workflow is empty: there's nothing to drop, and the builder's defaults aren't a difference.)
+    let rebuilt: any = null;
+    try { rebuilt = readDefinition(); } catch { /* opens as JSON */ }
+    const unshown = !wf ? [] : rebuilt ? definitionDifferences(def, rebuilt) : ["(it couldn't be read)"];
+    if (unshown.length) showJsonNote(`Opened as JSON: the guided builder can't show ${unshown.slice(0, 4).join(", ")}${unshown.length > 4 ? "…" : ""}.`);
+    showMode(unshown.length > 0);
+    statusEl.textContent = "";
+    clearError();
+    builder.removeAttribute("hidden");
+    builder.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  // Put a definition into the guided builder's fields.
+  function loadDefinition(def: any) {
+    fillTriggers();
+    const trig = def.trigger ?? {};
+    ($("wf-trigger-type") as HTMLSelectElement).value = trig.type || "event";
+    if (trig.event) ($("wf-trigger") as HTMLSelectElement).value = trig.event;
+    ORIGINAL_SCHEDULE = trig.type === "schedule" ? trig : null;
+    const isCron = trig.type === "schedule" && trig.schedule_type === "cron";
+    ($("wf-sched-kind") as HTMLSelectElement).value = isCron ? "cron" : "interval";
+    ($("wf-cron-expr") as HTMLInputElement).value = isCron ? trig.schedule_config?.cron_expression ?? "" : "";
+    ($("wf-cron-tz") as HTMLInputElement).value = isCron ? trig.schedule_config?.timezone ?? "" : "";
+    $("wf-inputs").replaceChildren(...(trig.type === "manual" ? trig.inputs ?? [] : []).map((spec: any) => inputRow(spec)));
+    if (trig.type === "schedule") {
+      const secs = trig.schedule_config?.interval_seconds || 86400;
+      const unit = secs % 86400 === 0 ? 86400 : secs % 3600 === 0 ? 3600 : 60;
+      ($("wf-sched-n") as HTMLInputElement).value = String(Math.max(1, Math.round(secs / unit)));
+      ($("wf-sched-unit") as HTMLSelectElement).value = String(unit);
+    }
+    if (trig.type === "chained" || trig.type === "on_error") {
+      ($("wf-chained-target") as HTMLSelectElement).value = trig.automation || "any";
+    }
+    if (trig.type === "incoming_webhook") {
+      ($("wf-webhook-target") as HTMLSelectElement).value = trig.webhook || "any";
+    }
+    syncTriggerType();
+
+    // Restore the "Run on" target selector.
+    const tgt = def.target;
+    const tq = tgt?.query ?? {};
+    originalTarget = tgt ?? null;
+    ($("wf-target-on") as HTMLInputElement).checked = !!tgt;
+    ($("wf-t-entity") as HTMLSelectElement).value = tgt?.entity ?? "entry";
+    ($("wf-t-asset-type") as HTMLSelectElement).value = typeof tq.asset_type === "string" ? tq.asset_type : "";
+    ($("wf-t-mime") as HTMLInputElement).value = tq.mime_type ?? "";
+    ($("wf-t-resource-type") as HTMLInputElement).value = tq.resource_type ?? "";
+    ($("wf-t-tags") as HTMLInputElement).value = Array.isArray(tq.tags) ? tq.tags.join(", ") : tq.tags ?? "";
+    ($("wf-t-unattached") as HTMLSelectElement).value = typeof tq.unattached === "boolean" ? String(tq.unattached) : "";
+    ($("wf-t-versions") as HTMLSelectElement).value = tq.versions === true || tq.versions === "true" ? "true" : tq.versions === "all" ? "all" : "";
+    ($("wf-t-trashed") as HTMLInputElement).checked = !!tq.trashed;
+    ($("wf-t-type") as HTMLInputElement).value = tq.entry_type ?? "";
+    ($("wf-t-status") as HTMLSelectElement).value = tq.status ?? "";
+    ($("wf-t-text") as HTMLInputElement).value = tq.text ?? tq.query ?? "";
+    ($("wf-t-collection") as HTMLInputElement).value = tq.collection ?? "";
+    ($("wf-t-images") as HTMLInputElement).checked = !!tq.has_images;
+    ($("wf-t-assets") as HTMLInputElement).checked = !!tq.has_assets;
+    ($("wf-t-resources") as HTMLInputElement).checked = !!tq.has_resources;
+    const metaWrap = $("wf-t-meta"); metaWrap.innerHTML = "";
+    metaWrap.appendChild(kvEditor(tq.metadata));
+    const dataWrap = $("wf-t-data"); dataWrap.innerHTML = "";
+    dataWrap.appendChild(kvEditor(tq.data));
+    syncTargetBody();
+    ($("wf-preview-result") as HTMLElement).setAttribute("hidden", "");
+
+    const condWrap = $("wf-conditions"); condWrap.innerHTML = "";
+    (def.conditions ?? []).forEach((c: any) => condWrap.appendChild(conditionRow(c)));
+    const actWrap = $("wf-actions"); actWrap.innerHTML = "";
+    (def.actions?.length ? def.actions : [{}]).forEach((a: any) => actWrap.appendChild(actionRow(a)));
+    originalExtras = Object.fromEntries(Object.entries(def).filter(([key]) => !BUILDER_KEYS.has(key)));
+    showOnFailureNote(def.on_failure);
+  }
+  // The builder has no fields for `on_failure` steps; say they're there (they're kept on save).
+  function showOnFailureNote(steps: any) {
+    const note = $("wf-on-failure-note");
+    const list: any[] = Array.isArray(steps) ? steps : [];
+    note.toggleAttribute("hidden", !list.length);
+    if (!list.length) return;
+    const names = list.map((a: any) => ENTRY_OP_LABELS[a.op] ?? a.op ?? KIND_LABELS[a.kind] ?? a.kind).join(", ");
+    note.innerHTML = `If a step fails: ${esc(names)} <span class="muted">(on-failure steps, kept as they are)</span>
+      <button type="button" class="linkish wf-on-failure-json">Edit as JSON</button>`;
+    note.querySelector(".wf-on-failure-json")!.addEventListener("click", () => setJsonMode(true));
+  }
+  function closeBuilder() { builder.setAttribute("hidden", ""); editingId = null; }
+
+  // Switch views, carrying the workflow across. Neither direction drops anything silently: guided → JSON
+  // stays put if a step's JSON field can't be read, and JSON → guided stays in JSON (or asks first) when
+  // the JSON is broken or holds something the builder can't show.
+  function setJsonMode(on: boolean) {
+    clearError();
+    if (on) {
+      let def: any;
+      try { def = readDefinition(); } catch (e: any) { showError(e.message); return; }
+      ($("wf-json") as HTMLTextAreaElement).value = JSON.stringify(def, null, 2);
+      showJsonNote("");
+    } else {
+      const def = absorbJson();
+      if (!def) return;
+      loadDefinition(def);
+      let rebuilt: any;
+      try { rebuilt = readDefinition(); } catch (e: any) { showError(e.message); return; }
+      const lost = definitionDifferences(def, rebuilt);
+      if (lost.length) {
+        const list = lost.slice(0, 8).join(", ") + (lost.length > 8 ? `, and ${lost.length - 8} more` : "");
+        const drop = confirm(
+          `The guided builder can't show everything in this JSON. Switching would change or drop: ${list}.\n\n` +
+            "Switch anyway? (Cancel keeps the JSON as it is.)",
+        );
+        if (!drop) {
+          showError("Stayed in JSON — the guided builder can't show these parts of it:", lost);
+          return;
+        }
+      }
+    }
+    showMode(on);
+  }
+  function showMode(on: boolean) {
+    jsonMode = on;
+    guided.toggleAttribute("hidden", on);
+    jsonEditor.toggleAttribute("hidden", !on);
+    $("wf-json-toggle").textContent = on ? "Use guided builder" : "Edit as JSON";
+  }
+  function showJsonNote(text: string) {
+    const note = $("wf-json-note");
+    note.textContent = text;
+    note.toggleAttribute("hidden", !text);
+  }
+
+  // Read the JSON view. A whole workflow document ({name, slug?, definition}) moves its name into the Name
+  // field and leaves only the definition in the box; `enabled` is never taken from it. Returns the
+  // definition, or null after showing why the JSON can't be used.
+  function absorbJson(): any {
+    const box = $("wf-json") as HTMLTextAreaElement;
+    const parsed = parseWorkflowJson(box.value);
+    if ("error" in parsed) { showError(parsed.error); return null; }  // (`in`: narrows without strictNullChecks)
+    const filled: string[] = [];
+    if (parsed.name) {
+      ($("wf-name") as HTMLInputElement).value = parsed.name;
+      filled.push(`the name “${parsed.name}”`);
+    }
+    // A pasted name or slug is a new workflow identity: forget the slug of anything pasted before. A slug this
+    // workspace already uses (a duplicate pasted where it came from) gets the next free number, said here.
+    if (parsed.name || parsed.slug) {
+      pastedSlug = !editingId && parsed.slug ? freeSlug(parsed.slug, workflows.map((w) => w.slug)) : null;
+    }
+    if (pastedSlug && parsed.slug) {
+      filled.push(pastedSlug === parsed.slug ? `the slug “${parsed.slug}”` : `the slug “${pastedSlug}” (“${parsed.slug}” is taken here)`);
+    }
+    const ignored = parsed.ignored.filter((key) => key !== "enabled");
+    if (parsed.slug && editingId) ignored.push("slug (a saved workflow keeps its slug)");
+    box.value = JSON.stringify(parsed.definition, null, 2);
+    if (filled.length || parsed.ignored.length) {
+      showJsonNote([
+        filled.length ? `Took ${filled.join(" and ")} from the JSON.` : "",
+        parsed.ignored.includes("enabled") ? "Ignored “enabled” — tick Enabled below to turn the workflow on." : "",
+        ignored.length ? `Ignored: ${ignored.join(", ")}.` : "",
+      ].filter(Boolean).join(" "));
+    }
+    return parsed.definition;
+  }
+
+  // ── Save ──────────────────────────────────────────────────────────────────
+  async function save() {
+    clearError();
+    let definition: any;
+    if (jsonMode) {
+      definition = absorbJson();  // first, so a pasted document's name counts
+      if (!definition) return;
+    } else {
+      try { definition = readDefinition(); } catch (e: any) { showError(e.message); return; }
+    }
+    const name = ($("wf-name") as HTMLInputElement).value.trim();
+    if (!name) { showError("Name is required."); return; }
+    if (!definition.actions?.length) { showError("Add at least one step."); return; }
+
+    const enabled = ($("wf-enabled") as HTMLInputElement).checked;
+    statusEl.textContent = "Saving…";
+    try {
+      if (editingId) await updateAutomation(editingId, { name, enabled, definition });
+      else {
+        // Made from a Library recipe: the server records which one (and its version), so the Library shows it in use.
+        const made = { name, enabled, definition, ...(pastedSlug ? { slug: pastedSlug } : {}), ...(fromRecipe ? { sourceRecipe: fromRecipe } : {}) };
+        await createAutomation(made as Parameters<typeof createAutomation>[0]);
+      }
+      location.reload();
+    } catch (e: any) {
+      const { message, issues } = describeSaveError(e);
+      showError(message, issues);
+    }
+  }
+
+  // ── List rendering ─────────────────────────────────────────────────────────
+  const OP_SYMBOL: Record<string, string> = {
+    eq: "=", neq: "≠", contains: "contains", in: "in", starts_with: "starts", exists: "exists",
+    changed: "changed", changed_from: "changed from", changed_to: "changed to",
+  };
+  function stepChip(a: any): string {
+    const base = KIND_LABELS[a.kind] || a.kind;
+    const webhookName = a.webhook_id
+      ? ((OPTIONS.webhooks || []).find((w: any) => w.id === a.webhook_id)?.name ?? "webhook")
+      : (a.url ? "raw url" : "");
+    const detail = a.op || a.task || (a.event ? prettyEvent(a.event) : "") || webhookName;
+    const text = detail ? `${base} · ${detail}` : base;
+    return `<span class="chip step k-${esc(a.kind)}">${esc(text)}</span>`;
+  }
+  function lane(label: string, chips: string[]): string {
+    if (!chips.length) return "";
+    return `<div class="lane"><span class="lane-label">${label}</span><div class="chips">${chips.join("")}</div></div>`;
+  }
+  function summarize(wf: any): string {
+    const d = wf.definition || {};
+    const conds = (d.conditions || []).map(
+      (c: any) => `<span class="chip cond">${esc(c.field)} <em>${esc(OP_SYMBOL[c.op] || c.op)}</em> ${esc(c.value ?? "")}</span>`,
+    );
+    const steps = (d.actions || []).map(stepChip);
+    const t = d.trigger || {};
+    const trigText = t.type === "manual" ? "run manually"
+      : t.type === "mcp" ? "MCP tool"
+      : t.type === "schedule" ? `every ${humanInterval(t.schedule_config?.interval_seconds)}`
+      : t.type === "chained" ? `after ${automationName(t.automation)}`
+      : t.type === "on_error" ? `if ${automationName(t.automation)} fails`
+      : t.type === "incoming_webhook" ? `${webhookName(t.webhook)} received`
+      : prettyEvent(t.event || "—");
+    const trigChip = `<span class="chip trigger">${esc(trigText)}</span>`;
+    const onChips = d.target ? [`<span class="chip target">${esc(targetSummary(d.target))}</span>`] : [];
+    return `<div class="flow">
+      ${lane("When", [trigChip])}
+      ${onChips.length ? lane("On", onChips) : ""}
+      ${lane("If", conds)}
+      ${lane("Then", steps)}
+    </div>`;
+  }
+
+  function targetSummary(t: any): string {
+    const q = t?.query || {};
+    const parts: string[] = [];
+    if (q.entry_type) parts.push(q.entry_type);
+    if (q.asset_type) parts.push(String(q.asset_type));
+    if (q.mime_type) parts.push(q.mime_type);
+    if (q.resource_type) parts.push(q.resource_type);
+    if (q.status) parts.push(q.status);
+    if (q.trashed) parts.push("in the Trash");
+    if (t?.entity === "asset") parts.push(q.versions === "all" ? "with versions" : q.versions === true ? "versions only" : "originals");
+    if (q.unattached === true) parts.push("unattached");
+    else if (q.unattached === false) parts.push("attached");
+    if (Array.isArray(q.tags) && q.tags.length) parts.push(`tagged ${q.tags.join(", ")}`);
+    if (q.collection) parts.push(`in ${q.collection}`);
+    if (q.text) parts.push(`titled “${q.text}”`);
+    if (q.has_images) parts.push("with images");
+    else if (q.has_assets) parts.push("with assets");
+    if (q.has_resources) parts.push("with resources");
+    if (q.metadata && typeof q.metadata === "object") {
+      parts.push(...Object.entries(q.metadata).map(([k, v]) => `${k} = ${typeof v === "string" ? v : JSON.stringify(v)}`));
+    }
+    const plural: Record<string, string> = { entry: "entries", asset: "assets", resource: "resources" };
+    const entity = t?.entity || "entry";
+    return parts.length ? `${entity} ${parts.join(", ")}` : `${plural[entity] ?? `${entity}s`} (all)`;
+  }
+
+  // ── Run history ─────────────────────────────────────────────────────────────
+  function runRow(r: any): string {
+    const when = r.startedAt ? new Date(r.startedAt).toLocaleString() : "";
+    const dur = r.durationMs != null ? ` · ${r.durationMs}ms` : "";
+    const targets = (r.targetsMatched > 1 || r.capped) ? ` · ${r.targetsRun}/${r.targetsMatched}${r.capped ? "+" : ""} targets` : "";
+    const steps = ` · ${r.stepsOk}✓${r.stepsFailed ? ` ${r.stepsFailed}✗` : ""}`;
+    // A failure the integration's error policy took in hand (review, retry, …), and a retry run.
+    const handled = r.handled ? ` <span class="run-tag handled" title="An integration's error policy handled the failure">handled</span>` : "";
+    const retry = r.retryOfId ? ` <span class="run-tag">retry</span>` : "";
+    return `<div class="run-row" data-exec="${esc(r.id)}">
+        <span class="run-status status-${esc(r.status)}">${esc(r.status)}</span>${handled}${retry}
+        <span class="run-when">${esc(when)}</span>
+        <span class="run-meta muted">${esc(r.triggerType)}${esc(targets)}${esc(steps)}${esc(dur)}</span>
+      </div>
+      <div class="run-detail" hidden></div>`;
+  }
+  // ✓ ran, – skipped (its `when` was false), ✗ failed.
+  function stepMark(status: string): string {
+    return status === "success" ? "✓" : status === "skipped" ? "–" : status === "waiting" ? "⏸" : "✗";
+  }
+  function execActionRow(a: any): string {
+    const ent = a.targetEntityId ? ` <span class="muted">→ ${esc(String(a.targetEntityId).slice(0, 8))}</span>` : "";
+    const err = a.error ? ` <span class="run-err">${esc(a.error)}</span>` : "";
+    const dur = a.durationMs != null ? ` <span class="muted">${a.durationMs}ms</span>` : "";
+    const handling = a.handling?.summary ? `<div class="act-handling">↳ ${esc(a.handling.summary)}</div>` : "";
+    const until = a.status === "waiting" && a.outputSnapshot?.waiting_until
+      ? ` <span class="muted">until ${esc(new Date(a.outputSnapshot.waiting_until).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }))}</span>`
+      : "";
+    return `<div class="act-row">
+      <span class="status-${esc(a.status)}">${stepMark(a.status)}</span>
+      <span>${esc(a.kind)}${a.label ? ` · ${esc(a.label)}` : ""}</span>${ent}${until}${err}${dur}
+    </div>${handling}`;
+  }
+  // The original run and each retry of it, this one marked; then what its retry chains are doing.
+  function retryChain(ex: any): string {
+    const runs: any[] = ex.retryChain ?? [];
+    const chain = runs.length > 1
+      ? `<div class="run-chain hint small">retries: ${runs
+          .map((r, i) => {
+            const label = i === 0 ? "original" : `retry ${i}`;
+            const text = `${label} <span class="status-${esc(r.status)}">${esc(r.status)}</span>`;
+            return r.id === ex.id ? `<strong>${text}</strong>` : text;
+          })
+          .join(" → ")}</div>`
+      : "";
+    const pending = (ex.retries ?? []).map((t: any) => {
+      const next = t.nextAttemptAt ? ` · next ${esc(new Date(t.nextAttemptAt).toLocaleString())}` : "";
+      const status = t.status === "parked" ? "waiting for the connection to recover" : t.status;
+      return `<div class="run-chain hint small">${esc(t.integrationSlug)}.${esc(t.action)} <code>${esc(t.code)}</code>: ${esc(status)} · ${t.attempt} of ${t.maxAttempts} retries${next}</div>`;
+    });
+    return chain + pending.join("");
+  }
+  async function toggleHistory(card: Element, id: string) {
+    const panel = card.querySelector(".wf-history") as HTMLElement;
+    if (!panel.hasAttribute("hidden")) { panel.setAttribute("hidden", ""); return; }
+    panel.removeAttribute("hidden");
+    panel.innerHTML = `<span class="hint">Loading runs…</span>`;
+    try {
+      const runs: any[] = await listAutomationExecutions(id, 15);
+      panel.innerHTML = runs.length ? runs.map(runRow).join("") : `<span class="hint">No runs recorded yet.</span>`;
+      panel.querySelectorAll(".run-row").forEach((rr) => {
+        rr.addEventListener("click", async () => {
+          const execId = (rr as HTMLElement).dataset.exec!;
+          const detail = rr.nextElementSibling as HTMLElement;
+          if (!detail.hasAttribute("hidden")) { detail.setAttribute("hidden", ""); return; }
+          detail.removeAttribute("hidden");
+          detail.innerHTML = `<span class="hint">Loading…</span>`;
+          try {
+            const ex: any = await getAutomationExecution(id, execId);
+            const acts = ex.actions ?? [];
+            // The chain id lets you trace the whole cascade this run belongs to in the event log.
+            const chain = ex.correlationId
+              ? `<div class="run-chain hint small">chain <code>${esc(ex.correlationId)}</code></div>` : "";
+            detail.innerHTML =
+              chain + retryChain(ex) + (acts.length ? acts.map(execActionRow).join("") : `<span class="hint">No step records.</span>`);
+          } catch (e: any) { detail.innerHTML = `<span class="hint error">${esc(e?.message ?? e)}</span>`; }
+        });
+      });
+    } catch (e: any) { panel.innerHTML = `<span class="hint error">${esc(e?.message ?? e)}</span>`; }
+  }
+
+  // ── Dry run (preview the plan, execute nothing) ──────────────────────────────
+  function planStepRow(s: any): string {
+    const label = s.label ? ` · ${esc(s.label)}` : "";
+    const tgt = s.resolved?.entity_id ? ` <span class="muted">→ ${esc(String(s.resolved.entity_id).slice(0, 8))}</span>` : "";
+    const err = s.error ? ` <span class="run-err">${esc(s.error)}</span>` : "";
+    // Show the resolved preview minus the noise keys already shown as label/kind/target.
+    const preview = { ...(s.resolved ?? {}) };
+    ["dry_run", "kind", "entity_id"].forEach((k) => delete preview[k]);
+    const body = Object.keys(preview).length ? `<pre class="plan-json">${esc(JSON.stringify(preview, null, 2))}</pre>` : "";
+    return `<div class="act-row">
+      <span class="status-${esc(s.status)}">${stepMark(s.status)}</span>
+      <span>${esc(s.kind)}${label}</span>${tgt}${err}
+    </div>${body}`;
+  }
+  // An event-triggered workflow is dry-run against a sample event (the latest matching one by
+  // default), so its entry/event values resolve and its trigger + conditions are checked.
+  const EVENT_TRIGGERS = ["event", "incoming_webhook", "chained", "on_error"];
+  const isEventTriggered = (wf: any) => EVENT_TRIGGERS.includes(wf?.definition?.trigger?.type || "event");
+  const sampleKey = (s: any) => `${s.kind}:${s.id}`;
+  function fmtVal(v: unknown): string {
+    if (v === null || v === undefined) return "empty";
+    const text = typeof v === "string" ? `“${v}”` : JSON.stringify(v);
+    return text.length > 120 ? `${text.slice(0, 117)}…` : text;
+  }
+  function sampleOption(s: any): string {
+    const when = s.occurred_at ? ` · ${new Date(s.occurred_at).toLocaleString()}` : "";
+    const built = s.synthesized ? " (built from entry)" : "";
+    const fails = s.conditions_pass === false ? " — conditions fail" : "";
+    return `<option value="${esc(sampleKey(s))}">${esc(s.label)}${esc(when)}${built}${fails}</option>`;
+  }
+  function conditionCheck(n: any): string {
+    const mark = `<span class="status-${n.pass ? "success" : "failed"}">${n.pass ? "✓" : "✗"}</span>`;
+    if (n.group) {
+      const title = n.group === "all" ? "all of" : n.group === "any" ? "any of" : "not";
+      return `<div class="cond-check">${mark}<span>${title}</span></div>
+        <div class="cond-group">${(n.children || []).map(conditionCheck).join("")}</div>`;
+    }
+    if (n.invalid) return `<div class="cond-check">${mark}<span class="run-err">not a condition</span></div>`;
+    const expected = n.op === "exists" ? "" : ` ${esc(fmtVal(n.expected))}`;
+    return `<div class="cond-check">${mark}
+      <code>${esc(n.field)} ${esc(OP_SYMBOL[n.op] || n.op)}${expected}</code>
+      <span class="muted">got ${esc(fmtVal(n.actual))}</span>
+    </div>`;
+  }
+  function gatesBlock(res: any, eventType: string | null, wf: any): string {
+    if (res.sample === null) {
+      return `<div class="dry-gates"><span class="hint">No recent ${esc(prettyEvent(eventType || "event"))} to test with — entry and event values resolve empty below.</span></div>`;
+    }
+    const trig = res.trigger_matched
+      ? `<div class="cond-check"><span class="status-success">✓</span><span>Trigger fires on ${esc(prettyEvent(res.sample.event_type))}</span></div>`
+      : `<div class="cond-check"><span class="status-failed">✗</span><span>Trigger doesn't fire on ${esc(prettyEvent(res.sample.event_type))}</span></div>`;
+    // With a target, conditions filter the target rows — the steps below show which rows matched.
+    const conds = wf.definition?.target && wf.definition?.conditions?.length
+      ? `<span class="hint">Conditions filter the target rows; the steps below are the rows that pass.</span>`
+      : (res.conditions || []).map(conditionCheck).join("");
+    const verdict = res.would_fire
+      ? `<div class="dry-verdict status-success">Would fire</div>`
+      : `<div class="dry-verdict status-failed">Would not fire</div>`;
+    return `<div class="dry-gates">${trig}${conds}${verdict}</div>`;
+  }
+  function planBlock(res: any): string {
+    const plan: any[] = res.plan ?? [];
+    const head = `<div class="hint">Dry run — nothing executed. ${res.ran} target(s), ${plan.length} step(s)${res.ok ? "" : " · would fail"}.</div>`;
+    return head + (plan.length ? plan.map(planStepRow).join("") : `<span class="hint">No steps would run (target/conditions matched nothing).</span>`);
+  }
+  async function showDryRun(card: Element, wf: any, sample?: any) {
+    const panel = card.querySelector(".wf-history") as HTMLElement;
+    panel.removeAttribute("hidden");
+    if (!isEventTriggered(wf)) {
+      panel.innerHTML = `<span class="hint">Resolving plan…</span>`;
+      try { panel.innerHTML = planBlock(await dryRunAutomation(wf.id)); }
+      catch (e: any) { panel.innerHTML = `<span class="hint error">${esc(e?.message ?? e)}</span>`; }
+      return;
+    }
+    const body = panel.querySelector(".dry-body") as HTMLElement | null;
+    (body ?? panel).innerHTML = `<span class="hint">Resolving plan…</span>`;
+    try {
+      const [res, listed]: [any, any] = await Promise.all([
+        dryRunAutomation(wf.id, sample),
+        // The picker's candidates load once per opening; a re-pick only re-runs the dry run.
+        sample ? Promise.resolve(null) : listDryRunSamples(wf.id),
+      ]);
+      if (listed) {
+        const samples: any[] = listed.samples ?? [];
+        if (res.sample && !samples.some((s) => sampleKey(s) === sampleKey(res.sample))) samples.unshift(res.sample);
+        const picker = samples.length
+          ? `<label class="dry-sample"><span>Testing with:</span>
+              <select class="input dry-sample-pick">${samples.map(sampleOption).join("")}</select></label>`
+          : "";
+        panel.innerHTML = `${picker}<div class="dry-body"></div>`;
+        const pick = panel.querySelector(".dry-sample-pick") as HTMLSelectElement | null;
+        if (pick && res.sample) pick.value = sampleKey(res.sample);
+        pick?.addEventListener("change", () => {
+          const chosen = samples.find((s) => sampleKey(s) === pick.value);
+          if (chosen) showDryRun(card, wf, chosen);
+        });
+        panel.dataset.eventType = listed.event_type ?? "";
+      }
+      (panel.querySelector(".dry-body") as HTMLElement).innerHTML = gatesBlock(res, panel.dataset.eventType || null, wf) + planBlock(res);
+    } catch (e: any) {
+      (panel.querySelector(".dry-body") ?? panel).innerHTML = `<span class="hint error">${esc(e?.message ?? e)}</span>`;
+    }
+  }
+
+  function renderList() {
+    const host = $("wf-list");
+    $("wf-empty").toggleAttribute("hidden", workflows.length > 0);
+    host.innerHTML = workflows.map((wf) => `
+      <div class="wf-card ${wf.enabled ? "" : "off"}" data-id="${esc(wf.id)}">
+        <div class="wf-main">
+          <div class="wf-title">
+            <strong>${esc(wf.name)}</strong>
+            <span class="badge ${wf.enabled ? "on" : "muted"}">${wf.enabled ? "Enabled" : "Disabled"}</span>
+          </div>
+          ${summarize(wf)}
+          <div class="wf-history" hidden></div>
+        </div>
+        <div class="wf-actions">
+          <button class="wf-btn primary js-run" ${wf.enabled ? "" : "disabled title=\"Enable the workflow to run it\""}>Run</button>
+          <button class="wf-btn js-dryrun" title="Preview the plan — resolve inputs, execute nothing">Dry run</button>
+          <button class="wf-btn js-history">Runs</button>
+          <button class="wf-btn js-toggle">${wf.enabled ? "Disable" : "Enable"}</button>
+          <button class="wf-btn js-edit">Edit</button>
+          <button class="wf-btn js-copy" title="Copy the name, slug and definition as JSON — paste it into New workflow → Edit as JSON, here or in another workspace">Copy JSON</button>
+          <button class="wf-btn danger js-delete">Delete</button>
+        </div>
+      </div>`).join("");
+
+    host.querySelectorAll(".wf-card").forEach((card) => {
+      const id = (card as HTMLElement).dataset.id!;
+      const wf = workflows.find((w) => w.id === id);
+      // Made by an integration's blueprint: say which (text only — the name is the server's).
+      if (wf?.sourceIntegrationId) {
+        const badge = document.createElement("span");
+        badge.className = "badge installed";
+        badge.textContent = `Installed by ${INTEGRATION_NAMES[wf.sourceIntegrationId] ?? "an integration"}`;
+        if (wf.sourceBlueprint) badge.title = `Blueprint: ${wf.sourceBlueprint}`;
+        card.querySelector(".wf-title")?.append(badge);
+      }
+      card.querySelector(".js-run")!.addEventListener("click", async (e) => {
+        const btn = e.currentTarget as HTMLButtonElement;
+        const asks = wf.definition?.trigger?.type === "manual" ? wf.definition.trigger.inputs ?? [] : [];
+        const inputs = asks.length ? await askRunInputs(wf.name, asks) : undefined;
+        if (asks.length && !inputs) return;  // cancelled
+        btn.disabled = true; const orig = btn.textContent; btn.textContent = "Starting…";
+        try {
+          // Started, not awaited: a run over many entries outlasts a request. The activity toast says when it's done.
+          await startAutomation(id, inputs);
+          btn.textContent = "Started ✓";
+          btn.title = "Running in the background — the activity toast and Runs show how it goes.";
+          setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 4000);
+        } catch (err: any) {
+          alert(err?.message || "Run failed.");
+          btn.disabled = false; btn.textContent = orig;
+        }
+      });
+      card.querySelector(".js-dryrun")!.addEventListener("click", async (e) => {
+        const btn = e.currentTarget as HTMLButtonElement;
+        btn.disabled = true; const orig = btn.textContent; btn.textContent = "Resolving…";
+        try { await showDryRun(card, wf); }
+        finally { btn.disabled = false; btn.textContent = orig; }
+      });
+      card.querySelector(".js-history")!.addEventListener("click", () => toggleHistory(card, id));
+      card.querySelector(".js-edit")!.addEventListener("click", () => openBuilder(wf));
+      card.querySelector(".js-copy")!.addEventListener("click", async (e) => {
+        const btn = e.currentTarget as HTMLButtonElement;
+        const text = JSON.stringify(workflowDocument(wf), null, 2);
+        try {
+          await navigator.clipboard.writeText(text);
+          btn.textContent = "Copied";
+          setTimeout(() => { btn.textContent = "Copy JSON"; }, 1500);
+        } catch {
+          prompt("Copy this workflow's JSON:", text);  // no clipboard access (e.g. plain http)
+        }
+      });
+      card.querySelector(".js-toggle")!.addEventListener("click", async () => {
+        try { await updateAutomation(id, { enabled: !wf.enabled }); location.reload(); }
+        catch (e: any) { alert(e?.message || "Failed to toggle."); }
+      });
+      card.querySelector(".js-delete")!.addEventListener("click", async () => {
+        if (!confirm(`Delete workflow “${wf.name}”?`)) return;
+        try { await deleteAutomation(id); location.reload(); }
+        catch (e: any) { alert(e?.message || "Failed to delete."); }
+      });
+    });
+  }
+
+  // ── Wire up ─────────────────────────────────────────────────────────────────
+  $("wf-new").addEventListener("click", () => openBuilder());
+  $("wf-cancel").addEventListener("click", closeBuilder);
+  $("wf-save").addEventListener("click", save);
+  $("wf-trigger-type").addEventListener("change", syncTriggerType);
+  $("wf-sched-kind").addEventListener("change", () => { syncScheduleKind(); revalidate(); });
+  $("wf-add-input").addEventListener("click", () => { $("wf-inputs").appendChild(inputRow()); revalidate(); });
+  $("wf-add-condition").addEventListener("click", () => { $("wf-conditions").appendChild(conditionRow()); revalidate(); });
+  $("wf-add-action").addEventListener("click", () => { $("wf-actions").appendChild(actionRow()); revalidate(); });
+  $("wf-target-on").addEventListener("change", () => { syncTargetBody(); revalidate(); });
+  $("wf-t-entity").addEventListener("change", () => { syncTargetBody(); revalidate(); });
+  $("wf-preview-btn").addEventListener("click", runPreview);
+  // Any edit inside the builder re-runs the advisory coherence check (debounced).
+  builder.addEventListener("input", revalidate);
+  builder.addEventListener("change", revalidate);
+  $("wf-json-toggle").addEventListener("click", () => setJsonMode(!jsonMode));
+  // Pasting a whole workflow fills the Name field straight away (once the paste lands in the box). JSON that
+  // doesn't parse yet (a fragment pasted mid-edit) is left alone until a switch or save.
+  $("wf-json").addEventListener("paste", () => setTimeout(() => {
+    if (parseWorkflowJson(($("wf-json") as HTMLTextAreaElement).value).ok) { clearError(); absorbJson(); }
+  }));
+
+  // Condition-field datalist — repopulated per trigger so the picker offers the fields the
+  // trigger's context actually exposes (entry.* for entry triggers, event.payload.* for webhooks).
+  const dl = document.createElement("datalist"); dl.id = "wf-fields";
+  document.body.appendChild(dl);
+  function populateFieldDatalist(triggerType: string) {
+    const fields = (OPTIONS.conditionFields || {})[triggerType]
+      || (OPTIONS.conditionFields || {}).event || [];
+    dl.innerHTML = "";
+    for (const f of fields) {
+      const o = document.createElement("option");
+      o.value = f.field;
+      o.label = f.description ? `${f.label} — ${f.description}` : f.label;
+      dl.appendChild(o);
+    }
+  }
+  populateFieldDatalist("event");
+  const dh = document.createElement("datalist"); dh.id = "wf-handlers";
+  // Matches the backend allowlist (AUTOMATION_ALLOWED_HANDLERS) — content/publishing/index only.
+  ["request_site_rebuild", "publish_scheduled_entries", "unpublish_expired_entries",
+   "ai_reindex_embeddings", "resync_smart_collections"].forEach((f) => {
+    const o = document.createElement("option"); o.value = f; dh.appendChild(o);
+  });
+  document.body.appendChild(dh);
+  // Workspace integration slugs for "Run integration" steps — filled when the first one renders.
+  const di = document.createElement("datalist"); di.id = "wf-integrations";
+  document.body.appendChild(di);
+
+  renderList();
+
+  // ── Start from a recipe (components/RecipeDialog.astro) ───────────────────
+  // The dialog fills a Library recipe in for this workspace and hands it over as a new, unsaved workflow. A recipe
+  // the guided builder can't show in full opens as JSON, so nothing in it is dropped on Save.
+  document.addEventListener("recipe:use", (event) => {
+    const { recipe, name, definition, issues } = (event as CustomEvent).detail;
+    openBuilder();
+    fromRecipe = recipe?.id ?? null;
+    ($("wf-name") as HTMLInputElement).value = name;
+    loadDefinition(definition);
+    ($("wf-json") as HTMLTextAreaElement).value = JSON.stringify(definition, null, 2);
+    let rebuilt: any = null;
+    try { rebuilt = readDefinition(); } catch { /* opens as JSON below */ }
+    if (!rebuilt || definitionDifferences(definition, rebuilt).length) showMode(true);
+    showRecipeNote(recipe, issues ?? []);
+    revalidate();
+  });
+  function showRecipeNote(recipe: { title: string }, issues: { message: string }[]) {
+    const note = $("wf-recipe-note");
+    note.className = `banner ${issues.length ? "warn" : "info"}`;
+    note.innerHTML = `From the recipe <strong>${esc(recipe.title)}</strong>. Read the trigger and each step, change what you like,
+      then Save — it saves switched off, and a dry run shows what it would act on before you enable it.${
+        issues.length ? `<ul>${issues.map((i) => `<li>${esc(i.message)}</li>`).join("")}</ul>` : ""
+      }`;
+    note.removeAttribute("hidden");
+  }
+  const openRecipes = (id?: string | null) => document.dispatchEvent(new CustomEvent("recipe:open", { detail: { id } }));
+  $("wf-from-recipe").addEventListener("click", () => openRecipes());
+  // ?recipe=<id> (the Library's "Use in editor", an event or integration page): open the dialog on that recipe —
+  // once every module script has run, so the dialog is listening.
+  const linkedRecipe = new URLSearchParams(location.search).get("recipe");
+  if (linkedRecipe) {
+    const url = new URL(location.href);
+    url.searchParams.delete("recipe");
+    history.replaceState(history.state, "", url);
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => openRecipes(linkedRecipe), { once: true });
+    else setTimeout(() => openRecipes(linkedRecipe));
+  }
+
+  // ?trigger=<event type> (an event page's "+ New workflow on this event"): a new workflow on that event —
+  // only for an event the builder can trigger on.
+  const prefillTrigger = triggerFromQuery(location.search, triggerableEvents(OPTIONS));
+  if (prefillTrigger) {
+    openBuilder();
+    ($("wf-trigger-type") as HTMLSelectElement).value = "event";
+    ($("wf-trigger") as HTMLSelectElement).value = prefillTrigger;
+    syncTriggerType();
+    // Drop the parameter so saving (which reloads) lands on the list, not on another new workflow.
+    const url = new URL(location.href);
+    url.searchParams.delete("trigger");
+    history.replaceState(history.state, "", url);
+  }
+
+  // ?workflow=<id> (the event log links a run's workflow here): bring that card into view with its runs open.
+  // &run=<execution id> (Alerts & health links a handled failure's run) also opens that run, if it's among the recent ones.
+  const params = new URLSearchParams(location.search);
+  const linked = params.get("workflow");
+  const linkedRun = params.get("run");
+  const linkedCard = linked ? $("wf-list").querySelector(`.wf-card[data-id="${CSS.escape(linked)}"]`) : null;
+  // &edit=1 (the link an agent gives after draft_workflow): open that workflow in the editor, to review it before enabling.
+  const linkedEdit = linked && params.get("edit") ? workflows.find((w) => w.id === linked) : null;
+  if (linkedEdit) {
+    openBuilder(linkedEdit);
+    // Drop the parameter so saving (which reloads) lands on the list, not back in the editor.
+    const url = new URL(location.href);
+    url.searchParams.delete("edit");
+    history.replaceState(history.state, "", url);
+  } else if (linked && linkedCard) {
+    linkedCard.classList.add("linked");
+    linkedCard.scrollIntoView({ block: "center" });
+    toggleHistory(linkedCard, linked).then(() => {
+      const runRow = linkedRun ? linkedCard.querySelector<HTMLElement>(`.run-row[data-exec="${CSS.escape(linkedRun)}"]`) : null;
+      if (!runRow) return;
+      runRow.click();
+      runRow.scrollIntoView({ block: "center" });
+    });
+  }
+</script>
+
+<style>
+  /* Most content on this page is injected by the client script; Astro scoped styles don't reach
+     JS-created nodes, so component rules are :global() (scoped to .workflows-page so they don't leak). */
+  /* `.hint`/`.form-field` set display, which would override the [hidden] attribute — force it. */
+  .workflows-page :global([hidden]) { display: none !important; }
+  .workflows-page :global(.toolbar) { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 4px; }
+  .workflows-page :global(.toolbar h2) { margin: 0; font-size: 22px; }
+  .workflows-page :global(.toolbar p) { margin: 4px 0 0; color: var(--muted); font-size: 14px; max-width: 60ch; }
+  .workflows-page :global(.page-container) { max-width: 900px; }
+
+  .workflows-page :global(.banner) { padding: 11px 14px; border-radius: 10px; margin: 14px 0; font-size: 13.5px; line-height: 1.5; }
+  .workflows-page :global(.banner.error) { background: color-mix(in srgb, var(--color-error) 12%, transparent); color: var(--color-error); }
+  .workflows-page :global(.banner.info) { background: var(--panel); border: 1px solid var(--line); color: var(--muted); }
+  .workflows-page :global(.banner a) { color: var(--accent); }
+  .workflows-page :global(.banner.warn) { background: color-mix(in srgb, #d9a441 13%, transparent); border: 1px solid color-mix(in srgb, #d9a441 42%, transparent); color: var(--ink); }
+  .workflows-page :global(.banner.warn[hidden]) { display: none; }
+  .workflows-page :global(.banner.warn ul), .workflows-page :global(.banner.error ul) { margin: 6px 0 4px; padding-left: 18px; }
+  .workflows-page :global(.banner.warn li), .workflows-page :global(.banner.error li) { margin: 2px 0; }
+  .workflows-page :global(.banner.warn .warn-note) { display: block; margin-top: 4px; color: var(--muted); font-size: 12.5px; }
+
+  /* "Run on" target selector + dry-run preview */
+  .workflows-page :global(.target-block) { border: 1px dashed var(--line); border-radius: 10px; padding: 12px; }
+  .workflows-page :global(.target-grid) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0 8px; }
+  .workflows-page :global(.a-int-head) { display: flex; align-items: center; gap: 8px; }
+  .workflows-page :global(.a-int-mark:empty) { display: none; }
+  .workflows-page :global(.a-int-pickers:empty) { display: none; }
+  .workflows-page :global(.a-int-pickers) { display: flex; flex-direction: column; gap: 8px; }
+  .workflows-page :global(.tf) { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+  .workflows-page :global(.tf > span) { color: var(--muted); }
+  .workflows-page :global(.target-checks) { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 10px; }
+  .workflows-page :global(.target-preview-row) { display: flex; align-items: center; gap: 10px; }
+  .workflows-page :global(.button.secondary.sm) { padding: 5px 12px; font-size: 12px; }
+  .workflows-page :global(.preview-result) { margin-top: 10px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  .workflows-page :global(.preview-result[hidden]) { display: none; }
+  .workflows-page :global(.preview-head) { font-size: 13px; margin-bottom: 8px; }
+  .workflows-page :global(.preview-chips) { display: flex; flex-wrap: wrap; gap: 6px; }
+  .workflows-page :global(.preview-chips .chip) { padding: 2px 9px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); font-size: 12px; }
+  .workflows-page :global(.hint.error) { color: var(--color-error); }
+  .workflows-page :global(.chip.target) { background: color-mix(in srgb, var(--accent) 12%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+
+  /* Run history */
+  .workflows-page :global(.wf-history) { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+  .workflows-page :global(.wf-history[hidden]) { display: none; }
+  .workflows-page :global(.run-row) { display: flex; align-items: center; gap: 10px; padding: 5px 6px; border-radius: 6px; cursor: pointer; font-size: 12.5px; }
+  .workflows-page :global(.run-row:hover) { background: var(--panel); }
+  .workflows-page :global(.run-status) { font-weight: 600; text-transform: capitalize; font-size: 11px; }
+  .workflows-page :global(.status-success) { color: #3fae6b; }
+  .workflows-page :global(.status-failed) { color: var(--color-error); }
+  .workflows-page :global(.status-partial) { color: #d9a441; }
+  .workflows-page :global(.status-running) { color: var(--muted); }
+  .workflows-page :global(.status-skipped) { color: var(--muted); }
+  .workflows-page :global(.status-waiting) { color: #d9a441; }
+  .workflows-page :global(.status-resumed) { color: var(--muted); }
+  .workflows-page :global(.a-when) { margin-top: 6px; }
+  .workflows-page :global(.a-when summary) { cursor: pointer; color: var(--muted); }
+  .workflows-page :global(.af-row) { display: grid; grid-template-columns: 1fr 140px 2fr auto; gap: 6px; margin-bottom: 6px; }
+  @media (max-width: 640px) { .workflows-page :global(.af-row) { grid-template-columns: 1fr 1fr; } }
+  .workflows-page :global(.run-meta) { font-size: 11.5px; }
+  .workflows-page :global(.run-detail) { margin: 0 0 6px 18px; display: flex; flex-direction: column; gap: 2px; }
+  .workflows-page :global(.run-detail[hidden]) { display: none; }
+  .workflows-page :global(.act-row) { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); font-family: var(--mono, monospace); }
+  .workflows-page :global(.run-err) { color: var(--color-error); }
+  .workflows-page :global(.run-tag) { font-size: 10.5px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .workflows-page :global(.run-tag.handled) { border-color: var(--warn); color: var(--warn); }
+  .workflows-page :global(.act-handling) { margin: 0 0 2px 22px; font-size: 11.5px; color: var(--warn); }
+  .workflows-page :global(.run-chain) { margin: 0 0 6px 18px; }
+  .workflows-page :global(.run-chain code) { font-family: var(--mono, monospace); font-size: 11px; background: color-mix(in srgb, var(--ink) 8%, transparent); padding: 1px 5px; border-radius: 4px; }
+  .workflows-page :global(.plan-json) { margin: 0 0 6px 26px; padding: 6px 8px; font-size: 11px; font-family: var(--mono, monospace); color: var(--muted); background: color-mix(in srgb, var(--ink) 4%, transparent); border-radius: 6px; overflow-x: auto; white-space: pre; }
+  /* Dry run of an event-triggered workflow: the sample picker + trigger/condition checklist */
+  .workflows-page :global(.dry-sample) { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
+  .workflows-page :global(.dry-sample .input) { flex: 1; min-width: 0; padding: 5px 9px; font-size: 12.5px; }
+  .workflows-page :global(.dry-gates) { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  .workflows-page :global(.cond-check) { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; font-size: 12px; }
+  .workflows-page :global(.cond-check code) { font-family: var(--mono, monospace); font-size: 11.5px; background: color-mix(in srgb, var(--ink) 6%, transparent); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+  .workflows-page :global(.cond-group) { margin-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+  .workflows-page :global(.dry-verdict) { margin-top: 4px; font-size: 12px; font-weight: 600; }
+  .workflows-page :global(.banner code) { font-family: ui-monospace, monospace; font-size: 0.9em; background: color-mix(in srgb, var(--ink) 8%, transparent); padding: 1px 5px; border-radius: 4px; }
+
+  /* Builder */
+  .workflows-page :global(.builder) { border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin: 16px 0 20px; background: var(--panel); }
+  .workflows-page :global(.builder-head) { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .workflows-page :global(.builder-head h3) { margin: 0; font-size: 16px; }
+  .workflows-page :global(.builder-actions) { display: flex; align-items: center; gap: 12px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .workflows-page :global(.status) { color: var(--muted); font-size: 13px; }
+
+  .workflows-page :global(.form-field) { margin: 16px 0; }
+  .workflows-page :global(.label) { display: block; font-weight: 600; font-size: 13px; margin-bottom: 7px; }
+  .workflows-page :global(.hint) { display: block; color: var(--muted); font-size: 12px; margin-top: 5px; }
+  .workflows-page :global(.muted) { color: var(--muted); font-weight: 400; }
+  .workflows-page :global(.small) { font-size: 12px; }
+  .workflows-page :global(.input) { width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; }
+  .workflows-page :global(.input:focus) { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+  .workflows-page :global(.mono) { font-family: ui-monospace, monospace; }
+  .workflows-page :global(.check) { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; cursor: pointer; }
+  .workflows-page :global(.inline) { display: flex; gap: 8px; align-items: center; }
+  .workflows-page :global(.inline #wf-sched-n) { max-width: 90px; }
+  .workflows-page :global(.inline #wf-sched-unit) { max-width: 140px; }
+
+  /* Builder rows (conditions + steps) */
+  .toolbar-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: flex-end; }
+  .workflows-page :global(.input-grid) { display: grid; grid-template-columns: 1fr 1.4fr 1.3fr auto auto; gap: 8px; align-items: center; }
+  .workflows-page :global(.input-row .i-options) { margin-top: 8px; }
+  @media (max-width: 640px) { .workflows-page :global(.input-grid) { grid-template-columns: 1fr 1fr; } }
+  :global(dialog.run-inputs) { border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: inherit; padding: 20px; width: min(440px, calc(100vw - 32px)); }
+  :global(dialog.run-inputs form) { display: flex; flex-direction: column; gap: 12px; }
+  :global(dialog.run-inputs h3) { margin: 0; }
+  :global(.run-inputs-actions) { display: flex; justify-content: flex-end; gap: 10px; }
+  .workflows-page :global(.rows) { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
+  .workflows-page :global(.row) { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--bg); }
+  .workflows-page :global(.cond-row) { display: grid; grid-template-columns: 1.5fr 0.9fr 1.3fr auto; gap: 8px; align-items: center; }
+  .workflows-page :global(.action-head) { display: flex; gap: 8px; align-items: center; }
+  .workflows-page :global(.action-head .a-kind) { flex: 0 0 190px; font-weight: 600; }
+  /* Step numbers follow the order on screen; the id is what later steps use to read a step's result. */
+  .workflows-page :global(#wf-actions) { counter-reset: step; }
+  .workflows-page :global(#wf-actions > .action-row) { counter-increment: step; }
+  /* A repeat's inner steps: indented under it, lettered a, b, c… */
+  .workflows-page :global(.a-r-steps) { counter-reset: inner; display: flex; flex-direction: column; gap: 8px; margin: 10px 0 6px; padding-left: 12px; border-left: 2px solid var(--line); }
+  .workflows-page :global(.a-r-steps > .action-row) { counter-increment: inner; }
+  .workflows-page :global(.a-r-steps > .action-row > .action-head .a-num::before) { content: counter(inner, lower-alpha); }
+  .workflows-page :global(.a-num::before) { content: counter(step); display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--line); color: var(--muted); font-size: 12px; font-weight: 600; }
+  .workflows-page :global(.a-id-wrap) { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+  .workflows-page :global(.a-id-wrap .a-id) { width: 120px; font-family: var(--font-mono, monospace); font-size: 12px; }
+  .workflows-page :global(.a-key) { margin-top: 8px; line-height: 1.9; }
+  .workflows-page :global(.ref-chip) { font: 12px var(--font-mono, monospace); border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 1px 6px; cursor: copy; color: inherit; }
+  .workflows-page :global(.ref-chip.copied) { border-color: var(--color-success, green); }
+  @media (max-width: 640px) { .workflows-page :global(.action-head) { flex-wrap: wrap; } .workflows-page :global(.action-head .a-kind) { flex: 1 1 100%; } }
+  .workflows-page :global(.a-fields) { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding-left: 2px; }
+  .workflows-page :global(.icon-btn) { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 4px 6px; border-radius: 6px; margin-left: auto; }
+  .workflows-page :global(.icon-btn:hover) { color: var(--color-error); background: color-mix(in srgb, var(--color-error) 10%, transparent); }
+  .workflows-page :global(.a-entity-query) { font-size: 12px; min-height: 80px; }
+  /* Key/value list editor (entry metadata, target metadata filter) */
+  .workflows-page :global(.kv-editor) { display: flex; flex-direction: column; gap: 4px; }
+  .workflows-page :global(.kv-rows) { display: flex; flex-direction: column; gap: 6px; }
+  .workflows-page :global(.kv-row) { display: grid; grid-template-columns: 1fr 1.6fr auto; gap: 6px; align-items: center; }
+  .workflows-page :global(.kv-editor > .linkish) { align-self: flex-start; font-size: 12px; }
+  /* Read-only summary for a step the guided builder can't edit (e.g. a raw-url webhook) */
+  .workflows-page :global(.step-ro) { display: flex; flex-direction: column; gap: 4px; }
+  .workflows-page :global(.step-ro code) { font-family: ui-monospace, monospace; font-size: 12px; padding: 6px 9px; border-radius: 6px; background: color-mix(in srgb, var(--ink) 6%, transparent); overflow-wrap: anywhere; }
+  .workflows-page :global(.step-ro .linkish) { font-size: 12px; padding: 0 3px; }
+  .workflows-page :global(.linkish) { border: none; background: none; color: var(--accent); cursor: pointer; font-size: 13px; padding: 3px 6px; border-radius: 6px; font-weight: 500; }
+  .workflows-page :global(.linkish:hover) { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .workflows-page :global(.linkish.danger) { color: var(--color-error); }
+  .workflows-page :global(.linkish.danger:hover) { background: color-mix(in srgb, var(--color-error) 12%, transparent); }
+
+  /* Workflow cards */
+  .workflows-page :global(.wf-list) { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+  .workflows-page :global(.wf-card) { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; background: var(--bg); transition: border-color 0.15s, box-shadow 0.15s; }
+  .workflows-page :global(.wf-card:hover) { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); box-shadow: 0 2px 12px rgb(0 0 0 / 0.05); }
+  .workflows-page :global(.wf-card.off) { opacity: 0.6; }
+  .workflows-page :global(.wf-card.linked) { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .workflows-page :global(.wf-main) { flex: 1; min-width: 0; }
+  .workflows-page :global(.wf-title) { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-bottom: 12px; }
+  .workflows-page :global(.wf-title strong) { font-size: 15px; }
+  .workflows-page :global(.wf-actions) { display: flex; flex-direction: row; align-items: center; gap: 6px; flex: none; }
+  .workflows-page :global(.wf-btn) { font-size: 12px; padding: 5px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--muted); cursor: pointer; font-weight: 500; transition: color 0.12s, border-color 0.12s, background 0.12s; }
+  .workflows-page :global(.wf-btn:hover) { color: var(--ink); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .workflows-page :global(.wf-btn.primary) { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); font-weight: 600; }
+  .workflows-page :global(.wf-btn.primary:hover) { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .workflows-page :global(.wf-btn:disabled) { opacity: 0.55; cursor: default; }
+  .workflows-page :global(.wf-btn.danger:hover) { color: var(--color-error); border-color: color-mix(in srgb, var(--color-error) 45%, var(--line)); background: color-mix(in srgb, var(--color-error) 8%, transparent); }
+  .workflows-page :global(.badge) { font-size: 10.5px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); }
+  .workflows-page :global(.badge.on) { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); border-color: transparent; }
+  .workflows-page :global(.badge.muted) { color: var(--muted); }
+  .workflows-page :global(.badge.installed) { text-transform: none; letter-spacing: 0; color: var(--muted); }
+
+  /* When / If / Then lanes */
+  .workflows-page :global(.flow) { display: flex; flex-direction: column; gap: 7px; }
+  .workflows-page :global(.lane) { display: flex; align-items: baseline; gap: 10px; }
+  .workflows-page :global(.lane-label) { flex: 0 0 40px; text-align: right; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding-top: 2px; }
+  .workflows-page :global(.chips) { display: flex; flex-wrap: wrap; gap: 6px; }
+  /* A chip wraps when it must: one long condition or target that can't would make the page wider than a phone. */
+  .workflows-page :global(.chip) { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); overflow-wrap: anywhere; }
+  .workflows-page :global(.chip.trigger) { background: var(--panel); font-weight: 600; }
+  .workflows-page :global(.chip.cond) { color: var(--muted); }
+  .workflows-page :global(.chip.cond em) { font-style: normal; color: var(--ink); font-weight: 600; padding: 0 2px; }
+  .workflows-page :global(.chip.step) { background: color-mix(in srgb, var(--accent) 10%, transparent); border-color: transparent; }
+  .workflows-page :global(.chip.k-webhook) { background: color-mix(in srgb, #3b82f6 14%, transparent); }
+  .workflows-page :global(.chip.k-emit_event) { background: color-mix(in srgb, #a855f7 14%, transparent); }
+  .workflows-page :global(.chip.k-handler) { background: color-mix(in srgb, #22c55e 14%, transparent); }
+  .workflows-page :global(.chip.k-entry) { background: color-mix(in srgb, #f59e0b 16%, transparent); }
+
+  .workflows-page :global(.empty) { color: var(--muted); text-align: center; padding: 40px; border: 1px dashed var(--line); border-radius: 14px; margin-top: 8px; }
+
+  @media (max-width: 640px) {
+    .workflows-page :global(.cond-row) { grid-template-columns: 1fr 1fr; }
+    .workflows-page :global(.wf-card) { flex-direction: column; }
+    .workflows-page :global(.wf-actions) { flex-direction: row; flex-wrap: wrap; align-items: flex-start; }
+    .workflows-page :global(.lane) { flex-direction: column; gap: 3px; }
+    .workflows-page :global(.lane-label) { text-align: left; }
+  }
+</style>

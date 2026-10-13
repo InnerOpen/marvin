@@ -1,0 +1,25 @@
+{
+  "recipe": "carousel-storyteller",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entries to make a carousel of when they're published.",
+      "example": "article"
+    },
+    "image_role": {
+      "type": "text",
+      "description": "The role of the picture for the first slide (left plain if the entry has none).",
+      "example": "hero"
+    },
+    "footer": {
+      "type": "text",
+      "description": "A line at the bottom of each slide, e.g. the site (the slide number is added).",
+      "example": "gracemartinfranklinart.com"
+    },
+    "voice": {
+      "type": "text",
+      "description": "How the posts should sound.",
+      "example": "a warm, plain voice"
+    }
+  }
+}

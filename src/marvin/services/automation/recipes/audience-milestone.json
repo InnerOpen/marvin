@@ -1,0 +1,173 @@
+{
+  "name": "Audience milestone",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{signup_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "everyone",
+        "entity": "entry",
+        "query": {
+          "entry_type": "{{signup_type}}",
+          "status": "published"
+        },
+        "limit": 1
+      },
+      {
+        "kind": "collect",
+        "id": "before",
+        "entity": "entry",
+        "query": {
+          "metadata": {
+            "audience_milestone": "{{audience_name}} ${steps.everyone.output.total}"
+          }
+        },
+        "limit": 1
+      },
+      {
+        "kind": "operation",
+        "id": "post",
+        "op": "custom",
+        "see": [],
+        "prompt": "Our {{audience_name}} just reached ${steps.everyone.output.total}. Write a short, warm thank-you post for everyone who's joined, in {{voice}}, and a headline of a few words for a card. Thank people as a group — never name or describe anyone. Invent nothing beyond the number.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "body": {
+              "type": "string",
+              "minLength": 20
+            },
+            "headline": {
+              "type": "string",
+              "maxLength": 60
+            }
+          },
+          "required": [
+            "title",
+            "body",
+            "headline"
+          ]
+        },
+        "when": {
+          "all": [
+            {
+              "field": "steps.everyone.output.total",
+              "op": "in",
+              "value": [
+                10,
+                25,
+                50,
+                100,
+                250,
+                500,
+                1000,
+                2500,
+                5000,
+                10000
+              ]
+            },
+            {
+              "field": "steps.before.output.total",
+              "op": "eq",
+              "value": 0
+            }
+          ]
+        }
+      },
+      {
+        "kind": "entry",
+        "id": "draft",
+        "op": "create",
+        "entry_type": "{{draft_entry_type}}",
+        "title": "${steps.post.output.title}",
+        "data": {
+          "{{draft_body_field}}": "${steps.post.output.body}"
+        },
+        "metadata": {
+          "audience_milestone": "{{audience_name}} ${steps.everyone.output.total}"
+        },
+        "status": "draft",
+        "when": {
+          "all": [
+            {
+              "field": "steps.everyone.output.total",
+              "op": "in",
+              "value": [
+                10,
+                25,
+                50,
+                100,
+                250,
+                500,
+                1000,
+                2500,
+                5000,
+                10000
+              ]
+            },
+            {
+              "field": "steps.before.output.total",
+              "op": "eq",
+              "value": 0
+            }
+          ]
+        }
+      },
+      {
+        "kind": "media",
+        "id": "card",
+        "op": "render",
+        "template": "card",
+        "fields": {
+          "title": "${steps.everyone.output.total} {{audience_name}}",
+          "text": "${steps.post.output.headline}",
+          "footer": "{{footer}}"
+        },
+        "attach_as": "milestone-card",
+        "attach_to": "${steps.draft.output.entry_id}",
+        "tags": [
+          "audience-milestone"
+        ],
+        "when": {
+          "all": [
+            {
+              "field": "steps.everyone.output.total",
+              "op": "in",
+              "value": [
+                10,
+                25,
+                50,
+                100,
+                250,
+                500,
+                1000,
+                2500,
+                5000,
+                10000
+              ]
+            },
+            {
+              "field": "steps.before.output.total",
+              "op": "eq",
+              "value": 0
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

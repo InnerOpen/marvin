@@ -1,3 +1,4 @@
+{{- if eq .Values.mode "combined" }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -27,33 +28,52 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "marvin.serviceAccountName" . }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ int .Values.shutdown.terminationGracePeriodSeconds }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if or .Values.plugins.packages .Values.initContainers }}
+      initContainers:
+        {{- with include "marvin.plugins.initContainer" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
       containers:
       - name: {{ .Chart.Name }}
         securityContext:
           {{- toYaml .Values.securityContext | nindent 12 }}
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
-        command:
-          - /bin/bash
-          - -c
-          - |
-            set -e
-            echo "Starting Marvin application..."
-            cd /app
-            exec marvin run
+        # No command override: the image entrypoint (docker/start.sh) supervises both the API and
+        # the server-rendered frontend. Overriding it here would start only one of them — and the
+        # previous override called `marvin run`, which is not a console script the image installs
+        # (it ships `marvin-server`), so the container exited immediately.
         ports:
         - name: http
           containerPort: {{ .Values.config.apiPort }}
           protocol: TCP
+        - name: frontend
+          containerPort: {{ .Values.config.frontendPort }}
+          protocol: TCP
         {{- if .Values.livenessProbe.enabled }}
         livenessProbe:
-          {{- toYaml .Values.livenessProbe | nindent 10 }}
+          {{- omit .Values.livenessProbe "enabled" | toYaml | nindent 10 }}
         {{- end }}
         {{- if .Values.readinessProbe.enabled }}
         readinessProbe:
-          {{- toYaml .Values.readinessProbe | nindent 10 }}
+          {{- omit .Values.readinessProbe "enabled" | toYaml | nindent 10 }}
+        {{- end }}
+        {{- if gt (int .Values.shutdown.preStopSleepSeconds) 0 }}
+        lifecycle:
+          preStop:
+            exec:
+              # Keep serving while the Service/Route stop sending new requests here; SIGTERM then drains.
+              command: ["sleep", "{{ int .Values.shutdown.preStopSleepSeconds }}"]
         {{- end }}
         resources:
           {{- toYaml .Values.resources | nindent 12 }}
@@ -94,6 +114,46 @@ spec:
             configMapKeyRef:
               name: {{ include "marvin.fullname" . }}
               key: apiHost
+        - name: SCHEDULER_INTERVAL_SECONDS
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "marvin.fullname" . }}
+              key: schedulerInterval
+        - name: FRONTEND_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "marvin.fullname" . }}
+              key: frontendPort
+        # Browser-facing API URL, injected into each page at request time. Empty by default; set
+        # config.publicApiUrl for any deployment a browser reaches over something other than
+        # localhost.
+        - name: PUBLIC_MARVIN_API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "marvin.fullname" . }}
+              key: publicApiUrl
+        # Allowed browser origins for the API in production (split UI/API deploys). Empty =
+        # no CORS middleware (same-origin/combined). See config.corsOrigins / route.ui.host.
+        - name: CORS_ORIGINS
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "marvin.fullname" . }}
+              key: corsOrigins
+        {{- if .Values.config.environmentLabel }}
+        - name: ENVIRONMENT_LABEL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "marvin.fullname" . }}
+              key: environmentLabel
+        {{- end }}
+        {{- if .Values.config.platformWorkspaceName }}
+        # Name of the platform (admin's) workspace on a fresh install only. See config.platformWorkspaceName.
+        - name: DEFAULT_GROUP
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "marvin.fullname" . }}
+              key: platformWorkspaceName
+        {{- end }}
         # Secrets from Secret
         - name: SMTP_HOST
           valueFrom:
@@ -122,17 +182,25 @@ spec:
             secretKeyRef:
               name: {{ include "marvin.fullname" . }}
               key: smtpFromEmail
-        - name: JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "marvin.fullname" . }}
-              key: jwtSecret
+        {{- with include "marvin.postgresEnv" . | trim }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with include "marvin.webPushEnv" . | trim }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- include "marvin.shutdownEnv" . | nindent 8 }}
+        {{- with include "marvin.plugins.env" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
         {{- with .Values.extraEnv }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
         volumeMounts:
         - name: data
           mountPath: {{ .Values.config.dataDir }}
+        {{- with include "marvin.plugins.volumeMount" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
         {{- with .Values.extraVolumeMounts }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -144,6 +212,9 @@ spec:
         {{- else }}
         emptyDir: {}
         {{- end }}
+      {{- with include "marvin.plugins.volume" . }}
+      {{- . | nindent 6 }}
+      {{- end }}
       {{- with .Values.extraVolumes }}
       {{- toYaml . | nindent 6 }}
       {{- end }}
@@ -159,3 +230,4 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+{{- end }}

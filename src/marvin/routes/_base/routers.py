@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, Request, Response  # Core FastAPI compon
 from fastapi.routing import APIRoute  # For creating custom route class
 
 # Marvin specific dependencies for authentication
-from marvin.core.dependencies import get_admin_user, get_current_user
+from marvin.core.dependencies import get_current_superuser, get_current_user
 
 
 class BaseAPIRouter(APIRouter):
@@ -59,7 +59,7 @@ class AdminAPIRouter(BaseAPIRouter):
         super().__init__(
             tags=tags,
             prefix=prefix,
-            dependencies=[Depends(get_admin_user)],  # Automatically protect routes with admin auth
+            dependencies=[Depends(get_current_superuser)],  # Platform admin section: SUPER_ADMIN only
             **kwargs,
         )
 

@@ -208,6 +208,7 @@ class WorkspaceMembersController(BaseAdminController):
 
         workspace_obj = self.repos.groups.get_one(workspace_id)
         user_for_event = self.repos.users.get_one(user_id)
+        updated_username = updated.user.username if updated.user else str(user_id)
         self.event_bus.dispatch(
             integration_id="workspace_management_admin",
             group_id=workspace_id,
@@ -217,12 +218,12 @@ class WorkspaceMembersController(BaseAdminController):
                 workspace_id=workspace_id,
                 workspace_name=workspace_obj.name if workspace_obj else None,
                 user_id=user_id,
-                username=updated.username,
+                username=updated_username,
                 user_full_name=user_for_event.full_name if user_for_event else None,
                 role=data.workspace_role.value,
                 previous_role=previous_role.value,
             ),
-            message=f"{updated.username} role changed from {previous_role.value} to {data.workspace_role.value}",
+            message=f"{updated_username} role changed from {previous_role.value} to {data.workspace_role.value}",
             user_id=current_user.id,
             entity_id=user_id,
             entity_type="member",
@@ -276,8 +277,8 @@ class WorkspaceMembersController(BaseAdminController):
                     status_code=status.HTTP_403_FORBIDDEN, detail="Cannot remove the last OWNER. Promote another member to OWNER first."
                 )
 
-        # Store member info for event before removing
-        member_username = membership.username
+        # Store member info for event before removing (the membership carries the user, not a username)
+        member_username = membership.user.username if membership.user else str(user_id)
         member_role = membership.workspace_role
 
         # Remove the member

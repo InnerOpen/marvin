@@ -1,11 +1,11 @@
 """API client routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, Path, status
-from pydantic import UUID4
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, status
 from sqlalchemy.orm import Session
 
 from marvin.db.db_setup import generate_session
 from marvin.routes._base import BaseUserController, controller
+from marvin.routes._base.checks import require_workspace_admin
 from marvin.schemas.platform import APIClientCreate, APIClientRead, APIClientUpdate, APIClientWithToken
 from marvin.schemas.publishing import SiteConfiguration, WorkspaceInfo, WorkspaceSiteInfo
 from marvin.services.event_bus_service.event_types import EventAPIClientData, EventOperation, EventTypes
@@ -13,13 +13,21 @@ from marvin.services.event_bus_service.event_types import EventAPIClientData, Ev
 router = APIRouter(prefix="/api-clients")
 
 
+_require_admin = require_workspace_admin
+
+
 @controller(router)
 class APIClientsController(BaseUserController):
-    """Authenticated CRUD routes for API clients."""
+    """Manage the workspace's API clients (ADMIN/OWNER only).
+
+    Reads are gated too, like incoming webhooks: the list names every site credential and what it can
+    read (drafts included), which is workspace configuration, not content.
+    """
 
     @router.get("", response_model=list[APIClientRead], summary="List API Clients")
     def list_api_clients(self) -> list[APIClientRead]:
         """List all API clients for the current workspace."""
+        _require_admin(self.user, self.group_id)
         return self.repos.api_clients.get_all(order_by="name")
 
     @router.post("", response_model=APIClientWithToken, status_code=status.HTTP_201_CREATED, summary="Create API Client")
@@ -29,6 +37,7 @@ class APIClientsController(BaseUserController):
 
         IMPORTANT: The token is returned ONCE. Store it securely.
         """
+        _require_admin(self.user, self.group_id)
         # Inject created_by field (current user) and group_id
         data_dict = data.model_dump() if not isinstance(data, dict) else data
         data_dict["created_by"] = self.user.id
@@ -70,6 +79,7 @@ class APIClientsController(BaseUserController):
         ),
     ) -> APIClientRead:
         """Get a specific API client by ID or slug."""
+        _require_admin(self.user, self.group_id)
         # Try UUID first, then slug
         try:
             from uuid import UUID
@@ -95,9 +105,10 @@ class APIClientsController(BaseUserController):
                 "slug": {"summary": "Slug", "value": "my-site-client"},
             },
         ),
-        data: APIClientUpdate = ...,
+        data: APIClientUpdate = Body(...),
     ) -> APIClientRead:
         """Update an API client by ID or slug."""
+        _require_admin(self.user, self.group_id)
         # Try UUID first, then slug
         try:
             from uuid import UUID
@@ -170,6 +181,7 @@ class APIClientsController(BaseUserController):
         ),
     ) -> dict:
         """Delete an API client by ID or slug."""
+        _require_admin(self.user, self.group_id)
         # Try UUID first, then slug
         try:
             from uuid import UUID
@@ -181,6 +193,10 @@ class APIClientsController(BaseUserController):
 
         if not api_client:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API client not found.")
+
+        # Two-step safety: a live site's token can't vanish in one click — it has to be disabled first.
+        if api_client.enabled:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Disable the client before deleting it.")
 
         # Emit event before deletion
         self.event_bus.dispatch(
@@ -222,6 +238,7 @@ class APIClientsController(BaseUserController):
         The old token is invalidated immediately.
         The new token is returned ONCE. Store it securely.
         """
+        _require_admin(self.user, self.group_id)
         # Try UUID first, then slug
         try:
             from uuid import UUID
@@ -290,6 +307,7 @@ class APIClientsController(BaseUserController):
         Raises:
             HTTPException: 404 if API client not found
         """
+        _require_admin(self.user, self.group_id)
         # Try UUID first, then slug
         try:
             from uuid import UUID
@@ -303,7 +321,7 @@ class APIClientsController(BaseUserController):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API client not found.")
 
         # Get the workspace for this API client
-        from marvin.db.models.groups import Groups, GroupPreferencesModel
+        from marvin.db.models.groups import GroupPreferencesModel, Groups
 
         group = session.query(Groups).filter(Groups.id == api_client.group_id).first()
         if not group:

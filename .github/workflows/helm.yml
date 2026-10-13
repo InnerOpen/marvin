@@ -29,10 +29,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: 'v3.14.0'
 
@@ -46,18 +46,29 @@ jobs:
             --debug \
             --output-dir /tmp/marvin-templates
 
+      # `--api-versions route.openshift.io/v1` makes the OpenShift Route render: the template is
+      # capability-gated so it silently vanishes from a plain `helm template`, leaving it untested.
       - name: Template Helm chart (production values)
         run: |
           helm template marvin marvin-chart/ \
-            --values marvin-chart/values.yaml \
+            --values marvin-chart/values-production.yaml \
             --set image.tag=latest \
-            --set postgresql.enabled=true \
-            --set redis.enabled=true \
+            --api-versions route.openshift.io/v1 \
             --debug \
             --output-dir /tmp/marvin-templates-prod
 
+      # The Postgres path: POSTGRES_* wiring, the CNPG Cluster, the hourly pg_dump CronJob.
+      - name: Template Helm chart (dev values, Postgres)
+        run: |
+          helm template marvin marvin-chart/ \
+            --namespace marvin-dev \
+            --values marvin-chart/values-dev.yaml \
+            --api-versions route.openshift.io/v1 \
+            --debug \
+            --output-dir /tmp/marvin-templates-dev
+
       - name: Upload rendered templates
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: helm-templates
           path: /tmp/marvin-templates*
@@ -68,22 +79,26 @@ jobs:
     needs: lint
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: 'v3.14.0'
 
       - name: Create Kind cluster
-        uses: helm/kind-action@v1
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
         with:
           cluster_name: marvin-test
           wait: 120s
 
+      # --target production is required: the last stage in the Dockerfile is `lambda`, which resets
+      # ENTRYPOINT and runs the Mangum handler, so an untargeted build produces an image that exits
+      # with `"marvin.app.handler": executable file not found`. docker.yml and the Taskfile already
+      # target production; this build was the odd one out.
       - name: Build Docker image for testing
         run: |
-          docker build -t marvin:test -f docker/Dockerfile .
+          docker build -t marvin:test -f docker/Dockerfile --target production .
 
       - name: Load image into Kind
         run: |
@@ -100,8 +115,6 @@ jobs:
             --set image.repository=marvin \
             --set image.tag=test \
             --set image.pullPolicy=Never \
-            --set postgresql.enabled=true \
-            --set redis.enabled=true \
             --wait \
             --timeout 5m \
             --debug
@@ -118,17 +131,23 @@ jobs:
           kubectl get pods -n marvin-test
           kubectl get services -n marvin-test
 
-      - name: Test health endpoint
+      # The service publishes 8080 (API) and 4322 (frontend) — there has never been a port 80, so
+      # the old `8080:80` forward could not connect and the `|| echo` swallowed the failure.
+      - name: Test health and frontend endpoints
         run: |
-          # Port forward to access the service
-          kubectl port-forward -n marvin-test svc/marvin 8080:80 &
+          set -euo pipefail
+
+          kubectl port-forward -n marvin-test svc/marvin 8080:8080 4322:4322 &
+          trap 'kill %1 2>/dev/null || true' EXIT
           sleep 5
 
-          # Test health endpoint
-          curl -f http://localhost:8080/health || \
-          curl -f http://localhost:8080/healthz || \
-          curl -f http://localhost:8080/ || \
-          echo "⚠️ Health check endpoint not accessible"
+          echo "--- liveness ---"
+          curl -fsS http://localhost:8080/healthz
+          echo "--- readiness ---"
+          curl -fsS http://localhost:8080/readyz
+          echo "--- frontend (login renders without auth) ---"
+          curl -fsS -o /dev/null http://localhost:4322/login
+          echo "✅ API and frontend both serving"
 
       - name: Check logs on failure
         if: failure()
@@ -163,10 +182,10 @@ jobs:
     needs: lint
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Run Checkov scan on Helm templates
-        uses: bridgecrewio/checkov-action@v12
+        uses: bridgecrewio/checkov-action@99bb2caf247dfd9f03cf984373bc6043d4e32ebf # v12.1347.0
         with:
           directory: marvin-chart/
           framework: helm
@@ -183,10 +202,10 @@ jobs:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: 'v3.14.0'
 
@@ -196,7 +215,7 @@ jobs:
           helm package marvin-chart/ --destination .helm-packages/
 
       - name: Upload Helm package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: helm-chart-package
           path: .helm-packages/*.tgz

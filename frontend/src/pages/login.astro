@@ -1,51 +1,61 @@
 ---
-import { isAuthenticated } from '@/lib/auth';
-import { API_BASE_URL } from '@/lib/api/config';
+import ThemeInit from "@/components/ThemeInit.astro";
+import "../styles/global.css";
+import EnvironmentBadge from "@/components/EnvironmentBadge.astro";
+import Pwa from "@/components/Pwa.astro";
+import RuntimeConfig from "@/components/RuntimeConfig.astro";
+import { getBrowserApiBaseUrl, getServerApiBaseUrl } from "@/lib/api/config";
+import { isAuthenticated } from "@/lib/auth";
+import { withEnvironmentPrefix } from "@/lib/environmentLabel";
+import { LOGIN_INFO_DEFAULTS, type LoginInfo, parseLoginInfo, shouldAutoRedirectToOidc } from "@/lib/loginInfo";
+import { safeReturnPath } from "@/lib/session";
 
 // Ensure this page is server-rendered (not prerendered)
 export const prerender = false;
 
 // Check if user is already logged in
 if (await isAuthenticated(Astro.cookies)) {
-  const returnPath = Astro.url.searchParams.get('return') || '/';
-  return Astro.redirect(returnPath);
+  return Astro.redirect(safeReturnPath(Astro.url.searchParams.get("return")));
 }
 
-const error = Astro.url.searchParams.get('error');
-const returnPath = Astro.url.searchParams.get('return');
+const error = Astro.url.searchParams.get("error");
+const throttleMinutes = Math.max(1, Number.parseInt(Astro.url.searchParams.get("minutes") ?? "", 10) || 1);
+const returnParam = Astro.url.searchParams.get("return");
+const returnPath = returnParam ? safeReturnPath(returnParam) : null;
 
 // Fetch public login info for OIDC settings
-let oidcEnabled = false;
-let oidcProviderName = 'OAuth';
-let oidcAutoRedirect = false;
+let info: LoginInfo = { ...LOGIN_INFO_DEFAULTS };
 
 try {
-  const res = await fetch(`${API_BASE_URL}/api/app/about/login-info`);
+  const res = await fetch(`${getServerApiBaseUrl()}/api/app/about/login-info`);
   if (res.ok) {
-    const info = await res.json();
-    oidcEnabled = info.oidc_enabled ?? false;
-    oidcProviderName = info.oidc_provider_name ?? 'OAuth';
-    oidcAutoRedirect = info.oidc_auto_redirect ?? false;
+    info = parseLoginInfo(await res.json());
   }
 } catch {
   // Backend unreachable — fall through to password-only login
 }
 
-// Auto-redirect to OIDC provider if configured (skip when returning from an error)
-if (oidcEnabled && oidcAutoRedirect && !error) {
-  return Astro.redirect(`${API_BASE_URL}/api/auth/oauth`);
-}
+const { oidcEnabled, oidcProviderName, isDemo, environmentLabel } = info;
 
-const oauthUrl = `${API_BASE_URL}/api/auth/oauth`;
+// The OAuth URL is followed by the user's browser (302 target / link href), so it must be the
+// publicly reachable address, not the internal one the SSR server uses to talk to the backend.
+const oauthUrl = `${getBrowserApiBaseUrl()}/api/auth/oauth`;
+
+// Auto-redirect to OIDC provider if configured (skip when returning from an error)
+if (shouldAutoRedirectToOidc(info, error)) {
+  return Astro.redirect(oauthUrl);
+}
 ---
 
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <ThemeInit />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Login | Marvin</title>
-    <link rel="stylesheet" href="/src/styles/global.css" />
+    <title>{withEnvironmentPrefix("Login | Marvin", environmentLabel)}</title>
+    <RuntimeConfig />
+    <Pwa environmentLabel={environmentLabel} />
   </head>
   <body class="login-page">
     <div class="login-container">
@@ -55,6 +65,7 @@ const oauthUrl = `${API_BASE_URL}/api/auth/oauth`;
             <strong>Marvin</strong>
             <span>Content engine</span>
           </div>
+          <EnvironmentBadge label={environmentLabel} />
           <h1>Welcome back</h1>
           <p>Sign in to your workspace</p>
         </div>
@@ -64,6 +75,7 @@ const oauthUrl = `${API_BASE_URL}/api/auth/oauth`;
             <strong>⚠ Authentication failed</strong>
             <p>{
               error === 'invalid' ? 'Invalid username or password'
+              : error === 'throttled' ? `Too many sign-in attempts. Try again in ${throttleMinutes} minute${throttleMinutes === 1 ? '' : 's'}.`
               : error === 'oidc' ? 'SSO authentication failed. Please try again.'
               : 'An error occurred. Please try again.'
             }</p>
@@ -109,11 +121,13 @@ const oauthUrl = `${API_BASE_URL}/api/auth/oauth`;
           </Fragment>
         )}
 
-        <div class="login-footer">
-          <p class="help-text">
-            Default credentials: <code>jason</code> / <code>MyPassword</code>
-          </p>
-        </div>
+        {isDemo && (
+          <div class="login-footer">
+            <p class="help-text">
+              Demo credentials: <code>jason</code> / <code>MyPassword</code>
+            </p>
+          </div>
+        )}
       </div>
     </div>
   </body>

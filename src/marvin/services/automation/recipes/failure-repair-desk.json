@@ -1,0 +1,29 @@
+{
+  "name": "Failure repair desk",
+  "definition": {
+    "trigger": {
+      "type": "on_error",
+      "automation": "any"
+    },
+    "conditions": [
+      {
+        "field": "event.trigger_entity_type",
+        "op": "eq",
+        "value": "entry"
+      },
+      {
+        "field": "event.handled",
+        "op": "eq",
+        "value": false
+      }
+    ],
+    "actions": [
+      {
+        "kind": "entry",
+        "op": "request_review",
+        "entity_id": "${event.trigger_entity_id}",
+        "reason": "Workflow ${event.automation_slug} failed: ${event.error}"
+      }
+    ]
+  }
+}

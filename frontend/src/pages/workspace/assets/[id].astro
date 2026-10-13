@@ -1,13 +1,26 @@
 ---
+import type { PlatformAsset } from "@inneropen/marvin-sdk/platform";
+import AssetLineage from "@/components/AssetLineage.astro";
+import AssetMetaValue from "@/components/AssetMetaValue.astro";
+import AssetVersions from "@/components/AssetVersions.astro";
+import ItemTrashBanner from "@/components/ItemTrashBanner.astro";
+import SuggestionBanner from "@/components/SuggestionBanner.astro";
+import TagChips from "@/components/TagChips.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import { listCollections } from "@/lib/api/collections";
+import { listTags, type TagRead } from "@/lib/api/tags";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
+import { EDITORS_ONLY } from "@/lib/workspaceRole";
 import { createSdkClient } from "@/lib/sdk";
-import type { PlatformAsset } from "@inneropen/marvin-sdk/platform";
 
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
+// Everyone reads; changing, deleting or applying a suggestion to an asset is EDITOR+.
+const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 let asset: PlatformAsset | null = null;
+let allTags: TagRead[] = [];
 let error: string | null = null;
 
 if (!id) {
@@ -17,12 +30,27 @@ if (!id) {
 } else {
   try {
     const sdk = createSdkClient(authToken);
-    asset = await sdk.assets.get(id);
+    [asset, allTags] = await Promise.all([sdk.assets.get(id), listTags(authToken)]);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
-    console.error('[Asset] Failed to load:', error);
+    console.error("[Asset] Failed to load:", error);
   }
 }
+
+// An asset in the Trash is read-only: whoever may change it can Restore it or delete it forever, nothing else.
+const inTrash = Boolean((asset as any)?.trashedAt);
+const canEdit = access.canEdit && !inTrash;
+const trashCollectionId =
+  inTrash && authToken
+    ? ((await listCollections(authToken).catch(() => [])).find((c: any) => c.isSystem && c.slug === "trash")?.id ?? null)
+    : null;
+
+// asset.tags is a slug list; resolve to {id, name} via the workspace vocabulary for the chips.
+const tagBySlug = new Map((allTags || []).map((t) => [t.slug, t]));
+const attachedTags = (((asset as any)?.tags as string[] | undefined) || [])
+  .map((slug) => tagBySlug.get(slug))
+  .filter(Boolean)
+  .map((t) => ({ id: t!.id, name: t!.name }));
 
 // AI assist: only shown for image assets when AI is enabled for the workspace.
 let aiEnabled = false;
@@ -37,11 +65,16 @@ if (asset && authToken) {
     aiEnabled = false; // fail closed — hide the panel if settings can't be read
   }
 }
-const isImage = (asset as any)?.mimeType?.startsWith('image/') ?? false;
+const isImage = (asset as any)?.mimeType?.startsWith("image/") ?? false;
 const showAiPanel = aiEnabled && isImage;
 ---
 
-<AppLayout title={asset ? asset.name : "Edit Asset"}>
+<AppLayout
+  title={asset ? asset.name : "Edit Asset"}
+  entityType="asset"
+  entityId={id}
+  entityLabel={asset?.name}
+>
   {error ? (
     <div class="error-banner">
       <p><strong>Error loading asset:</strong> {error}</p>
@@ -53,18 +86,30 @@ const showAiPanel = aiEnabled && isImage;
         <div>
           <h2 style="margin:0;font-size:20px;">Edit Asset</h2>
           <p style="margin:4px 0 0;color:var(--muted);">Update asset metadata and details</p>
+          <AssetLineage metadata={asset.metadataJson} authToken={authToken} />
+          <AssetVersions assetId={asset.id} authToken={authToken} />
         </div>
         <div style="display:flex;gap:0.75rem;">
-          <button type="button" id="delete-button" class="button secondary">
-            Delete
-          </button>
+          {canEdit && (
+            <button type="button" id="delete-button" class="button secondary" title="Move this asset to the Trash. You can restore it from there.">
+              Move to Trash
+            </button>
+          )}
           <a class="button secondary" href="/workspace/assets">Back</a>
         </div>
       </div>
 
+      {inTrash && <ItemTrashBanner kind="asset" id={id!} canChange={access.canEdit} trashCollectionId={trashCollectionId} />}
+      {inTrash ? null : canEdit ? (
+        <SuggestionBanner suggestion={(asset as any)?.suggestionJson} entity={asset} apiBase="/api/assets" entityId={id!} />
+      ) : (
+        <div class="alert alert-info" role="status">{EDITORS_ONLY}</div>
+      )}
+
       <div class="editor-layout">
         <section class="main-section">
           <form id="asset-form" class="form">
+            <fieldset disabled={!canEdit} style="border:0;margin:0;padding:0;min-width:0;">
             <div class="form-group">
               <label for="name">Name *</label>
               <input
@@ -128,7 +173,7 @@ const showAiPanel = aiEnabled && isImage;
                     {Object.entries(asset.metadataJson).map(([key, value]) => (
                       <div class="metadata-preview-item">
                         <dt>{key}</dt>
-                        <dd>{typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}</dd>
+                        <dd><AssetMetaValue name={key} value={value} authToken={authToken} /></dd>
                       </div>
                     ))}
                   </dl>
@@ -136,10 +181,15 @@ const showAiPanel = aiEnabled && isImage;
               )}
             </div>
 
-            <div class="form-actions">
-              <button type="submit" class="button">Save Changes</button>
-              <a href="/workspace/assets" class="button secondary">Cancel</a>
-            </div>
+            <TagChips attachedTags={attachedTags} allTags={(allTags || []).map((t) => ({ id: t.id, name: t.name, slug: t.slug }))} />
+
+            </fieldset>
+            {canEdit && (
+              <div class="form-actions">
+                <button type="submit" class="button">Save Changes</button>
+                <a href="/workspace/assets" class="button secondary">Cancel</a>
+              </div>
+            )}
           </form>
         </section>
 
@@ -170,7 +220,7 @@ const showAiPanel = aiEnabled && isImage;
             )}
           </div>
 
-          {showAiPanel && (
+          {canEdit && showAiPanel && (
             <div class="sidebar-section ai-assist">
               <h3>AI Assist</h3>
               <p class="ai-help">Generate accessible alt text and a description for this image.</p>
@@ -196,6 +246,9 @@ const showAiPanel = aiEnabled && isImage;
 
               <dt>File Size</dt>
               <dd>{(asset.fileSize / 1024).toFixed(1)} KB</dd>
+
+              <dt>Stored on</dt>
+              <dd><code>{asset.storageProvider}</code></dd>
             </dl>
           </div>
         </aside>
@@ -432,6 +485,9 @@ const showAiPanel = aiEnabled && isImage;
 
 <script>
   import { createSdkClient } from '@/lib/sdk';
+  import { resolveTagIds } from '@/lib/api/tagChips';
+  import { bindMetadataPreview } from '@/lib/metadataPreview';
+  import { isForbidden } from '@/lib/workspaceRole';
 
   console.log('[Asset Edit] Script loading...');
 
@@ -446,7 +502,7 @@ const showAiPanel = aiEnabled && isImage;
   if (!form) {
     console.error('[Asset Edit] Form not found!');
   }
-  if (!submitButton) {
+  if (!submitButton && deleteButton) {
     console.error('[Asset Edit] Submit button not found!');
   }
 
@@ -465,24 +521,20 @@ const showAiPanel = aiEnabled && isImage;
     });
   }
 
-  // Handle delete via SDK
-  deleteButton.addEventListener('click', async () => {
-    if (!confirm('Delete this asset? This cannot be undone.')) {
-      return;
-    }
-
+  // Move to Trash (reversible: the file stays in storage until the Trash is emptied).
+  deleteButton?.addEventListener('click', async () => {
     deleteButton.disabled = true;
-    deleteButton.textContent = 'Deleting...';
+    deleteButton.textContent = 'Moving…';
 
     try {
       const assetId = window.location.pathname.split('/').pop()!;
       await sdk.assets.delete(assetId);
       window.location.href = '/workspace/assets';
     } catch (error: any) {
-      const message = error?.message || error?.detail || 'Failed to delete asset';
+      const message = isForbidden(error) ? "You don't have permission to do this." : error?.message || error?.detail || 'Failed to move the asset to the Trash';
       alert(message);
       deleteButton.disabled = false;
-      deleteButton.textContent = 'Delete';
+      deleteButton.textContent = 'Move to Trash';
     }
   });
 
@@ -525,6 +577,7 @@ const showAiPanel = aiEnabled && isImage;
 
       // Always send metadata field (can be null or object)
       updateData.metadataJson = metadata;
+      updateData.tag_ids = await resolveTagIds(document.getElementById('tags-payload') as HTMLInputElement | null);
 
       console.log('Updating asset with data:', updateData);
       await sdk.assets.update(assetId, updateData);
@@ -535,7 +588,7 @@ const showAiPanel = aiEnabled && isImage;
         window.location.href = '/workspace/assets';
       }, 500);
     } catch (error: any) {
-      const message = error?.message || error?.detail || 'Failed to update asset';
+      const message = isForbidden(error) ? "You don't have permission to do this." : error?.message || error?.detail || 'Failed to update asset';
       alert(message);
       submitButton.disabled = false;
       submitButton.textContent = 'Save Changes';
@@ -589,63 +642,8 @@ const showAiPanel = aiEnabled && isImage;
   }
 
   // Metadata preview update
-  const metadataEditor = document.getElementById('metadata') as HTMLTextAreaElement;
-  const metadataPreviewContainer = metadataEditor?.closest('.form-group')?.querySelector('.metadata-preview');
-
+  const metadataEditor = document.getElementById('metadata') as HTMLTextAreaElement | null;
   if (metadataEditor) {
-    metadataEditor.addEventListener('input', () => {
-      const value = metadataEditor.value.trim();
-
-      if (!value) {
-        if (metadataPreviewContainer) {
-          metadataPreviewContainer.remove();
-        }
-        return;
-      }
-
-      try {
-        const parsed = JSON.parse(value);
-        const entries = Object.entries(parsed);
-
-        if (entries.length === 0) {
-          if (metadataPreviewContainer) {
-            metadataPreviewContainer.remove();
-          }
-          return;
-        }
-
-        let previewHTML = `
-          <div class="metadata-preview">
-            <p class="metadata-preview-title">Current Metadata:</p>
-            <dl class="metadata-preview-list">
-        `;
-
-        entries.forEach(([key, value]) => {
-          const displayValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
-          previewHTML += `
-            <div class="metadata-preview-item">
-              <dt>${key}</dt>
-              <dd>${displayValue}</dd>
-            </div>
-          `;
-        });
-
-        previewHTML += `</dl></div>`;
-
-        if (metadataPreviewContainer) {
-          metadataPreviewContainer.outerHTML = previewHTML;
-        } else {
-          const helpText = metadataEditor.closest('.form-group')?.querySelector('.form-help');
-          if (helpText) {
-            helpText.insertAdjacentHTML('afterend', previewHTML);
-          }
-        }
-      } catch (error) {
-        // Invalid JSON - remove preview
-        if (metadataPreviewContainer) {
-          metadataPreviewContainer.remove();
-        }
-      }
-    });
+    bindMetadataPreview(metadataEditor, '.form-group', () => metadataEditor.closest('.form-group')?.querySelector('.form-help'));
   }
 </script>

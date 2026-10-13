@@ -12,11 +12,13 @@ from marvin.core.root_logger import get_logger
 
 logger = get_logger(__name__)
 
-# "daily" expressed as an interval. We intentionally use an `interval` schedule rather
-# than `cron`: ScheduledTasksRepository._compute_next_run only populates next_run_at for
-# 'interval'/'once' schedules — cron support is not yet wired (croniter isn't a
-# dependency), so a cron task would get next_run_at=None and never become due.
+# "daily" expressed as an interval: every 24 h from when the task was created, not at a fixed
+# hour. A cron schedule (`0 3 * * *`) would pin the hour now that cron runs (services/cron.py);
+# these system tasks don't care when in the day they run, so they keep the interval.
 _DAILY_SECONDS = 24 * 60 * 60
+_WEEKLY_SECONDS = 7 * _DAILY_SECONDS
+# Scheduled publish/expiry granularity: an entry goes live (or expires) within this of its time.
+_PUBLISHING_INTERVAL_SECONDS = 5 * 60
 
 
 @dataclass(frozen=True)
@@ -30,6 +32,8 @@ class SystemTaskDefinition:
     schedule_type: str
     schedule_config: dict
     task_config: dict = field(default_factory=dict)
+    # False ships a Run-Now-only task: listed in Admin → Scheduled Tasks, runs when an admin asks (or enables it).
+    enabled: bool = True
 
 
 SYSTEM_SCHEDULED_TASKS: list[SystemTaskDefinition] = [
@@ -37,10 +41,7 @@ SYSTEM_SCHEDULED_TASKS: list[SystemTaskDefinition] = [
         slug="prune_event_logs",
         name="Prune Event Logs",
         task_type="prune_event_logs",
-        description=(
-            "Delete audit-trail events older than the retention window "
-            "(EVENT_LOG_RETENTION_DAYS). Admin-only; runs daily."
-        ),
+        description=("Delete audit-trail events older than the retention window (EVENT_LOG_RETENTION_DAYS). Admin-only; runs daily."),
         schedule_type="interval",
         schedule_config={"interval_seconds": _DAILY_SECONDS},
     ),
@@ -56,15 +57,98 @@ SYSTEM_SCHEDULED_TASKS: list[SystemTaskDefinition] = [
         schedule_config={"interval_seconds": _DAILY_SECONDS},
     ),
     SystemTaskDefinition(
+        slug="prune_scheduled_task_executions",
+        name="Prune Scheduled Task Executions",
+        task_type="prune_scheduled_task_executions",
+        description=(
+            "Delete scheduled-task execution records older than the retention window. Admin-only; runs daily. "
+            "Without this the table grows without limit — a task on a two-minute interval writes ~720 rows a day."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _DAILY_SECONDS},
+        task_config={"retention_days": 30},
+    ),
+    SystemTaskDefinition(
         slug="resync_smart_collections",
         name="Resync Smart Collections",
         task_type="resync_smart_collections",
         description=(
-            "Reconcile smart-collection membership from rules across all workspaces (safety net "
-            "for the live reaction). Admin-only; runs daily."
+            "Reconcile smart-collection membership from rules across all workspaces (safety net for the live reaction). Admin-only; runs daily."
         ),
         schedule_type="interval",
         schedule_config={"interval_seconds": _DAILY_SECONDS},
+    ),
+    SystemTaskDefinition(
+        slug="cleanup_temp_files",
+        name="Cleanup Temporary Files",
+        task_type="cleanup_temp_files",
+        description="Remove files older than 24 hours from the temporary upload directory (imports, uploads in flight). Admin-only; runs daily.",
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _DAILY_SECONDS},
+        task_config={"age_hours": 24},
+    ),
+    SystemTaskDefinition(
+        slug="prune_revoked_tokens",
+        name="Prune Revoked Tokens",
+        task_type="prune_revoked_tokens",
+        description="Delete API tokens and site clients revoked more than 30 days ago (they can never sign in again). Admin-only; runs daily.",
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _DAILY_SECONDS},
+        task_config={"age_days": 30},
+    ),
+    SystemTaskDefinition(
+        slug="create_workspace_bundles",
+        name="Workspace Backup Bundles",
+        task_type="create_workspace_bundles",
+        description=(
+            "Write each workspace's backup bundle into the backups directory (2 kept per workspace); the backup targets "
+            "copy them off-site under bundles/<workspace>/ as per-workspace restore points. Admin-only; runs daily."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _DAILY_SECONDS},
+        task_config={"keep": 2},
+    ),
+    SystemTaskDefinition(
+        slug="refresh_ai_price_feed",
+        name="Refresh AI Price Feed",
+        task_type="refresh_ai_price_feed",
+        description=(
+            "Fetch the AI price list (LiteLLM's format; URL in Admin → AI Pricing, empty = off): the last source a model's "
+            "price comes from, after an admin's own price and the provider's table. Admin-only; runs daily."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _DAILY_SECONDS},
+    ),
+    SystemTaskDefinition(
+        slug="optimize_database",
+        name="Optimize Database",
+        task_type="optimize_database",
+        description=(
+            "VACUUM + ANALYZE the database. Off by default — Postgres autovacuum already does this routinely; "
+            "use Run Now after a large delete. Weekly if enabled."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _WEEKLY_SECONDS},
+        enabled=False,
+    ),
+    SystemTaskDefinition(
+        slug="publish_scheduled_entries",
+        name="Publish Scheduled Entries",
+        task_type="publish_scheduled_entries",
+        description=(
+            "Publish entries whose Scheduled Publish time (publish_at) has arrived, across all workspaces; "
+            "publishing clears the schedule. Runs every 5 minutes."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _PUBLISHING_INTERVAL_SECONDS},
+    ),
+    SystemTaskDefinition(
+        slug="unpublish_expired_entries",
+        name="Unpublish Expired Entries",
+        task_type="unpublish_expired_entries",
+        description="Archive published entries whose Expiration Date (expire_at) has passed, across all workspaces. Runs every 5 minutes.",
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _PUBLISHING_INTERVAL_SECONDS},
     ),
 ]
 
@@ -90,7 +174,7 @@ def seed_system_scheduled_tasks(session) -> int:
                 "name": defn.name,
                 "slug": defn.slug,
                 "description": defn.description,
-                "enabled": True,
+                "enabled": defn.enabled,
                 "schedule_type": defn.schedule_type,
                 "schedule_config": defn.schedule_config,
                 "task_type": defn.task_type,

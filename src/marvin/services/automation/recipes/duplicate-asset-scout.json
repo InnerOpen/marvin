@@ -1,0 +1,42 @@
+{
+  "name": "Duplicate asset scout",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "asset_uploaded"
+    },
+    "conditions": [
+      {
+        "field": "asset.checksum",
+        "op": "exists"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "same",
+        "entity": "asset",
+        "query": {
+          "checksum": "${asset.checksum}",
+          "exclude": "${asset.id}",
+          "versions": "all"
+        },
+        "limit": 5
+      },
+      {
+        "kind": "integration",
+        "integration": "{{notify_integration}}",
+        "capability": "notify",
+        "args": {
+          "title": "“${asset.name}” is already in the library",
+          "body": "The same file was uploaded before:\n${steps.same.output.text}\nUse the existing one, or move this copy to the Trash."
+        },
+        "when": {
+          "field": "steps.same.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      }
+    ]
+  }
+}

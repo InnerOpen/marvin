@@ -1,5 +1,6 @@
 import os
 import sys
+
 import requests
 
 
@@ -14,7 +15,8 @@ def main():
     else:
         proto = "http"
 
-    url = f"{proto}://127.0.0.1:{port}/api/app/about"
+    # Root-level liveness probe (standard /healthz): public, unauthenticated, returns 200.
+    url = f"{proto}://127.0.0.1:{port}/healthz"
 
     # TLS certificate is likely not issued for 127.0.0.1 so don't verify
     r = requests.get(url, verify=False)

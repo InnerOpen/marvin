@@ -2,8 +2,14 @@
  * Workspace management API client (migrated to SDK)
  */
 
-import { createSdkClient } from '../sdk';
-import type { Workspace, WorkspaceWithMembership, WorkspaceCreate, WorkspaceUpdate } from '@inneropen/marvin-sdk/platform';
+import type {
+  Workspace,
+  WorkspaceCreate,
+  WorkspaceUpdate,
+  WorkspaceWithMembership,
+} from "@inneropen/marvin-sdk/platform";
+import { createSdkClient } from "../sdk";
+import { canAuthorContent, canEditContent, canEditEntry, canManageWorkspace } from "../workspaceRole";
 
 /**
  * Get the user's currently active workspace
@@ -24,6 +30,50 @@ export async function listWorkspaces(authToken: string): Promise<WorkspaceWithMe
 }
 
 /**
+ * Whether the caller may manage the active workspace's configuration (OWNER/ADMIN, super admin,
+ * legacy admin) — the same gate the backend applies to API clients, webhooks and the like.
+ */
+export async function canManageCurrentWorkspace(authToken: string): Promise<boolean> {
+  const sdk = createSdkClient(authToken);
+  const [memberships, user] = await Promise.all([sdk.workspaces.list(), sdk.user.getProfile()]);
+  return canManageWorkspace(memberships, user);
+}
+
+/** What the caller may do with content in the active workspace (see lib/workspaceRole). */
+export interface ContentAccess {
+  /** OWNER/ADMIN: entry types, forms and settings. */
+  canManage: boolean;
+  /** EDITOR and above: change any content. */
+  canEdit: boolean;
+  /** AUTHOR and above: create entries, upload assets, add tags. */
+  canAuthor: boolean;
+  /** Whether the caller may change this entry (an AUTHOR: their own, until approved or published). */
+  canEditEntry: (entry: { createdBy?: string | null; status?: string | null }) => boolean;
+}
+
+/** Everything allowed: what a page assumes when the role can't be read, leaving the API to decide. */
+export const FULL_CONTENT_ACCESS: ContentAccess = { canManage: true, canEdit: true, canAuthor: true, canEditEntry: () => true };
+
+/**
+ * The caller's content access in the active workspace; FULL_CONTENT_ACCESS if it can't be read.
+ * Without a token (in the browser) it reads with the session cookie.
+ */
+export async function getContentAccess(authToken?: string): Promise<ContentAccess> {
+  try {
+    const sdk = createSdkClient(authToken);
+    const [memberships, user] = await Promise.all([sdk.workspaces.list(), sdk.user.getProfile()]);
+    return {
+      canManage: canManageWorkspace(memberships, user),
+      canEdit: canEditContent(memberships, user),
+      canAuthor: canAuthorContent(memberships, user),
+      canEditEntry: (entry) => canEditEntry(memberships, user, entry),
+    };
+  } catch {
+    return FULL_CONTENT_ACCESS;
+  }
+}
+
+/**
  * Activate a workspace (make it the current active workspace)
  * Accepts workspace ID or slug
  */
@@ -38,14 +88,6 @@ export async function activateWorkspace(workspaceIdOrSlug: string, authToken: st
 export async function createWorkspace(data: WorkspaceCreate, authToken: string): Promise<Workspace> {
   const sdk = createSdkClient(authToken);
   return sdk.workspaces.create(data);
-}
-
-/**
- * Update workspace settings (requires ADMIN or OWNER)
- */
-export async function updateWorkspace(id: string, data: WorkspaceUpdate, authToken: string): Promise<Workspace> {
-  const sdk = createSdkClient(authToken);
-  return sdk.workspaces.update(id, data);
 }
 
 /**

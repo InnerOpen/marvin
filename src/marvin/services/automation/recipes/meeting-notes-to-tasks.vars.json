@@ -1,0 +1,20 @@
+{
+  "recipe": "meeting-notes-to-tasks",
+  "variables": {
+    "notes_entry_type": {
+      "type": "entry_type_slug",
+      "description": "Your meeting-notes entry type.",
+      "example": "meeting-notes"
+    },
+    "task_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type the task list is drafted as.",
+      "example": "article"
+    },
+    "body_field": {
+      "type": "field_key",
+      "description": "That type's field for the list.",
+      "example": "body"
+    }
+  }
+}

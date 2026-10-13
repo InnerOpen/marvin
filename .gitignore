@@ -7,7 +7,7 @@
 *.temp
 
 # frontend/.env.development
-docs/site/
+docs/manual/openapi.json
 *temp/*
 .secret
 
@@ -18,6 +18,8 @@ frontend/dist/
 
 # Docker config
 docker/config/
+# Written by docker/write-unreleased.sh at image build time
+UNRELEASED.txt
 
 # local env files
 .env.local
@@ -67,6 +69,8 @@ htmlcov/
 .cache
 nosetests.xml
 coverage.xml
+coverage.lcov
+junit.xml
 *.cover
 .hypothesis/
 .pytest_cache/
@@ -138,3 +142,15 @@ src/dev/data/*
 
 .run/
 .task/*
+
+# Claude Code worktrees (never commit as gitlinks)
+.claude/worktrees/
+
+# Character kit: generated packs (rebuild with character_from_poses.py)
+src/dev/character_kit/characters/*/out/
+# …and its pose sheets: AI output, often over the 500 KB commit limit — keep your own copy (Drive, Downloads)
+src/dev/character_kit/characters/*/poses.png
+# …and the layout guides make_prompt.py writes each run
+src/dev/character_kit/characters/*/layout-guide.png
+# Windows marks downloaded files with a Zone.Identifier sidecar when they're copied into WSL
+*:Zone.Identifier

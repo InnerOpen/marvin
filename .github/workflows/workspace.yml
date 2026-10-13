@@ -1,14 +1,12 @@
 name: Workspace E2E Tests
 
 # Full platform validation with workspace import/export
+#
+# NOTE: This is aspirational E2E infrastructure. Its validation steps target
+# workspace import/export endpoints that are not yet wired up, so it is
+# manual-dispatch only until the flow is real — it does not gate main.
 
 on:
-  push:
-    branches:
-      - main
-  schedule:
-    # Run nightly at 2:00 AM UTC
-    - cron: '0 2 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -27,6 +25,9 @@ jobs:
     services:
       postgres:
         image: postgres:15-alpine
+        credentials:  # logged in: Docker Hub's anonymous pull limit is shared by every job on the runner
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
         env:
           POSTGRES_USER: marvin
           POSTGRES_PASSWORD: marvin
@@ -41,6 +42,9 @@ jobs:
 
       redis:
         image: redis:7-alpine
+        credentials:  # logged in: Docker Hub's anonymous pull limit is shared by every job on the runner
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
@@ -57,35 +61,38 @@ jobs:
     steps:
       # ====== Setup ======
       - name: Checkout main repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: marvin
 
       - name: Checkout SDK repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: InnerOpen/marvin-sdk
           path: marvin-sdk
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Checkout CLI repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: InnerOpen/marvin-cli
           path: marvin-cli
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
 
       # ====== Install Dependencies ======
+      - name: Install system dependencies (OpenLDAP headers for python-ldap)
+        run: sudo apt-get update && sudo apt-get install -y libldap2-dev libsasl2-dev
+
       - name: Install Marvin backend
         working-directory: marvin
         run: pip install -e ".[dev]"
@@ -117,9 +124,7 @@ jobs:
 
           # Wait for backend to be ready
           for i in {1..60}; do
-            if curl -f http://localhost:8080/health 2>/dev/null || \
-               curl -f http://localhost:8080/healthz 2>/dev/null || \
-               curl -f http://localhost:8080/ 2>/dev/null; then
+            if curl -f http://localhost:8080/healthz 2>/dev/null; then
               echo "✅ Marvin backend started"
               break
             fi
@@ -388,7 +393,7 @@ jobs:
           fi
 
       - name: Upload workspace export
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: workspace-export
           path: /tmp/exported-workspace.json
@@ -408,7 +413,7 @@ jobs:
 
       - name: Upload Marvin logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: marvin-logs
           path: /tmp/marvin.log

@@ -1,0 +1,20 @@
+{
+  "recipe": "featured-collection-curator",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "Which published entries are considered.",
+      "example": "article"
+    },
+    "collection_slug": {
+      "type": "collection_slug",
+      "description": "The collection an editor approves additions to.",
+      "example": "featured"
+    },
+    "collection_purpose": {
+      "type": "text",
+      "description": "What belongs in it, in a few words (the AI decides against this).",
+      "example": "our best, most useful pieces"
+    }
+  }
+}

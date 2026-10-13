@@ -11,6 +11,7 @@ from functools import cached_property
 from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4
 
+from marvin.db.models.users.roles import WORKSPACE_ROLE_HIERARCHY
 from marvin.routes._base import MarvinCrudRoute
 from marvin.routes._base.base_controllers import BaseUserController
 from marvin.routes._base.controller import controller
@@ -18,6 +19,13 @@ from marvin.schemas.group.preferences import (
     GroupPreferencesRead,
     GroupPreferencesUpdate,
 )
+from marvin.schemas.platform.submission_protection import (
+    SubmissionProtectionOverride,
+    SubmissionProtectionSettings,
+    SubmissionProtectionStatus,
+    resolve_submission_protection,
+)
+from marvin.services.platform_settings import SUBMISSION_PROTECTION_KEY, PlatformSettingsService
 
 # APIRouter for group preferences
 router = APIRouter(prefix="/groups/{group_id}/preferences", route_class=MarvinCrudRoute)
@@ -77,13 +85,43 @@ class GroupPreferencesController(BaseUserController):
         # Query by group_id using filter
         preferences = self.repos.groups.get_one(group_id)
 
-        if not preferences:
+        if not preferences or not preferences.preferences:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Workspace not found: {group_id}",
             )
 
         return preferences.preferences
+
+    @router.get(
+        "/submission-protection",
+        response_model=SubmissionProtectionStatus,
+        summary="Get Submission Protection (platform defaults, workspace override, effective)",
+    )
+    def get_submission_protection(self, group_id: UUID4) -> SubmissionProtectionStatus:
+        """Workspace members can read the merged policy; it is edited through PATCH on the preferences
+        (`submission_protection_json`) and the platform defaults through the admin API."""
+        if not self._user_has_workspace_access(group_id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this workspace")
+        platform = PlatformSettingsService(self.session).get(SUBMISSION_PROTECTION_KEY)
+        prefs = self.repo.get_one(group_id, "group_id")
+        override = (prefs.submission_protection_json if prefs else None) or {}
+        return SubmissionProtectionStatus(
+            platform_defaults=SubmissionProtectionSettings.model_validate(platform or {}),
+            workspace_override=SubmissionProtectionOverride.model_validate(override),
+            effective=resolve_submission_protection(platform, override),
+        )
+
+    @router.get("/trash", summary="Get Trash auto-empty (platform default, workspace override, effective)")
+    def get_trash_settings(self, group_id: UUID4) -> dict:
+        """How long the Trash keeps entries: `{platform_default_days, workspace_override_days, effective_days}`
+        (0 = until someone empties it; a null override inherits the platform default). Members read it; the
+        override is set through PATCH on the preferences (`trash_auto_empty_days`)."""
+        if not self._user_has_workspace_access(group_id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this workspace")
+        from marvin.services.entries.trash import auto_empty_status
+
+        return auto_empty_status(self.session, group_id)
 
     @router.patch("", response_model=GroupPreferencesRead, summary="Update Workspace Preferences and Settings")
     def update_preferences(self, group_id: UUID4, data: GroupPreferencesUpdate) -> GroupPreferencesRead:
@@ -172,7 +210,7 @@ class GroupPreferencesController(BaseUserController):
         result = GroupPreferencesRead.model_validate(preferences_model)
 
         # Dispatch workspace_settings_changed event
-        from marvin.services.event_bus_service.event_types import EventWorkspaceSettingsData, EventOperation, EventTypes
+        from marvin.services.event_bus_service.event_types import EventOperation, EventTypes, EventWorkspaceSettingsData
 
         self.event_bus.dispatch(
             integration_id="workspace_preferences",
@@ -235,7 +273,7 @@ class GroupPreferencesController(BaseUserController):
         # Check if user is an ADMIN or OWNER of this workspace
         for membership in self.user.workspace_memberships:
             if membership.group_id == group_id:
-                # WorkspaceRole enum: OWNER=5, ADMIN=4
-                return membership.workspace_role.value >= 4
+                # WORKSPACE_ROLE_HIERARCHY maps the role enum to a rank: OWNER=5, ADMIN=4
+                return WORKSPACE_ROLE_HIERARCHY.get(membership.workspace_role, 0) >= 4
 
         return False

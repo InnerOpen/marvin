@@ -18,12 +18,13 @@ from typing import Any
 from alembic import command, config, script
 from alembic.config import Config
 from alembic.runtime import migration
-from sqlalchemy import engine, orm, text
+from sqlalchemy import engine, orm, text, update
 
 from marvin.core import root_logger
 from marvin.core.config import AppPlugins, get_app_plugins, get_app_settings
 from marvin.db.db_setup import session_context
 from marvin.db.fixes.fix_migration_data import fix_migration_data
+from marvin.db.models.groups import Groups
 from marvin.repos.all_repositories import get_repositories
 from marvin.repos.repository_factory import AllRepositories
 from marvin.repos.seed.init_users import default_user_init
@@ -31,6 +32,7 @@ from marvin.repos.seed.workspace_data_seeder import WorkspaceDataSeeder
 from marvin.repos.seed.workspace_seed_loader import WorkspaceSeedLoader
 from marvin.schemas.group.group import GroupCreate, GroupRead
 from marvin.services.group.group_service import GroupService
+from marvin.services.group.platform_workspace import PlatformWorkspaceMissing, log_name_hint, platform_workspace
 from marvin.services.seeders.seeder_service import SeederService
 
 PROJECT_DIR = Path(__file__).parent.parent
@@ -55,7 +57,7 @@ def init_plugin_db(session: orm.Session, plugins: AppPlugins) -> None:
         logger.info("-------Plugins: Init DB-------")
         for plugin_name, plugin in plugins.LOADED_PLUGINS.items():
             logger.debug(f"-------Initializing Plugin DB: {plugin_name}-------")
-            plugin_dir = Path(os.path.dirname(plugin.__file__))
+            plugin_dir = Path(os.path.dirname(plugin.__file__ or ""))
             plugin_db_path = str(plugin_dir / "db" / "init_db.py")
 
             if os.path.isfile(plugin_db_path):
@@ -70,7 +72,7 @@ def init_db(session: orm.Session) -> None:
     Initializes the main application database with default data.
 
     This includes creating a default group, a default admin user, and seeding
-    initial notifier options.
+    system entry types.
 
     Args:
         session (orm.Session): The active SQLAlchemy session.
@@ -79,20 +81,23 @@ def init_db(session: orm.Session) -> None:
 
     instance_repos = get_repositories(session)
 
-    default_group = default_group_init(instance_repos, settings.DEFAULT_GROUP)
-    group_repos = get_repositories(session, group_id=default_group.id)
+    platform_group = platform_workspace_init(instance_repos, settings.DEFAULT_GROUP)
+    group_repos = get_repositories(session, group_id=platform_group.id)
     default_user_init(group_repos)
-
-    seeder_service = SeederService(group_repos)
-    seeder_service.seed_notifier_options("notification_options")
 
     # Seed system-level entry types (globally available to all workspaces)
     system_seeder_service = SeederService(instance_repos)  # Use instance_repos (no group_id) for system types
     system_seeder_service.seed_system_entry_types("system_entry_types")
 
-    # Seed workspace-specific data from seeds directory if it exists
+    # Seed workspace-specific data from seeds directory if it exists.
+    #
+    # This imports *anything* matching workspace-*.json/zip in {DATA_DIR}/seeds, on every startup.
+    # That is a dev/bootstrap convenience and must not fire implicitly on a production instance —
+    # a stray bundle in the data volume would silently import a whole workspace. Production loads
+    # bundles explicitly through the admin backup/import endpoints instead. Set SEED_ON_STARTUP=true
+    # to opt back in (e.g. to provision a demo instance from a bundle).
     data_dir = settings.DATA_DIR
-    if data_dir:
+    if data_dir and (not settings.PRODUCTION or settings.SEED_ON_STARTUP):
         seed_dir = Path(data_dir) / "seeds"
         if seed_dir.exists():
             logger.info(f"Seeding workspace data from: {seed_dir}")
@@ -113,19 +118,29 @@ def init_db(session: orm.Session) -> None:
             workspace_seeder.seed_from_directory(seed_dir)
 
 
-def default_group_init(repos: AllRepositories, name: str) -> GroupRead:
+def platform_workspace_init(repos: AllRepositories, name: str) -> GroupRead:
     """
-    Creates the default group if it doesn't already exist.
+    The platform (admin's) workspace, created and marked if the database has none.
+
+    ``name`` (``settings.DEFAULT_GROUP``) is used only here, when a fresh install creates it; an
+    existing platform workspace keeps whatever name it has.
 
     Args:
         repos (AllRepositories): The repository accessor for database operations.
-        name (str): The name for the default group.
+        name (str): The name to give a newly created platform workspace.
 
     Returns:
-        GroupRead: The created or existing default group.
+        GroupRead: The existing or newly created platform workspace.
     """
-    logger.info("Generating Default Group")
-    return GroupService.create_group(repos, GroupCreate(name=name))
+    try:
+        return GroupRead.model_validate(platform_workspace(repos.session))
+    except PlatformWorkspaceMissing:
+        pass
+    logger.info(f"Creating the platform workspace '{name}'")
+    group = GroupService.create_group(repos, GroupCreate(name=name))
+    repos.session.execute(update(Groups).where(Groups.id == group.id).values(is_platform=True))
+    repos.session.commit()
+    return GroupRead.model_validate(platform_workspace(repos.session))
 
 
 def safe_try(func: Callable) -> None:
@@ -185,18 +200,44 @@ def include_name(name: str, type_: str, parent_names: dict[str, Any]) -> bool:
         try:
             # This is a placeholder for how these might be accessed.
             # The actual mechanism might be different in Alembic's execution context.
-            from marvin.db.models import Base  # Assuming Base has the metadata
+            from marvin.db.models import SqlAlchemyBase as Base  # Assuming Base has the metadata
 
             target_metadata = Base.metadata
             # PLUGIN_PREFIX would likely come from settings or another global config
             settings = get_app_settings()
             PLUGIN_PREFIX = settings.PLUGIN_PREFIX
-            return name in target_metadata.tables or name.startswith(PLUGIN_PREFIX)
+            return name in target_metadata.tables or name.startswith(PLUGIN_PREFIX or "")
         except ImportError:
             logger.warning("Could not import Base for target_metadata in include_name hook.")
             # Fallback or stricter behavior might be needed
             return False  # Or True, depending on desired safety if metadata can't be checked
     return True
+
+
+def pending_revisions(alembic_cfg: config.Config) -> list[str]:
+    """Revision ids the database has not applied yet, oldest first.
+
+    Used to report what a review gate is holding back. Best-effort: reporting must never be
+    the reason startup fails, so any problem resolving history yields an empty list.
+    """
+    try:
+        directory = script.ScriptDirectory.from_config(alembic_cfg)
+        connectable = engine.create_engine(get_app_settings().DB_URL)
+        with connectable.connect() as connection:
+            ctx = migration.MigrationContext.configure(
+                connection=connection,
+                opts={
+                    "version_table": alembic_cfg.get_main_option("version_table") or "alembic_version",
+                    "include_name": include_name,
+                },
+            )
+            current_rev = ctx.get_current_revision()
+        # iterate_revisions(upper, lower) walks head -> lower, excluding lower itself.
+        # Reverse it so the report reads in the order they'd be applied.
+        revisions = directory.iterate_revisions("heads", current_rev)
+        return [rev.revision for rev in reversed(list(revisions))]
+    except Exception:  # pragma: no cover - diagnostics only
+        return []
 
 
 def db_is_at_head(alembic_cfg: config.Config) -> bool:
@@ -275,7 +316,7 @@ def main() -> None:
             logger.info("-------Plugins Alembic Enabled-------")
             plugins = get_app_plugins(settings.PLUGIN_PREFIX)
             for plugin_name, plugin in plugins.LOADED_PLUGINS.items():
-                PLUGIN_DIR = Path(os.path.dirname(plugin.__file__))
+                PLUGIN_DIR = Path(os.path.dirname(plugin.__file__ or ""))
                 plugin_alembic_path = str(PLUGIN_DIR / "alembic.ini")
 
                 if os.path.isfile(plugin_alembic_path):
@@ -296,6 +337,19 @@ def main() -> None:
 
             if db_is_at_head(alembic_cfg):
                 logger.debug(f"Migration not needed for {name}.")
+            elif not get_app_settings().AUTO_MIGRATE:
+                # Review gate. The dev server reloads on file changes and this runs at startup,
+                # so a freshly generated revision would otherwise hit the database before anyone
+                # had read it. With AUTO_MIGRATE off, say what's pending and let a human apply it.
+                pending = pending_revisions(alembic_cfg)
+                logger.warning(
+                    "AUTO_MIGRATE is off and %s has %d pending migration(s): %s. "
+                    "Review them, then apply with `task py:migrate:apply`. "
+                    "The app is running against an OUT-OF-DATE schema until you do.",
+                    name,
+                    len(pending),
+                    ", ".join(pending) or "unknown",
+                )
             else:
                 logger.debug(f"Migration needed. Performing migration for {name}...")
                 command.upgrade(alembic_cfg, "head")
@@ -311,6 +365,7 @@ def main() -> None:
         else:
             logger.info("Main Database contains no users initializing...")
             init_db(session)
+        log_name_hint(session, settings.DEFAULT_GROUP)
 
         if settings.PLUGIN_ENABLED:
             init_plugin_db(session, plugins)

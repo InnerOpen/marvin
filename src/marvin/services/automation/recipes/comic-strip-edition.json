@@ -1,0 +1,105 @@
+{
+  "name": "Comic strip edition",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "target": {
+      "entity": "entry",
+      "query": {
+        "entry_type": "{{entry_type}}",
+        "status": "published"
+      }
+    },
+    "conditions": [
+      {
+        "field": "entry.metadata.comic",
+        "op": "exists",
+        "value": false
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "panels",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "Retell “${entry.title}” as a four-panel comic: a title and four short captions (one sentence each) that follow what the entry says, in order. It's a playful adaptation — keep facts from the entry, add no new ones.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "caption1": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "caption2": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "caption3": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "caption4": {
+              "type": "string",
+              "maxLength": 120
+            }
+          },
+          "required": [
+            "title",
+            "caption1",
+            "caption2",
+            "caption3",
+            "caption4"
+          ]
+        }
+      },
+      {
+        "kind": "approval",
+        "id": "ok",
+        "message": "Make the comic “${steps.panels.output.title}” for “${entry.title}”? 1) ${steps.panels.output.caption1} 2) ${steps.panels.output.caption2} 3) ${steps.panels.output.caption3} 4) ${steps.panels.output.caption4}",
+        "approvers": "editor",
+        "expires_in_hours": 72
+      },
+      {
+        "kind": "media",
+        "id": "comic",
+        "op": "render",
+        "template": "comic-4",
+        "fields": {
+          "title": "${steps.panels.output.title}",
+          "caption1": "${steps.panels.output.caption1}",
+          "caption2": "${steps.panels.output.caption2}",
+          "caption3": "${steps.panels.output.caption3}",
+          "caption4": "${steps.panels.output.caption4}",
+          "footer": "{{footer}}"
+        },
+        "images": {
+          "panel1": "role:{{image_role}}"
+        },
+        "attach_as": "comic",
+        "tags": [
+          "comic"
+        ],
+        "when": {
+          "field": "steps.ok.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "comic": "${steps.ok.output.decision}"
+        }
+      }
+    ]
+  }
+}

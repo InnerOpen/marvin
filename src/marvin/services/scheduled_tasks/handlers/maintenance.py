@@ -5,9 +5,7 @@ These handlers perform routine maintenance operations like cleaning up temp file
 pruning old data, and verifying system integrity.
 """
 
-from datetime import UTC, datetime, timedelta, timezone
-from pathlib import Path
-from uuid import UUID
+from datetime import UTC, datetime, timedelta
 
 from marvin.core.root_logger import get_logger
 from marvin.db.db_setup import session_context
@@ -23,9 +21,11 @@ logger = get_logger(__name__)
 def _fmt_bytes(n: int) -> str:
     if n < 1024:
         return f"{n} B"
-    if n < 1024 ** 2:
+    if n < 1024**2:
         return f"{n / 1024:.1f} KB"
-    return f"{n / 1024 ** 2:.1f} MB"
+    if n < 1024**3:
+        return f"{n / 1024**2:.1f} MB"
+    return f"{n / 1024**3:.2f} GB"
 
 
 class CleanupTempFilesHandler(ScheduledTaskHandler):
@@ -68,6 +68,7 @@ class CleanupTempFilesHandler(ScheduledTaskHandler):
         dry_run = config.get("dry_run", False)
 
         from marvin.core.config import get_app_dirs
+
         temp_dir = get_app_dirs().TEMP_DIR
 
         if not temp_dir.exists():
@@ -84,7 +85,7 @@ class CleanupTempFilesHandler(ScheduledTaskHandler):
                 continue
 
             mtime = file_path.stat().st_mtime
-            file_mtime = datetime.fromtimestamp(mtime, tz=timezone.utc)
+            file_mtime = datetime.fromtimestamp(mtime, tz=UTC)
             if file_mtime < cutoff:
                 file_size = file_path.stat().st_size
                 if dry_run:
@@ -169,7 +170,8 @@ class RemoveOrphanedAssetsHandler(ScheduledTaskHandler):
 
     Configuration (task_config):
     - age_days: int (default: 30) - Only consider assets older than this
-    - auto_delete: bool (default: False) - If true, delete orphans; if false, just report
+    - auto_delete: bool (default: False) - If true, move orphans to the Trash (restorable; emptying it deletes
+      their files); if false, just report
     """
 
     name = "Remove Orphaned Assets"
@@ -185,7 +187,7 @@ class RemoveOrphanedAssetsHandler(ScheduledTaskHandler):
             "auto_delete": {
                 "type": "boolean",
                 "default": False,
-                "description": "If true, delete orphans; if false, just report",
+                "description": "If true, move orphans to the Trash (restorable until it is emptied); if false, just report",
             },
         },
     }
@@ -200,7 +202,9 @@ class RemoveOrphanedAssetsHandler(ScheduledTaskHandler):
         cutoff = datetime.now(UTC) - timedelta(days=age_days)
 
         with session_context() as session:
-            asset_q = session.query(Assets).filter(Assets.created_at <= cutoff)
+            # An asset in the Trash is the Trash's to delete (or restore), not an orphan; nor is an Ask file, which
+            # no entry uses by nature (it goes with its thread: services/assets/scope.py).
+            asset_q = session.query(Assets).filter(Assets.created_at <= cutoff, Assets.trashed_at.is_(None), Assets.scope == "library")
             if task.group_id:
                 asset_q = asset_q.filter(Assets.group_id == task.group_id)
 
@@ -212,22 +216,32 @@ class RemoveOrphanedAssetsHandler(ScheduledTaskHandler):
                 link_q = link_q.filter(Assets.group_id == task.group_id)
             linked_ids = {row[0] for row in link_q.all()}
 
-            orphans = [a for a in all_assets if a.id not in linked_ids]
+            # A version made from an original still in the library goes with its original (services/item_query.py):
+            # a crop pack or a WebP copy is unattached by nature, not abandoned.
+            live_q = session.query(Assets.id).filter(Assets.trashed_at.is_(None), Assets.scope == "library")
+            if task.group_id:
+                live_q = live_q.filter(Assets.group_id == task.group_id)
+            live = {row[0] for row in live_q.all()}
+            # …and an original whose version an entry uses (a hero's web size) is in use itself.
+            in_use_originals = {
+                row[0] for row in session.query(Assets.source_asset_id).filter(Assets.id.in_(linked_ids), Assets.source_asset_id.isnot(None))
+            }
+            orphans = [a for a in all_assets if a.id not in linked_ids and a.source_asset_id not in live and a.id not in in_use_originals]
             count = len(orphans)
 
             if auto_delete:
+                # To the Trash, not a bare row delete: that left every file orphaned in storage, and an asset no
+                # entry links to may still be in use (a site logo). The Trash's emptying deletes files properly.
+                from marvin.services import trash
+
                 for asset in orphans:
-                    session.delete(asset)
-                session.commit()
-                label = "deleted"
+                    trash.trash(session, asset.group_id, trash.ASSET, asset.id)
+                label = "moved to the Trash"
             else:
                 label = "found (auto_delete=false, not removed)"
 
         scope = "this workspace" if task.group_id else "all workspaces"
-        summary = (
-            f"{count} orphaned asset{'s' if count != 1 else ''} {label} "
-            f"(older than {age_days} days, scope: {scope})"
-        )
+        summary = f"{count} orphaned asset{'s' if count != 1 else ''} {label} (older than {age_days} days, scope: {scope})"
         logger.info("Orphaned asset scan: %s", summary)
         return summary
 
@@ -251,8 +265,7 @@ class PruneEventLogsHandler(ScheduledTaskHandler):
         "properties": {
             "retention_days": {
                 "type": "integer",
-                "description": "Delete events older than this many days (<=0 disables). "
-                "Defaults to the EVENT_LOG_RETENTION_DAYS setting.",
+                "description": "Delete events older than this many days (<=0 disables). Defaults to the EVENT_LOG_RETENTION_DAYS setting.",
             },
         },
     }
@@ -312,9 +325,7 @@ class PruneAIExecutionsHandler(ScheduledTaskHandler):
         from marvin.db.models.groups.ai_executions import AIExecutionModel
         from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
 
-        default_days = task.task_config.get(
-            "retention_days", getattr(get_app_settings(), "AI_EXECUTION_RETENTION_DAYS", 90)
-        )
+        default_days = task.task_config.get("retention_days", getattr(get_app_settings(), "AI_EXECUTION_RETENTION_DAYS", 90))
         now = datetime.now(UTC)
 
         def _delete_older(session, days: int, group_ids=None, exclude_group_ids=None) -> int:
@@ -344,6 +355,57 @@ class PruneAIExecutionsHandler(ScheduledTaskHandler):
 
         summary = f"Pruned {total} AI execution row{'s' if total != 1 else ''} past retention"
         logger.info("AI execution prune: %s", summary)
+        return summary
+
+
+class PruneScheduledTaskExecutionsHandler(ScheduledTaskHandler):
+    """
+    Delete old rows from scheduled_task_execution_log (platform-wide, all workspaces).
+
+    Admin-only. This table had no pruning at all while event logs and AI executions did, so it grew
+    without limit — a task on a two-minute interval writes ~720 rows a day on its own.
+
+    Configuration (task_config):
+    - retention_days: int (default: 30) - Delete executions older than this. A value <= 0 disables.
+    """
+
+    name = "Prune Scheduled Task Executions"
+    description = "Delete scheduled-task execution records older than the retention window (admin only)"
+    admin_only = True
+    config_schema = {
+        "type": "object",
+        "properties": {
+            "retention_days": {
+                "type": "integer",
+                "default": 30,
+                "description": "Delete execution records older than this many days (<=0 disables).",
+            },
+        },
+    }
+
+    def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
+        if task.group_id:
+            return "Skipped: prune_scheduled_task_executions is admin-only and cannot run in a workspace context"
+
+        from marvin.db.models.platform.scheduled_tasks import ScheduledTaskExecutionLogModel
+
+        retention_days = task.task_config.get("retention_days", 30)
+        if not retention_days or retention_days <= 0:
+            return "Skipped: execution log retention disabled (retention_days <= 0)"
+
+        cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+        with session_context() as session:
+            deleted = (
+                session.query(ScheduledTaskExecutionLogModel)
+                .filter(ScheduledTaskExecutionLogModel.executed_at < cutoff)
+                .delete(synchronize_session=False)
+            )
+            session.commit()
+
+        if not deleted:
+            return None  # nothing to say; do not add a row to the log we are pruning
+        summary = f"Pruned {deleted} execution record{'s' if deleted != 1 else ''} older than {retention_days} days"
+        logger.info("Execution log prune: %s", summary)
         return summary
 
 
@@ -380,6 +442,90 @@ class ResyncSmartCollectionsHandler(ScheduledTaskHandler):
         return summary
 
 
+class PruneRevokedTokensHandler(ScheduledTaskHandler):
+    """
+    Delete revoked API tokens and revoked site clients (platform-wide).
+
+    Admin-only. A revoked token can never authenticate again, so its row is kept only as a short
+    record of what existed; after `age_days` it goes.
+
+    Configuration (task_config):
+    - age_days: int (default: 30) - Delete tokens revoked more than this many days ago (0 = all revoked)
+    """
+
+    name = "Prune Revoked Tokens"
+    description = "Delete API tokens and site clients revoked more than age_days ago (admin only)"
+    admin_only = True
+    config_schema = {
+        "type": "object",
+        "properties": {
+            "age_days": {
+                "type": "integer",
+                "default": 30,
+                "description": "Delete tokens revoked more than this many days ago (0 deletes every revoked token)",
+            },
+        },
+    }
+
+    def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
+        if task.group_id:
+            return "Skipped: prune_revoked_tokens is admin-only and cannot run in a workspace context"
+
+        from marvin.db.models.platform.api_clients import APIClients
+        from marvin.db.models.users.users import LongLiveToken
+
+        age_days = max(task.task_config.get("age_days", 30), 0)
+        cutoff = datetime.now(UTC) - timedelta(days=age_days)
+        with session_context() as session:
+            tokens = session.query(LongLiveToken).filter(LongLiveToken.revoked_at <= cutoff).delete(synchronize_session=False)
+            clients = session.query(APIClients).filter(APIClients.revoked_at <= cutoff).delete(synchronize_session=False)
+            session.commit()
+
+        if not tokens and not clients:
+            return None  # the usual daily answer; not worth a row
+        summary = f"Deleted {tokens} revoked API token(s) and {clients} revoked site client(s) (revoked over {age_days} days ago)"
+        logger.info("Revoked token prune: %s", summary)
+        return summary
+
+
+class OptimizeDatabaseHandler(ScheduledTaskHandler):
+    """
+    VACUUM and ANALYZE the database (platform-wide).
+
+    Admin-only, and shipped disabled: Postgres's autovacuum already does this routinely, so this is
+    for an operator who wants it now (Run Now) — after a large delete, say. Neither command may run
+    inside a transaction, so it uses its own autocommit connection rather than a session. A plain
+    VACUUM (not FULL) does not lock tables against reads and writes, but it is I/O heavy.
+    """
+
+    name = "Optimize Database"
+    description = "VACUUM + ANALYZE the database — reclaim space and refresh planner statistics (admin only)"
+    admin_only = True
+
+    def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
+        if task.group_id:
+            return "Skipped: optimize_database is admin-only and cannot run in a workspace context"
+
+        from sqlalchemy import text
+
+        from marvin.db.db_setup import engine
+
+        is_postgres = engine.dialect.name == "postgresql"
+        size_sql = text("SELECT pg_database_size(current_database())")
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            before = conn.execute(size_sql).scalar() if is_postgres else None
+            conn.execute(text("VACUUM (ANALYZE)" if is_postgres else "VACUUM"))
+            if not is_postgres:
+                conn.execute(text("ANALYZE"))
+            after = conn.execute(size_sql).scalar() if is_postgres else None
+
+        summary = "VACUUM + ANALYZE completed"
+        if before is not None and after is not None:
+            summary += f" (database {_fmt_bytes(before)} → {_fmt_bytes(after)})"
+        logger.info("Database optimize: %s", summary)
+        return summary
+
+
 # Register handlers
 TaskHandlerRegistry.register("cleanup_temp_files", CleanupTempFilesHandler)
 TaskHandlerRegistry.register("prune_expired_sessions", PruneExpiredSessionsHandler)
@@ -387,4 +533,7 @@ TaskHandlerRegistry.register("prune_expired_invitations", PruneExpiredInvitation
 TaskHandlerRegistry.register("remove_orphaned_assets", RemoveOrphanedAssetsHandler)
 TaskHandlerRegistry.register("prune_event_logs", PruneEventLogsHandler)
 TaskHandlerRegistry.register("prune_ai_executions", PruneAIExecutionsHandler)
+TaskHandlerRegistry.register("prune_scheduled_task_executions", PruneScheduledTaskExecutionsHandler)
 TaskHandlerRegistry.register("resync_smart_collections", ResyncSmartCollectionsHandler)
+TaskHandlerRegistry.register("prune_revoked_tokens", PruneRevokedTokensHandler)
+TaskHandlerRegistry.register("optimize_database", OptimizeDatabaseHandler)

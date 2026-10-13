@@ -1,0 +1,35 @@
+{
+  "name": "Editorial approval gate",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_updated"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      },
+      {
+        "field": "entry.status",
+        "op": "changed_to",
+        "value": "approved"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "entry",
+        "op": "publish",
+        "id": "publish"
+      }
+    ],
+    "on_failure": [
+      {
+        "kind": "entry",
+        "op": "request_review",
+        "reason": "Publish refused by the approval gate: ${error.message}"
+      }
+    ]
+  }
+}

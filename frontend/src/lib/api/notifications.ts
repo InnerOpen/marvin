@@ -1,61 +1,100 @@
 /**
- * Notifications API
- * Migrated to use @inneropen/marvin-sdk
+ * Workspace notifications API (Settings → Automation → Notifications) — which of the workspace's events
+ * reach people outside Marvin, and how: email to its owners and admins (built in) or a message-capable
+ * action on one of its connections, each channel taking every kind or only some. Admins and owners only.
+ * Browser calls go through the same-origin proxy (no token); SSR passes the cookie token.
  */
 
-import { createSdkClient } from '../sdk';
-import type {
-  Notification,
-  NotificationCreate,
-  NotificationUpdate,
-} from '@inneropen/marvin-sdk/platform';
+import type { AlertDelivery, AlertKind, AlertTarget } from "./alerts";
+import { fetchApi } from "./client";
 
-export type { Notification, NotificationCreate, NotificationUpdate };
-
-/**
- * List all notifications in the workspace
- */
-export async function listNotifications(authToken: string): Promise<Notification[]> {
-  const sdk = createSdkClient(authToken);
-  return sdk.notifications.list();
+export interface NotificationEmail {
+  enabled: boolean;
+  /** null: every owner and admin of the workspace with an email address. */
+  recipients: string[] | null;
+  /** The kinds email takes; null: every kind that is on. */
+  kinds: string[] | null;
+  adminEmails: string[];
+  smtpReady: boolean;
+  lastDelivery: AlertDelivery | null;
 }
 
-/**
- * Get a notification by ID
- */
-export async function getNotification(id: string, authToken: string): Promise<Notification> {
-  const sdk = createSdkClient(authToken);
-  return sdk.notifications.get(id);
+export interface NotificationPush {
+  /** The server has Web Push (VAPID); without it push isn't a channel and the page hides it. */
+  configured: boolean;
+  enabled: boolean;
+  /** The kinds push takes; null: every kind that is on. */
+  kinds: string[] | null;
+  /** Who push reaches right now: owners and admins with a device and "Workspace alerts" on. */
+  people: string[];
+  lastDelivery: AlertDelivery | null;
 }
 
-/**
- * Create a new notification
- */
-export async function createNotification(data: NotificationCreate, authToken: string): Promise<Notification> {
-  const sdk = createSdkClient(authToken);
-  return sdk.notifications.create(data);
+export interface NotificationRoute {
+  id: string;
+  integrationId: string;
+  action: string;
+  args: Record<string, unknown>;
+  enabled: boolean;
+  /** The kinds it takes; null: every kind that is on. */
+  kinds: string[] | null;
+  label: string;
+  /** Why it can't send right now. */
+  problem: string | null;
+  lastDelivery: AlertDelivery | null;
 }
 
-/**
- * Update a notification
- */
-export async function updateNotification(id: string, data: NotificationUpdate, authToken: string): Promise<Notification> {
-  const sdk = createSdkClient(authToken);
-  return sdk.notifications.update(id, data);
+export interface WorkspaceNotifications {
+  types: AlertKind[];
+  email: NotificationEmail;
+  push: NotificationPush;
+  routes: NotificationRoute[];
+  targets: AlertTarget[];
+  integrationsAvailable: boolean;
+  integrationReminderHours: number;
 }
 
-/**
- * Delete a notification
- */
-export async function deleteNotification(id: string, authToken: string): Promise<void> {
-  const sdk = createSdkClient(authToken);
-  return sdk.notifications.delete(id);
+export interface WorkspaceNotificationsUpdate {
+  types: Record<string, boolean>;
+  email: { enabled: boolean; recipients: string[] | null; kinds: string[] | null };
+  /** Left out: push stays as it is. */
+  push?: { enabled: boolean; kinds: string[] | null };
+  routes: {
+    id?: string;
+    integrationId: string;
+    action: string;
+    args: Record<string, unknown>;
+    enabled: boolean;
+    kinds: string[] | null;
+  }[];
+  integrationReminderHours: number;
 }
 
-/**
- * Test a notification
- */
-export async function testNotification(id: string, authToken: string): Promise<{ success: boolean; message?: string }> {
-  const sdk = createSdkClient(authToken);
-  return sdk.notifications.test(id);
+const PATH = "/api/groups/notifications";
+
+export async function getNotifications(authToken?: string): Promise<WorkspaceNotifications> {
+  return fetchApi<WorkspaceNotifications>(PATH, { method: "GET" }, authToken);
+}
+
+export async function updateNotifications(
+  data: WorkspaceNotificationsUpdate,
+  authToken?: string,
+): Promise<WorkspaceNotifications> {
+  return fetchApi<WorkspaceNotifications>(
+    PATH,
+    { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) },
+    authToken,
+  );
+}
+
+/** Send "Test notification from Marvin" through one saved channel: `email`, `push` or a route id. */
+export async function testNotification(
+  channel: string,
+  authToken?: string,
+): Promise<{ channel: string; delivery: AlertDelivery }> {
+  return fetchApi(
+    `${PATH}/test`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel }) },
+    authToken,
+  );
 }

@@ -7,11 +7,12 @@ enabling event history queries, entity timelines, and user activity tracking.
 
 from datetime import datetime
 
+import sqlalchemy as sa
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from marvin.db.models import BaseMixins, SqlAlchemyBase
+
 from .._model_utils.guid import GUID
 
 
@@ -22,7 +23,7 @@ class EventLogModel(SqlAlchemyBase, BaseMixins):
     This table creates a complete audit trail of everything that happens in Marvin.
     Events are immutable once created - they represent facts that already occurred.
 
-    The event_data JSONB column contains the full event payload for queryability,
+    The event_data sa.JSON column contains the full event payload for queryability,
     while message_title and message_body provide human-readable summaries.
     """
 
@@ -40,8 +41,8 @@ class EventLogModel(SqlAlchemyBase, BaseMixins):
     """Timestamp when the event occurred (UTC)."""
 
     # Core identifiers for filtering and relationships
-    workspace_id: Mapped[GUID] = mapped_column(GUID, ForeignKey("groups.id"), index=True, nullable=False)
-    """The workspace this event pertains to."""
+    workspace_id: Mapped[GUID | None] = mapped_column(GUID, ForeignKey("groups.id"), index=True, nullable=True)
+    """The workspace this event pertains to (None for platform/system-scoped events, e.g. a global scheduled task)."""
 
     user_id: Mapped[GUID | None] = mapped_column(GUID, ForeignKey("users.id"), index=True, nullable=True)
     """The user who triggered this event (None for system events)."""
@@ -59,8 +60,13 @@ class EventLogModel(SqlAlchemyBase, BaseMixins):
     operation: Mapped[str | None] = mapped_column(String, nullable=True)
     """The operation type (create, update, delete, info)."""
 
-    # Full event payload (JSONB for queryability)
-    event_data: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    correlation_id: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
+    """Id shared by every event + execution in one causal chain — so a whole reaction cascade
+    (user action → automation → re-emitted event → …) is queryable as one thread. See
+    services/event_bus_service/correlation.py."""
+
+    # Full event payload (sa.JSON for queryability)
+    event_data: Mapped[dict] = mapped_column(sa.JSON, nullable=False)
     """Complete event payload as JSON for rich queries."""
 
     # Human-readable summary
@@ -69,6 +75,30 @@ class EventLogModel(SqlAlchemyBase, BaseMixins):
 
     message_body: Mapped[str | None] = mapped_column(Text, nullable=True)
     """Human-readable event description."""
+
+    # The event's related subject beside its own entity — what triggered a workflow run (an entry, an
+    # incoming webhook, the workflow it chained from). Read from the stored payload rather than kept in
+    # columns of its own: only automation events carry one, and nothing filters on it.
+    def _related(self, key: str):
+        data = self.event_data if isinstance(self.event_data, dict) else {}
+        doc = data.get("documentData") or data.get("document_data") or {}
+        if not isinstance(doc, dict):
+            return None
+        camel = "triggerEntity" + key.title()
+        value = doc.get(camel, doc.get(f"trigger_entity_{key}"))
+        return value if value else None
+
+    @property
+    def related_entity_type(self) -> str | None:
+        return self._related("type")
+
+    @property
+    def related_entity_id(self) -> str | None:
+        return self._related("id")
+
+    @property
+    def related_entity_label(self) -> str | None:
+        return self._related("label")
 
     __table_args__ = (
         # Composite index for common query pattern: workspace events by type and time

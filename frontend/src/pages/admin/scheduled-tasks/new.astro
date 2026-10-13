@@ -1,8 +1,7 @@
 ---
 import AdminLayout from "@/layouts/AdminLayout.astro";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
-import { getAuthToken } from "@/lib/api/client";
-import { fetchApi } from "@/lib/api/client";
 
 await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
 const authToken = getAuthToken(Astro.cookies);
@@ -12,23 +11,18 @@ let error: string | null = null;
 
 try {
   taskTypes = await fetchApi<any[]>(
-    '/api/admin/scheduled-tasks/task-types?detailed=true',
-    { method: 'GET' },
-    authToken
+    "/api/admin/scheduled-tasks/task-types?detailed=true",
+    { method: "GET" },
+    authToken,
   );
 } catch (e) {
-  console.error('[admin/scheduled-tasks/new] Error:', e);
+  console.error("[admin/scheduled-tasks/new] Error:", e);
   error = e instanceof Error ? e.message : String(e);
 }
 ---
 
-<AdminLayout title="New System Task">
+<AdminLayout crumb="admin.scheduled-tasks.new">
   <div class="page-header">
-    <div class="breadcrumb">
-      <a href="/admin/scheduled-tasks">Scheduled Tasks</a>
-      <span>›</span>
-      <span>New System Task</span>
-    </div>
     <h2>Create System Task</h2>
     <p>Create a platform-wide scheduled task (not tied to any workspace)</p>
   </div>
@@ -185,18 +179,6 @@ try {
     padding-bottom: 20px;
     border-bottom: 1px solid var(--line);
   }
-
-  .breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--muted);
-    margin-bottom: 12px;
-  }
-
-  .breadcrumb a { color: var(--muted); text-decoration: none; }
-  .breadcrumb a:hover { color: var(--ink); }
 
   .page-header h2 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
   .page-header p { margin: 0; color: var(--muted); font-size: 14px; }

@@ -1,0 +1,46 @@
+{
+  "name": "Client handoff",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_updated"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      },
+      {
+        "field": "entry.status",
+        "op": "changed_to",
+        "value": "{{ready_status}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "webhook",
+        "id": "handoff",
+        "webhook_id": "{{handoff_webhook_id}}",
+        "body": {
+          "entry_id": "${entry.id}",
+          "title": "${entry.title}",
+          "url": "${entry.url}",
+          "status": "${entry.status}",
+          "data": "${entry.data}"
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "handoff": {
+            "status_code": "${steps.handoff.output.status_code}",
+            "receipt": "${steps.handoff.output.body}",
+            "run": "${event.correlation_id}"
+          }
+        }
+      }
+    ]
+  }
+}

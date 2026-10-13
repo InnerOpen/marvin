@@ -7,25 +7,20 @@ to prevent brute-force attacks.
 """
 
 from datetime import timedelta
-
 from logging import Logger
 
 from pydantic import ConfigDict
+from sqlalchemy.orm.session import Session
 
 from marvin.core.config import get_app_dirs, get_app_settings
 from marvin.core.root_logger import get_logger
-from marvin.core.settings import AppSettings
-from marvin.core.settings.directories import AppDirectories
-
-from sqlalchemy.orm.session import Session
-
-from marvin.core.exceptions import UserLockedOut
 from marvin.core.security.hasher import get_hasher
 from marvin.core.security.providers.auth_providers import AuthProvider
+from marvin.core.settings import AppSettings
+from marvin.core.settings.directories import AppDirectories
 from marvin.db.models.users.users import AuthMethod
 from marvin.repos.all_repositories import get_repositories
 from marvin.schemas.user.auth import CredentialsRequest
-from marvin.services.user.user_service import UserService
 
 
 class CredentialsProvider(AuthProvider[CredentialsRequest]):
@@ -110,23 +105,13 @@ class CredentialsProvider(AuthProvider[CredentialsRequest]):
             self.logger.warning("Found user but their auth method is not 'MARVIN'. Unable to continue with credentials login")
             return None
 
-        if user.login_attemps >= self.settings.SECURITY_MAX_LOGIN_ATTEMPTS or user.is_locked:
-            raise UserLockedOut()
-
+        # Repeated failures are counted and refused by sign-in throttling before this runs
+        # (services/security/login_throttle.py, POST /api/auth/token): no per-user counter here.
         if not CredentialsProvider.verify_password(self.data.password, user.password):
-            user.login_attemps += 1
-            # Only update the specific field, not the entire user object (which includes relationships)
-            db.users.update(user.id, {"login_attemps": user.login_attemps})
-
-            if user.login_attemps >= self.settings.SECURITY_MAX_LOGIN_ATTEMPTS:
-                user_service = UserService(db)
-                user_service.lock_user(user)
-
             return None
 
-        # Reset login attempts on successful authentication
-        # Only update the specific field, not the entire user object (which includes relationships)
-        user = db.users.update(user.id, {"login_attemps": 0})
+        if user.login_attemps:  # a count from before throttling: a successful sign-in clears it
+            user = db.users.update(user.id, {"login_attemps": 0, "locked_at": None})
         return self.get_access_token(user, self.data.remember_me)  # type: ignore
 
     def verify_fake_password(self):

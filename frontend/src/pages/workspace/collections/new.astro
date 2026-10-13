@@ -1,30 +1,36 @@
 ---
-import AppLayout from "@/layouts/AppLayout.astro";
-import SlugInput from "@/components/SlugInput.astro";
 import EmojiPicker from "@/components/EmojiPicker.astro";
+import SlugInput from "@/components/SlugInput.astro";
 import SmartCollectionFields from "@/components/SmartCollectionFields.astro";
-import { createCollection } from "@/lib/api/collections";
+import CollectionVisibilityField from "@/components/CollectionVisibilityField.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import { createCollection } from "@/lib/api/collections";
+import { IS_PUBLIC_FIELD, isPublicFromForm } from "@/lib/collectionForm";
+import { getContentAccess } from "@/lib/api/workspaces";
+import { EDITORS_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 if (!authToken) {
-  return Astro.redirect('/auth/login');
+  return Astro.redirect("/auth/login");
 }
+// Creating collections is EDITOR+ (the API answers others with 403).
+const access = await getContentAccess(authToken);
 
 // Handle form submission (server-side)
-if (Astro.request.method === 'POST') {
+if (Astro.request.method === "POST") {
   try {
     const formData = await Astro.request.formData();
     const data: Record<string, any> = {};
 
     formData.forEach((value, key) => {
-      if (value !== '') {
+      if (value !== "" && key !== IS_PUBLIC_FIELD) {
         // Handle checkbox
-        if (key === 'is_smart') {
-          data[key] = value === 'true';
+        if (key === "is_smart") {
+          data[key] = value === "true";
         }
         // Handle JSON fields (smartRules = smart-collection rules; metadata = custom metadata)
-        else if (key === 'smartRules' || key === 'metadata') {
+        else if (key === "smartRules" || key === "metadata") {
           try {
             data[key] = JSON.parse(value as string);
           } catch (e) {
@@ -32,25 +38,26 @@ if (Astro.request.method === 'POST') {
           }
         }
         // Handle number fields
-        else if (key === 'sort_order') {
+        else if (key === "sort_order") {
           data[key] = parseInt(value as string, 10);
-        }
-        else {
+        } else {
           data[key] = value;
         }
       }
     });
 
+    data[IS_PUBLIC_FIELD] = isPublicFromForm(formData);
+
     const collection = await createCollection(data, authToken);
     return Astro.redirect(`/workspace/collections/${collection.id}`);
   } catch (e) {
-    console.error('[NewCollection] Failed to create collection:', e);
+    console.error("[NewCollection] Failed to create collection:", e);
     // Error will be shown below
   }
 }
 ---
 
-<AppLayout title="Create Collection">
+<AppLayout restrictedNote={access.canEdit ? null : EDITORS_ONLY} title="Create Collection">
   <div class="toolbar">
     <div>
       <h2 style="margin:0;font-size:20px;">New Collection</h2>
@@ -114,6 +121,8 @@ if (Astro.request.method === 'POST') {
         />
         <p class="form-help">Lower numbers appear first</p>
       </div>
+
+      <CollectionVisibilityField />
 
       <SmartCollectionFields />
 

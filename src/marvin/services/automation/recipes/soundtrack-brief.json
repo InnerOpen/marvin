@@ -1,0 +1,59 @@
+{
+  "name": "Soundtrack brief",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "target": {
+      "entity": "entry",
+      "query": {
+        "entry_type": "{{entry_type}}"
+      }
+    },
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "brief",
+        "op": "custom",
+        "prompt": "Suggest a soundtrack for this story: its mood, a tempo in beats per minute, the instruments, and a two-sentence brief a composer could work from.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "mood": {
+              "type": "string"
+            },
+            "tempo_bpm": {
+              "type": "integer",
+              "minimum": 30,
+              "maximum": 220
+            },
+            "instrumentation": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "maxItems": 8
+            },
+            "brief": {
+              "type": "string",
+              "minLength": 20
+            }
+          },
+          "required": [
+            "mood",
+            "tempo_bpm",
+            "instrumentation",
+            "brief"
+          ]
+        },
+        "write_back": {
+          "mood": "metadata.soundtrack_mood",
+          "tempo_bpm": "metadata.soundtrack_tempo_bpm",
+          "instrumentation": "metadata.soundtrack_instruments",
+          "brief": "metadata.soundtrack_brief"
+        }
+      }
+    ]
+  }
+}

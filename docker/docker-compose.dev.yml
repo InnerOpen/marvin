@@ -16,10 +16,13 @@ services:
     container_name: postgres
     image: docker.io/postgres:15
     ports:
-      - "5432:5432"
+      # host 5432/5433 are taken by the host's own Postgres — publish on 5434
+      - "127.0.0.1:5434:5432"
     environment:
       POSTGRES_PASSWORD: default
       POSTGRES_USER: default
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
   apprise:
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -32,16 +35,16 @@ services:
       APPRISE_STATEFUL_MODE: simple
       APPRISE_WORKER_COUNT: "1"
     volumes:
-      - ./docker/config/config:/config
-      - ./docker/config/plugin:/plugin
-      - ./docker/config/attach:/attach
+      - ./config/config:/config
+      - ./config/plugin:/plugin
+      - ./config/attach:/attach
   httpbin:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     container_name: httpbin
     image: docker.io/kennethreitz/httpbin:latest
     ports:
-      - "8081:80"
+      - "8084:80"
     environment:
       GUNICORN_CMD_ARGS: "--capture-output --error-logfile - --access-logfile - --log-level=DEBUG"
 
@@ -113,8 +116,8 @@ services:
     environment:
       - WIREMOCK_OPTIONS=--verbose --global-response-templating
     volumes:
-      - ./docker/wiremock/mappings:/home/wiremock/mappings
-      - ./docker/wiremock/__files:/home/wiremock/__files
+      - ./wiremock/mappings:/home/wiremock/mappings
+      - ./wiremock/__files:/home/wiremock/__files
     command:
       - --verbose
       - --global-response-templating
@@ -124,8 +127,21 @@ services:
     ports:
       - "8083:8080"
     restart: always
+  
+#  ollama:
+#    image: ollama/ollama:latest
+#    container_name: ollama
+#    ports:
+#      - "11434:11434"
+#    volumes:
+#      - ollama_data:/root/.ollama
+#    restart: unless-stopped
 
 volumes:
+  postgres_data:
+    driver: local
+  ollama_data:
+    driver: local
   openldap_data:
     driver: local
   openldap_config:

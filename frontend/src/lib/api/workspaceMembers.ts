@@ -3,12 +3,12 @@
  * Migrated to use @inneropen/marvin-sdk
  */
 
-import { createSdkClient } from '../sdk';
 import type {
   PlatformWorkspaceMember,
   PlatformWorkspaceMemberCreate,
   PlatformWorkspaceMemberUpdate,
-} from '@inneropen/marvin-sdk/platform';
+} from "@inneropen/marvin-sdk/platform";
+import { createSdkClient } from "../sdk";
 
 // Re-export SDK types with legacy names for backward compatibility
 export type WorkspaceMemberRead = PlatformWorkspaceMember;
@@ -28,7 +28,11 @@ export async function listWorkspaceMembers(workspaceId: string, authToken: strin
  * Get a single workspace member
  * Auth: Workspace member (any role)
  */
-export async function getWorkspaceMember(workspaceId: string, userId: string, authToken: string): Promise<WorkspaceMemberRead> {
+export async function getWorkspaceMember(
+  workspaceId: string,
+  userId: string,
+  authToken: string,
+): Promise<WorkspaceMemberRead> {
   const sdk = createSdkClient(authToken);
   return sdk.workspaceMembers.get(workspaceId, userId);
 }
@@ -37,7 +41,11 @@ export async function getWorkspaceMember(workspaceId: string, userId: string, au
  * Add a member to a workspace
  * Auth: Workspace ADMIN/OWNER required
  */
-export async function addWorkspaceMember(workspaceId: string, data: WorkspaceMemberCreate, authToken: string): Promise<WorkspaceMemberRead> {
+export async function addWorkspaceMember(
+  workspaceId: string,
+  data: WorkspaceMemberCreate,
+  authToken: string,
+): Promise<WorkspaceMemberRead> {
   const sdk = createSdkClient(authToken);
   return sdk.workspaceMembers.add(workspaceId, data);
 }
@@ -50,7 +58,7 @@ export async function updateWorkspaceMemberRole(
   workspaceId: string,
   userId: string,
   data: WorkspaceMemberUpdate,
-  authToken: string
+  authToken: string,
 ): Promise<WorkspaceMemberRead> {
   const sdk = createSdkClient(authToken);
   return sdk.workspaceMembers.updateRole(workspaceId, userId, data);

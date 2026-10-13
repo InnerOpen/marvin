@@ -5,13 +5,10 @@ metadata:
   name: {{ include "marvin.fullname" . }}-data
   labels:
     {{- include "marvin.labels" . | nindent 4 }}
+  {{- with .Values.persistence.annotations }}
   annotations:
-    # Create PVC before migration job
-    "helm.sh/hook": pre-install,pre-upgrade
-    "helm.sh/hook-weight": "-8"
-    {{- with .Values.persistence.annotations }}
     {{- toYaml . | nindent 4 }}
-    {{- end }}
+  {{- end }}
 spec:
   accessModes:
     - {{ .Values.persistence.accessMode }}

@@ -14,8 +14,9 @@ implementation/refactoring.
 """
 
 # from datetime import timedelta # Imported but not used in active code
+from typing import Any
+
 from fastapi import HTTPException, status  # APIRouter for consistency
-from pydantic import UUID4  # For UUID type validation
 
 # Marvin core, schemas, services, and base controllers
 from marvin.core.security import hash_password  # , create_access_token # create_access_token not used in active code
@@ -27,7 +28,6 @@ from marvin.routes._base import BaseUserController, controller  # Base controlle
 from marvin.routes._base.routers import UserAPIRouter  # Router for user-authenticated endpoints
 
 # from marvin.routes._base.routers import AdminAPIRouter # AdminAPIRouter not used for active UserController
-from marvin.routes.users._helpers import assert_user_change_allowed  # Permission assertion helper
 from marvin.schemas.response import ErrorResponse, SuccessResponse  # Standardized response schemas
 
 # from marvin.schemas.response.pagination import PaginationQuery # Not used in active UserController
@@ -36,8 +36,7 @@ from marvin.schemas.user import (  # User Pydantic schemas
     PrivateUser,  # Represents the authenticated user profile
     # UserCreate, # Not used by active UserController endpoints for creation
     UserProfileUpdate,  # For updating user profile without password
-    UserRead,
-    UserUpdate,  # Using UserUpdate for user profile updates
+    UserRead,  # Using UserUpdate for user profile updates
     # Schemas related to API tokens, not used in active UserController:
     # LongLiveTokenCreate,
     # LongLiveTokenRead,
@@ -91,7 +90,7 @@ class UserController(BaseUserController):
         return self.user
 
     @user_router.put("/self/password", response_model=SuccessResponse, summary="Update Current User's Password")
-    def update_password(self, password_change_data: ChangePassword) -> SuccessResponse:
+    def update_password(self, password_change_data: ChangePassword) -> dict[str, Any]:
         """
         Updates the password for the currently authenticated user.
 
@@ -151,7 +150,7 @@ class UserController(BaseUserController):
         return SuccessResponse.respond("User password updated successfully.")
 
     @user_router.put("/self", response_model=SuccessResponse, summary="Update Current User Profile")
-    def update_user(self, new_data: UserProfileUpdate) -> SuccessResponse:
+    def update_user(self, new_data: UserProfileUpdate) -> dict[str, Any]:
         """
         Updates the profile information for the currently authenticated user.
 

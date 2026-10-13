@@ -100,9 +100,7 @@ class WorkspaceDataSeeder:
                 self.logger.error(f"Failed to process seed file {json_file.name}: {e}")
                 results["errors"] += 1
 
-        self.logger.info(
-            f"Workspace seeding complete. " f"Created: {results['created']}, " f"Updated: {results['updated']}, " f"Errors: {results['errors']}"
-        )
+        self.logger.info(f"Workspace seeding complete. Created: {results['created']}, Updated: {results['updated']}, Errors: {results['errors']}")
 
         return results
 
@@ -118,7 +116,7 @@ class WorkspaceDataSeeder:
         results = {"created": 0, "updated": 0, "errors": 0}
 
         # Load JSON data
-        with open(json_file, "r") as f:
+        with open(json_file) as f:
             data = json.load(f)
 
         # Validate structure
@@ -193,6 +191,7 @@ class WorkspaceDataSeeder:
             "rendering": entry_type_data.get("renderingJson"),
             "capabilities": entry_type_data.get("capabilitiesJson"),
             "recipe": entry_type_data.get("recipeJson"),
+            "page_url_pattern": entry_type_data.get("pageUrlPattern"),
         }
 
         # Create entry type

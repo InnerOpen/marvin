@@ -22,7 +22,11 @@ _TYPE_MAP: dict[str, dict] = {
     "boolean": {"type": "boolean"},
     "date": {"type": "string", "description": "ISO 8601 date (YYYY-MM-DD)"},
     "datetime": {"type": "string", "description": "ISO 8601 datetime"},
+    "embed": {"type": "string"},
 }
+
+# Never invent a media link: an embed field takes a link only when the brief supplies one.
+_EMBED_GUIDANCE = "a media link (YouTube, Vimeo, Spotify, SoundCloud, Apple Music/Podcasts, …) copied exactly from the brief, or empty"
 
 # Field types the model should not author in v1 (freeform / not content).
 _SKIP_TYPES = {"json"}
@@ -53,10 +57,12 @@ def generate_recipe(schema_json: dict | None, slug: str, capabilities: dict | No
         recipe["assets"]["roles"][0]["required"] = True
 
     if long_text:
-        recipe["resources"] = {"extract": [
-            {"type": "supplier", "source": long_text[0], "capture": ["name", "url"]},
-            {"type": "tool", "source": long_text[0], "capture": ["name"]},
-        ]}
+        recipe["resources"] = {
+            "extract": [
+                {"type": "supplier", "source": long_text[0], "capture": ["name", "url"]},
+                {"type": "tool", "source": long_text[0], "capture": ["name"]},
+            ]
+        }
     return recipe
 
 
@@ -78,6 +84,8 @@ def entry_type_to_output_schema(schema_def: EntryTypeSchemaDefinition, type_name
         desc = f.label
         if getattr(f, "help_text", None):
             desc = f"{f.label} — {f.help_text}"
+        if getattr(f, "ai_hint", None):
+            desc = f"{desc} (AI guidance: {f.ai_hint})"
 
         if f.type == "select":
             opts = list(getattr(f, "options", []) or [])
@@ -87,7 +95,7 @@ def entry_type_to_output_schema(schema_def: EntryTypeSchemaDefinition, type_name
                 frag = {"type": "string", "enum": opts}
         else:
             frag = dict(_TYPE_MAP.get(f.type, {"type": "string"}))
-        frag["description"] = desc
+        frag["description"] = f"{desc} — {_EMBED_GUIDANCE}" if f.type == "embed" else desc
 
         props[f.key] = frag
         if f.required:

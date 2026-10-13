@@ -1,5 +1,6 @@
 """Assets model - uploaded files."""
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
@@ -8,11 +9,13 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from .. import BaseMixins, SqlAlchemyBase
 from .._model_utils.auto_init import auto_init
+from .._model_utils.datetime import NaiveDateTime
 from .._model_utils.guid import GUID
 
 if TYPE_CHECKING:
     from .entries import Entries
     from .entry_assets import EntryAssets
+    from .tags import Tags
 
 
 class Assets(SqlAlchemyBase, BaseMixins):
@@ -50,7 +53,23 @@ class Assets(SqlAlchemyBase, BaseMixins):
     alt_text: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     description: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     metadata_json: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
+    # Pending AI-proposed changes staged for human review (write-back), keyed by target field —
+    # mirrors Entries.suggestion_json. e.g. {"tags": [...], "_meta": {"operation": "generate-tags"}}.
+    suggestion_json: Mapped[dict | None] = mapped_column(sa.JSON(none_as_null=True), nullable=True)
     uploaded_by: Mapped[GUID] = mapped_column(GUID, sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=False)
+    # The Trash (services/trash.py): set while the row is in it — hidden from every listing, the publishing API and
+    # the AI until restored (both cleared) or the Trash is emptied. trashed_by: who moved it there (no FK, like an
+    # entry's metadata_json.trash record).
+    trashed_at: Mapped[datetime | None] = mapped_column(NaiveDateTime, nullable=True, index=True)
+    trashed_by: Mapped[GUID | None] = mapped_column(GUID, nullable=True)
+    # 'library' (the Assets library) or 'ask' (a file attached to a chat question, kept out of the library until
+    # moved there): services/assets/scope.py.
+    scope: Mapped[str] = mapped_column(sa.String, nullable=False, default="library", server_default="library", index=True)
+    # Where the file came from: "upload" (a person or an import), "derived" (made from another asset — a workflow's
+    # media step, an entry type's media recipe) or "generated" (an image an integration generated). A derived asset
+    # names its original in source_asset_id, so the library can fold versions under it (services/item_query.py).
+    origin: Mapped[str] = mapped_column(sa.String(16), nullable=False, default="upload", server_default="upload", index=True)
+    source_asset_id: Mapped[GUID | None] = mapped_column(GUID, sa.ForeignKey("assets.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # Relationships
     entries: Mapped[list["Entries"]] = orm.relationship(
@@ -67,8 +86,19 @@ class Assets(SqlAlchemyBase, BaseMixins):
         overlaps="entries",
         doc="Junction records for entries using this asset",
     )
+    tags: Mapped[list["Tags"]] = orm.relationship(
+        "Tags",
+        secondary="asset_tags",
+        back_populates="assets",
+        doc="Tags applied to this asset (shared vocabulary)",
+    )
 
     __table_args__ = (sa.UniqueConstraint("group_id", "slug"),)
+
+    @property
+    def tag_names(self) -> list[str]:
+        """Tag slugs on this asset — the stable identity a rule/filter matches (see Entries.tag_names)."""
+        return [t.slug for t in self.tags]
 
     @auto_init()
     def __init__(self, session: Session, **kwargs) -> None:

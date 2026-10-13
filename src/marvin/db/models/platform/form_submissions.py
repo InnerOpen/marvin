@@ -3,7 +3,6 @@
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from .. import BaseMixins, SqlAlchemyBase
@@ -26,16 +25,19 @@ class FormSubmissions(SqlAlchemyBase, BaseMixins):
     form_id: Mapped[GUID] = mapped_column(GUID, sa.ForeignKey("forms.id", ondelete="CASCADE"), nullable=False, index=True)
     group_id: Mapped[GUID] = mapped_column(GUID, sa.ForeignKey("groups.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    data_json: Mapped[dict] = mapped_column("data_json", JSONB, nullable=False, default=dict, server_default="{}")
+    data_json: Mapped[dict] = mapped_column("data_json", sa.JSON, nullable=False, default=dict, server_default="{}")
     """Submitted field values."""
 
-    metadata_json: Mapped[dict | None] = mapped_column("metadata_json", JSONB, nullable=True)
+    metadata_json: Mapped[dict | None] = mapped_column("metadata_json", sa.JSON, nullable=True)
     """Request metadata (API client ID, referrer, etc.)."""
 
     status: Mapped[str] = mapped_column(sa.String, nullable=False, default="received", server_default="received")
     """Submission status: received | processed | failed."""
 
-    ip_address: Mapped[str | None] = mapped_column(INET, nullable=True)
+    # sa.String, not postgresql.INET: the column has always been VARCHAR in the schema (the
+    # initial migration created it as sa.String), and INET is unrenderable on SQLite — it broke
+    # autogenerate outright. Portable type, matching what's actually stored.
+    ip_address: Mapped[str | None] = mapped_column(sa.String, nullable=True, index=True)
     """Submitter IP address."""
 
     user_agent: Mapped[str | None] = mapped_column(sa.String, nullable=True)

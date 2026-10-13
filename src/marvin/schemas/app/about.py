@@ -23,6 +23,8 @@ class LoginInfo(_MarvinModel):
     oidc_provider_name: str = "OAuth"
     oidc_auto_redirect: bool = False
     allow_signup: bool = False
+    is_demo: bool = False  # Demo mode seeds sample users; the login page shows their credentials only then.
+    environment_label: str = ""  # e.g. "DEV"; empty in production. The UI badges non-production instances with it.
 
 
 class AppStatistics(_MarvinModel):
@@ -111,12 +113,6 @@ class AppStartupInfo(_MarvinModel):
     """Whether SMTP email is configured and enabled."""
     smtp_feature: FeatureStatus | None = None
     """Detailed SMTP feature status."""
-
-    # Apprise Notifications
-    apprise_enabled: bool = False
-    """Whether Apprise notifications are configured and enabled."""
-    apprise_feature: FeatureStatus | None = None
-    """Detailed Apprise feature status."""
 
     # LDAP Authentication
     ldap_enabled: bool = False

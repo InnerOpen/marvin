@@ -1,20 +1,26 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
-import { requireAuth } from "@/lib/auth";
-import { getSiteClients } from "@/lib/api/platform";
-import { listEntries } from "@/lib/api/entries";
-import { listCollections } from "@/lib/api/collections";
-import { listEntryTypes } from "@/lib/api/entryTypes";
-import { listResources } from "@/lib/api/resources";
 import { getAuthToken } from "@/lib/api/client";
-import type { EntryRead, APIClientRead, EntryTypeRead, CollectionRead, ResourceRead } from "@/lib/api/types";
+import { listCollections } from "@/lib/api/collections";
+import { listEntries } from "@/lib/api/entries";
+import { listEntryTypes } from "@/lib/api/entryTypes";
+import { getSiteClients } from "@/lib/api/platform";
+import { listResources } from "@/lib/api/resources";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
+import type { APIClientRead, CollectionRead, EntryRead, EntryTypeRead, ResourceRead } from "@/lib/api/types";
+import { requireAuth } from "@/lib/auth";
+import { nullIfForbidden } from "@/lib/workspaceRole";
 
 // Require authentication
 await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
 const authToken = getAuthToken(Astro.cookies);
+// Quick Create offers only what the caller's workspace role may create.
+const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 let entries: EntryRead[] = [];
 let siteClients: APIClientRead[] = [];
+// API clients are admin-only; for everyone else the dashboard leaves them out instead of failing.
+let canSeeClients = true;
 let collections: CollectionRead[] = [];
 let entryTypes: EntryTypeRead[] = [];
 let resources: ResourceRead[] = [];
@@ -24,43 +30,46 @@ if (!authToken) {
   error = "Authentication required";
 } else {
   try {
-    [entries, siteClients, collections, entryTypes, resources] = await Promise.all([
+    let clients: APIClientRead[] | null;
+    [entries, clients, collections, entryTypes, resources] = await Promise.all([
       listEntries(authToken),
-      getSiteClients(authToken),
+      nullIfForbidden(getSiteClients(authToken)),
       listCollections(authToken),
       listEntryTypes(authToken),
       listResources(authToken),
     ]);
+    siteClients = clients ?? [];
+    canSeeClients = clients !== null;
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
-    console.error('[Dashboard] Failed to load data:', error);
+    console.error("[Dashboard] Failed to load data:", error);
   }
 }
 
 // Publishing Overview Stats
 const publishingStats = {
-  published: entries.filter(e => e.status === 'published').length,
-  draft: entries.filter(e => e.status === 'draft').length,
-  activeClients: siteClients.filter(c => c.enabled).length,
+  published: entries.filter((e) => e.status === "published").length,
+  draft: entries.filter((e) => e.status === "draft").length,
+  activeClients: siteClients.filter((c) => c.enabled).length,
   totalClients: siteClients.length,
 };
 
 // Needs Attention - items requiring action
 const needsAttention = {
-  staleDrafts: entries.filter(e => {
-    if (e.status !== 'draft') return false;
+  staleDrafts: entries.filter((e) => {
+    if (e.status !== "draft") return false;
     const updated = e.updateAt ? new Date(e.updateAt) : null;
     if (!updated) return true;
     const daysSinceUpdate = (Date.now() - updated.getTime()) / (1000 * 60 * 60 * 24);
     return daysSinceUpdate > 7;
   }),
-  emptyEntryTypes: entryTypes.filter(et => {
-    return !entries.some(e => e.entryTypeId === et.id);
+  emptyEntryTypes: entryTypes.filter((et) => {
+    return !entries.some((e) => e.entryTypeId === et.id);
   }),
-  emptyCollections: collections.filter(c => {
-    return !c.isSmart && !entries.some(e => e.collections?.includes(c.id));
+  emptyCollections: collections.filter((c) => {
+    return !c.isSmart && !entries.some((e) => e.collections?.includes(c.id));
   }),
-  unusedClients: siteClients.filter(c => !c.lastUsedAt && c.enabled),
+  unusedClients: siteClients.filter((c) => !c.lastUsedAt && c.enabled),
 };
 
 // Recent Work - last 5 updated entries
@@ -74,7 +83,7 @@ const recentWork = entries
 
 // Publishing Activity
 const lastPublishedEntry = entries
-  .filter(e => e.publishedAt)
+  .filter((e) => e.publishedAt)
   .sort((a, b) => {
     const dateA = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
     const dateB = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
@@ -100,11 +109,16 @@ function formatRelativeTime(timestamp: string | null | undefined): string {
 // Get status badge class
 function getStatusClass(status: string): string {
   switch (status) {
-    case 'published': return 'status-published';
-    case 'draft': return 'status-draft';
-    case 'needs_review': return 'status-review';
-    case 'approved': return 'status-approved';
-    default: return 'status-inbox';
+    case "published":
+      return "status-published";
+    case "draft":
+      return "status-draft";
+    case "needs_review":
+      return "status-review";
+    case "approved":
+      return "status-approved";
+    default:
+      return "status-inbox";
   }
 }
 ---
@@ -166,11 +180,12 @@ function getStatusClass(status: string): string {
       )}
 
       <!-- Quick Create -->
+      {(access.canAuthor || access.canEdit) && (
       <section class="dashboard-section">
         <h2 class="section-title">Quick Create</h2>
         <div class="quick-create-grid">
           {entryTypes.length > 0 ? (
-            entryTypes.slice(0, 6).map((type) => (
+            access.canAuthor && entryTypes.slice(0, 6).map((type) => (
               <a href={`/workspace/entries/new?type=${type.id}`} class="quick-create-card">
                 <span class="quick-create-icon" style={type.color ? `color: ${type.color}` : undefined}>
                   {type.icon || '▤'}
@@ -178,18 +193,21 @@ function getStatusClass(status: string): string {
                 <span class="quick-create-label">{type.name}</span>
               </a>
             ))
-          ) : (
+          ) : access.canManage && (
             <a href="/workspace/entry-types" class="quick-create-card">
               <span class="quick-create-icon">◈</span>
               <span class="quick-create-label">Create Entry Type</span>
             </a>
           )}
-          <a href="/workspace/collections/new" class="quick-create-card">
-            <span class="quick-create-icon">☰</span>
-            <span class="quick-create-label">New Collection</span>
-          </a>
+          {access.canEdit && (
+            <a href="/workspace/collections/new" class="quick-create-card">
+              <span class="quick-create-icon">☰</span>
+              <span class="quick-create-label">New Collection</span>
+            </a>
+          )}
         </div>
       </section>
+      )}
 
       <div class="dashboard-columns">
         <!-- Recent Work -->
@@ -223,7 +241,7 @@ function getStatusClass(status: string): string {
           ) : (
             <div class="empty-state-small">
               <p>No entries yet</p>
-              <a href="/workspace/entries/new" class="button small">Create Entry</a>
+              {access.canAuthor && <a href="/workspace/entries/new" class="button small">Create Entry</a>}
             </div>
           )}
         </section>
@@ -244,10 +262,12 @@ function getStatusClass(status: string): string {
               <strong>{resources.length}</strong>
               <span>Resources</span>
             </div>
-            <div class="pub-stat">
-              <strong>{publishingStats.activeClients}</strong>
-              <span>Active Clients</span>
-            </div>
+            {canSeeClients && (
+              <div class="pub-stat">
+                <strong>{publishingStats.activeClients}</strong>
+                <span>Active Clients</span>
+              </div>
+            )}
           </div>
 
           <div class="publishing-activity">
@@ -265,7 +285,7 @@ function getStatusClass(status: string): string {
               <p class="muted-text">No published entries yet</p>
             )}
 
-            {siteClients.length > 0 ? (
+            {!canSeeClients ? null : siteClients.length > 0 ? (
               <div class="activity-item">
                 <div class="activity-icon">⚡</div>
                 <div class="activity-content">

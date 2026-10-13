@@ -1,0 +1,208 @@
+---
+/**
+ * Admin → AI pricing: the price Marvin uses for each provider/model and where it comes from, with the admin's
+ * overrides (they win over every other price) and Backfill for runs that went unpriced. Backend:
+ * routes/admin/ai_prices_controller.py, services/ai/price_overrides.py.
+ */
+import AdminLayout from "@/layouts/AdminLayout.astro";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { requireAdmin } from "@/lib/auth";
+import { type AIPriceFeedStatus, type AIPriceRow, feedSummary, groupByProvider, priceText, SOURCE_LABELS } from "@/lib/aiPricing";
+
+await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const authToken = getAuthToken(Astro.cookies);
+
+let prices: AIPriceRow[] = [];
+let overrides: any[] = [];
+let feed: AIPriceFeedStatus | null = null;
+let error: string | null = null;
+try {
+  const list = await fetchApi<{ prices: AIPriceRow[]; overrides: any[]; feed: AIPriceFeedStatus }>("/api/admin/ai-prices", {}, authToken);
+  prices = list.prices;
+  overrides = list.overrides;
+  feed = list.feed;
+} catch (e) {
+  error = e instanceof Error ? e.message : String(e);
+}
+const groups = groupByProvider(prices);
+const unpricedTotal = prices.reduce((n, p) => n + (p.source === "none" ? p.unpricedRuns : 0), 0);
+---
+
+<AdminLayout crumb="admin.ai-pricing">
+  <div class="toolbar">
+    <div>
+      <h2>AI Pricing</h2>
+      <p>
+        The price Marvin uses to estimate each AI run's cost, per provider and model, and where it comes from. A run
+        whose model has no price is counted but its cost is unknown, so a workspace's monthly cost limit can't see it.
+        Your own price (USD per million tokens) wins over every other source.
+      </p>
+    </div>
+  </div>
+
+  {error && <div class="alert error">Could not load prices: {error}</div>}
+  {!error && unpricedTotal > 0 && (
+    <div class="alert warning" role="status">
+      {unpricedTotal} run{unpricedTotal === 1 ? "" : "s"} in the last 90 days used a model with no price. Set a price
+      for it below, then Backfill to give those runs a cost.
+    </div>
+  )}
+
+  <div class="page-container" id="pricing" data-overrides={JSON.stringify(overrides)}>
+    {feed && (
+      <section class="settings-section" id="feed">
+        <h3>Price feed</h3>
+        <p class="hint">
+          A public price list fetched daily, used for a model when neither your price nor the provider's own table has one.
+          It must be in LiteLLM's format (<code>model_prices_and_context_window.json</code>); point it at a mirror or your own
+          copy, or leave it empty to switch it off.
+        </p>
+        <form id="feed-form" class="feed-form">
+          <input class="input" name="url" type="url" value={feed.url} placeholder="https://… (empty = off)" />
+          <button class="button" type="submit">Save</button>
+          {feed.customUrl !== null && <button class="button secondary" type="button" id="feed-default" title={feed.defaultUrl}>Use default</button>}
+          <button class="button secondary" type="button" id="feed-refresh" disabled={!feed.url}>Refresh now</button>
+        </form>
+        <p class="hint" id="feed-status">{feedSummary(feed)}</p>
+        {feed.error && <div class="alert error">Last refresh failed ({feed.errorAt}): {feed.error}. The last good prices are still used.</div>}
+      </section>
+    )}
+    {groups.map(({ provider, rows }) => (
+      <section class="settings-section">
+        <h3>{provider}</h3>
+        <table class="table">
+          <thead>
+            <tr><th>Model</th><th>Price (in / out per 1M)</th><th>Source</th><th>Runs (90 days)</th><th>No cost</th><th></th></tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr data-provider={r.provider} data-model={r.model} class:list={{ unpriced: r.source === "none" }}>
+                <td><code>{r.model}</code></td>
+                <td>{priceText(r)}</td>
+                <td>{SOURCE_LABELS[r.source] ?? r.source}</td>
+                <td>{r.runs}</td>
+                <td>{r.unpricedRuns || "—"}</td>
+                <td class="actions">
+                  <button type="button" class="button small secondary js-edit" data-in={r.inputPer1m ?? ""} data-out={r.outputPer1m ?? ""}>
+                    {r.overridden ? "Edit" : "Set price"}
+                  </button>
+                  {r.overridden && <button type="button" class="button small secondary danger js-remove">Remove</button>}
+                  {r.unpricedRuns > 0 && r.source !== "none" && (
+                    <button type="button" class="button small js-backfill" title="Give this model's runs with no cost the price it has now">Backfill</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+    ))}
+
+    <section class="settings-section">
+      <h3>Add a price</h3>
+      <p class="hint">For a model not listed yet. Dated snapshots use their base model's price (<code>gpt-x</code> also prices <code>gpt-x-2026-10-01</code>).</p>
+      <form id="add-price" class="add-price">
+        <input class="input" name="provider" placeholder="provider (openai)" required />
+        <input class="input" name="model" placeholder="model id" required />
+        <input class="input" name="in" type="number" min="0" step="0.0001" placeholder="input $ / 1M" required />
+        <input class="input" name="out" type="number" min="0" step="0.0001" placeholder="output $ / 1M" required />
+        <button class="button" type="submit">Add</button>
+      </form>
+    </section>
+  </div>
+</AdminLayout>
+
+<script>
+  import { fetchApi } from '@/lib/api/client';
+  import { withOverride, withoutOverride } from '@/lib/aiPricing';
+
+  const root = document.getElementById('pricing')!;
+  let overrides = JSON.parse(root.dataset.overrides || '[]');
+
+  async function save(next: any[]) {
+    try {
+      await fetchApi('/api/admin/ai-prices/overrides', { method: 'PUT', body: JSON.stringify({ prices: next }) });
+      location.reload();
+    } catch (e) {
+      alert('Could not save: ' + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+
+  function promptPrice(label: string, current: string): number | null {
+    const raw = prompt(`${label} — USD per million tokens`, current);
+    if (raw === null) return null;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0) { alert('Enter a number, 0 or more.'); return null; }
+    return value;
+  }
+
+  root.querySelectorAll<HTMLButtonElement>('.js-edit').forEach((btn) => btn.addEventListener('click', () => {
+    const tr = btn.closest('tr')!;
+    const input = promptPrice(`${tr.dataset.provider} ${tr.dataset.model}: input`, btn.dataset.in || '');
+    if (input === null) return;
+    const output = promptPrice(`${tr.dataset.provider} ${tr.dataset.model}: output`, btn.dataset.out || '');
+    if (output === null) return;
+    save(withOverride(overrides, tr.dataset.provider!, tr.dataset.model!, input, output));
+  }));
+
+  root.querySelectorAll<HTMLButtonElement>('.js-remove').forEach((btn) => btn.addEventListener('click', () => {
+    const tr = btn.closest('tr')!;
+    save(withoutOverride(overrides, tr.dataset.provider!, tr.dataset.model!));
+  }));
+
+  root.querySelectorAll<HTMLButtonElement>('.js-backfill').forEach((btn) => btn.addEventListener('click', async () => {
+    const tr = btn.closest('tr')!;
+    btn.disabled = true;
+    try {
+      const out = await fetchApi<{ updated: number }>('/api/admin/ai-prices/backfill', {
+        method: 'POST', body: JSON.stringify({ provider: tr.dataset.provider, model: tr.dataset.model }),
+      });
+      alert(`${out.updated} run(s) now have a cost.`);
+      location.reload();
+    } catch (e) {
+      alert('Backfill failed: ' + (e instanceof Error ? e.message : String(e)));
+      btn.disabled = false;
+    }
+  }));
+
+  async function setFeed(url: string | null) {
+    try {
+      await fetchApi('/api/admin/ai-prices/feed', { method: 'PUT', body: JSON.stringify({ url }) });
+      location.reload();
+    } catch (e) {
+      alert('Could not save: ' + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+  document.getElementById('feed-form')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    setFeed(String(new FormData(e.target as HTMLFormElement).get('url') || '').trim());
+  });
+  document.getElementById('feed-default')?.addEventListener('click', () => setFeed(null));
+  document.getElementById('feed-refresh')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    btn.disabled = true;
+    btn.textContent = 'Refreshing…';
+    try {
+      await fetchApi('/api/admin/ai-prices/feed/refresh', { method: 'POST' });
+    } finally {
+      location.reload();
+    }
+  });
+
+  document.getElementById('add-price')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target as HTMLFormElement);
+    save(withOverride(overrides, String(f.get('provider')).trim(), String(f.get('model')).trim(), Number(f.get('in')), Number(f.get('out'))));
+  });
+</script>
+
+<style>
+  .table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .table th, .table td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--line); }
+  tr.unpriced td { background: color-mix(in srgb, var(--color-warning, #d97706) 8%, transparent); }
+  .actions { display: flex; gap: 6px; justify-content: flex-end; }
+  .add-price, .feed-form { display: flex; flex-wrap: wrap; gap: 8px; }
+  .feed-form .input { flex: 1 1 360px; }
+  .add-price .input { flex: 1 1 140px; }
+  .alert.warning { padding: 10px 14px; border-left: 3px solid var(--color-warning, #d97706); background: var(--panel-2); margin-bottom: 16px; }
+</style>
