@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.318 (2026-10-13)
+
+### Bug Fixes
+
+- **entries**: Ask Marvin asks for a revision, so the improvements land as a suggestion
+  ([`8302af0`](https://github.com/InnerOpen/marvin/commit/8302af0382da604d33e973e1aad5405e0d142a33))
+
+
 ## v1.0.0-rc.317 (2026-10-13)
 
 ### Features
