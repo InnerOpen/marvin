@@ -18,6 +18,7 @@ import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
+import { askPageAllowed, bubbleAllowed } from "@/lib/marvin/gate";
 import { EDITORS_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -297,18 +298,27 @@ const attachedTags = ((entry?.tags as string[] | undefined) || [])
 const entryType = entry ? entryTypes.find((t) => t.id === entry.entryTypeId) : null;
 const hasSchema = entryType?.schemaJson && (entryType.schemaJson as any).fields?.length > 0;
 
-// AI assist gating: workspace AI enabled + editor invocation source + auth (fail closed).
+// AI assist gating: workspace AI enabled + editor invocation source + auth (fail closed). The Ask Marvin button
+// also needs somewhere to go: the bubble, or else the Ask page; with both off (or AI off) it isn't rendered.
 let aiEditorEnabled = false;
+let aiBubbleOn = false;
+let aiAskOn = false;
 if (entry && authToken) {
   try {
     const aiSdk = createSdkClient(authToken);
     const aiSettings: any = await aiSdk.ai.settings.get();
     const sources = aiSettings?.invocationSources ?? aiSettings?.invocation_sources;
     aiEditorEnabled = aiSettings?.enabled !== false && sources?.editor !== false;
+    const gate = { enabled: aiSettings?.enabled, invocationSources: sources };
+    aiBubbleOn = bubbleAllowed(gate);
+    aiAskOn = askPageAllowed(gate);
   } catch {
     aiEditorEnabled = false;
   }
 }
+const ASK_PROMPT = "Review this entry and suggest specific improvements.";
+// Where the button goes when the bubble is off: the Ask page, same question, this entry as the context.
+const askHref = entry ? `/workspace/settings/ai-ask?entity=entry:${entry.id}&q=${encodeURIComponent(ASK_PROMPT)}` : "";
 
 // Pending AI suggestion (write-back): proposed field changes staged for human review.
 const suggestion = (entry as any)?.suggestionJson as Record<string, any> | null | undefined;
@@ -357,8 +367,9 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
           <p style="margin:4px 0 0;color:var(--muted);">Update entry details and content</p>
         </div>
         <div style="display:flex;gap:0.75rem;">
-          {aiEditorEnabled && canEditThis && (
-            <button type="button" id="ai-ask-btn" class="button secondary" title="Open Marvin with this entry in context">✨ Ask Marvin</button>
+          {aiEditorEnabled && canEditThis && (aiBubbleOn || aiAskOn) && (
+            <button type="button" id="ai-ask-btn" class="button secondary" title="Ask Marvin about this entry"
+              data-bubble={aiBubbleOn ? "1" : undefined} data-ask-href={aiBubbleOn ? undefined : askHref}>✨ Ask Marvin</button>
           )}
           {canEditThis && (
             <button type="button" id="delete-entry-button" class="button secondary" title="Move this entry to the Trash. You can restore it from there.">
@@ -658,7 +669,6 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                 rows="3"
                 form="entry-form"
               >{entry.summary || ""}</textarea>
-              {aiEditorEnabled && <p id="ai-summary-status" class="ai-status" style="display:none;"></p>}
             </div>
 
             <div class="form-group">
@@ -2023,21 +2033,14 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
   }
 
 
-  .ai-status {
-    margin: 0.5rem 0 0;
-    font-size: 0.75rem;
-    padding: 0.4rem 0.6rem;
-    border-radius: 6px;
-  }
-
-  .ai-status.ok { color: var(--accent); background: rgba(79, 156, 132, 0.1); }
-  .ai-status.err { color: var(--color-error); background: var(--color-error-bg); }
 </style>
 
 <script>
   import { rememberDisclosures } from '@/lib/disclosure';
   import { formatLocalDateTime, fromDatetimeLocalValue, hasPassed, toDatetimeLocalValue } from '@/lib/localDatetime';
   import { isForbidden } from '@/lib/workspaceRole';
+  import { getActiveAgent } from '@/lib/marvin/capabilities';
+  import { threadFor } from '@/lib/marvin/pending';
   import { deleteForever, moveToTrash, restoreFromTrash } from '@/lib/api/trash';
 
   const form = document.getElementById('entry-form') as HTMLFormElement;
@@ -2187,23 +2190,13 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
   const saveButton = document.getElementById('save-button') as HTMLButtonElement;
   const publishButton = document.getElementById('publish-button') as HTMLButtonElement;
 
-  // AI: the status line under Summary carries the page's AI notices (the one left: the bubble being off).
-  const aiSummaryStatus = document.getElementById('ai-summary-status') as HTMLElement | null;
-
   // ── AI: one button, Ask Marvin ───────────────────────────────────────────────
-  function aiToast(msg: string, ok = true) {
-    if (!aiSummaryStatus) return;
-    aiSummaryStatus.textContent = msg;
-    aiSummaryStatus.className = `ai-status ${ok ? 'ok' : 'err'}`;
-    aiSummaryStatus.style.display = 'block';
-  }
-
   function aiReviewAndSuggest() {
     // Hand off to the bubble; it already sends this page's entity context + history.
     // 'professional' suppresses the workspace persona for this run — a review written in
     // character reads well and is useless to act on.
     document.dispatchEvent(new CustomEvent('marvin:ask', {
-      detail: { text: 'Review this entry and suggest specific improvements.', register: 'professional' },
+      detail: { text: 'Review this entry and suggest specific improvements.', register: 'professional' }, // ASK_PROMPT
     }));
   }
 
@@ -2211,10 +2204,11 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
   // question for the bubble (2026-10-13, Jared: the Generate and Improve buttons duplicated those).
   const aiAskBtn = document.getElementById('ai-ask-btn') as HTMLButtonElement | null;
   aiAskBtn?.addEventListener('click', () => {
-    if (!document.getElementById('marvin-root')) {
-      return aiToast("Marvin's bubble is switched off for this workspace — turn it on under Settings → AI to ask here.", false);
-    }
-    aiReviewAndSuggest(); // opens the bubble (out of its edge or back from a scroll-away) and asks
+    if (aiAskBtn.dataset.bubble) return aiReviewAndSuggest(); // opens the bubble (out of its edge or back from a scroll-away) and asks
+    if (!aiAskBtn.dataset.askHref) return;
+    // The bubble is off: the Ask page, same question, same entry — and the same conversation, when this tab has one.
+    const thread = threadFor(getActiveAgent());
+    location.assign(aiAskBtn.dataset.askHref + (thread ? `&thread=${encodeURIComponent(thread)}` : ''));
   });
 
   // Status labels for button text

@@ -192,6 +192,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
     withoutAttachment,
   } from "@/lib/marvin/attachments";
   import { createDictation, type Dictation, speechRecognition } from "@/lib/marvin/dictation";
+  import { rememberThread } from "@/lib/marvin/pending";
 
   const root = document.querySelector<HTMLElement>(".chat");
   if (root) {
@@ -230,6 +231,8 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
     // The conversation lives server-side: `threadId` is the thread this transcript continues (null =
     // the next send opens a new one). Reloading the page loses the view, not the thread.
     let threadId: string | null = null;
+    // An entity a page sent us to ask about (`?entity=entry:<id>`): the context of every question in this visit.
+    let linkedEntity: { entityType: string; entityId: string } | null = null;
     // Files attached to this conversation (@/lib/marvin/attachments): sent with every run until removed.
     let attachments: Attachment[] = [];
     const AGENT_KEY = "ask.agent";
@@ -894,6 +897,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
           ...(runId ? { clientRunId: runId } : {}),
           register,
           attachments: attachmentIds(attachments),
+          ...(linkedEntity ?? {}),
         });
         stopWatching();
         handleRunResult(res, placeholder, { refreshThreads: wasNew });
@@ -914,8 +918,22 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
 
     // `?thread=<id>` opens that conversation — how the Marvin bubble links here (e.g. to approve a
     // paused run, or to follow one it stopped waiting for).
-    const linkedThread = new URLSearchParams(location.search).get("thread");
-    if (linkedThread) void openThread(linkedThread);
+    // `?entity=entry:<id>&q=<question>` is a page's Ask Marvin button with the bubble switched off: the
+    // question is asked here, about that entity, in the bubble's own conversation when the tab has one
+    // (`thread`) — and a conversation started here is remembered for the bubble, so the two surfaces stay
+    // one thread.
+    const params = new URLSearchParams(location.search);
+    const linkedThread = params.get("thread");
+    const entityRef = /^([a-z_]+):([0-9a-f-]{36})$/i.exec(params.get("entity") ?? "");
+    if (entityRef) linkedEntity = { entityType: entityRef[1], entityId: entityRef[2] };
+    const linkedQuestion = params.get("q")?.trim();
+    void (async () => {
+      if (linkedThread) await openThread(linkedThread);
+      if (!linkedQuestion) return;
+      questionEl.value = linkedQuestion;
+      await send();
+      if (threadId) rememberThread(agentSel.value, threadId);
+    })();
 
     // ── Reindex (kept from the RAG page) ──
     // The index card: what the index holds, and a run in progress (it runs in the background — a
