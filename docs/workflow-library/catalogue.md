@@ -216,7 +216,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - [teaser-ladder](../../src/marvin/services/automation/recipes/teaser-ladder.json) — **Teaser ladder** · verified-current · `entry_published`  
   When a launch is announced, three posts are drafted on the way to its date: a teaser three days before, the launch post on the day and a follow-up a week after — skipping any moment already past.
   - The run waits (Wait step) and goes on at the time, in the workspace's time zone.
-  - A changed date after publishing isn't followed: the waits were set when it was published.
+  - A changed date after publishing isn't followed: the waits were set when it was published. Other edits to the workflow apply when a wait goes on.
 - [behind-the-scenes-diary](../../src/marvin/services/automation/recipes/behind-the-scenes-diary.json) — **Behind the scenes diary** · verified-current · `entry_published`  
   A published project update — its notes and process photos — becomes a draft behind-the-scenes workshop post.
   - A custom AI step, then a create step: the new entry is a draft for a person to edit and publish.
@@ -250,7 +250,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - [event-countdown](../../src/marvin/services/automation/recipes/event-countdown.json) — **Event countdown** · verified-current · `entry_published`  
   When an event is published, a reminder post is drafted a week before its date and another the day before, at the time you choose — skipping any moment already past.
   - The run waits (Wait step) — it's kept, and goes on at the time, in the workspace's time zone (Settings → Site).
-  - A changed date after publishing isn't followed: the wait was set when it was published.
+  - A changed date after publishing isn't followed: the waits were set when it was published. Other edits to the workflow apply when a wait goes on.
 - [best-of-month](../../src/marvin/services/automation/recipes/best-of-month.json) — **Best of month** · verified-current · `schedule`  
   On the 1st of each month, up to nine entries published in the last 30 days with a picture are laid out as one titled grid image.
   - Each tile is the entry's main picture with its title. Post or attach the grid by hand, or add a step.
@@ -400,6 +400,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   When a project is first published, what it says is sealed on the entry; months later (you choose, up to a year) a look back comparing then and now is drafted.
   - The look back reads the entry as it is when the capsule opens, beside the sealed text.
   - The sealed text is kept in the entry's metadata, so it can be read (or edited) on the entry page.
+  - Editing the workflow while capsules wait is fine: each opens with the steps as they are then.
 - [surprise-remix-button](../../src/marvin/services/automation/recipes/surprise-remix-button.json) — **Surprise remix button** · verified-current · `manual`  
   Run it, pick an entry and one of the remixes you set up (a haiku, a fairy tale…): an AI retells the entry in that form as a new draft.
   - Run inputs: the Run button asks for the entry and the remix; the agent's run_workflow passes them as `inputs`.

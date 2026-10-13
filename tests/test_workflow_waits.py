@@ -225,3 +225,71 @@ def test_an_admin_cancels_a_waiting_run_from_the_api(ws):
     assert (_wait_row(ws, row).status, ws.session.get(AutomationExecutionModel, wait.execution_id).status) == ("cancelled", "cancelled")
     assert "cancelled by" in _wait_row(ws, row).note
     app.dependency_overrides.clear()
+
+
+# ── Editing while runs wait ──────────────────────────────────────────────────
+def _edit(ws, row, actions):
+    row.definition = {**row.definition, "actions": actions}
+    ws.session.commit()
+
+
+def test_an_edit_made_while_it_waited_applies_when_it_goes_on(ws):
+    studio = _entry(ws)
+    row = _workflow(
+        ws,
+        [{"kind": "wait", "id": "later", "for": "1d"}, {"kind": "entry", "op": "set_metadata", "metadata": {"voice": "old"}}],
+        inputs=[{"name": "piece", "type": "entry"}],
+    )
+    _run(ws, row, inputs={"piece": studio.slug})
+    _edit(ws, row, [{"kind": "wait", "id": "later", "for": "1d"}, {"kind": "entry", "op": "set_metadata", "metadata": {"voice": "new"}}])
+
+    assert waits.resume_due(ws.session, now_=waits.now() + timedelta(days=2)) == 1
+
+    assert _metadata(ws, studio)["voice"] == "new"
+
+
+def test_a_step_added_before_the_wait_doesnt_move_it(ws):
+    studio = _entry(ws)
+    row = _workflow(
+        ws,
+        [{"kind": "wait", "id": "later", "for": "1d"}, {"kind": "entry", "op": "set_metadata", "metadata": {"after": True}}],
+        inputs=[{"name": "piece", "type": "entry"}],
+    )
+    _run(ws, row, inputs={"piece": studio.slug})
+    _edit(
+        ws,
+        row,
+        [
+            {"kind": "entry", "op": "set_metadata", "metadata": {"before": True}},  # new, ahead of the wait
+            {"kind": "wait", "id": "later", "for": "1d"},
+            {"kind": "entry", "op": "set_metadata", "metadata": {"after": True}},
+        ],
+    )
+
+    waits.resume_due(ws.session, now_=waits.now() + timedelta(days=2))
+
+    meta = _metadata(ws, studio)
+    assert meta.get("after") is True and "before" not in meta  # went on from after the wait; the new step is before it
+    assert _wait_row(ws, row).status == "resumed"
+
+
+def test_removing_the_wait_step_cancels_the_run_and_says_so(ws, monkeypatch):
+    from marvin.services.event_bus_service.event_bus_service import EventBusService
+
+    sent = []
+    monkeypatch.setattr(EventBusService, "dispatch", lambda self, **kw: sent.append((kw["event_type"].name, kw)))
+    studio = _entry(ws)
+    row = _workflow(
+        ws,
+        [{"kind": "wait", "id": "later", "for": "1d"}, {"kind": "entry", "op": "set_metadata", "metadata": {"after": True}}],
+        inputs=[{"name": "piece", "type": "entry"}],
+    )
+    _run(ws, row, inputs={"piece": studio.slug})
+    _edit(ws, row, [{"kind": "entry", "op": "set_metadata", "metadata": {"after": True}}])
+
+    waits.resume_due(ws.session, now_=waits.now() + timedelta(days=2))
+
+    wait = _wait_row(ws, row)
+    assert wait.status == "cancelled" and "Wait step was removed" in wait.note and "after" not in _metadata(ws, studio)
+    failed = [kw for name, kw in sent if name == "automation_failed"]
+    assert len(failed) == 1 and "Wait step was removed" in failed[0]["document_data"].error

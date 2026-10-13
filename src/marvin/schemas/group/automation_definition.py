@@ -529,8 +529,8 @@ class WaitAction(_StepBase):
     or a date and time (e.g. ${entry.data.event_date}, or one every entry has: ${entry.publish_at}, ${entry.expire_at},
     ${entry.published_at}), moved by `offset` (-7d: a week before) and, for a date, at `at`
     (default 09:00) — in the workspace's time zone. A moment already past goes on at once (output late). Output
-    waited_until, resumed_at. A year at most; the entry going to the Trash, or the workflow switched off or changed,
-    cancels the wait."""
+    waited_until, resumed_at. A year at most; the entry going to the Trash, the workflow switched off or this step
+    removed, cancels the wait (an edit elsewhere in the workflow applies when it goes on)."""
 
     kind: Literal["wait"]
     for_: str | None = Field(default=None, alias="for", pattern=r"^\s*\d{1,4}\s*[mhdwMHDW]\s*$")

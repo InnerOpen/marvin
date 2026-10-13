@@ -1204,17 +1204,16 @@ def resume_after_approval(session, row, *, logger=None, run_action: Callable = _
     """Go on with a run that waited at an approval step, now settled (services/automation/approvals.py): rebuild it
     from its snapshot and the entry as it is now, give the step its output (decision, who, note) and run the steps
     after it — a new run pointing back at the one that parked. Conditions aren't checked again: a person decided.
-    Returns the run's status, or ``not resumed`` (the workflow is gone, switched off, or its steps changed)."""
+    Returns the run's status, or ``not resumed`` (the workflow is gone, switched off, or its approval step removed)."""
     from marvin.db.models.groups.automations import WorkspaceAutomationModel
 
     automation = session.get(WorkspaceAutomationModel, row.automation_id)
-    defn = (automation.definition or {}) if automation is not None else {}
-    actions = (defn.get("actions") or [])[:MAX_ACTIONS]
-    step = actions[row.step_index] if row.step_index < len(actions) else {}
-    if automation is None or not automation.enabled or step.get("kind") != "approval":
+    parked = _parked_step(automation, row, "approval")
+    if automation is None or not automation.enabled or parked is None:
         if logger:
-            logger.info("approval %s settled %s; its workflow is gone, off or changed — nothing more runs", row.id, row.status)
+            logger.info("approval %s settled %s; its workflow is gone, off or its step removed — nothing more runs", row.id, row.status)
         return "not resumed"
+    index, step = parked
     from marvin.db.models.users.users import Users
 
     decider = session.get(Users, row.decided_by) if row.decided_by else None
@@ -1243,40 +1242,89 @@ def resume_after_approval(session, row, *, logger=None, run_action: Callable = _
             logger=logger,
             run_action=run_action,
             recorder=recorder,
+            step_index=index,
         )
 
 
 def resume_after_wait(session, row, *, logger=None, run_action: Callable = _registry_run_action, recorder=None) -> str:
     """Go on with a run that waited at a Wait step, its time come (services/automation/waits.py): rebuilt from its
-    snapshot and the entry as it is now, the steps after it run in a new run pointing back at the one that parked. A
-    workflow switched off or changed, or an entry gone to the Trash meanwhile, cancels it instead (``cancelled``)."""
+    snapshot and the entry as it is now, the steps after the Wait step *as the workflow is now* run in a new run
+    pointing back at the one that parked — so an edit made while it waited applies. The step is found by its id (a
+    step added or removed before it doesn't move it). A workflow switched off or its Wait step removed, or an entry
+    gone to the Trash meanwhile, cancels it instead (``cancelled``), and ``automation_failed`` says so."""
     from marvin.db.models.groups.automations import WorkspaceAutomationModel
     from marvin.db.models.platform.entries import Entries
 
     from . import waits
 
     automation = session.get(WorkspaceAutomationModel, row.automation_id)
-    defn = (automation.definition or {}) if automation is not None else {}
-    actions = (defn.get("actions") or [])[:MAX_ACTIONS]
-    step = actions[row.step_index] if row.step_index < len(actions) else {}
-    if automation is None or not automation.enabled or step.get("kind") != "wait":
-        waits.cancel(session, row, "the workflow was switched off or its steps changed while it waited")
+    parked = _parked_step(automation, row, "wait")
+    why = None
+    if automation is None or not automation.enabled:
+        why = "the workflow was switched off while it waited"
+    elif parked is None:
+        why = "its Wait step was removed from the workflow while it waited"
+    else:
+        entry = session.get(Entries, row.entry_id) if row.entry_id else None
+        if row.entry_id and (entry is None or entry.status == "trashed"):
+            why = "its entry was deleted or moved to the Trash while it waited"
+    if why:
+        waits.cancel(session, row, why)
+        _announce_cancelled(session, row, automation, why)
         return "cancelled"
-    entry = session.get(Entries, row.entry_id) if row.entry_id else None
-    if row.entry_id and (entry is None or entry.status == "trashed"):
-        waits.cancel(session, row, "its entry was deleted or moved to the Trash while it waited")
-        return "cancelled"
+    index, step = parked
     output = {"waited_until": row.resume_at.isoformat(), "resumed_at": waits.now().isoformat(), "wait_id": str(row.id)}
     with _entry_turn(session, automation, row.entry_id, logger=logger):
         user_id = (row.snapshot or {}).get("event", {}).get("user_id")
         return _resume_turn(
-            session, row, automation, step, output, approved=False, user_id=user_id, logger=logger, run_action=run_action, recorder=recorder
+            session,
+            row,
+            automation,
+            step,
+            output,
+            approved=False,
+            user_id=user_id,
+            logger=logger,
+            run_action=run_action,
+            recorder=recorder,
+            step_index=index,
         )
 
 
-def _resume_turn(session, row, automation, step: dict, output: dict, *, approved: bool, user_id, logger, run_action, recorder) -> str:
+def _parked_step(automation, row, kind: str) -> tuple[int, dict] | None:
+    """Where a parked run goes on from in the workflow as it is now: the step with the parked step's id (so a step
+    added or removed before it doesn't move it), else the one at its position — if that is still a `kind` step."""
+    actions = ((getattr(automation, "definition", None) or {}).get("actions") or [])[:MAX_ACTIONS]
+    if row.step_id:
+        for i, step in enumerate(actions):
+            if isinstance(step, dict) and step.get("id") == row.step_id and step.get("kind") == kind:
+                return i, step
+        return None
+    step = actions[row.step_index] if row.step_index < len(actions) else None
+    return (row.step_index, step) if isinstance(step, dict) and step.get("kind") == kind else None
+
+
+def _announce_cancelled(session, row, automation, why: str) -> None:
+    """A wait that couldn't go on: ``automation_failed`` (its message says why), so an admin alert or an on_error
+    workflow can react — nobody should find out from the Runs list alone."""
+    if automation is None:
+        return
+    snap = row.snapshot or {}
+    event = dict(snap.get("event") or {})
+    step = {"kind": "wait", "id": row.step_id}
+    log = [{**step_summary(session, step, error=why), "outcome": "cancelled"}]
+    context = {"event": event, "entry": snap.get("entry") or {}, "_error": why, "_step_log": log}
+    depth = int(event.get("reaction_depth", 0) or 0)
+    _announce(session, row.group_id, automation, False, depth, event.get("user_id"), context, run_id=row.execution_id)
+
+
+def _resume_turn(
+    session, row, automation, step: dict, output: dict, *, approved: bool, user_id, logger, run_action, recorder, step_index: int | None = None
+) -> str:
     """Go on from the step after a parked one (an approval or a wait), once it holds the entry's turn: the step's
-    `output` joins the earlier steps', and the steps after it run in a new run."""
+    `output` joins the earlier steps', and the steps after it run in a new run. `step_index`: where the parked step
+    is in the workflow now (it was `row.step_index` when it parked)."""
+    index = row.step_index if step_index is None else step_index
     from marvin.db.models.groups.automation_executions import AutomationExecutionModel
 
     from .recorder import ExecutionRecorder
@@ -1296,7 +1344,7 @@ def _resume_turn(session, row, automation, step: dict, output: dict, *, approved
         context["entry"] = entry_ctx
     context.update(_item_contexts(session, group_id, event))
     steps = dict(snap.get("steps") or {})
-    steps[str(row.step_index)] = {"output": output}
+    steps[str(index)] = {"output": output}
     if row.step_id:
         steps[str(row.step_id)] = {"output": output}
     context["_approved"] = approved
@@ -1316,7 +1364,7 @@ def _resume_turn(session, row, automation, step: dict, output: dict, *, approved
             exec_id,
             target_index=row.target_index,
             target_ref=snap.get("target_ref"),
-            action_index=row.step_index,
+            action_index=index,
             action=step,
             status="success",
             output=output,
@@ -1338,7 +1386,7 @@ def _resume_turn(session, row, automation, step: dict, output: dict, *, approved
             step_log=step_log,
             gated=bool(snap.get("gated", True)),
             trigger_kind=snap.get("trigger_kind"),
-            start_at=row.step_index + 1,
+            start_at=index + 1,
             resume_from={"steps": steps, "previous": output},
         )
         status = _run_status(ok, steps_ok + 1, int(context.pop("_parked", 0) or 0))

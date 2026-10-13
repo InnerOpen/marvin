@@ -3,7 +3,7 @@
 The run parks at the step as it does at an Approval step: everything it needs to go on is kept here (``snapshot``: the
 event, the entry, the run's inputs, the earlier steps' outputs, the target row), its execution ends ``waiting``, and the
 minutely sweep resumes it from the next step at ``resume_at`` in a new execution (``resumed_execution_id``). Status:
-waiting, resumed, or cancelled (the workflow was switched off or changed, or its entry went to the Trash meanwhile).
+waiting, resumed, or cancelled (the workflow was switched off or its Wait step removed, or its entry went to the Trash meanwhile).
 """
 
 from datetime import datetime

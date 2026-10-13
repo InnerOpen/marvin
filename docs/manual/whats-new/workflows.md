@@ -408,6 +408,11 @@ workflow is switched off or its steps change while it waits, the run stops there
 switching the workflow off is how to stop a waiting run. A wait is at most a year; a dry run shows `would_wait_until`.
 The Workflow Library's **Event countdown** drafts reminders a week and a day before an event.
 
+**Editing while runs wait.** A waiting run goes on with the workflow *as it is then*: a changed prompt, voice or field
+applies, and a step added or removed before the Wait step doesn't move it (the step is found by its id). Only
+switching the workflow off, removing the Wait step itself, or the entry going to the Trash cancels a waiting run — and
+then `automation_failed` says why, so an admin alert or an `on_error` workflow can react.
+
 **Cancelling a wait.** Under **Runs**, a run parked at a Wait step has a **Cancel** button (admins): it stops there —
 the steps after the wait never run, what ran before it stays, and the run's status becomes `cancelled`
 (`POST …/executions/{id}/cancel`; 409 when the run isn't waiting at a Wait step — one waiting for an approval is

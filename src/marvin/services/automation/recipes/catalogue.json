@@ -2371,7 +2371,7 @@
       "dependencies": [],
       "notes": [
         "The run waits (Wait step) and goes on at the time, in the workspace's time zone.",
-        "A changed date after publishing isn't followed: the waits were set when it was published."
+        "A changed date after publishing isn't followed: the waits were set when it was published. Other edits to the workflow apply when a wait goes on."
       ],
       "verification": {
         "level": "fixture-executed",
@@ -3288,7 +3288,7 @@
       "dependencies": [],
       "notes": [
         "The run waits (Wait step) — it's kept, and goes on at the time, in the workspace's time zone (Settings → Site).",
-        "A changed date after publishing isn't followed: the wait was set when it was published."
+        "A changed date after publishing isn't followed: the waits were set when it was published. Other edits to the workflow apply when a wait goes on."
       ],
       "verification": {
         "level": "fixture-executed",
@@ -7076,11 +7076,12 @@
         }
       ],
       "cost_notes": "One AI call per capsule, months later.",
-      "failure_behaviour": "An entry moved to the Trash, or the workflow switched off or changed, cancels the waiting capsule; publishing again doesn't seal a second one.",
+      "failure_behaviour": "An entry moved to the Trash, or the workflow switched off or its Wait step removed, cancels the waiting capsule (automation_failed says so); publishing again doesn't seal a second one.",
       "dependencies": [],
       "notes": [
         "The look back reads the entry as it is when the capsule opens, beside the sealed text.",
-        "The sealed text is kept in the entry's metadata, so it can be read (or edited) on the entry page."
+        "The sealed text is kept in the entry's metadata, so it can be read (or edited) on the entry page.",
+        "Editing the workflow while capsules wait is fine: each opens with the steps as they are then."
       ],
       "verification": {
         "level": "fixture-executed",

@@ -9,8 +9,9 @@ the time of day ``at`` (default 09:00), all read in the workspace's time zone (S
 ``waiting``, the run ends ``waiting``.
 
 **Resume.** ``resume_due`` (the minutely sweep) claims each wait whose time has come and ``engine.resume_after_wait``
-runs the steps after it in a new run (``retry_of`` the parked one), re-reading the entry as it is now — unless the
-workflow was switched off or changed, or the entry went to the Trash meanwhile (then the wait is ``cancelled``).
+runs the steps after it — as the workflow is now, so an edit made meanwhile applies — in a new run (``retry_of`` the
+parked one), re-reading the entry as it is now. The workflow switched off or its Wait step removed, or the entry gone
+to the Trash meanwhile, cancels it instead (``automation_failed`` says so).
 """
 
 from __future__ import annotations
