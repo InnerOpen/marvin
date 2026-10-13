@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.297 (2026-10-13)
+
+### Features
+
+- **workflows**: Repeat for each — a few steps once per item of a list
+  ([`0e7c993`](https://github.com/InnerOpen/marvin/commit/0e7c993b51976e74a03531d3b00dccea53580dc1))
+
+
 ## v1.0.0-rc.296 (2026-10-13)
 
 ### Features
