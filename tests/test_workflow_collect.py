@@ -160,6 +160,8 @@ def test_entries_follows_a_field_to_the_entry_it_names(media):
     assert [e.id for e in _query(media, {"entries": note.data_json["project"]}).rows] == [lantern.id]
     by_both = _query(media, {"entries": [lantern.slug, str(coat.id)]}).rows
     assert {e.id for e in by_both} == {lantern.id, coat.id}  # ids or slugs
+    listed = _query(media, {"entries": f"{lantern.slug}, {coat.id}"}).rows
+    assert {e.id for e in listed} == {lantern.id, coat.id}  # a text field listing them, comma-separated
     assert [e.id for e in _query(media, {"data": {"project": lantern.slug}}).rows] == [note.id]  # and back: what names it
     empty = _query(media, {"entries": ""})
     assert (empty.rows, empty.note) == ([], "entries has no value")  # a template that resolved to nothing never widens

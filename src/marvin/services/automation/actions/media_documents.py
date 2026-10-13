@@ -143,7 +143,7 @@ def _pages(session, group_id, action: dict, src, context: dict, *, user_id, dry_
     from marvin.db.models.platform.assets import Assets
     from marvin.services.ai.media import documents
 
-    from .media import _attach_role, _deliver, _read_bytes, derivative_slug, subject_entry_id
+    from .media import _attach_role, _deliver, _read_bytes, attach_target, derivative_slug
 
     if not documents.is_pdf(src.mime_type):
         raise AutomationActionError(f"“{src.name}” isn't a PDF (pages saves a PDF's pages as pictures)")
@@ -154,9 +154,7 @@ def _pages(session, group_id, action: dict, src, context: dict, *, user_id, dry_
         "quality": action.get("quality"),
     }
     attach_as = _attach_role(action, context)
-    entry_id = subject_entry_id(context) if attach_as else None
-    if attach_as and entry_id is None:
-        raise AutomationActionError("attach_as needs an entry: run this workflow on an entry (an entry event or an entry target)")
+    entry_id = attach_target(session, group_id, action, context, attach_as, dry_run=dry_run)
     wanted = [(page, derivative_slug(src, "page", {**args, "page": page})) for page in range(first, first + count)]
     existing = {a.slug: a for a in session.query(Assets).filter(Assets.group_id == group_id, Assets.slug.in_([s for _, s in wanted]))}
     if dry_run:
@@ -272,12 +270,10 @@ def _boxes(given) -> list[list[float]]:
 def _redact(session, group_id, action: dict, src, context: dict, *, user_id, dry_run: bool) -> dict:
     from marvin.db.models.platform.assets import Assets
 
-    from .media import _attach_role, _deliver, _read_bytes, derivative_slug, subject_entry_id
+    from .media import _attach_role, _deliver, _read_bytes, attach_target, derivative_slug
 
     attach_as = _attach_role(action, context)
-    entry_id = subject_entry_id(context) if attach_as else None
-    if attach_as and entry_id is None:
-        raise AutomationActionError("attach_as needs an entry: run this workflow on an entry (an entry event or an entry target)")
+    entry_id = attach_target(session, group_id, action, context, attach_as, dry_run=dry_run)
     given = interpolate(action.get("boxes"), context) if action.get("boxes") is not None else None
     if given is None and dry_run:
         return {"dry_run": True, "kind": "media", "op": "redact", "source": src.slug, "would_ask": "the vision model what to blur"}
@@ -528,7 +524,7 @@ def _watermark(session, group_id, action: dict, src, context: dict, *, user_id, 
     from marvin.services.ai.media import ops
     from marvin.services.ai.media import watermark as marks
 
-    from .media import _attach_role, _deliver, _read_bytes, derivative_slug, resolve_source, subject_entry_id
+    from .media import _attach_role, _deliver, _read_bytes, attach_target, derivative_slug, resolve_source
 
     text = str(interpolate(action.get("text") or "", context) or "").strip() or None
     logo = resolve_source(session, group_id, action["logo"], context) if action.get("logo") else None
@@ -546,9 +542,7 @@ def _watermark(session, group_id, action: dict, src, context: dict, *, user_id, 
         "quality": action.get("quality"),
     }
     attach_as = _attach_role(action, context)
-    entry_id = subject_entry_id(context) if attach_as else None
-    if attach_as and entry_id is None:
-        raise AutomationActionError("attach_as needs an entry: run this workflow on an entry (an entry event or an entry target)")
+    entry_id = attach_target(session, group_id, action, context, attach_as, dry_run=dry_run)
     slug = derivative_slug(src, "watermark", args)
     existing = session.query(Assets).filter(Assets.group_id == group_id, Assets.slug == slug).first()
     if dry_run:

@@ -427,8 +427,9 @@ MEDIA_NOTE = (
     "reused: the same op on the same image is made once, the original is never changed, and the new asset records "
     "derived_from + the workflow (no asset_uploaded is sent; asset.derived_from tells derivatives apart). format/quality "
     "re-encode any of them. inspect outputs width, height, orientation, aspect, sharpness (Laplacian variance: blurry is "
-    "low, roughly under 100); palette outputs colors ['#rrggbb']. attach_as (needs an entry run) links the new asset to "
-    "the entry in that role; tags tags the new asset. render fills a template — template: one of card, quote, poster, "
+    "low, roughly under 100); palette outputs colors ['#rrggbb']. attach_as links the new asset to the run's entry in that "
+    "role (attach_to: another entry, e.g. one the run created); tags tags the new asset. render fills a template — "
+    "template: one of card, quote, poster, "
     "trading-card, meme, side-by-side, comic-4, newspaper (section=media lists each one's fields and images), or html: your "
     "own HTML/CSS with {{ fields.<name> }} / {{ images.<name> }} — with fields (text) and images (name → an asset, as source "
     "takes), at width × height (the template's own size by default), and saves the screenshot as a new asset; no network or "
@@ -479,6 +480,7 @@ def _templates() -> dict:
         "syntax": [
             '"${path}" as a whole value keeps the value\'s type; inside text ("Hi ${entry.title}") it is stringified.',
             '"$path" (whole value, no braces) also works. {{...}}, steps[...] and other forms are NOT templates.',
+            '"${path|url}" URL-encodes the value: for a share link\'s text or a query string.',
         ],
         "namespaces": TEMPLATE_NAMESPACES,
         "where": "step fields (input, args, body, metadata, data, entity_slug, collection_slug, reason…), target.query values, condition values",
@@ -521,6 +523,20 @@ def _workspace(refs: WorkspaceRefs, detail: bool) -> dict:
 # Worked definitions are the Workflow Library's recipes (services/automation/recipes): one store for the
 # guide, the Library and draft_workflow(recipe=…). Only recipes that validate and run today, and whose
 # prerequisites this workspace meets, are offered; tests/test_workflow_library.py drafts every one.
+GIST = 110  # characters of a recipe's outcome in the examples list
+
+
+def _gist(text: str) -> str:
+    """A recipe's outcome cut to its first clause, or to a word boundary near GIST characters, marked "…" when cut."""
+    if len(text) <= GIST:
+        return text
+    head = text[:GIST]
+    for stop in ("; ", " — ", ", "):
+        if (at := head.find(stop)) > GIST // 2:
+            return head[:at] + "…"
+    return head.rsplit(" ", 1)[0] + "…"
+
+
 def _examples(refs: WorkspaceRefs, detail: bool, recipe: str | None) -> dict:
     from . import recipes
 
@@ -533,10 +549,11 @@ def _examples(refs: WorkspaceRefs, detail: bool, recipe: str | None) -> dict:
             return {"error": f"recipe “{recipe}” isn't available here ({why}).", "available": [r["id"] for r in offered]}
         return {"note": _EXAMPLES_NOTE, recipe: recipes.example(item)}
     if detail:
-        # Id and outcome only (the id is the title, slugged): the list must stay under the size budget as the library grows.
+        # Id and the outcome's gist only (the id is the title, slugged): the list must stay under the size budget as the
+        # library grows; recipe=<id> has the rest.
         return {
             "note": _EXAMPLES_NOTE + " Call again with recipe=<id> for one recipe's full definition and setup variables.",
-            "recipes": [{"recipe": r["id"], "outcome": r["outcome"]} for r in offered],
+            "recipes": [{"recipe": r["id"], "outcome": _gist(r["outcome"])} for r in offered],
         }
     # A count only: the list grows with every recipe and the overview has a size budget. The list is a call away.
     return {

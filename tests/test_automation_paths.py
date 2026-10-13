@@ -86,3 +86,15 @@ def test_entry_context_image_falls_back_to_first_image_and_skips_suggestions_and
 
 def test_entry_context_without_images_has_no_image(monkeypatch):
     assert _image_for([], monkeypatch) is None
+
+
+def test_a_url_filter_makes_a_value_safe_in_a_link():
+    ctx = {"steps": {"post": {"output": {"text": "New piece: “Tide” & more #art"}}}, "entry": {"url": "https://x.test/a?b=1"}}
+    link = interpolate("https://bsky.app/intent/compose?text=${steps.post.output.text|url}%20${entry.url|url}", ctx)
+    assert (
+        link
+        == "https://bsky.app/intent/compose?text=New%20piece%3A%20%E2%80%9CTide%E2%80%9D%20%26%20more%20%23art%20https%3A%2F%2Fx.test%2Fa%3Fb%3D1"
+    )
+    assert interpolate("${entry.url | url}", ctx) == "https%3A%2F%2Fx.test%2Fa%3Fb%3D1"  # whole value, spaces allowed
+    assert interpolate("${entry.missing|url}", ctx) == ""  # nothing there: empty, not "None"
+    assert interpolate("${entry.url|shout}", ctx) is None  # an unknown filter resolves to nothing

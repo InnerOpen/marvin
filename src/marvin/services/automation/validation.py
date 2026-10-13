@@ -127,7 +127,7 @@ def has_entry_subject(definition: dict | None) -> bool:
 
 
 def entry_link_issues(definition: dict | None) -> list[dict]:
-    """A step that needs the run's entry where runs have none: a media step's `attach_as` or `source: role:<role>`, an
+    """A step that needs the run's entry where runs have none: a media step's `attach_as` (without `attach_to`) or `source: role:<role>`, an
     integration step's `attach_as`. ERROR-level with their path (an agent's draft stops on them; the editor warns)."""
     if has_entry_subject(definition):
         return []
@@ -136,14 +136,14 @@ def entry_link_issues(definition: dict | None) -> list[dict]:
         for i, step in enumerate((definition or {}).get(list_key) or []):
             if not isinstance(step, dict) or step.get("kind") not in ("media", "integration"):
                 continue
-            if step.get("attach_as"):
+            if step.get("attach_as") and not (step.get("kind") == "media" and step.get("attach_to")):
                 issues.append(
                     {
                         "level": "error",
                         "where": where,
                         "path": f"{list_key}[{i}].attach_as",
                         "message": "attach_as links the new image to the run's entry, but this workflow's runs have none: trigger it on "
-                        "an entry event (or asset_attached_to_entry), or target entries.",
+                        "an entry event (or asset_attached_to_entry), target entries, or name the entry with attach_to.",
                     }
                 )
             if step.get("kind") == "media" and str(step.get("source") or "").startswith("role:"):

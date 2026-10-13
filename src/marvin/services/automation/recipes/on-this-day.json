@@ -1,0 +1,111 @@
+{
+  "name": "On this day",
+  "definition": {
+    "trigger": {
+      "type": "schedule",
+      "schedule_type": "cron",
+      "schedule_config": {
+        "cron_expression": "0 8 * * *",
+        "timezone": "{{timezone}}"
+      }
+    },
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "year",
+        "entity": "entry",
+        "query": {
+          "entry_type": "{{entry_type}}",
+          "status": "published",
+          "published_after": "-366d",
+          "published_before": "-365d",
+          "sort": {
+            "by": "published_at",
+            "direction": "desc"
+          }
+        },
+        "fields": [
+          "data.{{body_field}}"
+        ],
+        "limit": 3
+      },
+      {
+        "kind": "operation",
+        "id": "post",
+        "op": "custom",
+        "see": [],
+        "prompt": "A year ago today, these were published:\n\n${steps.year.output.text}\n\nWrite a short, warm “on this day” throwback post that looks back at them and invites people to have another look. Use only what's listed — invent nothing. Also give a one-line caption for a picture card.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "body": {
+              "type": "string",
+              "minLength": 20
+            },
+            "caption": {
+              "type": "string",
+              "maxLength": 140
+            }
+          },
+          "required": [
+            "title",
+            "body",
+            "caption"
+          ]
+        },
+        "when": {
+          "field": "steps.year.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      },
+      {
+        "kind": "entry",
+        "id": "draft",
+        "op": "create",
+        "entry_type": "{{draft_entry_type}}",
+        "title": "${steps.post.output.title}",
+        "data": {
+          "{{draft_body_field}}": "${steps.post.output.body}"
+        },
+        "metadata": {
+          "throwback_of": "${steps.year.output.rows.0.slug}"
+        },
+        "status": "draft",
+        "when": {
+          "field": "steps.year.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      },
+      {
+        "kind": "media",
+        "id": "card",
+        "op": "render",
+        "template": "card",
+        "fields": {
+          "title": "{{card_title}}",
+          "text": "${steps.post.output.caption}",
+          "footer": "{{footer}}"
+        },
+        "images": {
+          "image": "${steps.year.output.rows.0.image}"
+        },
+        "attach_as": "throwback-card",
+        "attach_to": "${steps.draft.output.entry_id}",
+        "tags": [
+          "on-this-day"
+        ],
+        "when": {
+          "field": "steps.year.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      }
+    ]
+  }
+}

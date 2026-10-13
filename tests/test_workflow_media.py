@@ -313,6 +313,35 @@ def test_attach_as_links_the_new_asset_to_the_runs_entry(media):
     assert _derivatives(media, small) == []
 
 
+def test_attach_to_links_the_new_asset_to_a_named_entry_and_says_when_theres_none(media):
+    from marvin.db.models.platform.entry_assets import EntryAssets
+    from marvin.services.automation.validation import entry_link_issues
+
+    article = _entry(media)
+    photo = _stored(media, "photo", _png((1200, 800)))
+    step = {"kind": "media", "op": "resize", "source": photo.slug, "width": 400, "attach_as": "small", "attach_to": article.slug}
+    definition = {"trigger": {"type": "manual"}, "actions": [step]}
+    assert entry_link_issues(definition) == []  # a run with no entry of its own may still attach, to the named one
+
+    recorder = ExecutionRecorder(media.session, media.gid)
+    run_automation_now(media.session, media.gid, _workflow(media, definition, "named"), user_id=media.uid, recorder=recorder)
+
+    (small,) = _derivatives(media, photo)
+    assert media.session.query(EntryAssets).filter_by(entry_id=article.id, asset_id=small.id).one().role == "small"
+    wrong = _workflow(media, {**definition, "actions": [{**step, "attach_to": "no-such-entry"}]}, "missing")
+    assert not run_automation_now(media.session, media.gid, wrong, user_id=media.uid, recorder=recorder)["ok"]
+    assert "no entry “no-such-entry”" in _last_run(media, "missing").actions[0].error
+
+
+def test_attach_to_goes_with_attach_as():
+    from pydantic import ValidationError
+
+    from marvin.schemas.group.automation_definition import MediaAction
+
+    with pytest.raises(ValidationError, match="goes with attach_as"):
+        MediaAction(kind="media", op="resize", width=400, attach_to="some-entry")
+
+
 def test_source_role_takes_the_entrys_image_in_that_role(media):
     article = _entry(media)
     _link(media, article, _stored(media, "gallery", _png((300, 300))), "gallery")
@@ -573,5 +602,7 @@ def test_the_editor_warns_about_a_field_write_with_nothing_to_write():
 
     issues = validate_definition({"trigger": {"type": "event", "event": "entry_published"}, "actions": [{"kind": "entry", "op": "set_metadata"}]})
     assert any("has nothing to set" in i["message"] for i in issues)
-    fine = validate_definition({"trigger": {"type": "event", "event": "entry_published"}, "actions": [{"kind": "entry", "op": "set_metadata", "metadata": {"a": "b"}}]})
+    fine = validate_definition(
+        {"trigger": {"type": "event", "event": "entry_published"}, "actions": [{"kind": "entry", "op": "set_metadata", "metadata": {"a": "b"}}]}
+    )
     assert not any("has nothing to set" in i["message"] for i in fine)

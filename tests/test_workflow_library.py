@@ -280,7 +280,8 @@ def ws(db_session, monkeypatch):
         "article": ([_field("body", "markdown", required=True), _field("project")], "/articles/{slug}", None),
         "campaign": ([_field("utm_source"), _field("utm_medium")], "/campaigns/{slug}", None),
         "contact-request": ([_field("email"), _field("message", "textarea")], None, {"submittable": True}),
-        "project": ([_field("stage")], None, None),
+        "project": ([_field("stage"), _field("collaborators")], None, None),
+        "person": ([_field("handle"), _field("ok_to_tag", "boolean")], None, None),
         "event": ([_field("date", "date")], None, None),
     }
     for slug, (fields, pattern, caps) in specs.items():
@@ -395,6 +396,14 @@ def ws(db_session, monkeypatch):
         "event_entry_type": "event",
         "event_date": "data.date",
         "remind_at": "09:00",
+        "mastodon_server": "mastodon.social",
+        "card_title": "On this day, a year ago",
+        "signup_type": "contact-request",
+        "audience_name": "subscribers",
+        "people_field": "collaborators",
+        "person_type": "person",
+        "consent_field": "ok_to_tag",
+        "handle_field": "handle",
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -1480,6 +1489,124 @@ class TestExecution:
         assert link.asset.mime_type == "application/pdf"
         first_page = documents.read(_bytes_of(ws, link.asset))[1][0]
         assert "Making a brass lantern" in first_page and "1. Cut the shade." in first_page and "Solder the leads." in first_page
+
+    # ── social ──
+    @staticmethod
+    def _site(ws, url="https://studio.example"):
+        from marvin.db.models.groups.preferences import GroupPreferencesModel
+
+        prefs = ws.session.query(GroupPreferencesModel).filter_by(group_id=ws.gid).first()
+        if prefs is None:
+            prefs = GroupPreferencesModel(session=ws.session, group_id=ws.gid)
+            ws.session.add(prefs)
+        prefs.site_canonical_url = url
+        ws.session.commit()
+
+    def test_one_tap_share_links(self, ws):
+        self._site(ws)
+        _install(ws, "one-tap-share-links")
+        piece = _entry(ws, "article", "Tide and Moon", status="published", data={"body": "A new etching of the harbour at night."})
+        ws.ai.reply_text(json.dumps({"text": "New etching: the harbour at night. #printmaking"}))
+
+        _fire(ws, "entry_published", _entry_doc(piece), entity=piece.id, entity_type="entry")
+
+        meta = _reload(ws, piece).metadata_json
+        assert meta["share_text"] == "New etching: the harbour at night. #printmaking"
+        links = meta["share_links"]
+        assert set(links) == {"Bluesky", "Mastodon", "Threads", "LinkedIn", "Email"}
+        page = f"https%3A%2F%2Fstudio.example%2Farticles%2F{piece.slug}"
+        assert links["Bluesky"] == (
+            "https://bsky.app/intent/compose?text=New%20etching%3A%20the%20harbour%20at%20night.%20%23printmaking%0A%0A"
+            f"{page}%3Futm_source%3Dbluesky%26utm_medium%3Dsocial%26utm_campaign%3D{piece.slug}"
+        )
+        assert links["Mastodon"].startswith("https://mastodon.social/share?text=New%20etching")
+        assert (
+            links["LinkedIn"]
+            == f"https://www.linkedin.com/sharing/share-offsite/?url={page}%3Futm_source%3Dlinkedin%26utm_medium%3Dsocial%26utm_campaign%3D{piece.slug}"
+        )
+        assert links["Email"].startswith("mailto:?subject=Tide%20and%20Moon&body=")
+
+    def test_one_tap_share_links_needs_a_full_page_address(self, ws):
+        _install(ws, "one-tap-share-links")  # no Canonical URL: the page is only a path, useless in a post
+        piece = _entry(ws, "article", "Tide", status="published", data={"body": "x"})
+        _fire(ws, "entry_published", _entry_doc(piece), entity=piece.id, entity_type="entry")
+        assert "share_links" not in (_reload(ws, piece).metadata_json or {}) and ws.ai.requests == []
+
+    @needs_browser
+    def test_on_this_day(self, ws, store):
+        from marvin.db.models.platform import EntryAssets
+
+        row = _install(ws, "on-this-day")
+        kiln = self._aged(ws, _entry(ws, "article", "First kiln firing", status="published", data={"body": "We fired the kiln."}), published=365.5)
+        hero = self._with_hero(ws, store, kiln)
+        self._aged(ws, _entry(ws, "article", "Not a year ago", status="published", data={"body": "x"}), published=300)
+        post = {"title": "A year ago: the first firing", "body": "A year ago today we fired the kiln.", "caption": "Our first firing."}
+        ws.ai.reply_text(json.dumps(post))
+
+        self._run(ws, row, trigger_kind="schedule")
+
+        (draft,) = self._issues(ws)
+        assert draft.status == "draft" and draft.metadata_json["throwback_of"] == kiln.slug
+        assert "First kiln firing" in json.dumps(ws.ai.requests[0]) and "Not a year ago" not in json.dumps(ws.ai.requests[0])
+        (card,) = self._rendered(ws, "card")
+        assert [t.slug for t in card.tags] == ["on-this-day"] and card.metadata_json["rendered_from"] == {"image": str(hero.id)}
+        roles = {ea.role for ea in ws.session.query(EntryAssets).filter_by(entry_id=draft.id, asset_id=card.id)}
+        assert roles == {"throwback-card"}
+
+    def test_on_this_day_quiet_when_nothing_was_published(self, ws):
+        row = _install(ws, "on-this-day")
+        self._run(ws, row, trigger_kind="schedule")
+        assert self._issues(ws) == [] and ws.ai.requests == []
+
+    @needs_browser
+    def test_audience_milestone(self, ws, store):
+        from marvin.db.models.platform import EntryAssets
+
+        _install(ws, "audience-milestone")
+        people = [_entry(ws, "contact-request", f"Reader {i}", status="published", data={"email": f"r{i}@x.test"}) for i in range(10)]
+        post = {"title": "Ten of you!", "body": "Thank you, all ten of you, for signing up.", "headline": "Thank you"}
+        ws.ai.reply_text(json.dumps(post))
+
+        for person in (people[-1], people[-1]):  # the tenth sign-up — and the same one published again
+            _fire(ws, "entry_published", _entry_doc(person), entity=person.id, entity_type="entry", user_id=ws.uid)
+
+        (thanks,) = self._issues(ws)  # once per milestone
+        assert thanks.metadata_json["audience_milestone"] == "subscribers 10"
+        assert "Reader" not in json.dumps(ws.ai.requests)  # counts only: no one's name reaches the AI
+        (card,) = self._rendered(ws, "card")
+        assert ws.session.query(EntryAssets).filter_by(entry_id=thanks.id, asset_id=card.id).one().role == "milestone-card"
+
+        eleventh = _entry(ws, "contact-request", "Reader 10", status="published", data={"email": "r10@x.test"})
+        _fire(ws, "entry_published", _entry_doc(eleventh), entity=eleventh.id, entity_type="entry")
+        assert len(self._issues(ws)) == 1 and len(ws.ai.requests) == 1  # 11 isn't a milestone
+
+    def test_collaborator_shout_out(self, ws):
+        _install(ws, "collaborator-shout-out")
+        ada = _entry(ws, "person", "Ada", status="published", data={"handle": "@ada@mastodon.social", "ok_to_tag": True})
+        grace = _entry(ws, "person", "Grace", status="published", data={"handle": "@grace@bsky.social", "ok_to_tag": False})
+        lantern = _entry(ws, "project", "Brass lantern", status="published", data={"collaborators": f"{ada.slug}, {grace.slug}"})
+        ws.ai.reply_text(json.dumps({"title": "Thank you, Ada", "body": "The brass lantern is out — thank you @ada@mastodon.social!"}))
+
+        _fire(ws, "entry_published", _entry_doc(lantern), entity=lantern.id, entity_type="entry", correlation_id="pub-lantern")
+        asked = json.dumps(ws.ai.requests)
+        assert "@ada@mastodon.social" in asked and "Grace" not in asked and "@grace" not in asked  # only those who said yes
+        assert self._issues(ws) == []  # waiting for an editor
+
+        self._decide(ws)
+
+        (thanks,) = self._issues(ws)
+        assert thanks.status == "draft" and thanks.metadata_json["shout_out_for"] == lantern.slug
+
+    def test_collaborator_shout_out_declined_drafts_nothing(self, ws):
+        _install(ws, "collaborator-shout-out")
+        ada = _entry(ws, "person", "Ada", status="published", data={"handle": "@ada", "ok_to_tag": True})
+        lantern = _entry(ws, "project", "Lantern", status="published", data={"collaborators": ada.slug})
+        ws.ai.reply_text(json.dumps({"title": "Thanks", "body": "Thank you @ada for the lantern."}))
+        _fire(ws, "entry_published", _entry_doc(lantern), entity=lantern.id, entity_type="entry")
+
+        self._decide(ws, "deny")
+
+        assert self._issues(ws) == []
 
     # ── waits ──
     def test_event_countdown(self, ws):

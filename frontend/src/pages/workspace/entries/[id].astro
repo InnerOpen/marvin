@@ -12,6 +12,7 @@ import { createTag, listTags, type TagRead } from "@/lib/api/tags";
 import { keysHint } from "@/lib/disclosure";
 import { viewOnSite, withSubmittedValues } from "@/lib/entryForm";
 import { integrationErrors, reviewReasons } from "@/lib/reviewReasons";
+import { shareLinks } from "@/lib/shareLinks";
 import { restoresTo } from "@/lib/trash";
 import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
@@ -252,6 +253,7 @@ const pendingReviewReasons = entry?.status === "needs_review" ? reviewReasons(en
 // An integration failure on an entry that isn't in review — a published entry stays published (a
 // failing shop or newsletter never takes it off the site), so the problem is shown here instead.
 const integrationProblems = entry && entry.status !== "needs_review" ? integrationErrors(entry.metadataJson) : [];
+const share = shareLinks(entry?.metadataJson);
 
 const sortedTypes = entryTypes.sort((a, b) => a.sortOrder - b.sortOrder);
 const sortedCollections = collections.sort((a, b) => a.sortOrder - b.sortOrder);
@@ -743,6 +745,19 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
               </p>
             </div>
           </div>
+
+          {share.links.length > 0 && (
+            <div class="sidebar-section share-section">
+              <h3>Share</h3>
+              <p class="section-help">Each opens that network with the post ready — check it and send it yourself.</p>
+              {share.text && <p class="share-text">{share.text}</p>}
+              <div class="share-links">
+                {share.links.map((link) => (
+                  <a class="button secondary" href={link.href} target="_blank" rel="noopener noreferrer">{link.label}</a>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div class="sidebar-section">
             <h3>Tags (<span id="tag-count">{attachedTags.length}</span>)</h3>
@@ -1398,6 +1413,19 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: var(--radius);
+  }
+
+  .share-text {
+    margin: 0 0 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .share-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
 
   .sidebar-section h3 {

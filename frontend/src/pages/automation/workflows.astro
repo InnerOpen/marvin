@@ -894,6 +894,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       <label class="tf a-m-field" data-field="boxes"><span>What to blur <span class="muted">(blank: the AI model finds it; or an earlier step's \${steps.&lt;id&gt;.output.regions})</span></span><input class="input a-m-boxes" value="${esc(typeof a.boxes === "string" ? a.boxes : a.boxes ? JSON.stringify(a.boxes) : "")}" /></label>
       <label class="tf a-m-attach-wrap"><span>Attach as <span class="muted">(link the new picture to the entry in this role, e.g. square — needs a run about an entry)</span></span>
         <input class="input a-m-attach" value="${esc(a.attach_as ?? "")}" /></label>
+      <label class="tf a-m-attach-wrap"><span>On entry <span class="muted">(optional: an entry id or slug, e.g. \${steps.draft.output.entry_id} for one this run created — blank: the run's entry)</span></span>
+        <input class="input a-m-attach-to" value="${esc(a.attach_to ?? "")}" /></label>
       <label class="tf a-m-tags-wrap"><span>Tag it <span class="muted">(comma-separated, e.g. web-sizes — find them in the library and smart collections)</span></span>
         <input class="input a-m-tags" value="${esc((a.tags ?? []).join(", "))}" /></label>
       <span class="hint small a-m-hint"></span>`;
@@ -923,7 +925,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       const op = opSel.value;
       const makes = MEDIA_OPS.find((o) => o.op === op)?.makesImage;
       wrap.querySelectorAll<HTMLElement>(".a-m-field").forEach((el) => { el.hidden = !OP_FIELDS[op].includes(el.dataset.field!); });
-      (wrap.querySelector(".a-m-attach-wrap") as HTMLElement).hidden = !makes;
+      wrap.querySelectorAll<HTMLElement>(".a-m-attach-wrap").forEach((el) => (el.hidden = !makes));
       (wrap.querySelector(".a-m-tags-wrap") as HTMLElement).hidden = !makes;
       (wrap.querySelector(".a-m-hint") as HTMLElement).innerHTML = makes
         ? "Saves a new asset (the original is never changed) and reuses it when the same picture gets the same treatment again. Later steps read <code>\${steps.&lt;step id&gt;.output.asset.id}</code>; give this step an id."
@@ -1248,6 +1250,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         }
         const makes = MEDIA_OPS.find((o) => o.op === op)?.makesImage;
         setOrDrop("attach_as", makes ? field(".a-m-attach")?.value.trim() : null);
+        setOrDrop("attach_to", step.attach_as ? field(".a-m-attach-to")?.value.trim() : null);
         const tags = (field(".a-m-tags")?.value ?? "").split(",").map((t) => t.trim()).filter(Boolean);
         setOrDrop("tags", makes && tags.length ? tags : null);
         return step;

@@ -15,7 +15,7 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 80,
+    "verified-current": 84,
     "needs-adapter": 4,
     "needs-engine-capability": 14,
     "supported-after-configuration": 11
@@ -3270,6 +3270,456 @@
         ],
         "suggested_trigger_event": null
       }
+    },
+    {
+      "id": "one-tap-share-links",
+      "title": "One-tap share links",
+      "outcome": "When an entry is published, a short post is written and the entry gets ready-made share links for Bluesky, Mastodon, Threads, LinkedIn and email — each opens that network's composer with the post and a tracked link, for a person to check and send.",
+      "category": "Social and community",
+      "category_slug": "social",
+      "tags": [
+        "share",
+        "social",
+        "utm",
+        "ai"
+      ],
+      "target_entity": "entry",
+      "trigger": {
+        "type": "event",
+        "event": "entry_published",
+        "builtin_event": true,
+        "custom_event": false
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "one-tap-share-links.json",
+      "vars": "one-tap-share-links.vars.json",
+      "setup_variables": [
+        {
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "The entries to make share links for (they need a page on the site).",
+          "example": "article"
+        },
+        {
+          "name": "voice",
+          "type": "text",
+          "description": "How the post should sound.",
+          "example": "a warm, plain voice"
+        },
+        {
+          "name": "mastodon_server",
+          "type": "text",
+          "description": "Your Mastodon server, for its share link (just the address, e.g. mastodon.social).",
+          "example": "mastodon.social"
+        }
+      ],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "set_metadata"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "starts_with"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per published entry."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Merges share_text and share_links into the entry's metadata (emits entry_updated at depth+1); the entry page shows them as Share buttons."
+        }
+      ],
+      "cost_notes": "One small AI call per published entry, from the workspace's monthly AI budget.",
+      "failure_behaviour": "An entry without a full web address (no Canonical URL in Settings → Site, or a type with no page) is skipped; an AI error fails the run and nothing is written.",
+      "dependencies": [],
+      "notes": [
+        "Nothing is posted: each link opens the network's own composer, signed in as you, and you press send.",
+        "Each link carries utm_source=<network>, utm_medium=social and utm_campaign=<the entry's slug>, so your analytics can tell where visits came from.",
+        "LinkedIn's share link takes only the page address; the post text is for you to paste."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_one_tap_share_links"
+      },
+      "brief": null
+    },
+    {
+      "id": "on-this-day",
+      "title": "On this day",
+      "outcome": "Each morning, anything published a year ago today gets a throwback: an AI-drafted post looking back at it, with a picture card attached — nothing on days with nothing to remember.",
+      "category": "Social and community",
+      "category_slug": "social",
+      "tags": [
+        "schedule",
+        "throwback",
+        "ai",
+        "render"
+      ],
+      "target_entity": "entry",
+      "trigger": {
+        "type": "schedule",
+        "event": null,
+        "custom_event": false,
+        "note": "A schedule trigger creates its own backing scheduled task (no separate object); interval, cron (in its time zone) and once all run."
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "on-this-day.json",
+      "vars": "on-this-day.vars.json",
+      "setup_variables": [
+        {
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "The entries to look back on (published a year ago today).",
+          "example": "article"
+        },
+        {
+          "name": "body_field",
+          "type": "field_key",
+          "description": "Their text field, for the AI to read.",
+          "example": "body"
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the throwback post is drafted as.",
+          "example": "article"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
+        },
+        {
+          "name": "card_title",
+          "type": "text",
+          "description": "The card's heading.",
+          "example": "On this day, a year ago"
+        },
+        {
+          "name": "footer",
+          "type": "text",
+          "description": "A line at the bottom of the card, e.g. the site.",
+          "example": "gracemartinfranklinart.com"
+        },
+        {
+          "name": "timezone",
+          "type": "text",
+          "description": "The time zone the 8am run is in (IANA name).",
+          "example": "America/New_York"
+        }
+      ],
+      "requires": {
+        "trigger": "schedule",
+        "action_kinds": [
+          "collect",
+          "operation",
+          "entry",
+          "media"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call on a day something was published a year before; none otherwise."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry (metadata.throwback_of) and a card asset (tagged on-this-day) attached to it as throwback-card."
+        }
+      ],
+      "cost_notes": "At most one AI call a day, only when there's something to look back on.",
+      "failure_behaviour": "A day with nothing published a year before does nothing; an AI error fails that day's run and nothing is drafted.",
+      "dependencies": [],
+      "notes": [
+        "“A year ago today” is the 24 hours that ended exactly 365 days before the 8am run, so a leap year can shift it by a day.",
+        "The card uses the newest piece's main picture; without one it's a plain card."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "browser:chromium-headless-shell"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_on_this_day"
+      },
+      "brief": null
+    },
+    {
+      "id": "audience-milestone",
+      "title": "Audience milestone",
+      "outcome": "When your sign-ups reach 10, 25, 50, 100, 250, 500, 1000 and on, a thank-you post is drafted with a card to share — counts only, never names, and once per milestone.",
+      "category": "Social and community",
+      "category_slug": "social",
+      "tags": [
+        "milestone",
+        "newsletter",
+        "ai",
+        "render"
+      ],
+      "target_entity": "entry",
+      "trigger": {
+        "type": "event",
+        "event": "entry_published",
+        "builtin_event": true,
+        "custom_event": false
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "audience-milestone.json",
+      "vars": "audience-milestone.vars.json",
+      "setup_variables": [
+        {
+          "name": "signup_type",
+          "type": "entry_type_slug",
+          "description": "The entry type of your sign-ups (subscribers, members, RSVPs); each published one counts.",
+          "example": "newsletter-signup"
+        },
+        {
+          "name": "audience_name",
+          "type": "text",
+          "description": "What to call them, plural (the card reads “100 subscribers”).",
+          "example": "subscribers"
+        },
+        {
+          "name": "voice",
+          "type": "text",
+          "description": "How the post should sound.",
+          "example": "a warm, plain voice"
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the thank-you is drafted as.",
+          "example": "article"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
+        },
+        {
+          "name": "footer",
+          "type": "text",
+          "description": "A line at the bottom of the card, e.g. the site.",
+          "example": "gracemartinfranklinart.com"
+        }
+      ],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "collect",
+          "operation",
+          "entry",
+          "media"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "in"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call when a milestone is reached; none for other sign-ups."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry (metadata.audience_milestone) and a card asset (tagged audience-milestone) attached to it as milestone-card."
+        }
+      ],
+      "cost_notes": "One AI call per milestone reached.",
+      "failure_behaviour": "A sign-up that doesn't land on a milestone does nothing; a milestone already thanked (its draft exists) isn't thanked again; an AI error fails the run and nothing is drafted.",
+      "dependencies": [],
+      "notes": [
+        "It counts the sign-up type's published entries: a sign-up confirmed by another workflow (e.g. Buttondown's) counts once it's published.",
+        "If two sign-ups are published at the same moment, the count can step over a milestone; the next one is still caught."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "browser:chromium-headless-shell"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_audience_milestone"
+      },
+      "brief": null
+    },
+    {
+      "id": "collaborator-shout-out",
+      "title": "Collaborator shout-out",
+      "outcome": "When a project is published, the people it lists who've agreed to be tagged are thanked in a drafted post, by their own handles — after an editor approves it.",
+      "category": "Social and community",
+      "category_slug": "social",
+      "tags": [
+        "credits",
+        "people",
+        "consent",
+        "approval",
+        "ai"
+      ],
+      "target_entity": "entry",
+      "trigger": {
+        "type": "event",
+        "event": "entry_published",
+        "builtin_event": true,
+        "custom_event": false
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "collaborator-shout-out.json",
+      "vars": "collaborator-shout-out.vars.json",
+      "setup_variables": [
+        {
+          "name": "project_type",
+          "type": "entry_type_slug",
+          "description": "The entries whose people get thanked when they're published (projects, pieces, releases).",
+          "example": "project"
+        },
+        {
+          "name": "people_field",
+          "type": "field_key",
+          "description": "Its field naming the people who helped: their entries' slugs, comma-separated.",
+          "example": "collaborators"
+        },
+        {
+          "name": "person_type",
+          "type": "entry_type_slug",
+          "description": "The entry type of people (collaborators, makers, guests).",
+          "example": "person"
+        },
+        {
+          "name": "consent_field",
+          "type": "field_key",
+          "description": "Their yes/no field: ticked when they're happy to be tagged. Anyone without it ticked is left out.",
+          "example": "ok_to_tag"
+        },
+        {
+          "name": "handle_field",
+          "type": "field_key",
+          "description": "Their field with the handle to tag (e.g. @ada@mastodon.social).",
+          "example": "handle"
+        },
+        {
+          "name": "voice",
+          "type": "text",
+          "description": "How the post should sound.",
+          "example": "a warm, plain voice"
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the thank-you is drafted as.",
+          "example": "article"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
+        }
+      ],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "collect",
+          "operation",
+          "approval",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "exists",
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per published project that lists anyone happy to be tagged."
+        },
+        {
+          "kind": "approval",
+          "description": "Asks an editor to approve the thank-you (it waits up to a week)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Once approved, creates a draft entry (metadata.shout_out_for)."
+        }
+      ],
+      "cost_notes": "One AI call per published project with people to thank.",
+      "failure_behaviour": "A project with no listed people, or none who've agreed to be tagged, does nothing; a rejected or expired approval drafts nothing.",
+      "dependencies": [],
+      "notes": [
+        "People are entries of their own (a person type with a handle and a yes/no “OK to tag” field); a project lists theirs by slug, comma-separated.",
+        "Only people whose “OK to tag” is ticked are mentioned — anyone else is left out of the post and isn't sent to the AI."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_collaborator_shout_out"
+      },
+      "brief": null
     },
     {
       "id": "alt-text-assistant",

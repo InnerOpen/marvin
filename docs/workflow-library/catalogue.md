@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-109 recipes: **80** verified-current, **11** supported-after-configuration, **4** needs-adapter, **14** needs-engine-capability.
+113 recipes: **84** verified-current, **11** supported-after-configuration, **4** needs-adapter, **14** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -32,6 +32,10 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [event-countdown](../../src/marvin/services/automation/recipes/event-countdown.json) — Event countdown | verified-current | `entry_published` | — | content mutation, paid call |
 | [best-of-month](../../src/marvin/services/automation/recipes/best-of-month.json) — Best of month | verified-current | `schedule` | — | content mutation |
 | [utm-librarian](../../src/marvin/services/automation/recipes/utm-librarian.json) — UTM librarian | verified-current | `entry_created` | an entry type with a page URL pattern (so `entry.url` resolves) and two fields for UTM source and medium | content mutation |
+| [one-tap-share-links](../../src/marvin/services/automation/recipes/one-tap-share-links.json) — One-tap share links | verified-current | `entry_published` | — | content mutation, paid call |
+| [on-this-day](../../src/marvin/services/automation/recipes/on-this-day.json) — On this day | verified-current | `schedule` | — | content mutation, paid call |
+| [audience-milestone](../../src/marvin/services/automation/recipes/audience-milestone.json) — Audience milestone | verified-current | `entry_published` | — | content mutation, paid call |
+| [collaborator-shout-out](../../src/marvin/services/automation/recipes/collaborator-shout-out.json) — Collaborator shout-out | verified-current | `entry_published` | — | approval, content mutation, paid call |
 | [alt-text-assistant](../../src/marvin/services/automation/recipes/alt-text-assistant.json) — Alt text assistant | verified-current | `asset_uploaded` | — | content mutation, paid call |
 | [responsive-image-factory](../../src/marvin/services/automation/recipes/responsive-image-factory.json) — Responsive image factory | verified-current | `asset_attached_to_entry` | — | content mutation |
 | [background-remover](../../src/marvin/services/automation/recipes/background-remover.json) — Background remover | verified-current | `manual` | openai_images integration | content mutation, paid call |
@@ -256,6 +260,23 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   Opt-in member event → assemble relevant reading links → draft welcome
   - Possible today (partial): see new-member-welcome for the admin-facing notification that works today.
   - Blocked by: `member-email` (address the member); `ops-triggers` (member events as triggers)
+- [one-tap-share-links](../../src/marvin/services/automation/recipes/one-tap-share-links.json) — **One-tap share links** · verified-current · `entry_published`  
+  When an entry is published, a short post is written and the entry gets ready-made share links for Bluesky, Mastodon, Threads, LinkedIn and email — each opens that network's composer with the post and a tracked link, for a person to check and send.
+  - Nothing is posted: each link opens the network's own composer, signed in as you, and you press send.
+  - Each link carries utm_source=<network>, utm_medium=social and utm_campaign=<the entry's slug>, so your analytics can tell where visits came from.
+  - LinkedIn's share link takes only the page address; the post text is for you to paste.
+- [on-this-day](../../src/marvin/services/automation/recipes/on-this-day.json) — **On this day** · verified-current · `schedule`  
+  Each morning, anything published a year ago today gets a throwback: an AI-drafted post looking back at it, with a picture card attached — nothing on days with nothing to remember.
+  - “A year ago today” is the 24 hours that ended exactly 365 days before the 8am run, so a leap year can shift it by a day.
+  - The card uses the newest piece's main picture; without one it's a plain card.
+- [audience-milestone](../../src/marvin/services/automation/recipes/audience-milestone.json) — **Audience milestone** · verified-current · `entry_published`  
+  When your sign-ups reach 10, 25, 50, 100, 250, 500, 1000 and on, a thank-you post is drafted with a card to share — counts only, never names, and once per milestone.
+  - It counts the sign-up type's published entries: a sign-up confirmed by another workflow (e.g. Buttondown's) counts once it's published.
+  - If two sign-ups are published at the same moment, the count can step over a milestone; the next one is still caught.
+- [collaborator-shout-out](../../src/marvin/services/automation/recipes/collaborator-shout-out.json) — **Collaborator shout-out** · verified-current · `entry_published`  
+  When a project is published, the people it lists who've agreed to be tagged are thanked in a drafted post, by their own handles — after an editor approves it.
+  - People are entries of their own (a person type with a handle and a yes/no “OK to tag” field); a project lists theirs by slug, comma-separated.
+  - Only people whose “OK to tag” is ticked are mentioned — anyone else is left out of the post and isn't sent to the AI.
 
 ### Images and files
 

@@ -82,9 +82,7 @@ def run_media_action(session, group_id, action: dict, context: dict, *, user_id=
         return _read(session, group_id, op, action, src)
     args = derive_args(session, group_id, op, action, context)
     attach_as = _attach_role(action, context)
-    entry_id = subject_entry_id(context) if attach_as else None
-    if attach_as and entry_id is None:
-        raise AutomationActionError("attach_as needs an entry: run this workflow on an entry (an entry event or an entry target)")
+    entry_id = attach_target(session, group_id, action, context, attach_as, dry_run=dry_run)
     return _derive(
         session,
         group_id,
@@ -171,6 +169,37 @@ def _asset_in_role(session, group_id, role: str, context: dict):
     if link is None:
         raise AutomationActionError(f"the entry has no asset in the role “{role}”")
     return session.get(Assets, link.asset_id)
+
+
+def attach_target(session, group_id, action: dict, context: dict, attach_as, *, dry_run: bool = False) -> uuid.UUID | None:
+    """The entry a made asset is linked to in role ``attach_as``: ``attach_to`` (an entry id or slug — e.g. one this
+    run created, ${steps.draft.output.entry_id}), else the run's entry. None when nothing is attached, or in a dry
+    run naming an entry an earlier step only previewed."""
+    if not attach_as:
+        return None
+    named = interpolate(action.get("attach_to"), context)
+    if named in (None, ""):
+        entry_id = subject_entry_id(context)
+        if entry_id is None:
+            raise AutomationActionError(
+                "attach_as needs an entry: run this workflow on an entry (an entry event or an entry target), or name one with attach_to"
+            )
+        return entry_id
+    entry_id = _entry_named(session, group_id, str(named))
+    if entry_id is None and not dry_run:
+        raise AutomationActionError(f"attach_to: no entry “{named}” in this workspace")
+    return entry_id
+
+
+def _entry_named(session, group_id, ref: str) -> uuid.UUID | None:
+    from marvin.db.models.platform.entries import Entries
+
+    q = session.query(Entries.id).filter(Entries.group_id == group_id)
+    try:
+        row = q.filter(Entries.id == uuid.UUID(ref)).first()
+    except ValueError:
+        row = q.filter(Entries.slug == ref).first()
+    return row[0] if row else None
 
 
 def subject_entry_id(context: dict) -> uuid.UUID | None:
@@ -490,9 +519,7 @@ def _render(session, group_id, action: dict, context: dict, *, user_id, dry_run:
         fmt = "pdf"  # a printable template is a PDF unless the step asks for a picture of its first page
     primary = _unwrap(next(iter(_flat(pictures)), None))
     attach_as = _attach_role(action, context)
-    entry_id = subject_entry_id(context) if attach_as else None
-    if attach_as and entry_id is None:
-        raise AutomationActionError("attach_as needs an entry: run this workflow on an entry (an entry event or an entry target)")
+    entry_id = attach_target(session, group_id, action, context, attach_as, dry_run=dry_run)
     slug = _render_slug(template or "custom", source_html, fields, pictures, (width, height, fmt, quality), primary)
     existing = _by_slug(session, group_id, slug)
     if dry_run:

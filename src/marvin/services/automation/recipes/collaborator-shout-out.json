@@ -1,0 +1,103 @@
+{
+  "name": "Collaborator shout-out",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{project_type}}"
+      },
+      {
+        "field": "entry.data.{{people_field}}",
+        "op": "exists"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "people",
+        "entity": "entry",
+        "query": {
+          "entry_type": "{{person_type}}",
+          "entries": "${entry.data.{{people_field}}}",
+          "where": [
+            {
+              "field": "{{consent_field}}",
+              "op": "eq",
+              "value": true
+            }
+          ]
+        },
+        "fields": [
+          "data.{{handle_field}}"
+        ],
+        "limit": 20
+      },
+      {
+        "kind": "operation",
+        "id": "thanks",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "“${entry.title}” is out, and these people helped make it:\n\n${steps.people.output.text}\n\nWrite a short, warm thank-you post in {{voice}} that credits each of them — by the handle listed with them, exactly as written, or by name if there's none — and says what the piece is. Mention only these people; invent nothing about them.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "body": {
+              "type": "string",
+              "minLength": 20
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ]
+        },
+        "when": {
+          "field": "steps.people.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      },
+      {
+        "kind": "approval",
+        "id": "ok",
+        "message": "Thank the people behind “${entry.title}”? ${steps.thanks.output.body}",
+        "approvers": "editor",
+        "expires_in_hours": 168,
+        "when": {
+          "field": "steps.people.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{draft_entry_type}}",
+        "title": "${steps.thanks.output.title}",
+        "data": {
+          "{{draft_body_field}}": "${steps.thanks.output.body}"
+        },
+        "metadata": {
+          "shout_out_for": "${entry.slug}"
+        },
+        "status": "draft",
+        "when": {
+          "field": "steps.ok.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      }
+    ]
+  }
+}

@@ -435,6 +435,7 @@ class MediaAction(_StepBase):
     opacity: int | None = Field(default=None, ge=1, le=100)  # watermark: percent (default 60)
     size: int | None = Field(default=None, ge=1, le=100)  # watermark: its width, percent of the picture's (default 25)
     attach_as: str | None = None  # link the new asset to the run's entry in this role
+    attach_to: str | None = None  # …or to this entry (id or slug; e.g. ${steps.draft.output.entry_id}, one the run created)
     tags: list[str] | None = None  # tag the new asset (e.g. web-sizes), so the library and smart collections can find them
     id: str | None = None
 
@@ -465,6 +466,8 @@ class MediaAction(_StepBase):
                 raise ValueError("render needs a template (a built-in one) or its own html — one of them")
             if self.source:
                 raise ValueError("render takes its pictures in `images` (name → asset), not `source`")
+        if self.attach_to and not self.attach_as:
+            raise ValueError("attach_to names the entry to link the new asset to: it goes with attach_as (the role)")
         if self.op in ("inspect", "palette") and (self.attach_as or self.tags):
             raise ValueError(f"{self.op} makes no image, so there is nothing to attach_as or tag")
         return self

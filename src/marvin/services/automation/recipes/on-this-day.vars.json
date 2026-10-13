@@ -1,0 +1,40 @@
+{
+  "recipe": "on-this-day",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entries to look back on (published a year ago today).",
+      "example": "article"
+    },
+    "body_field": {
+      "type": "field_key",
+      "description": "Their text field, for the AI to read.",
+      "example": "body"
+    },
+    "draft_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type the throwback post is drafted as.",
+      "example": "article"
+    },
+    "draft_body_field": {
+      "type": "field_key",
+      "description": "That type's text field.",
+      "example": "body"
+    },
+    "card_title": {
+      "type": "text",
+      "description": "The card's heading.",
+      "example": "On this day, a year ago"
+    },
+    "footer": {
+      "type": "text",
+      "description": "A line at the bottom of the card, e.g. the site.",
+      "example": "gracemartinfranklinart.com"
+    },
+    "timezone": {
+      "type": "text",
+      "description": "The time zone the 8am run is in (IANA name).",
+      "example": "America/New_York"
+    }
+  }
+}

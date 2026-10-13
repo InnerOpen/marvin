@@ -3072,3 +3072,19 @@ backend start and every backup run (`marvin-chart/templates/_helpers.tpl` plugin
   checkout for dev, which uv follows); lock made with the image's uv 0.9.30 (local 0.6.14 rewrote the whole lock);
   local image build: all 10 plugins load (`docker/check-plugins.py`), the app's registries find them without
   PYTHONPATH; the check fails on a missing plugin; chart lints; prod/dev render no init container.
+
+## Social recipes, slice 1 (2026-10-13)
+From the social/community exploration (scratchpad report): build the recommended slice. UTM payoff report waits on
+Jared naming his analytics service.
+- [x] Engine: `${path|url}` template filter (matcher `FILTERS`); media `attach_to` (an entry id/slug — attach a render
+      to an entry the run created; validator and guided editor know it); `entries` query takes comma-separated text.
+- [x] Guide: recipe list keeps each outcome's gist (`_gist`) so the examples section stays under budget as the library grows.
+- [x] One-tap share links (+ entry page **Share** box, `lib/shareLinks.ts`), On this day, Audience milestone,
+      Collaborator shout-out — catalogue entries verified-current with execution tests.
+- [x] Full pytest, npm test, astro check (44 baseline); SDK schema unaffected (gate's regen shows only local drift).
+- [ ] UTM payoff report — needs the analytics provider (Plausible / GoatCounter / other).
+- [ ] Re-scope thread-builder, teaser-ladder, carousel-storyteller, launch-kit as draft recipes.
+
+### Review
+Intent-URL formats checked against Bluesky's and Meta's docs (Mastodon's /share is convention, not documented).
+Audience milestone dedupes by a metadata key on its draft (re-publishing a sign-up doesn't thank twice).

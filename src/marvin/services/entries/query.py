@@ -72,7 +72,7 @@ SPEC_KEY_NOTES: dict[str, str] = {
     "has_images": "true: has an image attached",
     "has_assets": "true: has any asset attached",
     "has_resources": "true: has a resource linked",
-    "entries": "exactly these (ids or slugs), e.g. ${entry.data.project}",
+    "entries": "exactly these (ids or slugs, a list or comma-separated text), e.g. ${entry.data.project}",
     "asset": "uses this asset (id or slug)",
     "resource": "has this resource linked (id or slug)",
     "fields": "exact match on the entry type's own fields, {field_key: value}",
@@ -251,7 +251,8 @@ def _linked(session, group_id, q, spec: dict):
     from marvin.db.models.platform.resources import Resources
 
     if "entries" in spec:
-        refs = [str(r).strip() for r in _as_list(spec["entries"]) if str(r or "").strip()]
+        # A list, or text listing them with commas (a field naming a project's people: "ada-lovelace, grace-hopper").
+        refs = [part.strip() for r in _as_list(spec["entries"]) for part in str(r).split(",") if part.strip()]
         if not refs:
             return q, "entries has no value"
         q = q.filter(Entries.slug.in_(refs) | Entries.id.in_(_uuids(refs)))
