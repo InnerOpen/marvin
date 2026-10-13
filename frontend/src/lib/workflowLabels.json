@@ -27,7 +27,8 @@
     "approval": "Wait for approval",
     "media": "Process an image",
     "collect": "Gather items",
-    "fetch": "Check a web address"
+    "fetch": "Check a web address",
+    "wait": "Wait"
   },
   "entryOps": {
     "publish": "Publish",

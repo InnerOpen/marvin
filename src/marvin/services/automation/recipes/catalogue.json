@@ -15,9 +15,9 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 79,
+    "verified-current": 80,
     "needs-adapter": 4,
-    "needs-engine-capability": 15,
+    "needs-engine-capability": 14,
     "supported-after-configuration": 11
   },
   "capabilities": {
@@ -67,7 +67,7 @@
       "name": "Durable waits and delays",
       "priority": "P1",
       "capabilities_md": "Scheduling and waits",
-      "acceptance": "`{\"kind\": \"wait\", \"until\": \"${entry.data.event_date} - 7d\"}` persists the run, survives a restart, honours the workspace timezone and DST, can be cancelled, and resumes exactly once."
+      "acceptance": "Delivered 2026-10-13: a `wait` step — `for` (30m, 12h, 3d, 2w) or `until` a date/datetime with `offset` and `at`, in the workspace's time zone, calendar arithmetic across clock changes — parks the run (workflow_waits, the run's snapshot incl. its inputs); a minutely sweep resumes it with the entry as it is then; the entry in the Trash or the workflow switched off/changed cancels it; a moment already past goes on at once (late); a year at most."
     },
     "idempotency": {
       "name": "Per-step idempotency keys",
@@ -2902,7 +2902,7 @@
     {
       "id": "event-countdown",
       "title": "Event countdown",
-      "outcome": "Event entry → create reminder drafts relative to event date",
+      "outcome": "When an event is published, a reminder post is drafted a week before its date and another the day before, at the time you choose — skipping any moment already past.",
       "category": "Social and community",
       "category_slug": "social",
       "tags": [
@@ -2917,39 +2917,89 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "event-countdown.json",
+      "vars": "event-countdown.vars.json",
+      "setup_variables": [
         {
-          "capability": "waits",
-          "name": "Durable waits and delays",
-          "priority": "P1",
-          "acceptance": "`{\"kind\": \"wait\", \"until\": \"${entry.data.event_date} - 7d\"}` persists the run, survives a restart, honours the workspace timezone and DST, can be cancelled, and resumes exactly once.",
-          "why": "fire at date offsets"
+          "name": "event_type",
+          "type": "entry_type_slug",
+          "description": "The entry type of events.",
+          "example": "event"
         },
         {
-          "capability": "relative-dates",
-          "name": "Relative dates and cron schedules",
-          "priority": "P1",
-          "acceptance": "`updated_before: \"-30d\"` (and `now`-relative `${…}` arithmetic) is accepted by entries/query.py `_when` and shown resolved in the preview; `schedule_type: cron` computes `next_run_at` with its timezone (croniter) and fires on the tick.",
-          "why": "date arithmetic in templates"
+          "name": "date_field",
+          "type": "field_key",
+          "description": "Their date field (YYYY-MM-DD).",
+          "example": "date"
+        },
+        {
+          "name": "remind_at",
+          "type": "text",
+          "description": "The time of day the reminders are drafted, in the workspace's time zone.",
+          "example": "09:00"
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the reminders are drafted as.",
+          "example": "article"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "wait",
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "neq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "Two AI calls per event (one per reminder still ahead)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates two draft entries (metadata.reminder_for), a week and a day before."
+        }
+      ],
+      "cost_notes": "Up to two AI calls per event, from the workspace's monthly AI budget.",
+      "failure_behaviour": "An event moved to the Trash, or the workflow switched off, cancels the waiting reminders; an AI error fails that reminder's run.",
+      "dependencies": [],
+      "notes": [
+        "The run waits (Wait step) — it's kept, and goes on at the time, in the workspace's time zone (Settings → Site).",
+        "A changed date after publishing isn't followed: the wait was set when it was published."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "clock"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_event_countdown"
       },
       "brief": {
         "flow": "Event entry → create reminder drafts relative to event date",

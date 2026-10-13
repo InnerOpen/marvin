@@ -17,6 +17,7 @@ integrations and webhooks).
 
 import json
 
+from marvin.services.automation.authoring import SECTIONS
 from marvin.services.ui_links import ui_link
 
 from ..operations.base import ROLE_ADMIN
@@ -70,7 +71,7 @@ def _last_run(session, row) -> dict | None:
         "properties": {
             "section": {
                 "type": "string",
-                "enum": ["shape", "triggers", "events", "target", "conditions", "actions", "templates", "workspace", "examples", "editor"],
+                "enum": list(SECTIONS),
                 "description": "one part in detail (event descriptions, field types, integration action args, the recipes)",
             },
             "recipe": {"type": "string", "description": "a Library recipe id (from section=examples): its full definition and setup variables"},

@@ -281,6 +281,7 @@ def ws(db_session, monkeypatch):
         "campaign": ([_field("utm_source"), _field("utm_medium")], "/campaigns/{slug}", None),
         "contact-request": ([_field("email"), _field("message", "textarea")], None, {"submittable": True}),
         "project": ([_field("stage")], None, None),
+        "event": ([_field("date", "date")], None, None),
     }
     for slug, (fields, pattern, caps) in specs.items():
         et = EntryTypes(session=db_session, group_id=gid, name=slug.replace("-", " ").title(), slug=slug, schema_json={"fields": fields})
@@ -391,6 +392,9 @@ def ws(db_session, monkeypatch):
         "season_tag": "winter",
         "watermark_text": "© Mash & Burn Co.",
         "position": "bottom-right",
+        "event_type": "event",
+        "date_field": "date",
+        "remind_at": "09:00",
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -1476,6 +1480,35 @@ class TestExecution:
         assert link.asset.mime_type == "application/pdf"
         first_page = documents.read(_bytes_of(ws, link.asset))[1][0]
         assert "Making a brass lantern" in first_page and "1. Cut the shade." in first_page and "Solder the leads." in first_page
+
+    # ── waits ──
+    def test_event_countdown(self, ws):
+        from marvin.services.automation import waits
+
+        _install(ws, "event-countdown")
+        day = (datetime.now(UTC).date() + timedelta(days=12)).isoformat()
+        fair = _entry(ws, "event", "Maker fair", status="published", data={"date": day})
+        ws.ai.reply_text(json.dumps({"title": "One week to the Maker fair", "body": "The Maker fair is a week away — come and see the stalls."}))
+        ws.ai.reply_text(json.dumps({"title": "Maker fair: tomorrow!", "body": "Tomorrow's the Maker fair — doors at nine, come early."}))
+
+        _fire(ws, "entry_published", _entry_doc(fair), entity=fair.id, entity_type="entry", correlation_id="pub-fair")
+        assert self._issues(ws) == [] and ws.ai.requests == []  # waiting for the week before
+
+        waits.resume_due(ws.session, now_=waits.now() + timedelta(days=4))
+        assert self._issues(ws) == []  # not yet: a week before is day 5, at 09:00
+        waits.resume_due(ws.session, now_=waits.now() + timedelta(days=6))
+        (week,) = self._issues(ws)
+        assert (week.title, week.metadata_json["reminder_for"]) == ("One week to the Maker fair", fair.slug)
+
+        waits.resume_due(ws.session, now_=waits.now() + timedelta(days=12))
+        assert sorted(e.title for e in self._issues(ws)) == ["Maker fair: tomorrow!", "One week to the Maker fair"]
+        assert len(ws.ai.requests) == 2
+
+    def test_event_countdown_skips_a_reminder_already_past(self, ws):
+        _install(ws, "event-countdown")
+        soon = _entry(ws, "event", "Pop-up", status="published", data={"date": (datetime.now(UTC).date() + timedelta(days=3)).isoformat()})
+        _fire(ws, "entry_published", _entry_doc(soon), entity=soon.id, entity_type="entry", correlation_id="pub-pop")
+        assert self._issues(ws) == [] and ws.ai.requests == []  # the week-before moment has passed: no draft; it waits for the day before
 
     # ── watermarks ──
     def test_watermark_new_pictures(self, ws, store):

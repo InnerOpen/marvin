@@ -1,0 +1,30 @@
+{
+  "recipe": "event-countdown",
+  "variables": {
+    "event_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type of events.",
+      "example": "event"
+    },
+    "date_field": {
+      "type": "field_key",
+      "description": "Their date field (YYYY-MM-DD).",
+      "example": "date"
+    },
+    "remind_at": {
+      "type": "text",
+      "description": "The time of day the reminders are drafted, in the workspace's time zone.",
+      "example": "09:00"
+    },
+    "draft_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type the reminders are drafted as.",
+      "example": "article"
+    },
+    "draft_body_field": {
+      "type": "field_key",
+      "description": "That type's text field.",
+      "example": "body"
+    }
+  }
+}

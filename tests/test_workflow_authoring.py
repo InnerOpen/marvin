@@ -19,7 +19,7 @@ from pytest import fixture
 from marvin.db.models.groups.automations import WorkspaceAutomationModel
 from marvin.db.models.users.roles import WorkspaceRole
 from marvin.services.ai.tools import get_tool
-from marvin.services.automation.authoring import SECTIONS, authoring_guide, draft_issues, guide_size
+from marvin.services.automation.authoring import ON_REQUEST, SECTIONS, authoring_guide, draft_issues, guide_size
 from tests import test_content_role_gates as gates
 
 workspace = gates.workspace  # fixture: a workspace with a signed-in user (gates._sign_in)
@@ -118,7 +118,7 @@ def test_guide_lists_marvins_real_vocabulary(ws):
     from marvin.services.events.event_catalog import TRIGGERABLE_EVENT_TYPES
 
     guide = authoring_guide(ws.session, ws.gid)
-    assert set(guide) == {*SECTIONS, "more"} - {"editor"}  # the editor labels come only with section=editor
+    assert set(guide) == {*SECTIONS, "more"} - set(ON_REQUEST)  # the media detail and editor labels come only by name
     events = {e for names in guide["events"]["triggerable"].values() for e in names}
     assert events == TRIGGERABLE_EVENT_TYPES and "entry_published" in events
     assert set(guide["triggers"]) == set(TRIGGER_MODELS)

@@ -742,12 +742,14 @@ class _StepRunner:
         return None
 
     def _park(self, action: dict, action_index: int, record: dict, spec: dict, started: datetime) -> AutomationActionError | None:
-        """Park the run at an approval step: keep what it needs to go on, tell the approvers, record the step as
-        waiting. The pipeline stops after it (``parked``); a decision resumes it (resume_after_approval)."""
-        from .approvals import park
+        """Park the run at an approval or a wait step: keep what it needs to go on (and tell the approvers), record the
+        step as waiting. The pipeline stops after it (``parked``); a decision (resume_after_approval) or the time
+        coming (resume_after_wait) resumes it."""
+        from . import approvals, waits
 
+        is_wait = spec.get("kind") == "wait"
         try:
-            row = park(
+            row = (waits if is_wait else approvals).park(
                 self.session,
                 self.group_id,
                 self.automation,
@@ -764,7 +766,10 @@ class _StepRunner:
             if self.step_log is not None:
                 self.step_log.append(step_summary(self.session, action, error=str(e)))
             return e
-        out = {"approval_id": str(row.id), "message": row.message, "approvers": spec.get("approvers"), "expires_at": row.expires_at.isoformat()}
+        if is_wait:
+            out = {"wait_id": str(row.id), "waiting_until": spec["resume_at"].isoformat()}
+        else:
+            out = {"approval_id": str(row.id), "message": row.message, "approvers": spec.get("approvers"), "expires_at": row.expires_at.isoformat()}
         self.recorder.action(self.exec_id, **record, status="waiting", output=out, duration_ms=_ms_since(started))
         if self.step_log is not None:
             self.step_log.append({**step_summary(self.session, action, output=out), "outcome": "waiting"})
@@ -1089,6 +1094,8 @@ def _run_retry_turn(session, group_id, row, automation, defn, *, logger, run_act
     snap = row.snapshot or {}
     event = dict(snap.get("event") or {})
     context: dict = {"event": event, "previous": {}, "depth": int(event.get("reaction_depth", 0) or 0), "site": _site_context(session, group_id)}
+    if "input" in snap:  # a manual run's inputs
+        context["input"] = snap["input"]
     # The entry as it is now — it may have changed since the failure. Once it is gone (or the run was
     # about its deletion) the snapshot's facts stand in: a retry that closes a listing must still run.
     entry_ctx = _entry_context(session, group_id, row.entry_id) if row.entry_id and event.get("event_type") != "entry_deleted" else None
@@ -1188,29 +1195,8 @@ def resume_after_approval(session, row, *, logger=None, run_action: Callable = _
         if logger:
             logger.info("approval %s settled %s; its workflow is gone, off or changed — nothing more runs", row.id, row.status)
         return "not resumed"
-    with _entry_turn(session, automation, row.entry_id, logger=logger):
-        return _resume_turn(session, row, automation, step, logger=logger, run_action=run_action, recorder=recorder)
-
-
-def _resume_turn(session, row, automation, step: dict, *, logger, run_action, recorder) -> str:
-    """resume_after_approval, once it holds the entry's turn."""
-    from marvin.db.models.groups.automation_executions import AutomationExecutionModel
     from marvin.db.models.users.users import Users
 
-    from .recorder import ExecutionRecorder
-
-    recorder = recorder or ExecutionRecorder(session, row.group_id)
-    group_id = row.group_id
-
-    snap = row.snapshot or {}
-    event = dict(snap.get("event") or {})
-    context: dict = {"event": event, "previous": {}, "depth": int(event.get("reaction_depth", 0) or 0), "site": _site_context(session, group_id)}
-    entry_ctx = _entry_context(session, group_id, row.entry_id) if row.entry_id else None
-    if entry_ctx is None:
-        entry_ctx = snap.get("entry")
-    if entry_ctx:
-        context["entry"] = entry_ctx
-    context.update(_item_contexts(session, group_id, event))
     decider = session.get(Users, row.decided_by) if row.decided_by else None
     output = {
         "decision": row.status,
@@ -1220,13 +1206,77 @@ def _resume_turn(session, row, automation, step: dict, *, logger, run_action, re
         "note": row.note,
         "approval_id": str(row.id),
     }
+    with _entry_turn(session, automation, row.entry_id, logger=logger):
+        # An approved run may call integration actions that require approval (actions/integration.py) — only this one.
+        user_id = row.decided_by or (row.snapshot or {}).get("event", {}).get("user_id")
+        return _resume_turn(
+            session,
+            row,
+            automation,
+            step,
+            output,
+            approved=row.status == "approved",
+            user_id=user_id,
+            logger=logger,
+            run_action=run_action,
+            recorder=recorder,
+        )
+
+
+def resume_after_wait(session, row, *, logger=None, run_action: Callable = _registry_run_action, recorder=None) -> str:
+    """Go on with a run that waited at a Wait step, its time come (services/automation/waits.py): rebuilt from its
+    snapshot and the entry as it is now, the steps after it run in a new run pointing back at the one that parked. A
+    workflow switched off or changed, or an entry gone to the Trash meanwhile, cancels it instead (``cancelled``)."""
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+    from marvin.db.models.platform.entries import Entries
+
+    from . import waits
+
+    automation = session.get(WorkspaceAutomationModel, row.automation_id)
+    defn = (automation.definition or {}) if automation is not None else {}
+    actions = (defn.get("actions") or [])[:MAX_ACTIONS]
+    step = actions[row.step_index] if row.step_index < len(actions) else {}
+    if automation is None or not automation.enabled or step.get("kind") != "wait":
+        waits.cancel(session, row, "the workflow was switched off or its steps changed while it waited")
+        return "cancelled"
+    entry = session.get(Entries, row.entry_id) if row.entry_id else None
+    if row.entry_id and (entry is None or entry.status == "trashed"):
+        waits.cancel(session, row, "its entry was deleted or moved to the Trash while it waited")
+        return "cancelled"
+    output = {"waited_until": row.resume_at.isoformat(), "resumed_at": waits.now().isoformat(), "wait_id": str(row.id)}
+    with _entry_turn(session, automation, row.entry_id, logger=logger):
+        user_id = (row.snapshot or {}).get("event", {}).get("user_id")
+        return _resume_turn(
+            session, row, automation, step, output, approved=False, user_id=user_id, logger=logger, run_action=run_action, recorder=recorder
+        )
+
+
+def _resume_turn(session, row, automation, step: dict, output: dict, *, approved: bool, user_id, logger, run_action, recorder) -> str:
+    """Go on from the step after a parked one (an approval or a wait), once it holds the entry's turn: the step's
+    `output` joins the earlier steps', and the steps after it run in a new run."""
+    from marvin.db.models.groups.automation_executions import AutomationExecutionModel
+
+    from .recorder import ExecutionRecorder
+
+    recorder = recorder or ExecutionRecorder(session, row.group_id)
+    group_id = row.group_id
+
+    snap = row.snapshot or {}
+    event = dict(snap.get("event") or {})
+    context: dict = {"event": event, "previous": {}, "depth": int(event.get("reaction_depth", 0) or 0), "site": _site_context(session, group_id)}
+    if "input" in snap:  # a manual run's inputs
+        context["input"] = snap["input"]
+    entry_ctx = _entry_context(session, group_id, row.entry_id) if row.entry_id else None
+    if entry_ctx is None:
+        entry_ctx = snap.get("entry")
+    if entry_ctx:
+        context["entry"] = entry_ctx
+    context.update(_item_contexts(session, group_id, event))
     steps = dict(snap.get("steps") or {})
     steps[str(row.step_index)] = {"output": output}
     if row.step_id:
         steps[str(row.step_id)] = {"output": output}
-    # An approved run may call integration actions that require approval (actions/integration.py) — only this one.
-    context["_approved"] = row.status == "approved"
-    user_id = row.decided_by or event.get("user_id")
+    context["_approved"] = approved
     step_log: list[dict] = []
     context["_step_log"] = step_log
     with correlation_scope(event.get("correlation_id")), _running_scope(automation):

@@ -29,7 +29,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 # What the guide offers in detail (`section=`); without one it gives a bounded overview of all of them.
-SECTIONS = ("shape", "triggers", "events", "target", "conditions", "actions", "templates", "workspace", "examples", "editor")
+SECTIONS = ("shape", "triggers", "events", "target", "conditions", "actions", "media", "templates", "workspace", "examples", "editor")
+# Asked for by name only: too long for the overview's budget, and only needed for those steps.
+ON_REQUEST = ("media", "editor")
 
 # Workspace lists are capped, like workspace_overview's structure: the guide must stay one tool result.
 REF_LIMIT = 50
@@ -369,7 +371,12 @@ def _actions(detail: bool) -> dict:
         "max_steps": MAX_ACTIONS,
         "step_id": "Give a step an `id` to read its output later as ${steps.<id>.output.<key>}; any step takes `when` (run only if).",
         **(
-            {"when": WHEN_NOTE, "media": MEDIA_NOTE, "collect": COLLECT_NOTE, "fetch": FETCH_NOTE, "render_templates": _render_templates()}
+            {
+                "when": WHEN_NOTE,
+                "media": "section=media has the media step in full: each op's rules and the render templates.",
+                "collect": COLLECT_NOTE,
+                "fetch": FETCH_NOTE,
+            }
             if detail
             else {}
         ),
@@ -396,7 +403,8 @@ COLLECT_NOTE = (
 )
 FETCH_NOTE = (
     "fetch reads the web for a step: with a target over published entries, links: ${entry.data.body} then a `when` on "
-    "steps.<id>.output.broken_count (gt 0) → request_review with ${steps.<id>.output.text} is a broken-link patrol. Broken = "
+    "steps.<id>.output.broken_count (gt 0) → notify with ${steps.<id>.output.text} is a broken-link patrol (not request_review: "
+    "it unpublishes a live entry). Broken = "
     "no answer, 404, 410 or 5xx (401/403/429 are a server refusing robots). url: a resource's page "
     '(${resource.url}) → `when` on output.ok; find: "sold out" (any case) → output.found lists what is there. Public addresses only.'
 )
@@ -411,7 +419,7 @@ MEDIA_NOTE = (
     "re-encode any of them. inspect outputs width, height, orientation, aspect, sharpness (Laplacian variance: blurry is "
     "low, roughly under 100); palette outputs colors ['#rrggbb']. attach_as (needs an entry run) links the new asset to "
     "the entry in that role; tags tags the new asset. render fills a template — template: one of card, quote, poster, "
-    "trading-card, meme, side-by-side, comic-4, newspaper (section=actions lists each one's fields and images), or html: your "
+    "trading-card, meme, side-by-side, comic-4, newspaper (section=media lists each one's fields and images), or html: your "
     "own HTML/CSS with {{ fields.<name> }} / {{ images.<name> }} — with fields (text) and images (name → an asset, as source "
     "takes), at width × height (the template's own size by default), and saves the screenshot as a new asset; no network or "
     "script runs in it. An integration action with an image.* capability (openai_images.generate) "
@@ -553,7 +561,7 @@ def authoring_guide(session, group_id, section: str | None = None, recipe: str |
         raise ValueError(f"unknown section '{section}' — one of: {', '.join(SECTIONS)}")
     detail = section is not None
     # The editor's labels only on request: the overview has a size budget, and guided steps ask for them.
-    want = (section,) if section else tuple(x for x in SECTIONS if x != "editor")
+    want = (section,) if section else tuple(x for x in SECTIONS if x not in ON_REQUEST)
     out: dict[str, Any] = {}
     refs: WorkspaceRefs | None = None
     if "shape" in want:
@@ -568,6 +576,8 @@ def authoring_guide(session, group_id, section: str | None = None, recipe: str |
         out["conditions"] = _conditions(detail)
     if "actions" in want:
         out["actions"] = _actions(detail)
+    if "media" in want:
+        out["media"] = {"note": MEDIA_NOTE, "render_templates": _render_templates()}
     if "templates" in want:
         out["templates"] = _templates()
     if "workspace" in want or "examples" in want:
@@ -584,6 +594,7 @@ def authoring_guide(session, group_id, section: str | None = None, recipe: str |
         out["more"] = (
             "Call again with section= one of " + ", ".join(SECTIONS) + " for detail: event descriptions, field types, what each entry op "
             "sends, integration action args, the Library recipes this workspace can run (section=examples, then recipe=<id>), "
+            "the media step's ops and render templates (section=media), "
             "the editor's own labels for each part (section=editor) when telling a person what to click. "
             "Then call draft_workflow — with recipe + vars to instantiate a recipe, or with a definition."
         )

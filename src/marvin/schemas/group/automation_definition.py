@@ -508,6 +508,29 @@ class FetchAction(_StepBase):
         return self
 
 
+class WaitAction(_StepBase):
+    """Waits, then goes on — the run is kept and resumed later. `for`: a span (30m, 12h, 3d, 2w); or `until`: a date
+    or a date and time (e.g. ${entry.data.event_date}), moved by `offset` (-7d: a week before) and, for a date, at `at`
+    (default 09:00) — in the workspace's time zone. A moment already past goes on at once (output late). Output
+    waited_until, resumed_at. A year at most; the entry going to the Trash, or the workflow switched off or changed,
+    cancels the wait."""
+
+    kind: Literal["wait"]
+    for_: str | None = Field(default=None, alias="for", pattern=r"^\s*\d{1,4}\s*[mhdwMHDW]\s*$")
+    until: str | None = None
+    offset: str | None = Field(default=None, pattern=r"^\s*[+-]?\d{1,4}\s*[mhdwMHDW]\s*$")
+    at: str | None = Field(default=None, pattern=r"^\s*([01]?\d|2[0-3]):[0-5]\d\s*$")
+    id: str | None = None
+
+    @model_validator(mode="after")
+    def _for_or_until(self):
+        if bool(self.for_) == bool(self.until):
+            raise ValueError("a wait step takes `for` (a span, e.g. 3d) or `until` (a date), one of them")
+        if self.for_ and (self.offset or self.at):
+            raise ValueError("offset and at go with `until`, not `for`")
+        return self
+
+
 ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "operation": OperationAction,
     "entry": EntryAction,
@@ -519,6 +542,7 @@ ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "media": MediaAction,
     "collect": CollectAction,
     "fetch": FetchAction,
+    "wait": WaitAction,
 }
 
 Action = Annotated[
@@ -531,7 +555,8 @@ Action = Annotated[
     | ApprovalAction
     | MediaAction
     | CollectAction
-    | FetchAction,
+    | FetchAction
+    | WaitAction,
     Field(discriminator="kind"),
 ]
 

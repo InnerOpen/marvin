@@ -599,6 +599,7 @@ def _snapshot(context: dict, run: dict) -> dict | None:
             "entry": context.get("entry"),
             "steps": context.get("steps") or {},
             "previous": context.get("previous") or {},
+            **({"input": context["input"]} if context.get("input") else {}),  # a manual run's inputs (${input.*})
             "target_ref": run.get("target_ref"),
             "gated": bool(run.get("gated", True)),
             "trigger_kind": run.get("trigger_kind"),

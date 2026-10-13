@@ -489,7 +489,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const COND_OP_LABELS: Record<string, string> = WORKFLOW_LABELS.conditionOps;
   // Most-useful-first (backend returns kinds alphabetically). New steps default to the first
   // available — an AI operation when AI is on, otherwise the first non-AI kind.
-  const KIND_ORDER = ["operation", "entry", "media", "collect", "fetch", "approval", "handler", "webhook", "integration", "emit_event"];
+  const KIND_ORDER = ["operation", "entry", "media", "collect", "fetch", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
   const orderedKinds = (): string[] => {
     const avail = OPTIONS.actionKinds || [];
     return KIND_ORDER.filter((k) => avail.includes(k)).concat(avail.filter((k: string) => !KIND_ORDER.includes(k)));
@@ -730,6 +730,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       }
       case "approval":
         return ["decision"];
+      case "wait":
+        return ["waited_until", "late"];
       case "webhook":
         return ["status_code", "body"];
       default:
@@ -1084,6 +1086,29 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         <label class="tf"><span>— or check the links in <span class="muted">(a text, e.g. \${entry.data.body}; fill this or the address, not both)</span></span>
           <input class="input a-f-links" value="${esc(a.links ?? "")}" placeholder="\${entry.data.body}" /></label>
         <span class="hint small">Public addresses only. A missing page is output, not a failed step: later steps read <code>\${steps.&lt;step id&gt;.output.ok}</code>, <code>.status</code> and <code>.text</code> — or, for links, <code>.broken_count</code> and <code>.text</code> (the broken ones). A dry run doesn't fetch. Give this step an id.</span>`;
+    } else if (kind === "wait") {
+      const untilMode = Boolean(a.until);
+      wrap.innerHTML = `
+        <label class="tf"><span>Wait</span>
+          <select class="input a-w-mode"><option value="for" ${untilMode ? "" : "selected"}>For a while</option><option value="until" ${untilMode ? "selected" : ""}>Until a date</option></select></label>
+        <label class="tf a-w-for-wrap"><span>How long <span class="muted">(30m, 12h, 3d, 2w)</span></span>
+          <input class="input a-w-for" value="${esc(a.for ?? "")}" placeholder="3d" /></label>
+        <div class="a-w-until-wrap">
+          <label class="tf"><span>Until <span class="muted">(a date, or a date and time — e.g. \${entry.data.event_date})</span></span>
+            <input class="input a-w-until" value="${esc(a.until ?? "")}" placeholder="\${entry.data.event_date}" /></label>
+          <label class="tf"><span>Moved by <span class="muted">(optional: -7d is a week before, +1d a day after)</span></span>
+            <input class="input a-w-offset" value="${esc(a.offset ?? "")}" placeholder="-7d" /></label>
+          <label class="tf"><span>At <span class="muted">(for a date: the time of day, default 09:00)</span></span>
+            <input class="input a-w-at" value="${esc(a.at ?? "")}" placeholder="09:00" /></label>
+        </div>
+        <span class="hint small">The run is kept and goes on then, in the workspace's time zone (Settings → Site), re-reading the entry as it is by then. A time already past goes on at once (<code>.late</code>). If the entry goes to the Trash or the workflow is switched off meanwhile, it stops. A year at most.</span>`;
+      const modeSel = wrap.querySelector(".a-w-mode") as HTMLSelectElement;
+      const syncWait = () => {
+        (wrap.querySelector(".a-w-for-wrap") as HTMLElement).hidden = modeSel.value !== "for";
+        (wrap.querySelector(".a-w-until-wrap") as HTMLElement).hidden = modeSel.value !== "until";
+      };
+      modeSel.addEventListener("change", syncWait);
+      syncWait();
     } else if (kind === "approval") {
       const hours = Number(a.expires_in_hours ?? 72);
       wrap.innerHTML = `
@@ -1246,6 +1271,22 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         setOrDrop("method", !links && field(".a-f-method")?.value === "HEAD" ? "HEAD" : null);
         const find = (field(".a-f-find")?.value ?? "").split(",").map((w) => w.trim()).filter(Boolean);
         setOrDrop("find", !links && find.length ? find : null);
+        return step;
+      }
+      if (kind === "wait") {
+        const untilMode = field(".a-w-mode")?.value === "until";
+        for (const key of ["for", "until", "offset", "at"]) delete step[key];
+        if (untilMode) {
+          const until = field(".a-w-until")?.value.trim();
+          if (!until) return null;
+          step.until = until;
+          setOrDrop("offset", field(".a-w-offset")?.value.trim());
+          setOrDrop("at", field(".a-w-at")?.value.trim());
+        } else {
+          const span = field(".a-w-for")?.value.trim();
+          if (!span) return null;
+          step.for = span;
+        }
         return step;
       }
       if (kind === "approval") {
@@ -1691,9 +1732,12 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     const err = a.error ? ` <span class="run-err">${esc(a.error)}</span>` : "";
     const dur = a.durationMs != null ? ` <span class="muted">${a.durationMs}ms</span>` : "";
     const handling = a.handling?.summary ? `<div class="act-handling">↳ ${esc(a.handling.summary)}</div>` : "";
+    const until = a.status === "waiting" && a.outputSnapshot?.waiting_until
+      ? ` <span class="muted">until ${esc(new Date(a.outputSnapshot.waiting_until).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }))}</span>`
+      : "";
     return `<div class="act-row">
       <span class="status-${esc(a.status)}">${stepMark(a.status)}</span>
-      <span>${esc(a.kind)}${a.label ? ` · ${esc(a.label)}` : ""}</span>${ent}${err}${dur}
+      <span>${esc(a.kind)}${a.label ? ` · ${esc(a.label)}` : ""}</span>${ent}${until}${err}${dur}
     </div>${handling}`;
   }
   // The original run and each retry of it, this one marked; then what its retry chains are doing.

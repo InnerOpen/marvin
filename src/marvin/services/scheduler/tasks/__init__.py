@@ -8,6 +8,7 @@ from .expire_workflow_approvals import expire_workflow_approvals
 from .ping import ping
 from .post_webhooks import post_group_webhooks
 from .remind_trash_auto_empty import remind_trash_auto_empty
+from .resume_workflow_waits import resume_workflow_waits
 from .sweep_integration_retries import sweep_integration_retries
 
 __all__ = [
@@ -18,6 +19,7 @@ __all__ = [
     "empty_expired_trash",
     "expire_parked_runs",
     "expire_workflow_approvals",
+    "resume_workflow_waits",
     "ping",
     "post_group_webhooks",
     "remind_trash_auto_empty",
