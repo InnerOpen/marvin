@@ -63,16 +63,16 @@ def _last_run(session, row) -> dict | None:
         "collections, entry types, integrations and their actions, webhooks and workflows, and the Library recipes "
         "this workspace can run (section=examples lists them; recipe=<id> shows one in full with its setup "
         "variables), and the editor's own labels for each part (section=editor) to use when telling a person "
-        "what to click. Call it before draft_workflow. Without `section` it gives everything in brief; with one, that "
-        "part in detail."
+        "what to click. Call it before draft_workflow: without `section` it returns the index — what each section holds "
+        "and when to read it — then ask for the sections the request needs, several in one call "
+        "(section=shape,actions,workspace,templates)."
     ),
     input_schema={
         "type": "object",
         "properties": {
             "section": {
                 "type": "string",
-                "enum": list(SECTIONS),
-                "description": "one part in detail (event descriptions, field types, integration action args, the recipes)",
+                "description": "one or more of " + ", ".join(SECTIONS) + ", comma-separated — those parts in full (omit for the index)",
             },
             "recipe": {"type": "string", "description": "a Library recipe id (from section=examples): its full definition and setup variables"},
         },

@@ -33,8 +33,9 @@ ASK_SYSTEM_PROMPT = (
 BUILDER_SYSTEM_PROMPT = (
     "You help the admin set Marvin up to do what they need: workflows (automations), and how entry types, collections, "
     "scheduled tasks and integrations fit in. You configure Marvin; you never write code for their site.\n"
-    "First, learn the real pieces: workflow_authoring_guide (this workspace's entry types, fields, collections and "
-    "integrations; section=editor gives the editor's own labels), search_docs / read_doc for how Marvin works (cite the "
+    "First, learn the real pieces: workflow_authoring_guide (its index says where each detail lives; section=workspace "
+    "gives this workspace's entry types, fields, collections and integrations, section=editor the editor's own labels), "
+    "search_docs / read_doc for how Marvin works (cite the "
     "page's url), and list_workflows / get_workflow for what exists. Before giving steps, look up the entry type(s) "
     "involved (list_entry_types, get_entry_type) and use their real slug, field keys and option values, checked "
     "with find_entries when a value matters — the manual's examples use made-up names. Never name a step, field, "
@@ -133,16 +134,18 @@ NO_REMOVE_RULE = (
 # guide (generated from the code), the workflow from draft_workflow — switched off, for the user to enable.
 WORKFLOW_RULE = (
     "Creating a workflow (automation): when asked to create, build or set up a workflow or automation, make it yourself. "
-    "Call workflow_authoring_guide first (unless its result is already in this conversation; ask it for a section when "
-    "you need detail), then draft_workflow with a definition in exactly that format, using this workspace's own names "
-    "from the guide. Never say you can't create workflows, and never invent another format. If draft_workflow returns "
+    "Call workflow_authoring_guide first (unless it is already in this conversation): its index says which sections the "
+    "request needs — read those, several in one call (section=shape,actions,workspace,templates) — then draft_workflow "
+    "with a definition in exactly that format, using this workspace's own names from the guide. "
+    "Never say you can't create workflows, and never invent another format. If draft_workflow returns "
     "issues, fix each one and call it again — at most three tries, then tell the user what is still wrong. It is created "
     "switched off: say so, give the result's editLink verbatim, and say what to check before enabling it (the trigger, "
     "which entries it acts on — a dry run shows them without changing anything — and each step). Revise a draft with "
     "update_workflow_draft; never enable or run it yourself."
 )
 WORKFLOW_GUIDE_ONLY_RULE = (
-    "Workflows (automations): you can't save one here. Asked for one, call workflow_authoring_guide and write the "
+    "Workflows (automations): you can't save one here. Asked for one, call workflow_authoring_guide (its index, then the "
+    "sections it points to) and write the "
     "definition in exactly that format for the user to paste into the workflow editor (New workflow → Edit as JSON); "
     "never invent another format."
 )

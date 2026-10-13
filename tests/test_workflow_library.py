@@ -2564,8 +2564,8 @@ def test_guide_offers_the_recipes_this_workspace_can_run(ws):
     one = authoring_guide(ws.session, ws.gid, "examples", "newsletter-delivery")["examples"]["newsletter-delivery"]
     assert one["definition"] == recipes.load_recipe("newsletter-delivery")["definition"] and "newsletter_integration" in one["setup_variables"]
     assert "{{" in json.dumps(one["definition"]) and "${entry.title}" in json.dumps(one["definition"])
-    overview = authoring_guide(ws.session, ws.gid)["examples"]
-    assert overview["count"] == len(WORKFLOW_RECIPES) and "section='examples'" in overview["note"]  # the list is a call away
+    index = authoring_guide(ws.session, ws.gid)
+    assert index["workspace"]["recipes_ready"] == len(WORKFLOW_RECIPES) and "examples" in index["sections"]  # the list is a call away
 
     # Disconnect Buttondown: the newsletter recipe is no longer offered, and asking for it says why.
     ws.session.query(IntegrationModel).filter_by(group_id=ws.gid, slug="newsletter").update({"enabled": False})

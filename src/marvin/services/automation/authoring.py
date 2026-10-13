@@ -28,10 +28,36 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-# What the guide offers in detail (`section=`); without one it gives a bounded overview of all of them.
+# What the guide offers (`section=`, one or several); without one it gives the index.
 SECTIONS = ("shape", "triggers", "events", "target", "conditions", "actions", "media", "templates", "workspace", "examples", "editor")
-# Asked for by name only: too long for the overview's budget, and only needed for those steps.
-ON_REQUEST = ("media", "editor")
+
+# The index: one line per section — what it holds, and when a request needs it. The guide is read like a vault: the
+# index first (small, always), then only the sections the request calls for (several in one call), so a model's
+# context carries what it uses and the guide can grow with the catalogue.
+SECTION_GUIDE: dict[str, str] = {
+    "shape": "the definition's object (trigger, target, conditions, actions, on_failure) and the drafting rules · always",
+    "triggers": (
+        "each trigger type's fields (event, manual with inputs, schedule, chained, on_error, incoming_webhook, mcp) · once the trigger type is chosen"
+    ),
+    "events": "the events a workflow can start on, by heading, and what each carries · when the trigger is an event",
+    "target": ("running on a query of entries, assets or resources instead of the trigger's item: the query keys · when it acts on many items"),
+    "conditions": "condition operators and the fields they read · when the run should be filtered, or a step has a `when`",
+    "actions": "every step kind with its fields, the entry ops, and reading a step's result · always, for the kinds used",
+    "media": (
+        "the media step's ops (resize, crop, render, OCR, PDF, zip, watermark…) and the render templates · when images or documents are involved"
+    ),
+    "templates": (
+        "the ${…} names a step can read (event, entry, asset, steps, input, member…) and how they resolve · when a step reads the "
+        "entry or an earlier step"
+    ),
+    "workspace": (
+        "this workspace's entry types with their fields, collections, integrations and their actions, webhooks, workflows, AI operations · always"
+    ),
+    "examples": "the Library recipes this workspace can run; recipe=<id> shows one in full · first, to start from one instead of writing",
+    "editor": "the workflow editor's own labels for each part · when telling a person what to click",
+}
+INDEX_BUDGET = 4_000  # characters: the index is read on every request
+SECTION_BUDGET = 16_000
 
 # Workspace lists are capped, like workspace_overview's structure: the guide must stay one tool result.
 REF_LIMIT = 50
@@ -265,28 +291,24 @@ def _shape() -> dict:
     }
 
 
-def _triggers(detail: bool) -> dict:
+def _triggers() -> dict:
     from marvin.schemas.group.automation_definition import TRIGGER_MODELS
     from marvin.schemas.platform.scheduled_tasks import ScheduledTaskCreate
 
+    from .validation import condition_field_catalog
+
     out: dict[str, Any] = {kind: {"description": _doc(model), **_fields(model, skip=("type",))} for kind, model in TRIGGER_MODELS.items()}
     out["schedule"]["schedule_types"] = list(typing.get_args(ScheduledTaskCreate.model_fields["schedule_type"].annotation))
-    if detail:
-        from .validation import condition_field_catalog
-
-        for kind, fields in condition_field_catalog().items():
-            if kind in out:
-                out[kind]["condition_fields"] = [f["field"] for f in fields]
+    for kind, fields in condition_field_catalog().items():
+        if kind in out:
+            out[kind]["condition_fields"] = [f["field"] for f in fields]
     return out
 
 
-def _events(detail: bool) -> dict:
+def _events() -> dict:
     from marvin.services.events.event_catalog import CATALOG_BY_TYPE, offered_emittable, trigger_groups
 
-    if detail:
-        groups: dict[str, Any] = {g: {e: CATALOG_BY_TYPE[e].description for e in names} for g, names in trigger_groups().items()}
-    else:
-        groups = trigger_groups()
+    groups: dict[str, Any] = {g: {e: CATALOG_BY_TYPE[e].description for e in names} for g, names in trigger_groups().items()}
     return {
         "triggerable": groups,
         "emittable": offered_emittable(),
@@ -294,7 +316,7 @@ def _events(detail: bool) -> dict:
     }
 
 
-def _target(detail: bool) -> dict:
+def _target() -> dict:
     from marvin.schemas.platform.entries import ENTRY_STATUSES
     from marvin.services.entries.query import SPEC_KEY_NOTES
     from marvin.services.item_query import KEY_NOTES
@@ -306,17 +328,11 @@ def _target(detail: bool) -> dict:
         "query": SPEC_KEY_NOTES,
         "statuses": sorted(ENTRY_STATUSES),
         "example": {"entity": "entry", "query": {"entry_type": "recipe", "status": "published"}},
-        **(
-            {
-                "asset": {"query": KEY_NOTES["asset"], "example": {"entity": "asset", "query": {"asset_type": "image", "unattached": True}}},
-                "resource": {
-                    "query": KEY_NOTES["resource"],
-                    "example": {"entity": "resource", "query": {"resource_type": "supplier", "tags": ["wool"]}},
-                },
-            }
-            if detail  # the overview stays bounded; section="target" has every entity's keys
-            else {"items": "section=target lists the asset and resource query keys, with an example of each"}
-        ),
+        "asset": {"query": KEY_NOTES["asset"], "example": {"entity": "asset", "query": {"asset_type": "image", "unattached": True}}},
+        "resource": {
+            "query": KEY_NOTES["resource"],
+            "example": {"entity": "resource", "query": {"resource_type": "supplier", "tags": ["wool"]}},
+        },
         "limit": f"at most {MAX_TARGET_ENTITIES} matches per run",
         "note": (
             "A query is a flat object of that entity's keys (`query` above is the entry's; no `where` operators on assets or resources, "
@@ -326,7 +342,7 @@ def _target(detail: bool) -> dict:
     }
 
 
-def _conditions(detail: bool) -> dict:
+def _conditions() -> dict:
     from .matcher import _OPS
     from .validation import condition_field_catalog
 
@@ -336,39 +352,21 @@ def _conditions(detail: bool) -> dict:
         "field": "a bare dotted path (no $), e.g. entry.status, entry.data.<field>, event.payload.<key>",
         "note": "Conditions are checked before any step runs, so steps.* / previous.* aren't available in them.",
     }
-    fields = condition_field_catalog()
-    # Per trigger type; the detail adds what each field means.
-    out["fields"] = fields if detail else {k: [f["field"] for f in v] for k, v in fields.items()}
+    out["fields"] = condition_field_catalog()  # per trigger type, each field with what it means
     return out
 
 
-def _first_sentence(text: str) -> str:
-    """Up to the first ". " — a step kind's line in the guide's overview."""
-    head, sep, _ = (text or "").partition(". ")
-    return head + "." if sep else text
-
-
-def _actions(detail: bool) -> dict:
+def _actions() -> dict:
     from marvin.schemas.group.automation_definition import ACTION_MODELS
 
     from .actions.entry import ENTRY_OPS, OP_SENDS, REVIEW_STATUS
     from .engine import MAX_ACTIONS
 
     kinds = {kind: {"description": _doc(model), **_fields(model, skip=("kind",))} for kind, model in ACTION_MODELS.items()}
-    if not detail:  # the first sentence and the field names; section="actions" has the rest and the types
-        shared = {"id", "when"}  # every step takes them: said once below, not per kind
-        kinds = {
-            k: {
-                "description": _first_sentence(v["description"]),
-                "required": list(v["required"]),
-                "optional": [f for f in v["optional"] if f not in shared],
-            }
-            for k, v in kinds.items()
-        }
     entry_ops: dict[str, Any] = {}
     for op, sends in OP_SENDS.items():
         status = ENTRY_OPS.get(op) or (REVIEW_STATUS if op == "request_review" else None)
-        entry_ops[op] = {"sets_status": status, "sends": list(sends)} if detail else (f"status → {status}" if status else "")
+        entry_ops[op] = {"sets_status": status, "sends": list(sends)}
     entry_ops_note = (
         "`unpublish` and `restore` set status draft (there is no op to set any other status); add/remove_from_collection "
         "need collection_slug; set_metadata needs `metadata`, set_data needs `data` (the type's fields); request_review takes `reason`."
@@ -376,20 +374,14 @@ def _actions(detail: bool) -> dict:
     return {
         "kinds": kinds,
         "entry_ops": entry_ops,
-        "entry_ops_note": entry_ops_note + (CREATE_NOTE if detail else ""),
-        "asset_resource_ops": _item_ops(detail),
+        "entry_ops_note": entry_ops_note + CREATE_NOTE,
+        "asset_resource_ops": _item_ops(),
         "max_steps": MAX_ACTIONS,
         "step_id": "Give a step an `id` to read its output later as ${steps.<id>.output.<key>}; any step takes `when` (run only if).",
-        **(
-            {
-                "when": WHEN_NOTE,
-                "media": "section=media has the media step in full: each op's rules and the render templates.",
-                "collect": COLLECT_NOTE,
-                "fetch": FETCH_NOTE,
-            }
-            if detail
-            else {}
-        ),
+        "when": WHEN_NOTE,
+        "media": "section=media has the media step in full: each op's rules and the render templates.",
+        "collect": COLLECT_NOTE,
+        "fetch": FETCH_NOTE,
     }
 
 
@@ -452,13 +444,11 @@ WHEN_NOTE = (
 )
 
 
-def _item_ops(detail: bool) -> dict | str:
-    """What entry steps can do to assets and resources: one line in the overview, the full rules in section="actions"."""
+def _item_ops() -> dict:
+    """What entry steps can do to assets and resources."""
     from .actions.entry import ITEM_OP_SENDS
 
     items = sorted({op for _kind, op in ITEM_OP_SENDS})
-    if not detail:
-        return f"{' | '.join(items)} act on the current asset/resource; entity_query finds entries only. section=actions has the rules."
     return {
         "ops": items,
         "acts_on": (
@@ -487,26 +477,15 @@ def _templates() -> dict:
     }
 
 
-def _workspace(refs: WorkspaceRefs, detail: bool) -> dict:
-    integrations = []
-    for i in refs.integrations:
-        actions = i["actions"]
-        if not detail and actions is not None:
-            actions = [a["action"] for a in actions]
-        integrations.append({**i, "actions": actions if actions is not None else "provider not installed"})
-    # A connected integration's own how-to (its plugin's guide): in full on request, flagged in the overview.
+def _workspace(refs: WorkspaceRefs) -> dict:
+    integrations = [{**i, "actions": i["actions"] if i["actions"] is not None else "provider not installed"} for i in refs.integrations]
+    # A connected integration's own how-to (its plugin's guide).
     with_guide = sorted({i["provider"] for i in refs.integrations if i.get("enabled") and i.get("has_guide")})
-    guides: dict[str, Any] = {}
-    if with_guide:
-        guides = (
-            {"integration_guides": {p: _integration_guide(p) for p in with_guide}}
-            if detail
-            else {"integration_guides": f"{', '.join(with_guide)} ship a how-to guide: section='workspace' includes it."}
-        )
+    guides: dict[str, Any] = {"integration_guides": {p: _integration_guide(p) for p in with_guide}} if with_guide else {}
     return {
         **guides,
-        "collections": [c["slug"] for c in refs.collections] if not detail else refs.collections,
-        "entry_types": refs.entry_types if detail else {t["slug"]: t["fields"] for t in refs.entry_types},
+        "collections": [c["slug"] for c in refs.collections],  # what a step names (collection_slug takes a slug or a name)
+        "entry_types": refs.entry_types,
         "integrations": integrations,
         "outgoing_webhooks": refs.outgoing_webhooks,
         "incoming_webhooks": refs.incoming_webhooks,
@@ -514,9 +493,9 @@ def _workspace(refs: WorkspaceRefs, detail: bool) -> dict:
         "operations": (
             "AI operations can't run from workflows here (AI is off, or its automation source is disabled)"
             if refs.operations is None
-            else (refs.operations if detail else [o["op"] for o in refs.operations])
+            else refs.operations
         ),
-        "handlers": refs.handlers if detail else [h["task"] for h in refs.handlers],
+        "handlers": refs.handlers,
     }
 
 
@@ -537,7 +516,7 @@ def _gist(text: str) -> str:
     return head.rsplit(" ", 1)[0] + "…"
 
 
-def _examples(refs: WorkspaceRefs, detail: bool, recipe: str | None) -> dict:
+def _examples(refs: WorkspaceRefs, recipe: str | None) -> dict:
     from . import recipes
 
     offered = recipes.offered(refs)
@@ -548,19 +527,11 @@ def _examples(refs: WorkspaceRefs, detail: bool, recipe: str | None) -> dict:
             why = "; ".join(recipes.missing_prerequisites(known, refs)) or f"its status is {known['status']}" if known else "no such recipe"
             return {"error": f"recipe “{recipe}” isn't available here ({why}).", "available": [r["id"] for r in offered]}
         return {"note": _EXAMPLES_NOTE, recipe: recipes.example(item)}
-    if detail:
-        # Id and the outcome's gist only (the id is the title, slugged): the list must stay under the size budget as the
-        # library grows; recipe=<id> has the rest.
-        return {
-            "note": _EXAMPLES_NOTE + " Call again with recipe=<id> for one recipe's full definition and setup variables.",
-            "recipes": [{"recipe": r["id"], "outcome": _gist(r["outcome"])} for r in offered],
-        }
-    # A count only: the list grows with every recipe and the overview has a size budget. The list is a call away (and
-    # the placeholder note with it).
+    # Id and the outcome's gist only (the id is the title, slugged): the list must stay under the size budget as the
+    # library grows; recipe=<id> has the rest.
     return {
-        "note": "Library recipes this workspace can run: section='examples' lists them with their outcomes — look there "
-        "before writing one from scratch; recipe=<id> shows one in full.",
-        "count": len(offered),
+        "note": _EXAMPLES_NOTE + " Call again with recipe=<id> for one recipe's full definition and setup variables.",
+        "recipes": [{"recipe": r["id"], "outcome": _gist(r["outcome"])} for r in offered],
     }
 
 
@@ -583,27 +554,31 @@ def _editor() -> dict:
 
 
 def authoring_guide(session, group_id, section: str | None = None, recipe: str | None = None) -> dict:
-    """The guide: every section in brief, or one in detail; ``recipe`` names one Library recipe to show in full
-    (the examples section). Raises ValueError for an unknown section."""
-    if section and section not in SECTIONS:
-        raise ValueError(f"unknown section '{section}' — one of: {', '.join(SECTIONS)}")
-    detail = section is not None
-    # The editor's labels only on request: the overview has a size budget, and guided steps ask for them.
-    want = (section,) if section else tuple(x for x in SECTIONS if x not in ON_REQUEST)
+    """The guide: without ``section``, the index (what each section holds and when to read it, plus this workspace's
+    entry type slugs and how many recipes it can run); with ``section`` — one name, or several comma-separated — those
+    sections in full. ``recipe`` names one Library recipe to show in full (the examples section). Raises ValueError
+    for an unknown section."""
+    if recipe and not section:
+        section = "examples"
+    if not section:
+        return _index(session, group_id)
+    want = tuple(dict.fromkeys(s.strip() for s in section.split(",") if s.strip()))
+    if unknown := [s for s in want if s not in SECTIONS]:
+        raise ValueError(f"unknown section '{', '.join(unknown)}' — one or more of: {', '.join(SECTIONS)} (comma-separated)")
     out: dict[str, Any] = {}
     refs: WorkspaceRefs | None = None
     if "shape" in want:
         out["shape"] = _shape()
     if "triggers" in want:
-        out["triggers"] = _triggers(detail)
+        out["triggers"] = _triggers()
     if "events" in want:
-        out["events"] = _events(detail)
+        out["events"] = _events()
     if "target" in want:
-        out["target"] = _target(detail)
+        out["target"] = _target()
     if "conditions" in want:
-        out["conditions"] = _conditions(detail)
+        out["conditions"] = _conditions()
     if "actions" in want:
-        out["actions"] = _actions(detail)
+        out["actions"] = _actions()
     if "media" in want:
         out["media"] = {"note": MEDIA_NOTE, "render_templates": _render_templates()}
     if "templates" in want:
@@ -612,19 +587,46 @@ def authoring_guide(session, group_id, section: str | None = None, recipe: str |
         refs = workspace_refs(session, group_id)
     if "workspace" in want:
         assert refs is not None
-        out["workspace"] = _workspace(refs, detail)
+        out["workspace"] = _workspace(refs)
     if "examples" in want:
         assert refs is not None
-        out["examples"] = _examples(refs, detail, recipe)
+        out["examples"] = _examples(refs, recipe)
     if "editor" in want:
         out["editor"] = _editor()
-    if not detail:
-        out["more"] = (
-            "Call again with section= one of " + ", ".join(SECTIONS) + " for detail (events, field types, what each entry op sends, "
-            "integration args; examples: the recipes this workspace can run, then recipe=<id>; media: the media ops and render "
-            "templates; editor: its labels when telling a person what to click). Then draft_workflow — with recipe + vars, or a definition."
-        )
     return out
+
+
+def _first_sentence(text: str) -> str:
+    head = text.split(". ", 1)[0]
+    return head if head.endswith(".") else head + "."
+
+
+def _index(session, group_id) -> dict:
+    """The first read: what a workflow is and how it is drafted, where each kind of detail lives, and the little
+    about this workspace that decides where to look next."""
+    from marvin.db.models.platform.collections import Collections
+    from marvin.schemas.group.automation_definition import ACTION_MODELS
+
+    from . import recipes
+
+    refs = workspace_refs(session, group_id)
+    return {
+        "step_kinds": {kind: _first_sentence(_doc(model)) for kind, model in ACTION_MODELS.items()},
+        "start": (
+            "A workflow (automation) is a trigger, optional conditions and up to ten steps; draft one with draft_workflow(name, "
+            "definition) — it is created switched off, for the person to enable. Read the sections this request needs, several in "
+            "one call (section=shape,actions,workspace,templates), then draft; a Library recipe may already do it (section=examples, "
+            "then draft_workflow with recipe + vars)."
+        ),
+        "sections": dict(SECTION_GUIDE),
+        "workspace": {
+            "entry_types": [t["slug"] for t in refs.entry_types],
+            "collections": session.query(Collections).filter(Collections.group_id == group_id).count(),
+            "integrations": [i["slug"] for i in refs.integrations if i.get("enabled")],
+            "recipes_ready": len(recipes.offered(refs)),
+            "detail": "section=workspace",
+        },
+    }
 
 
 def guide_size(guide: dict) -> int:
