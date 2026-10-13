@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.301 (2026-10-13)
+
+### Features
+
+- **workflows**: Thank-you notes and Post-event recap recipes (built on Repeat for each)
+  ([`65986ca`](https://github.com/InnerOpen/marvin/commit/65986ca5a2dc6cbe42379f950e555b148c5b1d4a))
+
+
 ## v1.0.0-rc.300 (2026-10-13)
 
 ### Bug Fixes
