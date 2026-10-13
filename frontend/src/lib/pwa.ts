@@ -19,7 +19,6 @@ export const ASK_PATH = "/workspace/settings/ai-ask";
 /** Where a share from another app is posted (the service worker keeps it) — src/pwa/sw-logic.js SHARE_TARGET. */
 export const SHARE_TARGET_PATH = "/share-target";
 export const NEW_ENTRY_PATH = "/workspace/entries/new";
-export const REVIEW_QUEUE_PATH = "/workspace/entries?status=needs_review,approved";
 
 /** "Marvin", or "Marvin DEV" on a labelled instance. */
 export function appName(label: string | null | undefined): string {
@@ -97,13 +96,6 @@ export function buildManifest(label: string | null | undefined) {
         short_name: "New",
         description: "Write a new entry",
         url: NEW_ENTRY_PATH,
-        icons: [{ src: icons.icon192, sizes: "192x192" }],
-      },
-      {
-        name: "Review queue",
-        short_name: "Review",
-        description: "Entries waiting for review",
-        url: REVIEW_QUEUE_PATH,
         icons: [{ src: icons.icon192, sizes: "192x192" }],
       },
     ],
