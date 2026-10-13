@@ -284,6 +284,7 @@ def _site_context(session, group_id) -> dict:
 # What a template (`${…}`) can read in a run, by namespace — the workflow authoring guide lists these
 # (services/automation/authoring.py); test_workflow_authoring checks them against the contexts built here.
 TEMPLATE_NAMESPACES: dict[str, str] = {
+    "each": "in a repeat: the item's index (from 0), number, count",
     "input": "a manual run's inputs, by name (the trigger's `inputs`: what the Run form, the API or run_workflow passed)",
     "event": (
         "the triggering event: event_type, entry_id, entity_type, entity_id, payload.<key> (an incoming webhook's body), "

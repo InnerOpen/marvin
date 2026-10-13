@@ -5,7 +5,7 @@ Importing this package registers every executor (side-effect imports below). The
 """
 
 # Register executors (import for side effects).
-from . import approval, collect, emit_event, entry, fetch, handler, integration, media, operation, wait, webhook  # noqa: E402,F401
+from . import approval, collect, emit_event, entry, fetch, handler, integration, media, operation, repeat, wait, webhook  # noqa: E402,F401
 from .base import ACTION_EXECUTORS, AutomationActionError, IntegrationStepError, available_kinds, register_action, run_action
 
 __all__ = [

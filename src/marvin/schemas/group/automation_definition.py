@@ -535,6 +535,39 @@ class WaitAction(_StepBase):
         return self
 
 
+# A repeat's inner steps: any step but a wait, an approval or another repeat (a run can't park mid-loop).
+RepeatStep = Annotated[
+    OperationAction | EntryAction | EmitEventAction | HandlerAction | WebhookAction | IntegrationAction | MediaAction | CollectAction | FetchAction,
+    Field(discriminator="kind"),
+]
+MAX_REPEAT_ITEMS = 25
+MAX_REPEAT_STEPS = 5
+# Names a repeat's item can't take: they'd hide what a run already reads.
+RESERVED_ITEM_NAMES = frozenset({"event", "entry", "asset", "resource", "steps", "previous", "input", "site", "error", "depth", "each"})
+
+
+class RepeatAction(_StepBase):
+    """Runs its `steps` (1–5) once per item of `for_each` (e.g. ${steps.people.output.rows}): the item is ${<as>.*}
+    (as: default item), its place ${each.number}/${each.count}; inner steps read each other's output for that item. No
+    wait/approval/repeat inside. limit ≤ 25; on_item_error stop (default) or continue. Output count, done, failed,
+    results, errors."""
+
+    kind: Literal["repeat"]
+    for_each: str | list
+    as_: str = Field(default="item", alias="as", pattern=r"^[a-z][a-z0-9_]{0,30}$")
+    steps: list[RepeatStep] = Field(min_length=1, max_length=MAX_REPEAT_STEPS)
+    limit: int = Field(default=MAX_REPEAT_ITEMS, ge=1, le=MAX_REPEAT_ITEMS)
+    on_item_error: Literal["stop", "continue"] = "stop"
+    id: str | None = None
+
+    @field_validator("as_")
+    @classmethod
+    def _not_reserved(cls, name: str) -> str:
+        if name in RESERVED_ITEM_NAMES:
+            raise ValueError(f"“{name}” is already something a run reads: name the item something else (person, row, item)")
+        return name
+
+
 ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "operation": OperationAction,
     "entry": EntryAction,
@@ -547,6 +580,7 @@ ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "collect": CollectAction,
     "fetch": FetchAction,
     "wait": WaitAction,
+    "repeat": RepeatAction,
 }
 
 Action = Annotated[
@@ -560,7 +594,8 @@ Action = Annotated[
     | MediaAction
     | CollectAction
     | FetchAction
-    | WaitAction,
+    | WaitAction
+    | RepeatAction,
     Field(discriminator="kind"),
 ]
 

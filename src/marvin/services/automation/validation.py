@@ -382,6 +382,9 @@ def _step_issues(act, i: int, where: str, ttype: str, has_entry: bool, subject: 
                 i,
             )
         )
+    if kind == "repeat":  # its inner steps get the same checks, reported at the repeat
+        for inner in act.get("steps") or []:
+            issues.extend(_step_issues(inner, i, where, ttype, has_entry, subject))
     return issues
 
 

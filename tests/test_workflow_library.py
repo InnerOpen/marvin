@@ -1604,6 +1604,8 @@ class TestExecution:
 
         (thanks,) = self._issues(ws)
         assert thanks.status == "draft" and thanks.metadata_json["shout_out_for"] == lantern.slug
+        assert _reload(ws, ada).metadata_json["last_credited"] == {"for": lantern.slug, "title": "Brass lantern"}  # each one thanked
+        assert "last_credited" not in (_reload(ws, grace).metadata_json or {})  # not asked to be tagged: not thanked
 
     def test_collaborator_shout_out_declined_drafts_nothing(self, ws):
         _install(ws, "collaborator-shout-out")

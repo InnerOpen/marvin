@@ -3833,7 +3833,7 @@
     {
       "id": "collaborator-shout-out",
       "title": "Collaborator shout-out",
-      "outcome": "When a project is published, the people it lists who've agreed to be tagged are thanked in a drafted post, by their own handles — after an editor approves it.",
+      "outcome": "When a project is published, the people it lists who've agreed to be tagged are thanked in a drafted post, by their own handles — after an editor approves it — and each of them records the credit.",
       "category": "Social and community",
       "category_slug": "social",
       "tags": [
@@ -3911,10 +3911,12 @@
           "collect",
           "operation",
           "approval",
-          "entry"
+          "entry",
+          "repeat"
         ],
         "entry_ops": [
-          "create"
+          "create",
+          "set_metadata"
         ],
         "operations": [
           "custom"
@@ -3940,7 +3942,7 @@
         },
         {
           "kind": "content_mutation",
-          "description": "Once approved, creates a draft entry (metadata.shout_out_for)."
+          "description": "Once approved, creates a draft entry (metadata.shout_out_for) and records metadata.last_credited on each person thanked (a repeat step)."
         }
       ],
       "cost_notes": "One AI call per published project with people to thank.",

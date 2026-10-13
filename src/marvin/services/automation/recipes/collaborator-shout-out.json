@@ -97,6 +97,30 @@
           "op": "eq",
           "value": "approved"
         }
+      },
+      {
+        "kind": "repeat",
+        "id": "credit",
+        "for_each": "${steps.people.output.rows}",
+        "as": "person",
+        "steps": [
+          {
+            "kind": "entry",
+            "op": "set_metadata",
+            "entity_id": "${person.id}",
+            "metadata": {
+              "last_credited": {
+                "for": "${entry.slug}",
+                "title": "${entry.title}"
+              }
+            }
+          }
+        ],
+        "when": {
+          "field": "steps.ok.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
       }
     ]
   }

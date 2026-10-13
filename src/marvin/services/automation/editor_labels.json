@@ -28,7 +28,8 @@
     "media": "Process an image",
     "collect": "Gather items",
     "fetch": "Check a web address",
-    "wait": "Wait"
+    "wait": "Wait",
+    "repeat": "Repeat for each"
   },
   "entryOps": {
     "publish": "Publish",

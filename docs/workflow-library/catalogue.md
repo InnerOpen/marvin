@@ -275,7 +275,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - It counts the sign-up type's published entries: a sign-up confirmed by another workflow (e.g. Buttondown's) counts once it's published.
   - If two sign-ups are published at the same moment, the count can step over a milestone; the next one is still caught.
 - [collaborator-shout-out](../../src/marvin/services/automation/recipes/collaborator-shout-out.json) — **Collaborator shout-out** · verified-current · `entry_published`  
-  When a project is published, the people it lists who've agreed to be tagged are thanked in a drafted post, by their own handles — after an editor approves it.
+  When a project is published, the people it lists who've agreed to be tagged are thanked in a drafted post, by their own handles — after an editor approves it — and each of them records the credit.
   - People are entries of their own (a person type with a handle and a yes/no “OK to tag” field); a project lists theirs by slug, comma-separated.
   - Only people whose “OK to tag” is ticked are mentioned — anyone else is left out of the post and isn't sent to the AI.
 

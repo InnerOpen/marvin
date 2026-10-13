@@ -1457,7 +1457,12 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     loadDefinition(def);
     ($("wf-json") as HTMLTextAreaElement).value = JSON.stringify(def, null, 2);
     showJsonNote("");
-    showMode(false);
+    // A workflow the guided builder can't show in full (a repeat step, say) opens as JSON, so Save drops nothing.
+    let rebuilt: any = null;
+    try { rebuilt = readDefinition(); } catch { /* opens as JSON */ }
+    const unshown = rebuilt ? definitionDifferences(def, rebuilt) : ["(it couldn't be read)"];
+    if (unshown.length) showJsonNote(`Opened as JSON: the guided builder can't show ${unshown.slice(0, 4).join(", ")}${unshown.length > 4 ? "…" : ""}.`);
+    showMode(unshown.length > 0);
     statusEl.textContent = "";
     clearError();
     builder.removeAttribute("hidden");

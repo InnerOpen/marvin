@@ -555,10 +555,11 @@ def _examples(refs: WorkspaceRefs, detail: bool, recipe: str | None) -> dict:
             "note": _EXAMPLES_NOTE + " Call again with recipe=<id> for one recipe's full definition and setup variables.",
             "recipes": [{"recipe": r["id"], "outcome": _gist(r["outcome"])} for r in offered],
         }
-    # A count only: the list grows with every recipe and the overview has a size budget. The list is a call away.
+    # A count only: the list grows with every recipe and the overview has a size budget. The list is a call away (and
+    # the placeholder note with it).
     return {
-        "note": _EXAMPLES_NOTE + " section='examples' lists them with their outcomes — look there before writing one from "
-        "scratch; recipe=<id> shows one in full.",
+        "note": "Library recipes this workspace can run: section='examples' lists them with their outcomes — look there "
+        "before writing one from scratch; recipe=<id> shows one in full.",
         "count": len(offered),
     }
 
@@ -722,7 +723,11 @@ def reference_issues(session, group_id, definition: dict, refs: WorkspaceRefs | 
         after_approval = False  # an approval-gated integration action is accepted after an approval step only
         for i, step in enumerate(definition.get(list_key) or []):
             if isinstance(step, dict):
-                _step_issues(step, f"{list_key}[{i}]", where, refs, issues, subject, after_approval=after_approval and list_key == "actions")
+                gated = after_approval and list_key == "actions"
+                _step_issues(step, f"{list_key}[{i}]", where, refs, issues, subject, after_approval=gated)
+                for j, inner in enumerate(step.get("steps") or [] if step.get("kind") == "repeat" else []):
+                    if isinstance(inner, dict):
+                        _step_issues(inner, f"{list_key}[{i}].steps[{j}]", where, refs, issues, subject, after_approval=gated)
                 after_approval = after_approval or step.get("kind") == "approval"
     return issues
 
