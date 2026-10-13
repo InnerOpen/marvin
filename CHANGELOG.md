@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.314 (2026-10-13)
+
+### Bug Fixes
+
+- **entries**: The per-field Improve button stays out of the Marvin chat composer
+  ([`16f5eb3`](https://github.com/InnerOpen/marvin/commit/16f5eb3d04a8e7fd1f31df06ee26f385778701cf))
+
+
 ## v1.0.0-rc.313 (2026-10-13)
 
 ### Features
