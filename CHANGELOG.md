@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.299 (2026-10-13)
+
+### Features
+
+- **workflows**: Approvals with choices, length conditions, cancelling a waiting run
+  ([`f12b80c`](https://github.com/InnerOpen/marvin/commit/f12b80c17574d091da965b962ddec780836a089a))
+
+
 ## v1.0.0-rc.298 (2026-10-13)
 
 ### Features
