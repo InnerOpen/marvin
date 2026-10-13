@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.300 (2026-10-13)
+
+### Bug Fixes
+
+- **workflows**: A waiting run finds its step by id and goes on with the edited workflow; a
+  cancelled wait is announced
+  ([`d1db920`](https://github.com/InnerOpen/marvin/commit/d1db920999307759098b0369f84d1355c674b2c2))
+
+
 ## v1.0.0-rc.299 (2026-10-13)
 
 ### Features
