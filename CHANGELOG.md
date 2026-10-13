@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.289 (2026-10-13)
+
+### Features
+
+- **workflows**: Watermarks — text and/or a logo over a copy of a picture, in a corner or tiled
+  across it
+  ([`91012b2`](https://github.com/InnerOpen/marvin/commit/91012b2de44b25bf625b2dc62ee8b7020abac7d1))
+
+
 ## v1.0.0-rc.288 (2026-10-13)
 
 ### Bug Fixes
