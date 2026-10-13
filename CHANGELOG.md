@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.312 (2026-10-13)
+
+### Bug Fixes
+
+- **dashboard**: A caller without a readable role still gets the dashboard
+  ([`6c4f7c3`](https://github.com/InnerOpen/marvin/commit/6c4f7c36d7747663c2edf6a552d9cc62566cc761))
+
+
 ## v1.0.0-rc.311 (2026-10-13)
 
 ### Features
