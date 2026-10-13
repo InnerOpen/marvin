@@ -200,8 +200,15 @@ def test_preview_matches_the_system_prompt_a_run_sends(ctrl, monkeypatch):
     assert seen["system"] == ctrl.preview("scout").system
 
 
+def _app_routes() -> dict:
+    """The app's own paths and their methods (FastAPI no longer copies an included router's routes up)."""
+    from marvin.app import app
+
+    return app.openapi()["paths"]
+
+
 def test_preview_route_is_registered_under_the_agents():
-    assert any(getattr(r, "path", "") == "/ai/agents/{slug}/preview-prompt" for r in oc.router.routes)
+    assert "/api/ai/agents/{slug}/preview-prompt" in _app_routes()
 
 
 # ── An agent not saved yet (the New form) ──
@@ -254,4 +261,4 @@ def test_new_agent_preview_never_reaches_a_provider(ctrl):
 
 
 def test_new_agent_preview_route_is_registered_beside_the_agents():
-    assert any(getattr(r, "path", "") == "/ai/agents/preview-prompt" and "POST" in r.methods for r in oc.router.routes)
+    assert "post" in _app_routes()["/api/ai/agents/preview-prompt"]

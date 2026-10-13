@@ -64,6 +64,7 @@ from marvin.db.models.users.roles import PlatformRole, WorkspaceRole
 from marvin.routes._base import checks
 from marvin.services.ai.agents import may_talk
 from marvin.services.integrations import INTEGRATIONS_AVAILABLE
+from tests._routes import api_routes
 
 SCOPED_PREFIXES = ("/api/groups/", "/api/platform/", "/api/automations", "/api/incoming-webhooks", "/api/ai/")
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -276,8 +277,8 @@ def gates_for(route: APIRoute) -> list[str]:
 
 def _endpoints() -> list[tuple[str, str, APIRoute]]:
     out = []
-    for route in app.routes:
-        if isinstance(route, APIRoute) and route.path.startswith(SCOPED_PREFIXES):
+    for route in api_routes(app):
+        if route.path.startswith(SCOPED_PREFIXES):
             out += [(method, route.path, route) for method in sorted(route.methods - {"HEAD", "OPTIONS"})]
     return out
 

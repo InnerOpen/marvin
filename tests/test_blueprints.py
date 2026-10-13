@@ -26,6 +26,7 @@ from marvin.services.blueprints import (
     list_blueprints,
     missing_requirements,
 )
+from tests._routes import api_routes
 
 
 @fixture
@@ -300,7 +301,7 @@ def test_blueprint_endpoints_are_registered():
     # Guards the easy regression: writing a controller and forgetting to include its router.
     from marvin.app import app
 
-    paths = {(tuple(sorted(r.methods)), r.path) for r in app.routes if "blueprint" in getattr(r, "path", "")}
+    paths = {(tuple(sorted(r.methods)), r.path) for r in api_routes(app) if "blueprint" in r.path}
     assert (("GET",), "/api/groups/blueprints") in paths
     assert (("GET",), "/api/groups/blueprints/categories") in paths
     assert (("GET",), "/api/groups/blueprints/{slug}") in paths
@@ -312,7 +313,7 @@ def test_categories_route_is_not_shadowed_by_the_slug_route():
     # /categories must be declared before /{slug} or it resolves as a blueprint named "categories".
     from marvin.app import app
 
-    order = [r.path for r in app.routes if "blueprint" in getattr(r, "path", "")]
+    order = [r.path for r in api_routes(app) if "blueprint" in r.path]
     assert order.index("/api/groups/blueprints/categories") < order.index("/api/groups/blueprints/{slug}")
 
 

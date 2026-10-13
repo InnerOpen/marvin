@@ -3083,7 +3083,7 @@ Jared naming his analytics service.
       Collaborator shout-out — catalogue entries verified-current with execution tests.
 - [x] Full pytest, npm test, astro check (44 baseline); SDK schema unaffected (gate's regen shows only local drift).
 - [ ] UTM payoff report — needs the analytics provider (Plausible / GoatCounter / other).
-- [ ] Re-scope thread-builder, teaser-ladder, carousel-storyteller, launch-kit as draft recipes.
+- [x] Re-scope thread-builder, teaser-ladder, carousel-storyteller, launch-kit as draft recipes (`79bac75c`).
 
 ### Review
 Intent-URL formats checked against Bluesky's and Meta's docs (Mastodon's /share is convention, not documented).

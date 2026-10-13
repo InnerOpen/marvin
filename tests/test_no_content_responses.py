@@ -10,13 +10,13 @@ import uuid
 from types import SimpleNamespace
 
 from fastapi.datastructures import DefaultPlaceholder
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from pytest import fixture
 
 from marvin.app import MarvinJSONResponse, app
 from marvin.core.dependencies import get_current_user
 from marvin.db.models.users.roles import PlatformRole, WorkspaceRole
+from tests._routes import api_routes
 
 BASE = "/api/groups/invitations"
 
@@ -84,12 +84,14 @@ def test_no_content_answer_has_no_body_and_no_content_type(owner):
 
 
 def test_every_204_route_answers_without_a_content_type():
-    routes = [r for r in app.routes if isinstance(r, APIRoute) and r.status_code == 204]
+    routes = [r for r in api_routes(app) if r.status_code == 204]
     assert routes
     for route in routes:
+        # A route that names no response class answers with the app's default (no router in between sets one): FastAPI
+        # resolves that per request now, rather than copying it onto the route.
         response_class = route.response_class
         if isinstance(response_class, DefaultPlaceholder):
-            response_class = response_class.value
+            response_class = app.router.default_response_class
         assert "content-type" not in response_class(None, status_code=204).headers, route.path
 
 
