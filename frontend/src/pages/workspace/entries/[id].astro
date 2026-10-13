@@ -303,6 +303,7 @@ const hasSchema = entryType?.schemaJson && (entryType.schemaJson as any).fields?
 let aiEditorEnabled = false;
 let aiBubbleOn = false;
 let aiAskOn = false;
+let aiAssistantName = "Marvin"; // the workspace may have renamed the assistant (Settings → AI); the bubble uses the same rule
 if (entry && authToken) {
   try {
     const aiSdk = createSdkClient(authToken);
@@ -312,6 +313,7 @@ if (entry && authToken) {
     const gate = { enabled: aiSettings?.enabled, invocationSources: sources };
     aiBubbleOn = bubbleAllowed(gate);
     aiAskOn = askPageAllowed(gate);
+    aiAssistantName = (aiSettings?.assistantName ?? aiSettings?.assistant_name ?? "").trim() || "Marvin";
   } catch {
     aiEditorEnabled = false;
   }
@@ -371,8 +373,8 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
         </div>
         <div style="display:flex;gap:0.75rem;">
           {aiEditorEnabled && canEditThis && (aiBubbleOn || aiAskOn) && (
-            <button type="button" id="ai-ask-btn" class="button secondary" title="Ask Marvin about this entry"
-              data-prompt={ASK_PROMPT} data-bubble={aiBubbleOn ? "1" : undefined} data-ask-href={aiBubbleOn ? undefined : askHref}>✨ Ask Marvin</button>
+            <button type="button" id="ai-ask-btn" class="button secondary" title={`Ask ${aiAssistantName} about this entry`}
+              data-prompt={ASK_PROMPT} data-bubble={aiBubbleOn ? "1" : undefined} data-ask-href={aiBubbleOn ? undefined : askHref}>✨ Ask {aiAssistantName}</button>
           )}
           {canEditThis && (
             <button type="button" id="delete-entry-button" class="button secondary" title="Move this entry to the Trash. You can restore it from there.">
