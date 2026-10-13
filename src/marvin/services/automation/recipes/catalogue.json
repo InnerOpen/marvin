@@ -15,9 +15,9 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 94,
+    "verified-current": 95,
     "needs-adapter": 3,
-    "needs-engine-capability": 7,
+    "needs-engine-capability": 6,
     "supported-after-configuration": 11
   },
   "capabilities": {
@@ -3506,56 +3506,94 @@
     {
       "id": "community-welcome-pack",
       "title": "Community welcome pack",
-      "outcome": "Opt-in member event → assemble relevant reading links → draft welcome",
+      "outcome": "When someone joins the workspace, a welcome note is drafted for them — hello by name, what the place is for, and the pieces in your start-here collection to read first, with their addresses.",
       "category": "Social and community",
       "category_slug": "social",
       "tags": [
         "members",
-        "email"
+        "welcome",
+        "ai"
       ],
-      "target_entity": "member",
+      "target_entity": "entry",
       "trigger": {
-        "type": "subscription",
+        "type": "event",
         "event": "member_added",
         "builtin_event": true,
-        "custom_event": false,
-        "note": "member_added is not a workflow trigger and carries no email address."
+        "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "community-welcome-pack.json",
+      "vars": "community-welcome-pack.vars.json",
+      "setup_variables": [
         {
-          "capability": "member-email",
-          "name": "Member-addressed email",
-          "priority": "P2",
-          "acceptance": "member_added carries the member's email (or email subscriptions accept recipient_type `member`), and member events are triggerable with the subject distinguished from the actor.",
-          "why": "address the member"
+          "name": "start_here_collection",
+          "type": "collection_slug",
+          "description": "The collection of pieces a newcomer should read first (in its order).",
+          "example": "start-here"
         },
         {
-          "capability": "ops-triggers",
-          "name": "Operational events as workflow triggers",
-          "priority": "P2",
-          "acceptance": "ai_budget_*, integration_attention_*, webhook_delivery_failed and scheduled_task_failed become triggerable with origin filtering (a workflow never reacts to a failure its own run caused) and an independent fallback channel.",
-          "why": "member events as triggers"
+          "name": "voice",
+          "type": "text",
+          "description": "How the welcome should sound.",
+          "example": "a warm, plain voice"
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the welcome is drafted as.",
+          "example": "note"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
         }
       ],
+      "requires": {
+        "trigger": "event:member_added",
+        "action_kinds": [
+          "collect",
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": []
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per new member."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry (metadata.welcome_for: their username, metadata.to: their email)."
+        }
+      ],
+      "cost_notes": "One AI call per new member.",
+      "failure_behaviour": "An empty start-here collection still gets a welcome (with nothing to read); an AI error fails the run and nothing is drafted.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): see new-member-welcome for the admin-facing notification that works today."
+        "Nothing is sent: the welcome is a draft addressed to them (their email in metadata.to) for you to send.",
+        "The new member's name, username and role go to the AI; their email doesn't."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_community_welcome_pack"
       },
       "brief": {
         "flow": "Opt-in member event → assemble relevant reading links → draft welcome",

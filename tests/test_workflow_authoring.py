@@ -194,6 +194,7 @@ def test_template_namespaces_are_what_a_run_can_read(ws):
         {"event_type": "entry_updated", "entry_id": entry["id"]},
         {"event_type": "asset_uploaded", "asset_id": str(photo.id)},
         {"event_type": "resource_created", "resource_id": str(tool.id)},
+        {"event_type": "member_added", "entity_type": "member", "entity_id": str(ws.uid), "role": "EDITOR"},
     ):
         seen |= set(match_context(ws.session, ws.gid, event_ctx))
     # A run adds step outputs (`steps`), in on_failure steps the failure (`error`) and, in a manual run, its inputs
@@ -284,7 +285,11 @@ def test_the_incidents_invented_json_is_refused_with_useful_issues(ws):
         ({**GOOD, "target": {"query": {"status": "drafts"}}}, "target.query.status", "draft"),
         ({**GOOD, "actions": [{"kind": "entry", "op": "add_to_collection", "collection_slug": "featurd"}]}, "actions[0].collection_slug", "featured"),
         ({**GOOD, "actions": [{"kind": "entry", "op": "publish", "entity_type": "asset"}]}, "actions[0].entity_type", "trash"),
-        ({**GOOD, "actions": [{"kind": "integration", "integration": "shop", "action": "refund"}]}, "actions[0].action", "put an Approval step before it"),
+        (
+            {**GOOD, "actions": [{"kind": "integration", "integration": "shop", "action": "refund"}]},
+            "actions[0].action",
+            "put an Approval step before it",
+        ),
         ({**GOOD, "actions": [{"kind": "integration", "integration": "square", "action": "x"}]}, "actions[0].integration", "shop"),
         ({**GOOD, "actions": [{"kind": "handler", "task": "prune_event_logs"}]}, "actions[0].task", "request_site_rebuild"),
         ({**GOOD, "actions": [{"kind": "operation", "op": "summarise"}]}, "actions[0].op", "generate-summary"),

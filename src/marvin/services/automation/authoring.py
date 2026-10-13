@@ -620,11 +620,9 @@ def authoring_guide(session, group_id, section: str | None = None, recipe: str |
         out["editor"] = _editor()
     if not detail:
         out["more"] = (
-            "Call again with section= one of " + ", ".join(SECTIONS) + " for detail: event descriptions, field types, what each entry op "
-            "sends, integration action args, the Library recipes this workspace can run (section=examples, then recipe=<id>), "
-            "the media step's ops and render templates (section=media), "
-            "the editor's own labels for each part (section=editor) when telling a person what to click. "
-            "Then call draft_workflow — with recipe + vars to instantiate a recipe, or with a definition."
+            "Call again with section= one of " + ", ".join(SECTIONS) + " for detail (events, field types, what each entry op sends, "
+            "integration args; examples: the recipes this workspace can run, then recipe=<id>; media: the media ops and render "
+            "templates; editor: its labels when telling a person what to click). Then draft_workflow — with recipe + vars, or a definition."
         )
     return out
 

@@ -176,6 +176,7 @@ CATALOG: list[CatalogEntry] = [
         name="Member Added",
         description="A new member joined the workspace.",
         category="Members",
+        triggerable=True,
         sent_by=["Adding a member (workspace Members settings, admin Workspaces page, API)"],
         variables=COMMON_VARS
         + [
@@ -189,6 +190,7 @@ CATALOG: list[CatalogEntry] = [
         name="Member Role Changed",
         description="A workspace member's role was updated.",
         category="Members",
+        triggerable=True,
         sent_by=["Changing a member's role (workspace Members settings, admin Workspaces page, API)"],
         variables=COMMON_VARS
         + [

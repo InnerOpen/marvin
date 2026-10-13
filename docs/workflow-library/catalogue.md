@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-115 recipes: **94** verified-current, **11** supported-after-configuration, **3** needs-adapter, **7** needs-engine-capability.
+115 recipes: **95** verified-current, **11** supported-after-configuration, **3** needs-adapter, **6** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -37,6 +37,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [event-countdown](../../src/marvin/services/automation/recipes/event-countdown.json) — Event countdown | verified-current | `entry_published` | — | content mutation, paid call |
 | [best-of-month](../../src/marvin/services/automation/recipes/best-of-month.json) — Best of month | verified-current | `schedule` | — | content mutation |
 | [utm-librarian](../../src/marvin/services/automation/recipes/utm-librarian.json) — UTM librarian | verified-current | `entry_created` | an entry type with a page URL pattern (so `entry.url` resolves) and two fields for UTM source and medium | content mutation |
+| [community-welcome-pack](../../src/marvin/services/automation/recipes/community-welcome-pack.json) — Community welcome pack | verified-current | `member_added` | — | content mutation, paid call |
 | [one-tap-share-links](../../src/marvin/services/automation/recipes/one-tap-share-links.json) — One-tap share links | verified-current | `entry_published` | — | content mutation, paid call |
 | [on-this-day](../../src/marvin/services/automation/recipes/on-this-day.json) — On this day | verified-current | `schedule` | — | content mutation, paid call |
 | [audience-milestone](../../src/marvin/services/automation/recipes/audience-milestone.json) — Audience milestone | verified-current | `entry_published` | — | content mutation, paid call |
@@ -126,7 +127,6 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `reply-drafting-desk` — Reply drafting desk | needs-engine-capability | `comment_added` | comments |
 | `campaign-scoreboard` — Campaign scoreboard | needs-adapter | `schedule` | social-adapters, waits, metrics |
 | `social-experiment-log` — Social experiment log | needs-engine-capability | `manual` | metrics |
-| `community-welcome-pack` — Community welcome pack | needs-engine-capability | subscription: `member_added` | member-email, ops-triggers |
 | `achievement-cabinet` — Achievement cabinet | needs-engine-capability | `entry_updated` | custom-events |
 | `choose-your-own-adventure` — Choose your own adventure | needs-engine-capability | `manual` | sandbox |
 | `agent-directory-intake` — Agent directory intake | needs-engine-capability | `form_submission_received` | fetch, sandbox |
@@ -260,10 +260,10 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   A new campaign entry gets a tracking link built from its URL and UTM fields, recorded in metadata with the campaign mapping.
   - Pure string templating: `${entry.url}?utm_source=${entry.data.utm_source}&…` — values must already be URL-safe.
   - `entry.url` is absolute when the workspace Canonical URL is set, else the site path.
-- `community-welcome-pack` — **Community welcome pack** · needs-engine-capability · subscription: `member_added`  
-  Opt-in member event → assemble relevant reading links → draft welcome
-  - Possible today (partial): see new-member-welcome for the admin-facing notification that works today.
-  - Blocked by: `member-email` (address the member); `ops-triggers` (member events as triggers)
+- [community-welcome-pack](../../src/marvin/services/automation/recipes/community-welcome-pack.json) — **Community welcome pack** · verified-current · `member_added`  
+  When someone joins the workspace, a welcome note is drafted for them — hello by name, what the place is for, and the pieces in your start-here collection to read first, with their addresses.
+  - Nothing is sent: the welcome is a draft addressed to them (their email in metadata.to) for you to send.
+  - The new member's name, username and role go to the AI; their email doesn't.
 - [one-tap-share-links](../../src/marvin/services/automation/recipes/one-tap-share-links.json) — **One-tap share links** · verified-current · `entry_published`  
   When an entry is published, a short post is written and the entry gets ready-made share links for Bluesky, Mastodon, Threads, LinkedIn and email — each opens that network's composer with the post and a tracked link, for a person to check and send.
   - Nothing is posted: each link opens the network's own composer, signed in as you, and you press send.
@@ -578,11 +578,10 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | Id | Capability | Priority | Recipes blocked | Acceptance |
 |---|---|---|---|---|
 | `create-entry` | Create-entry action | P0 | 3 | Delivered 2026-10-11: an entry step `op: "create"` (entry_type slug, title, data, metadata, status inbox|draft) makes a schema-validated entry, returns entry_id/slug, sends entry_created at depth+1, previews in a dry run, and makes it once per event (key: correlation id + workflow + target + step, kept in metadata.automation_created). |
-| `ops-triggers` | Operational events as workflow triggers | P2 | 3 | ai_budget_*, integration_attention_*, webhook_delivery_failed and scheduled_task_failed become triggerable with origin filtering (a workflow never reacts to a failure its own run caused) and an independent fallback channel. |
 | `data-change-detection` | Data-field change detection | P1 | 2 | entry_updated's changed_fields/before/after cover the entry type's own fields (opt-in per type, values elided for large fields) so `entry.data.body` with op `changed` works. |
 | `idempotency` | Per-step idempotency keys | P0 | 2 | A webhook/integration step with `idempotency_key` (templated) that already succeeded for that key within the window is skipped and its recorded output reused; two concurrent duplicate events deliver once. |
-| `member-email` | Member-addressed email | P2 | 2 | member_added carries the member's email (or email subscriptions accept recipient_type `member`), and member events are triggerable with the subject distinguished from the actor. |
 | `metrics` | Metrics windows and experiments | P2 | 2 | A step records a metric observation against a variant id and window; a report lists observations without causal claims. |
+| `ops-triggers` | Operational events as workflow triggers | P2 | 2 | ai_budget_*, integration_attention_*, webhook_delivery_failed and scheduled_task_failed become triggerable with origin filtering (a workflow never reacts to a failure its own run caused) and an independent fallback channel. |
 | `sandbox` | Schema validation / sandbox handler | P2 | 2 | A step validates a fetched JSON document against a JSON schema and reports violations as output. |
 | `social-adapters` | Social publishing adapters | P1 | 2 | Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry). |
 | `collection-scope` | Collection-scoped steps | P1 | 1 | A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup). Partly delivered 2026-10-12: a `collect` step reads a collection's entries in its own order (`collection` + sort `position`) for one step to use; left: collection events carrying the set. |
@@ -593,6 +592,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `form-classification` | Form-submission classification from workflows | P0 | 1 | The workflow runner loads an entry-backed submission into `ctx.form_submission` so classify-form-submission classifies the real data; its output (`is_spam`, `category`) is usable by branches. |
 | `joins` | Parallel branches and joins | P1 | 1 | Fan-out steps run independently and a join step waits for all (or any), with deterministic merge of outputs and partial-failure semantics. |
 | `media-adapters` | Image, file and audio processing adapters | P1 | 1 | Slice 3 delivered 2026-10-12: media ops extract_text (a PDF's text layer; scanned pages and pictures by the vision model, image.read_text), pages (PDF pages as pictures, pypdfium2), find_sensitive and redact (faces, plates, personal text by the vision model, pixelated in a new copy). Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Also 2026-10-12: zip (files + manifest.json) and printed renders (format pdf; the guide template). Provider edits 2026-10-12: an integration step's `source` hands an image.edit action the picture (image_b64) and keeps the result as a version of it; OpenAI Images v0.3.0 has `edit`. Left: TTS. |
+| `member-email` | Member-addressed email | P2 | 1 | member_added carries the member's email (or email subscriptions accept recipient_type `member`), and member events are triggerable with the subject distinguished from the actor. |
 | `waits` | Durable waits and delays | P1 | 1 | Delivered 2026-10-13: a `wait` step — `for` (30m, 12h, 3d, 2w) or `until` a date/datetime with `offset` and `at`, in the workspace's time zone, calendar arithmetic across clock changes — parks the run (workflow_waits, the run's snapshot incl. its inputs); a minutely sweep resumes it with the entry as it is then; the entry in the Trash or the workflow switched off/changed cancels it; a moment already past goes on at once (late); a year at most. |
 | `asset-resource-targets` | Assets and resources as workflow subjects | P1 | 0 | Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Delivered 2026-10-12: the entries linked to a given asset or resource (`asset` / `resource` query keys). Delivered 2026-10-12: `checksum` (and `exclude`) in an asset query; `asset.checksum` in a run. Derived-asset lineage is part of media-adapters. |
 | `branches` | Conditional steps (if/else) | P0 | 0 | Delivered 2026-10-11: any step takes `when` conditions evaluated against steps.* / previous.* (same operators); false records it as skipped (not failed), later references read None, and the dry run shows the verdicts. |

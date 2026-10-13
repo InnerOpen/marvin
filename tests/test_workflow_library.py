@@ -409,6 +409,7 @@ def ws(db_session, monkeypatch):
         "rsvp_type": "rsvp",
         "rsvp_event_field": "event",
         "send_at": "10:00",
+        "start_here_collection": "featured",
         "network": "Bluesky",
         "post_type": "article",
         "max_length": 300,
@@ -1830,6 +1831,32 @@ class TestExecution:
         written = {_reload(ws, g).metadata_json["thank_you"]["message"].split(",")[0] for g in guests}
         assert written == {"Ada", "Grace"} and all(_reload(ws, g).metadata_json["thank_you"]["for"] == fair.slug for g in guests)
         assert len(ws.ai.requests) == 3  # the recap, and one message per guest who came — none for another event's RSVP
+
+    def test_community_welcome_pack(self, ws):
+        from marvin.db.models.platform import Collections, EntryCollections
+
+        _install(ws, "community-welcome-pack")
+        featured = ws.session.query(Collections).filter_by(group_id=ws.gid, slug="featured").one()
+        for order, title in enumerate(("Start here", "How we work")):
+            piece = _entry(ws, "article", title, status="published", data={"body": "x"})
+            ws.session.add(EntryCollections(entry_id=piece.id, collection_id=featured.id, sort_order=order))
+        ws.session.commit()
+        ws.ai.reply_text(json.dumps({"title": "Welcome, U", "body": "Welcome aboard — start with “Start here”, then “How we work”."}))
+        joined = {
+            "operation": "create",
+            "workspace_id": str(ws.gid),
+            "user_id": str(ws.uid),
+            "username": "u",
+            "user_full_name": "U",
+            "role": "EDITOR",
+        }
+
+        _fire(ws, "member_added", joined, entity=ws.uid, entity_type="member", correlation_id="join-1")
+
+        (welcome,) = self._issues(ws)
+        assert welcome.status == "draft" and welcome.metadata_json["welcome_for"] and welcome.metadata_json["to"].endswith("@t.test")
+        asked = json.dumps(ws.ai.requests[0])
+        assert "joined as EDITOR" in asked and "Start here" in asked and "/articles/" in asked  # the pieces, with their addresses
 
     # ── waits ──
     def test_event_countdown(self, ws):

@@ -1,0 +1,63 @@
+{
+  "name": "Community welcome pack",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "member_added"
+    },
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "reading",
+        "entity": "entry",
+        "query": {
+          "status": "published",
+          "collection": "{{start_here_collection}}",
+          "sort": {
+            "by": "position",
+            "direction": "asc"
+          }
+        },
+        "limit": 5
+      },
+      {
+        "kind": "operation",
+        "id": "welcome",
+        "op": "custom",
+        "see": [],
+        "prompt": "${member.name} (@${member.username}) just joined as ${member.role}. Write a short welcome note to them in {{voice}}: a warm hello by first name, what this workspace is for in a line, and the pieces below to start with, each named with its address. Use only what's listed — invent nothing.\n\nPieces to start with (title and address):\n${steps.reading.output.rows}",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "body": {
+              "type": "string",
+              "minLength": 40
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ]
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{draft_entry_type}}",
+        "title": "${steps.welcome.output.title}",
+        "data": {
+          "{{draft_body_field}}": "${steps.welcome.output.body}"
+        },
+        "metadata": {
+          "welcome_for": "${member.username}",
+          "to": "${member.email}"
+        },
+        "status": "draft"
+      }
+    ]
+  }
+}

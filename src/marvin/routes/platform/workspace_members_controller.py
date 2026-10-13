@@ -95,6 +95,9 @@ class WorkspaceMembersController(BaseUserController):
             integration_id="workspace_management",
             group_id=workspace_id,
             event_type=EventTypes.member_added,
+            user_id=current_user.id,  # who did it; the member is the subject
+            entity_id=data.user_id,
+            entity_type="member",
             document_data=EventMemberData(
                 operation=EventOperation.create,
                 workspace_id=workspace_id,
@@ -204,6 +207,9 @@ class WorkspaceMembersController(BaseUserController):
             integration_id="workspace_management",
             group_id=workspace_id,
             event_type=EventTypes.member_role_changed,
+            user_id=current_user.id,  # who did it; the member is the subject
+            entity_id=user_id,
+            entity_type="member",
             document_data=EventMemberData(
                 operation=EventOperation.update,
                 workspace_id=workspace_id,
@@ -272,6 +278,9 @@ class WorkspaceMembersController(BaseUserController):
             integration_id="workspace_management",
             group_id=workspace_id,
             event_type=EventTypes.member_removed,
+            user_id=current_user.id,  # who did it; the member is the subject
+            entity_id=user_id,
+            entity_type="member",
             document_data=EventMemberData(
                 operation=EventOperation.delete,
                 workspace_id=workspace_id,

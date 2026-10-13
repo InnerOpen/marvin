@@ -10,6 +10,7 @@ Actions dispatch through the action-executor registry (`actions.run_action`) —
 the engine is unit-testable without real executors.
 """
 
+import uuid
 from collections.abc import Callable
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -245,7 +246,29 @@ def _item_contexts(session, group_id, event_ctx: dict) -> dict:
     for kind in ("asset", "resource"):
         if event_ctx.get(f"{kind}_id") and (ctx := _item_context(session, group_id, kind, event_ctx[f"{kind}_id"])):
             out[kind] = ctx
+    if event_ctx.get("entity_type") == "member" and event_ctx.get("entity_id") and (ctx := _member_context(session, event_ctx)):
+        out["member"] = ctx
     return out
+
+
+def _member_context(session, event_ctx: dict) -> dict | None:
+    """`member` for a member event: the person it is about (its subject — not the admin who added them, who is the
+    event's user_id): id, username, name, email, and the role the event names."""
+    from marvin.db.models.users.users import Users
+
+    try:
+        user = session.get(Users, uuid.UUID(str(event_ctx["entity_id"])))
+    except ValueError:
+        return None
+    if user is None:
+        return None
+    return {
+        "id": str(user.id),
+        "username": user.username,
+        "name": user.full_name or user.username,
+        "email": user.email,
+        "role": event_ctx.get("role"),
+    }
 
 
 def _featured_image_url(entry) -> str | None:
@@ -284,7 +307,8 @@ def _site_context(session, group_id) -> dict:
 # What a template (`${…}`) can read in a run, by namespace — the workflow authoring guide lists these
 # (services/automation/authoring.py); test_workflow_authoring checks them against the contexts built here.
 TEMPLATE_NAMESPACES: dict[str, str] = {
-    "each": "in a repeat: the item's index (from 0), number, count",
+    "each": "in a repeat: index (from 0), number, count",
+    "member": "a member event's person: id, username, name, email, role",
     "input": "a manual run's inputs, by name (the trigger's `inputs`: what the Run form, the API or run_workflow passed)",
     "event": (
         "the triggering event: event_type, entry_id, entity_type, entity_id, payload.<key> (an incoming webhook's body), "
