@@ -62,7 +62,7 @@ agent chat page. Ask-first stays v2 (threads).
 - [x] Tool categories: `services/ai/tools/categories.py` (id, label, writes) + name→category map; `ToolSpec.category`
       resolved via helper (no edits to the builtins). AI ops → `ai_ops`, external MCP → `mcp`.
 - [x] Agent `tool_policy` JSON (`{category|tool: allow|block}`) — model column + migration, schema, exporter/loader.
-- [ ] Service: `resolve_policy(spec, name, category, read_only, role)` → allow|block + reason; `_restrict_tools` uses it
+- [x] Service: `resolve_policy(spec, name, category, read_only, role)` → allow|block + reason; `_restrict_tools` uses it  ← verified done 2026-10-13
       (allowlist ∩ policy; write categories default to `allow_writes`; role still caps).
 - [x] API: `GET /api/ai/agents/catalog` (categories + tools + ops), `GET /api/ai/agents/{slug}/permissions` (effective
       matrix for the caller). Tests.
@@ -99,7 +99,7 @@ no token streaming (providers are sync). Each slice committed + rolled out on it
 - [x] Ask page: placeholder bubble with a step timeline polled every 700 ms, replaced by the answer; tests in test_agent_loop + test_run_progress.
 
 ## Backlog (from Jared, 2026-09-13)
-- [ ] **Custom tones**: the three registers (auto / professional / playful) are code (`REGISTERS` + `_register_clause`);
+- [x] **Custom tones**: the three registers (auto / professional / playful) are code (`REGISTERS` + `_register_clause`);  ← verified done 2026-10-13
       let a workspace define its own named tones (label + voice instructions) and pick them in Ask / agents / the bubble.
 
 ## Slice D — Marvin as router (hand-offs + referrals) — built 2026-09-30
@@ -348,7 +348,7 @@ production's SQLite-on-NFS is the known weak point (the 2026-09-11 502s; backend
       (7.4 MB) restored into a scratch Postgres 17: 62/62 tables, 15,986 rows, no differences. Rollback = `helm rollback
       marvin 22 -n marvin` (SQLite file untouched) — only sensible while Postgres has no new data worth keeping.
       Backend `Recreate` dropped the same day + `preStopSleepSeconds: 15`: a rolling restart measured 0/120 failed health checks (5s preStop dropped ~6s). Dev on Postgres is up (above).
-- [ ] **SQLite retired** (Jared: "not using sqlite"): no environment runs on SQLite after the cutover — dev and prod both
+- [x] **SQLite retired** (Jared: "not using sqlite"): no environment runs on SQLite after the cutover — dev and prod both  ← verified done 2026-10-13
       Postgres, `values-iwobble.yaml` drops `dbEngine: sqlite`; the `.db` file leaves `marvin-data` (assets stay). The old `.db` is kept only
       as a cold, read-only copy for a set period, then deleted. (Local dev/tests may keep SQLite.)
 
@@ -992,18 +992,18 @@ rebuild through the existing debounced site-rebuild path (`site_rebuild_requests
 route role guard.
 
 ## Checklist
-- [ ] Core: rebuild endpoint + tests (role, debounce, no integration configured → clear 409) + manual + whats-new
-- [ ] SDK 4.1.0: rc.197 integration methods, workflow samples, site rebuild; regenerate types; tests; release
+- [x] Core: rebuild endpoint + tests (role, debounce, no integration configured → clear 409) + manual + whats-new  ← verified done 2026-10-13
+- [x] SDK 4.1.0: rc.197 integration methods, workflow samples, site rebuild; regenerate types; tests; release  ← verified done 2026-10-13
       (trusted publishing)
-- [ ] CLI batch 0: stderr messages + JSON delete/run outputs; `--data`/`--out-file` with aliases; pagination;
+- [x] CLI batch 0: stderr messages + JSON delete/run outputs; `--data`/`--out-file` with aliases; pagination;  ← verified done 2026-10-13
       secrets stdin/prompt; README + help fixes; drift snapshot rc.198. Tests: `create --output json | jq` parses
       for every write command (one table-driven test), alias warnings, stdin secret
-- [ ] CLI batch 1: `workflows` commands + tests against the integration-test backend in `cli.yml`
-- [ ] CLI batch 2: `integrations` commands + tests
-- [ ] CLI: `site rebuild`
-- [ ] Docs: CLI reference pages, CHANGELOG via semantic-release (`feat:` commits → 3.1.0), migration note for
+- [x] CLI batch 1: `workflows` commands + tests against the integration-test backend in `cli.yml`  ← verified done 2026-10-13
+- [x] CLI batch 2: `integrations` commands + tests  ← verified done 2026-10-13
+- [x] CLI: `site rebuild`  ← verified done 2026-10-13
+- [x] Docs: CLI reference pages, CHANGELOG via semantic-release (`feat:` commits → 3.1.0), migration note for  ← verified done 2026-10-13
       `--data`/`--out-file`
-- [ ] Release: SDK 4.1.0 → CLI 3.1.0 (both trusted publishing); core rebuild endpoint ships first
+- [x] Release: SDK 4.1.0 → CLI 3.1.0 (both trusted publishing); core rebuild endpoint ships first  ← verified done 2026-10-13
 
 ## Later (3.2+)
 Review queue (`entries list --status`, counts, apply/reject suggestions, dashboard attention); `blueprints`;
@@ -1149,8 +1149,8 @@ provider allow-list + server-side oEmbed resolution with a cache + Marvin-built 
 - [x] Site settings "Embeds & privacy" section
 - [x] Agent tools `add_embed` (staged) + `preview_embed`
 - [x] Before enabling: count published entries with a bare provider URL on its own line (they'll change on rebuild) — **0** in every workspace (default 57 published, grace-martin-franklin 299, mash-burn-co 96; no published entry mentions a provider host at all), 2026-10-05
-- [ ] SDK 4.1.0 (types + `PublishedEmbed`), MarvinAstro 1.2.0, RenderersCore `Embed.astro`
-- [ ] Sites: Grace + Mash & Burn bump MarvinAstro, add `EmbedLoader`, pass `{embeds}` where they call
+- [x] SDK 4.1.0 (types + `PublishedEmbed`), MarvinAstro 1.2.0, RenderersCore `Embed.astro`  ← verified done 2026-10-13
+- [ ] Sites: Grace + Mash & Burn bump MarvinAstro, add `EmbedLoader`, pass `{embeds}` where they call  ← Grace done; Mash & Burn still on marvin-astro ^1.0.0 (2026-10-13)
       `renderMarkdown` directly, base `.marvin-embed` CSS
 - [x] Docs: manual, `whats-new/media-embeds.md`, `docs/publishing-api.md`
 - [ ] Rollout: core → SDK → MarvinAstro → RenderersCore → sites; browser check of every provider in both modes
@@ -1890,7 +1890,7 @@ API shapes stay the same, so the SDK, CLI, MCP and the sites don't break.
       badge, admin panel; live check incl. 390px
 - [x] **Slice 5 — cleanup:** Jared picked all four items (decisions below); plus the email-template override's own
       variable list and `name`/`category` on the connections summary rows
-- [ ] **Slice 6 — SDK/CLI/MCP/docs:** core part done (`describe_event` AI/MCP tool + docs; SDK types regenerated with
+- [x] **Slice 6 — SDK/CLI/MCP/docs:** core part done (`describe_event` AI/MCP tool + docs; SDK types regenerated with  ← verified done 2026-10-13
       slice 5). Left: SDK methods for the new endpoint, CLI `marvin events show <type>`
 - Each slice ships on its own (CI-gated rollout); slice 1 first, since everything else reads its storage.
 
@@ -2882,7 +2882,7 @@ Approved by Jared 2026-10-07: "Default (or whatever we name it) is Admins Worksp
       `platform_workspace(session)` (`services/platform_alerts._platform_workspace` delegates to it).
 - [ ] Release the SDK types (MarvinSDK `feat/platform-workspace-types`: `GroupRead.isPlatform`, `slug` on the
       admin update, `GET /api/admin/groups/platform`); the frontend reads `isPlatform` with a local cast until then.
-- [ ] Separate bug, not fixed here: the workspace **Settings → General** rename (`PATCH /api/groups/{id}/preferences`)
+- [x] Separate bug, not fixed here: the workspace **Settings → General** rename (`PATCH /api/groups/{id}/preferences`)  ← verified done 2026-10-13
       sets name/slug on a Pydantic copy and never saves them; `frontend/src/pages/api/workspaces/[id]/update.ts`
       sends `{name}` without the `id` `GroupAdminUpdate` requires. Route both through `rename_workspace` (or drop them).
 
