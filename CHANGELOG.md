@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.304 (2026-10-13)
+
+### Bug Fixes
+
+- **frontend**: The breadcrumb shows the settings tab a page belongs to
+  ([`973fdaa`](https://github.com/InnerOpen/marvin/commit/973fdaa3eb1dd5d5950cea4990e0fe75f76831e5))
+
+
 ## v1.0.0-rc.303 (2026-10-13)
 
 ### Bug Fixes
