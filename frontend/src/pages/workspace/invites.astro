@@ -96,8 +96,13 @@ const baseUrl = Astro.url.origin;
   .invites-list { display: grid; gap: 12px; }
   .invite-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
   .invite-info { display: grid; gap: 4px; flex: 1; min-width: 0; }
-  .invite-token { font-family: monospace; font-size: 14px; font-weight: 500; }
+  .invite-token { font-family: monospace; font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }  /* one long word: wraps */
   .invite-meta { font-size: 12px; color: var(--muted); }
   .invite-actions { display: flex; gap: 8px; }
+  /* A phone: the buttons below the token, not beside it (side by side they push the card past the screen). */
+  @media (max-width: 640px) {
+    .invite-card { flex-direction: column; align-items: stretch; gap: 10px; }
+    .invite-actions { flex-wrap: wrap; }
+  }
   .button.small { padding: 6px 12px; font-size: 13px; }
 </style>

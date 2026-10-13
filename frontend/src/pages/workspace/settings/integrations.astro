@@ -1101,6 +1101,9 @@ function statusMeta(status: string): { text: string; cls: string } {
 
   /* category groups (both lists) */
   .cat-groups { display: grid; gap: 18px; }
+  /* A grid item's floor is its content's width: one long address in a card would widen the whole page on a phone. */
+  .cat-groups > *, .conn-list > * { min-width: 0; }
+  .conn-card { overflow-wrap: anywhere; }
   .cat-title { margin: 0 0 8px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
   .cat-group { scroll-margin-top: 80px; border-radius: var(--radius); }
   .cat-group.is-focused { outline: 2px solid var(--accent); padding: 10px 12px 12px; }

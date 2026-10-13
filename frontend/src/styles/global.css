@@ -610,12 +610,19 @@ code {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /* Wide tables scroll sideways inside their own box instead of widening the page. */
-  .table {
+  /* Wide tables scroll sideways inside their own box instead of widening the page — every table, not only .table:
+     a page's own (.matrix, .providers, .backup-table…) would otherwise push the page past the screen. */
+  table {
     display: block;
     max-width: 100%;
     overflow-x: auto;
   }
+}
+
+/* A box a wide thing (a table with its own layout, a code block) scrolls inside, on any screen. */
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 @media (max-width: 920px) and (prefers-reduced-motion: reduce) {

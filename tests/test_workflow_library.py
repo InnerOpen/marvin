@@ -515,8 +515,9 @@ def _dispatched(monkeypatch):
 def _runs(ws, slug: str):
     from marvin.db.models.groups.automation_executions import AutomationExecutionModel
 
-    rows = ws.session.query(AutomationExecutionModel).filter_by(group_id=ws.gid, automation_slug=slug)
-    return rows.order_by(AutomationExecutionModel.started_at).all()
+    rows = ws.session.query(AutomationExecutionModel).filter_by(group_id=ws.gid, automation_slug=slug).all()
+    # Two runs can start in the same tick: one resumed from another (retry_of) comes after it, whatever the clock says.
+    return sorted(rows, key=lambda r: (r.started_at, r.retry_of_id is not None))
 
 
 def _http(monkeypatch, *, status: int = 200, body: dict | None = None):

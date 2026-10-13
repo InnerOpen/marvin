@@ -261,6 +261,19 @@ const groupMap = new Map(groups.map((g: any) => [g.id, g.name]));
     flex-shrink: 0;
   }
 
+  /* A phone: the buttons below the person, not beside them (side by side they push the card past the screen). */
+  @media (max-width: 640px) {
+    .user-card {
+      flex-direction: column;
+      gap: 12px;
+    }
+    .user-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+  }
+
   .button.small {
     padding: 6px 14px;
     font-size: 13px;
