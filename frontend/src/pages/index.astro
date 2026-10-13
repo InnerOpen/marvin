@@ -31,6 +31,7 @@ let resources: ResourceRead[] = [];
 // The workspace's counts and the live panels (/workspace used to show these; the two dashboards are one now).
 let stats: any = null;
 let dashboard: any = null;
+let aiUsage: any = null; // this month and today against the workspace's AI limits
 let error: string | null = null;
 
 if (!authToken) {
@@ -38,7 +39,7 @@ if (!authToken) {
 } else {
   try {
     let clients: APIClientRead[] | null;
-    [entries, clients, collections, entryTypes, resources, stats, dashboard] = await Promise.all([
+    [entries, clients, collections, entryTypes, resources, stats, dashboard, aiUsage] = await Promise.all([
       listEntries(authToken),
       nullIfForbidden(getSiteClients(authToken)),
       listCollections(authToken),
@@ -46,6 +47,7 @@ if (!authToken) {
       listResources(authToken),
       fetchApi<any>("/api/platform/stats", { method: "GET" }, authToken).catch(() => null),
       fetchApi<any>("/api/platform/stats/dashboard", { method: "GET" }, authToken).catch(() => null),
+      fetchApi<any>("/api/groups/ai-settings/usage", { method: "GET" }, authToken).catch(() => null),
     ]);
     siteClients = clients ?? [];
     canSeeClients = clients !== null;
@@ -169,7 +171,7 @@ function getStatusClass(status: string): string {
   ) : (
     <div class="dashboard">
       <!-- The live panels: health, what waits on you, what's coming up, workflow runs -->
-      <DashboardPanels dashboard={dashboard} />
+      <DashboardPanels dashboard={dashboard} aiUsage={aiUsage} />
 
       <!-- Housekeeping: stale drafts, empty types and collections, unused clients -->
       {(needsAttention.staleDrafts.length > 0 ||

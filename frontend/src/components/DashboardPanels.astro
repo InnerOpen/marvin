@@ -6,11 +6,14 @@
  * (/workspace) both render it, so there is one implementation.
  */
 import LocalTime from "@/components/LocalTime.astro";
+import { unpricedNotice } from "@/lib/aiUsage";
 
 interface Props {
   dashboard: any;
+  /** GET /api/groups/ai-settings/usage — this month and today against the workspace's AI limits; null = not loaded. */
+  aiUsage?: any;
 }
-const { dashboard } = Astro.props;
+const { dashboard, aiUsage = null } = Astro.props;
 
 const attention = dashboard?.attention ?? {};
 const inbox: number = attention.inbox ?? 0;
@@ -105,6 +108,34 @@ dots.push({ tone: webhookFailures ? "bad" : "ok", label: webhookFailures ? `${we
 dots.push({ tone: workflowFailures ? "warn" : "ok", label: workflowFailures ? `${workflowFailures} workflow runs failed (7 days)` : "Workflow runs ok", href: "/automation/workflows" });
 dots.push({ tone: emailReady ? "ok" : "off", label: emailReady ? "Email ready" : "Email not set up", href: "/workspace/settings/email" });
 dots.push({ tone: pushReady ? "ok" : "off", label: pushReady ? "Push ready" : "Push not set up", href: null });
+
+// AI usage against the limits (services/ai/budget.py): the same two meters as Settings → AI, read-only here.
+const usd = (n: number) => (n < 0.01 && n > 0 ? "<$0.01" : `$${n.toFixed(2)}`);
+const num = (n: number) => Number(n ?? 0).toLocaleString();
+const monthLimit: number | null = aiUsage?.limits?.maxCostPerMonthUsd ?? aiUsage?.limits?.max_cost_per_month_usd ?? null;
+const dayLimit: number | null = aiUsage?.limits?.maxRequestsPerDay ?? aiUsage?.limits?.max_requests_per_day ?? null;
+const monthCost: number = aiUsage?.monthCostUsd ?? aiUsage?.month_cost_usd ?? 0;
+const monthRuns: number = aiUsage?.monthRuns ?? aiUsage?.month_runs ?? 0;
+const monthTokens: number = aiUsage?.monthTokens ?? aiUsage?.month_tokens ?? 0;
+const todayRuns: number = aiUsage?.todayRuns ?? aiUsage?.today_runs ?? 0;
+const monthPercent: number | null = aiUsage?.monthPercent ?? aiUsage?.month_percent ?? null;
+const dayPercent: number | null = aiUsage?.dayPercent ?? aiUsage?.day_percent ?? null;
+const aiLevel: string = aiUsage?.level ?? "ok";
+const warnAt: number = aiUsage?.warningPercent ?? aiUsage?.warning_percent ?? 0;
+const resetsOn: string | null = aiUsage?.resetsOn ?? aiUsage?.resets_on ?? null;
+const resetsText = resetsOn ? new Date(`${resetsOn}T00:00:00Z`).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" }) : "";
+const unpriced = aiUsage ? unpricedNotice(aiUsage.unpricedRuns ?? aiUsage.unpriced_runs, aiUsage.unpricedModels ?? aiUsage.unpriced_models) : null;
+// Shown once AI has been used this month or a limit is set; a workspace with AI off and nothing run sees nothing.
+const showAi = Boolean(aiUsage) && (monthRuns > 0 || todayRuns > 0 || monthLimit != null || dayLimit != null);
+const meterLevel = (percent: number | null) => (percent == null ? "ok" : percent >= 100 ? "over" : warnAt > 0 && percent >= warnAt ? "warn" : "ok");
+if (showAi && (monthLimit != null || dayLimit != null)) {
+  const worst = Math.max(monthPercent ?? 0, dayPercent ?? 0);
+  dots.push({
+    tone: aiLevel === "over" ? "bad" : aiLevel === "warn" ? "warn" : "ok",
+    label: aiLevel === "over" ? "AI limit reached" : `AI usage ${Math.round(worst)}% of limit`,
+    href: "/workspace/settings/ai-workflow#usage-section",
+  });
+}
 ---
 
 {dashboard && (
@@ -258,6 +289,29 @@ dots.push({ tone: pushReady ? "ok" : "off", label: pushReady ? "Push ready" : "P
             </>
           )}
         </section>
+
+        {showAi && (
+          <section class="panel">
+            <div class="panel-head">
+              <h3>AI usage</h3>
+              <a href="/workspace/settings/ai-workflow#usage-section" class="panel-link">Limits →</a>
+            </div>
+            <div class="usage-meter">
+              <div class="usage-head"><span>This month</span><strong>{monthLimit != null ? `${usd(monthCost)} of ${usd(monthLimit)}` : `${usd(monthCost)} · no limit`}</strong></div>
+              {monthPercent != null && (
+                <div class="usage-bar" data-level={meterLevel(monthPercent)}><span class="usage-fill" style={`width:${Math.min(monthPercent, 100)}%`}></span></div>
+              )}
+              <span class="usage-detail">{num(monthRuns)} runs · {num(monthTokens)} tokens{resetsText && ` · resets ${resetsText}`}</span>
+            </div>
+            <div class="usage-meter">
+              <div class="usage-head"><span>Today</span><strong>{dayLimit != null ? `${num(todayRuns)} of ${num(dayLimit)} runs` : `${num(todayRuns)} runs · no limit`}</strong></div>
+              {dayPercent != null && (
+                <div class="usage-bar" data-level={meterLevel(dayPercent)}><span class="usage-fill" style={`width:${Math.min(dayPercent, 100)}%`}></span></div>
+              )}
+            </div>
+            {unpriced && <p class="usage-unpriced">{unpriced}</p>}
+          </section>
+        )}
       </div>
     </div>
   </div>
@@ -413,4 +467,17 @@ dots.push({ tone: pushReady ? "ok" : "off", label: pushReady ? "Push ready" : "P
   .bar-ok { fill: var(--accent); opacity: 0.75; }
   .bar-failed { fill: var(--color-error, #dc2626); }
   .spark-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* AI usage: the two meters from Settings → AI, read-only. */
+  .usage-meter { display: grid; gap: 6px; margin-bottom: 12px; }
+  .usage-meter:last-of-type { margin-bottom: 0; }
+  .usage-head { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--muted); }
+  .usage-head strong { color: var(--ink); font-size: 14px; text-align: right; }
+  /* The same green bar as Settings → AI: amber past the warning percent, red at the limit. */
+  .usage-bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
+  .usage-fill { display: block; height: 100%; width: 0; background: var(--color-success, #16a34a); transition: width 0.3s; }
+  .usage-bar[data-level="warn"] .usage-fill { background: var(--color-warning, #d97706); }
+  .usage-bar[data-level="over"] .usage-fill { background: var(--color-error, #c0392b); }
+  .usage-detail { font-size: 12px; color: var(--muted); }
+  .usage-unpriced { margin: 10px 0 0; font-size: 12px; color: #d97706; }
 </style>
