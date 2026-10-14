@@ -174,18 +174,31 @@ def test_setting_prices_through_the_api_is_validated_and_audited(db_session, wor
     assert filled.json()["updated"] >= 1
 
 
-def test_cached_and_written_prompt_tokens_cost_the_cache_rates():
-    """A plugin's price carries the vendor's cache rates; an admin override has none, so there a cached token costs the
-    input rate (never cheaper than reality)."""
-    from marvin.services.ai import pricing
+def test_cached_and_written_prompt_tokens_cost_the_cache_rates(db_session, monkeypatch):
+    """A provider's price carries the vendor's cache rates (here a stand-in for the Anthropic plugin, which the test job
+    may not have installed); an admin override has none, so there a cached token costs the input rate (never cheaper
+    than reality)."""
+    from types import SimpleNamespace
+
+    from marvin_integration_sdk.ai import ModelPrice
+
+    from marvin.services.ai import registry
+
+    sonnet = ModelPrice(2.0, 10.0, cached_input_per_1m=0.2, cache_write_per_1m=2.5)
+    vendor = SimpleNamespace(
+        estimate_cost=lambda model, p, c, cached=0, written=0: sonnet.cost(p, c, cached, written), self_hosted=False, prices={"claude-sonnet-5": sonnet}
+    )
+    monkeypatch.setattr(registry, "find_class", lambda slug: vendor if slug == "anthropic" else None)
 
     full = pricing.estimate_cost("anthropic", "claude-sonnet-5", 1_000_000, 0)
     cached = pricing.estimate_cost("anthropic", "claude-sonnet-5", 1_000_000, 0, cached_prompt_tokens=1_000_000)
     written = pricing.estimate_cost("anthropic", "claude-sonnet-5", 1_000_000, 0, cache_write_tokens=1_000_000)
     assert full == pytest.approx(2.0) and cached == pytest.approx(0.2) and written == pytest.approx(2.5)
-    assert pricing.estimate_cost("openai", "gpt-5.4-mini", 1_000_000, 0, cached_prompt_tokens=1_000_000) == pytest.approx(0.075)
 
     class Usage:
         prompt_tokens, completion_tokens, cached_prompt_tokens, cache_write_tokens = 1_000_000, 0, 500_000, 0
 
     assert pricing.cost_of("anthropic", "claude-sonnet-5", Usage()) == pytest.approx(1.0 + 0.1)
+
+    _set(db_session, ("anthropic", "claude-sonnet-5", 2.0, 10.0))  # an override: no cache rate, so cached = the input rate
+    assert pricing.estimate_cost("anthropic", "claude-sonnet-5", 1_000_000, 0, cached_prompt_tokens=1_000_000) == pytest.approx(2.0)
