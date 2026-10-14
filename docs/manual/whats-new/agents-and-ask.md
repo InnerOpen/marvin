@@ -261,6 +261,12 @@ Workspace export and import carry `tones` and `hiddenTones` with the AI settings
 
 ### Usage and limits
 
+Below the spend limits, **How agents behave** sets three things per workspace (`budget_config`): **Steps per
+question** (`agent_max_steps`: tool calls before an agent must answer; blank = the platform's `AI_AGENT_MAX_STEPS`,
+6, never past `AI_AGENT_MAX_STEPS_CAP`, 12), **Conversation memory** (`history_turns`: earlier messages sent with
+each question, 2–50, default 10) and **Ask before changing more than** (`bulk_ask_threshold`: tag or link changes
+in one call before the agent asks first, default 20).
+
 The **Usage & Limits** card on AI Settings shows this month's estimated spend against **Monthly cost limit (USD)**, today's runs against **Max requests per day** (with a meter each, and the date the month resets), and a **Top this month** table of the operations and agents that cost the most (runs, tokens, estimated cost). **Runs with no price** — a model Marvin has no price for (a new model, a provider without a price table) — are counted, not taken as $0: the card says "N runs this month used a model with no price (anthropic claude-…), so their cost isn't in the figure above and the monthly limit can't see it" (`unpricedRuns` / `unpricedModels` on `GET /api/groups/ai-settings/usage`), and the first time a workspace runs such a model an hourly check sends **AI Model Has No Price** (`ai_model_unpriced`: an activity toast, and wherever the workspace's notifications send it), once per provider and model. A self-hosted provider (Ollama) costs $0, which is a price, so it isn't flagged.
 
 **Prompt caching.** An agent call carries the same prefix every time — the persona, the workspace preamble and the

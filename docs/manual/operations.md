@@ -84,6 +84,21 @@ The platform's bubble-character library (see [Agents and Ask](whats-new/agents-a
 
 Since rc.159 an upload makes an image's opaque solid background transparent. Files stored before that can be cleaned the same way with `python -m marvin.scripts.repair_character_mattes`, run where the backend runs: on its own it lists what would change, and `--apply` overwrites each changed file in place at its storage key, so stored URLs keep working. It covers library packs and every workspace's and agent's own upload. A browser that cached a file may show the old one until a hard refresh.
 
+## Admin overview
+
+**Admin → Overview** (`GET /api/admin/overview`) opens with a health strip — one dot per thing that can be wrong
+(backup problems, failing scheduled tasks, open integration alerts, unpriced AI runs this month, a stale price feed,
+push keys, and emailed links still pointing at localhost), each linking to its page — then the version, people,
+plugins, backups, events and tasks cards, then **Workspaces** (entries, members, AI spend this month against the
+workspace's limit, open alerts, last activity) and **AI spend** for the last 30 days across all workspaces, each day's
+bar shaded by the share of the prompt the providers served from cache.
+
+**Admin → Site Settings** lists every setting the API runs with, warns at the top when the public UI address
+(`BASE_URL` / `FRONTEND_URL`, the chart's `config.publicUiUrl`) is still localhost, and has a **Security** card: the
+minimum password length, reset-link lifetime, sign-in session length and the sign-in throttling limits. A value set
+there replaces the environment variable of the same name for the whole platform; a cleared box goes back to it.
+**Admin → Email → Branding** sets the product name, footer line and accent colour every email shows.
+
 ## Retention
 
 | What | Setting | Default |
@@ -92,6 +107,7 @@ Since rc.159 an upload makes an image's opaque solid background transparent. Fil
 | AI executions (`prune_ai_executions`) | `AI_EXECUTION_RETENTION_DAYS` | 90 days; a workspace's `logging_config.retention_days` overrides |
 | Scheduled-task execution log (`prune_scheduled_task_executions`) | task config `retention_days` | 30 days (rc.97) |
 | Revoked API tokens and site clients (`prune_revoked_tokens`) | task config `age_days` | 30 days after revocation |
+| Workflow runs and their steps (`prune_workflow_runs`) | `WORKFLOW_RUN_RETENTION_DAYS` | 90 days after the run finished; a run still running or waiting is never deleted; `0` keeps forever |
 
 Since rc.96 an automatic run whose handler returns `None` writes no execution row; manual runs always do.
 
@@ -109,7 +125,7 @@ These are per-workspace content exports kept on the data volume. For the whole i
 | `ENVIRONMENT_LABEL` | empty | short tag for a non-production instance, e.g. `DEV` or `STAGING`; stripped, upper-cased, cut to 12 characters. When set, the app and admin headers and the login page show it as a badge (amber for `DEV…`, purple for `STAG…`, neutral otherwise) and every tab title starts `[DEV] `. Empty shows nothing. Served on the public `/api/app/about/login-info` and the admin about endpoint as `environmentLabel`. Independent of `PRODUCTION` (runtime mode) and `IS_DEMO` (public demo). Chart: `config.environmentLabel` |
 | `BASE_URL` | `http://localhost:8080` | public API URL |
 | `FRONTEND_URL` | `http://localhost:4322` | public admin URL; `FRONTEND_PORT` is derived from it. When set to anything but the default, entry links that AI tools hand back are absolute |
-| `API_HOST` / `API_PORT` | `0.0.0.0` / `8080` | bind address |
+| `API_PORT` | `8080` | port the API listens on (all interfaces) |
 | `GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS` | unset | how long the server waits for in-flight requests after SIGTERM; unset waits until the process is killed. The Helm chart derives it from the grace period (see [Helm chart](#helm-chart)) |
 | `CORS_ORIGINS` | empty | comma list; ignored outside production |
 | `DATA_DIR` | unset | database, `.secret`, assets, secrets, seeds |
