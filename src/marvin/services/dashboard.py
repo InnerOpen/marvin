@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from marvin.db.models.groups.automation_executions import AutomationExecutionModel
 from marvin.db.models.groups.automations import WorkspaceAutomationModel
@@ -18,6 +18,8 @@ from marvin.db.models.groups.integrations import IntegrationModel
 from marvin.db.models.groups.webhook_execution_logs import WebhookExecutionLogModel
 from marvin.db.models.groups.workflow_waits import WorkflowWaitModel
 from marvin.db.models.platform.entries import Entries
+from marvin.db.models.platform.entry_types import EntryTypes
+from marvin.db.models.platform.event_log import EventLogModel
 from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
 from marvin.schemas._marvin import _MarvinModel
 
@@ -28,6 +30,9 @@ SPARKLINE_DAYS = 14
 NOT_PUBLISHABLE = ("published", "archived", "trashed")  # a scheduled publish_at on these never fires
 RUN_OK = ("success", "resumed")
 RUN_FAILED = ("failed", "partial")
+PUBLISHING_WEEKS = 12
+RECENT_FOR_YOU = 5
+PIPELINE_STATUSES = ("inbox", "draft", "needs_review", "approved", "published")
 
 
 class ApprovalBrief(_MarvinModel):
@@ -64,6 +69,44 @@ class RunsDay(_MarvinModel):
     day: date
     ok: int = 0
     failed: int = 0
+
+
+class TypeBrief(_MarvinModel):
+    slug: str
+    name: str
+    icon: str | None = None
+    color: str | None = None
+
+
+class WeekPublished(_MarvinModel):
+    week: date  # the Monday
+    by_type: dict[str, int] = {}  # entry type slug → entries published that week
+
+
+class PublishingPulse(_MarvinModel):
+    """Entries published per week, by type: what the workspace shipped."""
+
+    weeks: list[WeekPublished] = []  # oldest first, a row for every week
+    types: list[TypeBrief] = []  # the types that appear, for the legend
+    total: int = 0
+
+
+class EntryBrief(_MarvinModel):
+    id: str
+    title: str
+    status: str
+    type_slug: str | None = None
+    touched_at: datetime | None = None
+
+
+class TypeStatusRow(TypeBrief):
+    """One entry type's pipeline: how many entries sit in each status."""
+
+    inbox: int = 0
+    draft: int = 0
+    needs_review: int = 0
+    approved: int = 0
+    published: int = 0
 
 
 def _utc(value: datetime | None) -> datetime | None:
@@ -266,3 +309,104 @@ def runs_by_day(session, group_id, now: datetime) -> list[RunsDay]:
         elif status in RUN_FAILED:
             row.failed += count
     return list(days.values())
+
+
+def _types(session, group_id, ids=None) -> dict:
+    """The workspace's entry types by id — plus the system types (group_id NULL, available everywhere) among `ids`."""
+    own = EntryTypes.group_id == group_id
+    stmt = select(EntryTypes).where(own if ids is None else or_(own, EntryTypes.group_id.is_(None)))
+    if ids is not None:
+        stmt = stmt.where(EntryTypes.id.in_(list(ids)))
+    try:
+        return {t.id: t for t in session.execute(stmt).scalars().all()}
+    except Exception:
+        session.rollback()
+        return {}
+
+
+def _brief(t) -> TypeBrief:
+    return TypeBrief(slug=t.slug, name=t.name, icon=t.icon, color=t.color)
+
+
+def published_by_week(session, group_id, now: datetime) -> PublishingPulse:
+    """What was published in each of the last PUBLISHING_WEEKS weeks, by entry type — a row for every week."""
+    monday = (now.date() - timedelta(days=now.weekday())) - timedelta(weeks=PUBLISHING_WEEKS - 1)
+    weeks = {monday + timedelta(weeks=i): WeekPublished(week=monday + timedelta(weeks=i)) for i in range(PUBLISHING_WEEKS)}
+    week_col = func.date_trunc("week", Entries.published_at)
+    try:
+        rows = session.execute(
+            select(week_col, Entries.entry_type_id, func.count(Entries.id))
+            .where(Entries.group_id == group_id, Entries.status == "published", Entries.published_at.isnot(None))
+            .where(Entries.published_at >= datetime.combine(monday, datetime.min.time()))
+            .group_by(week_col, Entries.entry_type_id)
+        ).all()
+    except Exception:
+        session.rollback()
+        return PublishingPulse(weeks=list(weeks.values()))
+    types = _types(session, group_id, {type_id for _, type_id, _ in rows})
+    total = 0
+    for week_start, type_id, count in rows:
+        week = week_start.date() if isinstance(week_start, datetime) else date.fromisoformat(str(week_start)[:10])
+        row, t = weeks.get(week), types.get(type_id)
+        if row is None or t is None:
+            continue
+        row.by_type[t.slug] = row.by_type.get(t.slug, 0) + int(count)
+        total += int(count)
+    used = {slug for w in weeks.values() for slug in w.by_type}
+    legend = sorted((_brief(t) for t in types.values() if t.slug in used), key=lambda b: b.name.lower())
+    return PublishingPulse(weeks=list(weeks.values()), types=legend, total=total)
+
+
+def recent_for_you(session, group_id, user_id, now: datetime) -> list[EntryBrief]:
+    """The entries this member touched most recently (their own events on entries), newest first — "pick up where
+    you left off". Trashed entries are left out."""
+    if not user_id:
+        return []
+    try:
+        rows = session.execute(
+            select(EventLogModel.entity_id, func.max(EventLogModel.occurred_at).label("last"))
+            .where(EventLogModel.workspace_id == group_id, EventLogModel.user_id == user_id, EventLogModel.entity_type == "entry")
+            .where(EventLogModel.entity_id.isnot(None))
+            .group_by(EventLogModel.entity_id)
+            .order_by(func.max(EventLogModel.occurred_at).desc())
+            .limit(RECENT_FOR_YOU * 2)  # some may be trashed or gone
+        ).all()
+        if not rows:
+            return []
+        entries = {e.id: e for e in session.execute(select(Entries).where(Entries.id.in_([r.entity_id for r in rows]))).scalars().all()}
+    except Exception:
+        session.rollback()
+        return []
+    types = _types(session, group_id, {e.entry_type_id for e in entries.values()})
+    out = []
+    for entity_id, last in rows:
+        e = entries.get(entity_id)
+        if e is None or e.status == "trashed":
+            continue
+        t = types.get(e.entry_type_id)
+        out.append(EntryBrief(id=str(e.id), title=e.title or "Untitled", status=e.status, type_slug=t.slug if t else None, touched_at=_utc(last)))
+        if len(out) == RECENT_FOR_YOU:
+            break
+    return out
+
+
+def by_type_status(session, group_id) -> list[TypeStatusRow]:
+    """Every entry type's pipeline (inbox → draft → needs review → approved → published), by name."""
+    try:
+        counts = session.execute(
+            select(Entries.entry_type_id, Entries.status, func.count(Entries.id))
+            .where(Entries.group_id == group_id, Entries.status.in_(PIPELINE_STATUSES))
+            .group_by(Entries.entry_type_id, Entries.status)
+        ).all()
+    except Exception:
+        session.rollback()
+        counts = []
+    # Every type of the workspace's own, and any system type its entries use.
+    types = {**_types(session, group_id), **_types(session, group_id, {type_id for type_id, _, _ in counts})}
+    if not types:
+        return []
+    rows = {t.id: TypeStatusRow(**_brief(t).model_dump()) for t in types.values()}
+    for type_id, status, count in counts:
+        if (row := rows.get(type_id)) is not None:
+            setattr(row, status, int(count))
+    return sorted(rows.values(), key=lambda r: r.name.lower())

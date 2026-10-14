@@ -18,7 +18,7 @@ from marvin.db.models.platform.scheduled_tasks import ScheduledTaskExecutionLogM
 from marvin.routes._base import BaseUserController, controller
 from marvin.schemas._marvin import _MarvinModel
 from marvin.services import dashboard as dash
-from marvin.services.dashboard import ApprovalBrief, HealthStrip, RunsDay, UpcomingItem
+from marvin.services.dashboard import ApprovalBrief, EntryBrief, HealthStrip, PublishingPulse, RunsDay, TypeStatusRow, UpcomingItem
 
 router = APIRouter(prefix="/stats")
 
@@ -67,6 +67,9 @@ class DashboardData(_MarvinModel):
     upcoming: list[UpcomingItem] = []  # the next 7 days: publishes, resumes, scheduled tasks
     health: HealthStrip = HealthStrip()
     runs_by_day: list[RunsDay] = []  # 14 days for the sparkline, oldest first
+    publishing: PublishingPulse = PublishingPulse()  # 12 weeks of published entries, by type
+    recent_for_you: list[EntryBrief] = []  # the caller's last-touched entries
+    by_type: list[TypeStatusRow] = []  # each entry type's pipeline
 
 
 def _event_message(e) -> str:
@@ -219,4 +222,7 @@ class StatsController(BaseUserController):
             upcoming=dash.upcoming(session, gid, now),
             health=dash.health(session, gid, now, sees_backups=sees_backups),
             runs_by_day=dash.runs_by_day(session, gid, now),
+            publishing=dash.published_by_week(session, gid, now),
+            recent_for_you=dash.recent_for_you(session, gid, getattr(self.user, "id", None), now),
+            by_type=dash.by_type_status(session, gid),
         )

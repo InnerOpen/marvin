@@ -85,6 +85,38 @@ function upcomingHref(item: any): string | null {
 }
 const UPCOMING_LABEL: Record<string, string> = { publish: "Publishes", resume: "Workflow", task: "Scheduled task" };
 
+// Pick up where you left off: the entries this member touched last.
+const recentForYou: any[] = dashboard?.recentForYou ?? dashboard?.recent_for_you ?? [];
+
+// Published per week by entry type, 12 weeks: stacked bars, one colour per type (the type's own colour when set).
+const publishing: any = dashboard?.publishing ?? {};
+const pubWeeks: { week: string; byType: Record<string, number> }[] = (publishing.weeks ?? []).map((w: any) => ({ week: w.week, byType: w.byType ?? w.by_type ?? {} }));
+const pubTypes: { slug: string; name: string; color?: string | null; icon?: string | null }[] = publishing.types ?? [];
+const pubTotal: number = publishing.total ?? 0;
+const PALETTE = ["#f97316", "#16a34a", "#2563eb", "#9333ea", "#db2777", "#0891b2", "#ca8a04", "#64748b"];
+const typeColor = (t: { color?: string | null }, i: number) => t.color || PALETTE[i % PALETTE.length];
+const pubPeak = Math.max(1, ...pubWeeks.map((w) => Object.values(w.byType).reduce((a, b) => a + b, 0)));
+const PB = 14, PG = 6, PH = 72;
+const pubWidth = Math.max(1, pubWeeks.length * (PB + PG) - PG);
+const pubBars = pubWeeks.map((w, i) => {
+  let y = PH;
+  const segs = pubTypes.map((t, ti) => {
+    const n = w.byType[t.slug] ?? 0;
+    const h = n ? Math.max(1, Math.round((n / pubPeak) * PH)) : 0;
+    y -= h;
+    return { y, h, color: typeColor(t, ti), n, name: t.name };
+  });
+  const total = Object.values(w.byType).reduce((a, b) => a + b, 0);
+  return { x: i * (PB + PG), segs, total, week: w.week };
+});
+const weekLabel = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+
+// Content by type: each entry type's pipeline.
+const byType: any[] = dashboard?.byType ?? dashboard?.by_type ?? [];
+const STAGES: [string, string][] = [["inbox", "Inbox"], ["draft", "Draft"], ["needsReview", "Review"], ["approved", "Approved"], ["published", "Published"]];
+const stageCount = (row: any, key: string): number => row[key] ?? row[key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)] ?? 0;
+const stageHref = (slug: string, key: string) => `/workspace/entries?type=${encodeURIComponent(slug)}&status=${key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)}`;
+
 // The health strip: each dot links to the page that explains it. Push is server-wide, so it has no page.
 const backupState: string | null = health.backupState ?? health.backup_state ?? null;
 const integrationsFailing: number = health.integrationsFailing ?? health.integrations_failing ?? 0;
@@ -153,6 +185,7 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
     </ul>
 
     <div class="pulse-columns">
+      <div class="pulse-stack">
       <section class="panel">
         <div class="panel-head">
           <h3>Waiting on you</h3>
@@ -234,6 +267,27 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
         )}
       </section>
 
+      {recentForYou.length > 0 && (
+        <section class="panel">
+          <div class="panel-head">
+            <h3>Pick up where you left off</h3>
+          </div>
+          <ul class="pickup-list">
+            {recentForYou.map((e) => (
+              <li>
+                <a href={`/workspace/entries/${e.id}`} class="pickup-item">
+                  <span class="pickup-title">{e.title}</span>
+                  <span class="pickup-meta">
+                    {(e.typeSlug ?? e.type_slug) && <>{e.typeSlug ?? e.type_slug} · </>}{String(e.status).replace("_", " ")} · {relTime(e.touchedAt ?? e.touched_at) ?? "earlier"}
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      </div>
+
       <div class="pulse-stack">
         <section class="panel">
           <div class="panel-head">
@@ -314,6 +368,65 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
         )}
       </div>
     </div>
+
+    {(pubTotal > 0 || byType.length > 0) && (
+      <div class="pulse-columns pulse-row-2">
+        <section class="panel">
+          <div class="panel-head">
+            <h3>Published</h3>
+            <span class="panel-sub">last 12 weeks · {pubTotal} entries</span>
+          </div>
+          {pubTotal === 0 ? (
+            <p class="empty">Nothing published in the last 12 weeks.</p>
+          ) : (
+            <>
+              <svg class="pubchart" viewBox={`0 0 ${pubWidth} ${PH}`} preserveAspectRatio="none" role="img" aria-label={`Entries published per week, last 12 weeks: ${pubTotal}`}>
+                {pubBars.map((b) => (
+                  <g>
+                    <title>{`Week of ${weekLabel(b.week)}: ${b.total} published${b.segs.filter((s) => s.n).map((s) => ` · ${s.name} ${s.n}`).join("")}`}</title>
+                    {b.segs.filter((s) => s.h).map((s) => <rect x={b.x} y={s.y} width={PB} height={s.h} fill={s.color} rx="1" />)}
+                    {b.total === 0 && <rect x={b.x} y={PH - 1} width={PB} height="1" class="bar-empty" />}
+                  </g>
+                ))}
+              </svg>
+              <div class="spark-axis"><span>{pubWeeks[0] && weekLabel(pubWeeks[0].week)}</span><span>this week</span></div>
+              <ul class="legend">
+                {pubTypes.map((t, i) => (
+                  <li><span class="swatch" style={`background:${typeColor(t, i)}`}></span>{t.icon && <>{t.icon} </>}{t.name}</li>
+                ))}
+              </ul>
+            </>
+          )}
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h3>Content by type</h3>
+            <a href="/workspace/entry-types" class="panel-link">Entry types →</a>
+          </div>
+          {byType.length === 0 ? (
+            <p class="empty">No entry types yet.</p>
+          ) : (
+            <div class="table-scroll">
+              <table class="bytype">
+                <thead><tr><th>Type</th>{STAGES.map(([, label]) => <th>{label}</th>)}</tr></thead>
+                <tbody>
+                  {byType.map((row) => (
+                    <tr>
+                      <td class="bytype-name">{row.icon && <span aria-hidden="true">{row.icon} </span>}{row.name}</td>
+                      {STAGES.map(([key]) => {
+                        const n = stageCount(row, key);
+                        return <td class={n ? "" : "zero"}>{n ? <a href={stageHref(row.slug, key)}>{n}</a> : "·"}</td>;
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </div>
+    )}
   </div>
 )}
 
@@ -480,4 +593,30 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
   .usage-bar[data-level="over"] .usage-fill { background: var(--color-error, #c0392b); }
   .usage-detail { font-size: 12px; color: var(--muted); }
   .usage-unpriced { margin: 10px 0 0; font-size: 12px; color: #d97706; }
+
+  /* Pick up where you left off. */
+  .pickup-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .pickup-item { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); text-decoration: none; color: inherit; }
+  .pickup-item:hover { border-color: var(--accent); }
+  .pickup-title { font-size: 14px; color: var(--ink); overflow-wrap: anywhere; }
+  .pickup-meta { font-size: 12px; color: var(--muted); text-transform: capitalize; }
+
+  /* Published per week, stacked by type. */
+  .pulse-row-2 { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 900px) { .pulse-row-2 { grid-template-columns: 1fr; } }
+  .pubchart { display: block; width: 100%; height: 96px; }
+  .bar-empty { fill: var(--line); }
+  .legend { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); }
+  .legend li { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+  /* Content by type. */
+  .bytype { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .bytype th { text-align: right; font-weight: 600; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+  .bytype th:first-child, .bytype td.bytype-name { text-align: left; }
+  .bytype td { text-align: right; padding: 6px; border-bottom: 1px solid var(--line); color: var(--ink); white-space: nowrap; }
+  .bytype tr:last-child td { border-bottom: none; }
+  .bytype td.zero { color: var(--line); }
+  .bytype td a { color: var(--ink); text-decoration: none; font-weight: 600; }
+  .bytype td a:hover { color: var(--accent); }
 </style>

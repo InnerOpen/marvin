@@ -14,6 +14,7 @@ from marvin.db.models.groups.webhooks import GroupWebhooksModel
 from marvin.db.models.groups.workflow_approvals import WorkflowApprovalModel
 from marvin.db.models.groups.workflow_waits import WorkflowWaitModel
 from marvin.db.models.platform.entries import Entries
+from marvin.db.models.platform.event_log import EventLogModel
 from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
 from marvin.services import dashboard
 from tests.test_workflow_authoring import workspace, ws  # noqa: F401 — fixtures
@@ -210,3 +211,57 @@ def test_health_counts_failing_integrations_and_recent_failures_only(ws):
     assert added == (2, 1)  # a disabled integration isn't counted
     assert (strip.webhook_failures_24h, strip.workflow_failures_7d) == (1, 1)
     assert strip.backup_state is None  # backups are platform-wide: only a platform admin gets the dot
+
+
+def test_published_by_week_has_a_row_per_week_with_counts_by_type(ws):
+    this_monday = NOW.date() - timedelta(days=NOW.weekday())
+    _entry(ws, "This week A", status="published", published_at=datetime.combine(this_monday, datetime.min.time()) + HOUR)
+    _entry(ws, "This week B", status="published", published_at=(NOW - timedelta(minutes=5)).replace(tzinfo=None))
+    _entry(ws, "Last week", status="published", published_at=datetime.combine(this_monday - timedelta(days=3), datetime.min.time()))
+    _entry(ws, "Long ago", status="published", published_at=(NOW - timedelta(weeks=30)).replace(tzinfo=None))
+    _entry(ws, "Still a draft", published_at=(NOW - HOUR).replace(tzinfo=None))  # a date alone doesn't count
+    ws.session.commit()
+
+    pulse = dashboard.published_by_week(ws.session, ws.gid, NOW)
+
+    slug = ws.et["slug"]
+    assert len(pulse.weeks) == dashboard.PUBLISHING_WEEKS and pulse.weeks[-1].week == this_monday
+    assert (pulse.weeks[-1].by_type.get(slug), pulse.weeks[-2].by_type.get(slug)) == (2, 1)
+    assert pulse.total == 3 and [t.slug for t in pulse.types] == [slug]
+
+
+def test_recent_for_you_lists_the_entries_this_member_touched_newest_first(ws):
+    first, second, binned = _entry(ws, "Older edit"), _entry(ws, "Newer edit"), _entry(ws, "Binned", status="trashed")
+    theirs = _entry(ws, "Someone else's")
+    ws.session.flush()
+    for entry, who, when in ((first, ws.uid, NOW - DAY), (second, ws.uid, NOW - HOUR), (binned, ws.uid, NOW), (theirs, uuid.uuid4(), NOW)):
+        ws.session.add(
+            EventLogModel(
+                event_id=uuid.uuid4(),
+                event_type="entry_updated",
+                occurred_at=when,
+                workspace_id=ws.gid,
+                user_id=who if who == ws.uid else None,
+                entity_id=entry.id,
+                entity_type="entry",
+                integration_id="test",
+                event_data={},
+                message_title=entry.title,
+            )  # fmt: skip
+        )
+    ws.session.commit()
+
+    recent = dashboard.recent_for_you(ws.session, ws.gid, ws.uid, NOW)
+
+    assert [r.title for r in recent] == ["Newer edit", "Older edit"]  # the binned one and other people's are left out
+    assert recent[0].type_slug == ws.et["slug"] and recent[0].touched_at.tzinfo is not None
+
+
+def test_by_type_status_counts_each_types_pipeline(ws):
+    for status in ("inbox", "draft", "draft", "published", "trashed"):
+        _entry(ws, f"{status} one", status=status)
+    ws.session.commit()
+
+    row = next(r for r in dashboard.by_type_status(ws.session, ws.gid) if r.slug == ws.et["slug"])
+
+    assert (row.inbox, row.draft, row.needs_review, row.approved, row.published) == (1, 2, 0, 0, 1)  # trashed isn't a stage
