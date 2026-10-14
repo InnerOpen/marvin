@@ -9,8 +9,9 @@ one thing changed. Steps:
 1. fetch production's newest `postgres/` dump from the source bucket, checked against its sha256;
 2. `pg_restore --clean --if-exists --no-owner --single-transaction` it into the copy's database (the backend
    is scaled to 0 meanwhile by the task, so nothing holds a lock or caches old rows);
-3. pause everything that reaches the outside world, in the copy only (sqlite_to_postgres.pause_outbound:
-   webhooks, integrations, workflows, email subscriptions, SMTP, MCP, scheduled tasks, auto rebuilds);
+3. drop the previous refresh's pause records, then pause everything that reaches the outside world, in the
+   copy only (sqlite_to_postgres.pause_outbound: webhooks, integrations, workflows, email subscriptions, SMTP,
+   MCP, scheduled tasks, auto rebuilds);
 4. copy every asset the copy's storage lacks from the source's asset mirror (`assets/`), so restored rows
    don't point at missing files. Nothing is deleted from the copy's storage.
 
@@ -34,7 +35,7 @@ from pathlib import Path
 
 import sqlalchemy as sa
 
-from marvin.scripts.sqlite_to_postgres import pause_lines, pause_outbound
+from marvin.scripts.sqlite_to_postgres import PAUSE_TABLE, pause_lines, pause_outbound
 from marvin.services.backup_engine import engine
 from marvin.services.backup_engine.layout import ASSETS_PREFIX, PG_PREFIX, BackupError
 
@@ -84,6 +85,16 @@ def restore_database(source, settings: engine.BackupSettings, work: Path) -> str
     return key
 
 
+def repause(conn) -> dict[str, int]:
+    """Pause outbound in a freshly restored copy. The dump doesn't carry the pause table, so `pg_restore --clean`
+    leaves the previous refresh's records behind, and pause_outbound keeps an existing record over a new one: a row
+    production switched off since then would come back on with `--unpause`. Every switch now comes from production,
+    so the old records are dropped first."""
+    if sa.inspect(conn).has_table(PAUSE_TABLE):
+        conn.exec_driver_sql(f"DELETE FROM {PAUSE_TABLE}")
+    return pause_outbound(conn)
+
+
 def pause(settings: engine.BackupSettings) -> list[str]:
     pg = settings.pg_env
     url = sa.engine.URL.create(
@@ -97,7 +108,7 @@ def pause(settings: engine.BackupSettings) -> list[str]:
     db = sa.create_engine(url)
     try:
         with db.begin() as conn:
-            lines = pause_lines(pause_outbound(conn))
+            lines = pause_lines(repause(conn))
     finally:
         db.dispose()
     for line in lines:

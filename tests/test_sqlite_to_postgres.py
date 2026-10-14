@@ -547,3 +547,21 @@ def test_recopy_with_truncate_starts_the_pause_record_over(tmp_path, pg_outbound
     assert report.paused is None
     assert _records(pg_outbound) == set()
     assert _flags(pg_outbound)[W1] is True  # fresh copy of the source, as it was
+
+
+def test_a_second_refresh_drops_the_old_pause_records_so_unpause_follows_production(tmp_path, pg_outbound):
+    """dev refresh: pg_restore --clean doesn't touch the pause table, so the previous refresh's records survive it."""
+    from marvin.scripts.refresh_dev import repause
+
+    src = _sqlite(tmp_path, OUTBOUND_SOURCE)
+    s2p.copy_database(src, pg_outbound, pause=True)  # first refresh: W1 recorded as on
+    src.close()
+    with pg_outbound.begin() as conn:  # the next restore brings production's rows: W1 switched off there since
+        conn.exec_driver_sql("UPDATE webhook_urls SET enabled = (id <> %(w1)s)", {"w1": W1})
+        repause(conn)
+    assert ("webhook_urls", str(W1), True) not in _records(pg_outbound)
+
+    with pg_outbound.begin() as conn:
+        s2p.unpause_outbound(conn, ["webhook_urls"])
+    flags = _flags(pg_outbound)
+    assert flags[W1] is False and flags[W2] is True  # off in production stays off on dev
