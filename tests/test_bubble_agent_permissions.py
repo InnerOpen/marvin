@@ -38,7 +38,7 @@ class _Loop:
         self.results: list = []
         self.tools: list[dict[str, AgentTool]] = []
 
-    def __call__(self, provider, model, messages, tools, options=None, max_steps=6, on_event=None, resume=None):
+    def __call__(self, provider, model, messages, tools, options=None, max_steps=6, on_event=None, resume=None, load_on_demand=False):
         self.tools.append({t.name: t for t in tools})
         return self.results.pop(0) if self.results else _done()
 

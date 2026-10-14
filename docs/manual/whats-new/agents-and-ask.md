@@ -267,6 +267,14 @@ question** (`agent_max_steps`: tool calls before an agent must answer; blank = t
 each question, 2–50, default 10) and **Ask before changing more than** (`bulk_ask_threshold`: tag or link changes
 in one call before the agent asks first, default 20).
 
+**Tools on demand.** An agent bound to every tool its role allows (the workspace's own agent, the bubble) starts each
+question with the everyday tools — reading and searching entries and the library, drafting, the manual, hand-offs —
+and a `load_tools` tool listing the rest by group (tags and links, archive, the Trash, imports, workflows, AI insights,
+connected MCP servers…). It loads a group when the question needs it; a call to a tool in an unloaded group loads that
+group first, so its approval rules apply as usual. That roughly halves every question's prompt. An agent with its own
+tool list keeps all of it loaded. **Load rarely used tools only when needed** under How agents behave turns it off
+(`load_tools_on_demand: false`).
+
 The **Usage & Limits** card on AI Settings shows this month's estimated spend against **Monthly cost limit (USD)**, today's runs against **Max requests per day** (with a meter each, and the date the month resets), and a **Top this month** table of the operations and agents that cost the most (runs, tokens, estimated cost). **Runs with no price** — a model Marvin has no price for (a new model, a provider without a price table) — are counted, not taken as $0: the card says "N runs this month used a model with no price (anthropic claude-…), so their cost isn't in the figure above and the monthly limit can't see it" (`unpricedRuns` / `unpricedModels` on `GET /api/groups/ai-settings/usage`), and the first time a workspace runs such a model an hourly check sends **AI Model Has No Price** (`ai_model_unpriced`: an activity toast, and wherever the workspace's notifications send it), once per provider and model. A self-hosted provider (Ollama) costs $0, which is a price, so it isn't flagged.
 
 **Prompt caching.** An agent call carries the same prefix every time — the persona, the workspace preamble and the

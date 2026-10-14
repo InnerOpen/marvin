@@ -1472,6 +1472,7 @@ class AIOperationsController(BaseUserController):
                 max_steps=max_steps,
                 on_event=on_event,
                 resume=ResumeState(convo=deserialize_messages(pending.get("convo")), pending=calls, decisions=own, outputs=outputs),
+                load_on_demand=self._tools_on_demand(spec.slug),
             )
         except HTTPException:
             raise
@@ -1718,6 +1719,16 @@ class AIOperationsController(BaseUserController):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
         except Exception as e:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"AI provider error: {e}") from e
+
+    def _tools_on_demand(self, agent_slug: str) -> bool:
+        """Whether this run starts with the everyday tools and loads the rest on demand: an agent bound to every tool
+        its role allows (no allowlist of its own), in a workspace that hasn't turned it off (AI Settings,
+        `load_tools_on_demand`). An agent with its own short list keeps all of it loaded."""
+        from marvin.services.ai.agents import resolve_agent
+        from marvin.services.ai.budget import tools_on_demand_enabled
+
+        spec = resolve_agent(self.session, self.group_id, agent_slug)
+        return spec is not None and spec.tool_allowlist is None and tools_on_demand_enabled(self.session, self.group_id)
 
     def _agent_max_steps(self, body: AIAgentRequest) -> int:
         from marvin.core.config import get_app_settings
@@ -1985,7 +1996,16 @@ class AIOperationsController(BaseUserController):
                 chain=(*handoff_chain, agent_slug),
             )
         try:
-            result = run_agent_loop(provider, model, messages, tools, self._completion_opts(), max_steps=max_steps, on_event=on_event)
+            result = run_agent_loop(
+                provider,
+                model,
+                messages,
+                tools,
+                self._completion_opts(),
+                max_steps=max_steps,
+                on_event=on_event,
+                load_on_demand=self._tools_on_demand(agent_slug),
+            )
         except HTTPException as e:
             self._finish_progress(run_id, "failed", self._http_error_text(e))
             self._discard_empty_thread(thread if opened_here else None)

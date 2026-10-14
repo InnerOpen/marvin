@@ -270,6 +270,89 @@ def _event_calls(pending: list[PendingCall]) -> list[dict]:
     ]
 
 
+# ── Tools on demand ──────────────────────────────────────────────────────────
+# An agent bound to every tool its role allows sends ~50 tool definitions with each question — most of the prompt.
+# It keeps the everyday ones loaded (CORE_CATEGORIES) and gets `load_tools` for the rest, by category; a call to an
+# unloaded tool by name loads its category first, so its approval rules apply before it runs.
+CORE_CATEGORIES = frozenset({"entries_read", "entries_author", "library_read", "docs_read", "agents_read", "agents_run"})
+LOAD_TOOLS = "load_tools"
+
+
+def split_on_demand(tools: list[AgentTool]) -> tuple[list[AgentTool], dict[str, list[AgentTool]]]:
+    """(the tools to load now, {category: tools to load on demand}). A tool with no category stays loaded."""
+    core, rest = [], {}
+    for t in tools:
+        if not t.category or t.category in CORE_CATEGORIES:
+            core.append(t)
+        else:
+            rest.setdefault(t.category, []).append(t)
+    return core, rest
+
+
+def _loader_tool(on_demand: dict[str, list[AgentTool]], activate: Callable[[list[str]], list[str]]) -> AgentTool:
+    from marvin.services.ai.tools.categories import CATEGORY_BY_ID
+
+    def label(cat: str) -> str:
+        c = CATEGORY_BY_ID.get(cat)
+        names = ", ".join(t.name for t in on_demand[cat])
+        return f"- {cat}: {c.description if c else cat} ({names})"
+
+    groups = "\n".join(label(c) for c in sorted(on_demand))
+    return AgentTool(
+        name=LOAD_TOOLS,
+        description=(
+            "Load more of your tools for this conversation. You start with reading, searching and drafting tools; "
+            "load a group when the request needs it, then call its tools on your next step. Groups:\n" + groups
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"categories": {"type": "array", "items": {"type": "string", "enum": sorted(on_demand)}, "minItems": 1}},
+            "required": ["categories"],
+        },
+        run=lambda args: json.dumps({"loaded": activate(list(args.get("categories") or []))}),
+        category="",
+    )
+
+
+class _Toolset:
+    """The run's tools, growing as on-demand categories are loaded. `defs` and `by_name` are updated in place, so the
+    loop's references stay current."""
+
+    def __init__(self, tools: list[AgentTool], on_demand: dict[str, list[AgentTool]] | None, on_event: EventListener | None):
+        self.on_event = on_event
+        self.tools = list(tools)
+        self.waiting = {cat: list(group) for cat, group in (on_demand or {}).items() if group}
+        self.category_of = {t.name: cat for cat, group in self.waiting.items() for t in group}
+        if self.waiting:
+            self.tools.append(_loader_tool(self.waiting, self.activate))
+        self.by_name = {t.name: t for t in self.tools}
+        self.defs: list[ToolDefinition] = []
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        self.defs[:] = [ToolDefinition(name=t.name, description=t.description, input_schema=t.input_schema) for t in self.tools]
+
+    def activate(self, categories: list[str]) -> list[str]:
+        """Load these on-demand categories into the run; the tool names now added."""
+        added = []
+        for cat in categories:
+            for t in self.waiting.pop(cat, []):
+                if t.name not in self.by_name:
+                    self.tools.append(t)
+                    self.by_name[t.name] = t
+                    added.append(t.name)
+        self._rebuild()
+        if added:
+            _notify(self.on_event, {"type": "tools_loaded", "categories": categories, "tools": added})
+        return added
+
+    def ensure_loaded(self, name: str) -> None:
+        """A call to a tool still waiting on demand loads its category first, so its approval rules apply."""
+        cat = self.category_of.get(name)
+        if name not in self.by_name and cat in self.waiting:
+            self.activate([cat])
+
+
 def run_agent_loop(
     provider: AIProvider,
     model: str,
@@ -279,6 +362,7 @@ def run_agent_loop(
     max_steps: int = DEFAULT_MAX_STEPS,
     on_event: EventListener | None = None,
     resume: ResumeState | None = None,
+    load_on_demand: bool = False,
 ) -> AgentResult:
     """Drive the tool-calling loop and return the final answer plus the tool-call trace.
 
@@ -299,8 +383,10 @@ def run_agent_loop(
     settles what it can — approved calls run, denied ones are declined — and parks again without
     asking the model.
     """
-    tool_defs = [ToolDefinition(name=t.name, description=t.description, input_schema=t.input_schema) for t in tools]
-    by_name = {t.name: t for t in tools}
+    # load_on_demand: start with CORE_CATEGORIES and let the model load the rest (split_on_demand, `load_tools`).
+    loaded, on_demand = split_on_demand(tools) if load_on_demand else (tools, None)
+    toolset = _Toolset(loaded, on_demand, on_event)
+    tools, tool_defs, by_name, ensure_loaded = toolset.tools, toolset.defs, toolset.by_name, toolset.ensure_loaded
     result = AgentResult(answer="")
     convo: list[Message] = list(resume.convo) if resume is not None else list(messages)
     nudged = False
@@ -348,6 +434,7 @@ def run_agent_loop(
         still: list[PendingCall] = []
         for call in resume.pending:
             arguments = dict(call.arguments or {})
+            ensure_loaded(call.tool)  # a paused call to a tool loaded on demand: load it again for the resume
             if call.kind == PENDING_HANDOFF:
                 if call.id in resume.outputs:
                     _notify(on_event, {"type": "tool_result", "tool": call.tool, "ok": True})
@@ -386,6 +473,7 @@ def run_agent_loop(
         deferred: list[PendingCall] = []
         for call in completion.tool_calls:
             arguments = dict(call.arguments or {})
+            ensure_loaded(call.name)
             pend, preview = _approval_needed(by_name.get(call.name), arguments)
             if pend:
                 pending.append(PendingCall(id=call.id, tool=call.name, arguments=arguments, preview=preview))

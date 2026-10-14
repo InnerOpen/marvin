@@ -456,6 +456,13 @@ const modCfg = s.moderationConfig ?? {};
           <span class="hint">Tag or link changes in one call; above this the agent asks you first.</span>
         </label>
       </div>
+      <label class="checkbox-row">
+        <input type="checkbox" name="budget.load_tools_on_demand" checked={budgetCfg.load_tools_on_demand !== false} />
+        <span>
+          Load rarely used tools only when needed
+          <span class="hint">Agents start with reading, searching and drafting, and load the rest (tags and links, the Trash, workflows…) when a question needs them. Cuts the prompt of every question roughly in half; nothing becomes unavailable.</span>
+        </span>
+      </label>
       <p class="hint">Costs are estimates from Marvin's price table; search indexing isn't counted (a fraction of a cent per reindex). Your provider's own balance isn't visible here — if it runs out, the failed run says so and you get a toast.</p>
     </div>
 
@@ -884,6 +891,9 @@ const modCfg = s.moderationConfig ?? {};
       if (raw) budgetCfg[key] = Number(raw);
       else delete budgetCfg[key];
     }
+    // On is the default: store only the opt-out.
+    if (fd.has('budget.load_tools_on_demand')) delete budgetCfg.load_tools_on_demand;
+    else budgetCfg.load_tools_on_demand = false;
 
     const logCfg: Record<string, unknown> = {
       log_inputs: fd.has('logging.log_inputs'),
@@ -1225,4 +1235,7 @@ const modCfg = s.moderationConfig ?? {};
   #workspace-creds { display: flex; flex-direction: column; gap: 16px; }
   #workspace-creds .form-row { margin-bottom: 0; }
   .subhead { margin: 18px 0 8px; font-size: 14px; }
+  .checkbox-row { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; font-size: 14px; }
+  .checkbox-row input { margin-top: 3px; }
+  .checkbox-row .hint { display: block; font-size: 12px; color: var(--muted); }
 </style>

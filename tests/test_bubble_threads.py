@@ -95,7 +95,7 @@ def _progress(ctl, run_id):
 def _script_loop(monkeypatch, during=None, result=None):
     """Replace the loop: call `during(messages)` while "running", then return `result`."""
 
-    def fake(provider, model, messages, tools, options=None, max_steps=6, on_event=None, resume=None):
+    def fake(provider, model, messages, tools, options=None, max_steps=6, on_event=None, resume=None, load_on_demand=False):
         if during:
             during(messages)
         return result or _done()

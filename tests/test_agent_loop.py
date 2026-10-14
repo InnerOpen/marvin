@@ -372,3 +372,62 @@ def test_pending_and_step_serializers_round_trip_and_skip_junk():
     sdata = serialize_steps(steps)
     assert sdata == [{"tool": "read", "arguments": {"q": 1}, "result": "x" * 5000}]  # untruncated
     assert deserialize_steps([*sdata, {}, 3]) == steps
+
+
+# ── tools on demand ──────────────────────────────────────────────────────────
+
+from marvin.services.ai.agent import LOAD_TOOLS, STOPPED_AWAITING_APPROVAL, split_on_demand  # noqa: E402
+
+
+class _RecordingProvider(ScriptedProvider):
+    """Also records the tool names offered on each call."""
+
+    def __init__(self, results):
+        super().__init__(results)
+        self.offered = []
+
+    def complete_with_tools(self, messages, model, tools, options=None, tool_choice="auto"):
+        self.offered.append([t.name for t in tools])
+        return super().complete_with_tools(messages, model, tools, options, tool_choice)
+
+
+def _tool(name, category, ran, approval=False):
+    return AgentTool(
+        name=name, description=name, input_schema={"type": "object"}, run=lambda a, n=name: ran.append(n) or '{"ok":true}',
+        category=category, requires_approval=approval,
+    )  # fmt: skip
+
+
+def test_an_all_tools_agent_starts_lean_and_loads_a_group_when_it_needs_it():
+    ran = []
+    tools = [_tool("get_entry", "entries_read", ran), _tool("attach_tag", "links", ran), _tool("list_workflows", "automation_read", ran)]
+    loaded, on_demand = split_on_demand(tools)
+    assert [t.name for t in loaded] == ["get_entry"] and set(on_demand) == {"links", "automation_read"}
+
+    provider = _RecordingProvider([
+        _result(tool_calls=[ToolCall(id="c1", name=LOAD_TOOLS, arguments={"categories": ["links"]})]),
+        _result(tool_calls=[ToolCall(id="c2", name="attach_tag", arguments={})]),
+        _result(content="Tagged."),
+    ])  # fmt: skip
+    out = run_agent_loop(provider, "m", [Message(role="user", content="tag it")], tools, load_on_demand=True)
+
+    assert out.answer == "Tagged." and ran == ["attach_tag"]
+    assert "attach_tag" not in provider.offered[0] and LOAD_TOOLS in provider.offered[0]  # lean first call
+    assert "attach_tag" in provider.offered[1] and "list_workflows" not in provider.offered[1]  # only the group asked for
+
+
+def test_calling_an_unloaded_tool_by_name_loads_it_and_its_approval_still_applies():
+    ran = []
+    tools = [_tool("get_entry", "entries_read", ran), _tool("trash_entries", "entries_trash", ran, approval=True)]
+    provider = _RecordingProvider([_result(tool_calls=[ToolCall(id="c1", name="trash_entries", arguments={"ids": ["x"]})])])
+    out = run_agent_loop(provider, "m", [Message(role="user", content="trash it")], tools, load_on_demand=True)
+
+    assert out.stopped_reason == STOPPED_AWAITING_APPROVAL and ran == []  # it asks first; nothing ran
+    assert [c.tool for c in out.pending_calls] == ["trash_entries"]
+
+
+def test_without_on_demand_every_tool_is_offered_as_before():
+    ran = []
+    provider = _RecordingProvider([_result(content="Hi.")])
+    run_agent_loop(provider, "m", [Message(role="user", content="hi")], [_tool("get_entry", "entries_read", ran), _tool("attach_tag", "links", ran)])
+    assert provider.offered[0] == ["get_entry", "attach_tag"]

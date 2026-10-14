@@ -124,6 +124,15 @@ def agent_limit(session, group_id, key: str) -> int:
     return max(low, min(value, high))
 
 
+def tools_on_demand_enabled(session, group_id) -> bool:
+    """Whether this workspace's all-tools agents load rarely used tools only when needed (budget_config
+    `load_tools_on_demand`, on unless set false). Off sends every tool with every question, as before."""
+    from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+
+    cfg = session.query(WorkspaceAISettingsModel.budget_config).filter_by(group_id=group_id).scalar() if group_id else None
+    return (cfg or {}).get("load_tools_on_demand") is not False
+
+
 def workspace_limits(session, group_id) -> Limits:
     from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
 

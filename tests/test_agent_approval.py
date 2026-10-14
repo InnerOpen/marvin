@@ -45,7 +45,7 @@ class _Loop:
         self.results = list(results)
         self.calls = []
 
-    def __call__(self, provider, model, messages, tools, options=None, max_steps=6, on_event=None, resume=None):
+    def __call__(self, provider, model, messages, tools, options=None, max_steps=6, on_event=None, resume=None, load_on_demand=False):
         self.calls.append({"messages": messages, "tools": tools, "max_steps": max_steps, "resume": resume, "on_event": on_event})
         res = self.results.pop(0)
         if on_event:
@@ -144,7 +144,7 @@ def test_run_names_its_thread_on_the_execution_before_the_loop(ctl, monkeypatch)
     # for the next process to close it (services/ai/interrupted_runs.py).
     seen = {}
 
-    def loop(provider, model, messages, tools, options=None, max_steps=6, on_event=None, resume=None):
+    def loop(provider, model, messages, tools, options=None, max_steps=6, on_event=None, resume=None, load_on_demand=False):
         row = ctl.session.query(AIExecutionModel).filter_by(group_id=ctl.user.group_id, status="running").one()
         seen.update(row.metadata_json or {})
         return _done()
