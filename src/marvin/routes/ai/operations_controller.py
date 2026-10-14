@@ -1,8 +1,5 @@
 """Routes for AI operations — list, execute, and execution history."""
 
-import time
-from datetime import UTC, datetime
-
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from pydantic import UUID4
 
@@ -265,7 +262,7 @@ class AIOperationsController(BaseUserController):
         entity_id = self._resolve_entity_id(body.entity_type, body.entity_id)
 
         # Build context via ContextBuilder
-        from marvin.services.ai.context import ContextBuilder, resolve_prompt_messages
+        from marvin.services.ai.context import ContextBuilder
 
         builder = ContextBuilder(self.session, self.group_id).with_site_settings().with_variables()
         if body.entity_type == "entry" and entity_id:
@@ -298,87 +295,40 @@ class AIOperationsController(BaseUserController):
         # Workspace logging policy: whether to persist inputs/outputs on the execution.
         log_inputs, log_outputs = self._logging_policy()
 
-        # Create execution record (pending)
-        execution = AIExecutionModel(
-            session=self.session,
-            group_id=self.group_id,
-            operation_slug=slug,
-            provider_type=provider.provider_type,
-            model_id=model,
-            status="pending",
-            triggered_by=self.user.id,
-            trigger_type=body.source,
-            entity_type=body.entity_type,
-            entity_id=entity_id,
-            input_json=body.input if log_inputs else None,
-        )
-        self.session.add(execution)
-        self.session.commit()
-
-        # Run the operation
-        start = time.monotonic()
-        try:
-            execution.status = "running"
-            execution.started_at = datetime.now(UTC)
-            self.session.commit()
-
-            # Build prompt then resolve {{SLUG}} references
-            messages = operation.build_prompt(body.input, ctx)
-            messages = resolve_prompt_messages(messages, self.group_id, ctx.variables)
-
-            # execute_operation returns (parsed_dict, CompletionResult with token counts)
-            from marvin.core.config import get_app_settings
-            from marvin.services.ai.base import CompletionOptions
-
-            _app = get_app_settings()
-            opts = CompletionOptions(
-                temperature=_app.AI_DEFAULT_TEMPERATURE,
-                max_tokens=self._max_output_tokens(),
-            )
-            parsed, completion = provider.execute_operation(messages, model, operation.output_schema, opts)
-
-            # For retrieval ops, attach the actual sources (index → entity + title) so the UI can
-            # render clickable citations. IDs come from context, not the model, so they're authoritative.
+        def finish(parsed):
+            # For retrieval ops, attach the actual sources (index → entity + title) so the UI can render clickable
+            # citations. IDs come from context, not the model, so they're authoritative.
             if getattr(operation, "requires_retrieval", False) and ctx.retrieved:
-                parsed = {**(parsed or {}), "retrieved_sources": self._resolve_retrieved_sources(ctx.retrieved)}
+                return {**(parsed or {}), "retrieved_sources": self._resolve_retrieved_sources(ctx.retrieved)}
+            return parsed
 
-            from marvin.services.ai.pricing import estimate_cost
+        from marvin.services.ai.operations.execute import OperationFailed, run_operation
 
-            elapsed_ms = int((time.monotonic() - start) * 1000)
-            execution.status = "completed"
-            execution.completed_at = datetime.now(UTC)
-            execution.duration_ms = elapsed_ms
-            execution.output_json = parsed if log_outputs else None
-            execution.prompt_tokens = completion.prompt_tokens
-            execution.completion_tokens = completion.completion_tokens
-            execution.total_tokens = completion.total_tokens
-            execution.estimated_cost_usd = estimate_cost(
-                provider.provider_type,
-                model,
-                completion.prompt_tokens,
-                completion.completion_tokens,
-            )
-            self.session.commit()
-
-            # Write-back: apply or stage the output onto the entity per approval_mode.
-            # Record the outcome — without it a client cannot tell whether the entity was
-            # changed ("applied") or a suggestion is waiting ("staged"), and so cannot report
-            # honestly to the user. Also makes the distinction auditable after the fact.
+        try:
+            run = run_operation(
+                self.session, self.group_id, operation, slug=slug, op_input=body.input, ctx=ctx, provider=provider, model=model,
+                source=body.source, user_id=self.user.id, entity_type=body.entity_type, entity_id=entity_id,
+                log_inputs=log_inputs, log_outputs=log_outputs, finish=finish,
+            )  # fmt: skip
+        except OperationFailed as e:
+            self._emit_ai_event(e.execution, "failed", str(e.cause))
+            self._maybe_emit_quota(e.execution, str(e.cause))
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"AI call failed: {e.cause}") from e.cause
+        execution, parsed = run.execution, run.parsed
+        # Write-back: apply or stage the output onto the entity per approval_mode. Record the outcome — without it
+        # a client cannot tell whether the entity was changed ("applied") or a suggestion is waiting ("staged"),
+        # and so cannot report honestly to the user. Also makes the distinction auditable after the fact.
+        try:
             outcome = self._write_back(operation, body.entity_type, entity_id, parsed, execution.id)
             if outcome:
                 execution.metadata_json = {**(execution.metadata_json or {}), "writeback": outcome}
                 self.session.commit()
-
         except Exception as e:
             execution.status = "failed"
-            execution.completed_at = datetime.now(UTC)
-            execution.duration_ms = int((time.monotonic() - start) * 1000)
             execution.error_message = str(e)
             self.session.commit()
             self._emit_ai_event(execution, "failed", str(e))
-            self._maybe_emit_quota(execution, str(e))
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"AI call failed: {e}") from e
-
         self.session.refresh(execution)
         self._emit_ai_event(execution, "completed", None)
         self._emit_budget_thresholds(execution)
