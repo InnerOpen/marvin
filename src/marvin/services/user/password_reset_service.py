@@ -28,12 +28,12 @@ def reset_token_expired(created_at, now=None) -> bool:
     A token with no recorded time counts as expired: a link must not work forever."""
     from datetime import UTC, datetime, timedelta
 
-    from marvin.core.config import get_app_settings
+    from marvin.services.platform_policy import security
 
     if created_at is None:
         return True
     made = created_at if created_at.tzinfo else created_at.replace(tzinfo=UTC)
-    minutes = max(1, int(get_app_settings().SECURITY_PASSWORD_RESET_TOKEN_MINUTES))
+    minutes = max(1, security("SECURITY_PASSWORD_RESET_TOKEN_MINUTES"))
     return (now or datetime.now(UTC)) - made > timedelta(minutes=minutes)
 
 

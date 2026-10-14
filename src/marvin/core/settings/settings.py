@@ -14,7 +14,7 @@ import secrets
 from collections import OrderedDict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any, NamedTuple
+from typing import Annotated, NamedTuple
 from urllib.parse import urlparse
 
 from dateutil.tz import tzlocal
@@ -276,8 +276,6 @@ class AppSettings(BaseSettings):
 
     ENV_SECRETS: OrderedDict | None = None
 
-    API_HOST: str = "0.0.0.0"
-
     API_PORT: int = 8080
 
     GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: int | None = None
@@ -357,6 +355,10 @@ class AppSettings(BaseSettings):
 
     BACKUP_CRONJOB_PREFIX: str = ""
     """ kubernetes runner: a target's CronJob is this + its name (the chart's `<fullname>-backup-`). """
+
+    WORKFLOW_RUN_RETENTION_DAYS: int = 90
+    """ how long a finished workflow run (and its steps) is kept; the prune_workflow_runs task deletes older ones.
+    A run still running or waiting is never deleted. 0 disables pruning (keep forever). Overridable per-task. """
 
     EVENT_LOG_RETENTION_DAYS: int = 90
     """ default retention for the event_log audit trail; the prune_event_logs task deletes
@@ -969,26 +971,6 @@ class AppSettings(BaseSettings):
     """Your OpenAI API key. Required to enable OpenAI features (masked)."""
     OPENAI_MODEL: str = "gpt-4o-mini"
     """Which OpenAI model to send requests to. Leave this unset for most use cases."""
-    OPENAI_CUSTOM_HEADERS: dict[str, str] = {}
-    """Custom HTTP headers to send with each OpenAI request."""
-    OPENAI_CUSTOM_PARAMS: dict[str, Any] = {}
-    """Custom HTTP parameters to send with each OpenAI request."""
-    OPENAI_ENABLE_IMAGE_SERVICES: bool = True
-    """Whether to enable image-related features in OpenAI."""
-    OPENAI_WORKERS: int = 2
-    """
-    Number of OpenAI workers per request. Higher values may increase
-    processing speed but will incur additional API costs.
-    """
-    OPENAI_SEND_DATABASE_DATA: bool = True
-    """
-    Sending database data may increase accuracy in certain requests
-    but will incur additional API costs.
-    """
-    OPENAI_REQUEST_TIMEOUT: int = 60
-    """
-    The number of seconds to wait for an OpenAI request to complete before cancelling.
-    """
 
     @property
     def OPENAI_FEATURE(self) -> FeatureDetails:

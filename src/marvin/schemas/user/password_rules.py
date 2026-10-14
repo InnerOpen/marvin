@@ -3,9 +3,9 @@
 
 def check_password_length(password: str) -> str:
     """``password`` if it is at least SECURITY_PASSWORD_MIN_LENGTH characters, else a ValueError saying the minimum."""
-    from marvin.core.config import get_app_settings
+    from marvin.services.platform_policy import security
 
-    minimum = max(1, int(get_app_settings().SECURITY_PASSWORD_MIN_LENGTH))
+    minimum = max(1, security("SECURITY_PASSWORD_MIN_LENGTH"))
     if len(password or "") < minimum:
         raise ValueError(f"the password must be at least {minimum} characters")
     return password

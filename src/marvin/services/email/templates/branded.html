@@ -19,7 +19,7 @@
 
           <!-- Top accent bar — teal gradient -->
           <tr>
-            <td style="height:3px; background:linear-gradient(90deg, #4f9c84, #7ec8b0);"></td>
+            <td style="height:3px; background:{{ data.brand_color or '#4f9c84' }};"></td>
           </tr>
 
           <!-- Header -->
@@ -31,7 +31,7 @@
                     <span style="font-size:17px; font-weight:700; color:#f0f0f0; letter-spacing:-0.3px;">{{ data.header_text }}</span>
                   </td>
                   <td align="right">
-                    <span style="font-size:11px; font-weight:700; color:#4f9c84; letter-spacing:1px; text-transform:uppercase;">Marvin</span>
+                    <span style="font-size:11px; font-weight:700; color:{{ data.brand_color or '#4f9c84' }}; letter-spacing:1px; text-transform:uppercase;">{{ data.brand_name or 'Marvin' }}</span>
                   </td>
                 </tr>
               </table>
@@ -50,7 +50,7 @@
           <tr>
             <td style="padding:20px 36px 24px;">
               <a href="{{ data.button_link }}"
-                 style="display:inline-block; background-color:#4f9c84; color:#ffffff; text-decoration:none; padding:11px 22px; border-radius:7px; font-size:14px; font-weight:600; letter-spacing:0.2px;">
+                 style="display:inline-block; background-color:{{ data.brand_color or '#4f9c84' }}; color:#ffffff; text-decoration:none; padding:11px 22px; border-radius:7px; font-size:14px; font-weight:600; letter-spacing:0.2px;">
                 {{ data.button_text }}
               </a>
             </td>
@@ -72,7 +72,7 @@
               <table border="0" cellpadding="0" cellspacing="0" width="100%">
                 <tr>
                   <td style="font-size:11px; color:#555770; line-height:1.5;">
-                    Sent by <a href="{{ data.button_link }}" style="color:#4f9c84; text-decoration:none; font-weight:500;">Marvin CMS</a>
+                    <span style="color:{{ data.brand_color or '#4f9c84' }}; font-weight:500;">{{ data.brand_footer or 'Sent by Marvin CMS' }}</span>
                     {% if data.workspace_name %} &middot; {{ data.workspace_name }}{% endif %}
                   </td>
                   <td align="right" style="font-size:10px; color:#333648; font-family:monospace; letter-spacing:0.3px;">

@@ -12,6 +12,8 @@ from . import (
     events_controller,
     group_controller,
     maintenance_controller,
+    overview_controller,
+    platform_policy_controller,
     plugins_controller,
     scheduled_tasks_controller,
     storage_controller,
@@ -24,6 +26,8 @@ from . import (
 router = AdminAPIRouter(prefix="/admin")
 
 router.include_router(about_controller.router, tags=["Admin: About"])
+router.include_router(platform_policy_controller.router, tags=["Admin: Platform Policy"])
+router.include_router(overview_controller.router, tags=["Admin: Overview"])
 router.include_router(ai_prices_controller.router, tags=["Admin: AI Pricing"])
 router.include_router(alerts_controller.router, tags=["Admin: Platform Alerts"])
 router.include_router(backup_health_controller.router, tags=["Admin: Backup Health"])

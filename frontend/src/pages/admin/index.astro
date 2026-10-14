@@ -53,7 +53,15 @@ async function checkReadiness(): Promise<boolean | null> {
 const EVENTS_WINDOW_DAYS = 7;
 const eventsSince = new Date(Date.now() - EVENTS_WINDOW_DAYS * 86_400_000).toISOString();
 
-const [about, ready, stats, backups, tasks, plugins, recentEvents, backupHealth] = await Promise.all([
+type HealthDot = { key: string; label: string; tone: "ok" | "warn" | "bad" | "off"; href: string };
+type WorkspaceRow = {
+  id: string; name: string; slug: string; entries: number; members: number;
+  aiSpendMonth: number; aiLimitMonth: number | null; openAlerts: number; lastActivity: string | null;
+};
+type SpendDay = { day: string; cost: number; runs: number; promptTokens: number; cachedTokens: number };
+type Overview = { health: HealthDot[]; workspaces: WorkspaceRow[]; spend: SpendDay[] };
+
+const [about, ready, stats, backups, tasks, plugins, recentEvents, backupHealth, overview] = await Promise.all([
   attempt("about", () => fetchApi<AboutInfo>("/api/admin/about", {}, authToken)),
   checkReadiness(),
   attempt("statistics", () => fetchApi<Statistics>("/api/admin/about/statistics", {}, authToken)),
@@ -64,7 +72,30 @@ const [about, ready, stats, backups, tasks, plugins, recentEvents, backupHealth]
     listAdminEvents(new URLSearchParams({ per_page: "1", start_date: eventsSince }).toString(), authToken),
   ),
   attempt("backup health", () => getBackupHealth({ limit: 1 }, authToken)),
+  attempt("overview", () => fetchApi<Overview>("/api/admin/overview", {}, authToken)),
 ]);
+
+// AI spend, last 30 days: one bar a day, the cached share of its prompt shaded (services/admin_overview.py).
+const spend = overview?.spend ?? [];
+const spendTotal = spend.reduce((n, d) => n + d.cost, 0);
+const spendRuns = spend.reduce((n, d) => n + d.runs, 0);
+const promptTotal = spend.reduce((n, d) => n + d.promptTokens, 0);
+const cachedTotal = spend.reduce((n, d) => n + d.cachedTokens, 0);
+const cachedShare = promptTotal ? Math.round((cachedTotal / promptTotal) * 100) : 0;
+const SPEND_BAR = 10, SPEND_GAP = 3, SPEND_H = 60;
+const spendPeak = Math.max(0.0001, ...spend.map((d) => d.cost));
+const spendWidth = Math.max(1, spend.length * (SPEND_BAR + SPEND_GAP) - SPEND_GAP);
+const spendBars = spend.map((d, i) => {
+  const h = d.cost ? Math.max(2, Math.round((d.cost / spendPeak) * SPEND_H)) : 1;
+  const share = d.promptTokens ? d.cachedTokens / d.promptTokens : 0;
+  return { x: i * (SPEND_BAR + SPEND_GAP), y: SPEND_H - h, h, hc: Math.round(h * share), label: `${d.day}: $${d.cost.toFixed(4)} · ${d.runs} runs · ${Math.round(share * 100)}% of prompt cached` };
+});
+const usd = (n: number) => (n >= 1 ? `$${n.toFixed(2)}` : n > 0 ? `$${n.toFixed(4)}` : "$0");
+const relDay = (iso: string | null) => {
+  if (!iso) return "never";
+  const days = Math.floor((Date.now() - new Date(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`).getTime()) / 86_400_000);
+  return days <= 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+};
 const backupTargets = backupHealth?.targets ?? [];
 const backupProblems = backupTargets.filter((t) => t.state !== "ok" && t.state !== "unknown");
 const latestEvent = recentEvents?.items[0] ?? null;
@@ -94,6 +125,13 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
   </div>
 
   <div class="page-container">
+    {overview && overview.health.length > 0 && (
+      <ul class="health-strip" aria-label="Platform health">
+        {overview.health.map((d) => (
+          <li><a href={d.href} class={`health-dot tone-${d.tone}`}><span class="dot" aria-hidden="true"></span>{d.label}</a></li>
+        ))}
+      </ul>
+    )}
     <div class="status-grid">
       <a href="/admin/system" class:list={["status-card", { warn: updateAvailable || ready === false }]}>
         <h3>Version &amp; health</h3>
@@ -170,10 +208,110 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
         </ul>
       </a>
     </div>
+
+    {overview && (
+      <div class="overview-panels">
+        <section class="panel">
+          <div class="panel-head">
+            <h3>Workspaces</h3>
+            <a href="/admin/workspaces" class="panel-link">Manage →</a>
+          </div>
+          <div class="table-scroll">
+            <table class="ws-table">
+              <thead><tr><th>Workspace</th><th class="num">Entries</th><th class="num">Members</th><th class="num">AI this month</th><th class="num">Alerts</th><th>Last activity</th></tr></thead>
+              <tbody>
+                {overview.workspaces.map((w) => (
+                  <tr>
+                    <td><a href={`/admin/groups/${w.id}`}>{w.name}</a></td>
+                    <td class="num">{w.entries.toLocaleString()}</td>
+                    <td class="num">{w.members}</td>
+                    <td class="num">
+                      {usd(w.aiSpendMonth)}{w.aiLimitMonth ? <span class="muted"> of {usd(w.aiLimitMonth)}</span> : null}
+                      {w.aiLimitMonth ? (
+                        <span class="meter" title={`${Math.round((w.aiSpendMonth / w.aiLimitMonth) * 100)}% of the monthly limit`}>
+                          <span class:list={["meter-fill", { over: w.aiSpendMonth >= w.aiLimitMonth }]} style={`width:${Math.min(100, (w.aiSpendMonth / w.aiLimitMonth) * 100)}%`}></span>
+                        </span>
+                      ) : null}
+                    </td>
+                    <td class:list={["num", { warn: w.openAlerts > 0 }]}>{w.openAlerts || "·"}</td>
+                    <td class="muted">{relDay(w.lastActivity)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h3>AI spend</h3>
+            <span class="panel-sub">last 30 days, all workspaces</span>
+          </div>
+          {spendRuns === 0 ? (
+            <p class="muted">No AI runs in the last 30 days.</p>
+          ) : (
+            <>
+              <p class="spend-summary"><strong>{usd(spendTotal)}</strong> over {spendRuns.toLocaleString()} runs · {cachedShare}% of prompt tokens served from cache</p>
+              <svg class="spend-chart" viewBox={`0 0 ${spendWidth} ${SPEND_H}`} preserveAspectRatio="none" role="img" aria-label={`AI spend per day, last 30 days: ${usd(spendTotal)}`}>
+                {spendBars.map((b) => (
+                  <g>
+                    <title>{b.label}</title>
+                    <rect class="bar-cost" x={b.x} y={b.y} width={SPEND_BAR} height={b.h} rx="1" />
+                    {b.hc > 0 && <rect class="bar-cached" x={b.x} y={b.y + b.h - b.hc} width={SPEND_BAR} height={b.hc} rx="1" />}
+                  </g>
+                ))}
+              </svg>
+              <div class="spend-axis"><span>{spend[0]?.day}</span><span>today</span></div>
+              <ul class="spend-legend">
+                <li><span class="swatch cost"></span>Cost per day</li>
+                <li><span class="swatch cached"></span>Share of the prompt served from cache</li>
+              </ul>
+            </>
+          )}
+        </section>
+      </div>
+    )}
   </div>
 </AdminLayout>
 
 <style>
+  .health-strip { list-style: none; margin: 0 0 20px; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 18px; }
+  .health-dot { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); text-decoration: none; }
+  a.health-dot:hover { color: var(--ink); }
+  .health-dot .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); flex: none; }
+  .tone-ok .dot { background: #16a34a; }
+  .tone-warn .dot { background: #d97706; }
+  .tone-bad .dot { background: var(--color-error, #dc2626); }
+  .tone-bad, .tone-warn { color: var(--ink); }
+  .tone-off { opacity: 0.7; }
+  .overview-panels { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; margin-top: 24px; align-items: start; }
+  @media (max-width: 1000px) { .overview-panels { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 24px; min-width: 0; }
+  .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+  .panel-head h3 { margin: 0; font-size: 16px; }
+  .panel-link { font-size: 13px; color: var(--accent); text-decoration: none; }
+  .panel-sub, .muted { color: var(--muted); font-size: 12px; }
+  .ws-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .ws-table th { text-align: left; font-size: 12px; text-transform: uppercase; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  .ws-table td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .ws-table tr:last-child td { border-bottom: 0; }
+  .ws-table a { color: var(--ink); }
+  .ws-table .num { text-align: right; white-space: nowrap; }
+  .ws-table .warn { color: #d97706; font-weight: 600; }
+  .meter { display: block; height: 4px; margin-top: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .meter-fill { display: block; height: 100%; background: #16a34a; }
+  .meter-fill.over { background: var(--color-error, #dc2626); }
+  .spend-summary { margin: 0 0 10px; font-size: 14px; }
+  .spend-chart { display: block; width: 100%; height: 90px; }
+  .bar-cost { fill: var(--accent); opacity: 0.85; }
+  .bar-cached { fill: #16a34a; opacity: 0.6; }
+  .spend-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .spend-legend { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); }
+  .spend-legend li { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .swatch.cost { background: var(--accent); }
+  .swatch.cached { background: #16a34a; opacity: 0.6; }
+
   .toolbar {
     margin-bottom: 32px;
     padding-bottom: 20px;

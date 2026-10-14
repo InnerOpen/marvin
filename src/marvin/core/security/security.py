@@ -75,7 +75,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     settings = get_app_settings()
 
     to_encode = data.copy()
-    expires_delta = expires_delta or timedelta(hours=settings.TOKEN_TIME)
+    expires_delta = expires_delta or timedelta(hours=_session_hours())
 
     expire = datetime.now(UTC) + expires_delta
 
@@ -154,3 +154,10 @@ def verify_password(password: str, hashed: str) -> bool:
 def url_safe_token() -> str:
     """Generates a cryptographic token without embedded data. Used for password reset tokens and invitation tokens"""
     return secrets.token_urlsafe(24)
+
+
+def _session_hours() -> int:
+    """Sign-in session length in hours: the admin's value (Admin → Site Settings → Security), else TOKEN_TIME."""
+    from marvin.services.platform_policy import security
+
+    return security("TOKEN_TIME")

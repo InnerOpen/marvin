@@ -1,7 +1,7 @@
 ---
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import { listSystemEmailTemplates } from "@/lib/api/admin/emailTemplates";
-import { getAuthToken } from "@/lib/api/client";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
 import { createSdkClient } from "@/lib/sdk";
 
@@ -9,6 +9,9 @@ import { createSdkClient } from "@/lib/sdk";
 const user = await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
+// The product name, footer line and accent colour every email's wrapper shows (services/platform_policy.py).
+type Branding = { productName: string; footerText: string; accentColor: string };
+const branding = await fetchApi<Branding>("/api/admin/platform-policy/email-branding", {}, authToken).catch(() => null);
 
 let smtpEnabled = false;
 let smtpFeature: any = null;
@@ -51,6 +54,28 @@ try {
 
   <div class="page-container">
     <div class="email-grid">
+      {branding && (
+        <section class="card" id="branding">
+          <h3>Branding</h3>
+          <p class="card-description">What every email from this platform shows: the name in its header, the line in its footer, and the colour of its accents and buttons. Blank goes back to Marvin's own.</p>
+          <form id="branding-form" class="branding-form">
+            <label class="branding-field"><span>Product name</span>
+              <input class="input" name="product_name" maxlength="40" value={branding.productName} placeholder="Marvin" /></label>
+            <label class="branding-field"><span>Footer line</span>
+              <input class="input" name="footer_text" maxlength="120" value={branding.footerText} placeholder="Sent by Marvin CMS" /></label>
+            <label class="branding-field"><span>Accent colour</span>
+              <span class="branding-color">
+                <input type="color" name="accent_color" value={branding.accentColor} />
+                <code>{branding.accentColor}</code>
+              </span></label>
+            <div class="branding-actions">
+              <button type="submit" class="button">Save branding</button>
+              <span class="branding-status" role="status">Send a test email below to see it.</span>
+            </div>
+          </form>
+        </section>
+      )}
+
       <!-- SMTP Configuration (Read-Only) -->
       <section class="card">
         <h3>SMTP Server Settings</h3>
@@ -388,6 +413,7 @@ try {
   </div>
 
   <script>
+    import { fetchApi } from "@/lib/api/client";
     import {
       getSystemEmailTemplate,
       createSystemEmailTemplate,
@@ -631,6 +657,34 @@ try {
       console.error('Error sending test email:', error);
     }
   });
+
+    // Branding: saved for every email; blank fields go back to Marvin's own.
+    const brandingForm = document.getElementById("branding-form") as HTMLFormElement | null;
+    brandingForm?.querySelector<HTMLInputElement>('input[type="color"]')?.addEventListener("input", (e) => {
+      const code = brandingForm.querySelector(".branding-color code");
+      if (code) code.textContent = (e.target as HTMLInputElement).value;
+    });
+    brandingForm?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const status = brandingForm.querySelector(".branding-status") as HTMLElement;
+      const fd = new FormData(brandingForm);
+      status.textContent = "Saving…";
+      status.classList.remove("error");
+      try {
+        await fetchApi("/api/admin/platform-policy/email-branding", {
+          method: "PUT",
+          body: JSON.stringify({
+            product_name: String(fd.get("product_name") ?? ""),
+            footer_text: String(fd.get("footer_text") ?? ""),
+            accent_color: String(fd.get("accent_color") ?? ""),
+          }),
+        });
+        status.textContent = "Saved. Send a test email below to see it.";
+      } catch (err) {
+        status.textContent = err instanceof Error ? err.message : String(err);
+        status.classList.add("error");
+      }
+    });
 </script>
 
 <style>
@@ -1317,4 +1371,10 @@ try {
       padding: 16px;
     }
   }
+  .branding-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px 20px; }
+  .branding-field { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
+  .branding-color { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+  .branding-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; }
+  .branding-status { font-size: 13px; color: var(--muted); }
+  .branding-status.error { color: var(--color-error); }
 </style>

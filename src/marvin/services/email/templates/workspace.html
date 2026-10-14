@@ -19,7 +19,7 @@
         <table border="0" cellpadding="0" cellspacing="0" width="560" style="max-width:560px; margin-bottom:0;">
           <tr>
             <td style="padding:0 0 12px;">
-              <span style="font-size:13px; font-weight:700; color:#4f9c84; letter-spacing:0.5px; text-transform:uppercase;">{{ data.workspace_name }}</span>
+              <span style="font-size:13px; font-weight:700; color:{{ data.brand_color or '#4f9c84' }}; letter-spacing:0.5px; text-transform:uppercase;">{{ data.workspace_name }}</span>
             </td>
           </tr>
         </table>
@@ -70,7 +70,7 @@
               <table border="0" cellpadding="0" cellspacing="0" width="100%">
                 <tr>
                   <td style="font-size:11px; color:#aaaaaa; line-height:1.5;">
-                    <a href="{{ data.button_link }}" style="color:#4f9c84; text-decoration:none; font-weight:500;">Marvin CMS</a>
+                    <a href="{{ data.button_link }}" style="color:{{ data.brand_color or '#4f9c84' }}; text-decoration:none; font-weight:500;">{{ data.brand_name or 'Marvin' }}</a>
                     {% if data.workspace_name %} &middot; {{ data.workspace_name }}{% endif %}
                   </td>
                   <td align="right" style="font-size:10px; color:#cccccc; font-family:monospace; letter-spacing:0.3px;">

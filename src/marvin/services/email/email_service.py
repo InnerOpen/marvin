@@ -63,9 +63,18 @@ class EmailTemplate(BaseModel):
         tmpl_str = template_file.read_text(encoding="utf-8")  # Added encoding
         jinja_template = Template(tmpl_str)  # Create a Jinja2 Template object
 
-        # Render the template with the data from this EmailTemplate instance
-        # The template should expect a 'data' variable containing the model's fields.
-        return jinja_template.render(data=self.model_dump())
+        # The template sees this email's fields plus the platform's branding (Admin → Email → Branding):
+        # brand_name, brand_footer, brand_color.
+        from marvin.services.platform_policy import email_branding
+
+        brand = email_branding()
+        data = {
+            **self.model_dump(),
+            "brand_name": brand["product_name"],
+            "brand_footer": brand["footer_text"],
+            "brand_color": brand["accent_color"],
+        }
+        return jinja_template.render(data=data)
 
 
 class EmailService(BaseService):

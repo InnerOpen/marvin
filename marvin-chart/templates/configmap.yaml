@@ -30,7 +30,6 @@ data:
   dbEngine: {{ include "marvin.dbEngine" . | quote }}
   dataDir: {{ .Values.config.dataDir | quote }}
   apiPort: {{ .Values.config.apiPort | quote }}
-  apiHost: {{ .Values.config.apiHost | quote }}
   publicApiUrl: {{ $publicApiUrl | default "" | quote }}
   corsOrigins: {{ $corsOrigins | default "" | quote }}
   {{- with $publicUiUrl }}

@@ -1,6 +1,6 @@
 ---
 import AdminLayout from "@/layouts/AdminLayout.astro";
-import { getAuthToken } from "@/lib/api/client";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { getPlatformTrashSettings } from "@/lib/api/trash";
 import { requireAdmin } from "@/lib/auth";
 import { createSdkClient } from "@/lib/sdk";
@@ -19,6 +19,22 @@ try {
 }
 // The platform default for how long the Trash keeps deleted entries; workspaces inherit it unless they override.
 const trashDefault = await getPlatformTrashSettings(authToken).catch(() => null);
+// The security policy an admin can set here; each value overrides its environment variable (services/platform_policy.py).
+type SecurityRow = { key: string; label: string; help: string; unit: string; min: number; max: number; default: number; value: number; overridden: boolean };
+const securityRows: SecurityRow[] = await fetchApi<SecurityRow[]>("/api/admin/platform-policy/security", {}, authToken).catch(() => []);
+
+// The UI address emailed links point at (BASE_URL / FRONTEND_URL, the chart's config.publicUiUrl). Left at the
+// laptop defaults, every password-reset and invitation email links to localhost — say so at the top of the page.
+const isLocal = (url: unknown) => typeof url === "string" && /\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(url);
+const uiAddressUnset = Boolean(settings) && (isLocal(settings.baseUrl) || isLocal(settings.frontendUrl));
+
+// A word on values that read wrong out of context.
+const SETTING_NOTES: Record<string, string> = {
+  frontendPort: "The frontend pod's port. In a split deploy the API pod shows a derived value it never listens on.",
+  baseUrl: "Where emailed links (password reset, invitations) point: the address people open the editor at.",
+  frontendUrl: "Where push notifications and agent answers link to: the editor's public address.",
+  corsOrigins: "Browser origins allowed to call the API from another host (the editor's public addresses).",
+};
 
 // Group settings by prefix
 const settingsGroups: Record<string, any> = {};
@@ -70,6 +86,14 @@ function toTitleCase(str: string) {
   </div>
 
   <div class="page-container">
+    {uiAddressUnset && (
+      <div class="ui-warning" role="alert">
+        <strong>The editor's public address isn't set.</strong>
+        Base URL is <code>{settings.baseUrl}</code>, so password-reset and invitation emails link to localhost and
+        can't be opened. Set <code>config.publicUiUrl</code> in the deploy values (it sets BASE_URL and FRONTEND_URL) to
+        the address people use, e.g. <code>https://admin.example.com</code>.
+      </div>
+    )}
     <div class="settings-grid">
       {trashDefault && (
         <section class="card" id="trash">
@@ -87,6 +111,33 @@ function toTitleCase(str: string) {
               ))}
             </select>
             <button type="submit" class="button">Save</button>
+          </form>
+        </section>
+      )}
+
+      {securityRows.length > 0 && (
+        <section class="card" id="security">
+          <h3>Security</h3>
+          <p class="card-description">
+            Sign-in throttling, password rules and session length. A value set here replaces the environment's
+            (shown under each); clear a box to go back to it.
+          </p>
+          <form id="security-form" class="security-form">
+            {securityRows.map((r) => (
+              <label class="security-field">
+                <span class="security-label">{r.label}</span>
+                <span class="security-input">
+                  <input type="number" class="input" name={r.key} min={r.min} max={r.max}
+                    value={r.overridden ? String(r.value) : ""} placeholder={String(r.default)} />
+                  <span class="security-unit">{r.unit}</span>
+                </span>
+                <span class="security-help">{r.help} Environment: {r.default}.</span>
+              </label>
+            ))}
+            <div class="security-actions">
+              <button type="submit" class="button">Save security</button>
+              <span class="security-status" role="status"></span>
+            </div>
           </form>
         </section>
       )}
@@ -124,7 +175,10 @@ function toTitleCase(str: string) {
               const isObject = typeof value === 'object' && value !== null;
               return (
                 <div class={`setting-item ${isObject ? 'is-block' : ''}`}>
-                  <span class="setting-label">{toTitleCase(key)}</span>
+                  <span class="setting-label">
+                    {toTitleCase(key)}
+                    {SETTING_NOTES[key] && <span class="setting-note">{SETTING_NOTES[key]}</span>}
+                  </span>
                   {isObject ? (
                     <pre class="setting-value setting-json">{JSON.stringify(value, null, 2)}</pre>
                   ) : (
@@ -144,6 +198,7 @@ function toTitleCase(str: string) {
 </AdminLayout>
 
 <script>
+  import { fetchApi } from '@/lib/api/client';
   import { updatePlatformTrashSettings } from '@/lib/api/trash';
 
   const trashForm = document.getElementById('trash-default-form') as HTMLFormElement | null;
@@ -160,9 +215,39 @@ function toTitleCase(str: string) {
       button.disabled = false;
     }
   });
+
+  // Security: blank = back to the environment's value (sent as null).
+  const securityForm = document.getElementById('security-form') as HTMLFormElement | null;
+  securityForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const status = securityForm.querySelector('.security-status') as HTMLElement;
+    const values: Record<string, number | null> = {};
+    securityForm.querySelectorAll<HTMLInputElement>('input[type="number"]').forEach((el) => {
+      values[el.name] = el.value.trim() === '' ? null : Number(el.value);
+    });
+    status.textContent = 'Saving…';
+    status.classList.remove('error');
+    try {
+      await fetchApi('/api/admin/platform-policy/security', { method: 'PUT', body: JSON.stringify({ values }) });
+      status.textContent = 'Saved.';
+    } catch (err) {
+      status.textContent = err instanceof Error ? err.message : String(err);
+      status.classList.add('error');
+    }
+  });
 </script>
 
 <style>
+  .security-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px 20px; }
+  .security-field { display: grid; gap: 4px; }
+  .security-label { font-size: 13px; font-weight: 600; }
+  .security-input { display: flex; align-items: center; gap: 8px; }
+  .security-input .input { max-width: 120px; }
+  .security-unit, .security-help { font-size: 12px; color: var(--muted); }
+  .security-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; }
+  .security-status { font-size: 13px; color: var(--muted); }
+  .security-status.error { color: var(--color-error); }
+
   .trash-default {
     display: flex;
     gap: 0.6rem;
@@ -198,6 +283,18 @@ function toTitleCase(str: string) {
     display: grid;
     gap: 24px;
   }
+
+  .ui-warning {
+    margin-bottom: 20px;
+    padding: 14px 18px;
+    border: 1px solid var(--color-error);
+    background: var(--color-error-bg);
+    border-radius: var(--radius);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .ui-warning strong { display: block; color: var(--color-error); margin-bottom: 4px; }
+  .setting-note { display: block; font-size: 12px; font-weight: 400; color: var(--muted); margin-top: 2px; }
 
   .card {
     background: var(--panel);

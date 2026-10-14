@@ -109,11 +109,6 @@ spec:
             configMapKeyRef:
               name: {{ include "marvin.fullname" . }}
               key: apiPort
-        - name: API_HOST
-          valueFrom:
-            configMapKeyRef:
-              name: {{ include "marvin.fullname" . }}
-              key: apiHost
         - name: SCHEDULER_INTERVAL_SECONDS
           valueFrom:
             configMapKeyRef:

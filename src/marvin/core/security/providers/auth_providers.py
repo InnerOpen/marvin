@@ -6,7 +6,7 @@ import jwt
 from sqlalchemy.orm.session import Session
 
 from marvin.core.config import get_app_settings
-from marvin.core.security.security import JWT_ALGORITHM
+from marvin.core.security.security import JWT_ALGORITHM, _session_hours
 from marvin.repos.all_repositories import get_repositories
 from marvin.schemas.user.user import PrivateUser
 
@@ -57,9 +57,7 @@ class AuthProvider(Generic[T], metaclass=abc.ABCMeta):
         Returns:
             tuple[str, timedelta]: A tuple containing the access token and its expiration delta.
         """
-        settings = get_app_settings()
-
-        duration = timedelta(hours=settings.TOKEN_TIME)
+        duration = timedelta(hours=_session_hours())
         if remember_me and remember_me_duration > duration:
             duration = remember_me_duration
 
@@ -82,7 +80,7 @@ class AuthProvider(Generic[T], metaclass=abc.ABCMeta):
         settings = get_app_settings()
 
         to_encode = data.copy()
-        expires_delta = expires_delta or timedelta(hours=settings.TOKEN_TIME)
+        expires_delta = expires_delta or timedelta(hours=_session_hours())
 
         expire = datetime.now(UTC) + expires_delta
 

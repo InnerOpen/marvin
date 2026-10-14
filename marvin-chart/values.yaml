@@ -239,7 +239,6 @@ config:
 
   # API configuration
   apiPort: 8080
-  apiHost: "0.0.0.0"
 
   # URL the user's browser uses to reach the backend API. The frontend injects it into each page
   # at request time (resolved at runtime, not baked into the image), so set it to the address a
