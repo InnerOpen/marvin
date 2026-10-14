@@ -190,12 +190,10 @@ def _platform_identity(provider_cls) -> tuple:
 
 
 def _identity(provider_cls, get) -> tuple:
-    """(endpoint, the required non-secret settings but the public URL): what names a bucket, e.g. (R2 URL, bucket)."""
-    keys = [
-        s.env
-        for s in provider_cls.workspace_settings
-        if s.required and not s.secret and s.env not in (provider_cls.public_url_setting, provider_cls.endpoint_setting)
-    ]
+    """What names a bucket: the endpoint plus the settings the provider always requires (its ``settings``, not its
+    workspace ones), e.g. (R2 URL, bucket). Keys, the prefix and the public URL don't make it another bucket."""
+    always = {s.env for s in provider_cls.settings if s.required and not s.secret}
+    keys = [s.env for s in provider_cls.workspace_settings if s.env in always and s.env != provider_cls.endpoint_setting]
     endpoint = provider_cls.endpoint_setting
     return (str(get(endpoint) or "").rstrip("/").lower() if endpoint else "", *(str(get(k) or "") for k in keys))
 
@@ -212,8 +210,10 @@ def build_connection_provider(conn: _Connection, endpoint_policy: str, *, produc
         raise StorageConfigError(f"storage provider {conn.plugin_slug!r} declares its workspace settings wrongly: {'; '.join(problems)}")
     declared = {s.env: s for s in provider_cls.workspace_settings}
     values = {env: v for env, v in conn.settings.items() if env in declared and not declared[env].secret}
+    # Any setting may come from a workspace secret (an S3 access key ID isn't secret, but it belongs with its key);
+    # a secret setting can only come from one, never from the plain settings above.
     for env, slug in conn.secret_refs.items():
-        if env in declared and declared[env].secret and slug:
+        if env in declared and slug:
             values[env] = resolve_secret(str(slug), uuid.UUID(conn.group_id)) or ""
     check_endpoint(values.get(provider_cls.endpoint_setting) if provider_cls.endpoint_setting else None, endpoint_policy, production=production)
     config = read_config(provider_cls.workspace_settings, values)

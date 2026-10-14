@@ -28,10 +28,11 @@ class BucketProvider(MemoryStorageProvider):
 
     slug = "bucket"
     buckets: dict = {}
-    settings = (Setting("B_BUCKET", required=True), Setting("B_ENDPOINT"), Setting("B_KEY", secret=True), Setting("B_PUBLIC"))
+    settings = (Setting("B_BUCKET", required=True), Setting("B_ENDPOINT"), Setting("B_KEY_ID"), Setting("B_KEY", secret=True), Setting("B_PUBLIC"))
     workspace_settings = (
         Setting("B_BUCKET", required=True),
         Setting("B_ENDPOINT"),
+        Setting("B_KEY_ID", required=True),  # like S3's access key ID: required, not secret
         Setting("B_KEY", secret=True, required=True),
         Setting("B_PUBLIC", required=True),
     )
@@ -41,7 +42,7 @@ class BucketProvider(MemoryStorageProvider):
     @classmethod
     def from_config(cls, config):
         provider = cls.buckets.setdefault(config["B_BUCKET"], cls(public_base_url=config["B_PUBLIC"]))
-        provider.key_used = config["B_KEY"]
+        provider.key_used = (config["B_KEY_ID"], config["B_KEY"])
         return provider
 
 
@@ -54,7 +55,7 @@ def byo(entry_points, platform, db_session, monkeypatch):  # noqa: F811
 
     entry_points.append(_EP("bucket", StoragePlugin(slug="bucket", name="Bucket", provider=BucketProvider)))
     BucketProvider.buckets = {}
-    secrets = {"their-key": "k-123"}
+    secrets = {"their-key": "k-123", "their-key-id": "id-9"}
     monkeypatch.setattr(resolver, "resolve_secret", lambda slug, group_id=None: secrets.get(slug))
     PlatformSettingsService(db_session).set(ws_storage.POLICY_KEY, {"allowed": True, "allowed_plugins": ["bucket"]})
     ws_storage.reset_cache()
@@ -77,7 +78,7 @@ def _connect(db_session, gid, *, status="ok", bucket="theirs", endpoint=R2, mode
         group_id=gid,
         plugin_slug="bucket",
         settings={"B_BUCKET": bucket, "B_ENDPOINT": endpoint, "B_PUBLIC": "https://files.example.com"},
-        secret_refs={"B_KEY": key_ref},
+        secret_refs={"B_KEY": key_ref, "B_KEY_ID": "their-key-id"},  # the key ID kept as a secret too
         status=status,
     )
     db_session.add(conn)
@@ -113,7 +114,7 @@ def test_uploads_go_to_the_workspace_bucket_and_are_read_and_served_from_it(byo,
 
     assert asset.storage_provider == f"ws:{conn.id}"
     bucket = BucketProvider.buckets["theirs"]
-    assert bucket.exists(asset.storage_key) and bucket.key_used == "k-123"  # built from the workspace secret
+    assert bucket.exists(asset.storage_key) and bucket.key_used == ("id-9", "k-123")  # both from workspace secrets
     assert not platform.local.exists(asset.storage_key)
     with provider_factory.provider_for(asset.storage_provider).get(asset.storage_key) as fh:
         assert fh.read() == b"theirs"

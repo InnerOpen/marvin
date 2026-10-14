@@ -45,7 +45,8 @@ class WorkspaceStorageConnectionModel(SqlAlchemyBase, BaseMixins):
     # The provider's non-secret workspace settings, keyed by Setting.env (bucket, endpoint, region, prefix, public URL…).
     # Bucket, endpoint and prefix never change on a connection: a different bucket is a new connection.
     settings: Mapped[dict] = mapped_column(sa.JSON, nullable=False, default=dict)
-    # {Setting.env: workspace secret slug} for the secret settings; never the keys themselves.
+    # {Setting.env: workspace secret slug}: every secret setting, and any other a workspace keeps as a secret (the
+    # access key ID); never the values themselves.
     secret_refs: Mapped[dict] = mapped_column(sa.JSON, nullable=False, default=dict)
     # "unverified" | "ok" | "failing" | "retired"
     status: Mapped[str] = mapped_column(sa.String, default="unverified", nullable=False)
