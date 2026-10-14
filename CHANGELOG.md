@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.321 (2026-10-14)
+
+### Bug Fixes
+
+- **settings**: The Preferences card opens the site form instead of saying "coming soon"
+  ([`088609c`](https://github.com/InnerOpen/marvin/commit/088609cd3de811a1f71682bdcf102e3f63cc5614))
+
+
 ## v1.0.0-rc.320 (2026-10-13)
 
 ### Bug Fixes
