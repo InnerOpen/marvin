@@ -73,7 +73,9 @@ def test_an_override_wins_over_the_providers_own_price(db_session, monkeypatch):
     from marvin.services.ai import registry
 
     own = ModelPrice(3.0, 15.0)
-    vendor = SimpleNamespace(estimate_cost=lambda model, p, c, cached=0, written=0: own.cost(p, c, cached, written), self_hosted=False, prices={"claude-x": own})
+    vendor = SimpleNamespace(
+        estimate_cost=lambda model, p, c, cached=0, written=0: own.cost(p, c, cached, written), self_hosted=False, prices={"claude-x": own}
+    )
     monkeypatch.setattr(registry, "find_class", lambda slug: vendor if slug == "anthropic" else None)
 
     assert pricing.estimate_cost("anthropic", "claude-x", 1_000_000, 0) == pytest.approx(3.0)
@@ -186,7 +188,9 @@ def test_cached_and_written_prompt_tokens_cost_the_cache_rates(db_session, monke
 
     sonnet = ModelPrice(2.0, 10.0, cached_input_per_1m=0.2, cache_write_per_1m=2.5)
     vendor = SimpleNamespace(
-        estimate_cost=lambda model, p, c, cached=0, written=0: sonnet.cost(p, c, cached, written), self_hosted=False, prices={"claude-sonnet-5": sonnet}
+        estimate_cost=lambda model, p, c, cached=0, written=0: sonnet.cost(p, c, cached, written),
+        self_hosted=False,
+        prices={"claude-sonnet-5": sonnet},
     )
     monkeypatch.setattr(registry, "find_class", lambda slug: vendor if slug == "anthropic" else None)
 
