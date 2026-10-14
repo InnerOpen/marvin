@@ -6,6 +6,32 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.336 (2026-10-14)
+
+### Bug Fixes
+
+- **workflows**: Workflow limit lookups clamp to range and ignore a value that isn't a number
+  ([`034947a`](https://github.com/InnerOpen/marvin/commit/034947ad23f4971e635a18a32d7dea49728f1f75))
+
+### Documentation
+
+- **manual**: Admin overview, security and branding, workspace limits, workflow run retention
+  ([`075ff55`](https://github.com/InnerOpen/marvin/commit/075ff552a1659646d44e2ac60e34307fcf3f2f41))
+
+### Features
+
+- **admin**: Overview health strip, workspaces and AI spend; Security and email Branding settings;
+  dead settings gone
+  ([`fb32bcc`](https://github.com/InnerOpen/marvin/commit/fb32bccec1f65f2697337d3e6947a3a789169387))
+
+- **retention**: Prune_workflow_runs — finished workflow runs and their steps go after 90 days
+  ([`3593d35`](https://github.com/InnerOpen/marvin/commit/3593d3550682ad3403712fb124329581118d2219))
+
+- **workspace**: Limits a workspace sets — agent steps, chat memory, bulk-change threshold, workflow
+  steps, approval wait
+  ([`70ac614`](https://github.com/InnerOpen/marvin/commit/70ac614343fb895f9fa87ddf6bf11a057c04cb5d))
+
+
 ## v1.0.0-rc.335 (2026-10-14)
 
 ### Bug Fixes
