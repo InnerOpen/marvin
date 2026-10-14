@@ -1189,7 +1189,7 @@ plugins = [
     { name = "marvin-integration-cloudflare-pages", git = "https://github.com/InnerOpen/marvin-integration-cloudflare-pages?rev=v0.1.0" },
     { name = "marvin-integration-instagram", git = "https://github.com/InnerOpen/marvin-integration-instagram?rev=v0.5.2" },
     { name = "marvin-integration-n8n", git = "https://github.com/InnerOpen/marvin-integration-n8n?rev=v0.2.0" },
-    { name = "marvin-integration-openai-images", git = "https://github.com/InnerOpen/marvin-integration-openai-images?rev=v0.3.0" },
+    { name = "marvin-integration-openai-images", git = "https://github.com/InnerOpen/marvin-integration-openai-images?rev=v0.4.0" },
     { name = "marvin-integration-slack", git = "https://github.com/InnerOpen/marvin-integration-slack?rev=v0.4.0" },
     { name = "marvin-integration-square", git = "https://github.com/InnerOpen/marvin-integration-square?rev=v0.4.0" },
     { name = "marvin-storage-s3", git = "https://github.com/InnerOpen/marvin-storage-s3?rev=v0.1.0" },
@@ -1275,8 +1275,8 @@ dependencies = [
 
 [[package]]
 name = "marvin-integration-openai-images"
-version = "0.3.0"
-source = { git = "https://github.com/InnerOpen/marvin-integration-openai-images?rev=v0.3.0#ce6456ecc0f306d3b463fad83c6507b03f9c23fd" }
+version = "0.4.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-openai-images?rev=v0.4.0#1e17f9ae67b07eb4be68108f613183bf7f96d262" }
 dependencies = [
     { name = "marvin-integration-sdk" },
 ]
