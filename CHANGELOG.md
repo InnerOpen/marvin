@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.340 (2026-10-14)
+
+### Bug Fixes
+
+- **storage**: A workspace connection's access key ID can be a workspace secret; the own-bucket
+  check ignores keys
+  ([`4278fa5`](https://github.com/InnerOpen/marvin/commit/4278fa5454596d59d94bcd3524aebfc9434c7698))
+
+
 ## v1.0.0-rc.339 (2026-10-14)
 
 ### Features
