@@ -376,3 +376,37 @@ def test_attach_asset_links_a_picture_in_a_role_once(ws):  # noqa: F811
     ws.session.query(EntryAssets).filter_by(entry_id=article.id).delete(synchronize_session=False)
     ws.session.query(Assets).filter(Assets.group_id == ws.gid).delete(synchronize_session=False)
     ws.session.commit()
+
+
+@pytest.mark.parametrize(("decision", "recorded"), [("deny", "denied"), ("approve", "approved")])
+def test_the_decision_is_written_onto_the_pictured_asset(ws, decision, recorded):  # noqa: F811
+    """Denied pictures stay in the library, so the asset itself carries what was said: who, when, the note."""
+    from marvin.db.models.platform import Assets
+
+    key = f"lib/cover-{uuid.uuid4().hex[:6]}"
+    cover = Assets(
+        session=ws.session, group_id=ws.gid, slug=key.split("/")[1], name="Cover", original_filename="cover.png", filename="cover",
+        extension="png", file_size=10, mime_type="image/png", asset_type="image", checksum=key, storage_provider="local", storage_key=key,
+        uploaded_by=ws.uid, origin="generated", metadata_json={"generated_by": "openai_images.generate"},
+    )  # fmt: skip
+    ws.session.add(cover)
+    ws.session.commit()
+    definition = {
+        "trigger": {"type": "event", "event": "entry_published"},
+        "actions": [{"kind": "approval", "id": "keep", "message": "Use this?", "image": f"https://cdn.test/{key}"}],
+    }
+    _install(ws, definition)
+    article = _published(ws, f"Pictured {recorded}")
+    _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry", correlation_id=f"pic-{recorded}")
+
+    row = approvals.decide(
+        ws.session, ws.gid, _waiting(ws).id, decision, user_id=ws.uid, role=ROLE_EDITOR, note="too dark" if decision == "deny" else None
+    )
+
+    ws.session.expire_all()
+    stamp = ws.session.get(Assets, cover.id).metadata_json["approval"]
+    assert stamp["decision"] == recorded and stamp["decided_by"] == str(ws.uid) and stamp["approval_id"] == str(row.id)
+    assert stamp["note"] == ("too dark" if decision == "deny" else None) and stamp["decided_at"]
+    assert ws.session.get(Assets, cover.id).metadata_json["generated_by"] == "openai_images.generate"  # the lineage stays
+    ws.session.delete(ws.session.get(Assets, cover.id))  # the fixture's user must be deletable afterwards
+    ws.session.commit()

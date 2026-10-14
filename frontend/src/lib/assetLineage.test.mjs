@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { assetRefs, describeDerivation, lineageOf, metaLink } from "./assetLineage.ts";
+import { assetRefs, decisionOf, describeDerivation, lineageOf, metaLink } from "./assetLineage.ts";
 
 test("a media step's derivation reads as words", () => {
   assert.equal(describeDerivation("media:resize:fit=inside,format=webp,width=800"), "resize webp, 800 wide");
@@ -71,4 +71,14 @@ test("metaLink: the entry a picture was made for and the workflow that made it o
   assert.equal(metaLink("correlation_id", "843621fb4de641c7874179ceac3fb653"), null); // not an id, and no page for it
   assert.equal(metaLink("made_for_entry", "not-an-id"), null);
   assert.equal(metaLink("derived_from", entry), null); // assets go through assetRefs
+});
+
+test("decisionOf: what an approval said about the picture, or null when never asked", () => {
+  assert.deepEqual(
+    decisionOf({ approval: { decision: "denied", decided_by_name: "Jared", decided_at: "2026-10-14T18:00:00+00:00", note: "too dark" } }),
+    { decision: "denied", label: "Denied", by: "Jared", at: "2026-10-14T18:00:00+00:00", note: "too dark" },
+  );
+  assert.equal(decisionOf({ approval: { decision: "approved", note: "" } }).note, null);
+  assert.equal(decisionOf({ generated_by: "openai_images.generate" }), null);
+  assert.equal(decisionOf(null), null);
 });

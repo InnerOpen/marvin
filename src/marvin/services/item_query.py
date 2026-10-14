@@ -25,6 +25,8 @@ check ``unknown_keys`` first):
 - ``created_after`` / ``created_before`` — ISO dates or datetimes (UTC), or relative (``-7d``).
 - ``trashed`` — true: only items in the Trash (the Trash's side, for a restore).
 - ``origin`` / ``origins`` — assets only: upload, derived (made from another asset) or generated (by an integration).
+- ``decision`` — assets only: what the person said when an approval step showed the picture (approved, denied,
+  expired, stale; ``none``: never asked). Written by services/automation/approvals.py onto ``metadata.approval``.
 - ``versions`` — assets only: false leaves out versions of an original that is still in the library (the library's
   folded view); true keeps only versions; all keeps both. Unset means both here, but a workflow's asset target
   defaults to false (services/automation/selector.py). ``source`` — the versions made from this asset (id or slug).
@@ -43,12 +45,26 @@ from marvin.services.entries.query import _as_list, _when
 ASSET, RESOURCE = "asset", "resource"
 _COMMON = ("text", "query", "tags", "collection", "collections", "unattached", "entry", "exclude", "created_after", "created_before", "trashed")
 KEYS = {
-    ASSET: (*_COMMON, "asset_type", "asset_types", "mime_type", "mime_types", "origin", "origins", "versions", "source", "role", "checksum"),
+    ASSET: (
+        *_COMMON,
+        "asset_type",
+        "asset_types",
+        "mime_type",
+        "mime_types",
+        "origin",
+        "origins",
+        "versions",
+        "source",
+        "role",
+        "checksum",
+        "decision",
+    ),
     RESOURCE: (*_COMMON, "resource_type", "resource_types"),
 }
 
 ASSET_TYPES = ("image", "svg", "document", "video", "audio", "archive", "other")
 ORIGINS = ("upload", "derived", "generated")
+DECISIONS = ("approved", "denied", "expired", "stale", "none")
 
 # What each key means, in a line — the agent's workflow authoring guide lists these for an asset or resource
 # target's `query` (test_workflow_item_targets keeps them matching KEYS).
@@ -79,6 +95,7 @@ KEY_NOTES: dict[str, dict[str, str]] = {
                 "source": "the versions made from this asset (id or slug)",
                 "role": "attached in this role (e.g. hero), to `entry` or to any entry",
                 "checksum": "exactly this file (sha256), e.g. ${asset.checksum}",
+                "decision": f"what an approval step that showed the picture decided: one of {', '.join(DECISIONS)} (none: never asked)",
             }
             if kind == ASSET
             else {"resource_type": "the resource's type, e.g. supplier (`resource_types`: a list)", "resource_types": "resource types, any of"}
@@ -267,6 +284,12 @@ def _asset_lineage(session, group_id, q, spec: dict):
         if bad := [o for o in origins if o not in ORIGINS]:
             return q, f"origin is one of {', '.join(ORIGINS)}, not {', '.join(map(str, bad))}"
         q = q.filter(Assets.origin.in_(origins))
+    if (decision := spec.get("decision")) not in (None, ""):
+        decision = str(decision).strip().lower()
+        if decision not in DECISIONS:
+            return q, f"decision is one of {', '.join(DECISIONS)}, not {decision!r}"
+        decided = Assets.metadata_json["approval"]["decision"].as_string()
+        q = q.filter(decided.is_(None) if decision == "none" else decided == decision)
     if spec.get("versions") is not None and str(spec["versions"]).lower() != "all":  # "all": originals and versions
         versions = as_bool(str(spec["versions"]))
         if versions is None:

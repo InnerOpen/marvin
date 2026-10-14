@@ -2,7 +2,8 @@
 // "Made from <source> · <what was done> · for the entry <title> · by the workflow <slug>" for a derivative or a
 // generated image (lib/assetLineage.ts). Nothing for an original. The source's and the entry's names are looked up
 // best-effort: a deleted one still shows the line, unnamed.
-import { entryHref, lineageOf, workflowHref } from "@/lib/assetLineage";
+import LocalTime from "@/components/LocalTime.astro";
+import { decisionOf, entryHref, lineageOf, workflowHref } from "@/lib/assetLineage";
 import { fetchApi } from "@/lib/api/client";
 import { createSdkClient } from "@/lib/sdk";
 
@@ -13,6 +14,7 @@ interface Props {
 
 const { metadata, authToken } = Astro.props;
 const lineage = lineageOf(metadata);
+const decision = decisionOf(metadata); // what an approval that showed the picture said
 let sourceName: string | null = null;
 let entryTitle: string | null = null;
 if (lineage && authToken) {
@@ -40,6 +42,14 @@ if (lineage && authToken) {
     {lineage.prompt && <span class="asset-lineage-prompt">Prompt: “{lineage.prompt}”</span>}
   </p>
 )}
+{decision && (
+  <p class={`asset-decision decision-${decision.decision}`}>
+    <strong>{decision.label}</strong>
+    {decision.by && <> by {decision.by}</>}
+    {decision.at && <> on <LocalTime iso={decision.at} format="date" /></>}
+    {decision.note && <> — “{decision.note}”</>}
+  </p>
+)}
 
 <style>
   .asset-lineage {
@@ -52,6 +62,14 @@ if (lineage && authToken) {
     color: var(--accent);
     text-decoration: underline;
     text-underline-offset: 2px;
+  }
+  .asset-decision {
+    margin: 0.35rem 0 0;
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+  .asset-decision.decision-denied strong {
+    color: var(--color-error);
   }
   .asset-lineage-prompt {
     display: block;

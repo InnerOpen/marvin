@@ -149,11 +149,61 @@ def settle(
         session.refresh(row)
         raise ApprovalError(f"It was already decided: {row.status}.")
     session.refresh(row)
+    _stamp_picture(session, row, logger=logger)
     from .engine import resume_after_approval
 
     resume_after_approval(session, row, logger=logger)
     _emit(session, row, None, EventTypes.workflow_approval_decided, user_id=user_id)
     return row
+
+
+# Written onto the pictured asset's metadata when an approval that showed it is settled (see _stamp_picture).
+DECISIONS_KEPT = ("approved", "denied", "expired", "stale")
+
+
+def _stamp_picture(session, row: WorkflowApprovalModel, *, logger=None) -> None:
+    """An approval that showed a picture leaves its outcome on that asset: ``metadata.approval`` = the decision, who
+    and when, the note, and the approval's id. A denied generated image is kept in the library like any other, so
+    without this nothing would tell it from one that was kept — the asset page says it, the library filters on it
+    (``decision`` in services/item_query.py), and a housekeeping workflow can trash denied pictures later. The URL
+    must be one of this workspace's assets (its storage key in it); any other picture is left alone. Best-effort: a
+    failure here never undoes the decision."""
+    import logging
+
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from marvin.db.models.platform import Assets
+    from marvin.db.models.users.users import Users
+
+    if not row.image_url or row.status not in DECISIONS_KEPT:
+        return
+    try:
+        asset = next(
+            (
+                a
+                for a in session.query(Assets).filter(Assets.group_id == row.group_id, Assets.storage_key.isnot(None))
+                if a.storage_key in row.image_url
+            ),
+            None,
+        )
+        if asset is None:
+            return
+        decider = session.get(Users, row.decided_by) if row.decided_by else None
+        meta = dict(asset.metadata_json or {})
+        meta["approval"] = {
+            "decision": row.status,
+            "decided_by": str(row.decided_by) if row.decided_by else None,
+            "decided_by_name": getattr(decider, "full_name", None) or getattr(decider, "username", None),
+            "decided_at": row.decided_at.isoformat() if row.decided_at else None,
+            "note": row.note,
+            "approval_id": str(row.id),
+        }
+        asset.metadata_json = meta
+        flag_modified(asset, "metadata_json")
+        session.commit()
+    except Exception:  # noqa: BLE001 — the decision stands either way
+        session.rollback()
+        (logger or logging.getLogger(__name__)).warning("approval %s: could not record the decision on its picture", row.id, exc_info=True)
 
 
 def expire_due(session, *, logger=None, now: datetime | None = None) -> int:

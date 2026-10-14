@@ -8,7 +8,8 @@ import { listTags } from "@/lib/api/tags";
 import { listTrashedAssets } from "@/lib/api/trash";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { getMimeCategory } from "@/lib/assetCategory";
-import { isFiltered, listParams, ORIGINS, readLibraryView, SORTS, TYPES, viewHref } from "@/lib/assetLibraryView";
+import { DECISIONS, isFiltered, listParams, ORIGINS, readLibraryView, SORTS, TYPES, viewHref } from "@/lib/assetLibraryView";
+import { decisionOf } from "@/lib/assetLineage";
 import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -105,6 +106,10 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
           <option value="">Any origin</option>
           {Object.entries(ORIGINS).map(([v, l]) => <option value={v} selected={view.origin === v}>{l}</option>)}
         </select>
+        <select name="decision" class="filter-select" aria-label="What an approval said about it">
+          <option value="">Any decision</option>
+          {Object.entries(DECISIONS).map(([v, l]) => <option value={v} selected={view.decision === v}>{l}</option>)}
+        </select>
         {tags.length > 0 && (
           <select name="tag" class="filter-select" aria-label="Tag">
             <option value="">Any tag</option>
@@ -199,6 +204,7 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
                     {asset.width && asset.height ? `${asset.width}×${asset.height}` : asset.mimeType}
                     {asset.origin === "derived" && <span class="card-badge">Version</span>}
                     {asset.origin === "generated" && <span class="card-badge">Generated</span>}
+                    {decisionOf(asset.metadataJson) && <span class={`card-badge decision-${decisionOf(asset.metadataJson)!.decision}`}>{decisionOf(asset.metadataJson)!.label}</span>}
                     {asset.versionsCount > 0 && (
                       <a class="card-badge versions" href={viewHref(view, { source: asset.id, versions: false })}>{asset.versionsCount} {asset.versionsCount === 1 ? "version" : "versions"}</a>
                     )}
@@ -348,6 +354,13 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
   }
   .card-badge.versions {
     color: var(--accent, inherit);
+  }
+  .card-badge.decision-denied {
+    color: var(--color-error);
+    border-color: var(--color-error);
+  }
+  .card-badge.decision-approved {
+    color: var(--color-success, var(--accent));
   }
 
   .asset-filters {

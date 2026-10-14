@@ -82,6 +82,7 @@ With **Assets** or **Resources**, the target is `{"entity": "asset", "query": {�
 | `asset_type` / `asset_types` | assets only: `image`, `svg`, `document`, `video`, `audio`, `archive`, `other` (**Asset type**) |
 | `mime_type` / `mime_types` | assets only: exact MIME type, e.g. `image/svg+xml` (**MIME type**) |
 | `origin` / `origins` | assets only: `upload`, `derived` (made from another asset by a media step or recipe), `generated` (an image an integration made) |
+| `decision` | assets only: what the person said when an approval step showed the picture — `approved`, `denied`, `expired`, `stale`, or `none` (never asked). See [A picture's decision stays with it](#a-pictures-decision-stays-with-it). |
 | `versions` | assets only: `false` leaves out versions of an original still in the library; `true` keeps only versions; `all` keeps both (**Versions**). A workflow's asset target runs on **originals only** unless it sets `versions`, `source` or `origin: derived` — so a bulk job never makes copies of copies |
 | `source` | assets only: the versions made from this asset (id or slug) |
 | `resource_type` / `resource_types` | resources only: the resource's type, e.g. `supplier` (**Resource type**) |
@@ -466,6 +467,12 @@ They **Approve** or **Deny**, optionally with a note, and the run goes on from t
   buttons: the tap opens Approvals so the person looks first. Each approver's buttons work once, for 15 minutes, as
   them and at their role now; afterwards the run is decided in Approvals.
 - **Expired:** if nobody decides within `expires_in_hours`, the run goes on with `expired` (checked hourly).
+- **A picture's decision stays with it:** an approval step that shows a picture (`image`) writes its outcome onto that
+  asset's metadata as `approval` — `decision` (`approved`, `denied`, `expired`, `stale`), who (`decided_by`,
+  `decided_by_name`), `decided_at`, the `note`, and `approval_id` — when the picture is one of the workspace's assets.
+  A denied generated image stays in the library, so this is what tells it from one that was kept: the asset page
+  says "Denied by … — note", the library shows a **Denied** badge and filters by **Decision**, and a workflow can
+  gather `{"entity": "asset", "query": {"decision": "denied", "created_before": "-30d"}}` to trash them later.
 - **Stale:** approving an entry that has changed since the question was asked gives `stale`, not `approved` — what was
   approved is not what would be acted on.
 - **Actions that need approval:** an integration action that requires approval (OpenAI image generation, Instagram's

@@ -5,6 +5,7 @@
  */
 import TagList from "@/components/TagList.astro";
 import { getMimeCategory } from "@/lib/assetCategory";
+import { decisionOf } from "@/lib/assetLineage";
 
 interface Props {
   asset: any;
@@ -18,6 +19,8 @@ interface Props {
 const { asset, canEdit, inTrash = false, versionsHref } = Astro.props;
 // Where it came from, when it isn't a plain upload: a version made from another asset, or an image an integration made.
 const originBadge = asset.origin === "derived" ? "Version" : asset.origin === "generated" ? "Generated" : null;
+// What an approval said about the picture, when one showed it (a denied generated image stays in the library).
+const decision = decisionOf(asset.metadataJson);
 const category = getMimeCategory(asset.mimeType);
 // The whole row opens the asset (a tap anywhere on a phone, where the Actions column sits off-screen); an asset in
 // the Trash opens its restore page instead of the viewer.
@@ -48,6 +51,7 @@ const openHref = inTrash ? `/workspace/assets/${asset.id}` : `/workspace/assets/
     {originBadge && (asset.sourceAssetId
       ? <a class="origin-badge" href={`/workspace/assets/${asset.sourceAssetId}/view`} title="Open the asset it was made from">{originBadge}</a>
       : <span class="origin-badge">{originBadge}</span>)}
+    {decision && <span class={`origin-badge decision-${decision.decision}`} title={decision.note ?? undefined}>{decision.label}</span>}
     {asset.versionsCount > 0 && versionsHref && (
       <a class="versions-link" href={versionsHref}>{asset.versionsCount} {asset.versionsCount === 1 ? "version" : "versions"}</a>
     )}
@@ -105,6 +109,13 @@ const openHref = inTrash ? `/workspace/assets/${asset.id}` : `/workspace/assets/
     border: 1px solid var(--line);
     color: var(--muted);
     text-decoration: none;
+  }
+  .origin-badge.decision-denied {
+    color: var(--color-error);
+    border-color: var(--color-error);
+  }
+  .origin-badge.decision-approved {
+    color: var(--color-success, var(--accent));
   }
   .versions-link {
     color: var(--accent, inherit);

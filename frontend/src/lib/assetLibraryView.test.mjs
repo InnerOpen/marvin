@@ -39,3 +39,11 @@ test("links keep the view and change only what they say", () => {
   assert.equal(viewHref(v, { tag: "", sort: "name" }), "/workspace/assets");
   assert.equal(viewHref(view("versions=show")), "/workspace/assets?versions=show");
 });
+
+test("the decision filter (what an approval said about a picture) reaches the API and the links", () => {
+  const v = view("decision=denied");
+  assert.equal(listParams(v).decision, "denied");
+  assert.equal(isFiltered(v), true);
+  assert.match(viewHref(v), /decision=denied/);
+  assert.equal("decision" in listParams(view("decision=maybe")), false);
+});

@@ -98,3 +98,31 @@ export function metaLink(key: string, value: unknown): { kind: "entry" | "workfl
   if (key === "workflow_id") return { kind: "workflow", href: workflowHref(value) };
   return null;
 }
+
+/** What a person said when an approval step showed this picture (`metadata.approval`, written by the approvals
+ *  service): the decision, who, when and the note. Null when it was never asked. */
+export interface Decision {
+  decision: string;
+  label: string;
+  by: string | null;
+  at: string | null;
+  note: string | null;
+}
+
+export const DECISION_WORDS: Record<string, string> = {
+  approved: "Approved",
+  denied: "Denied",
+  expired: "Not decided in time",
+  stale: "Approved too late (the entry had changed)",
+};
+
+export function decisionOf(metadata: unknown): Decision | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const raw = (metadata as Record<string, unknown>).approval;
+  if (!raw || typeof raw !== "object") return null;
+  const a = raw as Record<string, unknown>;
+  const text = (k: string) => (typeof a[k] === "string" && (a[k] as string).trim() ? (a[k] as string) : null);
+  const decision = text("decision");
+  if (!decision) return null;
+  return { decision, label: DECISION_WORDS[decision] ?? decision, by: text("decided_by_name"), at: text("decided_at"), note: text("note") };
+}
