@@ -189,7 +189,9 @@ def _saved(ctx: ToolContext, row, parsed, *, created: bool) -> str:
             "every warning in your own words."
         ),
     }
-    warnings = [w["message"] for w in validate_definition(row.definition)]
+    from marvin.services.automation.engine import workflow_max_steps
+
+    warnings = [w["message"] for w in validate_definition(row.definition, workflow_max_steps(ctx.session, ctx.group_id))]
     if warnings:
         out["warnings"] = warnings
     if not created:

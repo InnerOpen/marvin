@@ -120,7 +120,11 @@ def test_a_providers_own_price_wins_over_the_feed(db_session, monkeypatch):
 
     from marvin.services.ai import registry
 
-    own = SimpleNamespace(estimate_cost=lambda model, p, c, cached=0, written=0: ModelPrice(9, 9).cost(p, c, cached, written), self_hosted=False, prices={"gpt-6.1-sol": ModelPrice(9, 9)})
+    own = SimpleNamespace(
+        estimate_cost=lambda model, p, c, cached=0, written=0: ModelPrice(9, 9).cost(p, c, cached, written),
+        self_hosted=False,
+        prices={"gpt-6.1-sol": ModelPrice(9, 9)},
+    )
     monkeypatch.setattr(registry, "find_class", lambda slug: own if slug == "openai" else None)
     price_feed.set_url(db_session, "https://feed.test/prices.json")
     price_feed.refresh(db_session, _server())

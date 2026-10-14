@@ -379,7 +379,9 @@ class AutomationsController(BaseUserController):
 
         # Errors first (most severe), then advisory warnings.
         structural = structural_issues(data.definition)
-        issues = structural + validate_definition(data.definition)
+        from marvin.services.automation.engine import workflow_max_steps
+
+        issues = structural + validate_definition(data.definition, workflow_max_steps(self.session, self.group_id))
         if not structural:
             issues += self._missing_chain_warnings(data.definition)
         return AutomationValidateResult(issues=issues)

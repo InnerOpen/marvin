@@ -21,7 +21,9 @@ def run_approval_action(session, group_id, action: dict, context: dict, *, user_
     if not message:
         raise AutomationActionError("an approval step needs a message: what the approvers are asked")
     approvers = action.get("approvers") or "editor"
-    hours = int(action.get("expires_in_hours") or 72)
+    from ..engine import approval_default_hours
+
+    hours = int(action.get("expires_in_hours") or approval_default_hours(session, group_id))
     choices = _choices(action.get("choices"), context)
     image = _image(action.get("image"), context)
     if dry_run:

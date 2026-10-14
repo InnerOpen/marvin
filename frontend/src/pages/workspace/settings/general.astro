@@ -247,6 +247,20 @@ const success = urlParams.get("success") === "1";
             </label>
 
             <label>
+              <span>Steps per workflow</span>
+              <input type="number" name="workflow_max_steps" min="1" max="25" placeholder="10"
+                value={preferences?.workflowMaxSteps ?? ""} disabled={!canManage} />
+              <span class="hint">A workflow stops after this many steps (1–25, default 10). Longer jobs read better as chained workflows.</span>
+            </label>
+
+            <label>
+              <span>Approvals wait (hours)</span>
+              <input type="number" name="approval_expires_hours" min="1" max="720" placeholder="72"
+                value={preferences?.approvalExpiresHours ?? ""} disabled={!canManage} />
+              <span class="hint">How long a workflow's approval waits for a decision when its step doesn't say (1–720, default 72).</span>
+            </label>
+
+            <label>
               <span>Social Links (JSON)</span>
               <textarea
                 name="site_social_json"
@@ -436,6 +450,9 @@ const success = urlParams.get("success") === "1";
           site_contact_email: formData.get('site_contact_email') as string || null,
           site_auto_rebuild: formData.has('site_auto_rebuild'),
           scheduled_publish_requires_approval: formData.has('scheduled_publish_requires_approval'),
+          // Blank goes back to the platform default (null).
+          workflow_max_steps: Number(formData.get('workflow_max_steps')) || null,
+          approval_expires_hours: Number(formData.get('approval_expires_hours')) || null,
         };
 
         // Parse JSON fields
@@ -762,4 +779,5 @@ const success = urlParams.get("success") === "1";
   @media (max-width: 640px) {
     #trash select { min-height: 40px; }
   }
+  .hint { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); font-weight: 400; }
 </style>

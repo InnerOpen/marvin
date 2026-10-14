@@ -111,6 +111,10 @@ const sourceCatalog = sources.length
     ];
 
 const budgetCfg = s.budgetConfig ?? {};
+// The platform's steps per question and the most a workspace may set (AI_AGENT_MAX_STEPS / _CAP): a higher value is
+// trimmed to the cap, so the form never offers more than the platform gives.
+const agentStepsDefault: number = (s as any).agentStepsDefault ?? 6;
+const agentStepsCap: number = (s as any).agentStepsCap ?? 12;
 const logCfg = s.loggingConfig ?? {};
 const modCfg = s.moderationConfig ?? {};
 ---
@@ -429,6 +433,27 @@ const modCfg = s.moderationConfig ?? {};
           <span class="label">Max output tokens per request</span>
           <input type="number" name="budget.max_tokens_per_request" class="input"
             value={budgetCfg.max_tokens_per_request ?? ""} placeholder="App default" min="1" />
+        </label>
+      </div>
+      <h4 class="subhead">How agents behave</h4>
+      <div class="form-row usage-limits">
+        <label class="form-field">
+          <span class="label">Steps per question</span>
+          <input type="number" name="budget.agent_max_steps" class="input"
+            value={budgetCfg.agent_max_steps ?? ""} placeholder={String(agentStepsDefault)} min="1" max={agentStepsCap} />
+          <span class="hint">Tool calls an agent may make before it must answer (at most {agentStepsCap} on this platform). Each is a paid model call.</span>
+        </label>
+        <label class="form-field">
+          <span class="label">Conversation memory (turns)</span>
+          <input type="number" name="budget.history_turns" class="input"
+            value={budgetCfg.history_turns ?? ""} placeholder="10" min="2" max="50" />
+          <span class="hint">Earlier messages sent back with each question. More remembers more and costs more.</span>
+        </label>
+        <label class="form-field">
+          <span class="label">Ask before changing more than</span>
+          <input type="number" name="budget.bulk_ask_threshold" class="input"
+            value={budgetCfg.bulk_ask_threshold ?? ""} placeholder="20" min="1" max="1000" />
+          <span class="hint">Tag or link changes in one call; above this the agent asks you first.</span>
         </label>
       </div>
       <p class="hint">Costs are estimates from Marvin's price table; search indexing isn't counted (a fraction of a cent per reindex). Your provider's own balance isn't visible here — if it runs out, the failed run says so and you get a toast.</p>
@@ -854,7 +879,7 @@ const modCfg = s.moderationConfig ?? {};
 
     // Start from what is stored so a key this form doesn't show survives the save.
     const budgetCfg: Record<string, unknown> = JSON.parse((form as HTMLElement).dataset.budget || '{}');
-    for (const key of ['max_cost_per_month_usd', 'max_requests_per_day', 'max_tokens_per_request']) {
+    for (const key of ['max_cost_per_month_usd', 'max_requests_per_day', 'max_tokens_per_request', 'agent_max_steps', 'history_turns', 'bulk_ask_threshold']) {
       const raw = fd.get(`budget.${key}`)?.toString().trim();
       if (raw) budgetCfg[key] = Number(raw);
       else delete budgetCfg[key];
@@ -1199,4 +1224,5 @@ const modCfg = s.moderationConfig ?? {};
   /* ── workspace-creds inner spacing ── */
   #workspace-creds { display: flex; flex-direction: column; gap: 16px; }
   #workspace-creds .form-row { margin-bottom: 0; }
+  .subhead { margin: 18px 0 8px; font-size: 14px; }
 </style>

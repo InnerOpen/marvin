@@ -53,11 +53,11 @@ class BulkWrite:
         return len(self.target_ids) * len(self.items)
 
 
-def needs_approval(write: BulkWrite | None) -> bool:
-    """True when the call is too big to run without the user's go-ahead."""
+def needs_approval(write: BulkWrite | None, threshold: int = BULK_WRITE_ASK_THRESHOLD) -> bool:
+    """True when the call is too big to run without the user's go-ahead (``threshold``: the workspace's links limit)."""
     if write is None:
         return False
-    if write.links > BULK_WRITE_ASK_THRESHOLD:
+    if write.links > threshold:
         return True
     return len(write.items) > BULK_WRITE_ASK_ITEMS and len(write.target_ids) > 1
 
@@ -91,7 +91,7 @@ def approval_preview(write: BulkWrite) -> dict:
     }
 
 
-def refusal(write: BulkWrite) -> str:
+def refusal(write: BulkWrite, threshold: int = BULK_WRITE_ASK_THRESHOLD) -> str:
     """The tool result where the run can't park: say why, and what to do instead."""
     return json.dumps(
         {
@@ -104,7 +104,7 @@ def refusal(write: BulkWrite) -> str:
             "targets": len(write.target_ids),
             "items": len(write.items),
             "links": write.links,
-            "limit": BULK_WRITE_ASK_THRESHOLD,
+            "limit": threshold,
         }
     )
 
@@ -134,8 +134,12 @@ def _bulk_gate(spec, ctx) -> Gate | None:
         return None
 
     def gate(args: dict) -> tuple[dict, str] | None:
+        from marvin.services.ai.budget import agent_limit
+
         write = size_call(spec, ctx, args)
-        return (approval_preview(write), refusal(write)) if needs_approval(write) else None
+        session, group_id = getattr(ctx, "session", None), getattr(ctx, "group_id", None)
+        threshold = agent_limit(session, group_id, "bulk_ask_threshold") if session is not None else BULK_WRITE_ASK_THRESHOLD
+        return (approval_preview(write), refusal(write, threshold)) if needs_approval(write, threshold) else None
 
     return gate
 

@@ -53,6 +53,8 @@ def park(session, group_id, automation, context: dict, *, exec_id, step_index: i
     workflow, a run too large to keep)."""
     from marvin.services.integrations.errors import _snapshot
 
+    from .engine import approval_default_hours
+
     automation_id = getattr(automation, "id", None)
     if automation_id is None:
         raise AutomationActionError("an approval step needs a saved workflow to come back to")
@@ -74,7 +76,7 @@ def park(session, group_id, automation, context: dict, *, exec_id, step_index: i
         snapshot=snapshot,
         entry_id=entry_id,
         entry_version=_entry_version(session, entry_id),
-        expires_at=_now() + timedelta(hours=int(spec.get("expires_in_hours") or 72)),
+        expires_at=_now() + timedelta(hours=int(spec.get("expires_in_hours") or approval_default_hours(session, group_id))),
         choices=spec.get("choices") or None,
         image_url=spec.get("image") or None,
     )

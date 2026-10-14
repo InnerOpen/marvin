@@ -175,7 +175,7 @@ def _issue(level: str, message: str, where: str, index: int | None = None) -> di
     return out
 
 
-def validate_definition(definition: dict | None) -> list[dict]:
+def validate_definition(definition: dict | None, max_steps: int | None = None) -> list[dict]:
     """Return advisory issues for a definition (never raises). Empty list = looks coherent.
 
     Each issue is ``{level: "warning"|"error", message, where, index?}``. The most valuable check is
@@ -245,14 +245,15 @@ def validate_definition(definition: dict | None) -> list[dict]:
     # ── Actions ───────────────────────────────────────────────────────────────
     from .engine import MAX_ACTIONS
 
+    step_limit = max_steps or MAX_ACTIONS  # the workspace's step limit when the caller knows it
     actions = definition.get("actions") or []
     if not actions:
         issues.append(_issue("warning", "This workflow has no steps, so it does nothing.", "action"))
-    elif len(actions) > MAX_ACTIONS:
+    elif len(actions) > step_limit:
         issues.append(
             _issue(
                 "warning",
-                f"This workflow has {len(actions)} steps, but only the first {MAX_ACTIONS} will run "
+                f"This workflow has {len(actions)} steps, but only the first {step_limit} will run "
                 f"(the rest are ignored). Split it into chained workflows.",
                 "action",
             )
@@ -262,8 +263,8 @@ def validate_definition(definition: dict | None) -> list[dict]:
         issues.extend(_step_issues(act, i, "action", ttype, has_entry, subject))
     # Steps that run when one above fails — same entry, same checks.
     on_failure = definition.get("on_failure") or []
-    if len(on_failure) > MAX_ACTIONS:
-        issues.append(_issue("warning", f"On failure has {len(on_failure)} steps, but only the first {MAX_ACTIONS} will run.", "on_failure"))
+    if len(on_failure) > step_limit:
+        issues.append(_issue("warning", f"On failure has {len(on_failure)} steps, but only the first {step_limit} will run.", "on_failure"))
     for i, act in enumerate(on_failure):
         issues.extend(_step_issues(act, i, "on_failure", ttype, has_entry, subject))
 

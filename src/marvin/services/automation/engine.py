@@ -30,6 +30,30 @@ from .recorder import CollectingRecorder, NullRecorder
 from .summary import collapse, failed_step, handlings, run_handled, run_message, step_summary, trigger_ref
 
 MAX_ACTIONS = 10  # per-automation guardrail against a runaway pipeline
+MAX_ACTIONS_CAP = 25  # the most a workspace may raise it to (Settings → General → Workflows)
+DEFAULT_APPROVAL_HOURS = 72
+
+
+def _prefs_value(session, group_id, column: str):
+    from marvin.db.models.groups.preferences import GroupPreferencesModel
+
+    if session is None or group_id is None:
+        return None
+    return session.query(getattr(GroupPreferencesModel, column)).filter(GroupPreferencesModel.group_id == group_id).scalar()
+
+
+def workflow_max_steps(session, group_id) -> int:
+    """Steps a workflow runs before it stops in this workspace: its own setting (1-25), else MAX_ACTIONS."""
+    value = _prefs_value(session, group_id, "workflow_max_steps")
+    return int(value) if value and 1 <= int(value) <= MAX_ACTIONS_CAP else MAX_ACTIONS
+
+
+def approval_default_hours(session, group_id) -> int:
+    """Hours an approval waits when its step sets none: the workspace's setting (1-720), else 72."""
+    value = _prefs_value(session, group_id, "approval_expires_hours")
+    return int(value) if value and 1 <= int(value) <= 720 else DEFAULT_APPROVAL_HOURS
+
+
 MAX_REACTION_DEPTH = 3  # how many automation/emit_event hops a single chain may span before we stop
 
 # The automations whose runs are on the current call stack: one reaction chain. What a run does — an
@@ -901,9 +925,10 @@ def _run_pipeline(
     """
     recorder = recorder or NullRecorder()
     defn = automation.definition or {}
-    actions = (defn.get("actions") or [])[:MAX_ACTIONS]
-    if logger and len(defn.get("actions") or []) > MAX_ACTIONS:
-        logger.warning("automation '%s' has %d steps; only the first %d run (MAX_ACTIONS)", automation.slug, len(defn["actions"]), MAX_ACTIONS)
+    step_limit = workflow_max_steps(session, group_id)
+    actions = (defn.get("actions") or [])[:step_limit]
+    if logger and len(defn.get("actions") or []) > step_limit:
+        logger.warning("automation '%s' has %d steps; only the first %d run (workflow step limit)", automation.slug, len(defn["actions"]), step_limit)
     # Fresh per-run scratch so pipelines don't leak. `steps` is addressable by position ("0") and by
     # an action's optional `id`; `previous` is the last step's output (an alias for the common case).
     context["previous"] = dict((resume_from or {}).get("previous") or {})
@@ -958,7 +983,7 @@ def _run_on_failure(step: _StepRunner, handlers: list, error: AutomationActionEr
         "kind": action.get("kind"),
         "at": datetime.now(UTC).isoformat(timespec="seconds"),
     }
-    for offset, handler in enumerate(handlers[:MAX_ACTIONS]):
+    for offset, handler in enumerate(handlers[: workflow_max_steps(step.session, step.group_id)]):
         if step.run(handler, first_index + offset, on_failure=True) is not None:
             return
 
@@ -1117,7 +1142,7 @@ def run_retry(
         errors.release_retry(session, row)
         return "waiting"
     defn = automation.definition or {}
-    actions = (defn.get("actions") or [])[:MAX_ACTIONS]
+    actions = (defn.get("actions") or [])[: workflow_max_steps(session, group_id)]
     failed = actions[row.step_index] if row.step_index < len(actions) else {}
     # A step naming a capability (notify) has no action key of its own: the one it ran is the retry's.
     named = failed.get("action") or (row.action if failed.get("capability") else None)
@@ -1318,7 +1343,7 @@ def resume_after_wait(session, row, *, logger=None, run_action: Callable = _regi
 def _parked_step(automation, row, kind: str) -> tuple[int, dict] | None:
     """Where a parked run goes on from in the workflow as it is now: the step with the parked step's id (so a step
     added or removed before it doesn't move it), else the one at its position — if that is still a `kind` step."""
-    actions = ((getattr(automation, "definition", None) or {}).get("actions") or [])[:MAX_ACTIONS]
+    actions = ((getattr(automation, "definition", None) or {}).get("actions") or [])[:MAX_ACTIONS_CAP]  # locate, not limit
     if row.step_id:
         for i, step in enumerate(actions):
             if isinstance(step, dict) and step.get("id") == row.step_id and step.get("kind") == kind:

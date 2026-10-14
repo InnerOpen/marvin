@@ -1605,9 +1605,11 @@ class AIOperationsController(BaseUserController):
 
     def _run_history(self, body: AIAgentRequest, thread) -> list:
         """History for the model: the thread's stored turns when there is one, else the client's replay."""
+        from marvin.services.ai.budget import agent_limit
         from marvin.services.ai.threads import history_rows
 
-        return self._bounded_history(history_rows(thread) if thread is not None else body.history)
+        turns = agent_limit(self.session, self.group_id, "history_turns")
+        return self._bounded_history(history_rows(thread, limit=turns) if thread is not None else body.history)
 
     def _record_thread_turns(
         self,
@@ -1720,9 +1722,11 @@ class AIOperationsController(BaseUserController):
     def _agent_max_steps(self, body: AIAgentRequest) -> int:
         from marvin.core.config import get_app_settings
         from marvin.services.ai.agent import DEFAULT_MAX_STEPS
+        from marvin.services.ai.budget import agent_limit
 
         _app = get_app_settings()
-        configured = int(body.max_steps or _app.AI_AGENT_MAX_STEPS or DEFAULT_MAX_STEPS)
+        # A request may ask for its own budget; otherwise the workspace's (AI Settings), else the platform's.
+        configured = int(body.max_steps or agent_limit(self.session, self.group_id, "agent_max_steps") or DEFAULT_MAX_STEPS)
         return max(1, min(configured, _app.AI_AGENT_MAX_STEPS_CAP))
 
     def _agent_or_404(self, slug: str):

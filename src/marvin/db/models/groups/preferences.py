@@ -88,6 +88,12 @@ class GroupPreferencesModel(SqlAlchemyBase, BaseMixins):
         server_default="24",
         doc="An open integration alert is announced again after this many hours (0 = never remind).",
     )
+    workflow_max_steps: Mapped[int | None] = mapped_column(
+        sa.Integer, nullable=True, doc="Steps a workflow runs before it stops (null = the platform's 10; at most 25)."
+    )
+    approval_expires_hours: Mapped[int | None] = mapped_column(
+        sa.Integer, nullable=True, doc="Default hours an approval waits when its step sets none (null = 72; 1-720)."
+    )
     trash_auto_empty_days: Mapped[int | None] = mapped_column(
         sa.Integer,
         nullable=True,

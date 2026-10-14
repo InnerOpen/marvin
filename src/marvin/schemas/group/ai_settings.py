@@ -2,7 +2,7 @@
 
 from datetime import date, datetime
 
-from pydantic import UUID4, ConfigDict
+from pydantic import UUID4, ConfigDict, Field
 
 from marvin.schemas._marvin import _MarvinModel
 
@@ -90,10 +90,20 @@ class WorkspaceAISettingsUpdate(_MarvinModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+def _app_setting(name: str, fallback: int) -> int:
+    from marvin.core.config import get_app_settings
+
+    return int(getattr(get_app_settings(), name, fallback))
+
+
 class WorkspaceAISettingsRead(BubbleLinesState, WorkspaceAISettingsCreate):
     # Bubble lines (from BubbleLinesState) are read-only here: they're set through /bubble-lines.
     id: UUID4 | None = None
     group_id: UUID4 | None = None
+    agent_steps_default: int = Field(default_factory=lambda: _app_setting("AI_AGENT_MAX_STEPS", 6))
+    """The platform's steps per agent question when the workspace sets none (AI_AGENT_MAX_STEPS)."""
+    agent_steps_cap: int = Field(default_factory=lambda: _app_setting("AI_AGENT_MAX_STEPS_CAP", 12))
+    """The most steps a workspace may give its agents (AI_AGENT_MAX_STEPS_CAP); a higher value is trimmed to it."""
     # Read-only platform policy (from AppSettings), surfaced so the UI can gate the
     # "workspace" credential option. Not persisted on the workspace row.
     allow_workspace_credentials: bool = True

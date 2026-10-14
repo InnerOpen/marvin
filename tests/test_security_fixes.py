@@ -138,7 +138,11 @@ def test_the_agent_step_limit_is_a_setting_with_a_cap(monkeypatch):
     settings = get_app_settings()
     monkeypatch.setattr(settings, "AI_AGENT_MAX_STEPS", 9)
     monkeypatch.setattr(settings, "AI_AGENT_MAX_STEPS_CAP", 10)
-    steps = AIOperationsController._agent_max_steps
-    assert steps(None, SimpleNamespace(max_steps=None)) == 9
-    assert steps(None, SimpleNamespace(max_steps=50)) == 10
-    assert steps(None, SimpleNamespace(max_steps=3)) == 3
+    no_workspace = SimpleNamespace(session=None, group_id=None)  # no workspace setting: the platform's applies
+
+    def steps(body):
+        return AIOperationsController._agent_max_steps(no_workspace, body)
+
+    assert steps(SimpleNamespace(max_steps=None)) == 9
+    assert steps(SimpleNamespace(max_steps=50)) == 10
+    assert steps(SimpleNamespace(max_steps=3)) == 3
