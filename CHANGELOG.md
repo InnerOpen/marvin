@@ -6,6 +6,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.338 (2026-10-14)
+
+### Bug Fixes
+
+- **dev**: A dev refresh drops the previous refresh's pause records before pausing
+  ([`7898827`](https://github.com/InnerOpen/marvin/commit/789882703544b27a67d83d7c95008af8907caabe))
+
+### Code Style
+
+- **collections**: The Sidebar control is a switch
+  ([`fe72885`](https://github.com/InnerOpen/marvin/commit/fe728856b0f714d524b1f6b5c663dc40ac3328e1))
+
+### Documentation
+
+- **postgres**: Dev holds production's .secret, so copied secrets decrypt there
+  ([`dc408a4`](https://github.com/InnerOpen/marvin/commit/dc408a4fa15b2b432d40b5ebcdf3f5e4fab9beb5))
+
+- **tasks**: Bring-your-own-storage decisions — all ten answered
+  ([`d39584a`](https://github.com/InnerOpen/marvin/commit/d39584abef5bf25cf52ba61ad45312ecd729c075))
+
+
 ## v1.0.0-rc.337 (2026-10-14)
 
 ### Documentation
