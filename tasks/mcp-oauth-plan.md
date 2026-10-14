@@ -496,6 +496,15 @@ Each slice ships with a push to develop. Promote takes it to marvin-dev, then pr
 
 ---
 
+## Decisions (Jared, 2026-10-14: "your recommendations for mcp")
+
+All 16 questions below are decided as recommended: consent on admin.iwobble.com behind Access; one workspace per
+connection; plain tool names; read-only preselected (read & write for EDITOR+); access 1 h, refresh 30 days idle
+rotating, 180-day cap; reuse the "External MCP hosts" toggle; no static `marvin_tk_` bearer at `/mcp`; prod switch off
+until slice 3 is verified on dev; AI operations and per-workflow tools deferred; CIMD later; redirect allowlist;
+memberships only for super admins; AI budget enforced in the shared gateway (local MCP included); keep the npm server;
+super-admin connected-apps page; Access JWT check later.
+
 ## 8. Questions for Jared (recommendation first)
 1. **Where does consent live?** Recommend: admin.iwobble.com behind Access, reusing your Marvin login. A login form on api.iwobble.com would reopen the public login page.
 2. **One workspace per connection?** Recommend yes: pick it at consent, and connect again for another workspace. Later, optional `/mcp/w/<slug>` URLs so Mash & Burn and Grace's site can be separate connectors.
