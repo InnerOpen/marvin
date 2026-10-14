@@ -13,8 +13,10 @@ from pydantic import UUID4
 
 from marvin.routes._base import BaseAdminController, controller
 from marvin.schemas.admin.storage import StorageCheckResult, StorageSettingsRead, StorageSettingsUpdate, StorageWorkspaceUpdate
+from marvin.schemas.group.storage_settings import WorkspaceStoragePolicyRead, WorkspaceStoragePolicyUpdate
 from marvin.services.event_bus_service.event_types import (
     EventOperation,
+    EventPlatformSettingsChangedData,
     EventStorageProviderChangedData,
     EventStoragePublicDomainChangedData,
     EventTypes,
@@ -89,6 +91,41 @@ class AdminStorageController(BaseAdminController):
         if previous != url:
             self._announce_domain(workspace_id, name, previous, url)
         return self._read()
+
+    @router.get("/workspace-policy", response_model=WorkspaceStoragePolicyRead, summary="Admin: Get the Workspace Storage Policy")
+    def get_workspace_policy(self) -> WorkspaceStoragePolicyRead:
+        """Whether workspaces may keep their files in their own bucket, and which endpoints they may use."""
+        from marvin.services.storage.workspace import policy
+
+        pol = policy(self.session)
+        return WorkspaceStoragePolicyRead(allowed=pol.allowed, endpoint_policy=pol.endpoint_policy)
+
+    @router.put("/workspace-policy", response_model=WorkspaceStoragePolicyRead, summary="Admin: Set the Workspace Storage Policy")
+    def update_workspace_policy(self, data: WorkspaceStoragePolicyUpdate) -> WorkspaceStoragePolicyRead:
+        """Allow (or stop) workspaces keeping their files in their own bucket; `endpoint_policy` is `known` (R2, AWS
+        S3, Backblaze B2), `public` (any public address) or `any`. Turned off, workspaces that opted in can't upload
+        until it is back on or they switch to the platform's storage; their files keep serving."""
+        from marvin.services.storage.workspace_admin import WorkspaceStorageError, save_policy
+
+        try:
+            stored, changes = save_policy(self.session, allowed=data.allowed, endpoint_policy=data.endpoint_policy)
+        except WorkspaceStorageError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+        workspace_id = self.user.active_group_id or self.user.group_id
+        if changes and workspace_id:
+            name = getattr(self.user, "full_name", None) or self.user.username
+            self.event_bus.dispatch(
+                integration_id="storage_settings",
+                group_id=workspace_id,
+                event_type=EventTypes.platform_settings_changed,
+                document_data=EventPlatformSettingsChangedData(
+                    operation=EventOperation.update, setting="workspace_storage", changes=changes, changed_by_name=name
+                ),
+                message="; ".join(changes),
+                user_id=self.user.id,
+                entity_type="storage",
+            )
+        return WorkspaceStoragePolicyRead(allowed=stored["allowed"], endpoint_policy=stored["endpoint_policy"])
 
     @router.post("/providers/{slug}/test", response_model=StorageCheckResult, summary="Admin: Test a Storage Provider's Connection")
     def test_provider_connection(self, slug: str) -> StorageCheckResult:

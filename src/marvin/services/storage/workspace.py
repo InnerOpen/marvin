@@ -255,6 +255,20 @@ def provider_for_location(location: str, endpoint_policy: str | None = None):
     return _cached_provider(conn, endpoint_policy)
 
 
+def credential_fingerprint(conn) -> str:
+    """HMAC (keyed by the installation's secret) of a connection's resolved secret values: it changes when a key does,
+    so keys edited in Workspace → Secrets after the last check stop uploads instead of running unverified."""
+    import hashlib
+    import hmac
+
+    from marvin.core.config import get_app_settings
+    from marvin.services.secrets.resolver import resolve_secret
+
+    group_id = uuid.UUID(str(conn.group_id))
+    parts = [f"{env}={resolve_secret(slug, group_id) or ''}" for env, slug in sorted((conn.secret_refs or {}).items())]
+    return hmac.new(str(get_app_settings().SECRET).encode(), "\n".join(parts).encode(), hashlib.sha256).hexdigest()
+
+
 # ── where new uploads go ─────────────────────────────────────────────────────
 
 
@@ -281,6 +295,11 @@ def write_target(session, group_id) -> WriteTarget:
     if conn_row is None or conn_row.status != STATUS_OK:
         raise WorkspaceStorageUnavailable(
             "Uploads are paused: this workspace's own storage has no verified connection. Check the connection in Workspace settings → Storage."
+        )
+    if conn_row.credential_fingerprint and credential_fingerprint(conn_row) != conn_row.credential_fingerprint:
+        raise WorkspaceStorageUnavailable(
+            "Uploads are paused: this workspace's storage keys changed since the connection was last checked. "
+            "Check the connection again in Workspace settings → Storage."
         )
     if conn_row.plugin_slug not in pol.allowed_plugins:
         raise WorkspaceStorageUnavailable(f"Uploads are paused: the platform doesn't allow {conn_row.plugin_slug!r} for workspace storage.")

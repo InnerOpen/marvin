@@ -71,6 +71,7 @@ nav:
   - Operations: operations.md
   - Off-site backup: offsite-backup.md
   - Assets on R2: assets-on-r2.md
+  - A workspace's own storage: workspace-storage.md
   - Postgres: postgres.md
   - Glossary: glossary.md
   - API Reference: api/index.md

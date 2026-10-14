@@ -1,3 +1,21 @@
+# Bring your own storage — slice 2 (2026-10-14)
+
+Jared: "start BYO storage slice 2". Settings page, API, check connection, policy, SSRF, audit.
+
+- [x] `services/storage/workspace_admin.py`: provider field specs, create/update (bucket/endpoint/prefix fixed)/retire,
+      check (storage check + public-URL probe via the SSRF-guarded client), set_mode, view, save_policy
+- [x] Key fingerprint (HMAC with SECRET) recorded on a passing check; keys changed later stop uploads (write_target)
+- [x] `routes/groups/storage_settings_controller.py` (OWNER edits, ADMIN reads) + `/api/admin/storage/workspace-policy`
+- [x] Events: storage_provider_changed (mode), workspace_settings_changed `storage` (no rebuild), platform_settings_changed
+- [x] Pages: Workspace → Storage (`/workspace/settings/storage`, nav + settings card), Admin → Storage policy card
+- [x] Tests: tests/test_workspace_storage_api.py (12) — roles, add/check/switch, public URL failing, rotated keys,
+      fixed bucket, refusals, retire, policy
+- [x] Local end to end with the real R2 test bucket: policy on → Check connection Verified (incl. public URL) → switch
+      → upload via /api/platform/assets/upload lands in marvin-byo-test and serves 200 → policy off → 503 → restored
+- [x] Manual: docs/manual/workspace-storage.md (nav); SDK types additive (schema names prefixed WorkspaceStorage* to
+      avoid clashing with admin StorageCheckStep / StorageProviderOption)
+- [ ] Full suite; SDK main; push; dev check
+
 # Bring your own storage — slice 1 (2026-10-14)
 
 Jared: "start BYO storage slice 1". Plan + decisions: tasks/byo-storage-plan.md. Slice 1 = SDK/plugin + inert core

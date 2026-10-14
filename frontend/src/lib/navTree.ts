@@ -97,6 +97,7 @@ const NODES: NavNode[] = [
     title: "Workspace Secrets",
   },
   { id: "settings.backups", label: "Backups", href: "/workspace/settings/backups", parent: "settings" },
+  { id: "settings.storage", label: "Storage", href: "/workspace/settings/storage", parent: "settings" },
   { id: "settings.members", label: "Members", href: "/workspace/members", parent: "settings" },
   { id: "settings.members.new", label: "Add Member", href: "/workspace/members/new", parent: "settings.members" },
   { id: "settings.invites", label: "Invitations", href: "/workspace/invites", parent: "settings" },

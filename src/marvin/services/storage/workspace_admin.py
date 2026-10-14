@@ -1,0 +1,384 @@
+"""Managing a workspace's own storage: its connections (buckets), checking one, and switching where uploads go.
+
+The rules live in services/storage/workspace.py. Here: what the settings page shows and changes. Keys are only ever
+workspace secret slugs (`secret_refs`); this module never sees a key except to fingerprint it while checking.
+
+- A connection's bucket, endpoint and prefix never change: a different bucket is a new connection, so rows already
+  stored as `ws:<id>` keep pointing at the right place. Its keys (secret slugs), public URL and label can change;
+  any change sends it back to `unverified` until checked again.
+- Checking = the platform's storage check (list, put, get, delete) through the connection, then a probe fetched from
+  its public URL through the SSRF-guarded client. Success records a fingerprint of the keys: if the secrets change
+  later without a new check, uploads stop (workspace.write_target) rather than run on unverified keys.
+- Switching to `workspace` needs the platform's policy on and a verified connection; switching back is always
+  allowed. Neither moves a file.
+"""
+
+from __future__ import annotations
+
+import io
+import uuid
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Any
+
+from marvin_integration_sdk.storage import StorageConfigError, workspace_settings_problems
+
+from . import registry
+from . import workspace as ws
+
+IMMUTABLE_KINDS = ("bucket", "endpoint", "prefix")
+MAX_LABEL = 80
+PROBE_TIMEOUT_SECONDS = 10
+
+
+class WorkspaceStorageError(ValueError):
+    """A change that can't be made (the message is safe to show)."""
+
+
+# ── what a provider asks for ─────────────────────────────────────────────────
+
+
+@dataclass
+class FieldSpec:
+    env: str
+    label: str
+    help: str
+    required: bool
+    secret: bool
+    fixed: bool
+    """Can't change once the connection exists (it names the bucket)."""
+
+
+@dataclass
+class ProviderSpec:
+    slug: str
+    name: str
+    fields: list[FieldSpec] = field(default_factory=list)
+
+
+def _fixed_envs(provider_cls) -> set[str]:
+    """The settings that name the bucket: the endpoint, the provider's always-required settings, and a prefix."""
+    always = {s.env for s in provider_cls.settings if s.required and not s.secret}
+    fixed = {e for e in always if e in {s.env for s in provider_cls.workspace_settings}}
+    if provider_cls.endpoint_setting:
+        fixed.add(provider_cls.endpoint_setting)
+    fixed |= {s.env for s in provider_cls.workspace_settings if s.env.endswith("_PREFIX")}
+    return fixed
+
+
+def provider_specs(pol: ws.Policy) -> list[ProviderSpec]:
+    """The installed providers a workspace may use (the policy's plugins with a sound workspace declaration)."""
+    out = []
+    for slug in pol.allowed_plugins:
+        try:
+            plugin = registry.get_plugin(slug, needs="provider")
+        except StorageConfigError:
+            continue
+        cls = plugin.provider
+        if not cls.workspace_settings or workspace_settings_problems(cls):
+            continue
+        fixed = _fixed_envs(cls)
+        out.append(
+            ProviderSpec(
+                slug=slug,
+                name=plugin.name,
+                fields=[FieldSpec(s.env, s.label or s.env, s.help, s.required, s.secret, s.env in fixed) for s in cls.workspace_settings],
+            )
+        )
+    return out
+
+
+def _provider_cls(slug: str, pol: ws.Policy):
+    if slug not in pol.allowed_plugins:
+        raise WorkspaceStorageError(f"The platform doesn't allow {slug!r} for workspace storage")
+    try:
+        cls = registry.get_plugin(slug, needs="provider").provider
+    except StorageConfigError as e:
+        raise WorkspaceStorageError(str(e)) from e
+    if not cls.workspace_settings or workspace_settings_problems(cls):
+        raise WorkspaceStorageError(f"{slug!r} doesn't support workspace buckets")
+    return cls
+
+
+# ── connections ──────────────────────────────────────────────────────────────
+
+
+def _clean(provider_cls, settings: dict | None, secret_refs: dict | None, existing_secret_slugs: set[str]) -> tuple[dict, dict]:
+    """Keep only the provider's workspace settings: plain values for non-secret ones, secret slugs for the rest (any
+    setting may name a secret; a secret one must). Refuses a value that should be a secret."""
+    declared = {s.env: s for s in provider_cls.workspace_settings}
+    clean_settings: dict[str, str] = {}
+    for env, value in (settings or {}).items():
+        if env not in declared:
+            raise WorkspaceStorageError(f"{env} isn't a setting of this storage")
+        if declared[env].secret:
+            raise WorkspaceStorageError(f"{declared[env].label or env} must come from a workspace secret")
+        text = str(value).strip() if value is not None else ""
+        if text:
+            clean_settings[env] = text
+    clean_refs: dict[str, str] = {}
+    for env, slug in (secret_refs or {}).items():
+        if env not in declared:
+            raise WorkspaceStorageError(f"{env} isn't a setting of this storage")
+        slug = str(slug or "").strip()
+        if not slug:
+            continue
+        if slug not in existing_secret_slugs:
+            raise WorkspaceStorageError(f"No workspace secret named {slug!r}")
+        clean_refs[env] = slug
+        clean_settings.pop(env, None)
+    missing = [s.label or s.env for s in provider_cls.workspace_settings if s.required and s.env not in clean_settings and s.env not in clean_refs]
+    if missing:
+        raise WorkspaceStorageError(f"Missing: {', '.join(missing)}")
+    return clean_settings, clean_refs
+
+
+def _secret_slugs(group_id) -> set[str]:
+    from marvin.services.secrets.factory import get_secret_backend
+
+    return set(get_secret_backend().list_slugs(group_id))
+
+
+def create_connection(session, group_id, user_id, *, plugin_slug: str, label: str | None, settings: dict, secret_refs: dict):
+    from marvin.db.models.groups.storage_settings import WorkspaceStorageConnectionModel
+
+    pol = ws.policy(session)
+    cls = _provider_cls(plugin_slug, pol)
+    clean_settings, clean_refs = _clean(cls, settings, secret_refs, _secret_slugs(group_id))
+    _check_endpoint_now(cls, clean_settings, pol)
+    conn = WorkspaceStorageConnectionModel(
+        session=session,
+        group_id=group_id,
+        plugin_slug=plugin_slug,
+        label=(label or "").strip()[:MAX_LABEL] or None,
+        settings=clean_settings,
+        secret_refs=clean_refs,
+        status="unverified",
+        created_by=user_id,
+    )
+    session.add(conn)
+    session.commit()
+    return conn
+
+
+def update_connection(session, group_id, connection_id, *, label: str | None = None, settings: dict | None = None, secret_refs: dict | None = None):
+    conn = get_connection(session, group_id, connection_id)
+    if conn.status == ws.STATUS_RETIRED:
+        raise WorkspaceStorageError("This connection is retired; add a new one")
+    pol = ws.policy(session)
+    cls = _provider_cls(conn.plugin_slug, pol)
+    fixed = _fixed_envs(cls)
+    merged_settings = {**(conn.settings or {}), **(settings or {})}
+    merged_refs = {**(conn.secret_refs or {}), **(secret_refs or {})}
+    for env in fixed:
+        before, after = (conn.settings or {}).get(env, ""), merged_settings.get(env, "")
+        if str(before or "").strip() != str(after or "").strip():
+            raise WorkspaceStorageError("The bucket, endpoint and prefix can't change: add a new connection for another bucket")
+    clean_settings, clean_refs = _clean(cls, merged_settings, merged_refs, _secret_slugs(group_id))
+    if label is not None:
+        conn.label = label.strip()[:MAX_LABEL] or None
+    if (clean_settings, clean_refs) != (conn.settings or {}, conn.secret_refs or {}):
+        conn.settings, conn.secret_refs = clean_settings, clean_refs
+        conn.status, conn.verified_at, conn.credential_fingerprint = "unverified", None, None
+        conn.version = (conn.version or 1) + 1
+    session.commit()
+    ws.reset_cache()
+    return conn
+
+
+def retire_connection(session, group_id, connection_id):
+    """Retire a connection: no new uploads through it, but the files already in it still serve. The active one can't
+    be retired while the workspace uses it."""
+    from marvin.db.models.groups.storage_settings import WorkspaceStorageSettingsModel
+
+    conn = get_connection(session, group_id, connection_id)
+    row = session.query(WorkspaceStorageSettingsModel).filter_by(group_id=group_id).one_or_none()
+    if row and row.credential_mode == ws.MODE_WORKSPACE and str(row.active_connection_id) == str(conn.id):
+        raise WorkspaceStorageError("Switch the workspace to another connection or the platform's storage first")
+    conn.status, conn.retired_at = ws.STATUS_RETIRED, datetime.now(UTC).replace(tzinfo=None)
+    if row and str(row.active_connection_id) == str(conn.id):
+        row.active_connection_id = None
+    session.commit()
+    ws.reset_cache()
+    return conn
+
+
+def get_connection(session, group_id, connection_id):
+    from marvin.db.models.groups.storage_settings import WorkspaceStorageConnectionModel
+
+    conn = session.get(WorkspaceStorageConnectionModel, uuid.UUID(str(connection_id)))
+    if conn is None or str(conn.group_id) != str(group_id):
+        raise LookupError("Connection not found")
+    return conn
+
+
+def _check_endpoint_now(cls, settings: dict, pol: ws.Policy) -> None:
+    from marvin.core.config import get_app_settings
+
+    endpoint = settings.get(cls.endpoint_setting) if cls.endpoint_setting else None
+    try:
+        ws.check_endpoint(endpoint, pol.endpoint_policy, production=bool(get_app_settings().PRODUCTION))
+    except StorageConfigError as e:
+        raise WorkspaceStorageError(f"Endpoint refused: {e}") from e
+
+
+# ── checking ─────────────────────────────────────────────────────────────────
+
+
+def check_connection(session, group_id, connection_id) -> dict:
+    """Run the storage check through the connection plus a public-URL fetch; record the outcome on the connection.
+    Returns {ok, steps: [{name, ok, ms, error, code}], checked_at}."""
+    from marvin.services.storage.healthcheck import check_provider, explain, scrub
+
+    conn = get_connection(session, group_id, connection_id)
+    pol = ws.policy(session)
+    steps: list[dict] = []
+    try:
+        provider = ws.build_connection_provider(ws._snapshot(conn), pol.endpoint_policy, production=ws._production())
+    except Exception as e:  # noqa: BLE001 — a connection that can't be built is the check's first failed step
+        steps.append({"name": "connect", "ok": False, "ms": 0.0, "error": str(e), "code": None})
+        return _record(session, conn, steps, ok=False)
+    result = check_provider(provider, location=ws.location_for(conn.id))
+    steps += [{"name": s.name, "ok": s.ok, "ms": round(s.ms, 1), "error": scrub(s.error), "code": s.code} for s in result.steps]
+    if result.ok:
+        steps.append(_public_url_step(provider, explain))
+    return _record(session, conn, steps, ok=all(s["ok"] for s in steps))
+
+
+def _public_url_step(provider, explain) -> dict:
+    """Put a probe, fetch it from the public URL through the SSRF-guarded client, delete it."""
+    import time
+
+    from marvin.services.integrations.http_client import build_http
+    from marvin.services.storage.healthcheck import healthcheck_key
+
+    key = healthcheck_key()
+    data = f"Marvin public URL check {key}\n".encode()
+    started = time.perf_counter()
+    error = None
+    try:
+        provider.put(key, io.BytesIO(data), "text/plain", {})
+        url = provider.get_public_url(key)
+        resp = build_http().get(url, timeout=PROBE_TIMEOUT_SECONDS)
+        if resp.status_code != 200:
+            error = f"the public URL answered {resp.status_code}: is public access on for the bucket, at this address?"
+        elif resp.content != data:
+            error = "the public URL served something else: does it point at this bucket (and prefix)?"
+    except Exception as e:  # noqa: BLE001
+        error = f"the public URL couldn't be fetched: {explain(e).message}"
+    finally:
+        try:
+            provider.delete(key)
+        except Exception:  # noqa: BLE001 — the probe is tiny and under _marvin-healthcheck/
+            pass
+    return {"name": "public url", "ok": error is None, "ms": round((time.perf_counter() - started) * 1000, 1), "error": error, "code": None}
+
+
+def _record(session, conn, steps: list[dict], *, ok: bool) -> dict:
+    now = datetime.now(UTC).replace(tzinfo=None)
+    conn.last_checked_at = now
+    if conn.status != ws.STATUS_RETIRED:
+        conn.status = ws.STATUS_OK if ok else "failing"
+    if ok:
+        conn.verified_at, conn.last_error, conn.credential_fingerprint = now, None, ws.credential_fingerprint(conn)
+    else:
+        failed = next((s for s in steps if not s["ok"]), None)
+        conn.last_error = f"{failed['name']}: {failed['error']}"[:500] if failed else "failed"
+    session.commit()
+    ws.reset_cache()
+    return {"ok": ok, "steps": steps, "checked_at": now.isoformat() + "Z"}
+
+
+# ── mode ─────────────────────────────────────────────────────────────────────
+
+
+def set_mode(session, group_id, user_id, *, mode: str, connection_id=None) -> tuple[str | None, str | None]:
+    """Switch where new uploads go. Returns (previous location, new location); None is the platform's storage."""
+    from marvin.db.models.groups.storage_settings import WorkspaceStorageSettingsModel
+
+    if mode not in (ws.MODE_PLATFORM, ws.MODE_WORKSPACE):
+        raise WorkspaceStorageError("mode must be 'platform' or 'workspace'")
+    row = session.query(WorkspaceStorageSettingsModel).filter_by(group_id=group_id).one_or_none()
+    previous = ws.location_for(row.active_connection_id) if row and row.credential_mode == ws.MODE_WORKSPACE and row.active_connection_id else None
+    if row is None:
+        row = WorkspaceStorageSettingsModel(session=session, group_id=group_id)
+        session.add(row)
+    if mode == ws.MODE_WORKSPACE:
+        if not ws.policy(session).allowed:
+            raise WorkspaceStorageError("The platform doesn't allow workspace storage")
+        conn = get_connection(session, group_id, connection_id) if connection_id else None
+        if conn is None or conn.status != ws.STATUS_OK:
+            raise WorkspaceStorageError("Check the connection first: only a verified connection can take uploads")
+        row.active_connection_id = conn.id
+    row.credential_mode, row.updated_by = mode, user_id
+    session.commit()
+    ws.reset_cache()
+    return previous, ws.location_for(row.active_connection_id) if mode == ws.MODE_WORKSPACE else None
+
+
+# ── the page ─────────────────────────────────────────────────────────────────
+
+
+def connection_view(conn) -> dict[str, Any]:
+    return {
+        "id": str(conn.id),
+        "plugin_slug": conn.plugin_slug,
+        "label": conn.label,
+        "location": ws.location_for(conn.id),
+        "settings": dict(conn.settings or {}),
+        "secret_refs": dict(conn.secret_refs or {}),
+        "status": conn.status,
+        "verified_at": conn.verified_at,
+        "last_checked_at": conn.last_checked_at,
+        "last_error": conn.last_error,
+        "retired_at": conn.retired_at,
+    }
+
+
+def view(session, group_id) -> dict[str, Any]:
+    """Everything the Workspace → Storage page shows."""
+    import sqlalchemy as sa
+
+    from marvin.db.models.groups.storage_settings import WorkspaceStorageConnectionModel, WorkspaceStorageSettingsModel
+    from marvin.db.models.platform import Assets
+
+    pol = ws.policy(session)
+    row = session.query(WorkspaceStorageSettingsModel).filter_by(group_id=group_id).one_or_none()
+    conns = (
+        session.query(WorkspaceStorageConnectionModel).filter_by(group_id=group_id).order_by(WorkspaceStorageConnectionModel.created_at.desc()).all()
+    )
+    usage = dict(
+        session.query(Assets.storage_provider, sa.func.count(Assets.id)).filter(Assets.group_id == group_id).group_by(Assets.storage_provider).all()
+    )
+    return {
+        "policy": {"allowed": pol.allowed, "endpoint_policy": pol.endpoint_policy},
+        "mode": row.credential_mode if row else ws.MODE_PLATFORM,
+        "active_connection_id": str(row.active_connection_id) if row and row.active_connection_id else None,
+        "bundle_includes_own_bucket": bool(row.bundle_includes_own_bucket) if row else False,
+        "providers": [{"slug": p.slug, "name": p.name, "fields": [vars(f) for f in p.fields]} for p in provider_specs(pol)],
+        "connections": [{**connection_view(c), "files": int(usage.get(ws.location_for(c.id), 0))} for c in conns],
+        "platform_files": int(sum(n for loc, n in usage.items() if not ws.is_workspace_location(loc))),
+    }
+
+
+# ── the platform's policy (Admin → Storage) ──────────────────────────────────
+
+
+def save_policy(session, *, allowed: bool, endpoint_policy: str) -> tuple[dict, list[str]]:
+    """Store the platform's policy. Returns (the stored value, what changed, one line each)."""
+    from marvin.services.platform_settings import PlatformSettingsService
+
+    if endpoint_policy not in ws.ENDPOINT_POLICIES:
+        raise WorkspaceStorageError(f"endpoint_policy must be one of {', '.join(ws.ENDPOINT_POLICIES)}")
+    before = ws.policy(session)
+    svc = PlatformSettingsService(session)
+    stored = dict(svc.get(ws.POLICY_KEY) or {})
+    stored.update({"allowed": bool(allowed), "endpoint_policy": endpoint_policy})
+    svc.set(ws.POLICY_KEY, stored)
+    ws.reset_cache()
+    changes = []
+    if before.allowed != bool(allowed):
+        changes.append(f"Workspace storage: {'allowed' if allowed else 'off'}")
+    if before.endpoint_policy != endpoint_policy:
+        changes.append(f"Endpoint policy: {before.endpoint_policy} -> {endpoint_policy}")
+    return stored, changes

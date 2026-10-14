@@ -1006,7 +1006,7 @@ class SiteRebuildReactionListener(BuiltinReaction):
     EMPTY_BODY = "generic"
     # Workspace settings no site renders: a settings change touching only these queues no rebuild. A field
     # counts by its first dotted segment, so "agents" covers every "agents.<slug>[.<field>]" an agent edit names.
-    UNSEEN_SETTINGS = frozenset({"audit_overrides", "agents", "trash_auto_empty_days", "notifications"})
+    UNSEEN_SETTINGS = frozenset({"audit_overrides", "agents", "trash_auto_empty_days", "notifications", "storage"})
 
     def __init__(self, group_id: UUID4) -> None:
         from .publisher import ConsolePublisher
