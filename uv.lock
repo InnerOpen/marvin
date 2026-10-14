@@ -1187,7 +1187,7 @@ plugins = [
     { name = "marvin-integration-apprise", git = "https://github.com/InnerOpen/marvin-integration-apprise?rev=v0.3.0" },
     { name = "marvin-integration-buttondown", git = "https://github.com/InnerOpen/marvin-integration-buttondown?rev=v0.7.0" },
     { name = "marvin-integration-cloudflare-pages", git = "https://github.com/InnerOpen/marvin-integration-cloudflare-pages?rev=v0.1.0" },
-    { name = "marvin-integration-instagram", git = "https://github.com/InnerOpen/marvin-integration-instagram?rev=v0.5.1" },
+    { name = "marvin-integration-instagram", git = "https://github.com/InnerOpen/marvin-integration-instagram?rev=v0.5.2" },
     { name = "marvin-integration-n8n", git = "https://github.com/InnerOpen/marvin-integration-n8n?rev=v0.2.0" },
     { name = "marvin-integration-openai-images", git = "https://github.com/InnerOpen/marvin-integration-openai-images?rev=v0.3.0" },
     { name = "marvin-integration-slack", git = "https://github.com/InnerOpen/marvin-integration-slack?rev=v0.4.0" },
@@ -1259,8 +1259,8 @@ dependencies = [
 
 [[package]]
 name = "marvin-integration-instagram"
-version = "0.5.1"
-source = { git = "https://github.com/InnerOpen/marvin-integration-instagram?rev=v0.5.1#53b217b97baf51184bee6f9c48b49d60b5683118" }
+version = "0.5.2"
+source = { git = "https://github.com/InnerOpen/marvin-integration-instagram?rev=v0.5.2#027274c39a5ab4e25e11ea7ff945f9043cefaa4f" }
 dependencies = [
     { name = "marvin-integration-sdk" },
 ]
