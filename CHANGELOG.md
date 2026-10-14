@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.335 (2026-10-14)
+
+### Bug Fixes
+
+- **security**: Reset links expire; one password minimum everywhere; template edits survive
+  restarts; agent steps a setting
+  ([`c7a80e8`](https://github.com/InnerOpen/marvin/commit/c7a80e879cf73e9c986175d339186c894f14287e))
+
+### Documentation
+
+- **manual**: Reset links expire; one minimum password length
+  ([`5d06752`](https://github.com/InnerOpen/marvin/commit/5d067529bc9541619fe4c40b570c91e2fef85ad1))
+
+
 ## v1.0.0-rc.334 (2026-10-14)
 
 ### Bug Fixes
