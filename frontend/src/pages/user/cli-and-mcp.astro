@@ -1,0 +1,140 @@
+---
+/**
+ * Set up the Marvin CLI and the MCP server (for AI clients such as Claude) against this Marvin: the commands, with this
+ * installation's public API address and the current workspace filled in. Linked from API Tokens and the profile.
+ */
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { getBrowserApiBaseUrl } from "@/lib/api/config";
+import { getCurrentWorkspace } from "@/lib/api/workspaces";
+
+const authToken = getAuthToken(Astro.cookies);
+const apiUrl = getBrowserApiBaseUrl();
+let workspaceSlug = "<workspace-slug>";
+try {
+  if (authToken) workspaceSlug = (await getCurrentWorkspace(authToken)).slug || workspaceSlug;
+} catch {
+  /* the placeholder stays */
+}
+
+const USER_TOKEN = "<your API token>";
+const SITE_TOKEN = "<site client token>";
+
+const cliInstall = "npm install -g @inneropen/marvin-cli";
+const cliLogin = `marvin --api-url ${apiUrl} login --user-token ${USER_TOKEN} --site-token ${SITE_TOKEN} --workspace ${workspaceSlug}`;
+const cliCheck = "marvin user profile show";
+const claudeCode = [
+  "claude mcp add marvin",
+  `  --env MARVIN_API_URL=${apiUrl}`,
+  `  --env MARVIN_WORKSPACE_SLUG=${workspaceSlug}`,
+  `  --env MARVIN_USER_TOKEN=${USER_TOKEN}`,
+  "  -- npx -y @inneropen/marvin-mcp",
+].join(" \\\n");
+const desktopConfig = JSON.stringify(
+  {
+    mcpServers: {
+      marvin: {
+        command: "npx",
+        args: ["-y", "@inneropen/marvin-mcp"],
+        env: {
+          MARVIN_API_URL: apiUrl,
+          MARVIN_WORKSPACE_SLUG: workspaceSlug,
+          MARVIN_SITE_CLIENT_TOKEN: SITE_TOKEN,
+          MARVIN_USER_TOKEN: USER_TOKEN,
+        },
+      },
+    },
+  },
+  null,
+  2,
+);
+---
+
+<AppLayout title="Command line & MCP" eyebrow="User Settings">
+  <div class="toolbar">
+    <div>
+      <h2>Command line &amp; MCP</h2>
+      <p>Use Marvin from a terminal, scripts, or an AI assistant such as Claude.</p>
+    </div>
+    <a href="/user/api-tokens" class="button secondary">API Tokens</a>
+  </div>
+
+  <div class="page-container">
+    <p class="lead">
+      This Marvin's API is at <code>{apiUrl}</code>; your current workspace is <code>{workspaceSlug}</code>. Replace the
+      <code>&lt;…&gt;</code> parts with your own tokens. Never paste a token into a chat or a shared file.
+    </p>
+
+    <section class="step">
+      <h3><span class="num">1</span> Get two tokens</h3>
+      <ul>
+        <li><strong>Your API token</strong> (<code>marvin_tk_…</code>) acts as you: <a href="/user/api-tokens/new">Create an API token</a>. It is shown once.</li>
+        <li>
+          <strong>A site client token</strong> reads the workspace's published content: <a href="/publishing/clients/new">Create a site
+          client</a> (workspace owners and admins), or ask someone who can.
+        </li>
+      </ul>
+    </section>
+
+    <section class="step">
+      <h3><span class="num">2</span> Install the CLI</h3>
+      <p>Needs Node.js 18 or newer.</p>
+      <div class="cmd"><pre><code>{cliInstall}</code></pre><button type="button" class="copy" data-copy={cliInstall}>Copy</button></div>
+      <p>Sign in once; the address and tokens are saved in <code>~/.marvin/credentials.json</code>:</p>
+      <div class="cmd"><pre><code>{cliLogin}</code></pre><button type="button" class="copy" data-copy={cliLogin}>Copy</button></div>
+      <p>Check it works:</p>
+      <div class="cmd"><pre><code>{cliCheck}</code></pre><button type="button" class="copy" data-copy={cliCheck}>Copy</button></div>
+      <p class="muted">Every command: <code>marvin --help</code>, or the <a href="https://www.npmjs.com/package/@inneropen/marvin-cli" target="_blank" rel="noopener">package page</a>.</p>
+    </section>
+
+    <section class="step">
+      <h3><span class="num">3</span> Connect an AI assistant (MCP)</h3>
+      <p>
+        The MCP server lets an assistant read and search this workspace and run Marvin's tools as you, within your role.
+        Sign in with the CLI first (step 2): the server reads the site client token it saved.
+      </p>
+      <h4>Claude Code</h4>
+      <div class="cmd"><pre><code>{claudeCode}</code></pre><button type="button" class="copy" data-copy={claudeCode}>Copy</button></div>
+      <h4>Claude Desktop and other MCP clients</h4>
+      <p>Add this to the client's MCP configuration (Claude Desktop: Settings → Developer → Edit Config):</p>
+      <div class="cmd"><pre><code>{desktopConfig}</code></pre><button type="button" class="copy" data-copy={desktopConfig}>Copy</button></div>
+      <p class="muted">
+        Without <code>MARVIN_USER_TOKEN</code> the assistant only reads published content. Revoke a token on
+        <a href="/user/api-tokens">API Tokens</a> to cut off whatever uses it.
+      </p>
+    </section>
+  </div>
+</AppLayout>
+
+<script>
+  document.querySelectorAll<HTMLButtonElement>("button.copy").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.copy ?? "");
+        button.textContent = "Copied";
+      } catch {
+        button.textContent = "Select and copy";
+      }
+      setTimeout(() => (button.textContent = "Copy"), 1500);
+    });
+  });
+</script>
+
+<style>
+  .toolbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+  .toolbar h2 { margin: 0; font-size: 24px; font-weight: 600; }
+  .toolbar p { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
+  .page-container { max-width: 900px; }
+  .lead { margin: 0 0 24px; line-height: 1.6; }
+  .step { margin-bottom: 32px; }
+  .step h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; font-size: 18px; }
+  .step h4 { margin: 18px 0 8px; font-size: 14px; }
+  .step p, .step li { line-height: 1.6; }
+  .step ul { padding-left: 20px; }
+  .num { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 13px; flex: none; }
+  .cmd { position: relative; margin: 8px 0 12px; }
+  .cmd pre { margin: 0; padding: 14px 76px 14px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; }
+  .copy { position: absolute; top: 8px; right: 8px; padding: 4px 10px; font-size: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg, transparent); color: var(--ink); cursor: pointer; }
+  .muted { color: var(--muted); font-size: 13px; }
+  code { overflow-wrap: anywhere; }
+</style>

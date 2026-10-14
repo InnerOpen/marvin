@@ -34,7 +34,10 @@ function relativeDate(date: string | null | undefined): string | null {
       <h2>Personal API Tokens</h2>
       <p>Tokens for scripts and integrations (marvin_tk_*)</p>
     </div>
-    <a href="/user/api-tokens/new" class="button">Create Token</a>
+    <div class="toolbar-actions">
+      <a href="/user/cli-and-mcp" class="button secondary">Command line &amp; MCP</a>
+      <a href="/user/api-tokens/new" class="button">Create Token</a>
+    </div>
   </div>
 
   <div class="page-container">
@@ -128,6 +131,8 @@ function relativeDate(date: string | null | undefined): string | null {
     padding-bottom: 20px;
     border-bottom: 1px solid var(--line);
   }
+
+  .toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
 
   .toolbar h2 {
     margin: 0;
