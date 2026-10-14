@@ -14,6 +14,7 @@ What is new in this release:
 - **List items carry `data` and `description`** (fadb3f52). `PublishedEntryListItem` now includes the entry's schema fields (`data`, never null) and its `description`, so a whole collection or entries page renders from one request. `marvin-astro` skips its per-entry hydrate fetch when `data` is present, which removes an N+1 on large collections.
 - **Entries of non-publishable types are never served** (0e676a23). An entry of a submittable type (a contact message, a newsletter signup) with status `published` used to be returned with its data to any site token. Types whose capabilities say `publishable: false` are now excluded from the entries list, entry detail, collection entries and resource entries, whatever the status. Absent capabilities count as publishable.
 - **Nothing in the [Trash](trash.md) is served.** A trashed entry, asset or resource is left out of every list and read (a read by slug is a 404), an entry's `assets[]` / `resources[]`, a list item's `assetSlugs` / `resourceSlugs` and `featuredAsset`, a resource's entries, and the site settings' `logo`, `favicon` and `seo.image` when they name a trashed asset (`null`). A trashed asset's file stays in storage, so a URL to it already in a built site or pasted into an entry keeps loading until the asset is deleted forever. Trashing or restoring an asset or resource a site shows queues a rebuild (unreleased).
+- **`site.privacy`: privacy & cookie disclosures** (unreleased). See [Privacy & cookies](#privacy-cookies).
 
 ## Where
 
@@ -75,7 +76,7 @@ A list item has asset and resource *slugs* only. A site that needs asset roles (
 | Method | Path | Query | Permission |
 | --- | --- | --- | --- |
 | GET | `/` | — | `read:published_entries` or `read:all_entries` |
-| GET | `/site` | — | same; returns site configuration (SEO, verification tags, `embeds`: media privacy mode, consent text, player origins) |
+| GET | `/site` | — | same; returns site configuration (SEO, verification tags, `privacy`, `embeds`: media privacy mode, consent text, player origins) |
 | GET | `/entry-types` | — | same; ordered by `sort_order`, name |
 | GET | `/entries` | `entry_type`, `collection`, `tag` (comma, any), `slug` (comma), `updated_since` (ISO), `limit`, `offset`, `expand` | same |
 | GET | `/entries/{slug}` | — | same; full `PublishedEntryRead` with collections, resources, assets and media `embeds` (list items carry `embeds` too; see [Media embeds](media-embeds.md)) |
@@ -109,6 +110,10 @@ Defined in `src/marvin/core/permissions.py`:
 | `read:forms`, `write:forms`, `read:form_submissions` | no | defined; no route references them |
 
 The create and edit forms (`/publishing/clients/new`, `/publishing/clients/{id}/edit`) offer exactly the keys the routes check, in two groups: **Content** (Read Published Entries, Read All Entries, Read Collections, Read Assets, Read Resources) and **Forms** (**Submit Forms** for `write:form_submissions`, **Submit Public Entries** for `write:public_entries`). A key a client holds that the form doesn't list appears under **Other**, so it can be removed. Full reference: [`../api/`](../api/index.md).
+
+### Privacy & cookies
+
+**Publishing → Site** has a **Privacy & Cookies** section beside SEO. It stores the facts a privacy or cookie policy page needs under `site_metadata_json.privacy`, and `GET /site` serves them typed as `site.privacy` (`null` when nothing is set): the **controller** (`legalName`, `contactEmail`, and optionally `address`, `euRepresentative`, `dpoEmail`), a list of **processors** (`name`, `purpose`, `dataCategories`, and optionally `region`, `transferBasis`, `dpaUrl`, `privacyUrl`), a list of **cookies** (`name`, `provider`, `purpose`, optionally `duration`, and a `category` of `necessary`, `preferences`, `analytics` or `marketing`) and **consent** (`policyEntrySlug`, `cookiePolicyEntrySlug`, `lastReviewed`). `bannerRequired` is worked out, not saved: it is true when any cookie is not `necessary`. A processor whose `region` is outside the EU/EEA (anything other than an EU or EEA country, `EU` or `EEA`) must give a `transferBasis`, such as `SCCs`. Saving a block with an unknown cookie category or a missing transfer basis is refused (422); a malformed block already stored is left out of `site.privacy`. This is disclosure only: Marvin does not show a consent banner, and the metadata editor under it leaves `privacy` alone, as it does `seo`.
 
 ## Entry page URLs
 

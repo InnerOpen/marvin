@@ -5,10 +5,10 @@ These schemas are used for the public-facing publishing API and exclude
 all admin fields, internal metadata, and unpublished content.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
-from pydantic import UUID4, ConfigDict, Field, field_validator
+from pydantic import UUID4, ConfigDict, Field, computed_field, field_validator, model_validator
 
 from marvin.schemas._marvin import _MarvinModel
 from marvin.services.media_embeds.html import DEFAULT_CONSENT_TEXT
@@ -580,6 +580,155 @@ class SiteSeo(_MarvinModel):
     """Search-engine ownership verification tokens."""
 
 
+# Regions where GDPR applies without a transfer mechanism (EU + EEA), as lowercase names and ISO codes.
+# A processor outside this set (or outside "EU"/"EEA") is a restricted transfer and must say how it is
+# covered. Kept deliberately small and literal: it is a disclosure check, not a legal determination.
+_EU_EEA_REGIONS = frozenset(
+    {"eu", "eea", "european union", "european economic area"}
+    | {
+        # EU member states
+        "austria",
+        "at",
+        "belgium",
+        "be",
+        "bulgaria",
+        "bg",
+        "croatia",
+        "hr",
+        "cyprus",
+        "cy",
+        "czechia",
+        "czech republic",
+        "cz",
+        "denmark",
+        "dk",
+        "estonia",
+        "ee",
+        "finland",
+        "fi",
+        "france",
+        "fr",
+        "germany",
+        "de",
+        "greece",
+        "gr",
+        "hungary",
+        "hu",
+        "ireland",
+        "ie",
+        "italy",
+        "it",
+        "latvia",
+        "lv",
+        "lithuania",
+        "lt",
+        "luxembourg",
+        "lu",
+        "malta",
+        "mt",
+        "netherlands",
+        "nl",
+        "poland",
+        "pl",
+        "portugal",
+        "pt",
+        "romania",
+        "ro",
+        "slovakia",
+        "sk",
+        "slovenia",
+        "si",
+        "spain",
+        "es",
+        "sweden",
+        "se",
+        # EEA-only
+        "iceland",
+        "is",
+        "liechtenstein",
+        "li",
+        "norway",
+        "no",
+    }  # fmt: skip
+)
+
+CookieCategory = Literal["necessary", "preferences", "analytics", "marketing"]
+
+
+class PrivacyController(_MarvinModel):
+    """Who is responsible for the site's data (the GDPR "controller")."""
+
+    legal_name: str
+    contact_email: str
+    address: str | None = None
+    eu_representative: str | None = None
+    """Only needed when the controller is outside the EU but serves EU visitors."""
+    dpo_email: str | None = None
+    """Data protection officer, when one is appointed."""
+
+
+class PrivacyProcessor(_MarvinModel):
+    """A third party that handles visitor data on the site's behalf (analytics, email, hosting...)."""
+
+    name: str
+    purpose: str
+    data_categories: list[str] = Field(default_factory=list)
+    region: str | None = None
+    """Where the processor handles the data: a country name/code, or ``EU`` / ``EEA``."""
+    transfer_basis: str | None = None
+    """How a transfer outside the EU/EEA is covered, e.g. ``SCCs`` or ``adequacy decision``."""
+    dpa_url: str | None = None
+    privacy_url: str | None = None
+
+    @model_validator(mode="after")
+    def _transfer_basis_outside_eu(self) -> "PrivacyProcessor":
+        # A restricted transfer is only lawful with a stated mechanism, so a policy page can't
+        # render a non-EU processor without one. A processor with no region stated is not checked.
+        region = (self.region or "").strip().lower()
+        if region and region not in _EU_EEA_REGIONS and not (self.transfer_basis or "").strip():
+            raise ValueError(f"transfer_basis is required for a processor outside the EU/EEA (region {self.region!r})")
+        return self
+
+
+class PrivacyCookie(_MarvinModel):
+    """A cookie (or similar storage entry) the site sets."""
+
+    name: str
+    provider: str
+    purpose: str
+    duration: str | None = None
+    category: CookieCategory
+
+
+class PrivacyConsent(_MarvinModel):
+    """Where the policy pages live and when the disclosures were last checked."""
+
+    policy_entry_slug: str | None = None
+    cookie_policy_entry_slug: str | None = None
+    last_reviewed: date | None = None
+
+
+class SitePrivacy(_MarvinModel):
+    """
+    Structured privacy & cookie disclosures for a workspace's published site.
+
+    Stored under ``group_preferences.site_metadata_json['privacy']`` and surfaced here, typed,
+    as ``site.privacy``. Disclosure only: Marvin serves the facts a privacy/cookie policy page
+    needs; it does not run a consent banner. ``banner_required`` is derived, never stored.
+    """
+
+    controller: PrivacyController
+    processors: list[PrivacyProcessor] = Field(default_factory=list)
+    cookies: list[PrivacyCookie] = Field(default_factory=list)
+    consent: PrivacyConsent = Field(default_factory=PrivacyConsent)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def banner_required(self) -> bool:
+        """True when any cookie is not strictly necessary: those need prior consent."""
+        return any(c.category != "necessary" for c in self.cookies)
+
+
 class SiteEmbeds(_MarvinModel):
     """How a site shows media embeds. Stored under ``group_preferences.site_metadata_json['embeds']``
     (``mode``, ``consentText``); ``frame_sources`` is computed from Marvin's provider registry."""
@@ -633,6 +782,9 @@ class SiteConfiguration(_MarvinModel):
 
     seo: SiteSeo | None = None
     """Structured SEO / social-sharing metadata (also present under ``metadata.seo``)."""
+
+    privacy: SitePrivacy | None = None
+    """Structured privacy & cookie disclosures (also present under ``metadata.privacy``)."""
 
     embeds: SiteEmbeds = Field(default_factory=SiteEmbeds)
     """Media-embed privacy mode, consent text and the player origins (always present)."""

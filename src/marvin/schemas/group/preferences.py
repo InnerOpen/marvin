@@ -127,6 +127,18 @@ class GroupPreferencesUpdate(_MarvinModel):  # Typically, update schemas allow p
     """Optional: days an entry stays in the Trash before it is deleted forever (0 = never). An explicit null
     goes back to inheriting the platform default."""
 
+    @field_validator("site_metadata_json")
+    @classmethod
+    def validate_privacy_block(cls, value: dict | None) -> dict | None:
+        # The privacy block is typed (SitePrivacy): refuse a bad one on save so it can't be stored
+        # and silently dropped on read. Other metadata keys stay free-form.
+        privacy = (value or {}).get("privacy")
+        if privacy:
+            from marvin.schemas.publishing import SitePrivacy
+
+            SitePrivacy.model_validate(privacy)  # ValidationError is a ValueError -> 422
+        return value
+
     @field_validator("trash_auto_empty_days")
     @classmethod
     def validate_trash_auto_empty_days(cls, value: int | None) -> int | None:

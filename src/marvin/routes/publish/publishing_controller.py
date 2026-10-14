@@ -8,6 +8,7 @@ All routes require API client token authentication (marvin_sk_ prefix).
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import ValidationError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from marvin.core.config import get_app_settings
@@ -47,6 +48,7 @@ from marvin.schemas.publishing import (
     PublishedResourcesResponse,
     PublishedResourceSummary,
     SiteConfiguration,
+    SitePrivacy,
     SiteSeo,
     WorkspaceInfo,
     WorkspaceSiteInfo,
@@ -138,6 +140,18 @@ def _serves_asset(ea: EntryAssets) -> bool:
     """An entry's asset link the publishing API shows: not a pending AI suggestion, and the asset not in
     the Trash (services/trash.py) — the link stays for a restore, the site never sees it."""
     return bool(ea.asset) and ea.asset.trashed_at is None and not _is_suggested(ea)
+
+
+def _site_privacy(site_metadata: dict | None) -> SitePrivacy | None:
+    """The typed ``privacy`` block, or None when absent. A malformed stored block is ignored (the
+    save path rejects bad input, so this only guards data written some other way)."""
+    raw = (site_metadata or {}).get("privacy")
+    if not isinstance(raw, dict) or not raw:
+        return None
+    try:
+        return SitePrivacy.model_validate(raw)
+    except ValidationError:
+        return None
 
 
 def _unless_trashed_asset(session: Session, group_id, value: str | None) -> str | None:
@@ -436,6 +450,7 @@ async def get_site_configuration(
     if seo is not None:
         seo.image = _unless_trashed_asset(session, group.id, seo.image)
     embeds = site_embeds(site_metadata)
+    privacy = _site_privacy(site_metadata)
 
     # Build site configuration from preferences (with sensible defaults)
     site_config = SiteConfiguration(
@@ -450,6 +465,7 @@ async def get_site_configuration(
         contact_email=prefs.site_contact_email if prefs else None,
         social=prefs.site_social_json if prefs else None,
         seo=seo,
+        privacy=privacy,
         embeds=embeds,
         metadata=site_metadata,
     )
