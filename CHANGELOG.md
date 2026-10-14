@@ -6,6 +6,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.337 (2026-10-14)
+
+### Documentation
+
+- **manual**: The tools-on-demand note sits in the usage section, not a section of its own
+  ([`2f96b88`](https://github.com/InnerOpen/marvin/commit/2f96b88b787f22757936098acd65438ae08cbd08))
+
+- **tasks**: Bring-your-own-storage plan — ws: locations, five slices, open questions
+  ([`94c5077`](https://github.com/InnerOpen/marvin/commit/94c50775850fc09e96bb2f6acbde1b9457818030))
+
+### Features
+
+- **admin**: Overview lists recent sign-ins and plugins with a newer release
+  ([`93ab333`](https://github.com/InnerOpen/marvin/commit/93ab3333dbcf93408539d9998746ef71d625472b))
+
+- **ai**: Tools on demand — all-tools agents start lean and load a tool group when a question needs
+  it
+  ([`e5674ff`](https://github.com/InnerOpen/marvin/commit/e5674ffcfb9554fd5b05371e49253da6f77aa00a))
+
+- **collections**: A Sidebar switch picks which collections the sidebar lists
+  ([`22c89fc`](https://github.com/InnerOpen/marvin/commit/22c89fcfdeeec39939a7e69ab52cd369d715942d))
+
+### Testing
+
+- **workflows**: The authoring test accepts workflow tools named in load_tools
+  ([`a9145e0`](https://github.com/InnerOpen/marvin/commit/a9145e095ca60a7cda3188447096552ba417cc77))
+
+
 ## v1.0.0-rc.336 (2026-10-14)
 
 ### Bug Fixes
