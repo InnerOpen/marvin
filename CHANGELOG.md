@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.331 (2026-10-14)
+
+### Chores
+
+- **ai**: Marvin-ai-openai 0.1.1 — prices for gpt-image-2 and the other current image models
+  ([`dd47b30`](https://github.com/InnerOpen/marvin/commit/dd47b30e5e5978628e2d9d8fa25c4780de82eaa4))
+
+### Features
+
+- **assets**: A generated image links its entry and workflow; asset and resource lists stack on a
+  phone
+  ([`ff8a227`](https://github.com/InnerOpen/marvin/commit/ff8a2275ee93de17d068b8f74696ffa88a470961))
+
+
 ## v1.0.0-rc.330 (2026-10-14)
 
 ### Bug Fixes
