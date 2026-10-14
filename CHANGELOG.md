@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.324 (2026-10-14)
+
+### Features
+
+- **integrations**: Instagram 0.5.1 — post to the feed, with the plugin's own recipe
+  ([`39a3f27`](https://github.com/InnerOpen/marvin/commit/39a3f27b0cef963b3754282ad9e2b8ee68bb5a9c))
+
+
 ## v1.0.0-rc.323 (2026-10-14)
 
 ### Features
