@@ -6,6 +6,59 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.334 (2026-10-14)
+
+### Bug Fixes
+
+- **chart**: Set BASE_URL / FRONTEND_URL — prod's reset and invite emails linked to localhost
+  ([`ec93ddf`](https://github.com/InnerOpen/marvin/commit/ec93ddf61f12fcbb77dab19eb04b4cef96bc9c87))
+
+- **email**: A password reset's "Platform" is a badge with a reason, not a button-shaped label
+  ([`d103e91`](https://github.com/InnerOpen/marvin/commit/d103e912565f7f27cc4f9f34a6399654990fac3d))
+
+### Chores
+
+- **frontend**: SDK 3.2.0-next.28 → 5.12.0 — the bubble shows the provider's reason, not "Server
+  error: 502"
+  ([`e211787`](https://github.com/InnerOpen/marvin/commit/e211787092523b80120bf382e0644833a639121d))
+
+- **integrations**: Marvin-integration-instagram 0.5.3 — token refresh passes the token as a
+  parameter
+  ([`3bc71ad`](https://github.com/InnerOpen/marvin/commit/3bc71ad9adc1989f598ccf1bfbf77d4b6351126d))
+
+### Code Style
+
+- **tests**: Lint the cache-rate test
+  ([`1dcb26c`](https://github.com/InnerOpen/marvin/commit/1dcb26c4d8db9bf77f7e5666799eb50219464573))
+
+### Documentation
+
+- **manual**: Database & cleanup, and Scheduled Tasks grouped by owner
+  ([`feec8b0`](https://github.com/InnerOpen/marvin/commit/feec8b001ccab3c27975254f5cd0ccd0eaf43fa9))
+
+### Features
+
+- **admin**: Maintenance becomes Database & cleanup — the largest tables and what keeps each in
+  check
+  ([`3380d7f`](https://github.com/InnerOpen/marvin/commit/3380d7fc35f60a3663308419d989a2029a8e6309))
+
+- **admin**: Scheduled Tasks lists System first, then each workspace's under its name; Events uses
+  the full width
+  ([`90a4360`](https://github.com/InnerOpen/marvin/commit/90a43608673aa76cd8081f25402d2a694c742201))
+
+- **ask**: Search conversations — titles and everything said, with the words around each hit
+  ([`94bd4b8`](https://github.com/InnerOpen/marvin/commit/94bd4b8928d216c1c2671042d6ea93fe220c6998))
+
+- **incoming-webhooks**: "N received" opens the last calls and what each carried
+  ([`3a413bf`](https://github.com/InnerOpen/marvin/commit/3a413bfaf8f7fdde3b958ccfe46f855eebabe5b0))
+
+### Testing
+
+- **ai**: The cache-rate test stands in for the Anthropic plugin; the caching note sits under the
+  usage card
+  ([`0d2a6b0`](https://github.com/InnerOpen/marvin/commit/0d2a6b0f08318af5b6be06578dbf1b22c6da7a51))
+
+
 ## v1.0.0-rc.333 (2026-10-14)
 
 ### Chores
