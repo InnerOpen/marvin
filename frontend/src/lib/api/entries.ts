@@ -13,22 +13,12 @@ import { createSdkClient } from "../sdk";
 import { getApiUrl } from "./config";
 
 // Re-export SDK types with legacy names for backward compatibility
-/** Why the Publish Scheduled Entries task is holding a due entry back (see the entry editor's Scheduled Publish). */
-export type ScheduledPublishBlock = {
-  /** "requirements": the publish gate refused it; "approval": the workspace publishes only approved entries on schedule. */
-  waitingFor: "requirements" | "approval" | string;
-  reason: string;
-  issues: string[];
-  /** When it was first held back for this reason (UTC). */
-  at: string | null;
-};
+/** Why the Publish Scheduled Entries task is holding a due entry back (see the entry editor's Scheduled Publish):
+ *  `waitingFor` is "requirements" (the publish gate refused it) or "approval" (the workspace publishes only approved
+ *  entries on schedule), with the `reason`, the `issues` and `at`, when it was first held back (UTC). */
+export type ScheduledPublishBlock = NonNullable<PlatformEntry["scheduledPublishBlocked"]>;
 
-// pageUrl and scheduledPublishBlocked are newer than the published SDK types (pageUrl is set on a
-// single-entry read); drop the intersection once they carry them.
-export type EntryRead = PlatformEntry & {
-  pageUrl?: string | null;
-  scheduledPublishBlocked?: ScheduledPublishBlock | null;
-};
+export type EntryRead = PlatformEntry;
 export type EntryCreate = PlatformEntryCreate;
 export type EntryUpdate = PlatformEntryUpdate;
 export type CollectionRead = PlatformCollection;
