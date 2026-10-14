@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.329 (2026-10-14)
+
+### Bug Fixes
+
+- **workflows**: Attach_asset declares what it sends (asset_attached_to_entry)
+  ([`7826699`](https://github.com/InnerOpen/marvin/commit/7826699f715cb88b013612d19a6ce11c667e3982))
+
+
 ## v1.0.0-rc.328 (2026-10-14)
 
 ### Bug Fixes
