@@ -42,7 +42,8 @@
     "set_metadata": "Set metadata",
     "set_data": "Set fields",
     "request_review": "Send to review",
-    "create": "Create an entry"
+    "create": "Create an entry",
+    "attach_asset": "Attach a picture"
   },
   "conditionOps": {
     "eq": "equals",
