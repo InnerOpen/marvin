@@ -8,10 +8,11 @@ history the old script wrote.
 
 What a run backs up, and how:
 
-- the database: a consistent SQLite snapshot (online backup API + ``integrity_check``, gzip), or a
-  ``pg_dump --format=custom`` checked with ``pg_restore --list``; the POSTGRES_* connection travels in
-  PG* environment variables, never on a command line. Object metadata carries ``sha256`` (and
-  ``db-sha256`` of the uncompressed SQLite file); restore checks both.
+- the database: a ``pg_dump --format=custom`` checked with ``pg_restore --list``; the POSTGRES_*
+  connection travels in PG* environment variables, never on a command line. Object metadata carries
+  ``sha256``; restore checks it. SQLite is retired: the engine no longer writes or restores the
+  ``sqlite/`` family (old ``.db.gz`` backups still list, a backup run never prunes them, ``prune`` ages them out; to bring one
+  over, see ``run_restore``).
 - the config archive: ``.secret`` (it decrypts every stored secret, so a target must stay private),
   ``scheduler_state.json``, ``templates/``.
 - an incremental asset mirror under ``assets/``: an asset is copied when the target lacks it, or the
@@ -31,12 +32,10 @@ configuration comes from the environment (``BackupSettings.from_env``).
 
 from __future__ import annotations
 
-import gzip
 import hashlib
 import logging
 import os
 import shutil
-import sqlite3
 import subprocess
 import tarfile
 import tempfile
@@ -59,8 +58,6 @@ from .layout import (
     asset_key,
     bundle_key,
     config_key,
-    db_key,
-    db_prefix,
     expired_bundles,
     key_timestamp,
     pg_key,
@@ -70,15 +67,30 @@ from .layout import (
 
 log = logging.getLogger("marvin.backup")
 
-DB_NAME = "marvin.db"
 PG_DUMP_NAME = "marvin.dump"
+POSTGRES = "postgres"
+_SQLITE_RETIRED = (
+    "SQLite was retired: the backup engine only backs up and restores Postgres. A `sqlite/` backup still on a target "
+    "can be brought over by downloading the `.db.gz`, gunzipping it, and loading it with the copy tool "
+    "`python -m marvin.scripts.sqlite_to_postgres` (see docs/manual/postgres.md)."
+)
+
+
+def check_engine(engine: str) -> str:
+    """`postgres`, or a ValueError saying where an old SQLite backup goes (the engine no longer reads it back)."""
+    if engine == "sqlite":
+        raise ValueError(_SQLITE_RETIRED)
+    if engine != POSTGRES:
+        raise ValueError(f"unknown DB engine {engine!r}; the backup engine supports only {POSTGRES!r}")
+    return engine
+
+
 # Files and directories under DATA_DIR that go into the config archive. Logs, `.temp`, `backups/`,
 # the `marvin.db.pre-*` manual snapshots and the live `-wal`/`-shm` files are deliberately absent.
 CONFIG_FILES = (".secret", "scheduler_state.json")
 CONFIG_DIRS = ("templates",)  # operator-supplied email templates (services/email)
 
-META_SHA256 = "sha256"  # sha256 of the stored object (the .gz)
-META_DB_SHA256 = "db-sha256"  # sha256 of the uncompressed database
+META_SHA256 = "sha256"  # sha256 of the stored object
 
 CHUNK = 1024 * 1024
 PG_DUMP_TIMEOUT = 1800  # seconds
@@ -98,7 +110,7 @@ def normalize_prefix(prefix: str | None) -> str:
 @dataclass
 class BackupSettings:
     data_dir: Path
-    engine: str
+    engine: str = POSTGRES
     prefix: str = ""
     retention: Retention = field(default_factory=Retention)
     asset_provider: str = "local"
@@ -107,9 +119,13 @@ class BackupSettings:
     # libpq environment for pg_dump (PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE); never logged.
     pg_env: dict[str, str] = field(default_factory=dict, repr=False)
 
+    def __post_init__(self) -> None:
+        self.engine = check_engine(self.engine)
+
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> BackupSettings:
-        """BACKUP_DATA_DIR (default `/app/data`), BACKUP_DB_ENGINE (default DB_ENGINE, else `postgres`),
+        """BACKUP_DATA_DIR (default `/app/data`), BACKUP_DB_ENGINE (default DB_ENGINE, else `postgres`; only
+        `postgres` is accepted),
         BACKUP_PREFIX (else BACKUP_S3_PREFIX, so the old script's environment carries over),
         BACKUP_KEEP_HOURLY / _DAILY / _WEEKLY, STORAGE_PROVIDER + STORAGE_LOCAL_ROOT (where assets are
         read from), BACKUP_ASSET_PROVIDERS (comma-separated providers mirrored as well: an admin can send
@@ -119,7 +135,7 @@ class BackupSettings:
         data_dir = Path(env.get("BACKUP_DATA_DIR") or "/app/data")
         return cls(
             data_dir=data_dir,
-            engine=(env.get("BACKUP_DB_ENGINE") or env.get("DB_ENGINE") or "postgres").lower(),
+            engine=(env.get("BACKUP_DB_ENGINE") or env.get("DB_ENGINE") or POSTGRES).lower(),
             prefix=normalize_prefix(env.get("BACKUP_PREFIX") or env.get("BACKUP_S3_PREFIX")),
             retention=Retention.from_env(env),
             asset_provider=env.get("STORAGE_PROVIDER") or "local",
@@ -226,7 +242,7 @@ def open_asset_sources(settings: BackupSettings, env: Mapping[str, Any] | None =
 
 
 # --------------------------------------------------------------------------------------------------
-# Hashing, SQLite and archives
+# Hashing and archives
 # --------------------------------------------------------------------------------------------------
 
 
@@ -243,49 +259,6 @@ def file_digest(path: Path, algorithm: str = "sha256") -> str:
         while chunk := fh.read(CHUNK):
             h.update(chunk)
     return h.hexdigest()
-
-
-def check_integrity(path: Path) -> None:
-    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
-    try:
-        rows = conn.execute("PRAGMA integrity_check").fetchall()
-    except sqlite3.DatabaseError as exc:
-        raise BackupError(f"integrity_check could not read {path.name}: {exc}") from exc
-    finally:
-        conn.close()
-    if rows != [("ok",)]:
-        raise BackupError(f"integrity_check failed on {path.name}: {[r[0] for r in rows[:5]]}")
-
-
-def snapshot_sqlite(src: Path, dest: Path) -> None:
-    """Copy a live SQLite database with the online backup API, then verify the copy.
-
-    The source is opened read-only and one backup step copies every page under a single read
-    transaction, so the copy is a consistent snapshot even while the backend writes (WAL mode lets
-    writers carry on meanwhile). The copy is switched to rollback-journal mode so it is one
-    self-contained file; the app turns WAL back on when it opens a restored file.
-    """
-    if not src.is_file():
-        raise BackupError(f"database not found: {src}")
-    source = sqlite3.connect(f"{src.resolve().as_uri()}?mode=ro", uri=True, timeout=60)
-    target = sqlite3.connect(dest)
-    try:
-        source.backup(target)
-        target.execute("PRAGMA journal_mode=DELETE")
-    finally:
-        target.close()
-        source.close()
-    check_integrity(dest)
-
-
-def gzip_file(src: Path, dest: Path) -> None:
-    with src.open("rb") as fin, gzip.open(dest, "wb", compresslevel=6) as fout:
-        shutil.copyfileobj(fin, fout, CHUNK)
-
-
-def gunzip_file(src: Path, dest: Path) -> None:
-    with gzip.open(src, "rb") as fin, dest.open("wb") as fout:
-        shutil.copyfileobj(fin, fout, CHUNK)
 
 
 def build_config_archive(data_dir: Path, dest: Path) -> list[str]:
@@ -352,25 +325,7 @@ def _mb(n: int) -> str:
 
 def backup_database(settings: BackupSettings, target: BackupTarget, now: datetime, work: Path, report: Report, dry_run: bool) -> None:
     """Back up the database for the configured engine. The engine seam lives here."""
-    if settings.engine == "sqlite":
-        backup_sqlite(settings, target, now, work, report, dry_run)
-    elif settings.engine == "postgres":
-        backup_postgres(settings, target, now, work, report, dry_run)
-    else:
-        raise BackupError(f"unknown DB engine {settings.engine!r}")
-
-
-def backup_sqlite(settings: BackupSettings, target: BackupTarget, now: datetime, work: Path, report: Report, dry_run: bool) -> None:
-    snapshot = work / DB_NAME
-    snapshot_sqlite(settings.data_dir / DB_NAME, snapshot)  # raises before anything is uploaded
-    packed = work / f"{DB_NAME}.gz"
-    gzip_file(snapshot, packed)
-    key = db_key(now)
-    meta = {META_SHA256: file_digest(packed), META_DB_SHA256: file_digest(snapshot)}
-    if not dry_run:
-        target.put_file(key, packed, meta, "application/gzip")
-    report.db_key, report.db_bytes, report.db_gz_bytes = key, snapshot.stat().st_size, packed.stat().st_size
-    log.info("database: %s (%s, gz %s)", key, _mb(report.db_bytes), _mb(report.db_gz_bytes))
+    backup_postgres(settings, target, now, work, report, dry_run)
 
 
 def _run_pg(args: list[str], settings: BackupSettings, what: str) -> subprocess.CompletedProcess:
@@ -553,7 +508,7 @@ def run_backup(
     with tempfile.TemporaryDirectory(prefix="marvin-backup-") as tmp:
         work = Path(tmp)
         for step_name, step, prefix in (
-            ("database", lambda: backup_database(settings, target, now, work, report, dry_run), db_prefix(settings.engine)),
+            ("database", lambda: backup_database(settings, target, now, work, report, dry_run), PG_PREFIX),
             ("config", lambda: backup_config(settings, target, now, work, report, dry_run), CONFIG_PREFIX),
         ):
             try:
@@ -618,24 +573,6 @@ def _move_aside(path: Path, suffix: str) -> None:
         aside = path.with_name(f"{path.name}.pre-restore-{suffix}")
         path.rename(aside)
         log.info("moved existing %s to %s", path.name, aside.name)
-
-
-def restore_database(target: BackupTarget, key: str, into: Path, suffix: str) -> Path:
-    with tempfile.TemporaryDirectory(prefix=".restore-", dir=into) as tmp:
-        packed = Path(tmp) / "db.gz"
-        meta = target.get(key, packed)
-        _verify_sha(packed, meta.get(META_SHA256), key)
-        staged = Path(tmp) / DB_NAME
-        gunzip_file(packed, staged)
-        _verify_sha(staged, meta.get(META_DB_SHA256), f"{key} (uncompressed)")
-        check_integrity(staged)
-        # A leftover -wal/-shm beside the restored file would be replayed onto it: move all three.
-        for name in (DB_NAME, f"{DB_NAME}-wal", f"{DB_NAME}-shm"):
-            _move_aside(into / name, suffix)
-        dest = into / DB_NAME
-        staged.replace(dest)
-    log.info("restored %s -> %s", key, dest)
-    return dest
 
 
 def restore_pg_dump(target: BackupTarget, key: str, into: Path, suffix: str) -> Path:
@@ -722,15 +659,18 @@ def run_restore(
     skip_db: bool = False,
     skip_config: bool = False,
     force: bool = False,
-    engine: str = "postgres",
+    engine: str = POSTGRES,
 ) -> None:
-    """Restore into the directory `into` (a data dir layout). The database object is the newest of the
-    engine's family unless `db` names one; a `postgres/` key is fetched as marvin.dump, a `sqlite/` key
-    restored as marvin.db."""
+    """Restore into the directory `into` (a data dir layout). The database object is the newest `postgres/`
+    dump unless `db` names one, fetched and verified as marvin.dump (loading it is a separate pg_restore).
+
+    Only Postgres is restored; engine="sqlite" (or a `sqlite/` key) raises ValueError, see `check_engine`."""
+    check_engine(engine)
+    if db and db.startswith(DB_PREFIX):
+        raise ValueError(_SQLITE_RETIRED)
     into.mkdir(parents=True, exist_ok=True)
-    db = None if skip_db else db or latest_key(target, db_prefix(engine))
-    is_pg = bool(db and db.startswith(PG_PREFIX))
-    replaces = ([] if not db else [PG_DUMP_NAME if is_pg else DB_NAME]) + ([] if skip_config else [".secret"])
+    db = None if skip_db else db or latest_key(target, PG_PREFIX)
+    replaces = ([] if not db else [PG_DUMP_NAME]) + ([] if skip_config else [".secret"])
     occupied = [n for n in replaces if (into / n).exists()]
     if occupied and not force:
         raise BackupError(
@@ -742,7 +682,7 @@ def run_restore(
     config = None if skip_config else config or latest_key(target, CONFIG_PREFIX)
     suffix = stamp(datetime.now(UTC))
     if db:
-        (restore_pg_dump if is_pg else restore_database)(target, db, into, suffix)
+        restore_pg_dump(target, db, into, suffix)
     if config:
         restore_config(target, config, into, suffix)
     if assets:

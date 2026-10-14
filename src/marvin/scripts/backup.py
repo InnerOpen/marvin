@@ -54,7 +54,7 @@ def _parser() -> argparse.ArgumentParser:
     pr.add_argument("--dry-run", action="store_true")
     r = command("restore", "restore a backup into a directory")
     r.add_argument("--into", type=Path, required=True, help="directory to restore into (a data dir layout)")
-    r.add_argument("--db-key", help="sqlite/... or postgres/... object to restore (default: the newest for the DB engine)")
+    r.add_argument("--db-key", help="postgres/... object to restore (default: the newest dump)")
     r.add_argument("--config-key", help="config/... object to restore (default: the newest)")
     r.add_argument("--skip-db", action="store_true")
     r.add_argument("--skip-config", action="store_true")
@@ -80,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         settings = engine.BackupSettings.from_env()
         target = engine.open_target(args.target, prefix=settings.prefix)
-    except (BackupError, StorageConfigError) as exc:
+    except (BackupError, StorageConfigError, ValueError) as exc:
         log.error("backup[%s]: %s", name, exc)
         return 2
     log.info("backup[%s]: %s %s", name, args.command, target.describe())

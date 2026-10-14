@@ -159,7 +159,7 @@ spec:
           automountServiceAccountToken: false
           securityContext:
             {{- toYaml $.Values.podSecurityContext | nindent 12 }}
-          # The data PVC is ReadWriteOnce (and SQLite's WAL index is shared memory): run on the
+          # The data PVC is ReadWriteOnce: run on the
           # backend's node. Required, so with no backend pod the job stays Pending until
           # activeDeadlineSeconds fails it rather than mounting elsewhere.
           affinity:
@@ -241,8 +241,8 @@ spec:
               resources:
                 {{- toYaml ($t.resources | default $.Values.backup.resources) | nindent 16 }}
               volumeMounts:
-                # Read-write, though the engine only reads: a reader of a WAL-mode SQLite database
-                # takes its read locks in marvin.db-shm. The engine opens the database read-only.
+                # Read-write, though the engine only reads (.secret, templates/, backups/); kept so the
+                # mount behaves as it always has.
                 - name: data
                   mountPath: {{ $.Values.config.dataDir }}
                 {{- if $claim }}

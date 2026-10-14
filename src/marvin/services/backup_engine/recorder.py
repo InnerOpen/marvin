@@ -2,8 +2,8 @@
 
 The job runs beside the live backend and must not build Marvin's settings or open the database through
 SQLAlchemy (see ``engine``), so this is one plain DB-API ``INSERT`` into the job's own database: Postgres
-through ``psycopg2`` with the POSTGRES_* connection the job already has for ``pg_dump``, or SQLite at
-``BACKUP_DATA_DIR/marvin.db`` (the data volume the job mounts; WAL lets it write while the backend runs).
+through ``psycopg2`` with the POSTGRES_* connection the job already has for ``pg_dump`` (Postgres is the
+only engine; SQLite was retired).
 The backend reads the rows for Admin → Backup health, sends ``backup_completed`` / ``backup_failed`` from
 them, and notices a target that stops writing them (``services/backup_health``).
 
@@ -19,20 +19,16 @@ import json
 import logging
 import os
 import socket
-import sqlite3
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 log = logging.getLogger("marvin.backup")
 
 TABLE = "backup_runs"
-DB_NAME = "marvin.db"
 CONNECT_TIMEOUT = 10  # seconds
-SQLITE_BUSY_TIMEOUT = 30  # seconds: the backend may hold the write lock for a moment
 
 # Columns this module writes, in order. tests/test_backup_health.py checks they match the model.
 COLUMNS = (
@@ -141,17 +137,12 @@ def _naive(dt: datetime) -> datetime:
     return (dt.astimezone(UTC) if dt.tzinfo else dt).replace(tzinfo=None)
 
 
-def _sqlite_time(dt: datetime) -> str:
-    # SQLAlchemy's SQLite DateTime storage format, so the backend reads the value back as a datetime.
-    return _naive(dt).strftime("%Y-%m-%d %H:%M:%S.%f")
-
-
-def _values(record: RunRecord, dialect: str, now: datetime) -> tuple[Any, ...]:
+def _values(record: RunRecord, now: datetime) -> tuple[Any, ...]:
     run_id = uuid.uuid4()
-    when = _sqlite_time if dialect == "sqlite" else _naive
+    when = _naive
     hourly, daily, weekly = record.retention or (None, None, None)
     row = {
-        "id": f"{run_id.int:032x}" if dialect == "sqlite" else str(run_id),  # GUID: CHAR(32) hex / native UUID
+        "id": str(run_id),  # native UUID
         "target_name": record.target_name[:63],
         "target_type": record.target_type[:40],
         "status": record.status,
@@ -187,20 +178,8 @@ def _insert_sql(placeholder: str) -> str:
     return f"INSERT INTO {TABLE} ({', '.join(COLUMNS)}) VALUES ({', '.join([placeholder] * len(COLUMNS))})"
 
 
-def _write_sqlite(path: Path, values: tuple[Any, ...]) -> None:
-    if not path.is_file():
-        # Never create a database: a missing file means the wrong directory (or a backend that never ran).
-        raise FileNotFoundError(f"{path} not found")
-    conn = sqlite3.connect(path, timeout=SQLITE_BUSY_TIMEOUT)
-    try:
-        with conn:
-            conn.execute(_insert_sql("?"), values)
-    finally:
-        conn.close()
-
-
 def _write_postgres(pg_env: Mapping[str, str], values: tuple[Any, ...]) -> None:
-    import psycopg2  # the backend image's postgres group; imported only on Postgres installs
+    import psycopg2  # the backend image's postgres group
 
     conn = psycopg2.connect(
         host=pg_env.get("PGHOST"),
@@ -231,12 +210,9 @@ def record_run(record: RunRecord, env: Mapping[str, str] | None = None, now: dat
             pg_env = pg_env_from(env)
             if not all(pg_env.get(k) for k in ("PGHOST", "PGUSER", "PGDATABASE")):
                 raise RuntimeError("POSTGRES_SERVER/POSTGRES_USER/POSTGRES_DB not set")
-            _write_postgres(pg_env, _values(record, "postgres", now))
-        elif engine == "sqlite":
-            data_dir = Path(env.get("BACKUP_DATA_DIR") or "/app/data")
-            _write_sqlite(data_dir / DB_NAME, _values(record, "sqlite", now))
+            _write_postgres(pg_env, _values(record, now))
         else:
-            raise RuntimeError(f"unknown DB engine {engine!r}")
+            raise RuntimeError(f"unsupported DB engine {engine!r}; backup runs are recorded in Postgres only")
     except Exception as exc:
         # The message names the table or the connection problem; libpq never echoes the password.
         log.error(

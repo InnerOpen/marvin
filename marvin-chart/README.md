@@ -120,7 +120,7 @@ persistence:
 
 `backup.targets[]` (empty by default) runs the backup engine, `python -m marvin.scripts.backup`, as one
 CronJob `<release>-backup-<name>` per target, each with its own schedule, retention and exit code: the
-database (a consistent SQLite snapshot or a `pg_dump`), a config archive (`.secret`,
+database (a `pg_dump`), a config archive (`.secret`,
 `scheduler_state.json`, `templates/`) and an incremental mirror of `assets/`, from the backend image on
 the backend pod's node (the PVC is ReadWriteOnce). `type` is `local` (built in: a directory on a volume
 of its own) or a storage plugin's target slug, e.g. `s3` from `marvin-storage-s3` (from
