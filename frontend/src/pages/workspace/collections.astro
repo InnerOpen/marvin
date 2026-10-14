@@ -139,7 +139,7 @@ const inSidebar = (c: CollectionRead) => (c as CollectionRead & { inSidebar?: bo
                           <td class="count-cell">{collection.entryCount ?? 0}</td>
                           <td>
                             <label class="sidebar-switch" title={canEdit ? "Show in the sidebar" : "Only editors can change this"}>
-                              <input type="checkbox" class="sidebar-toggle" data-id={collection.id} checked={inSidebar(collection)} disabled={!canEdit} aria-label={`Show ${collection.name} in the sidebar`} />
+                              <input type="checkbox" role="switch" class="sidebar-toggle" data-id={collection.id} checked={inSidebar(collection)} disabled={!canEdit} aria-label={`Show ${collection.name} in the sidebar`} />
                               <span class="sidebar-switch-text">{inSidebar(collection) ? "Shown" : "Hidden"}</span>
                             </label>
                           </td>
@@ -706,7 +706,21 @@ const inSidebar = (c: CollectionRead) => (c as CollectionRead & { inSidebar?: bo
   }
 
   .sidebar-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; white-space: nowrap; }
-  .sidebar-switch input { margin: 0; }
+  /* A switch, not a checkbox: on = listed in the sidebar. */
+  .sidebar-switch input {
+    appearance: none; -webkit-appearance: none; margin: 0; flex: none; cursor: pointer;
+    width: 34px; height: 20px; border-radius: 999px; position: relative;
+    background: color-mix(in srgb, var(--muted) 55%, transparent);
+    transition: background 0.15s;
+  }
+  .sidebar-switch input::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--panel, #fff); box-shadow: 0 1px 2px rgb(0 0 0 / 0.25); transition: transform 0.15s;
+  }
+  .sidebar-switch input:checked { background: var(--accent); }
+  .sidebar-switch input:checked::after { transform: translateX(14px); }
+  .sidebar-switch input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .sidebar-switch input:disabled { cursor: default; opacity: 0.6; }
   .reorder-hint {
     margin: 0 0 0.75rem;
     font-size: 0.75rem;
