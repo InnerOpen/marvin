@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.328 (2026-10-14)
+
+### Bug Fixes
+
+- **assets**: A row or a card opens its asset wherever it's tapped
+  ([`35dfba6`](https://github.com/InnerOpen/marvin/commit/35dfba68d9f84aab49d75c998824165f28793fa7))
+
+
 ## v1.0.0-rc.327 (2026-10-14)
 
 ### Features
