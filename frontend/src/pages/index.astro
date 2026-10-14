@@ -305,9 +305,7 @@ function getStatusClass(status: string): string {
               )}
             </div>
           </section>
-        </Fragment>
 
-        <Fragment slot="right">
           <section class="panel">
             <div class="panel-head">
               <h3>Recent activity</h3>
@@ -337,7 +335,9 @@ function getStatusClass(status: string): string {
               </ul>
             )}
           </section>
+        </Fragment>
 
+        <Fragment slot="right">
           {glance.length > 0 && (
             <section class="panel">
               <div class="panel-head"><h3>At a glance</h3></div>
