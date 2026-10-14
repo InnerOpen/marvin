@@ -130,7 +130,7 @@ Integrations that ship them (2026-10-11):
 | Buttondown 0.7.0 | yes | **Subscribe form submitters who opt in**: a contact or event form's opt-in checkbox subscribes the sender |
 | Apprise 0.3.0 | yes | **Announce published entries and record delivery**: records `apprise_delivery: sent` or `failed` on the entry (Apprise reports a refused message without failing the step) |
 | Square 0.4.0 | yes | **Re-list every item for sale on Square**: a manual run lists every published, unsold item again (for the switch from sandbox to production) |
-| Instagram 0.4.0 | yes | none: its reply actions need approval and can't run from a workflow |
+| Instagram 0.5.1 | yes | **Post to Instagram when published** — the main picture to the feed after an editor approves, the post's link kept on the entry (`publish_media`; the plugin ships the recipe) |
 
 How to add them to an integration: the SDK's README, "Teach Marvin about it"; the integration template has an example.
 
