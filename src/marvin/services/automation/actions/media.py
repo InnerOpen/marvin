@@ -424,9 +424,8 @@ def _describe(op: str, args: dict) -> str:
 def _storage(session, group_id):
     from marvin.repos.all_repositories import get_repositories
     from marvin.services.assets.asset_storage_service import AssetStorageService
-    from marvin.services.storage.provider_factory import get_storage_provider
 
-    return AssetStorageService(get_repositories(session, group_id=group_id), get_storage_provider())
+    return AssetStorageService.for_workspace(get_repositories(session, group_id=group_id))
 
 
 def asset_ref(row) -> dict:

@@ -102,6 +102,12 @@ Release order: SDK tag → bump Marvin's SDK pins → plugin tag → bump the pl
 
 Mash & Burn on prod only after slice 3 has run on dev.
 
+## Progress
+
+- Slice 1 built 2026-10-14: SDK v0.11.0, marvin-storage-s3 v0.2.0, core tables + `services/storage/workspace.py`, `ws:` reads,
+  `AssetStorageService.for_workspace` on every write path, `WorkspaceStorageUnavailable` → 503. Inert: the policy is off
+  and nothing in the app creates a connection yet (slice 2). Live check on marvin-dev needs a throwaway R2 bucket.
+
 ## 11. Decisions (Jared, 2026-10-14, all as recommended)
 
 1. One global switch (`workspace_storage.allowed`), no per-workspace allow-list.

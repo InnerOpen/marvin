@@ -315,9 +315,8 @@ class WorkspaceSeedLoader:
 
         from marvin.services.assets.asset_storage_service import AssetStorageService
         from marvin.services.storage.keys import object_metadata
-        from marvin.services.storage.provider_factory import get_storage_provider, provider_slug
 
-        storage_provider = get_storage_provider()
+        storage_service: AssetStorageService | None = None  # built on the first file: the workspace's own bucket or the platform's
         zip_names = set(zip_file.namelist()) if zip_file else set()
         user_id = self._get_seed_user_id()
         count = 0
@@ -346,12 +345,12 @@ class WorkspaceSeedLoader:
                     binary_data = BytesIO(raw_bytes)
                     checksum_val = checksum_val or hashlib.sha256(raw_bytes).hexdigest()
 
-                    storage_service = AssetStorageService(self.repos, storage_provider)
+                    storage_service = storage_service or AssetStorageService.for_workspace(self.repos)
                     filename = asset.get("originalFilename") or f"{slug}.{asset.get('extension', 'bin')}"
                     mime_type = asset.get("mimeType", "application/octet-stream")
                     new_storage_key = storage_service.generate_storage_key(self.repos.group_id, filename, mime_type, datetime.now(UTC))
 
-                    storage_provider.put(new_storage_key, binary_data, mime_type, object_metadata(filename))
+                    storage_service.storage.put(new_storage_key, binary_data, mime_type, object_metadata(filename))
                     new_public_url = storage_service.public_url(self.repos.group_id, new_storage_key)
                 except Exception as e:
                     self.logger.error(f"Failed to store binary for asset {slug}: {e}")
@@ -382,7 +381,7 @@ class WorkspaceSeedLoader:
                 "asset_type": asset.get("assetType"),
                 # Bytes from the bundle were just stored on the provider uploads go to; without them the
                 # row keeps pointing where the bundle's copy lived.
-                "storage_provider": provider_slug(storage_provider) if has_binary else asset.get("storageProvider", "local"),
+                "storage_provider": storage_service.stored_as if has_binary and storage_service else asset.get("storageProvider", "local"),
                 "storage_key": new_storage_key,
                 "public_url": new_public_url,
                 "alt_text": asset.get("altText"),
@@ -403,7 +402,7 @@ class WorkspaceSeedLoader:
                     if has_binary:
                         update_data = {
                             "storage_key": new_storage_key,
-                            "storage_provider": provider_slug(storage_provider),
+                            "storage_provider": storage_service.stored_as,
                             "file_size": asset.get("fileSize"),
                             "public_url": None,
                             "metadata_json": asset.get("metadataJson"),

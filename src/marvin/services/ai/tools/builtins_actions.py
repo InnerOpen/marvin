@@ -411,14 +411,13 @@ def _ingest_one_image(ctx: ToolContext, spec: dict):
     from marvin.repos.all_repositories import get_repositories
     from marvin.schemas.platform.assets import AssetUploadRequest
     from marvin.services.assets.asset_storage_service import AssetStorageService
-    from marvin.services.storage.provider_factory import get_storage_provider
 
     name = (spec.get("name") or os.path.splitext(filename)[0] or "imported").strip()
     slug = f"{slugify(name) or 'asset'}-{_uuid.uuid4().hex[:6]}"  # suffix guarantees uniqueness
     upload_file = SimpleNamespace(filename=filename, file=io.BytesIO(raw))
     repos = get_repositories(ctx.session, group_id=ctx.group_id)
     try:
-        asset = AssetStorageService(repos, get_storage_provider()).upload_asset(
+        asset = AssetStorageService.for_workspace(repos).upload_asset(
             upload_file=upload_file,
             upload_request=AssetUploadRequest(slug=slug, name=name, alt_text=spec.get("alt_text")),
             group_id=ctx.group_id,

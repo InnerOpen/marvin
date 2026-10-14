@@ -24,7 +24,6 @@ from typing import Any
 
 from marvin.services.ai.media import capability, transforms
 from marvin.services.assets.asset_storage_service import AssetStorageService
-from marvin.services.storage.provider_factory import get_storage_provider
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +92,7 @@ class MediaEnrichmentService:
         if not role_tokens:
             return []
 
-        assets_svc = AssetStorageService(self.repos, get_storage_provider())
+        assets_svc = AssetStorageService.for_workspace(self.repos)
 
         # Derivatives already on this entry — keyed (source_asset_id, token) — for idempotency.
         already: set[tuple[str, str]] = set()

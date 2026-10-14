@@ -23,7 +23,7 @@ A, E, R = "/api/platform/assets", "/api/platform/entries", "/api/platform/resour
 @pytest.fixture(autouse=True)
 def _uploads_to_the_test_store(storage, monkeypatch):  # noqa: F811
     """The upload route names the provider directly: point it at the test's storage too."""
-    monkeypatch.setattr("marvin.routes.platform.assets_controller.get_storage_provider", lambda *a, **k: storage)
+    monkeypatch.setattr("marvin.services.storage.provider_factory.get_storage_provider", lambda *a, **k: storage)
 
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64

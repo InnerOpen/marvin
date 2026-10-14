@@ -18,7 +18,7 @@ from marvin.services.assets.scope import ASK, LIBRARY, SCOPES, upload_scope
 from marvin.services.event_bus_service.event_types import EventAssetData, EventTypes
 from marvin.services.storage import StorageConfigError
 from marvin.services.storage.keys import content_disposition
-from marvin.services.storage.provider_factory import get_storage_provider, provider_for, public_url_for
+from marvin.services.storage.provider_factory import provider_for, public_url_for
 
 router = APIRouter(prefix="/assets")
 
@@ -145,8 +145,7 @@ class AssetsController(BaseUserController):
         )
 
         # Get storage provider and create service
-        storage_provider = get_storage_provider()
-        asset_service = AssetStorageService(self.repos, storage_provider)
+        asset_service = AssetStorageService.for_workspace(self.repos)
 
         # Upload through service
         try:

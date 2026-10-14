@@ -20,7 +20,7 @@ dependencies = [
     "mangum>=0.19.0",
     # The plugin contract (integrations, storage, AI providers): pinned to a commit, since it isn't on PyPI. A
     # direct reference, so no installer ever looks the name up on an index. Bump it with the SDK.
-    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@v0.10.0",
+    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@v0.11.0",
     "mcp[cli]>=1.28.1",
     "numpy>=2.2.6",
     "pillow>=11.1.0",
@@ -96,7 +96,7 @@ plugins = [
     "marvin-integration-cloudflare-pages @ git+https://github.com/InnerOpen/marvin-integration-cloudflare-pages@v0.1.0",
     "marvin-integration-buttondown @ git+https://github.com/InnerOpen/marvin-integration-buttondown@v0.7.0",
     "marvin-integration-n8n @ git+https://github.com/InnerOpen/marvin-integration-n8n@v0.2.0",
-    "marvin-storage-s3 @ git+https://github.com/InnerOpen/marvin-storage-s3@v0.1.0",
+    "marvin-storage-s3 @ git+https://github.com/InnerOpen/marvin-storage-s3@v0.2.0",
     # The AI providers: core ships none (slice 5). Same slugs as the old built-ins, so saved settings carry over.
     "marvin-ai-openai @ git+https://github.com/InnerOpen/marvin-ai-openai@v0.2.0",
     "marvin-ai-anthropic @ git+https://github.com/InnerOpen/marvin-ai-anthropic@v0.2.0",
@@ -112,7 +112,7 @@ bitwarden = ["bitwarden-sdk>=1.0.0"]
 # Every plugin builds against the one SDK commit Marvin pins above: their own pyproject points the SDK at a
 # sibling checkout (or another commit) for local development, which uv would otherwise follow.
 override-dependencies = [
-    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@v0.10.0",
+    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@v0.11.0",
 ]
 
 [tool.pytest.ini_options]

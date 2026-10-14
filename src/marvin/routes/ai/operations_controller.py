@@ -1028,9 +1028,8 @@ class AIOperationsController(BaseUserController):
     def _character_store(self):
         from marvin.services.ai.character import WorkspaceAssetStore
         from marvin.services.assets.asset_storage_service import AssetStorageService
-        from marvin.services.storage.provider_factory import get_storage_provider
 
-        return WorkspaceAssetStore(AssetStorageService(self.repos, get_storage_provider()), self.group_id, self.user.id)
+        return WorkspaceAssetStore(AssetStorageService.for_workspace(self.repos), self.group_id, self.user.id)
 
     def _agent_character(self, spec, packs: dict | None = None) -> dict | None:
         from marvin.services.ai.character import describe

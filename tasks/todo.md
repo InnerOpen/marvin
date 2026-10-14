@@ -1,3 +1,21 @@
+# Bring your own storage — slice 1 (2026-10-14)
+
+Jared: "start BYO storage slice 1". Plan + decisions: tasks/byo-storage-plan.md. Slice 1 = SDK/plugin + inert core
+(policy off by default, no UI): a workspace can't opt in through the app yet; tests and dev prove the wiring.
+
+- [x] SDK 0.11.0: `StorageProvider.workspace_settings`, `endpoint_setting`, `public_url_setting`; conformance check
+- [x] marvin-storage-s3 0.2.0 declares them (keys and public URL required); tests
+- [x] Core pins SDK 0.11.0 + plugin 0.2.0; lock
+- [x] Models + migration: `workspace_storage_settings`, `workspace_storage_connections`
+- [x] `services/storage/workspace.py`: policy, endpoint policy (`known`), `provider_for_connection` (cached by id+version,
+      never env), `write_target` (fail closed: `WorkspaceStorageUnavailable`)
+- [x] provider_factory: `ws:<id>` rows resolve to their connection; public URLs from the connection
+- [x] `AssetStorageService.for_workspace(repos)` records the location; sweep the 9 call sites; 503 on unavailable
+- [x] Tests (tests/test_workspace_storage.py, 18): a stand-in plugin instead of moto (CI has no plugins group); fail closed in
+      every case, platform storage untouched; old rows keep reading; own-bucket refusal; endpoint policy; a mutation
+      check (endpoint policy disabled) fails 5 of them
+- [ ] Full suite; push; live check on marvin-dev with a throwaway R2 bucket (needs Jared: bucket + token)
+
 # Approval with a picture (2026-10-14)
 
 Jared: "How can I see if it's too dark if it hasn't run yet for approval?" — the cover recipe asks before the paid

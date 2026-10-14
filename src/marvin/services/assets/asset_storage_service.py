@@ -43,18 +43,31 @@ def check_allowed(size: int, mime_type: str) -> None:
 class AssetStorageService(BaseService):
     """Business logic for asset upload and storage."""
 
-    def __init__(self, repos: AllRepositories, storage_provider: BaseStorageProvider):
+    def __init__(self, repos: AllRepositories, storage_provider: BaseStorageProvider, location: str | None = None):
         """
         Initialize asset storage service.
 
         Args:
             repos: Repository instances for database access
             storage_provider: Storage provider for file operations
+            location: What new rows record as their ``storage_provider`` when it isn't the provider's own slug — a
+                workspace's own bucket, ``ws:<connection id>`` (use ``for_workspace``)
         """
         super().__init__()
         self.repos = repos
         self.storage = storage_provider
+        self.location = location
         self.metadata_extractor = AssetMetadataExtractor()
+
+    @classmethod
+    def for_workspace(cls, repos: AllRepositories) -> "AssetStorageService":
+        """The service for ``repos``' workspace: new files go to its own bucket when it keeps one, else the platform's
+        storage. Raises ``WorkspaceStorageUnavailable`` (a 503) when the workspace's own bucket can't take uploads —
+        never a quiet fallback to the platform's (services/storage/workspace.py)."""
+        from marvin.services.storage.workspace import write_target
+
+        target = write_target(repos.session, repos.group_id)
+        return cls(repos, target.provider, location=target.location)
 
     def upload_asset(
         self,
@@ -343,8 +356,15 @@ class AssetStorageService(BaseService):
 
         return public_url_for(self._get_provider_name(), storage_key, group_id, provider=self.storage)
 
+    @property
+    def stored_as(self) -> str:
+        """What a row for a file this service stores records as its ``storage_provider``."""
+        return self._get_provider_name()
+
     def _get_provider_name(self) -> str:
-        """The slug new rows record as their ``storage_provider``."""
+        """The slug new rows record as their ``storage_provider``: the workspace location, else the provider's slug."""
+        if self.location:
+            return self.location
         from marvin.services.storage.provider_factory import provider_slug
 
         return provider_slug(self.storage)

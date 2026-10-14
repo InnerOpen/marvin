@@ -369,9 +369,8 @@ class AISettingsController(BaseUserController):
 
     def _asset_service(self):
         from marvin.services.assets.asset_storage_service import AssetStorageService
-        from marvin.services.storage.provider_factory import get_storage_provider
 
-        return AssetStorageService(self.repos, get_storage_provider())
+        return AssetStorageService.for_workspace(self.repos)
 
     def _character_store(self):
         from marvin.services.ai.character import WorkspaceAssetStore

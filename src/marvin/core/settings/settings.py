@@ -570,6 +570,10 @@ class AppSettings(BaseSettings):
     STORAGE_REMOTE_PUBLIC_URL: str | None = None
     """Public base URL for remote storage assets (CDN, custom domain, etc). Works with S3, R2, MinIO, Spaces, etc. Optional."""
 
+    STORAGE_ALLOW_WORKSPACE_STORAGE: bool = False
+    """Whether workspaces may keep their assets in their own bucket ("bring your own storage"), until a platform admin
+    decides otherwise (platform setting `workspace_storage`). Off by default."""
+
     # ===============================================
     # Secrets Backend Configuration
 
