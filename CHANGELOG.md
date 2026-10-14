@@ -6,6 +6,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.333 (2026-10-14)
+
+### Chores
+
+- **ai**: Marvin-ai-google 0.1.1 — default model gemini-3.8-flash (Google retired 2.5-flash for new
+  keys)
+  ([`42c8520`](https://github.com/InnerOpen/marvin/commit/42c852045f15ecec93ce8829af1427f85294bfd3))
+
+### Code Style
+
+- **dashboard**: One frame, two column stacks, every section a panel
+  ([`f2e6893`](https://github.com/InnerOpen/marvin/commit/f2e6893796584eb5631ed3816f2b685f0e8be2c7))
+
+- **dashboard**: Recent activity joins the left column so the two stacks end level
+  ([`ce8ac7d`](https://github.com/InnerOpen/marvin/commit/ce8ac7d0162f44bd86643a5e15772418cd514e92))
+
+### Features
+
+- **ai**: Prompt caching — cached tokens reported, priced at the cache rates, shown per run
+  ([`3f27221`](https://github.com/InnerOpen/marvin/commit/3f2722145fa753899506316ac7a9c5f7739c3b65))
+
+
 ## v1.0.0-rc.332 (2026-10-14)
 
 ### Features
