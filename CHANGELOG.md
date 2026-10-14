@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.330 (2026-10-14)
+
+### Bug Fixes
+
+- **workflows**: The editor knows attach_asset — label, fields, and the manual
+  ([`2d1967c`](https://github.com/InnerOpen/marvin/commit/2d1967cfd7a1697bc564cf535759b1805de03bb0))
+
+
 ## v1.0.0-rc.329 (2026-10-14)
 
 ### Bug Fixes
