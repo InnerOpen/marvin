@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.332 (2026-10-14)
+
+### Features
+
+- **approvals**: A picture's decision stays with the asset — stamped on its metadata, shown,
+  filterable
+  ([`6c99c7f`](https://github.com/InnerOpen/marvin/commit/6c99c7f4c853583e0a54c059d8489b94a619581e))
+
+
 ## v1.0.0-rc.331 (2026-10-14)
 
 ### Chores
