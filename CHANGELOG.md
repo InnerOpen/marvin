@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.326 (2026-10-14)
+
+### Bug Fixes
+
+- **frontend**: A JSON body is sent as JSON — approving a workflow from the page failed with 422
+  ([`7d458f5`](https://github.com/InnerOpen/marvin/commit/7d458f528bb06068e9036c927123c78259a54576))
+
+
 ## v1.0.0-rc.325 (2026-10-14)
 
 ### Chores
