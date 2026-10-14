@@ -10,6 +10,8 @@ Marvin has three credentials: a session for people using the admin, personal API
 
 **Password-reset emails are capped:** `SECURITY_PASSWORD_RESET_MAX_PER_HOUR` per address (3) and `SECURITY_PASSWORD_RESET_IP_MAX_PER_HOUR` per client IP (10). Past the cap the request gets the same answer but no email is sent, so the form can't flood someone's inbox.
 
+**Reset links expire.** A link works for `SECURITY_PASSWORD_RESET_TOKEN_MINUTES` (60); after that it is refused ("This reset link has expired. Ask for a new one.") and deleted. Asking again replaces the earlier link, and the daily *Prune Revoked Tokens* task deletes expired ones. Every password set — registration, a reset, a change — must be at least `SECURITY_PASSWORD_MIN_LENGTH` characters (8).
+
 Two external providers can replace the password check:
 
 | Provider | Routes | Settings |
@@ -83,6 +85,8 @@ Workspace **secrets** (`/api/groups/secrets`) never come back in a list or a rea
 | `SECURITY_LOGIN_IP_MAX_FAILURES` | `20` | failed sign-ins from one IP, across accounts, before it is refused |
 | `SECURITY_LOGIN_FAILURE_WINDOW_HOURS` | `24` | how long failures are counted |
 | `SECURITY_PASSWORD_RESET_MAX_PER_HOUR` | `3` | reset emails per address per hour |
+| `SECURITY_PASSWORD_RESET_TOKEN_MINUTES` | `60` | how long a reset link works |
+| `SECURITY_PASSWORD_MIN_LENGTH` | `8` | shortest password accepted anywhere |
 | `SECURITY_PASSWORD_RESET_IP_MAX_PER_HOUR` | `10` | reset requests per client IP per hour |
 | `TOKEN_TIME` | `48` | session JWT lifetime in hours |
 | `AUTH_COOKIE_NAME` | `marvin.access_token` | session cookie |
