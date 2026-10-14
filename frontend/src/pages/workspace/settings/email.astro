@@ -138,6 +138,9 @@ function isSuperseded(template: any): boolean {
             const customTemplates = emailTemplates.filter((t: any) => !!(t.groupId ?? t.group_id));
             const renderCard = (template: any) => {
               const isSystemTpl = !(template.groupId ?? template.group_id);
+              // A type only the platform's template sends (a password reset): it can't be customized, so it says so in
+              // its badges and on its own line instead of in a button-shaped label where Customize would be.
+              const isPlatformOnly = isSystemTpl && PLATFORM_ONLY_TYPES.has((template as any).templateType ?? (template as any).template_type);
               const connectedEvent = (eventsByTemplateId[template.id]?.[0]) ?? null;
               return (
                 <div class:list={['template-card', { 'is-superseded': isSuperseded(template) }]} data-template-id={template.id}>
@@ -150,8 +153,11 @@ function isSuperseded(template: any): boolean {
                       ) : (
                         <span class="badge badge-inactive">Inactive</span>
                       )}
-                      {isSystemTpl && (
+                      {isSystemTpl && !isPlatformOnly && (
                         <span class="badge badge-system" title="System default — click Customize to create a workspace override">Default</span>
+                      )}
+                      {isPlatformOnly && (
+                        <span class="badge badge-system" title="Sent in the platform's own template: a workspace can't replace it">Platform</span>
                       )}
                       {!isSystemTpl && (
                         <span class="badge badge-customized" title="Workspace customization — overrides the system default">Customized</span>
@@ -161,6 +167,9 @@ function isSuperseded(template: any): boolean {
                       )}
                     </div>
                     <p>{template.description || 'No description'}</p>
+                    {isPlatformOnly && (
+                      <small class="platform-note">Always sent with the platform's own template, so a reset link can't be reworded or redirected by a workspace. Test Send shows what it looks like.</small>
+                    )}
                     {(() => {
                       const tplType = (template as any).templateType ?? (template as any).template_type ?? '';
                       const autoEvent = SYSTEM_EVENT_MAP[tplType] ?? null;
@@ -191,9 +200,7 @@ function isSuperseded(template: any): boolean {
                     )}
                   </div>
                   {canManage && <div class="template-actions">
-                    {isSystemTpl && PLATFORM_ONLY_TYPES.has((template as any).templateType ?? (template as any).template_type) ? (
-                      <span class="badge badge-system" title="Sent in the platform's own template: a workspace can't replace it">Platform</span>
-                    ) : isSystemTpl ? (
+                    {isPlatformOnly ? null : isSystemTpl ? (
                       <button
                         class="button secondary small customize-btn"
                         data-template-id={template.id}
@@ -1323,6 +1330,13 @@ function isSuperseded(template: any): boolean {
   .badge-inactive {
     background: rgb(107 114 128 / 0.1);
     color: var(--muted);
+  }
+
+  .platform-note {
+    display: block;
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 12px;
   }
 
   .badge-system {
