@@ -42,16 +42,23 @@ def _prefs_value(session, group_id, column: str):
     return session.query(getattr(GroupPreferencesModel, column)).filter(GroupPreferencesModel.group_id == group_id).scalar()
 
 
+def _whole(value) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def workflow_max_steps(session, group_id) -> int:
-    """Steps a workflow runs before it stops in this workspace: its own setting (1-25), else MAX_ACTIONS."""
-    value = _prefs_value(session, group_id, "workflow_max_steps")
-    return int(value) if value and 1 <= int(value) <= MAX_ACTIONS_CAP else MAX_ACTIONS
+    """Steps a workflow runs before it stops in this workspace: its own setting (clamped to 1-25), else MAX_ACTIONS."""
+    value = _whole(_prefs_value(session, group_id, "workflow_max_steps"))
+    return max(1, min(value, MAX_ACTIONS_CAP)) if value else MAX_ACTIONS
 
 
 def approval_default_hours(session, group_id) -> int:
-    """Hours an approval waits when its step sets none: the workspace's setting (1-720), else 72."""
-    value = _prefs_value(session, group_id, "approval_expires_hours")
-    return int(value) if value and 1 <= int(value) <= 720 else DEFAULT_APPROVAL_HOURS
+    """Hours an approval waits when its step sets none: the workspace's setting (clamped to 1-720), else 72."""
+    value = _whole(_prefs_value(session, group_id, "approval_expires_hours"))
+    return max(1, min(value, 720)) if value else DEFAULT_APPROVAL_HOURS
 
 
 MAX_REACTION_DEPTH = 3  # how many automation/emit_event hops a single chain may span before we stop
