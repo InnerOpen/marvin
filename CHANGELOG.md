@@ -6,6 +6,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.323 (2026-10-14)
+
+### Features
+
+- **publishing**: Typed privacy & cookies block in Site Settings
+  ([`1395816`](https://github.com/InnerOpen/marvin/commit/139581636f743a060d29cc643a35d86ddd46baa5))
+
+### Refactoring
+
+- **ai**: One runner records and runs an operation for the route and the workflow step
+  ([`e028cc4`](https://github.com/InnerOpen/marvin/commit/e028cc45cdf89ec117ac754f45d091e11a1ca950))
+
+- **backup**: Drop the SQLite paths from the backup engine
+  ([`694bd7b`](https://github.com/InnerOpen/marvin/commit/694bd7bea1f9d7344da36c9d7c11e88d6c6eb687))
+
+
 ## v1.0.0-rc.322 (2026-10-14)
 
 ### Chores
