@@ -33,6 +33,7 @@ try {
     {approvals.map((a) => (
       <article class="approval" data-id={a.id}>
         <p class="ask">{a.message}</p>
+        {a.imageUrl && <a href={a.imageUrl} target="_blank" rel="noopener"><img class="preview" src={a.imageUrl} alt="" loading="lazy" /></a>}
         <p class="meta">
           {a.automationName ?? "A workflow"}
           {a.entryId && (<> · <a href={`/workspace/entries/${a.entryId}`}>{a.entryTitle ?? "the entry"}</a></>)}
@@ -92,6 +93,7 @@ try {
   .approvals { display: grid; gap: 12px; max-width: 760px; }
   .approval { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; background: var(--panel); }
   .ask { margin: 0 0 6px; font-weight: 600; }
+  .preview { display: block; max-width: 360px; max-height: 270px; border-radius: var(--radius); border: 1px solid var(--line); margin: 0 0 10px; }
   .meta { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
   .badge { margin-left: 6px; font-size: 11px; padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; }
   .decide { display: flex; flex-wrap: wrap; gap: 8px; }

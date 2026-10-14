@@ -7153,7 +7153,7 @@
     {
       "id": "alternate-universe-cover",
       "title": "Alternate universe cover",
-      "outcome": "When an entry is published, an editor is asked whether to make an alternate-universe cover; once approved, OpenAI Images draws it and it is attached to the entry as cover-variant.",
+      "outcome": "When an entry is published, an editor is asked whether to make an alternate-universe cover; once approved, OpenAI Images draws it, the editor sees the picture and decides whether to use it, and only then is it attached to the entry as cover-variant.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
@@ -7197,9 +7197,12 @@
         "trigger": "event:entry_published",
         "action_kinds": [
           "approval",
-          "integration"
+          "integration",
+          "entry"
         ],
-        "entry_ops": [],
+        "entry_ops": [
+          "attach_asset"
+        ],
         "operations": [],
         "handlers": [],
         "integration_actions": [
@@ -7239,14 +7242,14 @@
         },
         {
           "kind": "content_mutation",
-          "description": "Saves the picture as an asset (prompt, model and run recorded) and attaches it to the entry."
+          "description": "Saves the picture as an asset (prompt, model and run recorded); attaches it to the entry only after the second approval."
         }
       ],
       "cost_notes": "One paid image per approval, billed by OpenAI.",
-      "failure_behaviour": "Denied or expired: nothing is drawn. A provider error fails the step and follows the integration's error policy.",
+      "failure_behaviour": "Denied or expired at the first approval: nothing is drawn. Denied at the second: the picture stays in the library, unattached. A provider error fails the step and follows the integration's error policy.",
       "dependencies": [],
       "notes": [
-        "The picture is kept as an asset before the run goes on, so the run carries a reference, not image data."
+        "Two approvals: the first spends the image, the second shows it (the approval step's `image`) and attaches it only on a yes — so an editor judges the actual picture, not the idea."
       ],
       "verification": {
         "level": "fixture-executed",

@@ -246,6 +246,7 @@ class EntryAction(_StepBase):
         "set_metadata",
         "set_data",
         "request_review",
+        "attach_asset",
         "create",
     ]
     entity_type: Literal["entry", "asset", "resource"] = "entry"  # trash / restore also act on an asset or resource
@@ -257,6 +258,8 @@ class EntryAction(_StepBase):
     collection_slug: str | None = None  # …preferred: a collection slug/name (may be a $event.* template)
     metadata: dict[str, Any] | None = None  # for set_metadata: keys merged into metadata_json (values may be templates)
     data: dict[str, Any] | None = None  # for set_data: schema fields merged into data_json (validated; values may be templates)
+    asset: str | None = None  # for attach_asset: the asset's id or slug (may be a template to a step's asset)
+    role: str | None = None  # for attach_asset: the role to link it in (hero, cover…)
     reason: str | None = None  # for request_review: why it needs review, added to metadata_json.review_reasons (may be a template)
     entry_type: str | None = None  # for create: the new entry's type (a slug; may be a template)
     title: str | None = None  # for create (may be a template)
@@ -314,13 +317,17 @@ class ApprovalAction(_StepBase):
     ${steps.<id>.output.decision}: approved | denied | expired | stale (the entry changed after it was asked). An
     integration action that requires approval may follow it (it runs only when approved). `choices` (2–8 labels,
     templates allowed, or a template to a list, e.g. ${steps.ideas.output.titles}) asks them to pick one: approving
-    sets ${steps.<id>.output.choice} (the label) and .choice_index (from 0); denying picks none."""
+    sets ${steps.<id>.output.choice} (the label) and .choice_index (from 0); denying picks none. `image` shows a picture
+    with the question — a template to a picture URL, e.g. a step's generated asset (${steps.cover.output.images.0.asset.url})
+    or ${entry.image} — so the approver sees what they decide on."""
 
     kind: Literal["approval"]
     message: str  # what the approvers are asked (templates allowed)
     approvers: Literal["editor", "admin"] = "editor"
     expires_in_hours: int = Field(default=72, ge=1, le=720)
     choices: list[str] | str | None = None  # 2–8 labels, or one template to a list
+    # A picture shown with the question: a template to an asset URL (${steps.cover.output.images.0.asset.url}, ${entry.image}).
+    image: str | None = None
     id: str | None = None
 
     @field_validator("choices")

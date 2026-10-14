@@ -369,7 +369,8 @@ def _actions() -> dict:
         entry_ops[op] = {"sets_status": status, "sends": list(sends)}
     entry_ops_note = (
         "`unpublish` and `restore` set status draft (there is no op to set any other status); add/remove_from_collection "
-        "need collection_slug; set_metadata needs `metadata`, set_data needs `data` (the type's fields); request_review takes `reason`."
+        "need collection_slug; set_metadata needs `metadata`, set_data needs `data` (the type's fields); request_review takes `reason`; "
+        "attach_asset needs `asset` (an id or slug) and takes `role`."
     )
     return {
         "kinds": kinds,
@@ -910,6 +911,12 @@ def _entry_step_issues(step: dict, refs: WorkspaceRefs, bad) -> None:
             bad("collection_slug", f"“{op}” needs collection_slug.")
         elif isinstance(ref, str) and not _templated(ref) and ref not in known:
             bad("collection_slug", f"No collection “{ref}” here. Collections: {_close(ref, [c['slug'] for c in refs.collections])}.")
+    if op == "attach_asset" and not step.get("asset"):
+        bad(
+            "asset",
+            "attach_asset needs `asset`: the asset's id or slug — a template to a step's picture works "
+            "(${steps.<id>.output.images.0.asset.id}).",
+        )
     if op == "set_metadata" and not step.get("metadata"):
         bad("metadata", "set_metadata needs `metadata`: the keys to merge into the entry's metadata.")
     if op == "set_data" and not step.get("data"):

@@ -76,6 +76,7 @@ def park(session, group_id, automation, context: dict, *, exec_id, step_index: i
         entry_version=_entry_version(session, entry_id),
         expires_at=_now() + timedelta(hours=int(spec.get("expires_in_hours") or 72)),
         choices=spec.get("choices") or None,
+        image_url=spec.get("image") or None,
     )
     session.add(row)
     session.commit()
@@ -205,6 +206,7 @@ def _emit(session, row: WorkflowApprovalModel, automation, event_type, *, user_i
             entry_id=row.entry_id,
             expires_at=row.expires_at.isoformat(),
             note=row.note,
+            image_url=row.image_url,
         )
         verb = "is waiting for approval" if event_type == EventTypes.workflow_approval_requested else f"approval: {row.status}"
         EventBusService(bg_tasks=None).dispatch(

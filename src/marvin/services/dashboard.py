@@ -43,6 +43,7 @@ class ApprovalBrief(_MarvinModel):
     choices: list[str] | None = None
     entry_title: str | None = None
     created_at: datetime | None = None
+    image_url: str | None = None  # the picture the question is about, when the step named one
 
 
 class UpcomingItem(_MarvinModel):
@@ -152,6 +153,7 @@ def approvals_waiting(session, group_id, role: int) -> tuple[int, list[ApprovalB
                 choices=[str(c) for c in a.choices] if a.choices else None,
                 entry_title=entry.title if entry else None,
                 created_at=_utc(a.created_at),
+                image_url=a.image_url,
             )
         )
     return len(rows), briefs

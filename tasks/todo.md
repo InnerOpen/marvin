@@ -1,16 +1,14 @@
-# "Do the doable" (2026-10-14)
+# Approval with a picture (2026-10-14)
 
-Jared: do the doable backlog items. In rank order; one commit each, pushed, journaled.
+Jared: "How can I see if it's too dark if it hasn't run yet for approval?" — the cover recipe asks before the paid
+generation, so there is nothing to look at. Fix: an approval step can show a picture, and a run can ask twice.
 
-- [x] 1. Housekeeping: `tasks/lessons.md` → Brain (then delete); refresh the Brain's Marvin note "Open work" (July list is stale)
-- [ ] 2. Backup engine: remove the SQLite dump/restore paths (dead since the retirement) + their tests
-- [x] 3. Media adapters slice 1 — ALREADY SHIPPED (actions/media.py: resize/crop/convert/grade/inspect/palette/render + documents + watermarks + integration images kept as assets, 2026-10-12/13); the plan file was stale
-- [ ] 4. Dashboard second pass: publishing velocity by type, "pick up where you left off", pinnable entry-type cards, counts → Setup row
-- [ ] 5. Apprise notifier → integration plugin (last plaintext secret with inline creds)
-- [ ] 6. Privacy & cookie settings (`site.privacy`, plan: Brain "Marvin Privacy and Cookie Settings")
-- [-] 7. (skipped, Jared 2026-10-14) Per-workspace overlay + core fallback (secrets/variables/storage/email)
-- [ ] 8. Unify `execute_operation` onto the shared runner
-- [-] 9. (skipped, Jared) Domain: Jared's call (magrathea.studio / siriuscybernetics.app free as of 2026-10-14)
+- [ ] `ApprovalAction.image` → executor → `WorkflowApprovalModel.image_url` (+ migration) → `park`
+- [ ] `WorkflowApprovalRead.image_url`, event payload, dashboard `ApprovalBrief.image_url`
+- [ ] Entry op `attach_asset` (`asset`, `role`) so attaching waits for the second approval
+- [ ] Approvals page + dashboard cards show the picture; editor's approval form gets a Picture field
+- [ ] Recipe `alternate-universe-cover`: approve the spend → generate (not attached) → approve the picture (shown) → attach; test + catalogue
+- [ ] Validator/guide; SDK types; what's-new
+- [ ] Verify: tests; local dev click-through
 
 ## Review
-(filled as items land)

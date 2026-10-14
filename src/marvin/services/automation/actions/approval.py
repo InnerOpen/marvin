@@ -23,12 +23,29 @@ def run_approval_action(session, group_id, action: dict, context: dict, *, user_
     approvers = action.get("approvers") or "editor"
     hours = int(action.get("expires_in_hours") or 72)
     choices = _choices(action.get("choices"), context)
+    image = _image(action.get("image"), context)
     if dry_run:
         context["_approval_ahead"] = True  # the preview goes on as if approved, so the steps it guards show too
         out = {"dry_run": True, "kind": "approval", "message": message, "approvers": approvers, "expires_in_hours": hours, "would_wait": True}
-        return {**out, "choices": choices} if choices else out
-    spec = {"message": message, "approvers": approvers, "expires_in_hours": hours}
+        out.update({**({"choices": choices} if choices else {}), **({"image": image} if image else {})})
+        return out
+    spec = {"message": message, "approvers": approvers, "expires_in_hours": hours, **({"image": image} if image else {})}
     return {PARK: {**spec, "choices": choices} if choices else spec}
+
+
+def _image(raw, context: dict) -> str | None:
+    """The picture to show with the question: the template resolved to a URL. Nothing to show when the step names none
+    or the template resolves empty (the picture is a courtesy, never a reason to fail the run); anything that isn't a URL
+    is a mistake in the step."""
+    if raw in (None, ""):
+        return None
+    value = interpolate(raw, context)
+    if value in (None, ""):
+        return None
+    url = str(value).strip()
+    if not url.startswith(("http://", "https://", "/")):
+        raise AutomationActionError(f"an approval's image must resolve to a picture URL, not {url[:80]!r}")
+    return url[:2000]
 
 
 def _choices(raw, context: dict) -> list[str] | None:

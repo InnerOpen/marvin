@@ -25,13 +25,36 @@
         "id": "cover",
         "integration": "{{image_integration}}",
         "action": "generate",
-        "attach_as": "cover-variant",
         "args": {
           "prompt": "A book-cover style illustration reimagining “${entry.title}” as {{style}}. ${entry.summary}",
           "name": "${entry.title} — {{style}} cover"
         },
         "when": {
           "field": "steps.ok.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      },
+      {
+        "kind": "approval",
+        "id": "keep",
+        "message": "Use this {{style}} cover for “${entry.title}”? It is kept in the library either way.",
+        "image": "${steps.cover.output.images.0.asset.url}",
+        "approvers": "editor",
+        "expires_in_hours": 72,
+        "when": {
+          "field": "steps.ok.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "attach_asset",
+        "asset": "${steps.cover.output.images.0.asset.id}",
+        "role": "cover-variant",
+        "when": {
+          "field": "steps.keep.output.decision",
           "op": "eq",
           "value": "approved"
         }

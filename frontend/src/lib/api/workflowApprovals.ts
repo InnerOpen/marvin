@@ -22,6 +22,8 @@ export interface WorkflowApproval {
   /** An approval with choices: the labels to pick from, and the one picked once approved. */
   choices?: string[] | null;
   choice?: string | null;
+  /** A picture shown with the question (the step's `image`). */
+  imageUrl?: string | null;
 }
 
 export async function listApprovals(authToken?: string): Promise<WorkflowApproval[]> {

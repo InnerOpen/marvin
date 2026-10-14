@@ -91,8 +91,11 @@ REVIEW_REASONS_KEY = "review_reasons"
 CREATE_OPS = ("create",)
 CREATE_STATUSES = ("inbox", "draft")
 CREATED_KEY = "automation_created"
+# Attach an asset (by id or slug — a step's generated picture, say) to the entry in a role. Its own op so a run can
+# make a picture, show it at an approval, and attach it only once a person says yes.
+ATTACH_OPS = ("attach_asset",)
 
-ALL_OPS = (*ENTRY_OPS, *COLLECTION_OPS, *METADATA_OPS, *DATA_OPS, *REVIEW_OPS, *CREATE_OPS)
+ALL_OPS = (*ENTRY_OPS, *COLLECTION_OPS, *METADATA_OPS, *DATA_OPS, *REVIEW_OPS, *CREATE_OPS, *ATTACH_OPS)
 
 # What each op sends (through EntryService), from the entry's usual starting point: every write sends
 # entry_updated, a status op its transition too. The Events hub lists a workflow with these steps as a
@@ -257,6 +260,8 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
         key = "metadata" if op in METADATA_OPS else "data"
         return _merge(session, group_id, entity_id, op, key, action, context, user_id=user_id, depth=depth, dry_run=dry_run)
 
+    if op in ATTACH_OPS:
+        return _attach_asset(session, group_id, entity_id, action, context, user_id=user_id, depth=depth, dry_run=dry_run)
     if op in REVIEW_OPS:
         return _request_review(session, group_id, entity_id, action, context, user_id=user_id, depth=depth, dry_run=dry_run)
 
@@ -506,3 +511,23 @@ def _resolve_item(session, group_id, kind: str, action: dict, context: dict):
     if row is None or row.group_id != group_id:
         raise AutomationActionError(f"{kind} {raw} not found in this workspace")
     return row
+
+
+def _attach_asset(session, group_id, entity_id, action: dict, context: dict, *, user_id, depth: int, dry_run: bool) -> dict:
+    """`{"kind": "entry", "op": "attach_asset", "asset": "${steps.cover.output.images.0.asset.id}", "role": "cover"}`:
+    the asset (id or slug; templates allowed) linked to the entry in `role`. Idempotent: an asset already in that
+    role is left as it is."""
+    from marvin.services.entries import EntryService
+
+    raw = action.get("asset")
+    ref = str(interpolate(raw, context) or "").strip() if raw not in (None, "") else ""
+    if not ref:
+        raise AutomationActionError("attach_asset needs `asset`: the asset's id or slug (a template such as ${steps.cover.output.images.0.asset.id})")
+    role = str(interpolate(action.get("role"), context) or "").strip() or None if action.get("role") else None
+    if dry_run:
+        return {"dry_run": True, "kind": "entry", "op": "attach_asset", "entity_id": str(entity_id), "asset": ref, "role": role}
+    svc = EntryService(session, group_id, actor_id=user_id, integration_id="automation")
+    result = svc.attach_asset(entity_id, ref, role=role, reaction_depth=depth)
+    if result is None:
+        raise AutomationActionError(f"entry {entity_id} or asset '{ref}' not found in this workspace")
+    return {"entry_id": str(entity_id), "op": "attach_asset", "asset": ref, "role": role, "result": result}

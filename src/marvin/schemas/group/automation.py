@@ -436,6 +436,7 @@ class WorkflowApprovalRead(_MarvinModel):
     note: str | None = None
     choices: list[str] | None = None  # an approval with choices: the labels to pick from
     choice: str | None = None  # the one picked, once approved
+    image_url: str | None = None  # a picture shown with the question
 
 
 class WorkflowApprovalDecision(_MarvinModel):

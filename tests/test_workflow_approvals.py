@@ -296,3 +296,83 @@ def test_choices_that_resolve_to_too_few_fail_the_step(ws):  # noqa: F811
     _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry")
     (run,) = _runs(ws, workflow)
     assert run.status == "failed" and "at least two" in run.actions[0].error
+
+
+# ── a picture with the question, and attaching it only once approved ──────────────────────────────
+
+
+def test_an_approval_can_show_a_picture_and_the_run_keeps_its_url(ws):  # noqa: F811
+    from marvin.routes.automations.automations_controller import _approval_read
+
+    definition = {
+        "trigger": {"type": "event", "event": "entry_published"},
+        "actions": [{"kind": "approval", "id": "ok", "message": "Use this?", "image": "https://pics.test/${entry.slug}.jpg"}],
+    }
+    row = _install(ws, definition)
+    article = _published(ws)
+    _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry", correlation_id="pic")
+
+    waiting = _waiting(ws)
+    assert waiting.image_url == f"https://pics.test/{article.slug}.jpg"
+    assert _approval_read(ws.session, waiting).image_url == waiting.image_url  # the page and the dashboard show it
+    assert _runs(ws, row)[0].status == "waiting"
+
+
+def test_an_empty_picture_template_shows_nothing_but_a_non_url_fails_the_step(ws):  # noqa: F811
+    blank = {
+        "trigger": {"type": "event", "event": "entry_published"},
+        "actions": [{"kind": "approval", "message": "Ok?", "image": "${entry.metadata.none}"}],
+    }
+    blank_row = _install(ws, blank)
+    article = _published(ws, "Blank picture")
+    _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry", correlation_id="blank")
+    assert _waiting(ws).image_url is None
+    approvals.decide(ws.session, ws.gid, _waiting(ws).id, "deny", user_id=ws.uid, role=ROLE_EDITOR)
+    blank_row.enabled = False  # out of the way of the next publish
+    ws.session.commit()
+
+    bad = {"trigger": {"type": "event", "event": "entry_published"}, "actions": [{"kind": "approval", "message": "Ok?", "image": "${entry.title}"}]}
+    row = _install(ws, bad)
+    other = _published(ws, "Not a picture")
+    _fire(ws, "entry_published", _entry_doc(other), entity=other.id, entity_type="entry", correlation_id="bad")
+    failed = [r for r in _runs(ws, row) if r.status == "failed"]
+    assert failed and "picture URL" in (failed[0].error or "") and approvals.pending(ws.session, ws.gid, ROLE_EDITOR) == []
+
+
+def test_attach_asset_links_a_picture_in_a_role_once(ws):  # noqa: F811
+    from marvin.db.models.platform import EntryAssets
+    from marvin.services.automation.engine import run_automation_now
+    from marvin.services.automation.recorder import ExecutionRecorder
+    from tests.test_workflow_library import _asset
+
+    picture = _asset(ws, "cover-pic", mime="image/png")
+    ws.session.commit()
+    article = _published(ws, "Attach me")
+    definition = {
+        "trigger": {"type": "manual"},
+        "actions": [{"kind": "entry", "op": "attach_asset", "entity_id": str(article.id), "asset": picture.slug, "role": "cover-variant"}],
+    }
+    row = _install(ws, definition)
+
+    preview = run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, dry_run=True)
+    assert preview["ok"] and ws.session.query(EntryAssets).filter_by(entry_id=article.id).count() == 0  # a dry run links nothing
+    for _ in range(2):  # idempotent: the second run finds the link and leaves it
+        assert run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, recorder=ExecutionRecorder(ws.session, ws.gid))["ok"]
+    (link,) = ws.session.query(EntryAssets).filter_by(entry_id=article.id).all()
+    assert link.asset_id == picture.id and link.role == "cover-variant"
+
+    missing = _install(
+        ws,
+        {
+            "trigger": {"type": "manual"},
+            "actions": [{"kind": "entry", "op": "attach_asset", "entity_id": str(article.id), "asset": "no-such-picture"}],
+        },
+    )
+    assert run_automation_now(ws.session, ws.gid, missing, user_id=ws.uid, recorder=ExecutionRecorder(ws.session, ws.gid))["ok"] is False
+    assert draft_issues(ws.session, ws.gid, {"trigger": {"type": "manual"}, "actions": [{"kind": "entry", "op": "attach_asset"}]})  # needs `asset`
+    # The fixture tears the user down and assets.uploaded_by is NOT NULL, so the pictures this test made go first.
+    from marvin.db.models.platform import Assets
+
+    ws.session.query(EntryAssets).filter_by(entry_id=article.id).delete(synchronize_session=False)
+    ws.session.query(Assets).filter(Assets.group_id == ws.gid).delete(synchronize_session=False)
+    ws.session.commit()

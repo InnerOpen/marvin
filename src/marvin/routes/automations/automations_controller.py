@@ -183,6 +183,7 @@ def _approval_read(session, row) -> WorkflowApprovalRead:
         note=row.note,
         choices=row.choices or None,
         choice=row.choice,
+        image_url=row.image_url,
     )
 
 

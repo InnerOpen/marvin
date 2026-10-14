@@ -53,6 +53,8 @@ class WorkflowApprovalModel(SqlAlchemyBase, BaseMixins):
     # An approval with choices: what was offered (labels), and the one picked on approval.
     choices: Mapped[list | None] = mapped_column(sa.JSON, nullable=True)
     choice: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+    # A picture shown with the question (an asset URL the step named — a generated cover, the entry's main picture).
+    image_url: Mapped[str | None] = mapped_column(sa.String(2000), nullable=True)
 
     @auto_init()
     def __init__(self, session: Session, **kwargs) -> None:

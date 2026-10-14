@@ -404,8 +404,8 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   Run it on stories of one type: each gets a soundtrack suggestion — mood, tempo, instruments and a short composer's brief — kept in its metadata.
   - A custom AI step (`op: "custom"`): its own prompt and output fields; the answer is checked against them.
 - [alternate-universe-cover](../../src/marvin/services/automation/recipes/alternate-universe-cover.json) — **Alternate universe cover** · verified-current · `entry_published`  
-  When an entry is published, an editor is asked whether to make an alternate-universe cover; once approved, OpenAI Images draws it and it is attached to the entry as cover-variant.
-  - The picture is kept as an asset before the run goes on, so the run carries a reference, not image data.
+  When an entry is published, an editor is asked whether to make an alternate-universe cover; once approved, OpenAI Images draws it, the editor sees the picture and decides whether to use it, and only then is it attached to the entry as cover-variant.
+  - Two approvals: the first spends the image, the second shows it (the approval step's `image`) and attaches it only on a yes — so an editor judges the actual picture, not the idea.
 - [time-capsule](../../src/marvin/services/automation/recipes/time-capsule.json) — **Time capsule** · verified-current · `entry_published`  
   When a project is first published, what it says is sealed on the entry; months later (you choose, up to a year) a look back comparing then and now is drafted.
   - The look back reads the entry as it is when the capsule opens, beside the sealed text.

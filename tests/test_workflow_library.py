@@ -1371,8 +1371,17 @@ class TestExecution:
 
         (call,) = ws.providers["openai_images"].calls
         assert "1950s sci-fi pulp" in call["prompt"] and "Harbour at dawn" in call["prompt"]
+        # Drawn, kept, and now shown: the second approval carries the picture, and nothing is attached until it's a yes.
+        from marvin.services.automation import approvals as approvals_svc
+        from marvin.services.automation.authz import ROLE_EDITOR
+
+        (asking,) = approvals_svc.pending(ws.session, ws.gid, ROLE_EDITOR)
+        assert asking.image_url and "Use this" in asking.message
+        assert ws.session.query(EntryAssets).filter_by(entry_id=article.id, role="cover-variant").count() == 0
+        self._decide(ws)
         link = ws.session.query(EntryAssets).filter_by(entry_id=article.id, role="cover-variant").one()
         cover = link.asset
+        assert asking.image_url.endswith(cover.storage_key.rsplit("/", 1)[-1]) or cover.slug in asking.image_url
         assert cover.name == "Harbour at dawn — a 1950s sci-fi pulp cover" and cover.mime_type == "image/png"
         assert cover.metadata_json["generated_by"] == "openai_images.generate" and cover.metadata_json["model"] == "gpt-image-1"
 
