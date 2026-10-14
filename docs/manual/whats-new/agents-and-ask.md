@@ -267,7 +267,7 @@ question** (`agent_max_steps`: tool calls before an agent must answer; blank = t
 each question, 2–50, default 10) and **Ask before changing more than** (`bulk_ask_threshold`: tag or link changes
 in one call before the agent asks first, default 20).
 
-**Tools on demand.** An agent bound to every tool its role allows (the workspace's own agent, the bubble) starts each
+An agent bound to every tool its role allows (the workspace's own agent, the bubble) starts each
 question with the everyday tools — reading and searching entries and the library, drafting, the manual, hand-offs —
 and a `load_tools` tool listing the rest by group (tags and links, archive, the Trash, imports, workflows, AI insights,
 connected MCP servers…). It loads a group when the question needs it; a call to a tool in an unloaded group loads that
