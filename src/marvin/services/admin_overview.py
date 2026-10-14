@@ -49,10 +49,20 @@ class SpendDay:
 
 
 @dataclass
+class SignIn:
+    user_id: str
+    name: str
+    username: str
+    at: datetime
+
+
+@dataclass
 class Overview:
     health: list[HealthDot] = field(default_factory=list)
     workspaces: list[WorkspaceRow] = field(default_factory=list)
     spend: list[SpendDay] = field(default_factory=list)
+    sign_ins: list[SignIn] = field(default_factory=list)
+    plugin_updates: list = field(default_factory=list)  # services/plugin_updates.PluginUpdate
 
 
 def _month_start(now: datetime) -> datetime:
@@ -151,7 +161,13 @@ def _health(session, now: datetime) -> list[HealthDot]:
         local = any(h in (settings.BASE_URL or "") for h in ("localhost", "127.0.0.1"))
         return HealthDot("ui_address", "Email links point at localhost" if local else "Email links ok", BAD if local else OK, "/admin/site-settings")
 
-    for check in (backups, tasks, alerts, unpriced, price_feed, push, ui_address):
+    def plugins():
+        from marvin.services.plugin_updates import available_updates
+
+        n = len(available_updates(session))
+        return HealthDot("plugins", f"{n} plugin update{'s' if n != 1 else ''}" if n else "Plugins current", WARN if n else OK, "/admin/plugins")
+
+    for check in (backups, tasks, alerts, unpriced, price_feed, push, ui_address, plugins):
         safely(check)
     return dots
 
@@ -239,10 +255,33 @@ def _spend(session, now: datetime, days: int = SPEND_DAYS) -> list[SpendDay]:
     return list(by_day.values())
 
 
+SIGN_INS_SHOWN = 8
+
+
+def _sign_ins(session, now: datetime) -> list[SignIn]:
+    from marvin.db.models.users.users import Users
+
+    rows = (
+        session.query(Users.id, Users.full_name, Users.username, Users.last_login_at)
+        .filter(Users.last_login_at.isnot(None))
+        .order_by(Users.last_login_at.desc())
+        .limit(SIGN_INS_SHOWN)
+        .all()
+    )
+    return [SignIn(user_id=str(i), name=n or u or "", username=u or "", at=at) for i, n, u, at in rows]
+
+
+def _plugin_updates(session, now: datetime) -> list:
+    from marvin.services.plugin_updates import available_updates
+
+    return available_updates(session, refresh_if_stale=False)  # the health dot already triggered any refresh
+
+
 def overview(session, now: datetime | None = None) -> Overview:
     now = now or datetime.now(UTC)
     out = Overview()
-    for attr, fn in (("health", _health), ("workspaces", _workspaces), ("spend", _spend)):
+    parts = (("health", _health), ("workspaces", _workspaces), ("spend", _spend), ("sign_ins", _sign_ins), ("plugin_updates", _plugin_updates))
+    for attr, fn in parts:
         try:
             setattr(out, attr, fn(session, now))
         except Exception:  # noqa: BLE001 — a part that fails is empty, the rest still shows

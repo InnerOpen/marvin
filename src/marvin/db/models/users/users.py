@@ -187,6 +187,9 @@ class Users(SqlAlchemyBase, BaseMixins):
     # NOTE: Field name 'login_attemps' is intentionally misspelled (missing 't') for
     # backward compatibility with existing database schema. Do not rename without migration.
     # See: https://github.com/yourorg/marvin/issues/XXX for tracking proper migration
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        NaiveDateTime, nullable=True, doc="When the user last signed in (any method); Admin → Overview lists recent ones."
+    )
     login_attemps: Mapped[int | None] = mapped_column(
         Integer, default=0, doc="Number of failed login attempts. Resets on successful login. Defaults to 0."
     )

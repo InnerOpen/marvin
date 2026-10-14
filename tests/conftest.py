@@ -80,6 +80,14 @@ def _create_test_schema() -> Generator[None, None, None]:
     yield
 
 
+@fixture(autouse=True)
+def _no_plugin_update_check(monkeypatch) -> None:
+    """Admin → Overview starts a background GitHub tag check when its cache is stale; no test should reach GitHub."""
+    from marvin.services import plugin_updates
+
+    monkeypatch.setattr(plugin_updates, "_refresh_in_background", lambda: None)
+
+
 @fixture
 def client() -> TestClient:
     """FastAPI test client for making API requests."""

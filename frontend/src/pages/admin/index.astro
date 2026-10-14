@@ -59,7 +59,11 @@ type WorkspaceRow = {
   aiSpendMonth: number; aiLimitMonth: number | null; openAlerts: number; lastActivity: string | null;
 };
 type SpendDay = { day: string; cost: number; runs: number; promptTokens: number; cachedTokens: number };
-type Overview = { health: HealthDot[]; workspaces: WorkspaceRow[]; spend: SpendDay[] };
+type SignIn = { userId: string; name: string; username: string; at: string };
+type PluginUpdate = { package: string; installed: string; latest: string; repo: string };
+type Overview = {
+  health: HealthDot[]; workspaces: WorkspaceRow[]; spend: SpendDay[]; signIns: SignIn[]; pluginUpdates: PluginUpdate[];
+};
 
 const [about, ready, stats, backups, tasks, plugins, recentEvents, backupHealth, overview] = await Promise.all([
   attempt("about", () => fetchApi<AboutInfo>("/api/admin/about", {}, authToken)),
@@ -269,6 +273,48 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
             </>
           )}
         </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h3>Recent sign-ins</h3>
+            <a href="/admin/users" class="panel-link">Users →</a>
+          </div>
+          {overview.signIns.length === 0 ? (
+            <p class="muted">No sign-ins recorded yet.</p>
+          ) : (
+            <ul class="plain-list">
+              {overview.signIns.map((s) => (
+                <li>
+                  <a href={`/admin/users/${s.userId}`}>{s.name}</a>
+                  {s.username && s.username !== s.name && <span class="muted"> @{s.username}</span>}
+                  <span class="muted list-when"><LocalTime iso={s.at} /></span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h3>Plugin updates</h3>
+            <a href="/admin/plugins" class="panel-link">Plugins →</a>
+          </div>
+          {overview.pluginUpdates.length === 0 ? (
+            <p class="muted">Every plugin installed from GitHub is on its newest release.</p>
+          ) : (
+            <>
+              <ul class="plain-list">
+                {overview.pluginUpdates.map((u) => (
+                  <li>
+                    <a href={`https://github.com/${u.repo}/releases`} target="_blank" rel="noopener">{u.package}</a>
+                    <span class="muted list-when">{u.installed} → <strong>{u.latest}</strong></span>
+                  </li>
+                ))}
+              </ul>
+              <p class="muted">Updating is a Marvin release: bump the pin in the <code>plugins</code> group.</p>
+            </>
+          )}
+        </section>
       </div>
     )}
   </div>
@@ -298,6 +344,11 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
   .ws-table a { color: var(--ink); }
   .ws-table .num { text-align: right; white-space: nowrap; }
   .ws-table .warn { color: #d97706; font-weight: 600; }
+  .plain-list { list-style: none; margin: 0; padding: 0; font-size: 14px; }
+  .plain-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .plain-list li:last-child { border-bottom: 0; }
+  .plain-list a { color: var(--ink); }
+  .list-when { margin-left: auto; }
   .meter { display: block; height: 4px; margin-top: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
   .meter-fill { display: block; height: 100%; background: #16a34a; }
   .meter-fill.over { background: var(--color-error, #dc2626); }

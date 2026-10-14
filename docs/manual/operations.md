@@ -88,10 +88,17 @@ Since rc.159 an upload makes an image's opaque solid background transparent. Fil
 
 **Admin → Overview** (`GET /api/admin/overview`) opens with a health strip — one dot per thing that can be wrong
 (backup problems, failing scheduled tasks, open integration alerts, unpriced AI runs this month, a stale price feed,
-push keys, and emailed links still pointing at localhost), each linking to its page — then the version, people,
-plugins, backups, events and tasks cards, then **Workspaces** (entries, members, AI spend this month against the
-workspace's limit, open alerts, last activity) and **AI spend** for the last 30 days across all workspaces, each day's
-bar shaded by the share of the prompt the providers served from cache.
+push keys, emailed links still pointing at localhost, and plugins with a newer release), each linking to its page —
+then the version, people, plugins, backups, events and tasks cards, then **Workspaces** (entries, members, AI spend
+this month against the workspace's limit, open alerts, last activity) and **AI spend** for the last 30 days across all
+workspaces, each day's bar shaded by the share of the prompt the providers served from cache.
+
+Below them, **Recent sign-ins** lists the eight people who signed in last, newest first, from the time each password,
+LDAP or OpenID sign-in is recorded on the account (sign-ins before this release aren't known). **Plugin updates**
+lists each plugin installed from a GitHub release whose repository has a newer version tag, with the installed and
+newest versions. The check asks GitHub at most every 12 hours, in the background, so the page never waits on it and
+the first look after a restart shows the previous answer. Taking an update is a Marvin release: bump the plugin's pin
+in the `plugins` dependency group.
 
 **Admin → Site Settings** lists every setting the API runs with, warns at the top when the public UI address
 (`BASE_URL` / `FRONTEND_URL`, the chart's `config.publicUiUrl`) is still localhost, and has a **Security** card: the

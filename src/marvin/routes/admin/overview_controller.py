@@ -38,11 +38,30 @@ class SpendDayRead(_MarvinModel):
     cached_tokens: int
 
 
+class SignInRead(_MarvinModel):
+    user_id: str
+    name: str
+    username: str
+    at: datetime
+
+
+class PluginUpdateRead(_MarvinModel):
+    package: str
+    installed: str
+    latest: str
+    repo: str
+    """owner/repo on GitHub."""
+
+
 class AdminOverviewRead(_MarvinModel):
     health: list[HealthDotRead]
     workspaces: list[WorkspaceOverviewRead]
     spend: list[SpendDayRead]
     """The last 30 days of AI runs across the platform, oldest first."""
+    sign_ins: list[SignInRead] = []
+    """The most recent sign-ins, newest first."""
+    plugin_updates: list[PluginUpdateRead] = []
+    """Installed plugins with a newer release tag (checked every 12 hours)."""
 
 
 @controller(router)
@@ -58,4 +77,6 @@ class AdminOverviewController(BaseAdminController):
             health=[HealthDotRead(**asdict(d)) for d in data.health],
             workspaces=[WorkspaceOverviewRead(**asdict(w)) for w in data.workspaces],
             spend=[SpendDayRead(**asdict(d)) for d in data.spend],
+            sign_ins=[SignInRead(**asdict(s)) for s in data.sign_ins],
+            plugin_updates=[PluginUpdateRead(**asdict(u)) for u in data.plugin_updates],
         )
