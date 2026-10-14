@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.342 (2026-10-14)
+
+### Bug Fixes
+
+- **assets**: Drop the upload service's second smart-collection join, which failed on every upload
+  ([`8a50883`](https://github.com/InnerOpen/marvin/commit/8a50883daa4769ad11b4901dcf9f6cbae47d64bc))
+
+
 ## v1.0.0-rc.341 (2026-10-14)
 
 ### Features
