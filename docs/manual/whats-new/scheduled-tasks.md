@@ -51,6 +51,12 @@ Admin-only handlers run as system tasks (`group_id = NULL`) and are hidden from 
 
 **Maintenance buttons → system tasks.** **Admin → Maintenance** used to have its own Cleanup Tasks buttons (Clean Expired Tokens, Clean Old Events, Optimize Database, Clear Cache) with no history or settings; Clean Old Events did nothing at all. They are gone, with their endpoints (`POST /api/admin/maintenance/clean/temp`, `/cleanup-tokens`, `/cleanup-events`, `/optimize-db`, `/clear-cache`): each is a system task above, run from **Admin → Scheduled Tasks → Run Now** (or `marvin admin scheduled-tasks run <slug>`), so a manual run is logged like any other. Maintenance keeps the storage overview and links there. Clear Cache only emptied the temp directory: Run Now on `cleanup_temp_files` with `age_hours` 0 does the same.
 
+**Database & cleanup.** **Admin → Database & cleanup** (`/admin/maintenance`, `GET /api/admin/maintenance/database`)
+shows the database's size and its twelve largest tables — size with indexes, estimated rows, share of the whole —
+each beside the system task that trims it, that task's retention and its last and next run. A table nothing trims is
+either content (kept on purpose) or a log that only grows; the page flags the logs. Admin → Scheduled Tasks lists the
+system tasks first, then each workspace's under its name.
+
 **Console logging.** The once-a-minute scheduler heartbeat (`🏓 Ping!`, "Running/Finished minutely callbacks", "Found N scheduled task(s) due", "Executing scheduled task") logs at DEBUG, and a run's "completed" line and the `run_integration_action` summary log at INFO only when the run is worth an execution row (the rule above), otherwise at DEBUG. At the default `LOG_LEVEL=info` the console shows real events; `LOG_LEVEL=debug` shows every tick as before.
 
 **Scheduled Publish.** In the entry editor, Scheduled Publish and Expiration Date are entered in the viewer's local time and stored as UTC; the help under each reads "Will publish …" / "Will expire …" in local time, and clearing a field clears the date. **Published** is read-only ("Not published" when unset): it is stamped on first publish and cleared on unpublish, and only the API can set it. Publishing by any route (editor, API, automation, this task) clears `publish_at`, so an entry unpublished later is not put back live by an old schedule. The task never publishes an archived entry, and it keeps a `published_at` already set through the API (a backdated import).
