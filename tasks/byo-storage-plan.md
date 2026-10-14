@@ -102,7 +102,20 @@ Release order: SDK tag → bump Marvin's SDK pins → plugin tag → bump the pl
 
 Mash & Burn on prod only after slice 3 has run on dev.
 
-## 11. Questions for Jared
+## 11. Decisions (Jared, 2026-10-14, all as recommended)
+
+1. One global switch (`workspace_storage.allowed`), no per-workspace allow-list.
+2. OWNER only (or platform super admin) changes a workspace's storage; ADMIN can view.
+3. Policy turned off after opt-in: uploads to `ws:` workspaces are **blocked** (plain message), never redirected.
+4. Bucket down / keys failing: **fail closed** (`WorkspaceStorageUnavailable` → 503), never the platform bucket.
+5. A public URL is **required** before a connection can be verified.
+6. The bucket's domain may live in the client's own account; Marvin only checks it serves the probe.
+7. BYO bytes **don't count** toward storage quotas; usage is still shown per workspace.
+8. Bundles include BYO files per a **per-workspace toggle**, default off.
+9. Workspace deleted: objects in its bucket are **left in place**; the connection row is forgotten.
+10. Default `endpoint_policy`: **`known`** (R2 / AWS / B2); an admin can widen it.
+
+## 12. Original questions
 
 1. Off by default with one global switch, or also a per-workspace allow-list?
 2. OWNER only, or OWNER + ADMIN as for AI?
