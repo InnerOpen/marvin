@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.325 (2026-10-14)
+
+### Chores
+
+- **integrations**: Instagram 0.5.2 — the recipe makes a JPEG copy before posting
+  ([`2bff003`](https://github.com/InnerOpen/marvin/commit/2bff0030e2dcf11d716f1651a2fc7fa619b0d8ee))
+
+### Features
+
+- **integrations**: OpenAI Images 0.4.0, and a labelled Check connection button on every card
+  ([`15a182b`](https://github.com/InnerOpen/marvin/commit/15a182bb8e994e49f54a9936cc66f1bffdaa20bd))
+
+
 ## v1.0.0-rc.324 (2026-10-14)
 
 ### Features
