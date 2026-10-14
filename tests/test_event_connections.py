@@ -297,7 +297,6 @@ def test_integration_actions_appear_disabled_and_disappear(db_session, world):
     assert sorted((r.detail, r.enabled) for r in rows if r.name == "Acme") == [("archive", False)]
 
 
-
 def test_each_switchable_reaction_carries_its_own_switch_apart_from_whether_it_runs(db_session, world):
     """The event page's On/Off acts on `switched_on`; `enabled` also needs the integration on."""
     off = integration(db_session, world.a, name="Off Co", provider="offco", enabled=False)
@@ -310,6 +309,7 @@ def test_each_switchable_reaction_carries_its_own_switch_apart_from_whether_it_r
     assert (by_kind["integration_action"].switched_on, by_kind["integration_action"].enabled) == (True, False)
     assert (by_kind["workflow"].switched_on, by_kind["workflow"].enabled) == (False, False)
     assert by_kind["webhook"].switched_on is None  # managed on its own page, no switch here
+
 
 def test_emails_appear_disabled_without_addresses(db_session, world):
     note = template(db_session, world.a, "Note")
@@ -735,6 +735,7 @@ def entries(db_session, world):
         ("set_metadata", "draft", {"metadata": {"k": "v"}}),
         ("set_data", "draft", {"data": {"colour": "red"}}),
         ("request_review", "draft", {"reason": "check"}),
+        ("attach_asset", "draft", {"role": "cover"}),  # `asset` is made in the test: a picture of the workspace
     ],
 )
 def test_each_entry_step_sends_what_op_sends_says(db_session, world, entries, dispatched, op, status, extra):
@@ -745,6 +746,15 @@ def test_each_entry_step_sends_what_op_sends_says(db_session, world, entries, di
     entry_id = entries.make(status)
     if op == "remove_from_collection":
         EntryService(db_session, world.a).add_to_collection(entry_id, "picks")
+    if op == "attach_asset":
+        from marvin.db.models.platform import Assets
+
+        picture = _add(
+            db_session, Assets, uploaded_by=world.ua, group_id=world.a, slug=f"pic-{uuid.uuid4().hex[:8]}", name="Pic",
+            original_filename="p.png", filename="p.png", extension="png", file_size=1, mime_type="image/png",
+            asset_type="image", checksum="c", storage_provider="local", storage_key=f"k/{uuid.uuid4().hex}",
+        )  # fmt: skip
+        extra = {**extra, "asset": picture.slug}
     dispatched.clear()
     action = {"kind": "entry", "op": op, **extra}
     run_entry_action(db_session, world.a, action, {"event": {"entry_id": str(entry_id)}, "steps": {}, "depth": 0}, authorizer_role=ROLE_ADMIN)

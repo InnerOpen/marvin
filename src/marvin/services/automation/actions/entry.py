@@ -113,6 +113,7 @@ OP_SENDS: dict[str, tuple[str, ...]] = {
     "set_data": ("entry_updated",),
     "request_review": ("entry_updated",),
     "create": ("entry_created",),
+    "attach_asset": ("asset_attached_to_entry",),  # the link, not an entry_updated (EntryService._emit_asset_link)
 }
 
 # Ops that also act on an asset or a resource (`entity_type`), and what each sends there — one event, no
