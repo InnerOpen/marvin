@@ -170,228 +170,233 @@ function getStatusClass(status: string): string {
     </div>
   ) : (
     <div class="dashboard">
-      <!-- The live panels: health, what waits on you, what's coming up, workflow runs -->
-      <DashboardPanels dashboard={dashboard} aiUsage={aiUsage} />
-
-      <!-- Housekeeping: stale drafts, empty types and collections, unused clients -->
-      {(needsAttention.staleDrafts.length > 0 ||
-        needsAttention.emptyEntryTypes.length > 0 ||
-        needsAttention.emptyCollections.length > 0 ||
-        needsAttention.unusedClients.length > 0) && (
-        <section class="dashboard-section">
-          <h2 class="section-title">Housekeeping</h2>
-          <div class="attention-grid">
-            {needsAttention.staleDrafts.length > 0 && (
-              <a href="/workspace/entries?status=draft" class="attention-card">
-                <div class="attention-icon">📝</div>
-                <div class="attention-content">
-                  <strong>{needsAttention.staleDrafts.length} stale draft{needsAttention.staleDrafts.length === 1 ? '' : 's'}</strong>
-                  <span>No updates in 7+ days</span>
-                </div>
-              </a>
-            )}
-            {needsAttention.emptyEntryTypes.length > 0 && (
-              <a href="/workspace/entry-types" class="attention-card">
-                <div class="attention-icon">◈</div>
-                <div class="attention-content">
-                  <strong>{needsAttention.emptyEntryTypes.length} empty entry type{needsAttention.emptyEntryTypes.length === 1 ? '' : 's'}</strong>
-                  <span>No entries yet</span>
-                </div>
-              </a>
-            )}
-            {needsAttention.emptyCollections.length > 0 && (
-              <a href="/workspace/collections" class="attention-card">
-                <div class="attention-icon">☰</div>
-                <div class="attention-content">
-                  <strong>{needsAttention.emptyCollections.length} empty collection{needsAttention.emptyCollections.length === 1 ? '' : 's'}</strong>
-                  <span>Needs entries</span>
-                </div>
-              </a>
-            )}
-            {needsAttention.unusedClients.length > 0 && (
-              <a href="/publishing/clients" class="attention-card">
-                <div class="attention-icon">⚡</div>
-                <div class="attention-content">
-                  <strong>{needsAttention.unusedClients.length} unused client{needsAttention.unusedClients.length === 1 ? '' : 's'}</strong>
-                  <span>Never accessed</span>
-                </div>
-              </a>
-            )}
-          </div>
-        </section>
-      )}
-
-      <!-- Quick Create -->
-      {(access.canAuthor || access.canEdit) && (
-      <section class="dashboard-section">
-        <h2 class="section-title">Quick Create</h2>
-        <div class="quick-create-grid">
-          {entryTypes.length > 0 ? (
-            access.canAuthor && entryTypes.slice(0, 6).map((type) => (
-              <a href={`/workspace/entries/new?type=${type.id}`} class="quick-create-card">
-                <span class="quick-create-icon" style={type.color ? `color: ${type.color}` : undefined}>
-                  {type.icon || '▤'}
-                </span>
-                <span class="quick-create-label">{type.name}</span>
-              </a>
-            ))
-          ) : access.canManage && (
-            <a href="/workspace/entry-types" class="quick-create-card">
-              <span class="quick-create-icon">◈</span>
-              <span class="quick-create-label">Create Entry Type</span>
-            </a>
-          )}
-          {access.canEdit && (
-            <a href="/workspace/collections/new" class="quick-create-card">
-              <span class="quick-create-icon">☰</span>
-              <span class="quick-create-label">New Collection</span>
-            </a>
-          )}
-        </div>
-      </section>
-      )}
-
-      <div class="dashboard-columns">
-        <!-- Recent Work -->
-        <section class="dashboard-section">
-          <h2 class="section-title">Recent Work</h2>
-          {recentWork.length > 0 ? (
-            <div class="recent-work-list">
-              {recentWork.map((entry) => {
-                const entryType = entryTypes.find(t => t.id === entry.entryTypeId);
-                return (
-                  <a href={`/workspace/entries/${entry.id}`} class="recent-work-item">
-                    <div class="recent-work-content">
-                      <strong>{entry.title}</strong>
-                      <div class="recent-work-meta">
-                        {entryType && (
-                          <span class="entry-type-badge" style={entryType.color ? `background: ${entryType.color}20; color: ${entryType.color}` : undefined}>
-                            {entryType.icon && <span>{entryType.icon}</span>}
-                            {entryType.name}
-                          </span>
-                        )}
-                        <span class={`status-badge ${getStatusClass(entry.status)}`}>
-                          {entry.status}
-                        </span>
-                      </div>
-                    </div>
-                    <span class="recent-work-time">{formatRelativeTime(entry.updateAt)}</span>
+      <!-- One frame for the whole page: the live panels and this page's own sections share two column stacks
+           (DashboardPanels), every section a panel with the same chrome, so nothing pairs off into uneven rows. -->
+      <DashboardPanels dashboard={dashboard} aiUsage={aiUsage}>
+        <Fragment slot="right-top">
+          {(access.canAuthor || access.canEdit) && (
+            <section class="panel">
+              <div class="panel-head"><h3>Quick create</h3></div>
+              <div class="quick-create-grid">
+                {entryTypes.length > 0 ? (
+                  access.canAuthor && entryTypes.slice(0, 6).map((type) => (
+                    <a href={`/workspace/entries/new?type=${type.id}`} class="quick-create-card">
+                      <span class="quick-create-icon" style={type.color ? `color: ${type.color}` : undefined}>
+                        {type.icon || '▤'}
+                      </span>
+                      <span class="quick-create-label">{type.name}</span>
+                    </a>
+                  ))
+                ) : access.canManage && (
+                  <a href="/workspace/entry-types" class="quick-create-card">
+                    <span class="quick-create-icon">◈</span>
+                    <span class="quick-create-label">Create Entry Type</span>
                   </a>
-                );
-              })}
-            </div>
-          ) : (
-            <div class="empty-state-small">
-              <p>No entries yet</p>
-              {access.canAuthor && <a href="/workspace/entries/new" class="button small">Create Entry</a>}
-            </div>
-          )}
-        </section>
-
-        <!-- Recent Activity: the workspace event log -->
-        <section class="dashboard-section">
-          <div class="section-head">
-            <h2 class="section-title">Recent Activity</h2>
-            <a href="/automation/events" class="section-link">Event log →</a>
-          </div>
-          {recentActivity.length === 0 ? (
-            <div class="empty-state-small"><p>No recent activity yet.</p></div>
-          ) : (
-            <ul class="activity-list">
-              {recentActivity.map((ev) => {
-                const entityLabel = entityTypeLabel(ev.entityType);
-                const entityLink = entityHref(ev.entityType, ev.entityId);
-                const at = ev.occurredAt ?? ev.occurred_at;
-                return (
-                  <li class="activity-row">
-                    <span class="activity-dot" aria-hidden="true"></span>
-                    <div class="activity-body">
-                      <span class="activity-msg">{ev.message}</span>
-                      {entityLink ? (
-                        <a class="activity-meta activity-entity" href={entityLink}>{entityLabel}</a>
-                      ) : entityLabel && <span class="activity-meta">{entityLabel}</span>}
-                    </div>
-                    <span class="activity-when">{relTime(at) ?? <LocalTime iso={at} format="date" />}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-
-        <!-- Publishing Overview & Activity -->
-        <section class="dashboard-section">
-          <h2 class="section-title">Publishing</h2>
-          <div class="publishing-stats">
-            <div class="pub-stat">
-              <strong>{publishingStats.published}</strong>
-              <span>Published</span>
-            </div>
-            <div class="pub-stat">
-              <strong>{publishingStats.draft}</strong>
-              <span>Drafts</span>
-            </div>
-            <div class="pub-stat">
-              <strong>{resources.length}</strong>
-              <span>Resources</span>
-            </div>
-            {canSeeClients && (
-              <div class="pub-stat">
-                <strong>{publishingStats.activeClients}</strong>
-                <span>Active Clients</span>
+                )}
+                {access.canEdit && (
+                  <a href="/workspace/collections/new" class="quick-create-card">
+                    <span class="quick-create-icon">☰</span>
+                    <span class="quick-create-label">New Collection</span>
+                  </a>
+                )}
               </div>
-            )}
-          </div>
+            </section>
+          )}
+        </Fragment>
 
-          <div class="publishing-activity">
-            <h3>Activity</h3>
-            {lastPublishedEntry ? (
-              <div class="activity-item">
-                <div class="activity-icon">✓</div>
-                <div class="activity-content">
-                  <strong>Last Published</strong>
-                  <a href={`/workspace/entries/${lastPublishedEntry.id}`}>{lastPublishedEntry.title}</a>
-                  <span class="activity-time">{formatRelativeTime(lastPublishedEntry.publishedAt)}</span>
-                </div>
+        <Fragment slot="left">
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Recent work</h3>
+              <a href="/workspace/entries" class="panel-link">All entries →</a>
+            </div>
+            {recentWork.length > 0 ? (
+              <div class="recent-work-list">
+                {recentWork.map((entry) => {
+                  const entryType = entryTypes.find(t => t.id === entry.entryTypeId);
+                  return (
+                    <a href={`/workspace/entries/${entry.id}`} class="recent-work-item">
+                      <div class="recent-work-content">
+                        <strong>{entry.title}</strong>
+                        <div class="recent-work-meta">
+                          {entryType && (
+                            <span class="entry-type-badge" style={entryType.color ? `background: ${entryType.color}20; color: ${entryType.color}` : undefined}>
+                              {entryType.icon && <span>{entryType.icon}</span>}
+                              {entryType.name}
+                            </span>
+                          )}
+                          <span class={`status-badge ${getStatusClass(entry.status)}`}>
+                            {entry.status}
+                          </span>
+                        </div>
+                      </div>
+                      <span class="recent-work-time">{formatRelativeTime(entry.updateAt)}</span>
+                    </a>
+                  );
+                })}
               </div>
             ) : (
-              <p class="muted-text">No published entries yet</p>
-            )}
-
-            {!canSeeClients ? null : siteClients.length > 0 ? (
-              <div class="activity-item">
-                <div class="activity-icon">⚡</div>
-                <div class="activity-content">
-                  <strong>Site Clients</strong>
-                  <span>{publishingStats.activeClients} of {publishingStats.totalClients} active</span>
-                  <a href="/publishing/clients" class="activity-link">Manage clients →</a>
-                </div>
-              </div>
-            ) : (
-              <div class="activity-item">
-                <div class="activity-icon">⚡</div>
-                <div class="activity-content">
-                  <strong>No Site Clients</strong>
-                  <span>Create a client to publish externally</span>
-                  <a href="/publishing/clients/new" class="activity-link">Create client →</a>
-                </div>
+              <div class="empty-state-small">
+                <p>No entries yet</p>
+                {access.canAuthor && <a href="/workspace/entries/new" class="button small">Create Entry</a>}
               </div>
             )}
-          </div>
-        </section>
-
-        <!-- At a glance: the workspace's counts -->
-        {glance.length > 0 && (
-          <section class="dashboard-section">
-            <h2 class="section-title">At a glance</h2>
-            <ul class="glance-list">
-              {glance.map((g) => (
-                <li><a href={g.href} class="glance-item"><span>{g.label}</span><strong>{g.value}</strong></a></li>
-              ))}
-            </ul>
           </section>
-        )}
-      </div>
+        </Fragment>
+
+        <Fragment slot="left-end">
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Publishing</h3>
+              {canSeeClients && <a href="/publishing/clients" class="panel-link">Clients →</a>}
+            </div>
+            <div class="publishing-stats">
+              <div class="pub-stat">
+                <strong>{publishingStats.published}</strong>
+                <span>Published</span>
+              </div>
+              <div class="pub-stat">
+                <strong>{publishingStats.draft}</strong>
+                <span>Drafts</span>
+              </div>
+              <div class="pub-stat">
+                <strong>{resources.length}</strong>
+                <span>Resources</span>
+              </div>
+              {canSeeClients && (
+                <div class="pub-stat">
+                  <strong>{publishingStats.activeClients}</strong>
+                  <span>Active Clients</span>
+                </div>
+              )}
+            </div>
+            <div class="publishing-activity">
+              {lastPublishedEntry ? (
+                <div class="activity-item">
+                  <div class="activity-icon">✓</div>
+                  <div class="activity-content">
+                    <strong>Last Published</strong>
+                    <a href={`/workspace/entries/${lastPublishedEntry.id}`}>{lastPublishedEntry.title}</a>
+                    <span class="activity-time">{formatRelativeTime(lastPublishedEntry.publishedAt)}</span>
+                  </div>
+                </div>
+              ) : (
+                <p class="muted-text">No published entries yet</p>
+              )}
+
+              {!canSeeClients ? null : siteClients.length > 0 ? (
+                <div class="activity-item">
+                  <div class="activity-icon">⚡</div>
+                  <div class="activity-content">
+                    <strong>Site Clients</strong>
+                    <span>{publishingStats.activeClients} of {publishingStats.totalClients} active</span>
+                    <a href="/publishing/clients" class="activity-link">Manage clients →</a>
+                  </div>
+                </div>
+              ) : (
+                <div class="activity-item">
+                  <div class="activity-icon">⚡</div>
+                  <div class="activity-content">
+                    <strong>No Site Clients</strong>
+                    <span>Create a client to publish externally</span>
+                    <a href="/publishing/clients/new" class="activity-link">Create client →</a>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        </Fragment>
+
+        <Fragment slot="right">
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Recent activity</h3>
+              <a href="/automation/events" class="panel-link">Event log →</a>
+            </div>
+            {recentActivity.length === 0 ? (
+              <div class="empty-state-small"><p>No recent activity yet.</p></div>
+            ) : (
+              <ul class="activity-list">
+                {recentActivity.map((ev) => {
+                  const entityLabel = entityTypeLabel(ev.entityType);
+                  const entityLink = entityHref(ev.entityType, ev.entityId);
+                  const at = ev.occurredAt ?? ev.occurred_at;
+                  return (
+                    <li class="activity-row">
+                      <span class="activity-dot" aria-hidden="true"></span>
+                      <div class="activity-body">
+                        <span class="activity-msg">{ev.message}</span>
+                        {entityLink ? (
+                          <a class="activity-meta activity-entity" href={entityLink}>{entityLabel}</a>
+                        ) : entityLabel && <span class="activity-meta">{entityLabel}</span>}
+                      </div>
+                      <span class="activity-when">{relTime(at) ?? <LocalTime iso={at} format="date" />}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+
+          {glance.length > 0 && (
+            <section class="panel">
+              <div class="panel-head"><h3>At a glance</h3></div>
+              <ul class="glance-list">
+                {glance.map((g) => (
+                  <li><a href={g.href} class="glance-item"><span>{g.label}</span><strong>{g.value}</strong></a></li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {(needsAttention.staleDrafts.length > 0 ||
+            needsAttention.emptyEntryTypes.length > 0 ||
+            needsAttention.emptyCollections.length > 0 ||
+            needsAttention.unusedClients.length > 0) && (
+            <section class="panel">
+              <div class="panel-head"><h3>Housekeeping</h3></div>
+              <div class="attention-grid">
+                {needsAttention.staleDrafts.length > 0 && (
+                  <a href="/workspace/entries?status=draft" class="attention-card">
+                    <div class="attention-icon">📝</div>
+                    <div class="attention-content">
+                      <strong>{needsAttention.staleDrafts.length} stale draft{needsAttention.staleDrafts.length === 1 ? '' : 's'}</strong>
+                      <span>No updates in 7+ days</span>
+                    </div>
+                  </a>
+                )}
+                {needsAttention.emptyEntryTypes.length > 0 && (
+                  <a href="/workspace/entry-types" class="attention-card">
+                    <div class="attention-icon">◈</div>
+                    <div class="attention-content">
+                      <strong>{needsAttention.emptyEntryTypes.length} empty entry type{needsAttention.emptyEntryTypes.length === 1 ? '' : 's'}</strong>
+                      <span>No entries yet</span>
+                    </div>
+                  </a>
+                )}
+                {needsAttention.emptyCollections.length > 0 && (
+                  <a href="/workspace/collections" class="attention-card">
+                    <div class="attention-icon">☰</div>
+                    <div class="attention-content">
+                      <strong>{needsAttention.emptyCollections.length} empty collection{needsAttention.emptyCollections.length === 1 ? '' : 's'}</strong>
+                      <span>Needs entries</span>
+                    </div>
+                  </a>
+                )}
+                {needsAttention.unusedClients.length > 0 && (
+                  <a href="/publishing/clients" class="attention-card">
+                    <div class="attention-icon">⚡</div>
+                    <div class="attention-content">
+                      <strong>{needsAttention.unusedClients.length} unused client{needsAttention.unusedClients.length === 1 ? '' : 's'}</strong>
+                      <span>Never accessed</span>
+                    </div>
+                  </a>
+                )}
+              </div>
+            </section>
+          )}
+        </Fragment>
+      </DashboardPanels>
     </div>
   )}
 </AppLayout>
@@ -418,23 +423,10 @@ function getStatusClass(status: string): string {
     gap: 32px;
   }
 
-  .dashboard-section {
-    display: grid;
-    gap: 16px;
-  }
-
-  .section-title {
-    margin: 0;
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--ink);
-  }
-
-  /* Needs Attention */
+  /* Housekeeping: one card per thing to tidy, a list inside its panel. */
   .attention-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 12px;
+    gap: 8px;
   }
 
   .attention-card {
@@ -476,8 +468,8 @@ function getStatusClass(status: string): string {
   /* Quick Create */
   .quick-create-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 10px;
   }
 
   .quick-create-card {
@@ -507,20 +499,6 @@ function getStatusClass(status: string): string {
     font-size: 13px;
     font-weight: 500;
     color: var(--ink);
-  }
-
-  /* Two Column Layout */
-  .dashboard-columns {
-    display: grid;
-    grid-template-columns: 1fr 400px;
-    gap: 32px;
-  }
-  .dashboard-columns > .dashboard-section { align-content: start; }  /* a short section sits at the top of its row, not the bottom */
-
-  @media (max-width: 1200px) {
-    .dashboard-columns {
-      grid-template-columns: 1fr;
-    }
   }
 
   /* Recent Work */
@@ -623,12 +601,8 @@ function getStatusClass(status: string): string {
   /* Publishing */
   .publishing-stats {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
     gap: 12px;
-    padding: 16px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
   }
 
   .pub-stat {
@@ -650,18 +624,9 @@ function getStatusClass(status: string): string {
 
   .publishing-activity {
     display: grid;
-    gap: 12px;
-    padding: 16px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-  }
-
-  .publishing-activity h3 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--ink);
+    margin-top: 16px;
+    padding-top: 4px;
+    border-top: 1px solid var(--line);
   }
 
   .activity-item {
@@ -724,11 +689,8 @@ function getStatusClass(status: string): string {
   }
 
   .empty-state-small {
-    padding: 32px 16px;
+    padding: 16px 0;
     text-align: center;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
   }
 
   .empty-state-small p {
@@ -741,29 +703,18 @@ function getStatusClass(status: string): string {
     font-size: 13px;
   }
   /* Recent Activity (the event log, moved here from the old /workspace overview). */
-  .section-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-  }
-  .section-link { font-size: 13px; color: var(--accent); text-decoration: none; white-space: nowrap; }
-  .section-link:hover { text-decoration: underline; }
   .activity-list {
     list-style: none;
     margin: 0;
-    padding: 0 4px;
+    padding: 0;
     display: flex;
     flex-direction: column;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
   }
   .activity-row {
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    padding: 10px 12px;
+    padding: 10px 0;
     border-bottom: 1px solid var(--line);
   }
   .activity-row:last-child { border-bottom: none; }

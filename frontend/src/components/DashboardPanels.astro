@@ -2,8 +2,10 @@
 /**
  * The dashboard's live panels, from GET /api/platform/stats/dashboard: a health strip, what waits on the member
  * (approvals decided inline, parked runs, the triage counts with the age of the oldest item), what the next seven
- * days hold, and workflow runs by day as a sparkline. The home dashboard (/) and the workspace overview
- * (/workspace) both render it, so there is one implementation.
+ * days hold, and workflow runs by day as a sparkline. It is also the page's frame: two column stacks (the left
+ * one wider) that the home page fills further through slots — `right-top` (before Coming up), `left` (after Pick
+ * up), `left-end` (after Published), `right` (after Content by type) — so every section flows in a column instead
+ * of pairing off into rows of uneven height. Slotted sections use the same `.panel` chrome (global here).
  */
 import LocalTime from "@/components/LocalTime.astro";
 import { unpricedNotice } from "@/lib/aiUsage";
@@ -170,8 +172,8 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
 }
 ---
 
-{dashboard && (
-  <div class="pulse">
+<div class="pulse">
+  {dashboard && (
     <ul class="health-strip" aria-label="Workspace health">
       {dots.map((d) => (
         <li>
@@ -183,9 +185,11 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
         </li>
       ))}
     </ul>
+  )}
 
-    <div class="pulse-columns">
-      <div class="pulse-stack">
+  <div class="pulse-columns">
+    <div class="pulse-stack">
+      {dashboard && (
       <section class="panel">
         <div class="panel-head">
           <h3>Waiting on you</h3>
@@ -267,8 +271,9 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
           </ul>
         )}
       </section>
+      )}
 
-      {recentForYou.length > 0 && (
+      {dashboard && recentForYou.length > 0 && (
         <section class="panel">
           <div class="panel-head">
             <h3>Pick up where you left off</h3>
@@ -287,9 +292,41 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
           </ul>
         </section>
       )}
-      </div>
 
-      <div class="pulse-stack">
+      <slot name="left" />
+
+      {dashboard && pubTotal > 0 && (
+        <section class="panel">
+          <div class="panel-head">
+            <h3>Published</h3>
+            <span class="panel-sub">last 12 weeks · {pubTotal} entries</span>
+          </div>
+          <svg class="pubchart" viewBox={`0 0 ${pubWidth} ${PH}`} preserveAspectRatio="none" role="img" aria-label={`Entries published per week, last 12 weeks: ${pubTotal}`}>
+            {pubBars.map((b) => (
+              <g>
+                <title>{`Week of ${weekLabel(b.week)}: ${b.total} published${b.segs.filter((s) => s.n).map((s) => ` · ${s.name} ${s.n}`).join("")}`}</title>
+                {b.segs.filter((s) => s.h).map((s) => <rect x={b.x} y={s.y} width={PB} height={s.h} fill={s.color} rx="1" />)}
+                {b.total === 0 && <rect x={b.x} y={PH - 1} width={PB} height="1" class="bar-empty" />}
+              </g>
+            ))}
+          </svg>
+          <div class="spark-axis"><span>{pubWeeks[0] && weekLabel(pubWeeks[0].week)}</span><span>this week</span></div>
+          <ul class="legend">
+            {pubTypes.map((t, i) => (
+              <li><span class="swatch" style={`background:${typeColor(t, i)}`}></span>{t.icon && <>{t.icon} </>}{t.name}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <slot name="left-end" />
+    </div>
+
+    <div class="pulse-stack">
+      <slot name="right-top" />
+
+      {dashboard && (
+      <>
         <section class="panel">
           <div class="panel-head">
             <h3>Coming up</h3>
@@ -367,47 +404,13 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
             {unpriced && <p class="usage-unpriced">{unpriced}</p>}
           </section>
         )}
-      </div>
-    </div>
 
-    {(pubTotal > 0 || byType.length > 0) && (
-      <div class="pulse-columns pulse-row-2">
-        <section class="panel">
-          <div class="panel-head">
-            <h3>Published</h3>
-            <span class="panel-sub">last 12 weeks · {pubTotal} entries</span>
-          </div>
-          {pubTotal === 0 ? (
-            <p class="empty">Nothing published in the last 12 weeks.</p>
-          ) : (
-            <>
-              <svg class="pubchart" viewBox={`0 0 ${pubWidth} ${PH}`} preserveAspectRatio="none" role="img" aria-label={`Entries published per week, last 12 weeks: ${pubTotal}`}>
-                {pubBars.map((b) => (
-                  <g>
-                    <title>{`Week of ${weekLabel(b.week)}: ${b.total} published${b.segs.filter((s) => s.n).map((s) => ` · ${s.name} ${s.n}`).join("")}`}</title>
-                    {b.segs.filter((s) => s.h).map((s) => <rect x={b.x} y={s.y} width={PB} height={s.h} fill={s.color} rx="1" />)}
-                    {b.total === 0 && <rect x={b.x} y={PH - 1} width={PB} height="1" class="bar-empty" />}
-                  </g>
-                ))}
-              </svg>
-              <div class="spark-axis"><span>{pubWeeks[0] && weekLabel(pubWeeks[0].week)}</span><span>this week</span></div>
-              <ul class="legend">
-                {pubTypes.map((t, i) => (
-                  <li><span class="swatch" style={`background:${typeColor(t, i)}`}></span>{t.icon && <>{t.icon} </>}{t.name}</li>
-                ))}
-              </ul>
-            </>
-          )}
-        </section>
-
-        <section class="panel">
-          <div class="panel-head">
-            <h3>Content by type</h3>
-            <a href="/workspace/entry-types" class="panel-link">Entry types →</a>
-          </div>
-          {byType.length === 0 ? (
-            <p class="empty">No entry types yet.</p>
-          ) : (
+        {byType.length > 0 && (
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Content by type</h3>
+              <a href="/workspace/entry-types" class="panel-link">Entry types →</a>
+            </div>
             <div class="table-scroll">
               <table class="bytype">
                 <thead><tr><th>Type</th>{STAGES.map(([, label]) => <th>{label}</th>)}</tr></thead>
@@ -424,12 +427,16 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
                 </tbody>
               </table>
             </div>
-          )}
-        </section>
-      </div>
-    )}
+          </section>
+        )}
+      </>
+      )}
+
+      <slot name="right" />
+    </div>
   </div>
-)}
+</div>
+
 
 <script>
   import { decideApproval } from "@/lib/api/workflowApprovals";
@@ -494,7 +501,7 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
 
   .pulse-columns {
     display: grid;
-    grid-template-columns: 1.2fr 1fr;
+    grid-template-columns: 1.25fr 1fr;
     gap: 20px;
     align-items: start;
   }
@@ -503,25 +510,26 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
     .pulse-columns { grid-template-columns: 1fr; }
   }
 
-  .panel {
+  /* The panel chrome is global within the frame: the home page's slotted sections wear it too. */
+  .pulse :global(.panel) {
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: var(--radius);
     padding: 20px 24px;
     min-width: 0;
   }
-  .panel-head {
+  .pulse :global(.panel-head) {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
     gap: 12px;
     margin-bottom: 16px;
   }
-  .panel-head h3 { margin: 0; font-size: 16px; font-weight: 600; }
-  .panel-link { font-size: 13px; color: var(--accent); text-decoration: none; white-space: nowrap; }
-  .panel-link:hover { text-decoration: underline; }
-  .panel-sub { font-size: 12px; color: var(--muted); }
-  .empty { margin: 8px 0; color: var(--muted); font-size: 14px; }
+  .pulse :global(.panel-head h3) { margin: 0; font-size: 16px; font-weight: 600; }
+  .pulse :global(.panel-link) { font-size: 13px; color: var(--accent); text-decoration: none; white-space: nowrap; }
+  .pulse :global(.panel-link:hover) { text-decoration: underline; }
+  .pulse :global(.panel-sub) { font-size: 12px; color: var(--muted); }
+  .pulse :global(.empty) { margin: 8px 0; color: var(--muted); font-size: 14px; }
 
   .attention-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
   .attention-item {
@@ -604,8 +612,6 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
   .pickup-meta { font-size: 12px; color: var(--muted); text-transform: capitalize; }
 
   /* Published per week, stacked by type. */
-  .pulse-row-2 { grid-template-columns: 1fr 1fr; }
-  @media (max-width: 900px) { .pulse-row-2 { grid-template-columns: 1fr; } }
   .pubchart { display: block; width: 100%; height: 96px; }
   .bar-empty { fill: var(--line); }
   .legend { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); }
