@@ -3,7 +3,7 @@ revision = 5
 requires-python = "==3.12.*"
 
 [manifest]
-overrides = [{ name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.9.0" }]
+overrides = [{ name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.10.0" }]
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -1130,7 +1130,7 @@ requires-dist = [
     { name = "isodate", specifier = ">=0.7.2" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "mangum", specifier = ">=0.19.0" },
-    { name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.9.0" },
+    { name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.10.0" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.28.1" },
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "pillow", specifier = ">=11.1.0" },
@@ -1180,10 +1180,10 @@ dev = [
 ]
 ldap = [{ name = "python-ldap", specifier = ">=3.4.5" }]
 plugins = [
-    { name = "marvin-ai-anthropic", git = "https://github.com/InnerOpen/marvin-ai-anthropic?rev=v0.1.0" },
-    { name = "marvin-ai-google", git = "https://github.com/InnerOpen/marvin-ai-google?rev=v0.1.1" },
+    { name = "marvin-ai-anthropic", git = "https://github.com/InnerOpen/marvin-ai-anthropic?rev=v0.2.0" },
+    { name = "marvin-ai-google", git = "https://github.com/InnerOpen/marvin-ai-google?rev=v0.2.0" },
     { name = "marvin-ai-ollama", git = "https://github.com/InnerOpen/marvin-ai-ollama?rev=v0.1.0" },
-    { name = "marvin-ai-openai", git = "https://github.com/InnerOpen/marvin-ai-openai?rev=v0.1.1" },
+    { name = "marvin-ai-openai", git = "https://github.com/InnerOpen/marvin-ai-openai?rev=v0.2.0" },
     { name = "marvin-integration-apprise", git = "https://github.com/InnerOpen/marvin-integration-apprise?rev=v0.3.0" },
     { name = "marvin-integration-buttondown", git = "https://github.com/InnerOpen/marvin-integration-buttondown?rev=v0.7.0" },
     { name = "marvin-integration-cloudflare-pages", git = "https://github.com/InnerOpen/marvin-integration-cloudflare-pages?rev=v0.1.0" },
@@ -1198,8 +1198,8 @@ vault = [{ name = "hvac", specifier = ">=2.0" }]
 
 [[package]]
 name = "marvin-ai-anthropic"
-version = "0.1.0"
-source = { git = "https://github.com/InnerOpen/marvin-ai-anthropic?rev=v0.1.0#0883253f6e76ebf54a23ad2f334394682ffbc417" }
+version = "0.2.0"
+source = { git = "https://github.com/InnerOpen/marvin-ai-anthropic?rev=v0.2.0#c1b84c9e2bf7252aab9edf54e6f1749c4febb6cb" }
 dependencies = [
     { name = "anthropic" },
     { name = "marvin-integration-sdk" },
@@ -1207,8 +1207,8 @@ dependencies = [
 
 [[package]]
 name = "marvin-ai-google"
-version = "0.1.1"
-source = { git = "https://github.com/InnerOpen/marvin-ai-google?rev=v0.1.1#4f6aed9cc18c8f5d00406f804ac851bb60010da7" }
+version = "0.2.0"
+source = { git = "https://github.com/InnerOpen/marvin-ai-google?rev=v0.2.0#8c0ff7190ed5c1ec88dec614e16885bacc90713d" }
 dependencies = [
     { name = "google-genai" },
     { name = "marvin-integration-sdk" },
@@ -1225,8 +1225,8 @@ dependencies = [
 
 [[package]]
 name = "marvin-ai-openai"
-version = "0.1.1"
-source = { git = "https://github.com/InnerOpen/marvin-ai-openai?rev=v0.1.1#de792cd32f6399076e268e0f8e20c22f7c44e76c" }
+version = "0.2.0"
+source = { git = "https://github.com/InnerOpen/marvin-ai-openai?rev=v0.2.0#640c26abedec5aee1e93659372c9ceba10384819" }
 dependencies = [
     { name = "marvin-integration-sdk" },
     { name = "openai" },
@@ -1283,8 +1283,8 @@ dependencies = [
 
 [[package]]
 name = "marvin-integration-sdk"
-version = "0.9.0"
-source = { git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.9.0#3f21c5659e3b442747a109b5ce257b0fd8fb2af3" }
+version = "0.10.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.10.0#42b67323ba0070f19260e637c2ef9d198b02d94f" }
 
 [[package]]
 name = "marvin-integration-slack"

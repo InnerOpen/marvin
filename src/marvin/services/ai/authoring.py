@@ -878,7 +878,7 @@ class AuthoringService:
         return workspace_approval_mode(self.session, self.group_id)
 
     def _complete_execution(self, execution, completion, start, *, entity_id, output: dict) -> None:
-        from marvin.services.ai.pricing import estimate_cost
+        from marvin.services.ai.pricing import cost_of
 
         execution.status = "completed"
         execution.completed_at = datetime.now(UTC)
@@ -889,12 +889,9 @@ class AuthoringService:
         execution.prompt_tokens = completion.prompt_tokens
         execution.completion_tokens = completion.completion_tokens
         execution.total_tokens = completion.total_tokens
-        execution.estimated_cost_usd = estimate_cost(
-            self.provider.provider_type,
-            self.model,
-            completion.prompt_tokens,
-            completion.completion_tokens,
-        )
+        execution.cached_prompt_tokens = getattr(completion, "cached_prompt_tokens", 0) or 0
+        execution.cache_write_tokens = getattr(completion, "cache_write_tokens", 0) or 0
+        execution.estimated_cost_usd = cost_of(self.provider.provider_type, self.model, completion)
         self.session.commit()
 
     def _fail_execution(self, execution, message: str, start) -> None:

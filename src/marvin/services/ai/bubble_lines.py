@@ -263,7 +263,7 @@ def generate(session, group_id, user_id=None, *, force: bool = False) -> dict[st
     from marvin.services.ai.base import CompletionOptions
     from marvin.services.ai.factory import get_workspace_ai_provider
     from marvin.services.ai.persona import resolve_persona
-    from marvin.services.ai.pricing import estimate_cost
+    from marvin.services.ai.pricing import cost_of
 
     if reason := preflight(session, group_id):
         raise _fail(session, group_id, reason)
@@ -313,7 +313,9 @@ def generate(session, group_id, user_id=None, *, force: bool = False) -> dict[st
     execution.prompt_tokens = completion.prompt_tokens
     execution.completion_tokens = completion.completion_tokens
     execution.total_tokens = completion.total_tokens
-    execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, completion.prompt_tokens, completion.completion_tokens)
+    execution.cached_prompt_tokens = getattr(completion, "cached_prompt_tokens", 0) or 0
+    execution.cache_write_tokens = getattr(completion, "cache_write_tokens", 0) or 0
+    execution.estimated_cost_usd = cost_of(provider.provider_type, model, completion)
     session.commit()
     if crossing := budget.crossing_after(session, group_id, execution.estimated_cost_usd):
         budget.emit_crossing(group_id, crossing, user_id=user_id, source="ai_settings")

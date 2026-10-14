@@ -183,10 +183,12 @@ def _run_standalone(ctx: ToolContext, args: dict) -> str:
             res = provider.complete(messages, model, opts)
             answer, steps = res.content if hasattr(res, "content") else str(res), []
             p_tok, c_tok, t_tok = getattr(res, "prompt_tokens", 0), getattr(res, "completion_tokens", 0), getattr(res, "total_tokens", 0)
+            cached_tok, written_tok = getattr(res, "cached_prompt_tokens", 0) or 0, getattr(res, "cache_write_tokens", 0) or 0
         else:
             res = run_agent_loop(provider, model, messages, tools, opts, max_steps=max_steps)
             answer, steps = res.answer, [{"tool": s.tool, "arguments": s.arguments} for s in res.steps]
             p_tok, c_tok, t_tok = res.prompt_tokens, res.completion_tokens, res.total_tokens
+            cached_tok, written_tok = getattr(res, "cached_prompt_tokens", 0) or 0, getattr(res, "cache_write_tokens", 0) or 0
     except Exception as e:  # noqa: BLE001 — surface to the caller, never raise into a tool
         execution.status = "failed"
         execution.error_message = str(e)[:2000]
@@ -199,7 +201,8 @@ def _run_standalone(ctx: ToolContext, args: dict) -> str:
     execution.completed_at = datetime.now(UTC)
     execution.duration_ms = int((time.monotonic() - start) * 1000)
     execution.prompt_tokens, execution.completion_tokens, execution.total_tokens = p_tok, c_tok, t_tok
-    execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, p_tok, c_tok)
+    execution.cached_prompt_tokens, execution.cache_write_tokens = cached_tok, written_tok
+    execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, p_tok, c_tok, cached_tok, written_tok)
     execution.output_json = {"answer": answer, "steps": steps}
     ctx.session.commit()
     return json.dumps(

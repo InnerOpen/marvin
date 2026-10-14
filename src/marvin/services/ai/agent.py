@@ -104,6 +104,8 @@ class AgentResult:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    cached_prompt_tokens: int = 0  # of prompt_tokens, served from the provider's prompt cache (summed over the calls)
+    cache_write_tokens: int = 0
     stopped_reason: str = "complete"  # "complete" | "max_steps" | "awaiting_approval"
     # Set when stopped_reason == "awaiting_approval": what is waiting, and the transcript to resume from.
     pending_calls: list[PendingCall] = field(default_factory=list)
@@ -307,6 +309,8 @@ def run_agent_loop(
         result.prompt_tokens += completion.prompt_tokens or 0
         result.completion_tokens += completion.completion_tokens or 0
         result.total_tokens += completion.total_tokens or 0
+        result.cached_prompt_tokens += getattr(completion, "cached_prompt_tokens", 0) or 0
+        result.cache_write_tokens += getattr(completion, "cache_write_tokens", 0) or 0
 
     def record(call_id: str, name: str, arguments: dict, out: str) -> None:
         result.steps.append(AgentStep(tool=name, arguments=arguments, result=out))

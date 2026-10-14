@@ -113,6 +113,8 @@ def run_operation(
             parsed = finish(parsed)
         prompt_tokens = sum(c.prompt_tokens or 0 for c in usage)  # a retried custom answer costs both calls
         completion_tokens = sum(c.completion_tokens or 0 for c in usage)
+        cached = sum(getattr(c, "cached_prompt_tokens", 0) or 0 for c in usage)
+        written = sum(getattr(c, "cache_write_tokens", 0) or 0 for c in usage)
         execution.status = "completed"
         execution.completed_at = datetime.now(UTC)
         execution.duration_ms = int((time.monotonic() - start) * 1000)
@@ -120,7 +122,9 @@ def run_operation(
         execution.prompt_tokens = prompt_tokens
         execution.completion_tokens = completion_tokens
         execution.total_tokens = sum(c.total_tokens or 0 for c in usage)
-        execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, prompt_tokens, completion_tokens)
+        execution.cached_prompt_tokens = cached
+        execution.cache_write_tokens = written
+        execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, prompt_tokens, completion_tokens, cached, written)
         session.commit()
     except Exception as e:
         execution.status = "failed"

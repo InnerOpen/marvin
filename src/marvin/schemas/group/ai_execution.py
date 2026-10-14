@@ -24,6 +24,10 @@ class AIExecutionRead(_MarvinModel):
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     total_tokens: int | None = None
+    cached_prompt_tokens: int | None = None
+    """Of prompt_tokens, what the provider's prompt cache served (billed at the cache rate)."""
+    cache_write_tokens: int | None = None
+    """Of prompt_tokens, what was written into the cache (Anthropic bills the write at a premium)."""
     estimated_cost_usd: float | None = None
     duration_ms: int | None = None
     error_message: str | None = None

@@ -2075,13 +2075,15 @@ class AIOperationsController(BaseUserController):
         """Add a loop leg's tokens and wall time to the execution row (a resumed run keeps its row)."""
         import time
 
-        from marvin.services.ai.pricing import estimate_cost
+        from marvin.services.ai.pricing import cost_of
 
         execution.prompt_tokens = int(execution.prompt_tokens or 0) + int(result.prompt_tokens or 0)
         execution.completion_tokens = int(execution.completion_tokens or 0) + int(result.completion_tokens or 0)
         execution.total_tokens = int(execution.total_tokens or 0) + int(result.total_tokens or 0)
+        execution.cached_prompt_tokens = int(execution.cached_prompt_tokens or 0) + int(getattr(result, "cached_prompt_tokens", 0) or 0)
+        execution.cache_write_tokens = int(execution.cache_write_tokens or 0) + int(getattr(result, "cache_write_tokens", 0) or 0)
         execution.duration_ms = int(execution.duration_ms or 0) + int((time.monotonic() - start) * 1000)
-        execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, execution.prompt_tokens, execution.completion_tokens)
+        execution.estimated_cost_usd = cost_of(provider.provider_type, model, execution)
 
     def _finish_agent_run(
         self,
@@ -2457,7 +2459,7 @@ class AIOperationsController(BaseUserController):
 
         from marvin.core.config import get_app_settings
         from marvin.services.ai.base import CompletionOptions, Message
-        from marvin.services.ai.pricing import estimate_cost
+        from marvin.services.ai.pricing import cost_of
         from marvin.services.ai.threads import create_thread
 
         _app = get_app_settings()
@@ -2506,7 +2508,9 @@ class AIOperationsController(BaseUserController):
         execution.prompt_tokens = result.prompt_tokens
         execution.completion_tokens = result.completion_tokens
         execution.total_tokens = result.total_tokens
-        execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, result.prompt_tokens, result.completion_tokens)
+        execution.cached_prompt_tokens = getattr(result, "cached_prompt_tokens", 0) or 0
+        execution.cache_write_tokens = getattr(result, "cache_write_tokens", 0) or 0
+        execution.estimated_cost_usd = cost_of(provider.provider_type, model, result)
         execution.output_json = {"answer": result.content} if log_outputs else None
         thread = self._record_thread_turns(
             thread, body, spec.slug, execution, result.content, [], [], result.total_tokens, parent_thread_id=parent_thread_id
@@ -2540,7 +2544,7 @@ class AIOperationsController(BaseUserController):
         from marvin.services.ai.base import CompletionOptions, Message
         from marvin.services.ai.factory import AIDisabledError, get_workspace_ai_provider
         from marvin.services.ai.operations.base import ROLE_VIEWER
-        from marvin.services.ai.pricing import estimate_cost
+        from marvin.services.ai.pricing import cost_of
 
         # VIEWER or higher — chat is read-only (it changes nothing).
         if self._user_role() < ROLE_VIEWER:
@@ -2602,12 +2606,9 @@ class AIOperationsController(BaseUserController):
         execution.prompt_tokens = result.prompt_tokens
         execution.completion_tokens = result.completion_tokens
         execution.total_tokens = result.total_tokens
-        execution.estimated_cost_usd = estimate_cost(
-            provider.provider_type,
-            model,
-            result.prompt_tokens,
-            result.completion_tokens,
-        )
+        execution.cached_prompt_tokens = getattr(result, "cached_prompt_tokens", 0) or 0
+        execution.cache_write_tokens = getattr(result, "cache_write_tokens", 0) or 0
+        execution.estimated_cost_usd = cost_of(provider.provider_type, model, result)
         execution.output_json = {"reply": result.content} if log_outputs else None
         self.session.commit()
 

@@ -87,7 +87,7 @@ def set_url(session, url: str | None) -> dict:
 
 
 def parse(data: Any) -> dict[str, dict[str, list[float]]]:
-    """LiteLLM's format → {slug: {model: [input_per_1m, output_per_1m]}} for FEED_PROVIDERS."""
+    """LiteLLM's format → {slug: {model: [input_per_1m, output_per_1m, cached_per_1m?, cache_write_per_1m?]}} for FEED_PROVIDERS."""
     if not isinstance(data, dict):
         raise FeedError("the price feed is not a JSON object of models")
     table: dict[str, dict[str, list[float]]] = {}
@@ -101,7 +101,14 @@ def parse(data: Any) -> dict[str, dict[str, list[float]]]:
         model = key.split("/", 1)[1] if key.startswith(f"{entry['litellm_provider']}/") else key
         if "/" in model:  # a regional or routed variant (azure/eu/…): not a model id a provider sends
             continue
-        table.setdefault(slug, {})[model] = [round(cost_in * PER_MILLION, 6), round(cost_out * PER_MILLION, 6)]
+        row = [round(cost_in * PER_MILLION, 6), round(cost_out * PER_MILLION, 6)]
+        # The prompt-cache rates, when the feed has them (cache_read_input_token_cost / cache_creation_input_token_cost).
+        for key in ("cache_read_input_token_cost", "cache_creation_input_token_cost"):
+            rate = entry.get(key)
+            row.append(round(rate * PER_MILLION, 6) if isinstance(rate, int | float) else None)
+        while row and row[-1] is None:
+            row.pop()
+        table.setdefault(slug, {})[model] = row
     return table
 
 
@@ -169,6 +176,13 @@ def status(session) -> dict:
 # ── the lookup ───────────────────────────────────────────────────────────────
 
 
+def _price(row: list) -> ModelPrice:
+    """A stored row — [input, output] or [input, output, cached, write] with None for an unknown rate — as a price."""
+    cached = float(row[2]) if len(row) > 2 and row[2] is not None else None
+    write = float(row[3]) if len(row) > 3 and row[3] is not None else None
+    return ModelPrice(float(row[0]), float(row[1]), cached_input_per_1m=cached, cache_write_per_1m=write)
+
+
 def _table() -> dict[str, dict[str, ModelPrice]]:
     global _cache, _cache_at
     with _lock:
@@ -179,7 +193,7 @@ def _table() -> dict[str, dict[str, ModelPrice]]:
 
         with session_context() as session:
             raw = _state(session).get("prices") or {}
-        table = {slug: {m: ModelPrice(float(p[0]), float(p[1])) for m, p in models.items()} for slug, models in raw.items()}
+        table = {slug: {m: _price(p) for m, p in models.items()} for slug, models in raw.items()}
     except Exception:  # noqa: BLE001 — no database or a damaged row: no feed prices, estimates still work
         table = {}
     with _lock:

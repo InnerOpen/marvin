@@ -44,7 +44,7 @@ def view_image(ctx: ToolContext, args: dict) -> str:
     from marvin.services.ai.base import CompletionOptions, ImagePart, Message
     from marvin.services.ai.context import ContextBuilder
     from marvin.services.ai.entity_resolve import resolve_entity_id
-    from marvin.services.ai.pricing import estimate_cost
+    from marvin.services.ai.pricing import cost_of
 
     from .builtins_agents import _default_model
 
@@ -122,7 +122,9 @@ def view_image(ctx: ToolContext, args: dict) -> str:
     execution.prompt_tokens = getattr(res, "prompt_tokens", 0)
     execution.completion_tokens = getattr(res, "completion_tokens", 0)
     execution.total_tokens = getattr(res, "total_tokens", 0)
-    execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, execution.prompt_tokens, execution.completion_tokens)
+    execution.cached_prompt_tokens = getattr(res, "cached_prompt_tokens", 0) or 0
+    execution.cache_write_tokens = getattr(res, "cache_write_tokens", 0) or 0
+    execution.estimated_cost_usd = cost_of(provider.provider_type, model, execution)
     execution.output_json = {"description": res.content}
     ctx.session.commit()
     return json.dumps(

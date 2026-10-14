@@ -73,7 +73,7 @@ def test_an_override_wins_over_the_providers_own_price(db_session, monkeypatch):
     from marvin.services.ai import registry
 
     own = ModelPrice(3.0, 15.0)
-    vendor = SimpleNamespace(estimate_cost=lambda model, p, c: own.cost(p, c), self_hosted=False, prices={"claude-x": own})
+    vendor = SimpleNamespace(estimate_cost=lambda model, p, c, cached=0, written=0: own.cost(p, c, cached, written), self_hosted=False, prices={"claude-x": own})
     monkeypatch.setattr(registry, "find_class", lambda slug: vendor if slug == "anthropic" else None)
 
     assert pricing.estimate_cost("anthropic", "claude-x", 1_000_000, 0) == pytest.approx(3.0)
@@ -172,3 +172,20 @@ def test_setting_prices_through_the_api_is_validated_and_audited(db_session, wor
     _run(db_session, world.a)
     filled = client.post("/api/admin/ai-prices/backfill", json={"provider": "openai", "model": NEW_MODEL})
     assert filled.json()["updated"] >= 1
+
+
+def test_cached_and_written_prompt_tokens_cost_the_cache_rates():
+    """A plugin's price carries the vendor's cache rates; an admin override has none, so there a cached token costs the
+    input rate (never cheaper than reality)."""
+    from marvin.services.ai import pricing
+
+    full = pricing.estimate_cost("anthropic", "claude-sonnet-5", 1_000_000, 0)
+    cached = pricing.estimate_cost("anthropic", "claude-sonnet-5", 1_000_000, 0, cached_prompt_tokens=1_000_000)
+    written = pricing.estimate_cost("anthropic", "claude-sonnet-5", 1_000_000, 0, cache_write_tokens=1_000_000)
+    assert full == pytest.approx(2.0) and cached == pytest.approx(0.2) and written == pytest.approx(2.5)
+    assert pricing.estimate_cost("openai", "gpt-5.4-mini", 1_000_000, 0, cached_prompt_tokens=1_000_000) == pytest.approx(0.075)
+
+    class Usage:
+        prompt_tokens, completion_tokens, cached_prompt_tokens, cache_write_tokens = 1_000_000, 0, 500_000, 0
+
+    assert pricing.cost_of("anthropic", "claude-sonnet-5", Usage()) == pytest.approx(1.0 + 0.1)
