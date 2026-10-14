@@ -491,6 +491,15 @@ def _reload(ws, entry):
     return ws.session.get(Entries, entry.id)
 
 
+def _day_in(ws, days: int) -> str:
+    """A date `days` from today in the workspace's own calendar (New York by default) — the one date-based waits
+    ("the day after the event, 09:00") read. Between 00:00 and 04:00 UTC the UTC date is already tomorrow, and a
+    date taken from it put a resume an hour before its wait was due (CI, 2026-10-14 00:30 UTC)."""
+    from marvin.services.automation import waits
+
+    return (datetime.now(waits.workspace_zone(ws.session, ws.gid)).date() + timedelta(days=days)).isoformat()
+
+
 def _fire(ws, event_type: str, document: dict, *, entity=None, entity_type: str | None = None, user_id=None, correlation_id: str = "corr-1"):
     """Dispatch one event to the engine exactly as the reaction listener would build it."""
     ctx = event_context(event_type, document, entity_id=entity, entity_type=entity_type, user_id=user_id, correlation_id=correlation_id)
@@ -1645,7 +1654,7 @@ class TestExecution:
         from marvin.services.automation import waits
 
         _install(ws, "teaser-ladder")
-        day = (datetime.now(UTC).date() + timedelta(days=10)).isoformat()
+        day = _day_in(ws, 10)
         kiln = _entry(ws, "event", "Kiln No. 2", status="published", data={"date": day})
         for title in ("Three days to go", "It's here", "A week on"):
             ws.ai.reply_text(json.dumps({"title": title, "body": f"{title} — the new kiln."}))
@@ -1813,7 +1822,7 @@ class TestExecution:
         from marvin.services.automation import waits
 
         _install(ws, "post-event-recap")
-        day = (datetime.now(UTC).date() + timedelta(days=3)).isoformat()
+        day = _day_in(ws, 3)
         fair = _entry(ws, "event", "Maker fair", status="published", data={"date": day})
         guests = [
             _entry(ws, "rsvp", name, status="published", data={"event": fair.slug, "email": f"{name.lower()}@x.test"}) for name in ("Ada", "Grace")
@@ -1864,7 +1873,7 @@ class TestExecution:
         from marvin.services.automation import waits
 
         _install(ws, "event-countdown")
-        day = (datetime.now(UTC).date() + timedelta(days=12)).isoformat()
+        day = _day_in(ws, 12)
         fair = _entry(ws, "event", "Maker fair", status="published", data={"date": day})
         ws.ai.reply_text(json.dumps({"title": "One week to the Maker fair", "body": "The Maker fair is a week away — come and see the stalls."}))
         ws.ai.reply_text(json.dumps({"title": "Maker fair: tomorrow!", "body": "Tomorrow's the Maker fair — doors at nine, come early."}))
@@ -1884,7 +1893,7 @@ class TestExecution:
 
     def test_event_countdown_skips_a_reminder_already_past(self, ws):
         _install(ws, "event-countdown")
-        soon = _entry(ws, "event", "Pop-up", status="published", data={"date": (datetime.now(UTC).date() + timedelta(days=3)).isoformat()})
+        soon = _entry(ws, "event", "Pop-up", status="published", data={"date": _day_in(ws, 3)})
         _fire(ws, "entry_published", _entry_doc(soon), entity=soon.id, entity_type="entry", correlation_id="pub-pop")
         assert self._issues(ws) == [] and ws.ai.requests == []  # the week-before moment has passed: no draft; it waits for the day before
 
