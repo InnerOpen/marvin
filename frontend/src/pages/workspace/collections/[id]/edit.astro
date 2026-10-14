@@ -136,6 +136,13 @@ if (!authToken) {
 
           <CollectionVisibilityField checked={collection.isPublic !== false} locked={collection.isSystem === true} />
 
+          {collection.isSystem !== true && (
+            <label class="sidebar-field">
+              <input type="checkbox" name="in_sidebar" value="true" checked={(collection as any).inSidebar !== false} />
+              <span><strong>Show in the sidebar</strong> <span class="form-help">Lists this collection under Collections in the sidebar. Off: it is still on the Collections page.</span></span>
+            </label>
+          )}
+
           <SmartCollectionFields checked={collection.isSmart === true} rules={collection.smartRules} targetType={(collection as any).targetType ?? 'entry'} />
 
           <div class="form-group">
@@ -311,6 +318,7 @@ if (!authToken) {
       const sortOrder = formData.get('sort_order') as string;
       const isSmart = formData.get('is_smart') === 'true';
       const isPublic = isPublicFromForm(formData);
+      const sidebarBox = form.querySelector<HTMLInputElement>('input[name="in_sidebar"]');
       const targetType = (formData.get('target_type') as string) || 'entry';
       const smartRulesStr = formData.get('smartRules') as string;
       const metadataStr = formData.get('metadata') as string;
@@ -348,6 +356,7 @@ if (!authToken) {
           sortOrder: sortOrder ? parseInt(sortOrder) : 0,
           isSmart,
           isPublic,
+          ...(sidebarBox ? { inSidebar: sidebarBox.checked } : {}),
           targetType,
           smartRules: smartRules,
           metadataJson: metadataJson,
@@ -641,6 +650,9 @@ if (!authToken) {
 </script>
 
 <style>
+  .sidebar-field { display: flex; align-items: flex-start; gap: 0.6rem; font-weight: 400; cursor: pointer; margin: 1rem 0 0; }
+  .sidebar-field input { margin: 0.15rem 0 0; flex: 0 0 auto; }
+  .sidebar-field .form-help { display: block; }
   .error-banner {
     padding: 1.5rem;
     background: var(--color-error-bg);

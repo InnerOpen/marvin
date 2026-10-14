@@ -12,6 +12,8 @@ Every workspace also gets seven locked **system** collections (`inbox`, `drafts`
 
 **Visible to sites.** A collection's `is_public` flag (default on) decides whether the [publishing API](publishing-api.md) serves it. The create and edit forms show it as **Visible to sites**. Off, sites can't list the collection, open it, or filter entries by it (`GET /entries?collection=` ignores a private collection, as the collection endpoints do). Its entries stay published and can still appear through other collections, entry lists and their own pages. A private collection carries a **Private** pill in the collections list and on its page. System collections are always private, so their toggle is shown disabled with that explanation.
 
+The app sidebar lists your own collections under **Collections**, in the Collections page's order (drag to reorder). Each collection has a **Sidebar** switch on the Collections page, and **Show in the sidebar** on its edit form, both setting `in_sidebar` (default on); a collection switched off is still on the Collections page and works as before, and its sites are unaffected. The switch is the workspace's, so everyone in it sees the same sidebar. Before this the sidebar showed the first ten collections and no others (unreleased).
+
 ### Rule format
 
 `smart_rules` is JSON. Every dimension is optional, but an **empty rule set matches nothing**, so a misconfigured smart collection cannot sweep in the whole workspace.

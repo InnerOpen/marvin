@@ -146,9 +146,13 @@ if (authToken) {
     resourceTypes = rTypes;
     canAuthor = access.canAuthor;
     newTypes = (types ?? []).slice(0, 8).map((t: any) => ({ id: t.id, name: t.name, icon: t.icon ?? null }));
-    const all = (colls ?? []).map((c: any) => ({ id: c.id, name: c.name, slug: c.slug, icon: c.icon ?? null, system: Boolean(c.isSystem), count: Number(c.entryCount ?? 0) }));
+    const all = (colls ?? [])
+      .slice()
+      .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+      .map((c: any) => ({ id: c.id, name: c.name, slug: c.slug, icon: c.icon ?? null, system: Boolean(c.isSystem), inSidebar: c.inSidebar !== false, count: Number(c.entryCount ?? 0) }));
     folders = all.filter((c) => c.system);
-    collections = all.filter((c) => !c.system).slice(0, 10);
+    // In the Collections page's order; each collection's "Sidebar" switch decides whether it is listed.
+    collections = all.filter((c) => !c.system && c.inSidebar);
   } catch {
     newTypes = [];
   }

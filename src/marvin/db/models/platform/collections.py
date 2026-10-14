@@ -43,6 +43,8 @@ class Collections(SqlAlchemyBase, BaseMixins, InstalledByMixin):
     # internal-only (not exposed via the publish API).
     is_system: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False, server_default=sa.false())
     is_public: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=True, server_default=sa.true())
+    # Listed under Collections in the app sidebar; a workspace turns off the ones nobody needs at hand.
+    in_sidebar: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=True, server_default=sa.true())
     metadata_json: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
 
     # Relationships

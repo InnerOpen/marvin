@@ -39,6 +39,8 @@ const systemCollections = sortedCollections.filter((c) => c.isSystem);
 // collections someone switched off "Visible to sites".
 const isPrivate = (c: CollectionRead) => c.isPublic === false && !c.isSystem;
 const PRIVATE_TITLE = "Hidden from the publishing API — sites can't list or read it";
+// The sidebar lists a collection under Collections unless its "Sidebar" switch is off.
+const inSidebar = (c: CollectionRead) => (c as CollectionRead & { inSidebar?: boolean }).inSidebar !== false;
 ---
 
 <AppLayout title="Collections">
@@ -113,6 +115,7 @@ const PRIVATE_TITLE = "Hidden from the publishing API — sites can't list or re
                         <th>Description</th>
                         <th>Type</th>
                         <th>Entries</th>
+                        <th title="Listed under Collections in the sidebar">Sidebar</th>
                         <th>Actions</th>
                       </tr>
                     </thead>
@@ -134,6 +137,12 @@ const PRIVATE_TITLE = "Hidden from the publishing API — sites can't list or re
                           <td>{collection.description || <span class="empty-value">EMPTY</span>}</td>
                           <td><span class="pill">{collection.isSmart ? 'Smart' : 'Manual'}</span></td>
                           <td class="count-cell">{collection.entryCount ?? 0}</td>
+                          <td>
+                            <label class="sidebar-switch" title={canEdit ? "Show in the sidebar" : "Only editors can change this"}>
+                              <input type="checkbox" class="sidebar-toggle" data-id={collection.id} checked={inSidebar(collection)} disabled={!canEdit} aria-label={`Show ${collection.name} in the sidebar`} />
+                              <span class="sidebar-switch-text">{inSidebar(collection) ? "Shown" : "Hidden"}</span>
+                            </label>
+                          </td>
                           <td>
                             {canEdit && (
                             <div class="actions">
@@ -453,6 +462,28 @@ const PRIVATE_TITLE = "Hidden from the publishing API — sites can't list or re
     return closest.el;
   }
 
+  // The "Sidebar" switch saves at once; the sidebar shows the change on the next page.
+  document.querySelectorAll<HTMLInputElement>('.sidebar-toggle').forEach((box) => {
+    box.addEventListener('change', async () => {
+      const text = box.parentElement?.querySelector('.sidebar-switch-text');
+      box.disabled = true;
+      try {
+        const res = await fetch(`/api/collections/${box.dataset.id}/sidebar`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ inSidebar: box.checked }),
+        });
+        if (!res.ok) throw new Error(String(res.status));
+      } catch (e) {
+        console.error('[collections] sidebar toggle failed', e);
+        box.checked = !box.checked;
+      } finally {
+        box.disabled = false;
+        if (text) text.textContent = box.checked ? 'Shown' : 'Hidden';
+      }
+    });
+  });
+
   let saveTimer: ReturnType<typeof setTimeout>;
   function persistOrder() {
     const rows = Array.from(document.querySelectorAll('#reorderable .collection-row')) as HTMLElement[];
@@ -674,6 +705,8 @@ const PRIVATE_TITLE = "Hidden from the publishing API — sites can't list or re
     border-radius: 10px;
   }
 
+  .sidebar-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+  .sidebar-switch input { margin: 0; }
   .reorder-hint {
     margin: 0 0 0.75rem;
     font-size: 0.75rem;

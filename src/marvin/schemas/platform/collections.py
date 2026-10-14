@@ -62,6 +62,8 @@ class CollectionUpdate(_MarvinModel):
     """Which entity type this collection groups: 'entry', 'asset', or 'resource'."""
     is_public: bool | None = None
     """Whether this collection is exposed via the publish API."""
+    in_sidebar: bool | None = None
+    """Whether the app sidebar lists this collection under Collections."""
     metadata_json: dict | None = None
     """Custom metadata for this collection."""
     entry_ids: list[UUID4] | None = None
@@ -95,6 +97,8 @@ class CollectionSummary(_MarvinModel):
     """System workflow collection — locked from edit/delete and internal-only."""
     is_public: bool = True
     """Whether this collection is exposed via the publish API."""
+    in_sidebar: bool = True
+    """Whether the app sidebar lists this collection under Collections."""
     entry_count: int | None = None
     """Number of entries in this collection (populated by the list endpoint)."""
     created_at: datetime | None = None
