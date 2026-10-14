@@ -231,6 +231,12 @@ config:
   dbEngine: postgres
   dataDir: /app/data
 
+  # Where people open the editor UI — the origin links in emails (password reset, invitations), push notifications
+  # and agent answers point at. Set it to the address users actually reach (a public tunnel host, not the cluster's
+  # *.apps route when people are off the LAN). Empty: https://<route.ui.host> when that is set, else unset, and the
+  # API falls back to localhost — every emailed link is then broken. Maps to the API's BASE_URL and FRONTEND_URL.
+  publicUiUrl: ""
+
   # API configuration
   apiPort: 8080
   apiHost: "0.0.0.0"

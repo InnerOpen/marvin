@@ -32,6 +32,7 @@ config:
   # admin-dev.iwobble.com → UI, api-dev.iwobble.com → API. The LAN .apps routes below keep working.
   publicApiUrl: https://api-dev.iwobble.com
   corsOrigins: "https://admin-dev.iwobble.com,https://marvin-marvin-dev.apps.ocp4.iwobble.com"
+  publicUiUrl: https://admin-dev.iwobble.com # emailed links, push, agent answers (BASE_URL / FRONTEND_URL)
 
 # Web Push for the installable admin app: VAPID keys from this Secret (create it first — see
 # docs/manual/app-and-push.md; until it exists the backend starts with push off).

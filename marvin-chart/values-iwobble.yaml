@@ -36,7 +36,11 @@ config:
   # Split deploy: UI (marvin-marvin) and API (marvin-api-marvin) are on different hosts, so the
   # API must allow the UI origin for browser calls. Without this, production adds no CORS
   # middleware and the token page / client-side features fail with "Failed to fetch" (CORS).
-  corsOrigins: "https://marvin-marvin.apps.ocp4.iwobble.com"
+  corsOrigins: "https://admin.iwobble.com,https://marvin-marvin.apps.ocp4.iwobble.com"
+  # Emailed links (password reset, invitations), push and agent answers: the public, Cloudflare-Access-gated host,
+  # which works on and off the LAN (the *.apps route only works on it). Was unset until 2026-10-14, so every
+  # reset/invite email linked to http://localhost:8080.
+  publicUiUrl: https://admin.iwobble.com
 
 # Backend headroom. One uvicorn worker by design (SQLite over NFS is single-writer), so the only
 # lever under a burst of slow reads is CPU: the chart default of 500m had the worker answering
