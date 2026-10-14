@@ -332,3 +332,48 @@ def test_status_column_is_wide_enough_for_awaiting_approval():
     from marvin.db.models.groups.ai_threads import THREAD_STATUS_AWAITING, AIThreadModel
 
     assert AIThreadModel.status.type.length >= len(THREAD_STATUS_AWAITING)
+
+
+# ── Search ───────────────────────────────────────────────────────────────────
+
+
+def test_search_finds_threads_by_title_or_message_text_with_a_snippet(db_session, workspace):
+    gid, alice, bob = workspace.group_id, workspace.alice, workspace.bob
+    tote = _at(svc.create_thread(db_session, gid, alice, "ask", "Field tote pattern"), 1)
+    svc.append_turn(db_session, tote, "user", "Which waxed canvas should the field tote use?")
+    leather = _at(svc.create_thread(db_session, gid, alice, "workshop", "Belt"), 3)
+    svc.append_turn(db_session, leather, "user", "Cut the strap from the bridle leather side.")
+    svc.append_turn(db_session, leather, "assistant", "Bridle leather takes an edge well — " + "burnish it slowly. " * 20)
+    other = _at(svc.create_thread(db_session, gid, bob, "ask", "Bridle leather supplier"), 5)
+    db_session.flush()
+
+    by_text = svc.search_threads(db_session, gid, alice, "BRIDLE leather")
+    assert [t.id for t in by_text] == [leather.id]  # Bob's thread stays his
+    assert by_text[0].match.startswith("Cut the strap from the bridle leather")  # the first hit, in order
+    assert [t.id for t in svc.search_threads(db_session, gid, alice, "field tote")] == [tote.id]
+    assert svc.search_threads(db_session, gid, alice, "tote pattern")[0].match is None  # only the title matched
+    assert [t.id for t in svc.search_threads(db_session, gid, bob, "bridle", see_all=True)] == [other.id, leather.id]
+    assert svc.search_threads(db_session, gid, alice, "bridle", agent_slug="ask") == []
+    assert svc.search_threads(db_session, gid, alice, " b ") == []  # too short to mean anything
+    assert svc.search_threads(db_session, gid, alice, "100%") == []  # % is literal, not a wildcard
+
+
+def test_search_includes_hand_off_children_with_their_parents_title(db_session, workspace):
+    gid, alice = workspace.group_id, workspace.alice
+    parent = _at(svc.create_thread(db_session, gid, alice, "ask", "Planning the launch"), 1)
+    db_session.flush()
+    child = _at(svc.create_thread(db_session, gid, alice, "materials", "Materials", parent_thread_id=parent.id), 2)
+    svc.append_turn(db_session, child, "assistant", "Use the 18 oz duck canvas.")
+    db_session.flush()
+
+    (hit,) = svc.search_threads(db_session, gid, alice, "duck canvas")
+    assert hit.id == child.id and hit.parent_title == "Planning the launch" and "18 oz duck canvas" in hit.match
+
+
+def test_snippet_cuts_on_words_and_marks_the_cuts():
+    text = "one two three four five six seven eight nine ten " * 6 + "needle " + "after words go on " * 12
+    cut = svc.snippet(text, "NEEDLE")
+    assert cut.startswith("…") and cut.endswith("…") and "needle" in cut and len(cut) < 200
+    assert not cut[1].isspace()
+    assert svc.snippet("short needle here", "needle") == "short needle here"
+    assert svc.snippet("nothing", "needle") is None

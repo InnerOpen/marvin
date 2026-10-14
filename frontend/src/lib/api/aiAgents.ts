@@ -169,8 +169,10 @@ export interface Thread {
   createdBy: string;
   /** Set on a hand-off child (the specialist's thread under a router thread). */
   parentThreadId?: string | null;
-  /** The parent thread's title, on a hand-off child listed with `children: true`. */
+  /** The parent thread's title, on a hand-off child listed with `children: true` (or found by a search). */
   parentTitle?: string | null;
+  /** On a search result: the words around the first hit in its messages (null when only the title matched). */
+  match?: string | null;
   status: "open" | "awaiting_approval" | "archived";
   totalTokens: number;
   lastMessageAt?: string | null;
@@ -350,13 +352,15 @@ export function getRunProgress(runId: string, authToken?: string): Promise<RunPr
  * hand-off threads are listed too. See groupThreads (lib/askThreads.ts) for nesting them.
  */
 export function listThreads(
-  opts: { agent?: string; limit?: number; children?: boolean } = {},
+  opts: { agent?: string; limit?: number; children?: boolean; search?: string } = {},
   authToken?: string,
 ): Promise<Thread[]> {
   const q = new URLSearchParams();
   if (opts.agent) q.set("agent", opts.agent);
   if (opts.limit) q.set("limit", String(opts.limit));
   if (opts.children) q.set("children", "true");
+  // `search`: the threads whose title or messages contain it, hand-offs included, each with its `match`.
+  if (opts.search?.trim()) q.set("q", opts.search.trim());
   const qs = q.toString();
   return fetchApi<Thread[]>(`/api/ai/threads${qs ? `?${qs}` : ""}`, {}, authToken);
 }

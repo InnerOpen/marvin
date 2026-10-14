@@ -146,6 +146,72 @@ def _by_activity(query):
     return query.order_by(AIThreadModel.last_message_at.desc().nullslast(), AIThreadModel.created_at.desc())
 
 
+SEARCH_MIN_CHARS = 2
+SNIPPET_BEFORE, SNIPPET_AFTER = 50, 110
+
+
+def _like(text: str) -> str:
+    """``text`` as an ILIKE pattern that matches it literally anywhere (its own % and _ escaped)."""
+    return "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
+def snippet(content: str, needle: str) -> str | None:
+    """The words around the first case-insensitive hit of ``needle`` in ``content``, one line, with ellipses where
+    it was cut; None when it isn't there."""
+    flat = " ".join((content or "").split())
+    at = flat.lower().find(needle.lower())
+    if at < 0:
+        return None
+    start, end = max(0, at - SNIPPET_BEFORE), min(len(flat), at + len(needle) + SNIPPET_AFTER)
+    if start > 0 and (space := flat.find(" ", start, at)) >= 0:  # start on a word
+        start = space + 1
+    if end < len(flat) and (space := flat.rfind(" ", at + len(needle), end)) >= 0:
+        end = space
+    return ("…" if start > 0 else "") + flat[start:end] + ("…" if end < len(flat) else "")
+
+
+def search_threads(
+    session: Session, group_id, user_id, query: str, *, see_all: bool = False, agent_slug: str | None = None, limit: int = 50
+) -> list[AIThreadModel]:
+    """Threads whose title or any message contains ``query`` (case-insensitive), most recent activity first —
+    hand-off children included, each with ``parent_title`` — the caller's own unless ``see_all``. Each carries
+    ``match``: the words around the first hit in its messages (None when only the title matched). A query shorter
+    than SEARCH_MIN_CHARS finds nothing."""
+    text = " ".join((query or "").split())
+    if len(text) < SEARCH_MIN_CHARS:
+        return []
+    pattern = _like(text)
+    limit = max(1, min(limit, LIST_LIMIT_MAX))
+    in_messages = select(AIThreadMessageModel.thread_id).where(
+        AIThreadMessageModel.group_id == group_id, AIThreadMessageModel.content.ilike(pattern, escape="\\")
+    )
+    parent = aliased(AIThreadModel)
+    q = (
+        session.query(AIThreadModel, parent.title)
+        .outerjoin(parent, AIThreadModel.parent_thread_id == parent.id)
+        .filter(AIThreadModel.group_id == group_id)
+        .filter(or_(AIThreadModel.title.ilike(pattern, escape="\\"), AIThreadModel.id.in_(in_messages)))
+    )
+    if agent_slug:
+        q = q.filter(AIThreadModel.agent_slug == agent_slug)
+    found = _by_activity(_visible(q, user_id, see_all)).limit(limit).all()
+    if not found:
+        return []
+    first_hit: dict = {}
+    for thread_id, content in (
+        session.query(AIThreadMessageModel.thread_id, AIThreadMessageModel.content)
+        .filter(AIThreadMessageModel.thread_id.in_([t.id for t, _ in found]), AIThreadMessageModel.content.ilike(pattern, escape="\\"))
+        .order_by(AIThreadMessageModel.thread_id, AIThreadMessageModel.seq)
+    ):
+        first_hit.setdefault(thread_id, content)
+    rows = []
+    for thread, parent_title in found:
+        thread.parent_title = parent_title
+        thread.match = snippet(first_hit[thread.id], text) if thread.id in first_hit else None
+        rows.append(thread)
+    return rows
+
+
 def history_rows(thread: AIThreadModel, limit: int = HISTORY_LIMIT) -> list[AIThreadMessageModel]:
     """The last `limit` turns, oldest first — the shape `_bounded_history` expects."""
     rows = sorted(thread.messages, key=lambda m: m.seq)

@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { activityOf, groupThreads, handOffNote } from "./askThreads.ts";
+import { activityOf, groupThreads, handOffNote, highlight } from "./askThreads.ts";
 
 const thread = (id, agentSlug, minute, over = {}) => ({
   id,
@@ -95,4 +95,10 @@ describe("handOffNote", () => {
   test("is null for a top-level thread", () => {
     assert.equal(handOffNote(thread("route", "marvin", 1)), null);
   });
+});
+
+test("highlight marks every hit, any case, and escapes the rest", () => {
+  assert.equal(highlight("Bridle leather and bridle rings", "BRIDLE"), "<mark>Bridle</mark> leather and <mark>bridle</mark> rings");
+  assert.equal(highlight("a <b> tag", "tag"), "a &lt;b&gt; <mark>tag</mark>");
+  assert.equal(highlight("<x>", ""), "&lt;x&gt;");
 });

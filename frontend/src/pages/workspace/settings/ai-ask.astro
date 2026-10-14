@@ -175,7 +175,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
   } from "@/lib/api/aiAgents";
   import { fetchApi } from "@/lib/api/client";
   import { argsPreview, groupPending, viaText } from "@/lib/approvals";
-  import { groupThreads, handOffNote } from "@/lib/askThreads";
+  import { groupThreads, handOffNote, highlight, SEARCH_MIN_CHARS } from "@/lib/askThreads";
   import { renderMarkdown } from "@/lib/marvin/capabilities";
   import { MAIN_AGENT } from "@/lib/marvin/cast";
   import { createSdkClient } from "@/lib/sdk";
@@ -434,9 +434,10 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       const d = new Date(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`);
       return Number.isNaN(d.getTime()) ? "" : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
     };
-    function threadRow(t: Thread, opts: { child?: boolean; showAgent?: boolean } = {}): string {
+    function threadRow(t: Thread, opts: { child?: boolean; showAgent?: boolean; search?: string } = {}): string {
       const active = t.id === threadId ? " active" : "";
-      const title = esc(t.title || "(untitled)");
+      const title = opts.search ? highlight(t.title || "(untitled)", opts.search) : esc(t.title || "(untitled)");
+      const match = opts.search && t.match ? `<span class="th-match">${highlight(t.match, opts.search)}</span>` : "";
       const meta = [
         !opts.child && opts.showAgent ? esc(agentLabel(t.agentSlug)) : "",
         esc(when(t.lastMessageAt || t.createdAt)),
@@ -447,6 +448,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
         <button type="button" class="th-open" title="Reopen this conversation">
           <span class="th-line">${opts.child ? `<span class="th-agent">↳ ${esc(agentLabel(t.agentSlug))} · </span>` : ""}<span class="th-title">${title}</span></span>
           <span class="th-when">${meta.join(" · ")}</span>
+          ${match}
         </button>
         <span class="th-actions">
           <button type="button" class="link-btn th-rename" title="Rename">✎</button>
@@ -459,13 +461,48 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       return `<div class="th-head"><span class="tp-title">${heading}</span>
         <label class="th-filter"><input type="checkbox" class="th-this-agent"${thisAgentOnly ? " checked" : ""} /> This agent only</label></div>`;
     }
+    // Search: a box above the list that stays put while the list under it reloads (so typing keeps focus);
+    // two characters or more ask the server for the conversations that mention them.
+    let threadSearch = "";
+    let searchTimer: ReturnType<typeof setTimeout> | undefined;
+    let threadsLoad = 0; // the newest load wins: a slow earlier answer never overwrites a later one
+    function threadsList(): HTMLElement {
+      let list = threadsPanel.querySelector<HTMLElement>(".th-list");
+      if (!list) {
+        threadsPanel.innerHTML = `<input class="input th-search-input" type="search" placeholder="Search conversations…" aria-label="Search conversations" />
+          <div class="th-list"></div>`;
+        list = threadsPanel.querySelector<HTMLElement>(".th-list")!;
+      }
+      return list;
+    }
+    async function searchThreads(a: Agent, list: HTMLElement, load: number) {
+      const agent = thisAgentOnly ? a.slug : null;
+      const rows = await listThreads({ ...(agent ? { agent } : {}), search: threadSearch, limit: THREADS_LIMIT });
+      if (load !== threadsLoad) return;
+      const heading = `${rows.length || "No"} conversation${rows.length === 1 ? "" : "s"} mention “${esc(threadSearch)}”${agent ? ` with <strong>${esc(agentName(a.slug))}</strong>` : ""}`;
+      list.innerHTML =
+        `<div class="th-head"><span class="tp-title">${heading}</span>
+          <label class="th-filter"><input type="checkbox" class="th-this-agent"${thisAgentOnly ? " checked" : ""} /> This agent only</label></div>` +
+        rows.map((t) => threadRow(t, { showAgent: !agent, search: threadSearch })).join("");
+    }
     async function loadThreads() {
       const a = current();
       if (!a) return;
-      threadsPanel.innerHTML = `<div class="tp-loading">Loading…</div>`;
+      const list = threadsList();
+      const load = ++threadsLoad;
+      list.innerHTML = `<div class="tp-loading">${threadSearch.length >= SEARCH_MIN_CHARS ? "Searching…" : "Loading…"}</div>`;
+      if (threadSearch.length >= SEARCH_MIN_CHARS) {
+        try {
+          await searchThreads(a, list, load);
+        } catch (e) {
+          if (load === threadsLoad) list.innerHTML = `<div class="tp-loading">Couldn't search: ${esc(e instanceof Error ? e.message : e)}</div>`;
+        }
+        return;
+      }
       try {
         const agent = thisAgentOnly ? a.slug : null;
         const rows = await listThreads({ ...(agent ? { agent } : {}), children: true, limit: THREADS_LIMIT });
+        if (load !== threadsLoad) return;
         const groups = groupThreads(rows, agent);
         const empty = agent
           ? `No saved conversations with ${esc(agentName(a.slug))} yet — send a message to start one.`
@@ -475,11 +512,23 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
               .map((g) => threadRow(g.thread, { showAgent: !agent }) + g.children.map((c) => threadRow(c, { child: true })).join(""))
               .join("")
           : `<div class="tp-loading">${empty}</div>`;
-        threadsPanel.innerHTML = threadsHeader(a) + body;
+        list.innerHTML = threadsHeader(a) + body;
       } catch (e) {
-        threadsPanel.innerHTML = `<div class="tp-loading">Couldn't load threads: ${esc(e instanceof Error ? e.message : e)}</div>`;
+        if (load === threadsLoad) list.innerHTML = `<div class="tp-loading">Couldn't load threads: ${esc(e instanceof Error ? e.message : e)}</div>`;
       }
     }
+    threadsPanel.addEventListener("input", (e) => {
+      const box = (e.target as HTMLElement).closest<HTMLInputElement>(".th-search-input");
+      if (!box) return;
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        const next = box.value.trim();
+        const was = threadSearch.length >= SEARCH_MIN_CHARS ? threadSearch : "";
+        threadSearch = next;
+        // One character doesn't search; reload only when that changes what's shown.
+        if ((next.length >= SEARCH_MIN_CHARS ? next : "") !== was) void loadThreads();
+      }, 250);
+    });
     async function openThread(id: string) {
       setStatus("Opening…");
       try {
@@ -1027,6 +1076,9 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
   .threads-panel :global(.th-row.th-child.active) { padding-left: 26px; }
   .threads-panel :global(.th-child .th-line), .threads-panel :global(.th-child .th-title) { font-size: 13px; }
   .threads-panel :global(.th-agent) { color: var(--muted); }
+  .threads-panel :global(.th-search-input) { width: 100%; margin-bottom: 10px; }
+  .threads-panel :global(.th-match) { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .threads-panel :global(mark) { background: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--ink); border-radius: 2px; padding: 0 1px; }
   .threads-panel :global(.th-actions) { display: flex; gap: 6px; }
   .threads-panel :global(.th-actions .link-btn) { border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 13px; line-height: 1; padding: 2px 4px; }
   .threads-panel :global(.th-actions .link-btn:hover) { color: var(--ink); }

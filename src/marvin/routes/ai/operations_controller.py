@@ -1237,15 +1237,22 @@ class AIOperationsController(BaseUserController):
     # Any future literal `/threads/<word>` route must be declared before `/threads/{thread_id}`.
 
     @router.get("/threads", response_model=list[AIThreadRead], summary="List my Ask threads (admins: every thread)")
-    def list_threads(self, agent: str | None = None, limit: int = 50, children: bool = False) -> list[AIThreadRead]:
+    def list_threads(self, agent: str | None = None, limit: int = 50, children: bool = False, q: str | None = None) -> list[AIThreadRead]:
         """Top-level threads, every agent's unless `agent` is given.
 
         `children=true` adds the specialist threads opened by hand-offs (each with `parentThreadId` and
         `parentTitle`) under the listed ones; `limit` counts the listed threads, not their children.
         With `agent`, that agent's hand-off threads count as listed too.
-        """
-        from marvin.services.ai.threads import list_threads
 
+        `q` searches instead: the threads whose title or any message contains it (case-insensitive, two characters
+        at least), hand-offs included, newest first, each with `match` — the words around the first hit in its
+        messages (null when only the title matched).
+        """
+        from marvin.services.ai.threads import list_threads, search_threads
+
+        if q is not None and q.strip():
+            found = search_threads(self.session, self.group_id, self.user.id, q, see_all=self._sees_all_threads(), agent_slug=agent, limit=limit)
+            return [AIThreadRead.model_validate(r) for r in found]
         rows = list_threads(
             self.session, self.group_id, self.user.id, see_all=self._sees_all_threads(), agent_slug=agent, limit=limit, include_children=children
         )
