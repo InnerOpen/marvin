@@ -17,7 +17,6 @@ from pydantic import (  # Core Pydantic components
     UUID4,
     BaseModel,
     ConfigDict,
-    Field,
     StringConstraints,
     ValidationInfo,  # Added for validator context
     field_validator,
@@ -258,8 +257,15 @@ class ChangePassword(_MarvinModel):
 
     current_password: str = ""  # Default to empty string, but should be required by API.
     """The user's current password, for verification."""
-    new_password: str = Field(..., min_length=8)  # `...` denotes a required field.
-    """The new password. Must be at least 8 characters long."""
+    new_password: str
+    """The new password: at least SECURITY_PASSWORD_MIN_LENGTH characters (8 by default)."""
+
+    @field_validator("new_password")
+    @classmethod
+    def new_password_long_enough(cls, value: str) -> str:
+        from .password_rules import check_password_length
+
+        return check_password_length(value)
 
 
 class _UserBase(_MarvinModel):

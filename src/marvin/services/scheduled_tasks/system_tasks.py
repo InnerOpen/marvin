@@ -91,7 +91,10 @@ SYSTEM_SCHEDULED_TASKS: list[SystemTaskDefinition] = [
         slug="prune_revoked_tokens",
         name="Prune Revoked Tokens",
         task_type="prune_revoked_tokens",
-        description="Delete API tokens and site clients revoked more than 30 days ago (they can never sign in again). Admin-only; runs daily.",
+        description=(
+            "Delete API tokens and site clients revoked more than 30 days ago (they can never sign in again), "
+            "and expired password-reset links. Admin-only; runs daily."
+        ),
         schedule_type="interval",
         schedule_config={"interval_seconds": _DAILY_SECONDS},
         task_config={"age_days": 30},

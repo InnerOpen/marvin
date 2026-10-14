@@ -12,7 +12,6 @@ Two routers are defined:
 - `user_router`: For endpoints that require an authenticated user (e.g., refresh, logout).
 """
 
-from datetime import timedelta
 
 from authlib.integrations.starlette_client import OAuth  # For OIDC integration
 from fastapi import APIRouter, Depends, Request, Response, status  # Core FastAPI components
@@ -52,7 +51,6 @@ logger = root_logger.get_logger("auth")  # Logger for authentication events
 
 # Duration for "remember me" functionality, though not explicitly used in cookie setting below for it.
 # Standard token duration is handled by `security.create_access_token`.
-remember_me_duration = timedelta(days=14)
 
 settings = get_app_settings()
 oauth: OAuth | None = None  # Initialize oauth client, will be set if OIDC is ready

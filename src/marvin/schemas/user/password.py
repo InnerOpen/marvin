@@ -4,7 +4,7 @@ management within the Marvin application, such as initiating a password reset,
 validating reset tokens, and setting a new password.
 """
 
-from pydantic import UUID4, ConfigDict, model_validator  # For UUID type and Pydantic model configuration
+from pydantic import UUID4, ConfigDict, field_validator, model_validator  # For UUID type and Pydantic model configuration
 
 # SQLAlchemy ORM imports for loader_options method
 from sqlalchemy.orm import selectinload
@@ -64,6 +64,13 @@ class ResetPassword(ValidateResetToken):  # Extends ValidateResetToken, so it al
     """The new password to set for the user."""
     passwordConfirm: str  # Field name uses camelCase, consistent with alias_generator in _MarvinModel
     """Confirmation of the new password. Must match `password`."""
+
+    @field_validator("password")
+    @classmethod
+    def password_long_enough(cls, value: str) -> str:
+        from .password_rules import check_password_length
+
+        return check_password_length(value)
 
     @model_validator(mode="after")
     def check_passwords_match(self) -> "ResetPassword":

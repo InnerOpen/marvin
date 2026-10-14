@@ -19,6 +19,13 @@ class UserRegistrationCreate(_MarvinModel):
 
     seed_data: bool = False
 
+    @field_validator("password")
+    @classmethod
+    def password_long_enough(cls, value: str) -> str:
+        from .password_rules import check_password_length
+
+        return check_password_length(value)
+
     @field_validator("password_confirm")
     @classmethod
     def passwords_match(cls, value, info: ValidationInfo):

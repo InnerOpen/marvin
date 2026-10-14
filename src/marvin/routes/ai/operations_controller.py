@@ -1722,8 +1722,8 @@ class AIOperationsController(BaseUserController):
         from marvin.services.ai.agent import DEFAULT_MAX_STEPS
 
         _app = get_app_settings()
-        configured = int(body.max_steps or getattr(_app, "AI_AGENT_MAX_STEPS", DEFAULT_MAX_STEPS) or DEFAULT_MAX_STEPS)
-        return min(configured, 12)
+        configured = int(body.max_steps or _app.AI_AGENT_MAX_STEPS or DEFAULT_MAX_STEPS)
+        return max(1, min(configured, _app.AI_AGENT_MAX_STEPS_CAP))
 
     def _agent_or_404(self, slug: str):
         from marvin.services.ai.agents import resolve_agent

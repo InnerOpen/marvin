@@ -304,6 +304,15 @@ class AppSettings(BaseSettings):
     failed "expired", an approval_rejected event with reason "expired". 0 keeps parks forever.
     """
 
+    AI_AGENT_MAX_STEPS: int = 6
+    """
+    Tool calls an agent run may make before it must answer (Ask, the bubble). A request may ask for more, up to
+    AI_AGENT_MAX_STEPS_CAP. Each step is a model call, so this bounds a run's cost.
+    """
+
+    AI_AGENT_MAX_STEPS_CAP: int = 12
+    """The most steps any agent run may take, whatever it asks for."""
+
     AI_HANDOFF_MAX_DEPTH: int = 1
     """
     How deep agent hand-offs may nest: 1 lets Marvin hand off to a specialist that cannot hand off
@@ -454,6 +463,12 @@ class AppSettings(BaseSettings):
 
     SECURITY_PASSWORD_RESET_IP_MAX_PER_HOUR: int = 10
     "password-reset requests one client IP can make per hour"
+
+    SECURITY_PASSWORD_RESET_TOKEN_MINUTES: int = 60
+    "how long an emailed password-reset link works; after that it is refused and deleted (a new request replaces it)"
+
+    SECURITY_PASSWORD_MIN_LENGTH: int = 8
+    "the shortest password accepted wherever one is set: registration, a reset, a change"
 
     SECURITY_USER_LOCKOUT_TIME: int = 24
     "time in hours; only for a lock set before sign-in throttling (users.locked_at), which nothing sets now"

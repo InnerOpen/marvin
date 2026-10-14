@@ -479,11 +479,14 @@ class PruneRevokedTokensHandler(ScheduledTaskHandler):
         with session_context() as session:
             tokens = session.query(LongLiveToken).filter(LongLiveToken.revoked_at <= cutoff).delete(synchronize_session=False)
             clients = session.query(APIClients).filter(APIClients.revoked_at <= cutoff).delete(synchronize_session=False)
+            resets = _delete_expired_reset_tokens(session)
             session.commit()
 
-        if not tokens and not clients:
+        if not tokens and not clients and not resets:
             return None  # the usual daily answer; not worth a row
         summary = f"Deleted {tokens} revoked API token(s) and {clients} revoked site client(s) (revoked over {age_days} days ago)"
+        if resets:
+            summary += f", and {resets} expired password-reset link(s)"
         logger.info("Revoked token prune: %s", summary)
         return summary
 
@@ -537,3 +540,13 @@ TaskHandlerRegistry.register("prune_scheduled_task_executions", PruneScheduledTa
 TaskHandlerRegistry.register("resync_smart_collections", ResyncSmartCollectionsHandler)
 TaskHandlerRegistry.register("prune_revoked_tokens", PruneRevokedTokensHandler)
 TaskHandlerRegistry.register("optimize_database", OptimizeDatabaseHandler)
+
+
+def _delete_expired_reset_tokens(session) -> int:
+    """Password-reset links past SECURITY_PASSWORD_RESET_TOKEN_MINUTES (they are refused anyway; this keeps the table empty)."""
+    from marvin.core.config import get_app_settings
+    from marvin.db.models.users import PasswordResetModel
+
+    minutes = max(1, int(get_app_settings().SECURITY_PASSWORD_RESET_TOKEN_MINUTES))
+    cutoff = (datetime.now(UTC) - timedelta(minutes=minutes)).replace(tzinfo=None)  # created_at is naive UTC
+    return session.query(PasswordResetModel).filter(PasswordResetModel.created_at <= cutoff).delete(synchronize_session=False)
