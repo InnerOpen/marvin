@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.343 (2026-10-14)
+
+### Documentation
+
+- **tasks**: Remote MCP with OAuth sign-in plan — five slices, sixteen questions
+  ([`506088f`](https://github.com/InnerOpen/marvin/commit/506088f16b29f1b0ce109b55c8cbab8b6da316c0))
+
+### Features
+
+- **storage**: Bring your own storage, slice 2 — Workspace → Storage page, API, Check connection,
+  policy switch
+  ([`74ed875`](https://github.com/InnerOpen/marvin/commit/74ed8752f5e4d29dd255f9f2ccde8a6bafac8d05))
+
+
 ## v1.0.0-rc.342 (2026-10-14)
 
 ### Bug Fixes
