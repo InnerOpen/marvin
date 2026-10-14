@@ -19,11 +19,14 @@ const { asset, canEdit, inTrash = false, versionsHref } = Astro.props;
 // Where it came from, when it isn't a plain upload: a version made from another asset, or an image an integration made.
 const originBadge = asset.origin === "derived" ? "Version" : asset.origin === "generated" ? "Generated" : null;
 const category = getMimeCategory(asset.mimeType);
+// The whole row opens the asset (a tap anywhere on a phone, where the Actions column sits off-screen); an asset in
+// the Trash opens its restore page instead of the viewer.
+const openHref = inTrash ? `/workspace/assets/${asset.id}` : `/workspace/assets/${asset.id}/view`;
 ---
 
-<tr class="asset-row" data-type={category} data-status={inTrash ? "trashed" : undefined} data-in-trash={inTrash ? "" : undefined}>
+<tr class="asset-row" data-href={openHref} data-type={category} data-status={inTrash ? "trashed" : undefined} data-in-trash={inTrash ? "" : undefined}>
   <td>
-    <div class="preview">
+    <a class="preview" href={openHref} title={asset.name}>
       {asset.publicUrl && category === 'image' ? (
         <img
           src={asset.publicUrl}
@@ -37,10 +40,10 @@ const category = getMimeCategory(asset.mimeType);
           category === 'document' ? '📄' : '📎'
         }</span>
       )}
-    </div>
+    </a>
   </td>
   <td class="asset-name">
-    <strong>{asset.name}</strong>
+    <a class="name-link" href={openHref}><strong>{asset.name}</strong></a>
     {inTrash && <span class="trash-badge">In the Trash</span>}
     {originBadge && (asset.sourceAssetId
       ? <a class="origin-badge" href={`/workspace/assets/${asset.sourceAssetId}/view`} title="Open the asset it was made from">{originBadge}</a>
@@ -87,6 +90,10 @@ const category = getMimeCategory(asset.mimeType);
 </tr>
 
 <style>
+  .asset-row[data-href] { cursor: pointer; }
+  .preview { display: block; text-decoration: none; }
+  .name-link { color: inherit; text-decoration: none; }
+  .name-link:hover strong { text-decoration: underline; }
   .origin-badge,
   .versions-link {
     display: inline-block;

@@ -186,7 +186,7 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
           <div id="grid-view" class="view-section" style="display:none;">
             <ul class="asset-grid">
               {rows.map((asset: any) => (
-                <li class="asset-card" data-in-trash={view.status === "trashed" ? "" : undefined}>
+                <li class="asset-card" data-href={view.status === "trashed" ? `/workspace/assets/${asset.id}` : `/workspace/assets/${asset.id}/view`} data-in-trash={view.status === "trashed" ? "" : undefined}>
                   <a class="thumb" href={view.status === "trashed" ? `/workspace/assets/${asset.id}` : `/workspace/assets/${asset.id}/view`} title={asset.name}>
                     {asset.publicUrl && getMimeCategory(asset.mimeType) === "image" ? (
                       <img src={asset.publicUrl} alt={asset.altText ?? asset.name} loading="lazy" style={`object-position: ${asset.focalPoint ?? "50% 50%"}`} />
@@ -194,7 +194,7 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
                       <span class="file-icon">📎</span>
                     )}
                   </a>
-                  <div class="card-name" title={asset.name}>{asset.name}</div>
+                  <a class="card-name" href={view.status === "trashed" ? `/workspace/assets/${asset.id}` : `/workspace/assets/${asset.id}/view`} title={asset.name}>{asset.name}</a>
                   <div class="card-meta">
                     {asset.width && asset.height ? `${asset.width}×${asset.height}` : asset.mimeType}
                     {asset.origin === "derived" && <span class="card-badge">Version</span>}
@@ -273,6 +273,16 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
   try { savedView = localStorage.getItem('assets-view'); } catch { /* as above */ }
   if (savedView === 'table' || savedView === 'grid' || savedView === 'grouped') setView(savedView);
 
+  // A row or a card opens its asset wherever it's tapped — on a phone the table's Actions column (View / Edit) sits
+  // off-screen to the right, so the row itself is the way in, as it is for entries. Links, buttons and form controls
+  // inside keep their own meaning.
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('a, button, form, input, select, label, summary')) return;
+    const holder = target.closest<HTMLElement>('.asset-row[data-href], .asset-card[data-href]');
+    if (holder?.dataset.href) window.location.href = holder.dataset.href;
+  });
+
   // The filters are a GET form: a choice reloads the list from the server (search on Enter).
   const filters = document.getElementById('asset-filters') as HTMLFormElement | null;
   filters?.querySelectorAll('select, input[type="checkbox"]').forEach((el) => el.addEventListener('change', () => filters.requestSubmit()));
@@ -287,6 +297,7 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
     padding: 0;
     list-style: none;
   }
+  .asset-card[data-href] { cursor: pointer; }
   .asset-card {
     min-width: 0;
   }
@@ -316,6 +327,9 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    display: block;
+    color: inherit;
+    text-decoration: none;
   }
   .card-meta {
     display: flex;
