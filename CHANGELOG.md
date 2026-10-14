@@ -6,6 +6,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.322 (2026-10-14)
+
+### Chores
+
+- **settings**: Drop the "Custom Fields — coming soon" card
+  ([`84c29eb`](https://github.com/InnerOpen/marvin/commit/84c29eb47da20b41fc645504ad0f0469b1c729dc))
+
+- **tasks**: Lessons live in the Brain, not the repo
+  ([`1113e71`](https://github.com/InnerOpen/marvin/commit/1113e71aa6c5648e22d1866dd33f10a4c9102b58))
+
+### Features
+
+- **dashboard**: Second pass — pick up where you left off, published by week, content by type
+  ([`f8bb372`](https://github.com/InnerOpen/marvin/commit/f8bb372fc1b00efba502e2a06f5fab251796447c))
+
+### Testing
+
+- **library**: Date-based waits take the event date from the workspace's calendar
+  ([`a59ff23`](https://github.com/InnerOpen/marvin/commit/a59ff23095f1b9c6ae9c3c74c982ea432f83e84b))
+
+
 ## v1.0.0-rc.321 (2026-10-14)
 
 ### Bug Fixes
