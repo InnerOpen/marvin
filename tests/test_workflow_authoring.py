@@ -488,9 +488,12 @@ def test_asking_marvin_for_the_incidents_workflow_creates_it_switched_off(ws, mo
     assert res.status_code == 200, res.text
     body = res.json()
 
-    # The model saw the rule and the tools; it read the guide before drafting.
+    # The model saw the rule and the tools — offered outright, or named in the load_tools groups when the agent starts
+    # lean (tools on demand); it read the guide before drafting.
     first = transport.requests[0]
-    assert "workflow_authoring_guide" in {t["name"] for t in first["tools"]} and "draft_workflow" in {t["name"] for t in first["tools"]}
+    offered = {t["name"] for t in first["tools"]}
+    loader = next((t["description"] for t in first["tools"] if t["name"] == "load_tools"), "")
+    assert all(name in offered or name in loader for name in ("workflow_authoring_guide", "draft_workflow"))
     assert any("Never say you can't create workflows" in (m.get("content") or "") for m in first["messages"] if m["role"] == "system")
     assert [s["tool"] for s in body["steps"]] == ["workflow_authoring_guide", "draft_workflow"]
 
