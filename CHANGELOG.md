@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.339 (2026-10-14)
+
+### Features
+
+- **storage**: Bring your own storage, slice 1 — a workspace's uploads can go to its own bucket
+  (inert: policy off)
+  ([`e98f551`](https://github.com/InnerOpen/marvin/commit/e98f5518b038f83a1b23898189ad327f5e94ace5))
+
+
 ## v1.0.0-rc.338 (2026-10-14)
 
 ### Bug Fixes
