@@ -172,7 +172,6 @@ class AssetStorageService(BaseService):
                 asset_data["group_id"] = group_id
                 asset_data["uploaded_by"] = user_id
                 asset = self.repos.assets.create(asset_data)
-                self._join_smart_collections(asset)
 
                 return AssetRead.model_validate(asset)
 
@@ -258,23 +257,9 @@ class AssetStorageService(BaseService):
                 if asset_data["uploaded_by"] is None:
                     raise ValueError("a derivative needs an uploader: pass user_id when there is no source asset")
                 asset = self.repos.assets.create(asset_data)
-                self._join_smart_collections(asset)
                 return AssetRead.model_validate(asset)
             finally:
                 temp_path.unlink(missing_ok=True)
-
-    def _join_smart_collections(self, asset) -> None:
-        """A new library asset joins the asset smart collections whose rules it matches now, not at the nightly
-        resync. Best-effort: a rule that can't be read never fails the upload."""
-        from marvin.services.collections.smart_collections import sync_item
-
-        session = self.repos.session
-        try:
-            if sync_item(session, asset.group_id, asset, "asset"):
-                session.commit()
-        except Exception as e:  # noqa: BLE001
-            session.rollback()
-            self.logger.warning(f"Smart collections: couldn't sync new asset {asset.id}: {e}")
 
     def storage_for(self, asset) -> BaseStorageProvider:
         """The provider an existing asset row lives in: this service's own provider when the row is on

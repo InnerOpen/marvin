@@ -215,3 +215,29 @@ def test_the_policy_is_off_by_default(db_session):
     PlatformSettingsService(db_session).set(ws_storage.POLICY_KEY, {})
     pol = ws_storage.policy(db_session)
     assert (pol.allowed, pol.endpoint_policy, pol.allowed_plugins) == (False, "known", ("s3",))
+
+
+def test_a_new_upload_joins_the_asset_smart_collections_it_matches(byo, db_session):
+    """The asset repository joins them on create. (A second, broken join in the upload service logged a warning on
+    every upload from 2026-10-12; it was removed after the BYO live check on dev showed it.)"""
+    from marvin.db.models.platform import CollectionAssets, Collections
+
+    coll = Collections(
+        session=db_session,
+        group_id=byo.workspace.gid,
+        name="Notes",
+        slug=f"notes-{uuid.uuid4().hex[:6]}",
+        target_type="asset",
+        is_smart=True,
+        smart_rules={"mime_types": ["text/plain"]},
+    )
+    db_session.add(coll)
+    db_session.commit()
+    try:
+        asset = _upload(db_session, byo.workspace.gid, byo.workspace.uid)
+        assert db_session.query(CollectionAssets).filter_by(collection_id=coll.id, asset_id=asset.id).count() == 1
+    finally:
+        db_session.rollback()
+        db_session.query(CollectionAssets).filter_by(collection_id=coll.id).delete()
+        db_session.query(Collections).filter_by(id=coll.id).delete()
+        db_session.commit()
