@@ -530,12 +530,75 @@ class OptimizeDatabaseHandler(ScheduledTaskHandler):
 
 
 # Register handlers
+class PruneWorkflowRunsHandler(ScheduledTaskHandler):
+    """
+    Delete finished workflow runs older than the retention window, with their steps (platform-wide).
+
+    A run that is still running or waiting (on an approval or a wait) is never touched, whatever its age: its
+    resume needs it. Rows that point at a run (waits, approvals, integration retries) keep theirs as null.
+
+    Configuration (task_config):
+    - retention_days: int - Delete runs that finished longer ago than this. Defaults to the
+      WORKFLOW_RUN_RETENTION_DAYS app setting. A value <= 0 disables pruning (keep forever).
+    """
+
+    name = "Prune Workflow Runs"
+    description = "Delete finished workflow runs (and their steps) older than the retention window (admin only)"
+    admin_only = True
+    config_schema = {
+        "type": "object",
+        "properties": {
+            "retention_days": {
+                "type": "integer",
+                "description": "Delete runs finished longer ago than this many days (<=0 disables). Defaults to WORKFLOW_RUN_RETENTION_DAYS.",
+            },
+        },
+    }
+
+    def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
+        if task.group_id:
+            return "Skipped: prune_workflow_runs is admin-only and cannot run in a workspace context"
+
+        from marvin.core.config import get_app_settings
+
+        default_days = getattr(get_app_settings(), "WORKFLOW_RUN_RETENTION_DAYS", 90)
+        retention_days = task.task_config.get("retention_days", default_days)
+        if retention_days is None or retention_days <= 0:
+            return "Skipped: workflow run retention disabled (retention_days <= 0)"
+
+        with session_context() as session:
+            deleted = prune_workflow_runs(session, retention_days)
+            session.commit()
+        if not deleted:
+            return None  # the usual daily answer once caught up; not worth a row
+        summary = f"Deleted {deleted} finished workflow run{'s' if deleted != 1 else ''} older than {retention_days} days"
+        logger.info("Workflow run prune: %s", summary)
+        return summary
+
+
+# A run in one of these may still be resumed; it is never pruned.
+_LIVE_RUN_STATUSES = ("running", "waiting")
+
+
+def prune_workflow_runs(session, retention_days: int) -> int:
+    """Delete finished runs that finished (or, without a finish time, started) more than ``retention_days`` ago. Their
+    steps go by the foreign key's cascade; references from waits, approvals and retries become null."""
+    import sqlalchemy as sa
+
+    from marvin.db.models.groups.automation_executions import AutomationExecutionModel as Run
+
+    cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+    ended = sa.func.coalesce(Run.finished_at, Run.started_at)
+    return session.query(Run).filter(Run.status.not_in(_LIVE_RUN_STATUSES), ended.isnot(None), ended < cutoff).delete(synchronize_session=False)
+
+
 TaskHandlerRegistry.register("cleanup_temp_files", CleanupTempFilesHandler)
 TaskHandlerRegistry.register("prune_expired_sessions", PruneExpiredSessionsHandler)
 TaskHandlerRegistry.register("prune_expired_invitations", PruneExpiredInvitationsHandler)
 TaskHandlerRegistry.register("remove_orphaned_assets", RemoveOrphanedAssetsHandler)
 TaskHandlerRegistry.register("prune_event_logs", PruneEventLogsHandler)
 TaskHandlerRegistry.register("prune_ai_executions", PruneAIExecutionsHandler)
+TaskHandlerRegistry.register("prune_workflow_runs", PruneWorkflowRunsHandler)
 TaskHandlerRegistry.register("prune_scheduled_task_executions", PruneScheduledTaskExecutionsHandler)
 TaskHandlerRegistry.register("resync_smart_collections", ResyncSmartCollectionsHandler)
 TaskHandlerRegistry.register("prune_revoked_tokens", PruneRevokedTokensHandler)
@@ -544,9 +607,9 @@ TaskHandlerRegistry.register("optimize_database", OptimizeDatabaseHandler)
 
 def _delete_expired_reset_tokens(session) -> int:
     """Password-reset links past SECURITY_PASSWORD_RESET_TOKEN_MINUTES (they are refused anyway; this keeps the table empty)."""
-    from marvin.core.config import get_app_settings
     from marvin.db.models.users import PasswordResetModel
+    from marvin.services.platform_policy import security
 
-    minutes = max(1, int(get_app_settings().SECURITY_PASSWORD_RESET_TOKEN_MINUTES))
+    minutes = max(1, security("SECURITY_PASSWORD_RESET_TOKEN_MINUTES"))
     cutoff = (datetime.now(UTC) - timedelta(minutes=minutes)).replace(tzinfo=None)  # created_at is naive UTC
     return session.query(PasswordResetModel).filter(PasswordResetModel.created_at <= cutoff).delete(synchronize_session=False)

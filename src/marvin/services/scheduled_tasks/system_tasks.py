@@ -38,6 +38,17 @@ class SystemTaskDefinition:
 
 SYSTEM_SCHEDULED_TASKS: list[SystemTaskDefinition] = [
     SystemTaskDefinition(
+        slug="prune_workflow_runs",
+        name="Prune Workflow Runs",
+        task_type="prune_workflow_runs",
+        description=(
+            "Delete finished workflow runs and their steps older than the retention window (WORKFLOW_RUN_RETENTION_DAYS); "
+            "a run still running or waiting is kept. Admin-only; runs daily."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _DAILY_SECONDS},
+    ),
+    SystemTaskDefinition(
         slug="prune_event_logs",
         name="Prune Event Logs",
         task_type="prune_event_logs",

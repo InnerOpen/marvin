@@ -135,3 +135,48 @@ def test_the_seeder_creates_a_disabled_task_disabled(db_session):
 
     row = db_session.query(ScheduledTaskModel).filter_by(slug="optimize_database", group_id=None).one()
     assert row.enabled is False
+
+
+# ── workflow run history ─────────────────────────────────────────────────────
+
+
+def _run(db_session, gid, status, days_ago, finished=True):
+    from marvin.db.models.groups.automation_executions import AutomationActionExecutionModel, AutomationExecutionModel
+
+    at = datetime.now(UTC) - timedelta(days=days_ago)
+    run = AutomationExecutionModel(
+        session=db_session,
+        group_id=gid,
+        automation_slug="wf",
+        trigger_type="event",
+        status=status,
+        started_at=at,
+        finished_at=at if finished else None,
+    )
+    db_session.add(run)
+    db_session.flush()
+    db_session.add(AutomationActionExecutionModel(session=db_session, execution_id=run.id, group_id=gid, action_index=0, kind="entry", status="ok"))
+    db_session.commit()
+    return run.id
+
+
+def test_old_finished_workflow_runs_go_with_their_steps_and_live_ones_stay(db_session, owner):
+    from marvin.db.models.groups.automation_executions import AutomationActionExecutionModel, AutomationExecutionModel
+
+    old_ok = _run(db_session, owner.gid, "success", 120)
+    old_failed = _run(db_session, owner.gid, "failed", 120)
+    old_waiting = _run(db_session, owner.gid, "waiting", 120, finished=False)
+    recent = _run(db_session, owner.gid, "success", 10)
+
+    out = maintenance.PruneWorkflowRunsHandler().execute(_task(retention_days=90), None)
+
+    left = {r.id for r in db_session.query(AutomationExecutionModel).filter(AutomationExecutionModel.group_id == owner.gid)}
+    assert left == {old_waiting, recent} and "Deleted 2 finished workflow runs" in out
+    steps = db_session.query(AutomationActionExecutionModel).filter(AutomationActionExecutionModel.execution_id.in_([old_ok, old_failed]))
+    assert steps.count() == 0  # the steps went with their runs
+    db_session.query(AutomationExecutionModel).filter(AutomationExecutionModel.group_id == owner.gid).delete()
+    db_session.commit()
+
+
+def test_workflow_run_retention_zero_keeps_everything():
+    assert "disabled" in maintenance.PruneWorkflowRunsHandler().execute(_task(retention_days=0), None)
