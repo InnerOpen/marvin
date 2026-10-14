@@ -198,9 +198,11 @@ const success = urlParams.get("success") === "1";
                 value={preferences?.siteTimezone || 'America/New_York'}
                 disabled={!canManage}
                 placeholder="America/New_York"
+                list="tz-list"
               />
-              <small>Timezone for your site (e.g., America/New_York, Europe/London)</small>
+              <small>Your site's time zone: workflow waits ("at 09:00", "next Monday") and scheduled times are read in it. Pick from the list — an unknown name falls back to the default.</small>
             </label>
+            <datalist id="tz-list"></datalist>
 
             <label>
               <span>Contact Email</span>
@@ -396,6 +398,18 @@ const success = urlParams.get("success") === "1";
 
   // Site settings form submission
   if (siteForm && submitSiteBtn) {
+    // The zones this browser knows, as suggestions for the free-text field: a mistyped zone falls back
+    // to the default in workflow waits without a word, so pick from the list.
+    const tzList = document.getElementById('tz-list');
+    const intl = Intl as any;
+    if (tzList && typeof intl.supportedValuesOf === 'function') {
+      for (const zone of intl.supportedValuesOf('timeZone') as string[]) {
+        const opt = document.createElement('option');
+        opt.value = zone;
+        tzList.appendChild(opt);
+      }
+    }
+
     siteForm.addEventListener('submit', async (e) => {
       e.preventDefault();
 
