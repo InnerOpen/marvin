@@ -3,11 +3,14 @@ from .about import AdminAboutInfo, AppInfo, AppStartupInfo, AppStatistics, Check
 from .debug import DebugResponse
 from .email import EmailReady, EmailSuccess, EmailTest
 from .events import AdminEventPagination, AdminEventRead, AdminEventSummary, AdminEventType
-from .maintenance import MaintenanceLogs, MaintenanceStorageDetails, MaintenanceSummary
+from .maintenance import CleanupTaskRead, DatabaseReport, DatabaseTableRead, MaintenanceLogs, MaintenanceStorageDetails, MaintenanceSummary
 from .plugins import PluginProviderRead, PluginRead
 from .settings import CustomPageBase, CustomPageOut
 
 __all__ = [
+    "DatabaseTableRead",
+    "DatabaseReport",
+    "CleanupTaskRead",
     "DebugResponse",
     "MaintenanceLogs",
     "MaintenanceStorageDetails",

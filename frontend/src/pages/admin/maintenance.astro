@@ -1,79 +1,150 @@
 ---
+// Admin → Database & cleanup: how big the database is, which tables are the bulk of it, and what keeps each one in
+// check — the system task that trims it, its retention, and when it last and next ran (services/database_report.py).
+// A table nothing trims says so. File storage (assets, backups) lives on Storage and Backup health, not here.
+import LocalTime from "@/components/LocalTime.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
-import { getAuthToken } from "@/lib/api/client";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
-import { createSdkClient } from "@/lib/sdk";
 
-// Require admin authentication
-const user = await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
 const authToken = getAuthToken(Astro.cookies);
-const sdk = createSdkClient(authToken);
 
-let stats: any = null;
+type Task = {
+  id: string;
+  slug: string;
+  name: string;
+  enabled: boolean;
+  retention?: string | null;
+  lastRunAt?: string | null;
+  nextRunAt?: string | null;
+  lastStatus?: string | null;
+};
+type Table = { name: string; label?: string | null; sizeBytes: number; rows: number; share: number; keptBy?: Task | null; kind?: string };
+type Report = { sizeBytes: number; tables: Table[]; otherCleanup: Task[] };
+
+let report: Report | null = null;
+let error: string | null = null;
 try {
-  stats = await sdk.adminMaintenance.getStats();
+  report = await fetchApi<Report>("/api/admin/maintenance/database", {}, authToken);
 } catch (e) {
-  console.error("[admin/maintenance] Failed to fetch stats:", e);
+  error = e instanceof Error ? e.message : String(e);
 }
+
+function bytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v >= 10 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`;
+}
+const pct = (share: number) => (share >= 0.01 ? `${Math.round(share * 100)}%` : "<1%");
+const taskHref = (t: Task) => `/admin/scheduled-tasks/${t.id}`;
+const statusTone = (s?: string | null) => (!s ? "" : s === "success" ? "ok" : s === "failed" || s === "error" ? "bad" : "");
+// Logs nothing trims (content is kept on purpose, so it isn't flagged).
+const unkept = report ? report.tables.filter((t) => !t.keptBy && t.kind === "log") : [];
 ---
 
 <AdminLayout crumb="admin.maintenance">
   <div class="toolbar">
     <div>
-      <h2>Maintenance</h2>
-      <p>Storage use, and where cleanup happens</p>
+      <h2>Database &amp; cleanup</h2>
+      <p>What the database holds, and what keeps each part from growing forever</p>
     </div>
+    <a href="/admin/scheduled-tasks" class="button secondary small">Scheduled tasks →</a>
   </div>
 
-  <div class="page-container">
-    <div class="maintenance-grid">
-      <!-- Cleanup runs as scheduled tasks: one place with config, history and Run Now. -->
+  {error ? (
+    <div class="error-banner"><p>Couldn't load the database report: {error}</p></div>
+  ) : report && (
+    <div class="page-container">
       <section class="card">
-        <h3>Cleanup</h3>
-        <p class="card-description">
-          Temporary files, revoked tokens, old events and execution logs are cleaned up on a schedule.
-          See what ran, change a schedule, or run one now (Optimize Database is there too, run-on-demand) in
-          <a href="/admin/scheduled-tasks">Scheduled Tasks</a>.
-        </p>
-      </section>
-
-      <!-- Storage Information -->
-      <section class="card">
-        <h3>Storage Overview</h3>
-        <p class="card-description">Data size across all storage</p>
-        <div class="storage-list">
-          <div class="storage-item">
-            <div class="storage-info">
-              <span class="storage-label">Database Size</span>
-              <span class="storage-path">{stats?.database_path || '/var/lib/marvin/marvin.db'}</span>
-            </div>
-            <span class="storage-size">{stats?.database_size || 'Unknown'}</span>
-          </div>
-          <div class="storage-item">
-            <div class="storage-info">
-              <span class="storage-label">Assets Storage</span>
-              <span class="storage-path">{stats?.assets_path || '/var/lib/marvin/assets/'}</span>
-            </div>
-            <span class="storage-size">{stats?.assets_size || 'Unknown'}</span>
-          </div>
-          <div class="storage-item">
-            <div class="storage-info">
-              <span class="storage-label">Backup Storage</span>
-              <span class="storage-path">{stats?.backups_path || '/var/lib/marvin/backups/'}</span>
-            </div>
-            <span class="storage-size">{stats?.backups_size || 'Unknown'}</span>
-          </div>
-          <div class="storage-item">
-            <div class="storage-info">
-              <span class="storage-label">Total Storage Used</span>
-              <span class="storage-path">{stats?.data_dir_path || 'All data combined'}</span>
-            </div>
-            <span class="storage-size total">{stats?.total_size || 'Unknown'}</span>
-          </div>
+        <div class="db-total">
+          <span class="db-total-label">Database</span>
+          <strong>{bytes(report.sizeBytes)}</strong>
+          <span class="muted">— the {report.tables.length} largest tables below; files (assets, backups) are on <a href="/admin/storage">Storage</a></span>
+        </div>
+        {unkept.length > 0 && (
+          <p class="note">
+            {unkept.length === 1 ? "One of these logs has" : `${unkept.length} of these logs have`} no cleanup and only grow:
+            {" "}{unkept.map((t) => t.label ?? t.name).join(", ")}. Fine while they're small; watch their share.
+          </p>
+        )}
+        <div class="table-scroll">
+          <table class="db-table">
+            <thead>
+              <tr>
+                <th>Table</th>
+                <th class="num">Size</th>
+                <th class="num">Rows</th>
+                <th>Kept in check by</th>
+                <th>Last run</th>
+                <th>Next run</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.tables.map((t) => (
+                <tr>
+                  <td>
+                    <span class="t-label">{t.label ?? t.name}</span>
+                    {t.label && <code class="t-name">{t.name}</code>}
+                    <span class="share" style={`--share:${Math.max(t.share * 100, 1)}%`} title={`${pct(t.share)} of the database`}></span>
+                  </td>
+                  <td class="num">{bytes(t.sizeBytes)}<span class="muted"> · {pct(t.share)}</span></td>
+                  <td class="num">{t.rows.toLocaleString()}</td>
+                  <td>
+                    {t.keptBy ? (
+                      <>
+                        <a href={taskHref(t.keptBy)}>{t.keptBy.name}</a>
+                        {t.keptBy.retention && <span class="muted"> — {t.keptBy.retention}</span>}
+                        {!t.keptBy.enabled && <span class="pill off">off</span>}
+                      </>
+                    ) : t.kind === "log" ? (
+                      <span class="warn">Nothing — it only grows</span>
+                    ) : (
+                      <span class="muted">Your content — kept</span>
+                    )}
+                  </td>
+                  <td>
+                    {t.keptBy ? (
+                      <span class={`run ${statusTone(t.keptBy.lastStatus)}`}>
+                        <LocalTime iso={t.keptBy.lastRunAt} format="short-date" fallback="never" />
+                        {t.keptBy.lastStatus && <span class="muted"> · {t.keptBy.lastStatus}</span>}
+                      </span>
+                    ) : "—"}
+                  </td>
+                  <td>{t.keptBy ? <LocalTime iso={t.keptBy.nextRunAt} format="short-date" fallback="not scheduled" /> : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
+
+      {report.otherCleanup.length > 0 && (
+        <section class="card">
+          <h3>Other cleanup</h3>
+          <ul class="other">
+            {report.otherCleanup.map((t) => (
+              <li>
+                <a href={taskHref(t)}>{t.name}</a>
+                {!t.enabled && <span class="pill off">run on demand</span>}
+                <span class="muted">
+                  {" "}— last <LocalTime iso={t.lastRunAt} format="short-date" fallback="never" />
+                  {t.lastStatus && <> ({t.lastStatus})</>}
+                  {t.enabled && <>, next <LocalTime iso={t.nextRunAt} format="short-date" fallback="not scheduled" /></>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
-  </div>
+  )}
 </AdminLayout>
 
 <style>
@@ -81,91 +152,35 @@ try {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    margin-bottom: 32px;
+    gap: 16px;
+    margin-bottom: 24px;
     padding-bottom: 20px;
     border-bottom: 1px solid var(--line);
   }
-
-  .toolbar h2 {
-    margin: 0;
-    font-size: 24px;
-    font-weight: 600;
-  }
-
-  .toolbar p {
-    margin: 8px 0 0;
-    color: var(--muted);
-    font-size: 14px;
-  }
-
-  .page-container {
-    max-width: 1200px;
-  }
-
-  .maintenance-grid {
-    display: grid;
-    gap: 24px;
-  }
-
-  .card {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    padding: 24px;
-  }
-
-  .card h3 {
-    margin: 0 0 4px;
-    font-size: 18px;
-    font-weight: 600;
-  }
-
-  .card-description {
-    margin: 0 0 20px;
-    line-height: 1.5;
-    font-size: 14px;
-    color: var(--muted);
-  }
-
-  .storage-list {
-    display: grid;
-    gap: 12px;
-  }
-
-  .storage-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 14px 16px;
-    background: var(--panel-2);
-    border-radius: var(--radius);
-  }
-
-  .storage-info {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .storage-label {
-    font-size: 14px;
-    font-weight: 500;
-  }
-
-  .storage-path {
-    font-size: 12px;
-    font-family: ui-monospace, monospace;
-    color: var(--muted);
-  }
-
-  .storage-size {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--accent);
-  }
-
-  .storage-size.total {
-    font-size: 18px;
-  }
+  .toolbar h2 { margin: 0; font-size: 24px; font-weight: 600; }
+  .toolbar p { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
+  .page-container { display: grid; gap: 20px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 24px; min-width: 0; }
+  .card h3 { margin: 0 0 12px; font-size: 16px; }
+  .muted { color: var(--muted); }
+  .db-total { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+  .db-total-label { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .db-total strong { font-size: 24px; }
+  .db-total .muted { font-size: 13px; }
+  .note { margin: 0 0 14px; font-size: 13px; color: var(--muted); }
+  a { color: var(--accent); }
+  .db-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .db-table th { text-align: left; font-size: 12px; text-transform: uppercase; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  .db-table td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .db-table tr:last-child td { border-bottom: 0; }
+  .num { text-align: right; white-space: nowrap; }
+  .t-label { display: block; }
+  .t-name { font-size: 11px; color: var(--muted); }
+  .share { display: block; height: 3px; margin-top: 6px; border-radius: 2px; background: linear-gradient(90deg, var(--accent) var(--share), var(--line) var(--share)); max-width: 220px; }
+  .run.bad { color: var(--color-error); }
+  .warn { color: var(--warn, #d97706); }
+  .pill { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 11px; border: 1px solid var(--line); color: var(--muted); }
+  .other { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 14px; }
+  .error-banner { padding: 1rem 1.25rem; background: var(--color-error-bg); border: 1px solid var(--color-error); border-radius: var(--radius); }
+  .error-banner p { margin: 0; color: var(--color-error); }
 </style>

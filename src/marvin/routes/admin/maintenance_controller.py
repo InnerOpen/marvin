@@ -19,7 +19,7 @@ from pydantic import BaseModel  # For stats response model
 from marvin.pkgs.stats import fs_stats  # Filesystem statistics utilities
 from marvin.routes._base import BaseAdminController, controller  # Base admin controller
 from marvin.schemas.admin import MaintenanceSummary  # Pydantic schema for maintenance summary
-from marvin.schemas.admin.maintenance import MaintenanceStorageDetails  # Schema for storage details
+from marvin.schemas.admin.maintenance import DatabaseReport, MaintenanceStorageDetails  # Schema for storage details
 
 # APIRouter for admin maintenance section, prefixed with /maintenance
 # All routes here will be under /admin/maintenance.
@@ -77,6 +77,15 @@ class AdminMaintenanceController(BaseAdminController):
     Provides endpoints for viewing storage statistics (cleanup runs as scheduled tasks).
     All operations require administrator privileges.
     """
+
+    @router.get("/database", response_model=DatabaseReport, summary="Database size, its largest tables and what trims each")
+    def get_database_report(self) -> DatabaseReport:
+        """The database's size, its largest tables (size, estimated rows, share of the whole) and, for each, the system
+        task that trims it with its retention and last/next run — or none, for a table that only grows. Also the
+        cleanup tasks that don't trim a table (temporary files, the planner's statistics)."""
+        from marvin.services.database_report import database_report
+
+        return database_report(self.session)
 
     @router.get("", response_model=MaintenanceSummary, summary="Get Maintenance Summary")
     def get_maintenance_summary(self) -> MaintenanceSummary:

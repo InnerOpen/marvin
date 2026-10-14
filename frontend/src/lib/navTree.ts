@@ -70,7 +70,7 @@ const NODES: NavNode[] = [
   { id: "admin.backup-health", label: "Backup Health", href: "/admin/backup-health", parent: "admin" },
   // Which platform events also go out by email or a chat integration.
   { id: "admin.alerts", label: "Platform Alerts", href: "/admin/alerts", parent: "admin" },
-  { id: "admin.maintenance", label: "Maintenance", href: "/admin/maintenance", parent: "admin" },
+  { id: "admin.maintenance", label: "Database & cleanup", href: "/admin/maintenance", parent: "admin" },
 
   // A workspace page with no parent: creating a workspace. (The dashboard lives at /, outside the map; /workspace redirects there.)
   { id: "workspace.new", label: "Create Workspace", href: "/workspace/new" },
