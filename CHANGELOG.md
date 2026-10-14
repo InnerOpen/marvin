@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.341 (2026-10-14)
+
+### Features
+
+- **user**: Command line & MCP page — install and sign in the CLI, connect the MCP server, with this
+  Marvin's API address
+  ([`e90e693`](https://github.com/InnerOpen/marvin/commit/e90e6934ace2fe67458af2c381fa14e018bb0c02))
+
+
 ## v1.0.0-rc.340 (2026-10-14)
 
 ### Bug Fixes
