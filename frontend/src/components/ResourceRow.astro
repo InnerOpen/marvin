@@ -2,7 +2,8 @@
 /**
  * One row of the Resources page (table and by-type views alike). A trashed resource (`inTrash`) is marked and
  * only links to its page, where the Trash banner offers Restore and Delete forever (EDITOR+). Move to Trash
- * is wired by the page's script (`.delete-resource-btn`).
+ * is wired by the page's script (`.delete-resource-btn`). The whole row opens the resource (`data-href`, the page's
+ * script): on a phone the Actions column sits off-screen to the right, as on the Assets page.
  */
 import TagList from "@/components/TagList.astro";
 import type { ResourceRead } from "@/lib/api/resources";
@@ -15,18 +16,19 @@ interface Props {
 }
 
 const { resource, canEdit, inTrash = false } = Astro.props;
+const openHref = `/workspace/resources/${resource.id}`;
 ---
 
-<tr class="resource-row" data-type={resource.resourceType} data-status={inTrash ? "trashed" : undefined} data-in-trash={inTrash ? "" : undefined}>
+<tr class="resource-row" data-href={openHref} data-type={resource.resourceType} data-status={inTrash ? "trashed" : undefined} data-in-trash={inTrash ? "" : undefined}>
   <td class="resource-name">
-    <strong>{resource.name}</strong>
+    <a class="name-link" href={openHref}><strong>{resource.name}</strong></a>
     {inTrash && <span class="trash-badge">In the Trash</span>}
     {resource.tags?.length > 0 && <div class="tags-row"><TagList tags={resource.tags} /></div>}
   </td>
-  <td><span class="type-badge">{resource.resourceType}</span></td>
+  <td class="stack-hide"><span class="type-badge">{resource.resourceType}</span></td>
   <td class="description-cell">{resource.description || '—'}</td>
-  <td>{resource.externalId ? <code>{resource.externalId}</code> : '—'}</td>
-  <td>
+  <td class="stack-hide">{resource.externalId ? <code>{resource.externalId}</code> : '—'}</td>
+  <td class="stack-hide">
     {resource.url ? (
       <a href={resource.url} target="_blank" rel="noopener noreferrer" class="external-link">
         {new URL(resource.url).hostname} ↗
@@ -57,6 +59,10 @@ const { resource, canEdit, inTrash = false } = Astro.props;
 </tr>
 
 <style>
+  .resource-row[data-href] { cursor: pointer; }
+  .name-link { color: inherit; text-decoration: none; }
+  .name-link:hover strong { text-decoration: underline; }
+
   .tags-row {
     margin-top: 0.35rem;
   }
@@ -90,6 +96,7 @@ const { resource, canEdit, inTrash = false } = Astro.props;
 
   .actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
   }
 

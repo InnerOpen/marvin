@@ -681,6 +681,43 @@ code {
   }
 }
 
+/* A list table that stacks on a phone (.table.stacks: Assets, Resources): the header goes, each row becomes a small
+   card — a lead cell (the preview) down the left, the rest under each other on the right, the secondary columns
+   (type, size, alt text…) dropped — so the Actions column is in reach instead of off-screen to the right. */
+@media (max-width: 640px) {
+  .table.stacks,
+  .table.stacks tbody {
+    display: block;
+    overflow: visible;
+  }
+  .table.stacks thead {
+    display: none;
+  }
+  .table.stacks tr {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 6px 12px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .table.stacks tr:last-child {
+    border-bottom: 0;
+  }
+  .table.stacks td {
+    display: block;
+    grid-column: 2;
+    padding: 0;
+    border: 0;
+  }
+  .table.stacks td.stack-lead {
+    grid-column: 1;
+    grid-row: 1 / span 3;
+  }
+  .table.stacks td.stack-hide {
+    display: none;
+  }
+}
+
 /* A box a wide thing (a table with its own layout, a code block) scrolls inside, on any screen. */
 .table-scroll {
   max-width: 100%;

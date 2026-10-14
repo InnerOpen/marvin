@@ -25,7 +25,7 @@ const openHref = inTrash ? `/workspace/assets/${asset.id}` : `/workspace/assets/
 ---
 
 <tr class="asset-row" data-href={openHref} data-type={category} data-status={inTrash ? "trashed" : undefined} data-in-trash={inTrash ? "" : undefined}>
-  <td>
+  <td class="stack-lead">
     <a class="preview" href={openHref} title={asset.name}>
       {asset.publicUrl && category === 'image' ? (
         <img
@@ -54,18 +54,18 @@ const openHref = inTrash ? `/workspace/assets/${asset.id}` : `/workspace/assets/
     {asset.slug && <div class="slug"><code>{asset.slug}</code></div>}
     {asset.tags?.length > 0 && <div class="tags-row"><TagList tags={asset.tags} /></div>}
   </td>
-  <td class="asset-type"><span class="type-badge">{asset.mimeType}</span></td>
-  <td>
+  <td class="asset-type stack-hide"><span class="type-badge">{asset.mimeType}</span></td>
+  <td class="stack-hide">
     {asset.width && asset.height
       ? `${asset.width} × ${asset.height}`
       : '—'}
   </td>
-  <td>
+  <td class="stack-hide">
     {asset.fileSize
       ? `${(asset.fileSize / 1024).toFixed(1)} KB`
       : '—'}
   </td>
-  <td class="alt-text-cell">{asset.altText || '—'}</td>
+  <td class="alt-text-cell stack-hide">{asset.altText || '—'}</td>
   <td>
     <div class="actions">
       {inTrash ? (
@@ -161,6 +161,7 @@ const openHref = inTrash ? `/workspace/assets/${asset.id}` : `/workspace/assets/
 
   .actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
   }
 

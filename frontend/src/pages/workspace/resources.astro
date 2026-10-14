@@ -101,7 +101,7 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
       </div>
 
       <div id="table-view" class="view-section">
-        <table class="table">
+        <table class="table stacks">
           <thead>
             <tr>
               <th>Name</th>
@@ -133,7 +133,7 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
                 <span class="collection-count">{groupResources.length}</span>
               </h3>
             </summary>
-            <table class="table">
+            <table class="table stacks">
               <thead>
                 <tr>
                   <th>Name</th>
@@ -161,7 +161,7 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
                 <span class="collection-count">{trashedResources.length}</span>
               </h3>
             </summary>
-            <table class="table">
+            <table class="table stacks">
               <thead>
                 <tr>
                   <th>Name</th>
@@ -221,6 +221,16 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
   if (savedView) setView(savedView);
 
   // Handle delete buttons
+  // A row opens its resource wherever it's tapped — on a phone the table's Actions column sits off-screen to the
+  // right, so the row itself is the way in, as on the Assets and Entries pages. Links, buttons and form controls
+  // inside keep their own meaning.
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('a, button, form, input, select, label, summary')) return;
+    const holder = target.closest<HTMLElement>('.resource-row[data-href]');
+    if (holder?.dataset.href) window.location.href = holder.dataset.href;
+  });
+
   document.querySelectorAll('.delete-resource-btn').forEach(button => {
     button.addEventListener('click', async (e) => {
       const btn = e.target as HTMLButtonElement;

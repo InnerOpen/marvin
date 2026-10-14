@@ -173,7 +173,7 @@ const showAiPanel = aiEnabled && isImage;
                     {Object.entries(asset.metadataJson).map(([key, value]) => (
                       <div class="metadata-preview-item">
                         <dt>{key}</dt>
-                        <dd><AssetMetaValue name={key} value={value} authToken={authToken} /></dd>
+                        <dd><AssetMetaValue name={key} value={value} authToken={authToken} metadata={asset.metadataJson} /></dd>
                       </div>
                     ))}
                   </dl>
