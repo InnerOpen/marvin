@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.344 (2026-10-15)
+
+### Documentation
+
+- **tasks**: MCP OAuth plan — all sixteen questions decided as recommended
+  ([`da9dc92`](https://github.com/InnerOpen/marvin/commit/da9dc92394feece90434660ba49c35bbf1f4974b))
+
+### Features
+
+- **storage**: Bring your own storage, slice 3 — copy a workspace's existing files into its own
+  bucket
+  ([`2f3ff06`](https://github.com/InnerOpen/marvin/commit/2f3ff0649765c2668637043d2c9bddc76b3ffbff))
+
+
 ## v1.0.0-rc.343 (2026-10-14)
 
 ### Documentation
