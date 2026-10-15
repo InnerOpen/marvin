@@ -343,15 +343,21 @@ server: Server = Server("Marvin", version=_version(), instructions=INSTRUCTIONS)
 
 @server.list_tools()
 async def _list_tools() -> list[types.Tool]:
-    return await _in_thread(list_tools_for, _connection())
+    tools = await _in_thread(list_tools_for, _connection())
+    logger.info("remote MCP tools/list → %d tools", len(tools))
+    return tools
 
 
 @server.call_tool(validate_input=False)
 async def _call_tool(name: str, arguments: dict | None) -> types.CallToolResult:
     # validate_input=False: the handlers are lenient about arguments, as /api/ai/tools/{name}/invoke is.
     if name == SHOW_IMAGE.name:
-        return _image_result(*await _in_thread(show_image_for, _connection(), arguments))
-    return _tool_result(await _in_thread(call_tool_for, _connection(), name, arguments))
+        result = _image_result(*await _in_thread(show_image_for, _connection(), arguments))
+    else:
+        result = _tool_result(await _in_thread(call_tool_for, _connection(), name, arguments))
+    # Which tool, and what went back (never the arguments or the content).
+    logger.info("remote MCP tools/call %s → %s [%s]", name, "error" if result.isError else "ok", ",".join(c.type for c in result.content))
+    return result
 
 
 @server.list_prompts()
