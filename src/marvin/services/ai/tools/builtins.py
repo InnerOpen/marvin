@@ -170,20 +170,18 @@ def search_content(ctx: ToolContext, args: dict) -> str:
     query = str(args.get("query") or "").strip()
     if not query:
         return json.dumps({"error": "query is required"})
-    if ctx.provider is None:
-        return json.dumps({"error": "semantic search unavailable (no AI provider configured)"})
     from marvin.core.config import get_app_settings
     from marvin.services.ai.context import ContextBuilder
-    from marvin.services.ai.embeddings import default_embedding_model
+    from marvin.services.ai.embeddings import embedder_for
     from marvin.services.ai.embeddings_registry import indexable_types
 
-    emb_model = default_embedding_model(ctx.provider.provider_type)
+    embedder, emb_model = embedder_for(ctx.provider)  # Marvin's built-in model: no AI provider needed
     if not emb_model:
         return json.dumps({"error": "semantic search unavailable (no embedding model configured)"})
     top_k = getattr(get_app_settings(), "AI_RAG_TOP_K", 5)
     built = (
         ContextBuilder(ctx.session, ctx.group_id)
-        .with_semantic_search(query, ctx.provider, emb_model, limit=top_k, entity_types=indexable_types())
+        .with_semantic_search(query, embedder, emb_model, limit=top_k, entity_types=indexable_types())
         .build()
     )
     retrieved = built.retrieved or []

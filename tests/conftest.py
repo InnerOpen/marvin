@@ -8,6 +8,9 @@ mp = MonkeyPatch()
 mp.setenv("PRODUCTION", "False")  # Set to False for testing (enables debug handlers)
 mp.setenv("TESTING", "True")
 mp.setenv("MEDIA_EMBEDS_FETCH_ENABLED", "False")  # no test may reach a media provider (oEmbed) over the network
+# Marvin's built-in embedding model is a 65 MB download on first use: off, so no test fetches it; the tests that use it
+# put a fake in its place (tests/test_builtin_embeddings.py).
+mp.setenv("EMBEDDINGS_BUILTIN_ENABLED", "False")
 
 # The suite runs on Postgres (SQLite was retired 2026-10-13): by default the dev container
 # (docker/docker-compose.dev.yml, 127.0.0.1:5434) and its own `marvin_test` database, made below if missing — so a

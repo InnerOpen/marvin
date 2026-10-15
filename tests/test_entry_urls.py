@@ -354,7 +354,7 @@ def test_search_content_entry_hits_include_url(db_session, gallery, monkeypatch)
             return SimpleNamespace(retrieved=[{"text": "heron"}, {"text": "memo"}])
 
     monkeypatch.setattr("marvin.services.ai.context.ContextBuilder", FakeBuilder)
-    monkeypatch.setattr("marvin.services.ai.embeddings.default_embedding_model", lambda _provider_type: "embed-model")
+    monkeypatch.setattr("marvin.services.ai.embeddings.embedder_for", lambda provider: (provider, "embed-model"))
     monkeypatch.setattr("marvin.services.ai.tools.builtins.resolve_retrieved_sources", lambda _session, _retrieved: hits)
     from marvin.services.ai.tools import ToolContext, get_tool
 

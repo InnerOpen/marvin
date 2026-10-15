@@ -124,12 +124,12 @@ def project_tool(spec) -> types.Tool:
 
 
 def _has_semantic_search(session, group_id) -> bool:
-    """Whether the workspace's AI provider has an embedding model (Anthropic has none, so its workspaces don't)."""
+    """Whether the workspace has an embedding model: its AI provider's, or Marvin's built-in one."""
     from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
-    from marvin.services.ai.embeddings import default_embedding_model
+    from marvin.services.ai.embeddings import embedding_model_for_settings
 
     settings = session.query(WorkspaceAISettingsModel).filter_by(group_id=group_id).first()
-    return bool(settings and settings.provider and default_embedding_model(settings.provider))
+    return bool(embedding_model_for_settings(settings.provider if settings else None))
 
 
 def list_tools_for(conn: Connection) -> list[types.Tool]:

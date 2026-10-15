@@ -832,23 +832,23 @@ class AuthoringService:
         so compose could never suggest an existing image to attach. Split, each kind always gets a
         fair share. The seed is embedded once and reused for both queries.
         """
-        if not (seed_text and self.provider and getattr(self.provider, "supports_embeddings", False)):
+        if not seed_text:
             return ""
-        from marvin.services.ai.embeddings import default_embedding_model, search_embeddings
+        from marvin.services.ai.embeddings import embedder_for, search_embeddings
         from marvin.services.ai.entity_resolve import resolve_retrieved_sources
 
-        emb = default_embedding_model(self.provider.provider_type)
+        embedder, emb = embedder_for(self.provider)
         if not emb:
             return ""
         try:
-            qvec = self.provider.embed([seed_text], emb)[0]
+            qvec = embedder.embed([seed_text], emb)[0]
         except Exception as e:  # grounding must never break authoring
             self.logger.warning(f"AuthoringService: RAG grounding embed failed: {e}")
             return ""
 
         def _titles(entity_type: str, limit: int) -> list[str]:
             try:
-                rows = search_embeddings(self.session, self.group_id, qvec, limit, [entity_type])
+                rows = search_embeddings(self.session, self.group_id, qvec, limit, [entity_type], model=emb)
                 srcs = resolve_retrieved_sources(self.session, rows or [])
             except Exception as e:
                 self.logger.warning(f"AuthoringService: RAG grounding ({entity_type}) failed: {e}")

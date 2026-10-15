@@ -1065,6 +1065,10 @@ class AppSettings(BaseSettings):
     """Embedding model for the Google provider."""
     OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
     """Embedding model for the Ollama provider."""
+    EMBEDDINGS_BUILTIN_ENABLED: bool = True
+    """Index and search with Marvin's own embedding model (BAAI/bge-small-en-v1.5, run in-process), whatever a
+    workspace's chat provider, so changing provider never breaks search. Off: the provider's own embedding model
+    (none for Anthropic, which then searches titles only)."""
     AI_RAG_TOP_K: int = 5
     """Number of similar chunks retrieved per RAG question."""
     AI_EMBED_CHUNK_SIZE: int = 1500

@@ -44,15 +44,16 @@ config:
 
 # Backend headroom. One uvicorn worker by design (SQLite over NFS is single-writer), so the only
 # lever under a burst of slow reads is CPU: the chart default of 500m had the worker answering
-# probes late enough to be restarted (2026-09-11). Memory rarely exceeds 300Mi; the limit is for
-# image-processing peaks.
+# probes late enough to be restarted (2026-09-11). Memory rarely exceeds 300Mi before the built-in
+# embedding model loads (~+250Mi once, ~+300Mi while indexing in batches of 4, measured 2026-10-15); the
+# limit is for that plus image-processing peaks.
 resources:
   requests:
     cpu: 250m
-    memory: 384Mi
+    memory: 512Mi
   limits:
     cpu: "1"
-    memory: 768Mi
+    memory: 1Gi
 
 # Relaxed backend probe cadence (the app also filters probe paths out of the access log). Merged
 # over the chart defaults: liveness /healthz 10→30s, readiness /readyz 5→15s. The single uvicorn

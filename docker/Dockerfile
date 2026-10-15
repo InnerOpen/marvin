@@ -116,6 +116,11 @@ COPY --chown=app:app CHANGELOG.md UNRELEASED.tx[t] $MARVIN_HOME/
 # The user manual, for the agents' search_docs / read_doc tools (services/docs.py looks in
 # BASE_DIR/docs/manual), so they answer from the docs of the version actually running.
 COPY --chown=app:app docs/manual $MARVIN_HOME/docs/manual
+# Marvin's built-in embedding model (services/ai/embeddings.py BUILTIN_EMBEDDING_MODEL), for workspaces whose AI
+# provider has no embeddings (Anthropic): fetched once here (~65 MB) so a pod never downloads it at run time.
+ENV EMBEDDINGS_BUILTIN_CACHE=$MARVIN_HOME/models/fastembed
+RUN /app/.venv/bin/python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='$EMBEDDINGS_BUILTIN_CACHE')" \
+    && chown -R app:app $MARVIN_HOME/models
 
 # ##################################
 # Backend Image — the API only (no frontend, no Node)

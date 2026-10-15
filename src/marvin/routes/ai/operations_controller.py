@@ -221,14 +221,14 @@ class AIOperationsController(BaseUserController):
         # RAG operations retrieve semantically-similar workspace chunks for the question.
         if getattr(operation, "requires_retrieval", False):
             from marvin.core.config import get_app_settings
-            from marvin.services.ai.embeddings import default_embedding_model
+            from marvin.services.ai.embeddings import embedder_for
             from marvin.services.ai.embeddings_registry import indexable_types
 
-            emb_model = default_embedding_model(provider.provider_type)
+            embedder, emb_model = embedder_for(provider)
             query = body.input.get("question") or body.input.get("query") or ""
             if emb_model:
                 top_k = getattr(get_app_settings(), "AI_RAG_TOP_K", 5)
-                builder.with_semantic_search(query, provider, emb_model, limit=top_k, entity_types=indexable_types())
+                builder.with_semantic_search(query, embedder, emb_model, limit=top_k, entity_types=indexable_types())
         ctx = builder.build()
 
         # Workspace logging policy: whether to persist inputs/outputs on the execution.
@@ -337,7 +337,7 @@ class AIOperationsController(BaseUserController):
 
     @router.post("/embeddings/reindex", summary="Reindex embeddings for semantic search / RAG")
     def reindex_embeddings(self, body: AIReindexRequest) -> dict:
-        from marvin.services.ai.embeddings import default_embedding_model, index_entity
+        from marvin.services.ai.embeddings import embedder_for, index_entity
         from marvin.services.ai.factory import AIDisabledError, get_workspace_ai_provider
         from marvin.services.ai.operations.base import ROLE_EDITOR
 
@@ -353,18 +353,13 @@ class AIOperationsController(BaseUserController):
 
         try:
             provider = get_workspace_ai_provider(self.session, self.group_id)
-        except AIDisabledError as e:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
-        if not getattr(provider, "supports_embeddings", False):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Provider '{provider.provider_type}' does not support embeddings.",
-            )
-        model = default_embedding_model(provider.provider_type)
+        except AIDisabledError:
+            provider = None  # Marvin's built-in embedding model needs none
+        embedder, model = embedder_for(provider)
         if not model:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="No default embedding model for this provider.",
+                detail=f"No embedding model: provider '{provider.provider_type}' has none and Marvin's built-in one is off.",
             )
 
         if body.scope == "workspace":
@@ -379,7 +374,7 @@ class AIOperationsController(BaseUserController):
         entities = chunks = 0
         for entity_type, entity_id, text in self._reindex_targets(body):
             try:
-                chunks += index_entity(self.session, self.group_id, entity_type, entity_id, text, provider, model)
+                chunks += index_entity(self.session, self.group_id, entity_type, entity_id, text, embedder, model)
                 entities += 1
             except Exception as e:
                 self.logger.warning("reindex failed for %s %s: %s", entity_type, entity_id, e)

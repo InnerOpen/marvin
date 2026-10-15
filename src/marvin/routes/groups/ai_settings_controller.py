@@ -181,6 +181,9 @@ class AISettingsController(BaseUserController):
             require_installed_provider(data.provider)
         persona_set = bool({"assistant_name", "persona_prompt"} & data.model_fields_set)
         before_name, before_persona = row.assistant_name, row.persona_prompt
+        from marvin.services.ai.embeddings import embedding_model_for_settings
+
+        before_embedding = embedding_model_for_settings(row.provider)
 
         updates = data.model_dump(exclude_unset=True)
         updates.pop("assistant_character", None)  # merged below: the file list isn't the caller's to set
@@ -204,6 +207,15 @@ class AISettingsController(BaseUserController):
 
         self.session.commit()
         self.session.refresh(row)
+
+        # Only when the embedding model itself changes (Marvin's built-in model is the same for every provider, so
+        # normally it doesn't): the old index can't be read by the new model, so rebuild it in the background.
+        after_embedding = embedding_model_for_settings(row.provider)
+        if after_embedding and after_embedding != before_embedding:
+            from marvin.services.ai import reindex_jobs
+
+            self.logger.info("embedding model %s → %s: re-indexing the workspace", before_embedding, after_embedding)
+            reindex_jobs.start(self.group_id, self.user.id if self.user else None, force=True)
 
         if character_set:
             from marvin.services.ai.character import character_file_ids, delete_character_files

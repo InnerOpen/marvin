@@ -239,7 +239,7 @@ class ContextBuilder:
             qvec = provider.embed([query], model)[0]
         except Exception:
             return self  # embedding unavailable — proceed without retrieval
-        self._ctx.retrieved = search_embeddings(self._session, self._group_id, qvec, limit, entity_types)
+        self._ctx.retrieved = search_embeddings(self._session, self._group_id, qvec, limit, entity_types, model=model)
         return self
 
     def inject(self, key: str, value: str) -> "ContextBuilder":

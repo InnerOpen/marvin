@@ -732,7 +732,7 @@ class IndexingReactionListener(BuiltinReaction):
             self.logger.error(f"IndexingReactionListener: {event.event_type} carried no {desc.id_field}")
             return
 
-        from marvin.services.ai.embeddings import default_embedding_model, index_entity, purge_embeddings
+        from marvin.services.ai.embeddings import embedder_for, index_entity, purge_embeddings
 
         # Delete → purge the entity's embeddings; no provider needed.
         if del_desc is not None:
@@ -747,17 +747,15 @@ class IndexingReactionListener(BuiltinReaction):
         from marvin.services.ai.factory import AIDisabledError, get_workspace_ai_provider
 
         with self.ensure_session() as session:
-            # Resolve the workspace provider; quietly no-op when AI is off or unavailable.
+            # Marvin's built-in embedding model needs no AI provider, so indexing goes on with AI off or unavailable.
             try:
                 provider = get_workspace_ai_provider(session, self.group_id)
             except AIDisabledError:
-                return
+                provider = None
             except Exception as e:
                 self.logger.warning(f"IndexingReactionListener: provider unavailable: {e}")
-                return
-            if not getattr(provider, "supports_embeddings", False):
-                return
-            model = default_embedding_model(provider.provider_type)
+                provider = None
+            embedder, model = embedder_for(provider)
             if not model:
                 return
 
@@ -786,7 +784,7 @@ class IndexingReactionListener(BuiltinReaction):
             if chunks_unchanged(session, self.group_id, idx_desc.entity_type, obj.id, model, entity_chunks(text)):
                 return
             try:
-                chunks = index_entity(session, self.group_id, idx_desc.entity_type, obj.id, text, provider, model)
+                chunks = index_entity(session, self.group_id, idx_desc.entity_type, obj.id, text, embedder, model)
             except Exception as e:
                 self.logger.warning(f"IndexingReactionListener: embed failed for {idx_desc.entity_type} {entity_id}: {e}")
                 return

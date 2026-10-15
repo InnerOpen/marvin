@@ -56,10 +56,10 @@ priorityClassName: marvin-dev-low
 resources:
   requests:
     cpu: 100m
-    memory: 256Mi
+    memory: 384Mi
   limits:
     cpu: 500m
-    memory: 768Mi
+    memory: 1Gi  # the built-in embedding model: ~+250Mi loaded, ~+300Mi while indexing (values-iwobble.yaml)
 
 # Same relaxed probe cadence as production (see values-iwobble.yaml for why).
 livenessProbe:
