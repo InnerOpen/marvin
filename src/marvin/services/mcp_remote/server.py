@@ -34,7 +34,9 @@ INSTRUCTIONS = (
     "approved. Start with search (or find_entries); workspace_overview describes the workspace. Whenever "
     "you mention an entry or an asset that a tool gave a `url` or `reviewLink` for, include that link as is so "
     "the user can open it. To show the user an image asset, call show_image: it returns the picture itself "
-    "(view_image only describes one in words). Write tools make drafts and links; they never publish, and "
+    "(view_image only describes one in words). To create or change an entry, write it yourself and save it "
+    "with create_draft / update_draft (get_entry_type first, for the fields); compose_entry and revise_entry "
+    "have Marvin's own AI do the writing instead. Write tools make drafts and links; they never publish, and "
     "trashing or archiving a published entry is refused."
 )
 

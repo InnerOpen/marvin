@@ -17,7 +17,8 @@ The assistant opens Marvin's consent page (behind Cloudflare Access): you sign i
 
 | Tool | For |
 |---|---|
-| `compose_entry` | Read & write: create a new draft entry from a brief. It lands in the inbox with a review link; nothing is published. |
+| `create_draft`, `update_draft` | Read & write: the assistant writes the entry itself and Marvin saves it, so no AI provider of Marvin's is needed. `create_draft` takes the type's own fields (refusing unknown keys and wrong types, with the reason) and lands an inbox draft with a review link. `update_draft` changes only the fields given on an inbox, draft or needs-review entry, applied or staged for review per the workspace's approval policy. Both are shared registry tools, so Marvin's own assistant can use them too. |
+| `compose_entry` | Read & write: Marvin's own AI writes a new draft from a brief, with the workspace's voice and related content. It lands in the inbox with a review link; nothing is published. |
 | `search`, `fetch` | ChatGPT's connector pair: search entries, assets and resources; fetch one in full by the id search returns. |
 | `show_image` | the picture itself (at most 1024 px), with its name and link. claude.ai shows it inside the tool step, not in the reply; ChatGPT drops image results (reported, unverified). |
 

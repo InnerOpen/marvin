@@ -71,6 +71,8 @@ CATEGORY_BY_TOOL: dict[str, str] = {
     "preview_embed": "entries_read",  # what a media link becomes; writes no entry
     "compose_entry": "entries_author",
     "revise_entry": "entries_author",
+    "create_draft": "entries_author",
+    "update_draft": "entries_author",
     "add_embed": "entries_author",  # staged as a suggestion, like a staged revise
     "archive_entries": "entries_archive",
     "trash_entries": "entries_trash",
