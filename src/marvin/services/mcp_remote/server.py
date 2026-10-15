@@ -31,9 +31,11 @@ logger = get_logger(__name__)
 INSTRUCTIONS = (
     "Marvin is a content workspace: entries (typed content such as pages, posts and releases), collections, "
     "assets, reusable resources and workflows. This connection works in one workspace, chosen when it was "
-    "approved. Start with search_content or find_entries; workspace_overview describes the workspace. When a "
-    "tool returns a reviewLink or URL, give it to the user as is. Write tools make drafts and links; they never "
-    "publish, and trashing or archiving a published entry is refused."
+    "approved. Start with search_content or find_entries; workspace_overview describes the workspace. Whenever "
+    "you mention an entry or an asset that a tool gave a `url` or `reviewLink` for, include that link as is so "
+    "the user can open it. To show the user an image asset, call show_image: it returns the picture itself "
+    "(view_image only describes one in words). Write tools make drafts and links; they never publish, and "
+    "trashing or archiving a published entry is refused."
 )
 
 # Hints only: claude.ai groups tools and asks before the ones that aren't read-only.
@@ -120,7 +122,10 @@ def project_tool(spec) -> types.Tool:
 def list_tools_for(conn: Connection) -> list[types.Tool]:
     from marvin.services.ai.tool_gateway import visible_tools
 
-    return _with_user(conn, lambda session, user: [project_tool(t) for t in visible_tools(session, conn.group_id, user, allow_writes=conn.can_write)])
+    def run(session, user):
+        return [project_tool(t) for t in visible_tools(session, conn.group_id, user, allow_writes=conn.can_write)] + [SHOW_IMAGE]
+
+    return _with_user(conn, run)
 
 
 def call_tool_for(conn: Connection, name: str, args: dict | None) -> dict:
@@ -136,6 +141,72 @@ def call_tool_for(conn: Connection, name: str, args: dict | None) -> dict:
             return {"error": str(e.detail)}
 
     return _with_user(conn, run)
+
+
+# ── show_image: the picture itself, which only an MCP client can take (registry tools answer in text) ──
+
+SHOW_IMAGE_SIDE = 1024  # px on the long side: plenty to look at, small enough for any client
+SHOWABLE = frozenset({"image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"})
+SHOW_IMAGE = types.Tool(
+    name="show_image",
+    title="Show image",
+    description=(
+        "Show an image asset itself, so you and the user can see it (view_image only describes it in words). Returns "
+        f"the picture, scaled to at most {SHOW_IMAGE_SIDE} px, with its name and link. JPEG, PNG, WebP and GIF; for other "
+        "files (SVG, PDF…) give the user the link."
+    ),
+    inputSchema={"type": "object", "properties": {"asset": {"type": "string", "description": "asset id or slug"}}, "required": ["asset"]},
+    annotations=types.ToolAnnotations(title="Show image", readOnlyHint=True, destructiveHint=False, openWorldHint=False),
+)
+
+
+def show_image_for(conn: Connection, args: dict | None) -> tuple[dict, str | None, str | None]:
+    """(info or {"error"}, base64 picture, its mime type) for an image asset in the connection's workspace."""
+
+    def run(session, _user):
+        import base64
+        import io
+        import uuid
+
+        from PIL import Image
+
+        from marvin.db.models.platform.assets import Assets
+        from marvin.services.ai.entity_resolve import resolve_entity_id
+        from marvin.services.ai.media.transforms import _load
+        from marvin.services.ai.tools.builtins import _asset_public_url
+        from marvin.services.storage.provider_factory import provider_for
+
+        ref = str((args or {}).get("asset") or "").strip()
+        asset_id = resolve_entity_id(session, conn.group_id, "asset", ref) if ref else None
+        asset = session.get(Assets, asset_id) if isinstance(asset_id, uuid.UUID) else None
+        if asset is None or str(asset.group_id) != str(conn.group_id) or asset.trashed_at is not None:
+            return {"error": f"no asset '{ref}' in this workspace (try list_assets)"}, None, None
+        info = {"id": str(asset.id), "name": asset.name, "mimeType": asset.mime_type, "url": _asset_public_url(asset)}
+        if (asset.mime_type or "").lower() not in SHOWABLE:
+            return {**info, "error": "not a picture Marvin can show here; give the user the link"}, None, None
+        try:
+            img, _fmt = _load(provider_for(asset.storage_provider).get(asset.storage_key).read())
+        except Exception as e:  # noqa: BLE001 — a missing or broken file is an answer, not a crash
+            return {**info, "error": f"the file could not be read: {e}"}, None, None
+        img.thumbnail((SHOW_IMAGE_SIDE, SHOW_IMAGE_SIDE), Image.Resampling.LANCZOS)
+        transparent = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
+        out = io.BytesIO()
+        if transparent:
+            img.convert("RGBA").save(out, format="PNG", optimize=True)
+            mime = "image/png"
+        else:
+            img.convert("RGB").save(out, format="JPEG", quality=85, optimize=True)
+            mime = "image/jpeg"
+        return {**info, "width": img.width, "height": img.height}, base64.b64encode(out.getvalue()).decode("ascii"), mime
+
+    return _with_user(conn, run)
+
+
+def _image_result(info: dict, data: str | None, mime: str | None) -> types.CallToolResult:
+    text = types.TextContent(type="text", text=json.dumps(info, default=str, ensure_ascii=False))
+    if data is None:
+        return types.CallToolResult(content=[text], isError=True)
+    return types.CallToolResult(content=[text, types.ImageContent(type="image", data=data, mimeType=mime)], isError=False)
 
 
 def _tool_result(out: dict) -> types.CallToolResult:
@@ -278,6 +349,8 @@ async def _list_tools() -> list[types.Tool]:
 @server.call_tool(validate_input=False)
 async def _call_tool(name: str, arguments: dict | None) -> types.CallToolResult:
     # validate_input=False: the handlers are lenient about arguments, as /api/ai/tools/{name}/invoke is.
+    if name == SHOW_IMAGE.name:
+        return _image_result(*await _in_thread(show_image_for, _connection(), arguments))
     return _tool_result(await _in_thread(call_tool_for, _connection(), name, arguments))
 
 

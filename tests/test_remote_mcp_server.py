@@ -45,7 +45,7 @@ def test_a_read_only_connection_sees_and_runs_read_tools_only(client, on, ws):
 
     names = {t["name"] for t in _tools(client, token, session)}
     read_tools = {t.name for t in list_tools() if "mcp" in t.sources and is_read_tool(t)}
-    assert names and names <= read_tools
+    assert names and names - {"show_image"} <= read_tools  # show_image is the MCP server's own (the picture itself)
     assert {"find_entries", "get_entry", "workspace_overview"} <= names
 
     # Pinned against the whole registry: every tool that isn't a read tool is refused, listed or not — by the
@@ -151,4 +151,63 @@ def test_a_workspace_that_turns_mcp_off_stops_its_connections(client, on, ws, db
         assert res.status_code == 403 and "turned off" in res.json()["error_description"]
     finally:
         db_session.query(WorkspaceAISettingsModel).filter_by(group_id=owner.gid).delete()
+        db_session.commit()
+
+
+# ── show_image ───────────────────────────────────────────────────────────────
+
+
+def test_show_image_returns_the_picture_itself_scaled_down(client, on, ws, db_session, monkeypatch):
+    import base64
+    import io
+    import uuid
+
+    from PIL import Image
+
+    from marvin.db.models.platform.assets import Assets
+    from marvin.services.storage import provider_factory
+
+    owner = ws()
+    big = io.BytesIO()
+    Image.new("RGB", (3000, 1500), "navy").save(big, format="PNG")
+    stored = {"lib/coat": big.getvalue()}
+
+    class FakeStorage:
+        def get(self, key):
+            return io.BytesIO(stored[key])
+
+        def public_url(self, key):
+            return f"https://cdn.test/{key}"
+
+    monkeypatch.setattr(provider_factory, "provider_for", lambda _name=None: FakeStorage())
+    slug = f"coat-{uuid.uuid4().hex[:6]}"
+
+    def stored_asset(name, slug_, mime, key):
+        return Assets(session=db_session, group_id=owner.gid, slug=slug_, name=name, original_filename=key, filename=key,
+                      extension=mime.split("/")[-1],
+                      file_size=10, mime_type=mime, asset_type="image", checksum=uuid.uuid4().hex, storage_provider="local", storage_key=key,
+                      uploaded_by=owner.uid)  # fmt: skip
+
+    asset = stored_asset("Chore coat", slug, "image/png", "lib/coat")
+    svg = stored_asset("Icon", f"{slug}-svg", "image/svg+xml", "lib/icon")
+    db_session.add_all([asset, svg])
+    db_session.commit()
+    try:
+        _reg, tokens = _connect(client, owner)
+        token = tokens["access_token"]
+        session = _open_session(client, token)
+        assert "show_image" in {t["name"] for t in _tools(client, token, session)}
+
+        result = _call(client, token, session, "tools/call", {"name": "show_image", "arguments": {"asset": slug}})["result"]
+        info, picture = result["content"]
+        assert not result.get("isError") and json.loads(info["text"])["name"] == "Chore coat"
+        assert picture["type"] == "image" and picture["mimeType"] == "image/jpeg"
+        assert Image.open(io.BytesIO(base64.b64decode(picture["data"]))).size == (1024, 512)
+
+        svg_args = {"name": "show_image", "arguments": {"asset": f"{slug}-svg"}}
+        result = _call(client, token, session, "tools/call", svg_args, rpc_id=3)["result"]
+        assert result["isError"] and len(result["content"]) == 1
+        assert "link" in json.loads(result["content"][0]["text"])["error"]  # an SVG: give the user the link
+    finally:
+        db_session.query(Assets).filter(Assets.group_id == owner.gid).delete()
         db_session.commit()
