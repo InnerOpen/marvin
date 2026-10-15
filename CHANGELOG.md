@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.357 (2026-10-15)
+
+### Features
+
+- **ai**: Test connection asks the workspace's model for a structured answer
+  ([`6045580`](https://github.com/InnerOpen/marvin/commit/6045580c4abfc9f4208c47a08115104715569abe))
+
+- **mcp**: ChatGPT's search and fetch, a per-connection request limit, and the docs
+  ([`bd88217`](https://github.com/InnerOpen/marvin/commit/bd882176ba9aeab9524f0df3ac832460fa41549d))
+
+
 ## v1.0.0-rc.356 (2026-10-15)
 
 ### Features
