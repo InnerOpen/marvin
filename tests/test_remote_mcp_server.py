@@ -45,7 +45,8 @@ def test_a_read_only_connection_sees_and_runs_read_tools_only(client, on, ws):
 
     names = {t["name"] for t in _tools(client, token, session)}
     read_tools = {t.name for t in list_tools() if "mcp" in t.sources and is_read_tool(t)}
-    assert names and names - {"show_image"} <= read_tools  # show_image is the MCP server's own (the picture itself)
+    own = {"show_image", "search", "fetch"}  # the MCP server's own read tools (the picture itself; ChatGPT's contract)
+    assert names and names - own <= read_tools and own <= names
     assert {"find_entries", "get_entry", "workspace_overview"} <= names
 
     # Pinned against the whole registry: every tool that isn't a read tool is refused, listed or not — by the
@@ -228,3 +229,56 @@ def test_compose_entry_is_offered_to_read_and_write_connections_only(client, on,
     # "cannot be invoked from the 'mcp' source" refusal.
     is_error, out = _tool(client, write["access_token"], write_session, "compose_entry", {"entry_type": "page", "brief": "x"})
     assert "source" not in out["error"] and "AI provider" in out["error"]
+
+
+# ── ChatGPT's search / fetch ─────────────────────────────────────────────────
+
+
+def test_search_and_fetch_follow_chatgpts_connector_contract(client, on, ws, db_session):
+    from marvin.db.models.platform import Entries, EntryTypes
+
+    owner = ws()
+    et = EntryTypes(session=db_session, group_id=owner.gid, name="Bench Note", slug="bench-note", schema_json={})
+    db_session.add(et)
+    db_session.flush()
+    entry = Entries(session=db_session, group_id=owner.gid, entry_type_id=et.id, title="Waxed canvas care", slug=f"wax-{owner.gid.hex[:6]}",
+                    status="draft", data_json={"body": "Rewax twice a year."})  # fmt: skip
+    db_session.add(entry)
+    db_session.commit()
+    try:
+        _reg, tokens = _connect(client, owner, access="read")  # both are read tools: a read-only connection has them
+        token = tokens["access_token"]
+        session = _open_session(client, token)
+        assert {"search", "fetch"} <= {t["name"] for t in _tools(client, token, session)}
+
+        # No AI provider in the test workspace, so no semantic index: search falls back to titles.
+        result = _call(client, token, session, "tools/call", {"name": "search", "arguments": {"query": "waxed canvas"}})["result"]
+        assert [c["type"] for c in result["content"]] == ["text"]
+        hits = json.loads(result["content"][0]["text"])["results"]
+        assert hits[0]["id"] == f"entry:{entry.id}" and hits[0]["title"] == "Waxed canvas care" and hits[0]["url"]
+
+        result = _call(client, token, session, "tools/call", {"name": "fetch", "arguments": {"id": hits[0]["id"]}}, rpc_id=3)["result"]
+        doc = json.loads(result["content"][0]["text"])
+        assert doc["id"] == hits[0]["id"] and doc["title"] == "Waxed canvas care" and "Rewax twice a year." in doc["text"]
+        assert doc["url"] and doc["metadata"]["status"] == "draft"
+
+        bad = _call(client, token, session, "tools/call", {"name": "fetch", "arguments": {"id": "nope"}}, rpc_id=4)["result"]
+        assert bad["isError"]
+    finally:
+        db_session.query(Entries).filter(Entries.group_id == owner.gid).delete()
+        db_session.query(EntryTypes).filter(EntryTypes.group_id == owner.gid).delete()
+        db_session.commit()
+
+
+def test_a_connection_that_floods_mcp_is_slowed_down(client, on, ws, monkeypatch):
+    from marvin.services.mcp_remote import limits
+
+    monkeypatch.setitem(limits.LIMITS, "mcp_request", (3, 60))
+    first, second = ws("First"), ws("Second")
+    _r1, mine = _connect(client, first)
+    _r2, theirs = _connect(client, second)
+    session = _open_session(client, mine["access_token"])  # initialize + initialized: 2 requests
+    assert _mcp(client, mine["access_token"], "ping", session=session, rpc_id=2).status_code == 200
+    limited = _mcp(client, mine["access_token"], "ping", session=session, rpc_id=3)
+    assert limited.status_code == 429 and int(limited.headers["retry-after"]) >= 1
+    assert _mcp(client, theirs["access_token"]).status_code == 200  # per connection, not for everyone

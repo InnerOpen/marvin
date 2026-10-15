@@ -560,6 +560,23 @@ Built as planned, with these differences, so later slices start from the code ra
 - Tests: `tests/test_remote_mcp_server.py` (7, pinned against the whole registry); the slice 2 tests now run
   through the real transport. Mutation-checked: the list filter, the gateway's scope gate, the session binding.
 
+## Slices 4–5 as built (2026-10-15)
+
+- `compose_entry` over the remote server: `tool_gateway.visible_tools` / `invoke_unattended` take `extra` names a
+  caller projects itself; the server passes `("compose_entry",)`. The role floor, the matrix, the budget and the scope
+  still apply.
+- 120 requests a minute per connection (`limits.mcp_request`, per grant, POST only): 429 with `Retry-After`. No
+  `api_rate_limit_exceeded` event yet.
+- ChatGPT's `search` / `fetch` (`server.py`): search uses `search_content` and falls back to `find_entries` (title or
+  slug); ids are `entry:` / `asset:` / `resource:` plus the uuid; fetch goes through `get_entry` / `get_asset` /
+  `get_resource`. Results are one text block of JSON.
+- `show_image` returns MCP image content (1024 px). claude.ai shows it only inside the tool step, and ChatGPT reportedly
+  drops it; an MCP Apps viewer would show it in the conversation (not built).
+- Tool calls are logged by name with their outcome and content types.
+- Test connection (AI providers) also asks the workspace's model for a structured answer.
+- Not done: the upload link for chat photos, the MCP Apps image viewer, per-workspace URLs, AI operations as tools,
+  CIMD, the Access JWT check.
+
 ## Decisions (Jared, 2026-10-14: "your recommendations for mcp")
 
 All 16 questions below are decided as recommended: consent on admin.iwobble.com behind Access; one workspace per

@@ -1,5 +1,37 @@
 # Marvin as an MCP server
 
+Marvin serves MCP two ways: a **remote server** built into the API, which an assistant signs in to (no token to store), and the `@inneropen/marvin-mcp` package, which exposes one workspace over stdio with tokens.
+
+## Remote server: sign in instead of a token
+
+**Address:** `https://api.iwobble.com/mcp` (dev: `https://api-dev.iwobble.com/mcp`). It is on when Admin → Site Settings → Remote MCP is on; **Profile → Command line & MCP** then shows the address and the steps.
+
+**Connect:**
+- **claude.ai and Claude Desktop:** Settings → Connectors → Add custom connector, paste the address, Connect.
+- **Claude Code:** `claude mcp add --transport http --scope user marvin https://api.iwobble.com/mcp`, then `/mcp` → marvin → Authenticate.
+- **ChatGPT:** Settings → Apps & Connectors → Create, paste the address. Developer mode gets every tool; normal mode uses only `search` and `fetch`.
+
+The assistant opens Marvin's consent page (behind Cloudflare Access): you sign in, pick **one workspace**, and choose **Read-only** (the default) or **Read & write** (Editor or above). Each approval is a connected app, listed with Disconnect on Profile → API Tokens.
+
+**What a connection gets:** Marvin's registry tools under the same rules as the local package with a personal token (role, the workspace's "External MCP hosts" switch, Marvin's permission matrix for its main agent, the AI budget, the bulk-write gate). A Read-only connection sees and runs read tools only. On top of the registry:
+
+| Tool | For |
+|---|---|
+| `compose_entry` | Read & write: create a new draft entry from a brief. It lands in the inbox with a review link; nothing is published. |
+| `search`, `fetch` | ChatGPT's connector pair: search entries, assets and resources; fetch one in full by the id search returns. |
+| `show_image` | the picture itself (at most 1024 px), with its name and link. claude.ai shows it inside the tool step, not in the reply; ChatGPT drops image results (reported, unverified). |
+
+Plus the seven prompts below and resources (`marvin://workspace`, `marvin://collections`, `marvin://entry-types`, `marvin://entries/{slug}`, …).
+
+**Limits:**
+- **Photos in the chat can't reach Marvin as files.** claude.ai and ChatGPT don't pass a chat's attachments to tools. Upload them in Marvin and ask the assistant to attach them, or let it send a small copy as base64 `data` to `import_asset`.
+- 120 requests a minute per connection (429 with `Retry-After` beyond that).
+- Sessions live in the backend's memory: a deploy ends them and the assistant starts a new one on its own.
+
+Sign-in, tokens and the audit events are in [Sign-in and tokens](../auth-and-tokens.md#mcp-and-oauth).
+
+## Local package (stdio, tokens)
+
 The `@inneropen/marvin-mcp` package exposes one Marvin workspace to any MCP client (Claude Desktop, Claude Code, ChatGPT and others) over stdio.
 
 ## What it does

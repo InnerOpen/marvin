@@ -118,6 +118,15 @@ class RemoteMcpTransport:
         if isinstance(conn, Response):
             return await conn(scope, receive, send)
         box["grant"] = conn.grant_id
+        if request.method == "POST":
+            from marvin.services.mcp_remote import limits
+
+            try:
+                limits.check("mcp_request", str(conn.grant_id))
+            except limits.RateLimited as e:
+                body = {"error": "rate_limited", "error_description": "Too many requests from this connection; slow down."}
+                return await JSONResponse(body, status_code=429, headers={"Retry-After": str(e.retry_after)})(scope, receive, send)
+            limits.hit("mcp_request", str(conn.grant_id))
         if bound is not None and bound != conn.grant_id:
             logger.warning("remote MCP: session %s belongs to another connection", session_id[:12])
             return await JSONResponse({"error": "forbidden", "error_description": "This session belongs to another connection."}, status_code=403)(

@@ -127,7 +127,8 @@ def list_tools_for(conn: Connection) -> list[types.Tool]:
     from marvin.services.ai.tool_gateway import visible_tools
 
     def run(session, user):
-        return [project_tool(t) for t in visible_tools(session, conn.group_id, user, allow_writes=conn.can_write, extra=EXTRA_TOOLS)] + [SHOW_IMAGE]
+        own = [project_tool(t) for t in visible_tools(session, conn.group_id, user, allow_writes=conn.can_write, extra=EXTRA_TOOLS)]
+        return [*own, SHOW_IMAGE, SEARCH, FETCH]
 
     return _with_user(conn, run)
 
@@ -206,6 +207,82 @@ def show_image_for(conn: Connection, args: dict | None) -> tuple[dict, str | Non
         return {**info, "width": img.width, "height": img.height}, base64.b64encode(out.getvalue()).decode("ascii"), mime
 
     return _with_user(conn, run)
+
+
+# ── search / fetch: the two tools ChatGPT uses outside developer mode (its connector contract) ──
+
+KINDS = ("entry", "asset", "resource")
+ADMIN_PATHS = {"entry": "/workspace/entries/{id}", "asset": "/workspace/assets/{id}", "resource": "/workspace/resources/{id}"}
+SEARCH_RESULTS = 10
+FETCH_TEXT_CHARS = 20_000
+
+_READ_HINTS = types.ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
+SEARCH = types.Tool(
+    name="search",
+    title="Search",
+    description="Search this Marvin workspace's entries, assets and resources. Returns results with an id to pass to fetch.",
+    inputSchema={"type": "object", "properties": {"query": {"type": "string", "description": "what to look for"}}, "required": ["query"]},
+    annotations=_READ_HINTS,
+)
+FETCH = types.Tool(
+    name="fetch",
+    title="Fetch",
+    description="Fetch one search result in full by its id (entry:<id>, asset:<id> or resource:<id>).",
+    inputSchema={"type": "object", "properties": {"id": {"type": "string", "description": "an id from search"}}, "required": ["id"]},
+    annotations=_READ_HINTS,
+)
+
+
+def _admin_url(kind: str, entity_id: str) -> str:
+    from marvin.services.ui_links import ui_link
+
+    return ui_link(ADMIN_PATHS[kind].format(id=entity_id))
+
+
+def search_for(conn: Connection, args: dict | None) -> dict:
+    """{"results": [{id, title, url}]}: semantic search, or a title search when the workspace has none."""
+    query = str((args or {}).get("query") or "").strip()
+    if not query:
+        return {"results": []}
+    out = call_tool_for(conn, "search_content", {"query": query})
+    results, seen = [], set()
+    for r in [] if "error" in out else out.get("results", []):
+        kind, entity_id = r.get("entityType"), r.get("entityId")
+        key = f"{kind}:{entity_id}"
+        if kind in KINDS and entity_id and key not in seen:
+            seen.add(key)
+            results.append({"id": key, "title": r.get("title") or key, "url": r.get("url") or _admin_url(kind, entity_id)})
+    if not results:  # no semantic index here (or nothing in it): fall back to titles and slugs
+        found = call_tool_for(conn, "find_entries", {"query": query, "limit": SEARCH_RESULTS})
+        for e in found.get("entries", []):
+            results.append({"id": f"entry:{e['id']}", "title": e.get("title") or e.get("slug"), "url": e.get("url") or _admin_url("entry", e["id"])})
+    return {"results": results[:SEARCH_RESULTS]}
+
+
+def fetch_for(conn: Connection, args: dict | None) -> dict:
+    """{id, title, text, url, metadata} for an id from search."""
+    ident = str((args or {}).get("id") or "").strip()
+    kind, _, entity_id = ident.partition(":")
+    if kind not in KINDS or not entity_id:
+        return {"error": "id must look like entry:<id>, asset:<id> or resource:<id> (as search returns)"}
+    out = call_tool_for(conn, f"get_{kind}", {"id_or_slug": entity_id})
+    if "error" in out:
+        return out
+    item = out.get(kind, out)  # get_entry answers with the entry itself; others may wrap it
+    title = item.get("title") or item.get("name") or ident
+    text = json.dumps(item, default=str, ensure_ascii=False)[:FETCH_TEXT_CHARS]
+    metadata = {k: item.get(k) for k in ("status", "entryType", "assetType", "resourceType", "updatedAt") if item.get(k) is not None}
+    return {"id": ident, "title": title, "text": text, "url": item.get("url") or _admin_url(kind, entity_id), "metadata": metadata}
+
+
+CONNECTOR_TOOLS = {SEARCH.name: search_for, FETCH.name: fetch_for}
+
+
+def _connector_result(out: dict) -> types.CallToolResult:
+    """The connector contract: one text block holding the JSON (no structured content, which ChatGPT reads as {})."""
+    return types.CallToolResult(
+        content=[types.TextContent(type="text", text=json.dumps(out, default=str, ensure_ascii=False))], isError="error" in out
+    )
 
 
 def _image_result(info: dict, data: str | None, mime: str | None) -> types.CallToolResult:
@@ -359,6 +436,8 @@ async def _call_tool(name: str, arguments: dict | None) -> types.CallToolResult:
     # validate_input=False: the handlers are lenient about arguments, as /api/ai/tools/{name}/invoke is.
     if name == SHOW_IMAGE.name:
         result = _image_result(*await _in_thread(show_image_for, _connection(), arguments))
+    elif name in CONNECTOR_TOOLS:
+        result = _connector_result(await _in_thread(CONNECTOR_TOOLS[name], _connection(), arguments))
     else:
         result = _tool_result(await _in_thread(call_tool_for, _connection(), name, arguments))
     # Which tool, and what went back (never the arguments or the content).
