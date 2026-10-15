@@ -27,6 +27,7 @@ from marvin.services.event_bus_service.event_types import (
     EventStorageProviderChangedData,
     EventTypes,
     EventWorkspaceSettingsData,
+    EventWorkspaceStorageCopyData,
 )
 from marvin.services.storage import workspace_admin as admin
 
@@ -168,7 +169,25 @@ class StorageSettingsController(BaseUserController):
             entity_id=task.id,
             entity_type="scheduled_task",
         )
-        self._announce(f"copying files into {conn.label or conn.id} started by {self._name()}")
+        plan = admin.copy_plan(self.session, self.group_id, conn.id)
+        self.event_bus.dispatch(
+            integration_id="workspace_storage",
+            group_id=self.group_id,
+            event_type=EventTypes.workspace_storage_copy_started,
+            document_data=EventWorkspaceStorageCopyData(
+                operation=EventOperation.update,
+                connection_id=str(conn.id),
+                location=plan["location"],
+                bucket_label=conn.label,
+                files=plan["files"],
+                bytes=plan["bytes"],
+                started_by_name=self._name(),
+            ),
+            message=f"Copying {plan['files']} files into {conn.label or 'the workspace bucket'} started by {self._name()}",
+            user_id=self.user.id,
+            entity_id=self.group_id,
+            entity_type="workspace",
+        )
         return WorkspaceStorageCopyStarted(task_id=str(task.id), task_slug=task.slug, message=f"Copying started: see the task '{task.name}'")
 
     @router.put("/mode", response_model=WorkspaceStorageRead, summary="Choose Where the Workspace's Uploads Go")

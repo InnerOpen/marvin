@@ -47,13 +47,50 @@ class CopyToWorkspaceStorageHandler(ScheduledTaskHandler):
                 raise ValueError("the platform doesn't allow workspace storage")
             from marvin.services.storage.workspace_admin import get_connection
 
-            if get_connection(session, task.group_id, connection_id).status != ws.STATUS_OK:
+            conn = get_connection(session, task.group_id, connection_id)
+            if conn.status != ws.STATUS_OK:
                 raise ValueError("the bucket connection isn't verified: check it in Workspace settings → Storage first")
-            slug = workspace.slug
-        report = migrate(ws.location_for(connection_id), workspace=slug, verify=bool((task.task_config or {}).get("verify", True)))
+            slug, label = workspace.slug, conn.label
+        location = ws.location_for(connection_id)
+        try:
+            report = migrate(location, workspace=slug, verify=bool((task.task_config or {}).get("verify", True)))
+        except Exception as e:  # the copy couldn't start (the bucket unreachable, a guard): still say it ended
+            _announce_finished(event_bus, task, location, label, failures=[{"asset_id": None, "error": str(e)}])
+            raise
+        _announce_finished(event_bus, task, location, label, report=report)
         if report.failures:
             raise RuntimeError(f"{report.summary()}; first failure: {report.failures[0]}")
         return report.summary()
+
+
+def _announce_finished(event_bus, task: ScheduledTaskModel, location: str, label: str | None, *, report=None, failures=None) -> None:
+    """workspace_storage_copy_finished: the counts, and each failed file."""
+    from marvin.services.event_bus_service.event_types import EventOperation, EventTypes, EventWorkspaceStorageCopyData
+
+    failures = failures if failures is not None else [{"asset_id": str(a), "error": why} for a, why in report.failed_assets]
+    data = EventWorkspaceStorageCopyData(
+        operation=EventOperation.update,
+        connection_id=location.split(":", 1)[1],
+        location=location,
+        bucket_label=label,
+        moved=report.moved if report else 0,
+        already_there=report.already_there if report else 0,
+        changed_meanwhile=report.raced if report else 0,
+        failed=len(report.failed_assets) if report else len(failures),
+        failures=failures,
+        copied_bytes=report.copied_bytes if report else 0,
+    )
+    where = label or "the workspace bucket"
+    message = f"Copy into {where} finished: {data.moved} moved, {data.already_there} already there, {data.failed} failed"
+    (event_bus or EventBusService(bg_tasks=None)).dispatch(
+        integration_id="workspace_storage",
+        group_id=task.group_id,
+        event_type=EventTypes.workspace_storage_copy_finished,
+        document_data=data,
+        message=message,
+        entity_id=task.group_id,
+        entity_type="workspace",
+    )
 
 
 TaskHandlerRegistry.register("copy_to_workspace_storage", CopyToWorkspaceStorageHandler)

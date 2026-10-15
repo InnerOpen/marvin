@@ -419,6 +419,7 @@ def copy_plan(session, group_id, connection_id) -> dict[str, Any]:
     uploads_here = bool(row and row.credential_mode == ws.MODE_WORKSPACE and str(row.active_connection_id) == str(conn.id))
     return {
         "connection_id": str(conn.id),
+        "location": location,
         "files": int(sum(n for _, n, _ in rows)),
         "bytes": int(sum(b for _, _, b in rows)),
         "by_location": [{"location": loc, "files": int(n), "bytes": int(b)} for loc, n, b in rows],

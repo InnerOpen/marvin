@@ -427,6 +427,10 @@ class EventTypes(EventTypeBase):
     """Event dispatched when storage quota is exceeded."""
     storage_provider_changed = auto()
     """Event dispatched when a platform admin changes where new asset uploads are stored."""
+    workspace_storage_copy_started = auto()
+    """Copying a workspace's existing files into its own bucket started: how many files and how much data."""
+    workspace_storage_copy_finished = auto()
+    """Copying into a workspace's own bucket finished: how many moved, were already there or failed (failures listed)."""
     storage_public_domain_changed = auto()
     """Event dispatched when a platform admin changes the public domain a workspace's remote assets are served from."""
     platform_settings_changed = auto()
@@ -1008,6 +1012,32 @@ class EventInvitationData(EventDocumentDataBase):
     """The email address of the invited user (if applicable)."""
     uses_left: int | None = None
     """The number of remaining uses for the invitation."""
+
+
+class EventWorkspaceStorageCopyData(EventDocumentDataBase):
+    """Data payload for `workspace_storage_copy_started` and `workspace_storage_copy_finished`: a workspace's existing
+    files copied into its own bucket. Counts only, plus each failed file (a short list, and the one to act on)."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    connection_id: str
+    """The bucket connection files go into."""
+    location: str
+    """What moved files now record: ``ws:<connection id>``."""
+    bucket_label: str | None = None
+    files: int = 0
+    """Files to copy (started)."""
+    bytes: int = 0
+    """Their size in bytes (started)."""
+    moved: int = 0
+    already_there: int = 0
+    """Files whose copy was already in the bucket (an earlier, interrupted run)."""
+    changed_meanwhile: int = 0
+    """Files changed or deleted while being copied (left as they were)."""
+    failed: int = 0
+    failures: list[dict] = []
+    """Each failed file: {asset_id, error}."""
+    copied_bytes: int = 0
+    started_by_name: str | None = None
 
 
 class EventStorageProviderChangedData(EventDocumentDataBase):

@@ -76,5 +76,10 @@ The command line does the same, and the way back: `python -m marvin.scripts.stor
 ws:<connection id> --verify [--dry-run]`, and `--to s3` (or `local`) to move a workspace's files back to the platform.
 A run into a workspace's bucket must name that workspace (`--workspace`); another workspace's files are refused.
 
+A copy sends two workspace events, which workflows and webhooks can react to: `workspace_storage_copy_started`
+(the bucket, how many files and how much data) and `workspace_storage_copy_finished` (moved, already there, changed
+meanwhile, failed, data copied, and each failed file with why), also when the copy couldn't start. The task's own
+`scheduled_task_completed` / `scheduled_task_failed` follow as for any task.
+
 - `GET /api/groups/storage-settings/connections/{id}/copy`: the dry run.
 - `POST /api/groups/storage-settings/connections/{id}/copy`: start copying (OWNER; 202 with the task).

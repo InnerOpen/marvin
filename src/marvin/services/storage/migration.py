@@ -83,6 +83,8 @@ class MigrationReport:
     pruned: int = 0
     pruned_bytes: int = 0
     failures: list[str] = field(default_factory=list)
+    failed_assets: list[tuple[Any, str]] = field(default_factory=list)
+    """(asset id, why) for each asset row that failed, for callers that report them one by one."""
 
     def summary(self) -> str:
         if self.to in (PRUNE_LOCAL, PRUNE_OLD):
@@ -476,6 +478,7 @@ def migrate(
             except Exception as exc:  # one bad file must not stop the rest
                 failed.add(row.id)
                 report.failures.append(f"asset {row.id} ({row.key}): {exc}")
+                report.failed_assets.append((row.id, str(exc)))
                 log.error("asset %s (%s): %s", row.id, row.key, exc)
             if i % max(batch, 1) == 0:
                 log.info("pass %d: %d/%d asset rows (%s)", report.passes, i, len(rows), report.summary())

@@ -250,8 +250,8 @@ def test_copying_moves_every_file_into_the_bucket_and_keeps_the_originals(api, d
     from marvin.services.event_bus_service.event_types import EventTypes
     from marvin.services.scheduled_tasks import TaskHandlerRegistry
 
-    sent = []
-    monkeypatch.setattr(EventBusService, "dispatch", lambda self, **kw: sent.append(kw["event_type"]))
+    events = []
+    monkeypatch.setattr(EventBusService, "dispatch", lambda self, **kw: events.append(kw))
 
     owner = _as(api.workspace, WorkspaceRole.OWNER)
     old = [_upload(db_session, api.workspace.gid, api.workspace.uid, data) for data in (b"alpha", b"beta")]
@@ -262,8 +262,13 @@ def test_copying_moves_every_file_into_the_bucket_and_keeps_the_originals(api, d
     task = db_session.get(ScheduledTaskModel, uuid.UUID(started.json()["taskId"]))
     assert (task.task_type, task.enabled, task.task_config["connection_id"]) == ("copy_to_workspace_storage", False, conn["id"])
 
+    sent = [e["event_type"] for e in events]
     assert EventTypes.scheduled_task_triggered in sent  # Run Now's trigger; run it here instead of the listener
+    started_event = next(e for e in events if e["event_type"] == EventTypes.workspace_storage_copy_started)
+    assert (started_event["document_data"].files, started_event["document_data"].bytes) == (2, len(b"alpha") + len(b"beta"))
     summary = TaskHandlerRegistry.get_handler(task.task_type).execute(task, None)
+    finished = next(e for e in events if e["event_type"] == EventTypes.workspace_storage_copy_finished)["document_data"]
+    assert (finished.moved, finished.failed, finished.failures, finished.location) == (2, 0, [], f"ws:{conn['id']}")
     assert "2 asset rows moved" in summary and "0 failed" in summary
     db_session.expire_all()
     bucket = BucketProvider.buckets["theirs"]
@@ -282,3 +287,26 @@ def test_only_a_verified_bucket_takes_a_copy(api):
     res = owner.post(f"{BASE}/connections/{conn['id']}/copy")
     assert res.status_code == 422 and "Check the connection first" in res.json()["detail"]
     assert _as(api.workspace, WorkspaceRole.ADMIN).post(f"{BASE}/connections/{conn['id']}/copy").status_code == 403
+
+
+def test_a_file_that_fails_is_reported_in_the_finished_event_and_fails_the_run(api, db_session, platform, monkeypatch):  # noqa: F811
+    from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
+    from marvin.services.event_bus_service.event_bus_service import EventBusService
+    from marvin.services.event_bus_service.event_types import EventTypes
+    from marvin.services.scheduled_tasks import TaskHandlerRegistry
+
+    events = []
+    monkeypatch.setattr(EventBusService, "dispatch", lambda self, **kw: events.append(kw))
+    owner = _as(api.workspace, WorkspaceRole.OWNER)
+    kept, lost = (_upload(db_session, api.workspace.gid, api.workspace.uid, data) for data in (b"kept", b"lost"))
+    platform.local.delete(lost.storage_key)  # its file is gone: the copy of this one must fail
+    conn = _verified(owner)
+    task = db_session.get(ScheduledTaskModel, uuid.UUID(owner.post(f"{BASE}/connections/{conn['id']}/copy").json()["taskId"]))
+
+    with pytest.raises(RuntimeError, match="1 failed"):
+        TaskHandlerRegistry.get_handler(task.task_type).execute(task, None)
+    finished = next(e for e in events if e["event_type"] == EventTypes.workspace_storage_copy_finished)["document_data"]
+    assert (finished.moved, finished.failed) == (1, 1)
+    assert [f["asset_id"] for f in finished.failures] == [str(lost.id)] and finished.failures[0]["error"]
+    db_session.query(ScheduledTaskModel).filter_by(id=task.id).delete()
+    db_session.commit()

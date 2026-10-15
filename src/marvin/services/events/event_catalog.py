@@ -1851,6 +1851,40 @@ CATALOG: list[CatalogEntry] = [
         ],
     ),
     CatalogEntry(
+        event_type="workspace_storage_copy_started",
+        name="Copying Files to the Workspace's Bucket",
+        description="Copying this workspace's existing files into its own bucket started (originals are kept).",
+        category="Assets",
+        sent_by=["A workspace owner starting a copy (Workspace settings → Storage → Copy existing files here)"],
+        triggerable=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("bucket_label", "The bucket's name in Marvin", "Our R2 bucket", type="name"),
+            EventVariable("location", "Where the files go: ws:<connection id>", "ws:561e4c27-9cd3-4178-bae9-a1973bb85403"),
+            EventVariable("files", "Files to copy", "51", type="count"),
+            EventVariable("bytes", "Their size", "3984588", type="size"),
+            EventVariable("started_by_name", "Who started it", "Jane Smith", type="name"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="workspace_storage_copy_finished",
+        name="Files Copied to the Workspace's Bucket",
+        description="Copying this workspace's files into its own bucket finished: how many moved, and any that failed.",
+        category="Assets",
+        sent_by=["The 'Copy files to …' scheduled task, when it ends (successfully or not)"],
+        triggerable=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("bucket_label", "The bucket's name in Marvin", "Our R2 bucket", type="name"),
+            EventVariable("location", "Where the files went: ws:<connection id>", "ws:561e4c27-9cd3-4178-bae9-a1973bb85403"),
+            EventVariable("moved", "Files now served from the bucket", "51", type="count"),
+            EventVariable("already_there", "Files whose copy was already there", "0", type="count"),
+            EventVariable("changed_meanwhile", "Files changed or deleted while copying (left as they were)", "0", type="count"),
+            EventVariable("failed", "Files that failed (listed in failures)", "0", type="count"),
+            EventVariable("copied_bytes", "Data copied", "3984588", type="size"),
+        ],
+    ),
+    CatalogEntry(
         event_type="storage_public_domain_changed",
         name="Workspace Asset Domain Changed",
         description="A platform admin changed the public domain a workspace's remote-stored assets are served from.",
