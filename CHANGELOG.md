@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.352 (2026-10-15)
+
+### Features
+
+- **ai**: Find_entries rows carry updatedAt and publishedAt
+  ([`1cb3263`](https://github.com/InnerOpen/marvin/commit/1cb3263c728e93a9eb975e5416788ba273de6ec5))
+
+
 ## v1.0.0-rc.351 (2026-10-15)
 
 ### Bug Fixes
