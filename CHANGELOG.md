@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.361 (2026-10-15)
+
+### Bug Fixes
+
+- **ai**: Say when to compose vs save a draft, and that search returns snippets
+  ([`33f8a9d`](https://github.com/InnerOpen/marvin/commit/33f8a9da235ff0eeace441c48332f298890b44b9))
+
+
 ## v1.0.0-rc.360 (2026-10-15)
 
 ### Features
