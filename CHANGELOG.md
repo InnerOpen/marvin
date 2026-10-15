@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.350 (2026-10-15)
+
+### Features
+
+- **mcp**: Remote MCP slice 3 — Marvin's tools, prompts and resources at /mcp
+  ([`56b37be`](https://github.com/InnerOpen/marvin/commit/56b37beea3f777da01b4501e2843954945cdc689))
+
+
 ## v1.0.0-rc.349 (2026-10-15)
 
 ### Bug Fixes
