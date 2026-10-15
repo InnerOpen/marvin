@@ -22,6 +22,7 @@ _SYSTEM = "You are a vision assistant. Describe images accurately from what you 
 
 @register_tool(
     name="view_image",
+    uses_ai=True,
     description=(
         "Look at an image asset and describe what it shows — objects, text, colours, setting — without "
         "changing anything. Use when the user attaches or points at an image and asks what it is or what's "

@@ -71,6 +71,9 @@ class ToolSpec:
     # Ask-first tools: look at one call without writing and return a `bulk_writes.AskFirst` when *this*
     # call needs the user's go-ahead (archive_entries or trash_entries on a published entry), else None.
     ask_first: Callable[[ToolContext, dict], Any] | None = None
+    # Calls the workspace's AI provider (generates, embeds or runs an agent), so an unattended call is refused
+    # once the workspace is over its AI budget (services/ai/tool_gateway.py).
+    uses_ai: bool = False
 
     def info(self) -> dict:
         return {
@@ -96,6 +99,7 @@ def register_tool(
     read_only: bool = True,
     bulk_write: Callable[[ToolContext, dict], Any] | None = None,
     ask_first: Callable[[ToolContext, dict], Any] | None = None,
+    uses_ai: bool = False,
 ):
     """Decorator: register the decorated ``handler(ctx, args) -> str`` as a :class:`ToolSpec`."""
 
@@ -110,6 +114,7 @@ def register_tool(
             read_only=read_only,
             bulk_write=bulk_write,
             ask_first=ask_first,
+            uses_ai=uses_ai,
         )
         return handler
 
@@ -117,19 +122,23 @@ def register_tool(
 
 
 def caller_role(ctx: ToolContext) -> int:
-    """The calling user's numeric workspace role in ctx.group_id (legacy admins → OWNER; no user →
-    VIEWER, the floor every tool already meets; not a member → 0)."""
+    """The calling user's numeric workspace role in ctx.group_id (see `user_role`)."""
+    return user_role(ctx.user, ctx.group_id)
+
+
+def user_role(user, group_id) -> int:
+    """A user's numeric workspace role in `group_id` (legacy admins → OWNER; no user → VIEWER, the floor every
+    tool already meets; not a member → 0). Compares ids as strings: one side may be a UUID, the other a str."""
     from marvin.db.models.users.roles import WORKSPACE_ROLE_HIERARCHY
 
     from ..operations.base import ROLE_OWNER
 
-    user = ctx.user
     if user is None:
         return ROLE_VIEWER
     if getattr(user, "admin", False):
         return ROLE_OWNER
     for m in getattr(user, "workspace_memberships", []) or []:
-        if str(m.group_id) == str(ctx.group_id):
+        if str(m.group_id) == str(group_id):
             return WORKSPACE_ROLE_HIERARCHY.get(m.workspace_role, 0)
     return 0
 

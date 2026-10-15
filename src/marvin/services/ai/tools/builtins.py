@@ -160,6 +160,7 @@ def _resolve_collection(ctx: ToolContext, ident: str):
 
 @register_tool(
     name="search_content",
+    uses_ai=True,
     description="Semantic search over workspace content (entries, resources, and assets). Returns the most relevant snippets with their entity ids/titles, and (for entry hits) lean image refs so results can show thumbnails. The index gives relevance + ids; call get_entry for the full record. Use this to ground answers.",  # noqa: E501
     input_schema={"type": "object", "properties": {"query": {"type": "string", "description": "what to search for"}}, "required": ["query"]},
 )

@@ -95,19 +95,9 @@ class AIOperationsController(BaseUserController):
         """
         # MarvinMCP's direct calls follow Marvin's permission matrix (see `invoke_tool`), so what it
         # blocks isn't advertised. An "Ask first" tool stays listed: calling it says where it can run.
-        from marvin.services.ai.agents import POLICY_BLOCK, resolve_policy
-        from marvin.services.ai.tools import list_tools as _list_tools
-        from marvin.services.ai.tools.categories import category_of
+        from marvin.services.ai.tool_gateway import visible_tools
 
-        role = self._user_role()
-        marvin = self._agent_or_404(ROUTER_SLUG)
-        return [
-            t.info()
-            for t in _list_tools()
-            if "mcp" in t.sources
-            and role >= t.min_role
-            and resolve_policy(marvin, t.name, category_of(t.name, read_only=t.read_only), role)[0] != POLICY_BLOCK
-        ]
+        return [t.info() for t in visible_tools(self.session, self.group_id, self.user)]
 
     @router.get("/agent/tools", summary="List the agent's bound tools")
     def list_agent_tools(self) -> list[dict]:
@@ -156,62 +146,11 @@ class AIOperationsController(BaseUserController):
         JSON result. A provider is attached best-effort so tools that need one (semantic search)
         can use it; tools that don't simply ignore it.
         """
-        import json
+        # Every gate (role, source, Marvin's permission matrix, AI budget, bulk writes) lives in the shared
+        # gateway, which the remote MCP server goes through too.
+        from marvin.services.ai.tool_gateway import invoke_unattended
 
-        from marvin.services.ai.agents import unattended_refusal
-        from marvin.services.ai.factory import get_workspace_ai_provider
-        from marvin.services.ai.tools import ToolContext, bulk_writes, get_tool
-        from marvin.services.ai.tools.categories import category_of
-
-        try:
-            spec = get_tool(name)
-        except KeyError:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Tool '{name}' not found.") from None
-
-        if self._user_role() < spec.min_role:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role for this tool.")
-
-        # Invocation-source gate: tool's declared sources ∩ workspace policy.
-        self._check_invocation_source(body.source, spec.sources)
-
-        # A direct call stands in for the workspace's main agent, so it follows Marvin's permission matrix,
-        # resolved as an agent run resolves it: it runs only what Marvin may run unasked. Block and
-        # "Ask first" answer with a refusal (nobody can approve from here); Allow goes on to the bulk-write /
-        # ask-first gate below.
-        category = category_of(spec.name, read_only=spec.read_only)
-        refusal = unattended_refusal(self._agent_or_404(ROUTER_SLUG), spec.name, category, self._user_role())
-        if refusal is not None:
-            return refusal
-
-        provider = None
-        try:
-            provider = get_workspace_ai_provider(self.session, self.group_id)
-        except Exception:
-            provider = None  # read tools work without a provider; search reports it's unavailable
-
-        ctx = ToolContext(
-            session=self.session,
-            group_id=self.group_id,
-            user=self.user,
-            provider=provider,
-            logger=self.logger,
-        )
-        # A handler raising is not fatal (mirrors the agent loop, which surfaces tool errors to
-        # the model): roll back any poisoned transaction and return a structured error.
-        # Nobody can be asked from here, so a call the agent loop would park for approval — a big bulk
-        # write, or one an ask-first tool flags (archiving a published entry) — answers with its refusal
-        # instead of running.
-        try:
-            raw = bulk_writes.unattended(spec, ctx)(body.args or {})
-        except Exception as e:
-            self.session.rollback()
-            self.logger.warning("AI tool '%s' handler failed: %s", name, e)
-            return {"error": str(e)}
-        # Handlers return a JSON string; hand back a JSON object to the caller.
-        try:
-            return json.loads(raw)
-        except (TypeError, ValueError):
-            return {"result": raw}
+        return invoke_unattended(self.session, self.group_id, self.user, name, body.args, source=body.source, logger=self.logger)
 
     # ── Execute ────────────────────────────────────────────────────────
 
@@ -3215,36 +3154,10 @@ class AIOperationsController(BaseUserController):
         return 0
 
     def _check_invocation_source(self, source: str, operation_sources) -> str:
-        """Gate a call by its invocation surface; returns the source it runs under.
+        """Gate a call by its invocation surface; returns the source it runs under (tool_gateway.check_invocation_source)."""
+        from marvin.services.ai.tool_gateway import check_invocation_source
 
-        Effective allow-list = the operation's declared sources ∩ the workspace's
-        invocation_sources policy. `source` is set by the calling infrastructure (the admin
-        editor sends "editor", the bubble "bubble", the Ask page "ask_page", MarvinMCP "mcp", …), so
-        this is surface/feature gating — the per-user authorization wall is min_role. The
-        workspace policy is an override map: a source is enabled unless explicitly set false,
-        so an unset/None policy allows everything (back-compat). The Ask surfaces are agent chat:
-        an operation declaring `agent` takes them, and past the gate they run as `agent`.
-        """
-        from marvin.services.ai.operations.base import INVOCATION_SOURCES, execution_source, source_allowed
-
-        if source not in INVOCATION_SOURCES:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unknown invocation source '{source}'. Valid: {', '.join(INVOCATION_SOURCES)}.",
-            )
-        runs_as = execution_source(source)
-        if runs_as not in operation_sources:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"This operation cannot be invoked from the '{source}' source.",
-            )
-        settings = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
-        if not source_allowed(settings.invocation_sources if settings else None, source):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"This workspace has disabled AI from the '{source}' source.",
-            )
-        return runs_as
+        return check_invocation_source(self.session, self.group_id, source, operation_sources)
 
     def _max_output_tokens(self) -> int | None:
         """Per-request output-token cap: the workspace's `max_tokens_per_request`, else the app default."""

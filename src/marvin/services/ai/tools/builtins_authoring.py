@@ -35,6 +35,7 @@ def _service(ctx: ToolContext):
 
 @register_tool(
     name="compose_entry",
+    uses_ai=True,
     description=(
         "Create a NEW draft entry of a given type from a brief. Grounds on the workspace's existing "
         "tags + relevant resources/assets and REUSES them (no duplicates). Lands as an inbox draft "
@@ -96,6 +97,7 @@ def compose_entry(ctx: ToolContext, args: dict) -> str:
 
 @register_tool(
     name="revise_entry",
+    uses_ai=True,
     description=(
         "Revise an EXISTING entry in place from an instruction — never recreates it. E.g. 'determine "
         "the tags and attach any relevant resources', or 'tighten the summary'. Reuses existing "

@@ -60,6 +60,7 @@ def list_agents(ctx: ToolContext, _args: dict) -> str:
 
 @register_tool(
     name="run_agent",
+    uses_ai=True,
     description=(
         "Hand a question to another workspace agent (see list_agents / the roster in your instructions) and get "
         "its answer back. Use it when the question belongs to that agent or the user asks for that agent's "
