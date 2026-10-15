@@ -5,7 +5,7 @@
  */
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
-import { getBrowserApiBaseUrl } from "@/lib/api/config";
+import { getBrowserApiBaseUrl, getServerApiBaseUrl } from "@/lib/api/config";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -17,12 +17,22 @@ try {
   /* the placeholder stays */
 }
 
+// The remote MCP server (sign in instead of a token) when this Marvin has it on: its metadata names the URL to add.
+let remoteMcpUrl: string | null = null;
+try {
+  const res = await fetch(`${getServerApiBaseUrl()}/.well-known/oauth-protected-resource/mcp`, { signal: AbortSignal.timeout(3000) });
+  if (res.ok) remoteMcpUrl = ((await res.json()) as { resource?: string }).resource ?? null;
+} catch {
+  /* off or unreachable: only the token setup shows */
+}
+
 const USER_TOKEN = "<your API token>";
 const SITE_TOKEN = "<site client token>";
 
 const cliInstall = "npm install -g @inneropen/marvin-cli";
 const cliLogin = `marvin --api-url ${apiUrl} login --user-token ${USER_TOKEN} --site-token ${SITE_TOKEN} --workspace ${workspaceSlug}`;
 const cliCheck = "marvin user profile show";
+const claudeCodeRemote = remoteMcpUrl ? `claude mcp add --transport http --scope user marvin ${remoteMcpUrl}` : "";
 const claudeCode = [
   "claude mcp add marvin",
   `  --env MARVIN_API_URL=${apiUrl}`,
@@ -91,8 +101,27 @@ const desktopConfig = JSON.stringify(
       <h3><span class="num">3</span> Connect an AI assistant (MCP)</h3>
       <p>
         The MCP server lets an assistant read and search this workspace and run Marvin's tools as you, within your role.
-        Sign in with the CLI first (step 2): the server reads the site client token it saved.
+        The token setup needs the CLI signed in first (step 2): the server reads the site client token it saved.
       </p>
+      {remoteMcpUrl && (
+        <>
+          <h4>Sign in instead of a token (recommended)</h4>
+          <p>
+            Add <code>{remoteMcpUrl}</code> as a server and sign in with your Marvin login when the assistant asks. You
+            choose one workspace and read-only or read &amp; write; nothing to store or paste. Disconnect it any time on
+            <a href="/user/api-tokens">API Tokens</a>.
+          </p>
+          <div class="cmd"><pre><code>{remoteMcpUrl}</code></pre><button type="button" class="copy" data-copy={remoteMcpUrl}>Copy</button></div>
+          <ul>
+            <li><strong>claude.ai and Claude Desktop:</strong> Settings → Connectors → Add custom connector, paste the address, then Connect.</li>
+            <li><strong>Claude Code:</strong> run the command below, then <code>/mcp</code> → marvin → Authenticate.</li>
+            <li><strong>ChatGPT:</strong> Settings → Apps &amp; Connectors → Create (developer mode for all tools), paste the address.</li>
+          </ul>
+          <div class="cmd"><pre><code>{claudeCodeRemote}</code></pre><button type="button" class="copy" data-copy={claudeCodeRemote}>Copy</button></div>
+          <p class="muted">Use either this or the token setup below for one assistant, not both, or its tools show up twice.</p>
+          <h4>Or with a token</h4>
+        </>
+      )}
       <h4>Claude Code</h4>
       <div class="cmd"><pre><code>{claudeCode}</code></pre><button type="button" class="copy" data-copy={claudeCode}>Copy</button></div>
       <h4>Claude Desktop and other MCP clients</h4>

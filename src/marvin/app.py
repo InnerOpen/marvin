@@ -184,7 +184,11 @@ async def lifespan_fn(_app: FastAPI) -> AsyncGenerator[None, None]:  # Renamed a
     logger.info(loggable_settings)
     logger.info("------ SYSTEM STARTUP COMPLETE ------")
 
-    yield  # Application runs after this point
+    # The remote MCP server's sessions (/mcp) live in a task group that must run for the app's lifetime.
+    from marvin.services.mcp_remote.transport import transport as remote_mcp_transport
+
+    async with remote_mcp_transport.running():
+        yield  # Application runs after this point
 
     # --- Shutdown ---
     logger.info("------ SYSTEM SHUTDOWN INITIATED ------")
@@ -399,6 +403,13 @@ def include_api_routers() -> None:  # Renamed from api_routers for clarity
 
     app.include_router(oauth_router)
     app.include_router(oauth_api_router)  # consent and connected apps, under /api
+
+    # The remote MCP server itself: an ASGI app on a plain Route (a Mount would answer POST /mcp with a 307 to /mcp/).
+    from starlette.routing import Route
+
+    from marvin.services.mcp_remote.transport import transport as remote_mcp_transport
+
+    app.router.routes.append(Route("/mcp", endpoint=remote_mcp_transport, methods=["GET", "POST", "DELETE"]))
     logger.info("API routers included.")
 
 

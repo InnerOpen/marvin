@@ -6,6 +6,7 @@ register → authorize → consent → code → token → /mcp → refresh → r
 
 import base64
 import hashlib
+import json
 import secrets
 import uuid
 from datetime import timedelta
@@ -95,7 +96,21 @@ def ws(db_session):
 
 @pytest.fixture
 def client():
-    return TestClient(app, follow_redirects=False)
+    """The app with the remote MCP sessions running, as its lifespan runs them (without the rest of the lifespan)."""
+    from contextlib import asynccontextmanager
+
+    from starlette.applications import Starlette
+    from starlette.routing import Mount
+
+    from marvin.services.mcp_remote.transport import transport
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        async with transport.running():
+            yield
+
+    with TestClient(Starlette(routes=[Mount("/", app=app)], lifespan=lifespan), follow_redirects=False) as running:
+        yield running
 
 
 def _register(client, **body):
@@ -153,9 +168,35 @@ def _connect(client, user, *, access="read", reg=None):
     return reg, tokens.json()
 
 
-def _mcp(client, token, method="initialize", rpc_id=1):
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
-    return client.post("/mcp", json={"jsonrpc": "2.0", "id": rpc_id, "method": method, "params": {}}, headers=headers)
+MCP_ACCEPT = {"Accept": "application/json, text/event-stream"}
+INIT_PARAMS = {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test", "version": "1"}}
+
+
+def _mcp(client, token, method="initialize", params=None, *, session=None, rpc_id=1):
+    """One JSON-RPC request to /mcp (a notification when rpc_id is None)."""
+    headers = {**MCP_ACCEPT, **({"Authorization": f"Bearer {token}"} if token else {}), **({"mcp-session-id": session} if session else {})}
+    message = {"jsonrpc": "2.0", "method": method, "params": INIT_PARAMS if params is None and method == "initialize" else params or {}}
+    if rpc_id is not None:
+        message["id"] = rpc_id
+    return client.post("/mcp", json=message, headers=headers)
+
+
+def _rpc_body(res) -> dict:
+    """The JSON-RPC answer, from an SSE stream (the last data line) or plain JSON."""
+    assert res.status_code == 200, res.text
+    if res.headers["content-type"].startswith("text/event-stream"):
+        data = [line[5:].strip() for line in res.text.splitlines() if line.startswith("data:")]
+        return json.loads(data[-1])
+    return res.json()
+
+
+def _open_session(client, token) -> str:
+    """initialize + notifications/initialized; returns the session id."""
+    init = _mcp(client, token)
+    assert _rpc_body(init)["result"]["serverInfo"]["name"] == "Marvin"
+    session = init.headers["mcp-session-id"]
+    assert _mcp(client, token, "notifications/initialized", session=session, rpc_id=None).status_code == 202
+    return session
 
 
 # ── the whole flow ───────────────────────────────────────────────────────────
@@ -169,9 +210,9 @@ def test_a_client_signs_in_reaches_mcp_refreshes_and_is_revoked(client, on, ws, 
     assert tokens["access_token"].startswith("marvin_at_") and tokens["refresh_token"].startswith("marvin_rt_")
     assert tokens["scope"] == "marvin:read" and tokens["expires_in"] == 3600
 
-    init = _mcp(client, tokens["access_token"])
-    assert init.status_code == 200 and init.json()["result"]["serverInfo"]["name"] == "Marvin"
-    assert _mcp(client, tokens["access_token"], "tools/list").json()["result"]["tools"] == []
+    session = _open_session(client, tokens["access_token"])
+    tools = _rpc_body(_mcp(client, tokens["access_token"], "tools/list", session=session, rpc_id=2))["result"]["tools"]
+    assert tools and all(t["annotations"]["readOnlyHint"] for t in tools)  # a read-only connection
 
     fresh = client.post("/oauth/token", data={"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"]}, headers=_basic(reg))
     assert fresh.status_code == 200 and fresh.json()["refresh_token"] != tokens["refresh_token"]

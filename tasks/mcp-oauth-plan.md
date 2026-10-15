@@ -540,6 +540,26 @@ Built as planned, with these differences, so later slices start from the code ra
   deleted).
 - Tests: `tests/test_remote_mcp_oauth.py` (29); mutation-checked (PKCE, nonce, reuse revocation each caught).
 
+## Slice 3 as built (2026-10-15)
+
+- `services/mcp_remote/server.py`: the SDK's low-level `Server` (tools, prompts, resources, instructions). Tools are
+  `visible_tools(allow_writes=…)` projected with the real schema (`$schema` stripped, always an object, no
+  `outputSchema`) and hints (`readOnlyHint`, `destructiveHint` for trash/archive, `openWorldHint` for import_asset and
+  run_workflow); calls go through `invoke_unattended`, its HTTP refusals turned into tool errors. Each handler runs in
+  a worker thread with its own DB session and loads the user afresh. Resources are read tools' answers through the
+  same gateway. The 7 prompts are the TS ones, lightly reworded where they named the SDK gap.
+- `services/mcp_remote/transport.py`: the ASGI app at `/mcp` (a plain `Route`, appended in `include_api_routers`),
+  with `StreamableHTTPSessionManager` (stateful, SSE responses, 1 h idle) run in the app lifespan. It checks the
+  switch, the token, the workspace's MCP toggle (403), and binds each session to the grant that opened it (another
+  grant's token → 403; GET/DELETE without a token on a live session are allowed while its grant is good). One log
+  line per request, never a token. DNS-rebinding protection is off: every request carries a bearer and the Host
+  varies (public host, LAN route).
+- **Both scopes work now**, not only read: write grants get the write tools under the matrix (the plan had write in
+  slice 4). Slice 4 keeps `compose_entry` as an extra tool and the per-grant rate limit.
+- `user/cli-and-mcp.astro` shows "Sign in instead of a token" when the API's protected-resource metadata answers.
+- Tests: `tests/test_remote_mcp_server.py` (7, pinned against the whole registry); the slice 2 tests now run
+  through the real transport. Mutation-checked: the list filter, the gateway's scope gate, the session binding.
+
 ## Decisions (Jared, 2026-10-14: "your recommendations for mcp")
 
 All 16 questions below are decided as recommended: consent on admin.iwobble.com behind Access; one workspace per

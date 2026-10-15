@@ -4,7 +4,6 @@
 - GET /oauth/authorize: validate, store the request pending, send the browser to the consent page on the UI host.
 - POST /oauth/token: authorization_code (PKCE S256) and refresh_token (rotating).
 - POST /oauth/revoke: RFC 7009.
-- /mcp: checks the bearer token; until the MCP transport lands (slice 3) it answers initialize with no tools.
 
 Every rejection is logged at warning (a silent 401 costs hours: BrainMCP). No route sets a cookie.
 """
@@ -28,7 +27,6 @@ from marvin.services.mcp_remote.policy import issuer, resource_url
 logger = get_logger(__name__)
 router = APIRouter()
 NO_STORE = {"Cache-Control": "no-store", "Pragma": "no-cache"}
-MCP_PROTOCOL = "2025-06-18"
 
 
 def _on(request: Request):
@@ -189,68 +187,3 @@ async def revoke(request: Request) -> Response:
         if grant is not None:
             limits.announce("mcp_connection_revoked", session, grant, reason="client")
     return Response(status_code=200, headers=NO_STORE)
-
-
-# ── /mcp (the token check; tools arrive with slice 3) ────────────────────────
-
-
-def _challenge(issuer_url: str, *, invalid: bool) -> Response:
-    meta = f"{issuer_url}/.well-known/oauth-protected-resource/mcp"
-    value = f'Bearer resource_metadata="{meta}"' + (', error="invalid_token"' if invalid else "")
-    return JSONResponse({"error": "invalid_token" if invalid else "unauthorized"}, status_code=401, headers={"WWW-Authenticate": value})
-
-
-def _rpc(result_or_error: dict, rpc_id) -> JSONResponse:
-    return JSONResponse({"jsonrpc": "2.0", "id": rpc_id, **result_or_error})
-
-
-@router.api_route("/mcp", methods=["GET", "POST", "DELETE"])
-async def mcp(request: Request) -> Response:
-    issuer_url, _policy = _on(request)
-    header = request.headers.get("authorization") or ""
-    bearer = header[7:].strip() if header.lower().startswith("bearer ") else ""
-    with session_context() as session:
-        grant = svc.verify_access_token(
-            session,
-            bearer,
-            resource=resource_url(issuer_url),
-            on_revoke=lambda g, reason: limits.announce("mcp_connection_revoked", session, g, reason=reason),
-        )
-        if grant is None:
-            logger.warning("remote MCP: /mcp refused (%s)", "bad token" if bearer else "no token")
-            return _challenge(issuer_url, invalid=bool(bearer))
-        grant.last_used_at = svc._now()
-        grant.last_ip = _ip(request)[:64]
-        grant.last_user_agent = (request.headers.get("user-agent") or "")[:300] or None
-        session.commit()
-    if request.method != "POST":
-        return Response(status_code=405, headers={"Allow": "POST"})
-    try:
-        message = await request.json()
-    except json.JSONDecodeError:
-        return _rpc({"error": {"code": -32700, "message": "Parse error"}}, None)
-    if not isinstance(message, dict):
-        return _rpc({"error": {"code": -32600, "message": "Invalid request"}}, None)
-    method, rpc_id = message.get("method"), message.get("id")
-    if rpc_id is None:  # a notification (e.g. notifications/initialized)
-        return Response(status_code=202)
-    if method == "initialize":
-        from marvin import __version__
-
-        asked = (message.get("params") or {}).get("protocolVersion") or MCP_PROTOCOL
-        return _rpc(
-            {
-                "result": {
-                    "protocolVersion": asked,
-                    "capabilities": {"tools": {"listChanged": False}},
-                    "serverInfo": {"name": "Marvin", "version": __version__},
-                    "instructions": "Marvin's tools arrive in the next release; this connection is signed in.",
-                }
-            },
-            rpc_id,
-        )
-    if method == "tools/list":
-        return _rpc({"result": {"tools": []}}, rpc_id)
-    if method == "ping":
-        return _rpc({"result": {}}, rpc_id)
-    return _rpc({"error": {"code": -32601, "message": f"Method not found: {method}"}}, rpc_id)
