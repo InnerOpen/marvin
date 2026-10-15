@@ -82,6 +82,7 @@ def test_search_content_finds_by_meaning_with_no_ai_provider(builtin, db_session
         assert "error" not in out, out
         assert out["results"][0]["entityId"] == str(rows["Rewaxing"].id)
         assert str(stale.id) not in {r["entityId"] for r in out["results"]}
+        assert "get_entry" in out["note"]  # snippets only: the result says where the full text is
     finally:
         from marvin.db.models.groups.ai_embeddings import AIEmbeddingModel
 

@@ -236,7 +236,9 @@ def search_content(ctx: ToolContext, args: dict) -> str:
         r["assets"] = images_by_entry.get(r["entityId"], []) if r["entityType"] == "entry" else []
         if r["entityType"] == "entry":
             r.update(urls_by_entry.get(r["entityId"], {}))
-    return json.dumps({"results": results, "count": len(results)})
+    # Said here, not only in the description: Ask kept searching again for the rest of an entry instead of opening it.
+    note = "Each result is a snippet (at most 400 characters). For the full text, call get_entry (or get_asset / get_resource) with its entityId."
+    return json.dumps({"results": results, "count": len(results), "note": note})
 
 
 # Rows stay lean, so a larger page is affordable — enough to compare a field across a whole type in

@@ -58,8 +58,10 @@ def _entry_type(ctx: ToolContext, ref: str):
     name="compose_entry",
     uses_ai=True,
     description=(
-        "Create a NEW draft entry of a given type from a brief. Grounds on the workspace's existing "
-        "tags + relevant resources/assets and REUSES them (no duplicates). Lands as an inbox draft "
+        "Create a NEW draft entry of a given type from a brief: Marvin's authoring writes it in the workspace's voice, "
+        "following the type's recipe (image roles, linked resources), grounded on existing tags and related content, "
+        "which it REUSES (no duplicates). Use this when the user asks you to write, draft or come up with something; "
+        "use create_draft only to save content the user gave word for word. Lands as an inbox draft "
         "for review. To change an existing entry, use revise_entry instead of recreating it. When the new entry should "
         "link to other entries, put each one's `url` (from find_entries / get_entry) in the brief. The result's "
         "reviewLink is a finished markdown link — give it to the user verbatim; never build a URL yourself."
@@ -109,7 +111,8 @@ def compose_entry(ctx: ToolContext, args: dict) -> str:
     uses_ai=True,
     description=(
         "Revise an EXISTING entry in place from an instruction — never recreates it. E.g. 'determine "
-        "the tags and attach any relevant resources', or 'tighten the summary'. Reuses existing "
+        "the tags and attach any relevant resources', or 'tighten the summary'. For an exact value the user gave "
+        "('set the price to 450'), use update_draft instead. Reuses existing "
         "tags/resources. Identify the entry by slug or id. Not for deleting, removing or clearing out entries — "
         "use trash_entries (or archive_entries to retire one). The result's reviewLink is a finished markdown "
         "link — give it to the user verbatim; never build a URL yourself."
@@ -169,7 +172,9 @@ def _draft_service(ctx: ToolContext):
 @register_tool(
     name="create_draft",
     description=(
-        "Save a NEW inbox draft whose content YOU wrote (compose_entry has Marvin's own AI write it instead). Before "
+        "Save a NEW inbox draft with content already written: what the user gave word for word, or (for an assistant "
+        "connected over MCP) what you wrote yourself. When the user asks Marvin to write or draft something, use "
+        "compose_entry instead: it applies the workspace's voice and the type's recipe. Before "
         "writing, call get_entry_type for the type's fields (keys, types, required ones, choices) and list_tags; "
         "search_content or find_entries shows how the workspace writes and what to link. Only the type's own fields are "
         "accepted: an unknown key or a value of the wrong type is refused with the reason, so fix it and call again. "
@@ -216,8 +221,9 @@ def create_draft(ctx: ToolContext, args: dict) -> str:
 @register_tool(
     name="update_draft",
     description=(
-        "Change some fields of an inbox, draft or needs-review entry with values YOU wrote: only what you pass changes "
-        "(revise_entry has Marvin's own AI rewrite it from an instruction instead). Field keys and types from "
+        "Change some fields of an inbox, draft or needs-review entry to exact values (what the user gave, or what an "
+        "assistant connected over MCP wrote itself): only what you pass changes. To improve or rewrite from an "
+        "instruction ('tighten the intro'), use revise_entry. Field keys and types from "
         "get_entry_type; tags and resources are added. Published or approved entries are refused. Under the workspace's "
         "approval policy the change is applied, or staged for a person to approve (outcome 'staged'). The result's "
         "reviewLink is a finished markdown link — give it to the user verbatim."
