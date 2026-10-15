@@ -1943,6 +1943,54 @@ CATALOG: list[CatalogEntry] = [
         ],
     ),
     CatalogEntry(
+        event_type="mcp_connection_authorized",
+        name="MCP App Connected",
+        description="A user let an MCP app (claude.ai, ChatGPT, Claude Code…) use Marvin as them in one workspace.",
+        category="Security",
+        sent_by=["The remote MCP consent page (Approve)"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("client_name", "What the app calls itself (unverified)", "Claude", type="name"),
+            EventVariable("redirect_host", "Where the approval went back to", "claude.ai"),
+            EventVariable("access", "read or write", "read"),
+            EventVariable("workspace_name", "The workspace it can use", "Mash & Burn Co", type="name"),
+            EventVariable("user_name", "The user it acts as", "Jane Smith", type="name"),
+            EventVariable("reason", "Why it was revoked", "user"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="mcp_connection_revoked",
+        name="MCP App Disconnected",
+        description="An MCP app's access was revoked: by its user, an admin, or Marvin (membership lost, a reused token, a dev refresh).",
+        category="Security",
+        sent_by=["Connected apps (Revoke)", "Admin → Connected apps", "Marvin itself"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("client_name", "What the app calls itself (unverified)", "Claude", type="name"),
+            EventVariable("redirect_host", "Where the approval went back to", "claude.ai"),
+            EventVariable("access", "read or write", "read"),
+            EventVariable("workspace_name", "The workspace it can use", "Mash & Burn Co", type="name"),
+            EventVariable("user_name", "The user it acts as", "Jane Smith", type="name"),
+            EventVariable("reason", "Why it was revoked", "user"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="mcp_token_reuse_detected",
+        name="MCP Token Reused",
+        description="An MCP app presented a refresh token that had already been used; a copy may be elsewhere, so its access was revoked.",
+        category="Security",
+        sent_by=["The remote MCP token endpoint"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("client_name", "What the app calls itself (unverified)", "Claude", type="name"),
+            EventVariable("redirect_host", "Where the approval went back to", "claude.ai"),
+            EventVariable("access", "read or write", "read"),
+            EventVariable("workspace_name", "The workspace it can use", "Mash & Burn Co", type="name"),
+            EventVariable("user_name", "The user it acts as", "Jane Smith", type="name"),
+            EventVariable("reason", "Why it was revoked", "user"),
+        ],
+    ),
+    CatalogEntry(
         event_type="storage_public_domain_changed",
         name="Workspace Asset Domain Changed",
         description="A platform admin changed the public domain a workspace's remote-stored assets are served from.",
@@ -2289,6 +2337,9 @@ _PLATFORM_SCOPE: frozenset[str] = frozenset(
         "storage_provider_changed",
         "storage_public_domain_changed",
         "platform_settings_changed",
+        "mcp_connection_authorized",
+        "mcp_connection_revoked",
+        "mcp_token_reuse_detected",
     }
 )
 for _e in CATALOG:

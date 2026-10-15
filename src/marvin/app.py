@@ -395,8 +395,10 @@ def include_api_routers() -> None:  # Renamed from api_routers for clarity
 
     # Remote MCP OAuth discovery (/.well-known/oauth-*), also outside /api: 404 while the platform switch is off.
     from marvin.routes.oauth import router as oauth_router
+    from marvin.routes.oauth.api import router as oauth_api_router
 
     app.include_router(oauth_router)
+    app.include_router(oauth_api_router)  # consent and connected apps, under /api
     logger.info("API routers included.")
 
 

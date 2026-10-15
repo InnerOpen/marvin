@@ -24,6 +24,7 @@ const NODES: NavNode[] = [
   // Platform admin
   { id: "admin", label: "Admin", href: "/admin", title: "Overview" },
   { id: "admin.users", label: "Users", href: "/admin/users", parent: "admin" },
+  { id: "admin.connected-apps", label: "Connected apps", href: "/admin/connected-apps", parent: "admin", title: "Connected MCP apps" },
   { id: "admin.users.new", label: "Create User", href: "/admin/users/new", parent: "admin.users" },
   { id: "admin.users.user", label: "User", href: "/admin/users/[id]", parent: "admin.users" },
   { id: "admin.workspaces", label: "Workspaces", href: "/admin/workspaces", parent: "admin" },

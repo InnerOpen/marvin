@@ -92,7 +92,24 @@ def repause(conn) -> dict[str, int]:
     so the old records are dropped first."""
     if sa.inspect(conn).has_table(PAUSE_TABLE):
         conn.exec_driver_sql(f"DELETE FROM {PAUSE_TABLE}")
+    revoke_copied_mcp_grants(conn)
     return pause_outbound(conn)
+
+
+def revoke_copied_mcp_grants(conn) -> int:
+    """A copy of production carries production's connected MCP apps (and its secret, so their token hashes match):
+    revoke them all and drop their tokens and pending sign-ins, on top of the resource check that already keeps
+    production tokens off the copy (plan §6.1 item 17). Returns the grants revoked."""
+    inspector = sa.inspect(conn)
+    if not inspector.has_table("oauth_grants"):
+        return 0
+    revoked = conn.exec_driver_sql(
+        "UPDATE oauth_grants SET revoked_at = now() AT TIME ZONE 'utc', revoked_reason = 'dev_refresh' WHERE revoked_at IS NULL"
+    ).rowcount
+    conn.exec_driver_sql("DELETE FROM oauth_tokens")
+    conn.exec_driver_sql("DELETE FROM oauth_authorization_requests")
+    log.info("mcp: revoked %d copied connected app(s)", revoked)
+    return revoked
 
 
 def pause(settings: engine.BackupSettings) -> list[str]:

@@ -48,6 +48,10 @@ EXPECTED_PLATFORM = {
     "storage_provider_changed",
     "storage_public_domain_changed",
     "platform_settings_changed",
+    # Remote MCP (2026-10-14): who connected which app, in which workspace — platform security events.
+    "mcp_connection_authorized",
+    "mcp_connection_revoked",
+    "mcp_token_reuse_detected",
 }
 
 # title -> (event_type, whose, workspace, minutes ago)

@@ -521,6 +521,25 @@ Built as planned, with these differences, so later slices start from the code ra
 - Not done in slice 1, as planned: §6.1 item 17 (revoking copied grants on a dev refresh) belongs with slice 2, once
   grants exist.
 
+## Slice 2 as built (2026-10-14)
+
+- `services/mcp_remote/oauth.py` (clients, pending requests, consent, codes, tokens, grants), `redirects.py` (Claude's
+  and ChatGPT's callbacks, loopback any port, policy extras), `limits.py` (in-memory rate limits — one backend process —
+  and the three audit events). Routes: `routes/oauth/authorization.py` (register, authorize, token, revoke, /mcp token
+  check) and `routes/oauth/api.py` (consent API, connected apps self + admin), the consent page
+  `frontend/src/pages/oauth/consent.astro`, Connected apps on `user/api-tokens.astro`, `admin/connected-apps.astro`.
+- The consent nonce is regenerated each time the page loads (only its hash is kept), so approve needs the page the
+  same session just loaded. Approve/deny/GET refuse personal tokens and long-lived JWTs (403).
+- Reuse detection (planned for slice 4) is already on: a rotated refresh token used again after 30 s revokes the grant
+  and sends `mcp_token_reuse_detected`; a code used twice revokes its grant.
+- Rate limits are in memory (register 10/h, authorize 30/h, token failures 20/10 min, per IP) instead of
+  `auth_throttles`; the per-grant /mcp limit stays with slice 4.
+- `/mcp` answers initialize (no tools), tools/list (empty) and ping for a valid token; 401 with `WWW-Authenticate:
+  Bearer resource_metadata=…` otherwise. Membership lost → the grant is revoked on the next call.
+- Dev refresh: `refresh_dev.revoke_copied_mcp_grants` (grants revoked as `dev_refresh`, tokens and pending sign-ins
+  deleted).
+- Tests: `tests/test_remote_mcp_oauth.py` (29); mutation-checked (PKCE, nonce, reuse revocation each caught).
+
 ## Decisions (Jared, 2026-10-14: "your recommendations for mcp")
 
 All 16 questions below are decided as recommended: consent on admin.iwobble.com behind Access; one workspace per

@@ -1,0 +1,153 @@
+---
+/**
+ * Remote MCP consent: an app (claude.ai, ChatGPT, Claude Code…) asks to use Marvin as the signed-in user, in one
+ * workspace. /oauth/authorize on the API host sends the browser here with `?req=`; this page signs the user in if
+ * needed (and Cloudflare Access sits in front of it), shows what the app asks, and posts Approve / Deny to itself,
+ * which answers 303 straight back to the app. No JavaScript is needed. The app's name is what it calls itself; where
+ * the approval goes back to is the verified fact. See tasks/mcp-oauth-plan.md §3.
+ */
+import ThemeInit from "@/components/ThemeInit.astro";
+import "../../styles/global.css";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { requireAuth } from "@/lib/auth";
+
+type Workspace = { id: string; name: string; slug: string; canWrite: boolean; mcpAllowed: boolean };
+type ConsentView = {
+  status: string; clientName: string; redirectHost: string; wantsWrite: boolean; consentNonce: string | null; workspaces: Workspace[];
+};
+
+const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname + Astro.url.search);
+const authToken = getAuthToken(Astro.cookies);
+const ref = Astro.url.searchParams.get("req") ?? "";
+Astro.response.headers.set("X-Frame-Options", "DENY");
+Astro.response.headers.set("Content-Security-Policy", "frame-ancestors 'none'");
+Astro.response.headers.set("Cache-Control", "no-store");
+
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+let error: string | null = null;
+let already = false;
+
+if (Astro.request.method === "POST" && ref) {
+  const form = await Astro.request.formData();
+  const decision = form.get("decision") === "deny" ? "deny" : "approve";
+  try {
+    const res = await fetchApi<{ redirectTo: string | null; already: boolean }>(
+      `/api/oauth/requests/${encodeURIComponent(ref)}/${decision}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ consentNonce: form.get("nonce"), workspaceId: form.get("workspace"), access: form.get("access") ?? "read" }),
+      },
+      authToken,
+    );
+    if (res.redirectTo) return Astro.redirect(res.redirectTo, 303);
+    already = res.already;
+  } catch (e) {
+    error = message(e);
+  }
+}
+
+let view: ConsentView | null = null;
+if (!already && ref) {
+  try {
+    view = await fetchApi<ConsentView>(`/api/oauth/requests/${encodeURIComponent(ref)}`, {}, authToken);
+  } catch (e) {
+    error = error ?? message(e);
+  }
+}
+if (!ref) error = "This page needs a sign-in request. Start the connection from your app.";
+
+const usable = view?.workspaces.filter((w) => w.mcpAllowed) ?? [];
+const first = usable[0];
+const who = user.fullName || user.username;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Connect an app to Marvin</title>
+    <ThemeInit />
+  </head>
+  <body class="consent-body">
+    <main class="consent-card">
+      <h1>Connect an app to Marvin</h1>
+      {already ? (
+        <p>Already approved. You can close this window and go back to your app.</p>
+      ) : !view ? (
+        <p class="consent-error">{error}</p>
+      ) : view.status !== "pending" ? (
+        <p class="consent-error">
+          {view.status === "expired" ? "This sign-in request expired." : `This sign-in request was already ${view.status}.`} Start again from your app.
+        </p>
+      ) : (
+        <>
+        <form method="post" class="consent-form">
+          <p class="consent-lead">
+            <strong>{view.clientName}</strong> <span class="muted">(as it calls itself)</span> wants to use Marvin as
+            <strong>{who}</strong>.
+          </p>
+          <p class="consent-dest">After you approve, you go back to <strong>{view.redirectHost}</strong>.</p>
+          {error && <p class="consent-error">{error}</p>}
+          <input type="hidden" name="nonce" value={view.consentNonce ?? ""} />
+          <label class="field">
+            <span>Workspace</span>
+            <select name="workspace" required>
+              {view.workspaces.map((w) => (
+                <option value={w.id} disabled={!w.mcpAllowed} selected={w.id === first?.id}>
+                  {w.name}{w.mcpAllowed ? "" : " — AI from external MCP hosts is off here"}
+                </option>
+              ))}
+            </select>
+          </label>
+          <fieldset class="field">
+            <legend>Access</legend>
+            <label class="radio"><input type="radio" name="access" value="read" checked /> Read-only</label>
+            <label class="radio">
+              <input type="radio" name="access" value="write" disabled={!view.wantsWrite || !usable.some((w) => w.canWrite)} /> Read &amp; write
+              {!view.wantsWrite ? <span class="muted"> (the app asked for read-only)</span> : <span class="muted"> (needs the Editor role in the workspace)</span>}
+            </label>
+            <small class="muted">Writes make drafts and links; trashing or archiving published entries is always refused here.</small>
+          </fieldset>
+          {usable.length === 0 && <p class="consent-error">None of your workspaces allows AI from external MCP hosts.</p>}
+          <div class="actions">
+            <button type="submit" name="decision" value="approve" class="button" disabled={usable.length === 0}>Approve</button>
+            <button type="submit" name="decision" value="deny" class="button secondary">Deny</button>
+          </div>
+          <p class="muted small">Signed in as {who}. Disconnect apps any time under Profile → API Tokens.</p>
+        </form>
+        <form method="post" action="/api/auth/logout" class="signout">
+          <button type="submit" class="link-button">Not you? Sign out</button>
+        </form>
+        </>
+      )}
+    </main>
+    <script>
+      // Approve or Deny once: a double submit would race the single-use request.
+      document.querySelector<HTMLFormElement>(".consent-form")?.addEventListener("submit", (ev) => {
+        const form = ev.currentTarget as HTMLFormElement;
+        setTimeout(() => form.querySelectorAll("button").forEach((b) => (b.disabled = true)), 0);
+      });
+    </script>
+  </body>
+</html>
+
+<style>
+  .consent-body { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; background: var(--bg); color: var(--ink); }
+  .consent-card { width: 100%; max-width: 480px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 28px; }
+  .consent-card h1 { margin: 0 0 18px; font-size: 22px; }
+  .consent-form { display: grid; gap: 16px; }
+  .consent-lead, .consent-dest { margin: 0; line-height: 1.5; }
+  .consent-dest strong { font-size: 1.05em; }
+  .consent-error { color: var(--color-error, #dc2626); margin: 0; }
+  .field { display: grid; gap: 6px; border: 0; padding: 0; margin: 0; }
+  .field > span, .field legend { font-weight: 600; font-size: 14px; }
+  .field select { padding: 8px; }
+  .radio { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .actions { display: flex; gap: 10px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .small { font-size: 12px; margin: 0; }
+  .signout { margin-top: 10px; }
+  .link-button { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font-size: 12px; }
+</style>

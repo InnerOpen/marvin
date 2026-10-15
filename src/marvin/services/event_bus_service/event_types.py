@@ -439,6 +439,13 @@ class EventTypes(EventTypeBase):
     """A workspace's backup bundle was saved to its own private backup bucket."""
     workspace_backup_failed = auto()
     """A workspace's backup couldn't be saved to its own backup bucket."""
+    mcp_connection_authorized = auto()
+    """A user approved an MCP client (claude.ai, ChatGPT, Claude Code…) to use Marvin as them in one workspace."""
+    mcp_connection_revoked = auto()
+    """An MCP client's access was revoked (by the user, an admin, or Marvin: membership lost, a reused token…)."""
+    mcp_token_reuse_detected = auto()
+    """An MCP client presented a refresh token that had already been used: a copy may be in someone else's hands. Its
+    access was revoked."""
     storage_public_domain_changed = auto()
     """Event dispatched when a platform admin changes the public domain a workspace's remote assets are served from."""
     platform_settings_changed = auto()
@@ -1075,6 +1082,25 @@ class EventWorkspaceBackupData(EventDocumentDataBase):
     """``scheduled`` (the daily bundles task) or ``manual`` (Back up now)."""
     error: str | None = None
     """Why it failed (failed): never a key."""
+
+
+class EventMcpConnectionData(EventDocumentDataBase):
+    """Data payload for `mcp_connection_authorized`, `mcp_connection_revoked` and `mcp_token_reuse_detected`. Never
+    a token, a hash or a client secret."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    grant_id: str
+    client_name: str
+    """What the client calls itself (unverified)."""
+    redirect_host: str
+    """Where the approval was sent back to (verified)."""
+    access: str
+    """``read`` or ``write``."""
+    workspace_id: str
+    workspace_name: str | None = None
+    user_name: str | None = None
+    reason: str | None = None
+    """Why it was revoked: user, admin, membership_lost, reuse_detected, code_reuse, client, dev_refresh."""
 
 
 class EventStorageProviderChangedData(EventDocumentDataBase):
