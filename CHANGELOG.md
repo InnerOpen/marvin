@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.349 (2026-10-15)
+
+### Bug Fixes
+
+- **storage**: The Storage settings page declares its breadcrumb (settings.storage)
+  ([`26375e6`](https://github.com/InnerOpen/marvin/commit/26375e6907883810e41d72815b80c55b6f7987ef))
+
+### Features
+
+- **mcp**: Remote MCP slice 2 — OAuth sign-in, consent page and connected apps
+  ([`d013079`](https://github.com/InnerOpen/marvin/commit/d01307961161229a2899ada97a262401671022d3))
+
+
 ## v1.0.0-rc.348 (2026-10-15)
 
 ### Features
