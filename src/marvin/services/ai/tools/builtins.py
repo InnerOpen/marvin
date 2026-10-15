@@ -263,8 +263,8 @@ from marvin.services.entries.query import WHERE_OPS  # noqa: E402 — the tool s
         "asc|desc} (fields sort numerically when number-like; position = the one collection's own order). group_by = a field "
         "key (or publish_status / entry_type) → counts per value over the whole match. "
         "include_fields / include_metadata = keys whose values to put on each row, so you can compare many entries in one "
-        "call instead of get_entry on each. Returns `count` (true total), `returned`, rows (default 10, max 200; use offset "
-        "to page) and `groups` when grouped. Use `count` to answer 'how many'. A row's `url`, when present, is the entry's "
+        "call instead of get_entry on each. Returns `count` (true total), `returned`, rows with updatedAt / publishedAt (default 10, max 200; "
+        "use offset to page) and `groups` when grouped. Use `count` to answer 'how many'. A row's `url`, when present, is the entry's "
         "page on the workspace's site — use it to link the entry."
     ),
     input_schema={
@@ -369,6 +369,9 @@ def find_entries(ctx: ToolContext, args: dict) -> str:
             "status": e.status,
             "entryType": e.entry_type.slug if e.entry_type else None,
             **_url_field(e, site_url),
+            # The dates a list is sorted and asked about by ("most recently updated", "published last week").
+            "updatedAt": e.update_at.isoformat() if e.update_at else None,
+            "publishedAt": e.published_at.isoformat() if e.published_at else None,
             "assets": assets_by_entry.get(e.id, []),
             "resources": resources_by_entry.get(e.id, []),
             "tags": tags_by_entry.get(e.id, []),

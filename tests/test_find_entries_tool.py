@@ -107,3 +107,11 @@ def test_a_number_or_true_against_a_text_field_just_does_not_match(db_session, s
     # On Postgres a cast of "$450"/"available" to float/boolean would raise; it must simply not match.
     assert _find(db_session, shop, entry_type="artwork", fields={"price": "450"})["count"] == 0
     assert _find(db_session, shop, entry_type="artwork", fields={"status": "true"})["count"] == 0
+
+
+def test_rows_carry_the_dates_a_list_is_sorted_by(db_session, shop):
+    out = _find(db_session, shop, entry_type="artwork", sort={"by": "updated_at", "direction": "desc"})
+
+    stamps = [e["updatedAt"] for e in out["entries"]]
+    assert stamps and all(stamps) and stamps == sorted(stamps, reverse=True)
+    assert all("publishedAt" in e for e in out["entries"])
