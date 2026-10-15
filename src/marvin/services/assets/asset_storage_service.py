@@ -269,7 +269,7 @@ class AssetStorageService(BaseService):
             return self.storage
         from marvin.services.storage.provider_factory import provider_for
 
-        return provider_for(slug)
+        return provider_for(asset)  # the row itself: a workspace bucket is only read for its own workspace
 
     def read_bytes(self, asset) -> bytes:
         """Read an asset's raw bytes (source for a derivation) from the provider it lives in. A bare

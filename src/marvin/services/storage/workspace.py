@@ -241,12 +241,15 @@ def _cached_provider(conn: _Connection, endpoint_policy: str):
     return provider
 
 
-def provider_for_location(location: str, endpoint_policy: str | None = None):
+def provider_for_location(location: str, endpoint_policy: str | None = None, *, group_id: Any = None):
     """The provider a ``ws:<connection id>`` row is read from: its connection, whatever its status (a retired or
-    failing connection still serves the rows already in it). Raises ``StorageConfigError`` when it can't be built."""
+    failing connection still serves the rows already in it). With ``group_id`` (the row's workspace), a connection of
+    another workspace is refused. Raises ``StorageConfigError`` when it can't be built."""
     conn = _load_connection(connection_id_of(location))
     if conn is None:
         raise StorageConfigError(f"workspace storage connection {location!r} no longer exists")
+    if group_id is not None and str(group_id) != conn.group_id:
+        raise StorageConfigError(f"{location} belongs to another workspace")
     if endpoint_policy is None:
         from marvin.db.db_setup import session_context
 

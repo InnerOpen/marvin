@@ -196,7 +196,9 @@ def provider_for(asset: Any) -> BaseStorageProvider:
     if slug and slug.startswith(WORKSPACE_LOCATION_PREFIX):  # a workspace's own bucket (services/storage/workspace.py)
         from .workspace import provider_for_location
 
-        return provider_for_location(slug)
+        # A row is only ever read from its own workspace's bucket (a crafted import can't borrow another's keys).
+        group_id = None if isinstance(asset, str) else getattr(asset, "group_id", None) or getattr(asset, "_group_id", None)
+        return provider_for_location(slug, group_id=group_id)
     settings = _settings()
     if not slug or slug == upload_target(settings).effective:
         return get_storage_provider()
@@ -292,6 +294,10 @@ def public_url_for(slug: str | None, storage_key: str, group_id: Any = None, pro
             if (slug, reason) not in _domain_warned:
                 _domain_warned.add((slug, reason))
                 logger.error(f"storage: workspace {group_id} should be served from {base}, but {reason}; using the provider's own URL")
+    if provider is None and slug and slug.startswith(WORKSPACE_LOCATION_PREFIX):
+        from .workspace import provider_for_location
+
+        provider = provider_for_location(slug, group_id=group_id)
     return (provider or provider_for(slug)).get_public_url(storage_key)
 
 

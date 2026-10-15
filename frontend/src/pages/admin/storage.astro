@@ -1,4 +1,5 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import { getStorageSettings, type StorageSettings } from "@/lib/api/admin/storage";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
@@ -10,9 +11,15 @@ const authToken = getAuthToken(Astro.cookies);
 let storage: StorageSettings | null = null;
 let error: string | null = null;
 let workspacePolicy: { allowed: boolean; endpointPolicy: string } | null = null;
+type WorkspaceBucket = {
+  id: string; workspace: string; workspaceId: string; label: string | null; status: string; inUse: boolean; files: number;
+  inBundles: boolean; lastCheckedAt: string | null; lastError: string | null; settings: Record<string, string>;
+};
+let workspaceBuckets: WorkspaceBucket[] = [];
 try {
   storage = await getStorageSettings(authToken);
   workspacePolicy = await fetchApi<{ allowed: boolean; endpointPolicy: string }>("/api/admin/storage/workspace-policy", {}, authToken).catch(() => null);
+  workspaceBuckets = await fetchApi<WorkspaceBucket[]>("/api/admin/storage/workspace-buckets", {}, authToken).catch(() => []);
 } catch (e) {
   console.error("[admin/storage] Failed to load:", e);
   error = e instanceof Error ? e.message : String(e);
@@ -201,6 +208,24 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
             </label>
             <div><button type="submit" class="button">Save</button> <span class="status-text" role="status" data-policy-status></span></div>
           </form>
+          {workspaceBuckets.length > 0 && (
+            <div class="table-scroll">
+              <table class="table" data-testid="workspace-buckets">
+                <thead><tr><th>Workspace</th><th>Bucket</th><th>Status</th><th>Files</th><th>Last check</th></tr></thead>
+                <tbody>
+                  {workspaceBuckets.map((b) => (
+                    <tr>
+                      <td><a href={`/admin/groups/${b.workspaceId}`}>{b.workspace}</a>{b.inUse && <span class="pill">in use</span>}</td>
+                      <td>{b.label || "—"}<br /><code>{Object.values(b.settings)[0] ?? ""}</code></td>
+                      <td>{b.status}{b.lastError && <><br /><span class="status-text">{b.lastError}</span></>}</td>
+                      <td>{b.files.toLocaleString()}{b.inBundles ? " (in bundles)" : ""}</td>
+                      <td>{b.lastCheckedAt ? <LocalTime iso={b.lastCheckedAt} /> : "never"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
       )}
 

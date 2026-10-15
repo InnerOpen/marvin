@@ -115,8 +115,10 @@ class WorkspaceExporter:
         from datetime import UTC, datetime
 
         from marvin.services.storage.provider_factory import provider_for
+        from marvin.services.storage.workspace import is_workspace_location, provider_for_location
 
         export_data = self.export_workspace(include_system_types=include_system_types)
+        include_own_bucket = self._bundle_includes_own_bucket()
 
         workspace = self.repos.groups.get_one(self.repos.group_id)
         workspace_slug = workspace.slug if workspace else "workspace"
@@ -135,9 +137,16 @@ class WorkspaceExporter:
 
             for asset in export_data["assets"]:
                 storage_key = asset["storageKey"]
+                location = asset.get("storageProvider")
+                if is_workspace_location(location) and not include_own_bucket:
+                    continue  # in the workspace's own bucket: bundles leave those out unless it asks (Workspace → Storage)
                 try:
-                    # Each asset from the provider it lives in (its row's storageProvider).
-                    file_data = provider_for(asset.get("storageProvider")).get(storage_key)
+                    # Each asset from the provider it lives in (its row's storageProvider); a workspace bucket only
+                    # if it is this workspace's.
+                    if is_workspace_location(location):
+                        file_data = provider_for_location(location, group_id=self.repos.group_id).get(storage_key)
+                    else:
+                        file_data = provider_for(location).get(storage_key)
                     zf.writestr(f"files/{storage_key}", file_data.read())
                 except FileNotFoundError:
                     self.logger.warning(f"Asset binary missing from storage, skipping binary: {storage_key}")
@@ -146,6 +155,13 @@ class WorkspaceExporter:
 
         self.logger.info(f"Bundle exported to: {zip_path}")
         return zip_path
+
+    def _bundle_includes_own_bucket(self) -> bool:
+        """Whether this workspace's bundles take the files in its own bucket (Workspace → Storage; off by default)."""
+        from marvin.db.models.groups.storage_settings import WorkspaceStorageSettingsModel
+
+        row = self.repos.session.query(WorkspaceStorageSettingsModel).filter_by(group_id=self.repos.group_id).one_or_none()
+        return bool(row and row.bundle_includes_own_bucket)
 
     def _export_workspace_metadata(self) -> dict[str, Any]:
         """Export workspace metadata.

@@ -119,3 +119,18 @@ class WorkspaceStorageCopyStarted(_MarvinModel):
     task_id: str
     task_slug: str
     message: str
+
+
+class WorkspaceStorageBundleUpdate(_MarvinModel):
+    include: bool
+    """Workspace backup bundles include the files in the workspace's own bucket."""
+
+
+class WorkspaceBucketRead(WorkspaceStorageConnectionRead):
+    """A workspace's bucket, for platform admins."""
+
+    workspace_id: str
+    workspace: str
+    workspace_slug: str
+    in_use: bool = False
+    in_bundles: bool = False

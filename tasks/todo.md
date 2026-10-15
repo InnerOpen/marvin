@@ -1,3 +1,17 @@
+# Bring your own storage — slice 4 (2026-10-14)
+
+Jared: "move on to the next slice". Health task, events, Admin/Backup-health visibility, bundle toggle.
+
+- [x] `consecutive_failures` (migration c6822c311b2b); `workspace_admin.health_check` (2 failures → failing +
+      `workspace_storage_unhealthy`; pass → ok + `workspace_storage_recovered`; never re-verifies keys)
+- [x] Hourly system task `check_workspace_storage` (connections in use + failing ones; None when there are none)
+- [x] Bundle toggle (PUT `/groups/storage-settings/bundle`, page checkbox); exporter skips ws: files unless on
+- [x] Admin: GET `/api/admin/storage/workspace-buckets`, table on Admin → Storage, note on Backup health
+- [x] Guard: a ws: row is only read from its own workspace's connection (provider_for row, public URLs, exporter,
+      attachments, upload service reads)
+- [x] Tests (5): blip/two failures/recovery + events, nothing to say, bundles, cross-workspace refusal, admin list
+- [ ] Full suite; SDK main; push; dev/prod check
+
 # Bring your own storage — slice 3 (2026-10-14)
 
 Jared: "Next slice". Copy existing files into a workspace's bucket (explicit only; originals never deleted).

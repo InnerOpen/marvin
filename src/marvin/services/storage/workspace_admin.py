@@ -225,24 +225,71 @@ def _check_endpoint_now(cls, settings: dict, pol: ws.Policy) -> None:
 # ── checking ─────────────────────────────────────────────────────────────────
 
 
-def check_connection(session, group_id, connection_id) -> dict:
-    """Run the storage check through the connection plus a public-URL fetch; record the outcome on the connection.
-    Returns {ok, steps: [{name, ok, ms, error, code}], checked_at}."""
+def _run_checks(session, conn) -> list[dict]:
+    """The storage check through the connection, then (if it passed) a probe fetched from its public URL: one dict
+    per step, {name, ok, ms, error, code}. Never raises."""
     from marvin.services.storage.healthcheck import check_provider, explain, scrub
 
-    conn = get_connection(session, group_id, connection_id)
     pol = ws.policy(session)
-    steps: list[dict] = []
     try:
         provider = ws.build_connection_provider(ws._snapshot(conn), pol.endpoint_policy, production=ws._production())
     except Exception as e:  # noqa: BLE001 — a connection that can't be built is the check's first failed step
-        steps.append({"name": "connect", "ok": False, "ms": 0.0, "error": str(e), "code": None})
-        return _record(session, conn, steps, ok=False)
+        return [{"name": "connect", "ok": False, "ms": 0.0, "error": str(e), "code": None}]
     result = check_provider(provider, location=ws.location_for(conn.id))
-    steps += [{"name": s.name, "ok": s.ok, "ms": round(s.ms, 1), "error": scrub(s.error), "code": s.code} for s in result.steps]
+    steps = [{"name": s.name, "ok": s.ok, "ms": round(s.ms, 1), "error": scrub(s.error), "code": s.code} for s in result.steps]
     if result.ok:
         steps.append(_public_url_step(provider, explain))
+    return steps
+
+
+def check_connection(session, group_id, connection_id) -> dict:
+    """An owner's check: run the checks and record the outcome at once (verified, or failing). Returns
+    {ok, steps: [{name, ok, ms, error, code}], checked_at}."""
+    conn = get_connection(session, group_id, connection_id)
+    steps = _run_checks(session, conn)
     return _record(session, conn, steps, ok=all(s["ok"] for s in steps))
+
+
+HEALTH_FAILURES_TO_FAIL = 2
+"""Failed hourly checks in a row before a verified connection is marked failing (uploads then stop): one blip isn't."""
+
+
+def health_check(session, conn) -> str | None:
+    """The hourly check of one connection. Returns "unhealthy" when this check marked it failing, "recovered" when it
+    passed again after that, else None. Unlike an owner's check, a pass doesn't re-verify changed keys (the key
+    fingerprint stays as the owner's last check left it)."""
+    steps = _run_checks(session, conn)
+    ok = all(s["ok"] for s in steps)
+    now = datetime.now(UTC).replace(tzinfo=None)
+    conn.last_checked_at = now
+    transition = None
+    if ok:
+        if conn.status == "failing" and conn.verified_at is not None:
+            conn.status, transition = ws.STATUS_OK, "recovered"
+        conn.consecutive_failures, conn.last_error = 0, None
+    else:
+        failed = next(s for s in steps if not s["ok"])
+        conn.last_error = f"{failed['name']}: {failed['error']}"[:500]
+        conn.consecutive_failures = (conn.consecutive_failures or 0) + 1
+        if conn.status == ws.STATUS_OK and conn.consecutive_failures >= HEALTH_FAILURES_TO_FAIL:
+            conn.status, transition = "failing", "unhealthy"
+    session.commit()
+    ws.reset_cache()
+    return transition
+
+
+def connections_to_watch(session) -> list:
+    """The connections the hourly check looks at: every one a workspace uploads through, and any that is failing."""
+    from marvin.db.models.groups.storage_settings import WorkspaceStorageConnectionModel, WorkspaceStorageSettingsModel
+
+    active = {
+        str(cid)
+        for (cid,) in session.query(WorkspaceStorageSettingsModel.active_connection_id).filter(
+            WorkspaceStorageSettingsModel.credential_mode == ws.MODE_WORKSPACE, WorkspaceStorageSettingsModel.active_connection_id.isnot(None)
+        )
+    }
+    rows = session.query(WorkspaceStorageConnectionModel).filter(WorkspaceStorageConnectionModel.status.in_((ws.STATUS_OK, "failing"))).all()
+    return [c for c in rows if str(c.id) in active or c.status == "failing"]
 
 
 def _public_url_step(provider, explain) -> dict:
@@ -281,6 +328,7 @@ def _record(session, conn, steps: list[dict], *, ok: bool) -> dict:
         conn.status = ws.STATUS_OK if ok else "failing"
     if ok:
         conn.verified_at, conn.last_error, conn.credential_fingerprint = now, None, ws.credential_fingerprint(conn)
+        conn.consecutive_failures = 0
     else:
         failed = next((s for s in steps if not s["ok"]), None)
         conn.last_error = f"{failed['name']}: {failed['error']}"[:500] if failed else "failed"
@@ -408,9 +456,7 @@ def copy_plan(session, group_id, connection_id) -> dict[str, Any]:
     )
     code = workspace_code(session, group_id)
     embedding = (
-        session.query(sa.func.count(Entries.id))
-        .filter(Entries.group_id == group_id, sa.cast(Entries.data_json, sa.Text).like(f"%{code}/%"))
-        .scalar()
+        session.query(sa.func.count(Entries.id)).filter(Entries.group_id == group_id, sa.cast(Entries.data_json, sa.Text).like(f"%{code}/%")).scalar()
         or 0
     )
     from marvin.db.models.groups.storage_settings import WorkspaceStorageSettingsModel
@@ -462,3 +508,49 @@ def start_copy(session, group_id, user_id, connection_id, *, verify: bool = True
     session.commit()
     workspace = session.get(Groups, group_id)
     return task, workspace
+
+
+def set_bundle_includes_own_bucket(session, group_id, user_id, include: bool) -> None:
+    from marvin.db.models.groups.storage_settings import WorkspaceStorageSettingsModel
+
+    row = session.query(WorkspaceStorageSettingsModel).filter_by(group_id=group_id).one_or_none()
+    if row is None:
+        row = WorkspaceStorageSettingsModel(session=session, group_id=group_id)
+        session.add(row)
+    row.bundle_includes_own_bucket, row.updated_by = bool(include), user_id
+    session.commit()
+
+
+def all_workspace_buckets(session) -> list[dict[str, Any]]:
+    """Every workspace's bucket connections for platform admins (Admin → Storage, Backup health): which workspace,
+    status, whether uploads go there, files in it and whether its bundles include them."""
+    import sqlalchemy as sa
+
+    from marvin.db.models.groups import Groups
+    from marvin.db.models.groups.storage_settings import WorkspaceStorageConnectionModel, WorkspaceStorageSettingsModel
+    from marvin.db.models.platform import Assets
+
+    names = {str(g.id): (g.name, g.slug) for g in session.query(Groups).all()}
+    settings = {str(r.group_id): r for r in session.query(WorkspaceStorageSettingsModel).all()}
+    files = dict(
+        session.query(Assets.storage_provider, sa.func.count(Assets.id))
+        .filter(Assets.storage_provider.like(f"{ws.LOCATION_PREFIX}%"))
+        .group_by(Assets.storage_provider)
+        .all()
+    )
+    out = []
+    for c in session.query(WorkspaceStorageConnectionModel).order_by(WorkspaceStorageConnectionModel.created_at).all():
+        row = settings.get(str(c.group_id))
+        name, slug = names.get(str(c.group_id), ("?", "?"))
+        out.append(
+            {
+                **connection_view(c),
+                "workspace_id": str(c.group_id),
+                "workspace": name,
+                "workspace_slug": slug,
+                "in_use": bool(row and row.credential_mode == ws.MODE_WORKSPACE and str(row.active_connection_id) == str(c.id)),
+                "files": int(files.get(ws.location_for(c.id), 0)),
+                "in_bundles": bool(row and row.bundle_includes_own_bucket),
+            }
+        )
+    return out

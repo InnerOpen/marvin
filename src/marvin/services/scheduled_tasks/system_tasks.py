@@ -17,6 +17,7 @@ logger = get_logger(__name__)
 # these system tasks don't care when in the day they run, so they keep the interval.
 _DAILY_SECONDS = 24 * 60 * 60
 _WEEKLY_SECONDS = 7 * _DAILY_SECONDS
+_HOURLY_SECONDS = 60 * 60
 # Scheduled publish/expiry granularity: an entry goes live (or expires) within this of its time.
 _PUBLISHING_INTERVAL_SECONDS = 5 * 60
 
@@ -37,6 +38,18 @@ class SystemTaskDefinition:
 
 
 SYSTEM_SCHEDULED_TASKS: list[SystemTaskDefinition] = [
+    SystemTaskDefinition(
+        slug="check_workspace_storage",
+        name="Check Workspace Storage",
+        task_type="check_workspace_storage",
+        description=(
+            "Check the buckets workspaces keep their own files in (list, put, get, delete, public URL). Two failures in a "
+            "row mark a bucket failing (its workspace's uploads stop) and tell the workspace; it recovers on its own. "
+            "Admin-only; runs hourly."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _HOURLY_SECONDS},
+    ),
     SystemTaskDefinition(
         slug="prune_workflow_runs",
         name="Prune Workflow Runs",

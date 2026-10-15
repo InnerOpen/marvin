@@ -12,6 +12,7 @@ from marvin.routes._base.base_controllers import BaseUserController
 from marvin.routes._base.checks import require_workspace_admin, require_workspace_role
 from marvin.routes._base.controller import controller
 from marvin.schemas.group.storage_settings import (
+    WorkspaceStorageBundleUpdate,
     WorkspaceStorageConnectionCheck,
     WorkspaceStorageConnectionCreate,
     WorkspaceStorageConnectionRead,
@@ -189,6 +190,15 @@ class StorageSettingsController(BaseUserController):
             entity_type="workspace",
         )
         return WorkspaceStorageCopyStarted(task_id=str(task.id), task_slug=task.slug, message=f"Copying started: see the task '{task.name}'")
+
+    @router.put("/bundle", response_model=WorkspaceStorageRead, summary="Include the Bucket's Files in Backup Bundles")
+    def set_bundle(self, data: WorkspaceStorageBundleUpdate) -> WorkspaceStorageRead:
+        """Whether this workspace's backup bundles include the files in its own bucket (off by default: they can be
+        large, and the bucket is its owner's to back up). Files on the platform's storage are always included."""
+        self._require_owner()
+        admin.set_bundle_includes_own_bucket(self.session, self.group_id, self.user.id, data.include)
+        self._announce(f"backup bundles {'include' if data.include else 'leave out'} the bucket's files (by {self._name()})")
+        return self._read()
 
     @router.put("/mode", response_model=WorkspaceStorageRead, summary="Choose Where the Workspace's Uploads Go")
     def set_mode(self, data: WorkspaceStorageModeUpdate) -> WorkspaceStorageRead:

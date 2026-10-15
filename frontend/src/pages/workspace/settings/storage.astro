@@ -16,7 +16,7 @@ type Connection = {
   lastError: string | null; retiredAt: string | null; files: number;
 };
 type Storage = {
-  policy: { allowed: boolean; endpointPolicy: string }; mode: string; activeConnectionId: string | null;
+  policy: { allowed: boolean; endpointPolicy: string }; mode: string; activeConnectionId: string | null; bundleIncludesOwnBucket: boolean;
   providers: Provider[]; connections: Connection[]; platformFiles: number; canEdit: boolean;
 };
 
@@ -136,6 +136,23 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
           </ul>
         )}
       </section>
+
+      {data.connections.some((c) => c.files > 0 || c.status !== "retired") && (
+        <section class="section-card">
+          <div class="section-title">
+            <h3>Backups</h3>
+            <p>
+              The platform's backups don't hold files kept in your own bucket: back the bucket up yourself (R2 and S3 can
+              copy a bucket on a schedule). Workspace backup bundles can include them, which makes bundles larger.
+            </p>
+          </div>
+          <label class="bundle-row">
+            <input type="checkbox" id="bundle-include" checked={data.bundleIncludesOwnBucket} disabled={!canEdit} />
+            <span>Include the files in my own bucket in this workspace's backup bundles</span>
+            <span class="form-status" data-bundle-status></span>
+          </label>
+        </section>
+      )}
 
       {canEdit && data.providers.length > 0 && (
         <section class="section-card">
@@ -340,6 +357,21 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
     }),
   );
 
+  const bundleBox = document.getElementById("bundle-include") as HTMLInputElement | null;
+  bundleBox?.addEventListener("change", async () => {
+    const status = document.querySelector<HTMLElement>("[data-bundle-status]");
+    bundleBox.disabled = true;
+    try {
+      await fetchApi(`${BASE}/bundle`, { method: "PUT", body: JSON.stringify({ include: bundleBox.checked }) });
+      if (status) status.textContent = "Saved";
+    } catch (e) {
+      bundleBox.checked = !bundleBox.checked;
+      if (status) status.textContent = message(e);
+    } finally {
+      bundleBox.disabled = false;
+    }
+  });
+
   document.querySelectorAll<HTMLButtonElement>("[data-retire]").forEach((button) =>
     button.addEventListener("click", async () => {
       button.disabled = true;
@@ -380,6 +412,7 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
   .connection-fields dt { color: var(--muted); }
   .connection-fields dd { margin: 0; overflow-wrap: anywhere; }
   .connection-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .bundle-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; }
   .copy-plan { margin-top: 10px; padding: 12px; border: 1px dashed var(--line); border-radius: var(--radius); font-size: 13px; display: grid; gap: 8px; justify-items: start; }
   .copy-plan p { margin: 0; line-height: 1.5; }
   .check-steps { margin: 10px 0 0; padding-left: 0; list-style: none; font-size: 13px; display: grid; gap: 4px; }

@@ -53,6 +53,8 @@ class WorkspaceStorageConnectionModel(SqlAlchemyBase, BaseMixins):
     verified_at: Mapped[datetime | None] = mapped_column(NaiveDateTime, nullable=True)
     last_checked_at: Mapped[datetime | None] = mapped_column(NaiveDateTime, nullable=True)
     last_error: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    # Failed health checks in a row (the hourly check_workspace_storage task); two mark the connection failing.
+    consecutive_failures: Mapped[int] = mapped_column(sa.Integer, default=0, nullable=False, server_default="0")
     # HMAC of the resolved keys when last verified: a later mismatch means the keys changed unverified.
     credential_fingerprint: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     # Bumped on every edit; the built provider is cached by (id, version).

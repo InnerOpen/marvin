@@ -431,6 +431,10 @@ class EventTypes(EventTypeBase):
     """Copying a workspace's existing files into its own bucket started: how many files and how much data."""
     workspace_storage_copy_finished = auto()
     """Copying into a workspace's own bucket finished: how many moved, were already there or failed (failures listed)."""
+    workspace_storage_unhealthy = auto()
+    """A workspace's own bucket failed its hourly check twice in a row and was marked failing: uploads stop."""
+    workspace_storage_recovered = auto()
+    """A workspace's own bucket that was failing passed its hourly check again: uploads go there again."""
     storage_public_domain_changed = auto()
     """Event dispatched when a platform admin changes the public domain a workspace's remote assets are served from."""
     platform_settings_changed = auto()
@@ -1038,6 +1042,19 @@ class EventWorkspaceStorageCopyData(EventDocumentDataBase):
     """Each failed file: {asset_id, error}."""
     copied_bytes: int = 0
     started_by_name: str | None = None
+
+
+class EventWorkspaceStorageHealthData(EventDocumentDataBase):
+    """Data payload for `workspace_storage_unhealthy` and `workspace_storage_recovered`."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    connection_id: str
+    location: str
+    """``ws:<connection id>``."""
+    bucket_label: str | None = None
+    error: str | None = None
+    """Why the last check failed (unhealthy): the failing step and its plain explanation, never a key."""
+    consecutive_failures: int = 0
 
 
 class EventStorageProviderChangedData(EventDocumentDataBase):

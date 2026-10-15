@@ -1885,6 +1885,34 @@ CATALOG: list[CatalogEntry] = [
         ],
     ),
     CatalogEntry(
+        event_type="workspace_storage_unhealthy",
+        name="Workspace Bucket Failing",
+        description="The workspace's own bucket failed its hourly check twice in a row: uploads stop until it passes again.",
+        category="Assets",
+        sent_by=["The hourly Check Workspace Storage system task"],
+        triggerable=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("bucket_label", "The bucket's name in Marvin", "Our R2 bucket", type="name"),
+            EventVariable("location", "ws:<connection id>", "ws:561e4c27-9cd3-4178-bae9-a1973bb85403"),
+            EventVariable("error", "Why the check failed", "put: the key is invalid or revoked (InvalidAccessKeyId)", type="error"),
+            EventVariable("consecutive_failures", "Failed checks in a row", "2", type="count"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="workspace_storage_recovered",
+        name="Workspace Bucket Working Again",
+        description="The workspace's own bucket passed its hourly check after failing: uploads go there again.",
+        category="Assets",
+        sent_by=["The hourly Check Workspace Storage system task"],
+        triggerable=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("bucket_label", "The bucket's name in Marvin", "Our R2 bucket", type="name"),
+            EventVariable("location", "ws:<connection id>", "ws:561e4c27-9cd3-4178-bae9-a1973bb85403"),
+        ],
+    ),
+    CatalogEntry(
         event_type="storage_public_domain_changed",
         name="Workspace Asset Domain Changed",
         description="A platform admin changed the public domain a workspace's remote-stored assets are served from.",

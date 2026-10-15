@@ -13,7 +13,7 @@ from pydantic import UUID4
 
 from marvin.routes._base import BaseAdminController, controller
 from marvin.schemas.admin.storage import StorageCheckResult, StorageSettingsRead, StorageSettingsUpdate, StorageWorkspaceUpdate
-from marvin.schemas.group.storage_settings import WorkspaceStoragePolicyRead, WorkspaceStoragePolicyUpdate
+from marvin.schemas.group.storage_settings import WorkspaceBucketRead, WorkspaceStoragePolicyRead, WorkspaceStoragePolicyUpdate
 from marvin.services.event_bus_service.event_types import (
     EventOperation,
     EventPlatformSettingsChangedData,
@@ -91,6 +91,15 @@ class AdminStorageController(BaseAdminController):
         if previous != url:
             self._announce_domain(workspace_id, name, previous, url)
         return self._read()
+
+    @router.get("/workspace-buckets", response_model=list[WorkspaceBucketRead], summary="Admin: List Workspaces' Own Buckets")
+    def list_workspace_buckets(self) -> list[WorkspaceBucketRead]:
+        """Every bucket a workspace connected for its own files: its status and last check, whether uploads go there,
+        how many files are in it, and whether the workspace's bundles include them. These buckets aren't in the
+        platform's asset backups."""
+        from marvin.services.storage.workspace_admin import all_workspace_buckets
+
+        return [WorkspaceBucketRead.model_validate(b) for b in all_workspace_buckets(self.session)]
 
     @router.get("/workspace-policy", response_model=WorkspaceStoragePolicyRead, summary="Admin: Get the Workspace Storage Policy")
     def get_workspace_policy(self) -> WorkspaceStoragePolicyRead:

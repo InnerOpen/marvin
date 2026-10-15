@@ -46,7 +46,19 @@ AWS S3 and Backblaze B2 work the same way: leave the endpoint empty for AWS (and
   to: its files keep serving.
 - **The platform's own bucket can't be used** as a workspace bucket, whatever keys or prefix.
 - **Usage**: the page counts each bucket's files. Files in a workspace's own bucket don't count toward the platform's
-  storage, and they aren't in the platform's asset backups: the bucket is its owner's to back up.
+  storage, and they aren't in the platform's asset backups: the bucket is its owner's to back up. **Backups** on the
+  page decides whether the workspace's backup bundles include them (off by default: bundles grow, and egress is the
+  owner's); files on the platform's storage are always in them.
+- **Hourly checks**: the system task **Check Workspace Storage** checks every bucket a workspace uploads to (and any
+  marked failing) the way **Check connection** does. One failure is a blip and changes nothing; two in a row mark the
+  bucket failing, which pauses that workspace's uploads with a plain message and sends `workspace_storage_unhealthy`
+  to the workspace; the first pass after that marks it working again and sends `workspace_storage_recovered`. A check
+  never re-verifies keys: after a key change, an owner checks the connection.
+- **Platform admins** see every workspace's buckets (status, last check, files, whether uploads go there, whether its
+  bundles include them) on **Admin → Storage**, and **Admin → Backup health** lists the workspaces whose files the
+  platform's asset backups don't reach.
+- **A file is only ever read from its own workspace's bucket**: a file record pointing at another workspace's bucket
+  (a hand-edited bundle, say) is refused rather than read with that workspace's keys.
 - **Changes are audited**: switching where uploads go is a `storage_provider_changed` event (platform admins are
   notified, as for the platform's own storage switch), adding, changing or retiring a bucket is
   `workspace_settings_changed` (`storage`), and the platform switch is `platform_settings_changed`
@@ -58,6 +70,8 @@ AWS S3 and Backblaze B2 work the same way: leave the endpoint empty for AWS (and
 - `POST /api/groups/storage-settings/connections`: add a bucket (`pluginSlug`, `label`, `settings`, `secretRefs`).
 - `PATCH /api/groups/storage-settings/connections/{id}`, `POST …/{id}/check`, `POST …/{id}/retire`.
 - `PUT /api/groups/storage-settings/mode`: `{"mode": "platform"}` or `{"mode": "workspace", "connectionId": …}`.
+- `PUT /api/groups/storage-settings/bundle`: `{"include": true}` puts the bucket's files in backup bundles (OWNER).
+- `GET /api/admin/storage/workspace-buckets`: every workspace's buckets (super admins).
 - `GET` / `PUT /api/admin/storage/workspace-policy`: `{"allowed": …, "endpointPolicy": "known" | "public" | "any"}`
   (super admins).
 

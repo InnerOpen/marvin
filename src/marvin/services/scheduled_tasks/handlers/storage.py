@@ -94,3 +94,60 @@ def _announce_finished(event_bus, task: ScheduledTaskModel, location: str, label
 
 
 TaskHandlerRegistry.register("copy_to_workspace_storage", CopyToWorkspaceStorageHandler)
+
+
+class CheckWorkspaceStorageHandler(ScheduledTaskHandler):
+    """
+    Check every workspace bucket in use (and any marked failing): list, put, get and delete a tiny object, then
+    fetch one from its public URL. Two failures in a row mark a bucket failing (uploads stop, with a plain message)
+    and send workspace_storage_unhealthy to its workspace; a pass after that marks it working again and sends
+    workspace_storage_recovered. Admin-only; runs hourly.
+    """
+
+    name = "Check Workspace Storage"
+    description = "Check the buckets workspaces keep their files in; mark failing ones and tell their workspaces (admin only)"
+    admin_only = True
+
+    def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
+        from marvin.db.db_setup import session_context
+        from marvin.services.event_bus_service.event_types import EventOperation, EventTypes, EventWorkspaceStorageHealthData
+        from marvin.services.storage import workspace as ws
+        from marvin.services.storage import workspace_admin as admin
+
+        if task.group_id:
+            return "Skipped: check_workspace_storage is admin-only and cannot run in a workspace context"
+        bus = event_bus or EventBusService(bg_tasks=None)
+        changes: list[str] = []
+        failing = 0
+        with session_context() as session:
+            conns = admin.connections_to_watch(session)
+            for conn in conns:
+                transition = admin.health_check(session, conn)
+                failing += conn.status == "failing"
+                if transition is None:
+                    continue
+                unhealthy = transition == "unhealthy"
+                where = conn.label or "the workspace bucket"
+                changes.append(f"{where}: {'failing' if unhealthy else 'working again'}")
+                bus.dispatch(
+                    integration_id="workspace_storage",
+                    group_id=conn.group_id,
+                    event_type=EventTypes.workspace_storage_unhealthy if unhealthy else EventTypes.workspace_storage_recovered,
+                    document_data=EventWorkspaceStorageHealthData(
+                        operation=EventOperation.update,
+                        connection_id=str(conn.id),
+                        location=ws.location_for(conn.id),
+                        bucket_label=conn.label,
+                        error=conn.last_error if unhealthy else None,
+                        consecutive_failures=conn.consecutive_failures or 0,
+                    ),
+                    message=(f"{where} is failing its checks: uploads are paused ({conn.last_error})" if unhealthy else f"{where} works again"),
+                    entity_id=conn.group_id,
+                    entity_type="workspace",
+                )
+        if not conns:
+            return None  # no workspace keeps its own bucket: nothing to report
+        return f"Checked {len(conns)} bucket(s): {failing} failing" + (f"; {'; '.join(changes)}" if changes else "")
+
+
+TaskHandlerRegistry.register("check_workspace_storage", CheckWorkspaceStorageHandler)

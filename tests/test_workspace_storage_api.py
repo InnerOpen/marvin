@@ -310,3 +310,118 @@ def test_a_file_that_fails_is_reported_in_the_finished_event_and_fails_the_run(a
     assert [f["asset_id"] for f in finished.failures] == [str(lost.id)] and finished.failures[0]["error"]
     db_session.query(ScheduledTaskModel).filter_by(id=task.id).delete()
     db_session.commit()
+
+
+# ── health, bundles, the cross-workspace guard (slice 4) ─────────────────────
+
+
+def _in_use(owner) -> dict:
+    conn = _verified(owner)
+    owner.put(f"{BASE}/mode", json={"mode": "workspace", "connectionId": conn["id"]})
+    return conn
+
+
+def _check_all(monkeypatch):
+    """Run the hourly task once (as the system task it is), returning its output and the events it sent."""
+    from marvin.services.event_bus_service.event_bus_service import EventBusService
+    from marvin.services.scheduled_tasks import TaskHandlerRegistry
+
+    sent = []
+    monkeypatch.setattr(EventBusService, "dispatch", lambda self, **kw: sent.append(kw))
+    out = TaskHandlerRegistry.get_handler("check_workspace_storage").execute(SimpleNamespace(group_id=None), None)
+    return out, sent
+
+
+@pytest.fixture
+def flaky(monkeypatch):
+    """Health-check writes fail while `broken` is on; ordinary uploads still work."""
+    from marvin.services.storage.healthcheck import HEALTHCHECK_PREFIX
+
+    state = {"broken": False}
+    real_put = BucketProvider.put
+
+    def put(self, storage_key, file_data, content_type, metadata=None):
+        if state["broken"] and storage_key.startswith(HEALTHCHECK_PREFIX):
+            raise OSError("bucket unreachable")
+        return real_put(self, storage_key, file_data, content_type, metadata)
+
+    monkeypatch.setattr(BucketProvider, "put", put)
+    return state
+
+
+def test_one_failed_check_is_a_blip_two_stop_uploads_and_a_pass_restores_them(api, db_session, monkeypatch, flaky):
+    from marvin.services.event_bus_service.event_types import EventTypes
+
+    owner = _as(api.workspace, WorkspaceRole.OWNER)
+    conn = _in_use(owner)
+    flaky["broken"] = True
+
+    out, sent = _check_all(monkeypatch)
+    assert out.startswith("Checked 1 bucket(s): 0 failing") and sent == []
+    assert _upload(db_session, api.workspace.gid, api.workspace.uid).storage_provider == f"ws:{conn['id']}"
+
+    out, sent = _check_all(monkeypatch)
+    assert [e["event_type"] for e in sent] == [EventTypes.workspace_storage_unhealthy]
+    data = sent[0]["document_data"]
+    assert (data.consecutive_failures, data.location) == (2, f"ws:{conn['id']}") and "bucket unreachable" in data.error
+    with pytest.raises(ws_storage.WorkspaceStorageUnavailable, match="no verified connection"):
+        _upload(db_session, api.workspace.gid, api.workspace.uid)
+
+    flaky["broken"] = False
+    out, sent = _check_all(monkeypatch)
+    assert [e["event_type"] for e in sent] == [EventTypes.workspace_storage_recovered]
+    assert _upload(db_session, api.workspace.gid, api.workspace.uid).storage_provider == f"ws:{conn['id']}"
+
+
+def test_with_no_workspace_bucket_the_hourly_check_has_nothing_to_say(api, monkeypatch):
+    assert _check_all(monkeypatch) == (None, [])
+
+
+def test_bundles_leave_the_buckets_files_out_unless_the_workspace_asks(api, db_session, platform, tmp_path):  # noqa: F811
+    import zipfile
+
+    from marvin.repos.all_repositories import get_repositories
+    from marvin.repos.seed.workspace_exporter import WorkspaceExporter
+
+    owner = _as(api.workspace, WorkspaceRole.OWNER)
+    on_platform = _upload(db_session, api.workspace.gid, api.workspace.uid, b"platform")
+    _in_use(owner)
+    in_bucket = _upload(db_session, api.workspace.gid, api.workspace.uid, b"bucket")
+
+    def bundled() -> set[str]:
+        path = WorkspaceExporter(get_repositories(db_session, group_id=api.workspace.gid)).export_workspace_bundle(temp_dir=tmp_path)
+        with zipfile.ZipFile(path) as zf:
+            return {n.removeprefix("files/") for n in zf.namelist() if n.startswith("files/")}
+
+    assert bundled() == {on_platform.storage_key}
+    assert owner.put(f"{BASE}/bundle", json={"include": True}).json()["bundleIncludesOwnBucket"] is True
+    assert bundled() == {on_platform.storage_key, in_bucket.storage_key}
+
+
+def test_a_row_is_never_read_from_another_workspaces_bucket(api, db_session):
+    from marvin.db.models.platform import Assets
+    from marvin.services.storage.provider_factory import provider_for
+    from tests.test_opaque_storage_keys import _drop_workspace, _make_workspace
+
+    owner = _as(api.workspace, WorkspaceRole.OWNER)
+    conn = _in_use(owner)
+    theirs = _upload(db_session, api.workspace.gid, api.workspace.uid, b"private")
+    intruder = _make_workspace(db_session, "Intruder")
+    try:
+        borrowed = SimpleNamespace(storage_provider=f"ws:{conn['id']}", storage_key=theirs.storage_key, group_id=intruder.gid)
+        with pytest.raises(Exception, match="belongs to another workspace"):
+            provider_for(borrowed)
+        own = db_session.get(Assets, theirs.id)
+        with provider_for(own).get(own.storage_key) as fh:
+            assert fh.read() == b"private"
+    finally:
+        _drop_workspace(db_session, intruder)
+
+
+def test_platform_admins_see_every_workspace_bucket(api):
+    owner = _as(api.workspace, WorkspaceRole.OWNER)
+    conn = _in_use(owner)
+    assert _as(api.workspace, WorkspaceRole.OWNER).get("/api/admin/storage/workspace-buckets").status_code == 403
+    rows = _as(api.workspace, WorkspaceRole.OWNER, PlatformRole.SUPER_ADMIN).get("/api/admin/storage/workspace-buckets").json()
+    mine = next(r for r in rows if r["id"] == conn["id"])
+    assert (mine["inUse"], mine["status"], mine["workspaceId"]) == (True, "ok", str(api.workspace.gid))

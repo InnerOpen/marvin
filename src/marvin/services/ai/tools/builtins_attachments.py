@@ -110,7 +110,7 @@ def read_attachment(ctx: ToolContext, args: dict) -> str:
     except (TypeError, ValueError):
         max_chars = DEFAULT_MAX_CHARS
     try:
-        with provider_for(asset.storage_provider).get(asset.storage_key) as fh:
+        with provider_for(asset).get(asset.storage_key) as fh:
             data = fh.read()
         text = extract_text(kind, data, max_chars).strip()
     except Exception as e:  # noqa: BLE001 — an unreadable file is data for the model, never an exception in the loop
