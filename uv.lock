@@ -1180,7 +1180,7 @@ dev = [
 ]
 ldap = [{ name = "python-ldap", specifier = ">=3.4.5" }]
 plugins = [
-    { name = "marvin-ai-anthropic", git = "https://github.com/InnerOpen/marvin-ai-anthropic?rev=v0.2.0" },
+    { name = "marvin-ai-anthropic", git = "https://github.com/InnerOpen/marvin-ai-anthropic?rev=v0.3.0" },
     { name = "marvin-ai-google", git = "https://github.com/InnerOpen/marvin-ai-google?rev=v0.2.0" },
     { name = "marvin-ai-ollama", git = "https://github.com/InnerOpen/marvin-ai-ollama?rev=v0.1.0" },
     { name = "marvin-ai-openai", git = "https://github.com/InnerOpen/marvin-ai-openai?rev=v0.2.0" },
@@ -1198,8 +1198,8 @@ vault = [{ name = "hvac", specifier = ">=2.0" }]
 
 [[package]]
 name = "marvin-ai-anthropic"
-version = "0.2.0"
-source = { git = "https://github.com/InnerOpen/marvin-ai-anthropic?rev=v0.2.0#c1b84c9e2bf7252aab9edf54e6f1749c4febb6cb" }
+version = "0.3.0"
+source = { git = "https://github.com/InnerOpen/marvin-ai-anthropic?rev=v0.3.0#87c152d3c8a5f31d900fbca334d4bb3cb43030b4" }
 dependencies = [
     { name = "anthropic" },
     { name = "marvin-integration-sdk" },
