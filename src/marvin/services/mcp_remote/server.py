@@ -38,6 +38,10 @@ INSTRUCTIONS = (
     "trashing or archiving a published entry is refused."
 )
 
+# Registry tools the remote server offers although they withhold the `mcp` source: compose_entry stays off the
+# local MarvinMCP's list (it has its own marvin_compose_entry), but a remote connection has no other way to create.
+EXTRA_TOOLS = ("compose_entry",)
+
 # Hints only: claude.ai groups tools and asks before the ones that aren't read-only.
 DESTRUCTIVE_TOOLS = frozenset({"trash_entries", "archive_entries"})
 OPEN_WORLD_TOOLS = frozenset({"import_asset", "run_workflow"})
@@ -123,7 +127,7 @@ def list_tools_for(conn: Connection) -> list[types.Tool]:
     from marvin.services.ai.tool_gateway import visible_tools
 
     def run(session, user):
-        return [project_tool(t) for t in visible_tools(session, conn.group_id, user, allow_writes=conn.can_write)] + [SHOW_IMAGE]
+        return [project_tool(t) for t in visible_tools(session, conn.group_id, user, allow_writes=conn.can_write, extra=EXTRA_TOOLS)] + [SHOW_IMAGE]
 
     return _with_user(conn, run)
 
@@ -136,7 +140,9 @@ def call_tool_for(conn: Connection, name: str, args: dict | None) -> dict:
 
     def run(session, user):
         try:
-            return invoke_unattended(session, conn.group_id, user, name, args or {}, source="mcp", allow_writes=conn.can_write, logger=logger)
+            return invoke_unattended(
+                session, conn.group_id, user, name, args or {}, source="mcp", allow_writes=conn.can_write, extra=EXTRA_TOOLS, logger=logger
+            )
         except HTTPException as e:
             return {"error": str(e.detail)}
 

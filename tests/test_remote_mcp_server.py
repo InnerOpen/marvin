@@ -211,3 +211,20 @@ def test_show_image_returns_the_picture_itself_scaled_down(client, on, ws, db_se
     finally:
         db_session.query(Assets).filter(Assets.group_id == owner.gid).delete()
         db_session.commit()
+
+
+def test_compose_entry_is_offered_to_read_and_write_connections_only(client, on, ws):
+    editor = ws(role=WorkspaceRole.EDITOR)
+    _r1, read = _connect(client, editor, access="read")
+    _r2, write = _connect(client, editor, access="write")
+    read_session, write_session = _open_session(client, read["access_token"]), _open_session(client, write["access_token"])
+
+    assert "compose_entry" not in {t["name"] for t in _tools(client, read["access_token"], read_session)}
+    assert "compose_entry" in {t["name"] for t in _tools(client, write["access_token"], write_session)}
+
+    is_error, out = _tool(client, read["access_token"], read_session, "compose_entry", {"entry_type": "page", "brief": "x"})
+    assert is_error and (out["error"] == READ_ONLY_REFUSAL or "policy" in out)
+    # A write connection reaches the authoring service itself (the test workspace has no AI provider), not a
+    # "cannot be invoked from the 'mcp' source" refusal.
+    is_error, out = _tool(client, write["access_token"], write_session, "compose_entry", {"entry_type": "page", "brief": "x"})
+    assert "source" not in out["error"] and "AI provider" in out["error"]

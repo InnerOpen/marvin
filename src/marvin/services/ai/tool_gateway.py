@@ -84,10 +84,10 @@ def is_read_tool(spec: ToolSpec) -> bool:
     return spec.read_only is True and not category_writes(category_of(spec.name, read_only=spec.read_only))
 
 
-def visible_tools(session, group_id, user, *, allow_writes: bool = True) -> list[ToolSpec]:
-    """The registry tools an MCP caller is shown: declared for `mcp`, within its role, not blocked by Marvin's
-    matrix, and (on a read-only connection) read tools only. An "Ask first" tool stays listed: calling it says
-    where it can run."""
+def visible_tools(session, group_id, user, *, allow_writes: bool = True, extra: tuple[str, ...] = ()) -> list[ToolSpec]:
+    """The registry tools an MCP caller is shown: declared for `mcp` (or named in `extra`, tools a caller projects
+    itself although they withhold `mcp`), within its role, not blocked by Marvin's matrix, and (on a read-only
+    connection) read tools only. An "Ask first" tool stays listed: calling it says where it can run."""
     from marvin.services.ai.agents import POLICY_BLOCK, resolve_policy
     from marvin.services.ai.tools import list_tools
     from marvin.services.ai.tools.categories import category_of
@@ -97,7 +97,7 @@ def visible_tools(session, group_id, user, *, allow_writes: bool = True) -> list
     return [
         t
         for t in list_tools()
-        if "mcp" in t.sources
+        if ("mcp" in t.sources or t.name in extra)
         and role >= t.min_role
         and resolve_policy(marvin, t.name, category_of(t.name, read_only=t.read_only), role)[0] != POLICY_BLOCK
         and (allow_writes or is_read_tool(t))
@@ -113,6 +113,7 @@ def invoke_unattended(
     *,
     source: str = "mcp",
     allow_writes: bool = True,
+    extra: tuple[str, ...] = (),
     logger: Any = None,
 ) -> dict:
     """Run one registry tool for a caller nobody can be asked on behalf of, through every gate (module docstring).
@@ -135,7 +136,8 @@ def invoke_unattended(
     if role < spec.min_role:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role for this tool.")
 
-    check_invocation_source(session, group_id, source, spec.sources)
+    # A tool named in `extra` runs from `source` although it withholds it (the remote MCP server's compose_entry).
+    check_invocation_source(session, group_id, source, (*spec.sources, source) if spec.name in extra else spec.sources)
 
     refusal = unattended_refusal(router_agent(session, group_id), spec.name, category_of(spec.name, read_only=spec.read_only), role)
     if refusal is not None:
