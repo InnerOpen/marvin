@@ -99,7 +99,7 @@ plugins = [
     "marvin-storage-s3 @ git+https://github.com/InnerOpen/marvin-storage-s3@v0.3.0",
     # The AI providers: core ships none (slice 5). Same slugs as the old built-ins, so saved settings carry over.
     "marvin-ai-openai @ git+https://github.com/InnerOpen/marvin-ai-openai@v0.2.0",
-    "marvin-ai-anthropic @ git+https://github.com/InnerOpen/marvin-ai-anthropic@v0.3.0",
+    "marvin-ai-anthropic @ git+https://github.com/InnerOpen/marvin-ai-anthropic@v0.3.1",
     "marvin-ai-google @ git+https://github.com/InnerOpen/marvin-ai-google@v0.2.0",
     "marvin-ai-ollama @ git+https://github.com/InnerOpen/marvin-ai-ollama@v0.1.0",
 ]
