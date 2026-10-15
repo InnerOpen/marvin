@@ -39,6 +39,33 @@ def _get_model_or_404(session, model_id: UUID4, provider: AIProviderModel) -> AI
     return row
 
 
+STRUCTURED_CHECK_SCHEMA = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
+
+
+def _check_structured(session, group_id, row, provider, message: str) -> tuple[bool, str]:
+    """Ask the model this workspace actually uses for a tiny structured answer, as tags, summaries and compose do.
+
+    test_connection only proves the key (on the provider's cheapest model). A model can take plain text and still
+    refuse what structured output needs (claude-sonnet-5-5 refused a forced tool choice), which breaks every AI
+    operation; this says so when the model is set up, not on first use. A few tokens.
+    """
+    from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+    from marvin.services.ai.authoring import default_authoring_model
+    from marvin.services.ai.base import Message
+
+    settings = session.query(WorkspaceAISettingsModel).filter_by(group_id=group_id).first()
+    if not (row.is_default or (settings and settings.provider == row.provider_type)) or not getattr(provider, "supports_structured_output", True):
+        return True, message
+    model = default_authoring_model(session, group_id, provider)
+    if not model:
+        return True, message
+    try:
+        provider.complete_structured([Message(role="user", content='Answer with {"ok": true}.')], model, STRUCTURED_CHECK_SCHEMA)
+    except Exception as e:  # noqa: BLE001 — reported to the admin
+        return False, f"{message}. But {model} can't give structured answers, which tags, summaries and compose need: {e}"
+    return True, f"{message}. {model} gives structured answers."
+
+
 @controller(router)
 class AIProvidersController(BaseUserController):
     """Manage workspace AI providers and their models."""
@@ -113,6 +140,8 @@ class AIProvidersController(BaseUserController):
             provider = get_ai_provider(row.provider_type, api_key, row.base_url, row.metadata_json)
             success, message = provider.test_connection()
             models = provider.list_models() if success else []
+            if success:
+                success, message = _check_structured(self.session, self.group_id, row, provider, message)
             return AIProviderTestResult(success=success, message=message, available_models=models)
         except Exception as e:
             return AIProviderTestResult(success=False, message=str(e))
