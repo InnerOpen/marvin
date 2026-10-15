@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.360 (2026-10-15)
+
+### Features
+
+- **ai**: Create_draft and update_draft — save a draft the caller wrote, with no AI of Marvin's
+  ([`4697fa3`](https://github.com/InnerOpen/marvin/commit/4697fa3f1b618388ea202df050c02b1d5e16fa19))
+
+### Testing
+
+- **mcp**: Search_content is listed while there is an embedding model
+  ([`85e3a37`](https://github.com/InnerOpen/marvin/commit/85e3a37b02ca913d9709849098662aff5c0042df))
+
+
 ## v1.0.0-rc.359 (2026-10-15)
 
 ### Features
