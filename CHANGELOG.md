@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.346 (2026-10-15)
+
+### Features
+
+- **storage**: Bring your own storage, slice 4 — hourly bucket checks, backup visibility, bundle
+  switch
+  ([`b5d46fe`](https://github.com/InnerOpen/marvin/commit/b5d46fe7f047643fea8e6d5f9f30e3207cdae1f1))
+
+
 ## v1.0.0-rc.345 (2026-10-15)
 
 ### Features
