@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.353 (2026-10-15)
+
+### Bug Fixes
+
+- **ai**: Marvin-ai-anthropic 0.3.0 — structured output works on claude-sonnet-5-5
+  ([`6269eb8`](https://github.com/InnerOpen/marvin/commit/6269eb8fe992fc807807d13a71ff1936c2d55312))
+
+
 ## v1.0.0-rc.352 (2026-10-15)
 
 ### Features
