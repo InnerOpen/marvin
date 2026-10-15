@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import UploadFile
 from marvin_integration_sdk.storage import Setting, StorageConfigError, StoragePlugin
-from marvin_integration_sdk.storage.memory import MemoryStorageProvider
+from marvin_integration_sdk.storage.memory import MemoryBackupTarget, MemoryStorageProvider
 
 from marvin.services.storage import provider_factory
 from marvin.services.storage import workspace as ws_storage
@@ -46,6 +46,20 @@ class BucketProvider(MemoryStorageProvider):
         return provider
 
 
+class BucketTarget(MemoryBackupTarget):
+    """The stand-in plugin's backup target: a bucket per name, shared across instances."""
+
+    slug = "bucket"
+    buckets: dict = {}
+    settings = (Setting("T_BUCKET", required=True), Setting("T_ENDPOINT"), Setting("T_KEY", secret=True))
+    workspace_settings = (Setting("T_BUCKET", required=True), Setting("T_ENDPOINT"), Setting("T_KEY", secret=True, required=True))
+    endpoint_setting = "T_ENDPOINT"
+
+    @classmethod
+    def from_config(cls, config):
+        return cls.buckets.setdefault(config["T_BUCKET"], cls())
+
+
 @pytest.fixture
 def byo(entry_points, platform, db_session, monkeypatch):  # noqa: F811
     """A workspace, the stand-in plugin installed, its key as a workspace secret, the policy on."""
@@ -53,8 +67,8 @@ def byo(entry_points, platform, db_session, monkeypatch):  # noqa: F811
     from marvin.services.platform_settings import PlatformSettingsService
     from marvin.services.secrets import resolver
 
-    entry_points.append(_EP("bucket", StoragePlugin(slug="bucket", name="Bucket", provider=BucketProvider)))
-    BucketProvider.buckets = {}
+    entry_points.append(_EP("bucket", StoragePlugin(slug="bucket", name="Bucket", provider=BucketProvider, target=BucketTarget)))
+    BucketProvider.buckets, BucketTarget.buckets = {}, {}
     secrets = {"their-key": "k-123", "their-key-id": "id-9"}
     monkeypatch.setattr(resolver, "resolve_secret", lambda slug, group_id=None: secrets.get(slug))
     PlatformSettingsService(db_session).set(ws_storage.POLICY_KEY, {"allowed": True, "allowed_plugins": ["bucket"]})

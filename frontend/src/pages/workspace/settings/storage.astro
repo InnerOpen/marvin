@@ -13,11 +13,12 @@ type Provider = { slug: string; name: string; fields: Field[] };
 type Connection = {
   id: string; pluginSlug: string; label: string | null; location: string; settings: Record<string, string>;
   secretRefs: Record<string, string>; status: string; verifiedAt: string | null; lastCheckedAt: string | null;
-  lastError: string | null; retiredAt: string | null; files: number;
+  lastError: string | null; retiredAt: string | null; files: number; purpose: string;
 };
 type Storage = {
   policy: { allowed: boolean; endpointPolicy: string }; mode: string; activeConnectionId: string | null; bundleIncludesOwnBucket: boolean;
   providers: Provider[]; connections: Connection[]; platformFiles: number; canEdit: boolean;
+  backupProviders: Provider[]; backupConnectionId: string | null; backupKeep: number;
 };
 
 const authToken = getAuthToken(Astro.cookies);
@@ -33,7 +34,9 @@ try {
 
 const STATUS_LABEL: Record<string, string> = { ok: "Verified", unverified: "Not checked yet", failing: "Check failed", retired: "Retired" };
 const live = (data?.connections ?? []).filter((c) => c.status !== "retired");
-const verified = live.filter((c) => c.status === "ok");
+const isBackup = (c: Connection) => c.purpose === "backups";
+const verified = live.filter((c) => c.status === "ok" && !isBackup(c));
+const verifiedBackups = live.filter((c) => c.status === "ok" && isBackup(c));
 const active = data?.connections.find((c) => c.id === data?.activeConnectionId) ?? null;
 const usingOwn = data?.mode === "workspace" && active !== null;
 const canEdit = Boolean(data?.canEdit);
@@ -102,14 +105,16 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
         ) : (
           <ul class="connections">
             {data.connections.map((c) => {
-              const provider = data?.providers.find((p) => p.slug === c.pluginSlug);
+              const provider = (isBackup(c) ? data?.backupProviders : data?.providers)?.find((p) => p.slug === c.pluginSlug);
               return (
                 <li class="connection" data-connection={c.id}>
                   <div class="connection-head">
                     <strong>{c.label || c.location}</strong>
                     <span class:list={["pill", `status-${c.status}`]}>{STATUS_LABEL[c.status] ?? c.status}</span>
+                    {isBackup(c) && <span class="pill">Backups</span>}
                     {c.id === data?.activeConnectionId && data?.mode === "workspace" && <span class="pill">In use</span>}
-                    <span class="muted">{c.files.toLocaleString()} file{c.files === 1 ? "" : "s"}</span>
+                    {c.id === data?.backupConnectionId && <span class="pill">Backups go here</span>}
+                    {!isBackup(c) && <span class="muted">{c.files.toLocaleString()} file{c.files === 1 ? "" : "s"}</span>}
                   </div>
                   <dl class="connection-fields">
                     {Object.entries(c.settings).map(([env, value]) => (<><dt>{fieldLabel(provider, env)}</dt><dd><code>{value}</code></dd></>))}
@@ -122,7 +127,7 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
                   {canEdit && c.status !== "retired" && (
                     <div class="connection-actions">
                       <button type="button" class="button small" data-check={c.id}>Check connection</button>
-                      {c.status === "ok" && <button type="button" class="button secondary small" data-copy-plan={c.id}>Copy existing files here…</button>}
+                      {c.status === "ok" && !isBackup(c) && <button type="button" class="button secondary small" data-copy-plan={c.id}>Copy existing files here…</button>}
                       {!(c.id === data?.activeConnectionId && data?.mode === "workspace") && (
                         <button type="button" class="button secondary small" data-retire={c.id}>Retire</button>
                       )}
@@ -137,24 +142,48 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
         )}
       </section>
 
-      {data.connections.some((c) => c.files > 0 || c.status !== "retired") && (
-        <section class="section-card">
-          <div class="section-title">
-            <h3>Backups</h3>
-            <p>
-              The platform's backups don't hold files kept in your own bucket: back the bucket up yourself (R2 and S3 can
-              copy a bucket on a schedule). Workspace backup bundles can include them, which makes bundles larger.
-            </p>
-          </div>
+      <section class="section-card">
+        <div class="section-title">
+          <h3>Backups</h3>
+          <p>
+            The platform keeps its own backups of this workspace. You can also keep backups yourself, in a private bucket
+            of your own (not one your files are served from): the daily backup goes there too, and you can back up now.
+            Each is the same bundle as Admin → Backups makes, secrets encrypted under the workspace's backup key.
+          </p>
+        </div>
+        <form id="backup-form" class="backup-form">
+          <label class="form-field">
+            <span class="label">Back up to</span>
+            <select name="connection_id" class="input" disabled={!canChoose}>
+              <option value="">Only the platform's backups</option>
+              {verifiedBackups.map((c) => <option value={c.id} selected={c.id === data?.backupConnectionId}>{c.label || c.settings[Object.keys(c.settings)[0]]}</option>)}
+            </select>
+            {verifiedBackups.length === 0 && <small class="help">Add a backup bucket below and check it to choose it here.</small>}
+          </label>
+          <label class="form-field">
+            <span class="label">Keep the newest</span>
+            <input type="number" name="keep" class="input keep-input" min="1" max="90" value={data.backupKeep} disabled={!canEdit} />
+          </label>
+          {canEdit && (
+            <div class="form-actions">
+              <button type="submit" class="button">Save</button>
+              {data.backupConnectionId && <button type="button" class="button secondary" id="backup-now">Back up now</button>}
+              {data.backupConnectionId && <button type="button" class="button secondary" id="backup-list">Show backups</button>}
+              <span class="form-status" data-status></span>
+            </div>
+          )}
+          <ul class="backup-list" data-backup-list hidden></ul>
+        </form>
+        {data.connections.some((c) => !isBackup(c)) && (
           <label class="bundle-row">
             <input type="checkbox" id="bundle-include" checked={data.bundleIncludesOwnBucket} disabled={!canEdit} />
-            <span>Include the files in my own bucket in this workspace's backup bundles</span>
+            <span>Include the files in my own file bucket in this workspace's backup bundles (larger bundles)</span>
             <span class="form-status" data-bundle-status></span>
           </label>
-        </section>
-      )}
+        )}
+      </section>
 
-      {canEdit && data.providers.length > 0 && (
+      {canEdit && (data.providers.length > 0 || data.backupProviders.length > 0) && (
         <section class="section-card">
           <div class="section-title">
             <h3>Add a bucket</h3>
@@ -165,6 +194,13 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
           </div>
           <form id="add-form" class="add-form">
             <label class="form-field">
+              <span class="label">For</span>
+              <select name="purpose" class="input">
+                <option value="assets">Files (served publicly)</option>
+                <option value="backups">Backups (a private bucket)</option>
+              </select>
+            </label>
+            <label class="form-field">
               <span class="label">Storage</span>
               <select name="plugin_slug" class="input">
                 {data.providers.map((p) => <option value={p.slug}>{p.name}</option>)}
@@ -174,8 +210,8 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
               <span class="label">Name</span>
               <input name="label" class="input" placeholder="e.g. Our R2 bucket" maxlength="80" />
             </label>
-            {data.providers.map((p, i) => (
-              <fieldset class="provider-fields" data-provider={p.slug} hidden={i !== 0}>
+            {[...data.providers.map((p) => ({ ...p, purpose: "assets" })), ...data.backupProviders.map((p) => ({ ...p, purpose: "backups" }))].map((p, i) => (
+              <fieldset class="provider-fields" data-provider={`${p.purpose}:${p.slug}`} hidden={i !== 0}>
                 {p.fields.map((f) => f.secret ? (
                   <label class="form-field">
                     <span class="label">{f.label}{f.required && " *"}</span>
@@ -205,6 +241,7 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
 
 <script>
   import { fetchApi } from "@/lib/api/client";
+  import { getApiUrl } from "@/lib/api/config";
 
   const BASE = "/api/groups/storage-settings";
   const say = (form: Element | null, text: string, bad = false) => {
@@ -235,9 +272,14 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
 
   const addForm = document.getElementById("add-form") as HTMLFormElement | null;
   const pluginSelect = addForm?.querySelector<HTMLSelectElement>('select[name="plugin_slug"]');
-  pluginSelect?.addEventListener("change", () => {
-    addForm?.querySelectorAll<HTMLFieldSetElement>("fieldset[data-provider]").forEach((f) => (f.hidden = f.dataset.provider !== pluginSelect.value));
-  });
+  const purposeSelect = addForm?.querySelector<HTMLSelectElement>('select[name="purpose"]');
+  const showFields = () =>
+    addForm?.querySelectorAll<HTMLFieldSetElement>("fieldset[data-provider]").forEach(
+      (f) => (f.hidden = f.dataset.provider !== `${purposeSelect?.value}:${pluginSelect?.value}`),
+    );
+  pluginSelect?.addEventListener("change", showFields);
+  purposeSelect?.addEventListener("change", showFields);
+  showFields();
   addForm?.querySelectorAll<HTMLSelectElement>("[data-secret-select]").forEach((select) => {
     const typed = select.nextElementSibling as HTMLInputElement;
     const sync = () => (typed.hidden = select.value !== "");
@@ -248,7 +290,8 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
   addForm?.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const plugin = pluginSelect?.value ?? "";
-    const fieldset = addForm.querySelector<HTMLFieldSetElement>(`fieldset[data-provider="${plugin}"]`);
+    const purpose = purposeSelect?.value ?? "assets";
+    const fieldset = addForm.querySelector<HTMLFieldSetElement>(`fieldset[data-provider="${purpose}:${plugin}"]`);
     const label = (addForm.querySelector<HTMLInputElement>('input[name="label"]')?.value ?? "").trim();
     const settings: Record<string, string> = {};
     const secretRefs: Record<string, string> = {};
@@ -262,14 +305,14 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
         if (select.value) { secretRefs[env] = select.value; continue; }
         const typed = (select.nextElementSibling as HTMLInputElement).value;
         if (!typed) continue;
-        const base = `STORAGE_${(label || plugin).replace(/[^A-Za-z0-9]+/g, "_")}_${env.replace(/^STORAGE_/, "")}`.toUpperCase().slice(0, 60);
+        const base = `STORAGE_${(label || plugin).replace(/[^A-Za-z0-9]+/g, "_")}_${env.replace(/^(STORAGE|BACKUP)_/, "")}`.toUpperCase().slice(0, 60);
         const created = await fetchApi<{ slug: string }>("/api/groups/secrets", {
           method: "POST",
           body: JSON.stringify({ name: `${label || plugin} ${env}`, slug: base, value: typed, description: "Workspace storage key (Workspace → Storage)" }),
         });
         secretRefs[env] = created.slug;
       }
-      await fetchApi(`${BASE}/connections`, { method: "POST", body: JSON.stringify({ pluginSlug: plugin, label: label || null, settings, secretRefs }) });
+      await fetchApi(`${BASE}/connections`, { method: "POST", body: JSON.stringify({ pluginSlug: plugin, purpose, label: label || null, settings, secretRefs }) });
       location.reload();
     } catch (e) {
       say(addForm, message(e), true);
@@ -357,6 +400,66 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
     }),
   );
 
+  const backupForm = document.getElementById("backup-form") as HTMLFormElement | null;
+  backupForm?.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(backupForm);
+    say(backupForm, "Saving…");
+    try {
+      await fetchApi(`${BASE}/backup-bucket`, { method: "PUT", body: JSON.stringify({ connectionId: fd.get("connection_id") || null, keep: Number(fd.get("keep")) || null }) });
+      location.reload();
+    } catch (e) {
+      say(backupForm, message(e), true);
+    }
+  });
+  document.getElementById("backup-now")?.addEventListener("click", async (ev) => {
+    const button = ev.currentTarget as HTMLButtonElement;
+    button.disabled = true;
+    try {
+      const res = await fetchApi<{ message: string }>(`${BASE}/backups`, { method: "POST" });
+      say(backupForm, `${res.message}. It runs in the background; "Show backups" lists it when done.`);
+    } catch (e) {
+      say(backupForm, message(e), true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  document.getElementById("backup-list")?.addEventListener("click", async () => {
+    const list = document.querySelector<HTMLUListElement>("[data-backup-list]")!;
+    list.hidden = false;
+    list.textContent = "Loading…";
+    try {
+      const backups = await fetchApi<{ key: string; name: string; size: number }[]>(`${BASE}/backups`);
+      list.textContent = backups.length ? "" : "No backups in the bucket yet.";
+      for (const b of backups) {
+        const li = document.createElement("li");
+        const link = document.createElement("button");
+        link.type = "button";
+        link.className = "link-button";
+        link.textContent = b.name;
+        link.addEventListener("click", async () => {
+          link.disabled = true;
+          try {
+            const res = await fetch(getApiUrl(`${BASE}/backups/download?key=${encodeURIComponent(b.key)}`), { credentials: "include" });
+            if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? `HTTP ${res.status}`);
+            const url = URL.createObjectURL(await res.blob());
+            const a = Object.assign(document.createElement("a"), { href: url, download: b.name.split("-").slice(1).join("-") || b.name });
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 10_000);
+          } catch (e) {
+            link.textContent = `${b.name} — ${message(e)}`;
+          } finally {
+            link.disabled = false;
+          }
+        });
+        li.append(link, ` (${mb(b.size)})`);
+        list.appendChild(li);
+      }
+    } catch (e) {
+      list.textContent = message(e);
+    }
+  });
+
   const bundleBox = document.getElementById("bundle-include") as HTMLInputElement | null;
   bundleBox?.addEventListener("change", async () => {
     const status = document.querySelector<HTMLElement>("[data-bundle-status]");
@@ -412,6 +515,10 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
   .connection-fields dt { color: var(--muted); }
   .connection-fields dd { margin: 0; overflow-wrap: anywhere; }
   .connection-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .backup-form { display: grid; gap: 12px; margin-bottom: 14px; }
+  .keep-input { max-width: 120px; }
+  .backup-list { margin: 0; padding-left: 18px; font-size: 13px; display: grid; gap: 4px; }
+  .link-button { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-align: left; }
   .bundle-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; }
   .copy-plan { margin-top: 10px; padding: 12px; border: 1px dashed var(--line); border-radius: var(--radius); font-size: 13px; display: grid; gap: 8px; justify-items: start; }
   .copy-plan p { margin: 0; line-height: 1.5; }

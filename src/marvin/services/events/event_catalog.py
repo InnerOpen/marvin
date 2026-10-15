@@ -1913,6 +1913,36 @@ CATALOG: list[CatalogEntry] = [
         ],
     ),
     CatalogEntry(
+        event_type="workspace_backup_saved",
+        name="Workspace Backup Saved",
+        description="The workspace's backup bundle was saved to its own private backup bucket.",
+        category="Workspaces",
+        sent_by=["The daily Workspace Backup Bundles task", "Back up now (Workspace settings → Storage)"],
+        triggerable=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("bucket_label", "The backup bucket's name in Marvin", "Our backups", type="name"),
+            EventVariable("key", "Where it was saved", "marvin-backups/mash-burn-co/20261014T030000Z-mash-burn-co-backup-2026-10-14.zip"),
+            EventVariable("size", "Its size", "5242880", type="size"),
+            EventVariable("pruned", "Older backups deleted", "1", type="count"),
+            EventVariable("trigger", "scheduled or manual", "scheduled"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="workspace_backup_failed",
+        name="Workspace Backup Failed",
+        description="The workspace's backup couldn't be saved to its own backup bucket.",
+        category="Workspaces",
+        sent_by=["The daily Workspace Backup Bundles task", "Back up now (Workspace settings → Storage)"],
+        triggerable=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("bucket_label", "The backup bucket's name in Marvin", "Our backups", type="name"),
+            EventVariable("error", "Why it failed", "the workspace's backup bucket can't be reached", type="error"),
+            EventVariable("trigger", "scheduled or manual", "scheduled"),
+        ],
+    ),
+    CatalogEntry(
         event_type="storage_public_domain_changed",
         name="Workspace Asset Domain Changed",
         description="A platform admin changed the public domain a workspace's remote-stored assets are served from.",

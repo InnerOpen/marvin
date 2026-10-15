@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from marvin_integration_sdk.storage import StorageConfigError, workspace_settings_problems
+from marvin_integration_sdk.storage import StorageConfigError
 
 from . import registry
 from . import workspace as ws
@@ -66,38 +66,33 @@ def _fixed_envs(provider_cls) -> set[str]:
     return fixed
 
 
-def provider_specs(pol: ws.Policy) -> list[ProviderSpec]:
-    """The installed providers a workspace may use (the policy's plugins with a sound workspace declaration)."""
+def provider_specs(pol: ws.Policy, purpose: str = ws.PURPOSE_ASSETS) -> list[ProviderSpec]:
+    """The installed plugins a workspace may use for ``purpose`` (the policy's plugins with a sound declaration)."""
     out = []
     for slug in pol.allowed_plugins:
         try:
-            plugin = registry.get_plugin(slug, needs="provider")
+            cls = ws.plugin_class(slug, purpose)
+            name = registry.get_plugin(slug, needs="target" if purpose == ws.PURPOSE_BACKUPS else "provider").name
         except StorageConfigError:
-            continue
-        cls = plugin.provider
-        if not cls.workspace_settings or workspace_settings_problems(cls):
             continue
         fixed = _fixed_envs(cls)
         out.append(
             ProviderSpec(
                 slug=slug,
-                name=plugin.name,
+                name=name,
                 fields=[FieldSpec(s.env, s.label or s.env, s.help, s.required, s.secret, s.env in fixed) for s in cls.workspace_settings],
             )
         )
     return out
 
 
-def _provider_cls(slug: str, pol: ws.Policy):
+def _provider_cls(slug: str, pol: ws.Policy, purpose: str = ws.PURPOSE_ASSETS):
     if slug not in pol.allowed_plugins:
         raise WorkspaceStorageError(f"The platform doesn't allow {slug!r} for workspace storage")
     try:
-        cls = registry.get_plugin(slug, needs="provider").provider
+        return ws.plugin_class(slug, purpose)
     except StorageConfigError as e:
         raise WorkspaceStorageError(str(e)) from e
-    if not cls.workspace_settings or workspace_settings_problems(cls):
-        raise WorkspaceStorageError(f"{slug!r} doesn't support workspace buckets")
-    return cls
 
 
 # ── connections ──────────────────────────────────────────────────────────────
@@ -139,17 +134,44 @@ def _secret_slugs(group_id) -> set[str]:
     return set(get_secret_backend().list_slugs(group_id))
 
 
-def create_connection(session, group_id, user_id, *, plugin_slug: str, label: str | None, settings: dict, secret_refs: dict):
+def _refuse_shared_bucket(session, group_id, cls, settings: dict, purpose: str) -> None:
+    """Backups and served files never share a bucket: a backup bucket can't be one of the workspace's file buckets,
+    nor the other way round."""
     from marvin.db.models.groups.storage_settings import WorkspaceStorageConnectionModel
 
+    mine = ws._identity(cls, settings.get)
+    others = session.query(WorkspaceStorageConnectionModel).filter(
+        WorkspaceStorageConnectionModel.group_id == group_id, WorkspaceStorageConnectionModel.purpose != purpose
+    )
+    for other in others:
+        try:
+            if ws.bucket_identity(ws._snapshot(other)) == mine:
+                raise WorkspaceStorageError(
+                    "Backups need their own private bucket: this one is already used for the workspace's files"
+                    if purpose == ws.PURPOSE_BACKUPS
+                    else "This bucket already holds the workspace's backups: files need another one"
+                )
+        except StorageConfigError:
+            continue
+
+
+def create_connection(
+    session, group_id, user_id, *, plugin_slug: str, label: str | None, settings: dict, secret_refs: dict, purpose: str = ws.PURPOSE_ASSETS
+):
+    from marvin.db.models.groups.storage_settings import WorkspaceStorageConnectionModel
+
+    if purpose not in (ws.PURPOSE_ASSETS, ws.PURPOSE_BACKUPS):
+        raise WorkspaceStorageError("purpose must be 'assets' or 'backups'")
     pol = ws.policy(session)
-    cls = _provider_cls(plugin_slug, pol)
+    cls = _provider_cls(plugin_slug, pol, purpose)
     clean_settings, clean_refs = _clean(cls, settings, secret_refs, _secret_slugs(group_id))
     _check_endpoint_now(cls, clean_settings, pol)
+    _refuse_shared_bucket(session, group_id, cls, clean_settings, purpose)
     conn = WorkspaceStorageConnectionModel(
         session=session,
         group_id=group_id,
         plugin_slug=plugin_slug,
+        purpose=purpose,
         label=(label or "").strip()[:MAX_LABEL] or None,
         settings=clean_settings,
         secret_refs=clean_refs,
@@ -166,7 +188,7 @@ def update_connection(session, group_id, connection_id, *, label: str | None = N
     if conn.status == ws.STATUS_RETIRED:
         raise WorkspaceStorageError("This connection is retired; add a new one")
     pol = ws.policy(session)
-    cls = _provider_cls(conn.plugin_slug, pol)
+    cls = _provider_cls(conn.plugin_slug, pol, conn.purpose or ws.PURPOSE_ASSETS)
     fixed = _fixed_envs(cls)
     merged_settings = {**(conn.settings or {}), **(settings or {})}
     merged_refs = {**(conn.secret_refs or {}), **(secret_refs or {})}
@@ -195,6 +217,8 @@ def retire_connection(session, group_id, connection_id):
     row = session.query(WorkspaceStorageSettingsModel).filter_by(group_id=group_id).one_or_none()
     if row and row.credential_mode == ws.MODE_WORKSPACE and str(row.active_connection_id) == str(conn.id):
         raise WorkspaceStorageError("Switch the workspace to another connection or the platform's storage first")
+    if row and str(row.backup_connection_id) == str(conn.id):
+        raise WorkspaceStorageError("Backups go to this bucket: pick another backup bucket or turn own backups off first")
     conn.status, conn.retired_at = ws.STATUS_RETIRED, datetime.now(UTC).replace(tzinfo=None)
     if row and str(row.active_connection_id) == str(conn.id):
         row.active_connection_id = None
@@ -231,15 +255,39 @@ def _run_checks(session, conn) -> list[dict]:
     from marvin.services.storage.healthcheck import check_provider, explain, scrub
 
     pol = ws.policy(session)
+    backups = (conn.purpose or ws.PURPOSE_ASSETS) == ws.PURPOSE_BACKUPS
     try:
-        provider = ws.build_connection_provider(ws._snapshot(conn), pol.endpoint_policy, production=ws._production())
+        if backups:
+            target = ws.build_connection_target(
+                ws._snapshot(conn), pol.endpoint_policy, production=ws._production(), asset_buckets=_asset_buckets(session, conn.group_id)
+            )
+        else:
+            provider = ws.build_connection_provider(ws._snapshot(conn), pol.endpoint_policy, production=ws._production())
     except Exception as e:  # noqa: BLE001 — a connection that can't be built is the check's first failed step
         return [{"name": "connect", "ok": False, "ms": 0.0, "error": str(e), "code": None}]
+    if backups:  # a private bucket: list, put, get, delete — no public URL
+        from marvin.services.storage.healthcheck import check_target
+
+        result = check_target(target)
+        return [{"name": s.name, "ok": s.ok, "ms": round(s.ms, 1), "error": scrub(s.error), "code": s.code} for s in result.steps]
     result = check_provider(provider, location=ws.location_for(conn.id))
     steps = [{"name": s.name, "ok": s.ok, "ms": round(s.ms, 1), "error": scrub(s.error), "code": s.code} for s in result.steps]
     if result.ok:
         steps.append(_public_url_step(provider, explain))
     return steps
+
+
+def _asset_buckets(session, group_id) -> list[tuple]:
+    """(endpoint, bucket) of the workspace's file buckets: its backups may not go to any of them."""
+    from marvin.db.models.groups.storage_settings import WorkspaceStorageConnectionModel
+
+    out = []
+    for c in session.query(WorkspaceStorageConnectionModel).filter_by(group_id=group_id, purpose=ws.PURPOSE_ASSETS):
+        try:
+            out.append(ws.bucket_identity(ws._snapshot(c)))
+        except StorageConfigError:
+            continue
+    return out
 
 
 def check_connection(session, group_id, connection_id) -> dict:
@@ -286,6 +334,12 @@ def connections_to_watch(session) -> list:
         str(cid)
         for (cid,) in session.query(WorkspaceStorageSettingsModel.active_connection_id).filter(
             WorkspaceStorageSettingsModel.credential_mode == ws.MODE_WORKSPACE, WorkspaceStorageSettingsModel.active_connection_id.isnot(None)
+        )
+    }
+    active |= {
+        str(cid)
+        for (cid,) in session.query(WorkspaceStorageSettingsModel.backup_connection_id).filter(
+            WorkspaceStorageSettingsModel.backup_connection_id.isnot(None)
         )
     }
     rows = session.query(WorkspaceStorageConnectionModel).filter(WorkspaceStorageConnectionModel.status.in_((ws.STATUS_OK, "failing"))).all()
@@ -357,6 +411,8 @@ def set_mode(session, group_id, user_id, *, mode: str, connection_id=None) -> tu
         conn = get_connection(session, group_id, connection_id) if connection_id else None
         if conn is None or conn.status != ws.STATUS_OK:
             raise WorkspaceStorageError("Check the connection first: only a verified connection can take uploads")
+        if (conn.purpose or ws.PURPOSE_ASSETS) != ws.PURPOSE_ASSETS:
+            raise WorkspaceStorageError("That bucket is for backups: files need a bucket of their own")
         row.active_connection_id = conn.id
     row.credential_mode, row.updated_by = mode, user_id
     session.commit()
@@ -371,6 +427,7 @@ def connection_view(conn) -> dict[str, Any]:
     return {
         "id": str(conn.id),
         "plugin_slug": conn.plugin_slug,
+        "purpose": conn.purpose or ws.PURPOSE_ASSETS,
         "label": conn.label,
         "location": ws.location_for(conn.id),
         "settings": dict(conn.settings or {}),
@@ -404,6 +461,11 @@ def view(session, group_id) -> dict[str, Any]:
         "active_connection_id": str(row.active_connection_id) if row and row.active_connection_id else None,
         "bundle_includes_own_bucket": bool(row.bundle_includes_own_bucket) if row else False,
         "providers": [{"slug": p.slug, "name": p.name, "fields": [vars(f) for f in p.fields]} for p in provider_specs(pol)],
+        "backup_providers": [
+            {"slug": p.slug, "name": p.name, "fields": [vars(f) for f in p.fields]} for p in provider_specs(pol, ws.PURPOSE_BACKUPS)
+        ],
+        "backup_connection_id": str(row.backup_connection_id) if row and row.backup_connection_id else None,
+        "backup_keep": int(row.backup_keep) if row else 7,
         "connections": [{**connection_view(c), "files": int(usage.get(ws.location_for(c.id), 0))} for c in conns],
         "platform_files": int(sum(n for loc, n in usage.items() if not ws.is_workspace_location(loc))),
     }
@@ -482,6 +544,8 @@ def start_copy(session, group_id, user_id, connection_id, *, verify: bool = True
     from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
 
     conn = get_connection(session, group_id, connection_id)
+    if (conn.purpose or ws.PURPOSE_ASSETS) != ws.PURPOSE_ASSETS:
+        raise WorkspaceStorageError("That bucket is for backups: files are only copied into a file bucket")
     if conn.status != ws.STATUS_OK:
         raise WorkspaceStorageError("Check the connection first: files are only copied into a verified bucket")
     if not ws.policy(session).allowed:
@@ -554,3 +618,82 @@ def all_workspace_buckets(session) -> list[dict[str, Any]]:
             }
         )
     return out
+
+
+# ── the workspace's own backups (slice 5) ────────────────────────────────────
+
+BACKUP_TASK_TYPE = "backup_to_workspace_bucket"
+MAX_BACKUP_KEEP = 90
+
+
+def set_backup_bucket(session, group_id, user_id, *, connection_id, keep: int | None = None) -> None:
+    """Where the workspace's own backups go (a verified backup bucket), or None to stop them; ``keep`` backups stay."""
+    from marvin.db.models.groups.storage_settings import WorkspaceStorageSettingsModel
+
+    row = session.query(WorkspaceStorageSettingsModel).filter_by(group_id=group_id).one_or_none()
+    if row is None:
+        row = WorkspaceStorageSettingsModel(session=session, group_id=group_id)
+        session.add(row)
+    if connection_id:
+        if not ws.policy(session).allowed:
+            raise WorkspaceStorageError("The platform doesn't allow workspace storage")
+        conn = get_connection(session, group_id, connection_id)
+        if (conn.purpose or ws.PURPOSE_ASSETS) != ws.PURPOSE_BACKUPS:
+            raise WorkspaceStorageError("That bucket holds the workspace's files: backups need a private bucket of their own")
+        if conn.status != ws.STATUS_OK:
+            raise WorkspaceStorageError("Check the backup bucket first: backups only go to a verified bucket")
+        row.backup_connection_id = conn.id
+    else:
+        row.backup_connection_id = None
+    if keep is not None:
+        if not 1 <= int(keep) <= MAX_BACKUP_KEEP:
+            raise WorkspaceStorageError(f"Keep between 1 and {MAX_BACKUP_KEEP} backups")
+        row.backup_keep = int(keep)
+    row.updated_by = user_id
+    session.commit()
+
+
+def _on_demand_task(session, group_id, *, slug: str, name: str, description: str, task_type: str, config: dict):
+    """A workspace scheduled task that never runs on a schedule, only when started (Run Now): its history shows how it went."""
+    from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
+
+    task = session.query(ScheduledTaskModel).filter_by(group_id=group_id, slug=slug).one_or_none()
+    if task is None:
+        task = ScheduledTaskModel(
+            session=session,
+            group_id=group_id,
+            name=name,
+            slug=slug,
+            description=description,
+            enabled=False,
+            schedule_type="once",
+            schedule_config={},
+            task_type=task_type,
+            task_config={},
+        )
+        session.add(task)
+    task.name, task.task_config = name, config
+    session.commit()
+    return task
+
+
+def start_backup(session, group_id, user_id):
+    """Back up now: a workspace task that makes the bundle and saves it to the backup bucket. Returns (task, workspace)."""
+    from marvin.db.models.groups import Groups
+
+    from .workspace_backups import WorkspaceBackupError, _target
+
+    try:
+        _target(session, group_id)
+    except WorkspaceBackupError as e:
+        raise WorkspaceStorageError(str(e)) from e
+    task = _on_demand_task(
+        session,
+        group_id,
+        slug="back-up-to-own-bucket",
+        name="Back up to the workspace's bucket",
+        description="Saves a backup of this workspace to its own private backup bucket (Workspace settings → Storage).",
+        task_type=BACKUP_TASK_TYPE,
+        config={"started_by": str(user_id) if user_id else None},
+    )
+    return task, session.get(Groups, group_id)

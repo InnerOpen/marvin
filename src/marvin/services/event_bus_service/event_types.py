@@ -435,6 +435,10 @@ class EventTypes(EventTypeBase):
     """A workspace's own bucket failed its hourly check twice in a row and was marked failing: uploads stop."""
     workspace_storage_recovered = auto()
     """A workspace's own bucket that was failing passed its hourly check again: uploads go there again."""
+    workspace_backup_saved = auto()
+    """A workspace's backup bundle was saved to its own private backup bucket."""
+    workspace_backup_failed = auto()
+    """A workspace's backup couldn't be saved to its own backup bucket."""
     storage_public_domain_changed = auto()
     """Event dispatched when a platform admin changes the public domain a workspace's remote assets are served from."""
     platform_settings_changed = auto()
@@ -1055,6 +1059,22 @@ class EventWorkspaceStorageHealthData(EventDocumentDataBase):
     error: str | None = None
     """Why the last check failed (unhealthy): the failing step and its plain explanation, never a key."""
     consecutive_failures: int = 0
+
+
+class EventWorkspaceBackupData(EventDocumentDataBase):
+    """Data payload for `workspace_backup_saved` and `workspace_backup_failed`."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    bucket_label: str | None = None
+    key: str | None = None
+    """Where it was saved: ``marvin-backups/<workspace>/<stamp>-<bundle>.zip`` (saved)."""
+    size: int = 0
+    pruned: int = 0
+    """Older backups deleted to keep the workspace's chosen number (saved)."""
+    trigger: str = "scheduled"
+    """``scheduled`` (the daily bundles task) or ``manual`` (Back up now)."""
+    error: str | None = None
+    """Why it failed (failed): never a key."""
 
 
 class EventStorageProviderChangedData(EventDocumentDataBase):

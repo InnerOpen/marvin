@@ -64,6 +64,28 @@ AWS S3 and Backblaze B2 work the same way: leave the endpoint empty for AWS (and
   `workspace_settings_changed` (`storage`), and the platform switch is `platform_settings_changed`
   (`workspace_storage`). None of them carries a key.
 
+## Backups in your own bucket
+
+The platform keeps its own backups of every workspace. A workspace can also keep backups itself, in a **private**
+bucket of its own: add a bucket under **Add a bucket** with **For: Backups (a private bucket)**, check it, then choose
+it under **Backups → Back up to** and how many to keep (1 to 90, 7 by default). A backup bucket can't be one the
+workspace's files are served from, nor the platform's own; its check lists, writes, reads and deletes a small file
+(there is no public address to test). Use a key limited to that bucket, and leave public access off.
+
+From then on the daily **Workspace Backup Bundles** task also saves that workspace's bundle there, and **Back up
+now** saves one at once (a workspace task, **Back up to the workspace's bucket**). A backup is the same zip as Admin →
+Backups makes: content, settings and files (files in the workspace's own file bucket only if **Include the files in my
+own file bucket** is on), with secrets encrypted under the workspace's backup key. It is stored as
+`marvin-backups/<workspace>/<UTC time>-<bundle name>.zip`; after each new one only the newest are kept. **Show
+backups** lists them and downloads one (checked against the sha256 it was saved with); import it from Admin →
+Backups with the workspace's backup key. Each save sends `workspace_backup_saved`, each failure
+`workspace_backup_failed` (both workspace events, which workflows can react to), and the hourly check also watches
+the backup bucket.
+
+- `PUT /api/groups/storage-settings/backup-bucket`: `{"connectionId": …, "keep": 7}` (null stops own backups).
+- `GET` / `POST /api/groups/storage-settings/backups`: list them, or back up now (202 with the task).
+- `GET /api/groups/storage-settings/backups/download?key=…`: download one (OWNER).
+
 ## API
 
 - `GET /api/groups/storage-settings`: the page's data (OWNER and ADMIN).

@@ -12,6 +12,9 @@ from marvin.routes._base.base_controllers import BaseUserController
 from marvin.routes._base.checks import require_workspace_admin, require_workspace_role
 from marvin.routes._base.controller import controller
 from marvin.schemas.group.storage_settings import (
+    WorkspaceBackupBucketUpdate,
+    WorkspaceBackupRead,
+    WorkspaceBackupStarted,
     WorkspaceStorageBundleUpdate,
     WorkspaceStorageConnectionCheck,
     WorkspaceStorageConnectionCreate,
@@ -94,6 +97,7 @@ class StorageSettingsController(BaseUserController):
                 label=data.label,
                 settings=data.settings,
                 secret_refs=data.secret_refs,
+                purpose=data.purpose,
             )
         except admin.WorkspaceStorageError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
@@ -199,6 +203,76 @@ class StorageSettingsController(BaseUserController):
         admin.set_bundle_includes_own_bucket(self.session, self.group_id, self.user.id, data.include)
         self._announce(f"backup bundles {'include' if data.include else 'leave out'} the bucket's files (by {self._name()})")
         return self._read()
+
+    @router.put("/backup-bucket", response_model=WorkspaceStorageRead, summary="Choose the Workspace's Own Backup Bucket")
+    def set_backup_bucket(self, data: WorkspaceBackupBucketUpdate) -> WorkspaceStorageRead:
+        """Where the workspace's own backups go: a verified backup bucket (never one its files are served from), or
+        null to stop them; ``keep`` sets how many stay there. The daily bundle task then saves one there each day."""
+        self._require_owner()
+        try:
+            admin.set_backup_bucket(self.session, self.group_id, self.user.id, connection_id=data.connection_id, keep=data.keep)
+        except (admin.WorkspaceStorageError, LookupError, ValueError) as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+        self._announce(f"own backups {'go to a bucket' if data.connection_id else 'turned off'} (by {self._name()})")
+        return self._read()
+
+    @router.get("/backups", response_model=list[WorkspaceBackupRead], summary="List the Workspace's Own Backups")
+    def list_backups(self) -> list[WorkspaceBackupRead]:
+        """The backups in the workspace's own backup bucket, newest first."""
+        self._require_owner()
+        from marvin.services.storage.workspace_backups import WorkspaceBackupError, list_backups
+
+        try:
+            return [WorkspaceBackupRead.model_validate(b) for b in list_backups(self.session, self.group_id)]
+        except WorkspaceBackupError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+
+    @router.post("/backups", response_model=WorkspaceBackupStarted, status_code=status.HTTP_202_ACCEPTED, summary="Back Up Now")
+    def back_up_now(self) -> WorkspaceBackupStarted:
+        """Make the workspace's backup bundle and save it to its own backup bucket, in the background (a workspace
+        task, "Back up to the workspace's bucket", whose history shows the result)."""
+        self._require_owner()
+        try:
+            task, workspace = admin.start_backup(self.session, self.group_id, self.user.id)
+        except admin.WorkspaceStorageError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+        self.event_bus.dispatch(
+            integration_id="workspace_storage",
+            group_id=self.group_id,
+            event_type=EventTypes.scheduled_task_triggered,
+            document_data=EventScheduledTaskData.from_model(task, workspace_name=workspace.name if workspace else None),
+            message=f"Scheduled task '{task.name}' started from Workspace → Storage",
+            entity_id=task.id,
+            entity_type="scheduled_task",
+        )
+        return WorkspaceBackupStarted(task_id=str(task.id), task_slug=task.slug, message=f"Backing up: see the task '{task.name}'")
+
+    @router.get("/backups/download", summary="Download One of the Workspace's Own Backups")
+    def download_backup(self, key: str):
+        """Stream one backup from the workspace's own bucket (checked against the sha256 it was saved with). Import it
+        from Admin → Backups, with the workspace's backup key."""
+        self._require_owner()
+        import tempfile
+        from pathlib import Path
+
+        from fastapi.responses import FileResponse
+        from starlette.background import BackgroundTask
+
+        from marvin.services.storage.workspace_backups import WorkspaceBackupError, fetch_backup
+
+        work = Path(tempfile.mkdtemp(prefix="marvin-own-backup-"))
+        try:
+            path = fetch_backup(self.session, self.group_id, key, work)
+        except WorkspaceBackupError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+        self.logger.info(f"Workspace storage: {self._name()} downloaded own backup {key}")
+
+        def cleanup() -> None:
+            import shutil
+
+            shutil.rmtree(work, ignore_errors=True)
+
+        return FileResponse(path, media_type="application/zip", filename=path.name.split("-", 1)[1], background=BackgroundTask(cleanup))
 
     @router.put("/mode", response_model=WorkspaceStorageRead, summary="Choose Where the Workspace's Uploads Go")
     def set_mode(self, data: WorkspaceStorageModeUpdate) -> WorkspaceStorageRead:

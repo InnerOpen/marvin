@@ -26,6 +26,7 @@ import socket
 import threading
 import time
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
@@ -45,6 +46,7 @@ accepted too."""
 ROW_TTL_SECONDS = 5.0
 """How long a read of a connection row is reused (every asset URL on a ``ws:`` row asks for its provider)."""
 MODE_PLATFORM, MODE_WORKSPACE = "platform", "workspace"
+PURPOSE_ASSETS, PURPOSE_BACKUPS = "assets", "backups"
 STATUS_OK, STATUS_RETIRED = "ok", "retired"
 
 
@@ -80,6 +82,7 @@ class _Connection:
     secret_refs: dict
     status: str
     version: int
+    purpose: str = "assets"
 
 
 _rows: dict[str, tuple[float, _Connection | None]] = {}
@@ -161,6 +164,7 @@ def _snapshot(row) -> _Connection:
         secret_refs=dict(row.secret_refs or {}),
         status=row.status,
         version=int(row.version or 1),
+        purpose=getattr(row, "purpose", None) or "assets",
     )
 
 
@@ -198,28 +202,69 @@ def _identity(provider_cls, get) -> tuple:
     return (str(get(endpoint) or "").rstrip("/").lower() if endpoint else "", *(str(get(k) or "") for k in keys))
 
 
-def build_connection_provider(conn: _Connection, endpoint_policy: str, *, production: bool = True):
-    """The provider for one connection, from its own values only. Raises ``StorageConfigError`` (never naming a
-    secret's value) when the plugin can't serve workspace buckets, a key is missing or the endpoint isn't allowed."""
+def plugin_class(slug: str, purpose: str = "assets"):
+    """The class a connection builds: the plugin's asset provider, or its backup target for a backup bucket.
+    Raises ``StorageConfigError`` when it doesn't support workspace buckets of that kind or declares them wrongly."""
+    needs = "target" if purpose == PURPOSE_BACKUPS else "provider"
+    plugin = registry.get_plugin(slug, needs=needs)
+    cls = plugin.target if needs == "target" else plugin.provider
+    what = "backup buckets" if needs == "target" else "workspace buckets"
+    if not getattr(cls, "workspace_settings", ()):
+        raise StorageConfigError(f"storage {slug!r} doesn't support workspace {what}")
+    if problems := workspace_settings_problems(cls):
+        raise StorageConfigError(f"storage {slug!r} declares its workspace settings wrongly: {'; '.join(problems)}")
+    return cls
+
+
+def _connection_config(cls, conn: _Connection, endpoint_policy: str, production: bool) -> dict:
+    """The connection's values, resolved: plain settings, plus every setting it keeps as a workspace secret (an S3
+    access key ID isn't secret, but it belongs with its key; a secret setting can only come from a secret). The
+    endpoint is checked against the policy before anything connects."""
     from marvin.services.secrets.resolver import resolve_secret
 
-    provider_cls = registry.get_plugin(conn.plugin_slug, needs="provider").provider
-    if not provider_cls.workspace_settings:
-        raise StorageConfigError(f"storage provider {conn.plugin_slug!r} doesn't support workspace buckets")
-    if problems := workspace_settings_problems(provider_cls):
-        raise StorageConfigError(f"storage provider {conn.plugin_slug!r} declares its workspace settings wrongly: {'; '.join(problems)}")
-    declared = {s.env: s for s in provider_cls.workspace_settings}
+    declared = {s.env: s for s in cls.workspace_settings}
     values = {env: v for env, v in conn.settings.items() if env in declared and not declared[env].secret}
-    # Any setting may come from a workspace secret (an S3 access key ID isn't secret, but it belongs with its key);
-    # a secret setting can only come from one, never from the plain settings above.
     for env, slug in conn.secret_refs.items():
         if env in declared and slug:
             values[env] = resolve_secret(str(slug), uuid.UUID(conn.group_id)) or ""
-    check_endpoint(values.get(provider_cls.endpoint_setting) if provider_cls.endpoint_setting else None, endpoint_policy, production=production)
-    config = read_config(provider_cls.workspace_settings, values)
+    endpoint = getattr(cls, "endpoint_setting", None)
+    check_endpoint(values.get(endpoint) if endpoint else None, endpoint_policy, production=production)
+    return read_config(cls.workspace_settings, values)
+
+
+def build_connection_provider(conn: _Connection, endpoint_policy: str, *, production: bool = True):
+    """The provider for one connection, from its own values only. Raises ``StorageConfigError`` (never naming a
+    secret's value) when the plugin can't serve workspace buckets, a key is missing or the endpoint isn't allowed."""
+    provider_cls = plugin_class(conn.plugin_slug)
+    config = _connection_config(provider_cls, conn, endpoint_policy, production)
     if _identity(provider_cls, config.get) == _platform_identity(provider_cls):
         raise StorageConfigError("a workspace connection can't use the platform's own bucket")
     return provider_cls.from_config(config)
+
+
+def build_connection_target(conn: _Connection, endpoint_policy: str, *, production: bool = True, asset_buckets: Iterable[tuple] = ()):
+    """The backup target for a workspace's backup bucket, from its own values only. It can't be the platform's asset or
+    backup bucket, nor any of ``asset_buckets`` (the workspace's own asset buckets, as ``bucket_identity`` tuples):
+    backups never share a bucket with files that are served publicly."""
+    target_cls = plugin_class(conn.plugin_slug, PURPOSE_BACKUPS)
+    config = _connection_config(target_cls, conn, endpoint_policy, production)
+    mine = _identity(target_cls, config.get)
+    platform = {_platform_identity(target_cls)}
+    try:
+        platform.add(_platform_identity(registry.get_plugin(conn.plugin_slug, needs="provider").provider))
+    except StorageConfigError:
+        pass
+    if mine in platform:
+        raise StorageConfigError("a workspace's backups can't go to the platform's own buckets")
+    if mine in set(asset_buckets):
+        raise StorageConfigError("backups need their own private bucket, not one the workspace's files are served from")
+    return target_cls.from_config(config)
+
+
+def bucket_identity(conn: _Connection) -> tuple:
+    """(endpoint, bucket) of a connection, from its plain settings (no keys needed)."""
+    cls = plugin_class(conn.plugin_slug, PURPOSE_BACKUPS if getattr(conn, "purpose", "assets") == PURPOSE_BACKUPS else "assets")
+    return _identity(cls, conn.settings.get)
 
 
 def _production() -> bool:

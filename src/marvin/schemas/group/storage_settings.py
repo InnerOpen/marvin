@@ -24,6 +24,8 @@ class WorkspaceStorageProvider(_MarvinModel):
 class WorkspaceStorageConnectionRead(_MarvinModel):
     id: str
     plugin_slug: str
+    purpose: str = "assets"
+    """``assets`` (files are stored and served from it) or ``backups`` (the workspace's own private backup bucket)."""
     label: str | None = None
     location: str
     """What rows stored through it record: ``ws:<id>``."""
@@ -50,6 +52,10 @@ class WorkspaceStorageRead(_MarvinModel):
     active_connection_id: str | None = None
     bundle_includes_own_bucket: bool = False
     providers: list[WorkspaceStorageProvider] = []
+    backup_providers: list[WorkspaceStorageProvider] = []
+    backup_connection_id: str | None = None
+    """The private bucket the workspace's own backups go to, if any."""
+    backup_keep: int = 7
     connections: list[WorkspaceStorageConnectionRead] = []
     platform_files: int = 0
     can_edit: bool = False
@@ -58,6 +64,8 @@ class WorkspaceStorageRead(_MarvinModel):
 
 class WorkspaceStorageConnectionCreate(_MarvinModel):
     plugin_slug: str = "s3"
+    purpose: str = "assets"
+    """``assets`` for files, ``backups`` for a private backup bucket."""
     label: str | None = None
     settings: dict[str, str] = {}
     """Non-secret settings by name, e.g. STORAGE_S3_BUCKET."""
@@ -134,3 +142,22 @@ class WorkspaceBucketRead(WorkspaceStorageConnectionRead):
     workspace_slug: str
     in_use: bool = False
     in_bundles: bool = False
+
+
+class WorkspaceBackupBucketUpdate(_MarvinModel):
+    connection_id: str | None = None
+    """A verified backup bucket, or null to stop the workspace's own backups."""
+    keep: int | None = None
+    """How many backups stay in the bucket (1-90)."""
+
+
+class WorkspaceBackupRead(_MarvinModel):
+    key: str
+    name: str
+    size: int = 0
+
+
+class WorkspaceBackupStarted(_MarvinModel):
+    task_id: str
+    task_slug: str
+    message: str

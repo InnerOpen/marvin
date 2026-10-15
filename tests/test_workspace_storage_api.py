@@ -2,6 +2,7 @@
 check proves the bucket and its public URL; keys changed after a check stop uploads; the platform policy is a
 super admin's. Uses the stand-in plugin of tests/test_workspace_storage.py."""
 
+import time
 import uuid
 from types import SimpleNamespace
 from urllib.parse import urlsplit
@@ -425,3 +426,119 @@ def test_platform_admins_see_every_workspace_bucket(api):
     rows = _as(api.workspace, WorkspaceRole.OWNER, PlatformRole.SUPER_ADMIN).get("/api/admin/storage/workspace-buckets").json()
     mine = next(r for r in rows if r["id"] == conn["id"])
     assert (mine["inUse"], mine["status"], mine["workspaceId"]) == (True, "ok", str(api.workspace.gid))
+
+
+# ── the workspace's own backups (slice 5) ────────────────────────────────────
+
+BACKUP_FIELDS = {"T_BUCKET": "their-backups", "T_ENDPOINT": R2}
+
+
+def _backup_bucket(owner, **settings) -> dict:
+    res = owner.post(
+        f"{BASE}/connections",
+        json={
+            "pluginSlug": "bucket",
+            "purpose": "backups",
+            "label": "Backups",
+            "settings": {**BACKUP_FIELDS, **settings},
+            "secretRefs": {"T_KEY": "their-key"},
+        },
+    )
+    assert res.status_code == 201, res.text
+    return res.json()
+
+
+def test_a_backup_bucket_is_checked_privately_chosen_and_backed_up_to(api, db_session, monkeypatch, tmp_path):
+    from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
+    from marvin.services.event_bus_service.event_bus_service import EventBusService
+    from marvin.services.event_bus_service.event_types import EventTypes
+    from marvin.services.scheduled_tasks import TaskHandlerRegistry
+    from tests.test_workspace_storage import BucketTarget
+
+    events = []
+    monkeypatch.setattr(EventBusService, "dispatch", lambda self, **kw: events.append(kw))
+    monkeypatch.setattr("marvin.core.config.get_app_dirs", lambda: SimpleNamespace(BACKUP_DIR=tmp_path))
+    owner = _as(api.workspace, WorkspaceRole.OWNER)
+    _upload(db_session, api.workspace.gid, api.workspace.uid, b"a file")
+    bucket = _backup_bucket(owner)
+    assert bucket["purpose"] == "backups"
+
+    early = owner.put(f"{BASE}/backup-bucket", json={"connectionId": bucket["id"]})
+    assert early.status_code == 422 and "Check the backup bucket first" in early.json()["detail"]
+    check = owner.post(f"{BASE}/connections/{bucket['id']}/check").json()
+    assert check["ok"] is True and [s["name"] for s in check["steps"]] == ["list", "put", "get", "delete"]  # private: no public URL
+    page = owner.put(f"{BASE}/backup-bucket", json={"connectionId": bucket["id"], "keep": 3}).json()
+    assert (page["backupConnectionId"], page["backupKeep"]) == (bucket["id"], 3)
+
+    task = db_session.get(ScheduledTaskModel, uuid.UUID(owner.post(f"{BASE}/backups").json()["taskId"]))
+    out = TaskHandlerRegistry.get_handler(task.task_type).execute(task, None)
+    assert out.startswith("Saved marvin-backups/")
+    saved = next(e for e in events if e["event_type"] == EventTypes.workspace_backup_saved)["document_data"]
+    assert saved.trigger == "manual" and saved.key in BucketTarget.buckets["their-backups"].objects
+
+    listed = owner.get(f"{BASE}/backups").json()
+    assert [b["key"] for b in listed] == [saved.key]
+    download = owner.get(f"{BASE}/backups/download", params={"key": saved.key})
+    assert download.status_code == 200 and download.content[:2] == b"PK"  # the zip
+    assert owner.get(f"{BASE}/backups/download", params={"key": "marvin-backups/someone-else/x.zip"}).status_code == 422
+    db_session.query(ScheduledTaskModel).filter_by(id=task.id).delete()
+    db_session.commit()
+
+
+def test_only_the_newest_backups_stay(api, db_session, tmp_path):
+    from marvin.services.storage.workspace_backups import backup_now, list_backups
+
+    owner = _as(api.workspace, WorkspaceRole.OWNER)
+    bucket = _backup_bucket(owner)
+    owner.post(f"{BASE}/connections/{bucket['id']}/check")
+    owner.put(f"{BASE}/backup-bucket", json={"connectionId": bucket["id"], "keep": 2})
+    keys = []
+    for _ in range(3):
+        keys.append(backup_now(db_session, api.workspace.gid, tmp_path).key)
+        time.sleep(1.1)  # keys are stamped to the second
+    assert [b["key"] for b in list_backups(db_session, api.workspace.gid)] == [keys[2], keys[1]]
+
+
+def test_backups_and_files_never_share_a_bucket(api, db_session):
+    owner = _as(api.workspace, WorkspaceRole.OWNER)
+    files = _verified(owner)  # the files bucket is "theirs" on R2
+    shared = owner.post(
+        f"{BASE}/connections",
+        json={
+            "pluginSlug": "bucket",
+            "purpose": "backups",
+            "settings": {"T_BUCKET": "theirs", "T_ENDPOINT": R2},
+            "secretRefs": {"T_KEY": "their-key"},
+        },
+    )
+    assert shared.status_code == 422 and "own private bucket" in shared.json()["detail"]
+
+    backups = _backup_bucket(owner)
+    owner.post(f"{BASE}/connections/{backups['id']}/check")
+    wrong_way = owner.put(f"{BASE}/backup-bucket", json={"connectionId": files["id"]})
+    assert wrong_way.status_code == 422 and "files" in wrong_way.json()["detail"]
+    as_files = owner.put(f"{BASE}/mode", json={"mode": "workspace", "connectionId": backups["id"]})
+    assert as_files.status_code == 422 and "for backups" in as_files.json()["detail"]
+    assert owner.get(f"{BASE}/connections/{backups['id']}/copy").status_code in (200, 422)  # a plan is harmless
+    assert owner.post(f"{BASE}/connections/{backups['id']}/copy").status_code == 422
+
+
+def test_the_daily_bundles_also_go_to_a_workspaces_own_backup_bucket(api, db_session, monkeypatch, tmp_path):
+    from marvin.services.event_bus_service.event_bus_service import EventBusService
+    from marvin.services.event_bus_service.event_types import EventTypes
+    from marvin.services.scheduled_tasks import TaskHandlerRegistry
+    from tests.test_workspace_storage import BucketTarget
+
+    events = []
+    monkeypatch.setattr(EventBusService, "dispatch", lambda self, **kw: events.append(kw))
+    monkeypatch.setattr("marvin.core.config.get_app_dirs", lambda: SimpleNamespace(BACKUP_DIR=tmp_path))
+    owner = _as(api.workspace, WorkspaceRole.OWNER)
+    bucket = _backup_bucket(owner)
+    owner.post(f"{BASE}/connections/{bucket['id']}/check")
+    owner.put(f"{BASE}/backup-bucket", json={"connectionId": bucket["id"]})
+
+    out = TaskHandlerRegistry.get_handler("create_workspace_bundles").execute(SimpleNamespace(group_id=None, task_config={"keep": 1}), None)
+    assert "1 saved to the workspace's own backup bucket" in out
+    saved = [e for e in events if e["event_type"] == EventTypes.workspace_backup_saved]
+    assert len(saved) == 1 and saved[0]["group_id"] == api.workspace.gid and saved[0]["document_data"].trigger == "scheduled"
+    assert any(k.startswith("marvin-backups/") for k in BucketTarget.buckets["their-backups"].objects)

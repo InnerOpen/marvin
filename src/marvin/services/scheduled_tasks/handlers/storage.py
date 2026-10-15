@@ -151,3 +151,33 @@ class CheckWorkspaceStorageHandler(ScheduledTaskHandler):
 
 
 TaskHandlerRegistry.register("check_workspace_storage", CheckWorkspaceStorageHandler)
+
+
+class BackupToWorkspaceBucketHandler(ScheduledTaskHandler):
+    """
+    Make this workspace's backup bundle and save it to its own private backup bucket now ("Back up now" on
+    Workspace settings → Storage). The daily Workspace Backup Bundles task does the same for every workspace that
+    has a backup bucket; this is the on-demand run. Sends workspace_backup_saved or workspace_backup_failed.
+    """
+
+    name = "Back Up to the Workspace's Bucket"
+    description = "Save a backup of this workspace to its own private backup bucket"
+
+    def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
+        from marvin.core.config import get_app_dirs
+        from marvin.db.db_setup import session_context
+        from marvin.services.storage.workspace_backups import announce, backup_now
+
+        if not task.group_id:
+            raise ValueError("backup_to_workspace_bucket runs in a workspace")
+        with session_context() as session:
+            try:
+                saved = backup_now(session, task.group_id, get_app_dirs().BACKUP_DIR / ".own")
+            except Exception as e:
+                announce(event_bus, task.group_id, error=str(e), trigger="manual")
+                raise
+            announce(event_bus, task.group_id, saved=saved, trigger="manual")
+        return f"Saved {saved.key} ({saved.size / 1024**2:.1f} MB); {saved.pruned} older backup(s) deleted"
+
+
+TaskHandlerRegistry.register("backup_to_workspace_bucket", BackupToWorkspaceBucketHandler)

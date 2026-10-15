@@ -1,3 +1,20 @@
+# Bring your own storage — slice 5 (2026-10-14)
+
+Jared: "Stage 5". The workspace's own backups, in its own private bucket (never its file bucket).
+
+- [x] SDK v0.12.0 (BackupTarget.workspace_settings/endpoint_setting) + marvin-storage-s3 v0.3.0 (S3BackupTarget declares them)
+- [x] Migration 4166a87cee01 (after MCP's 10b5c7c078c7): connections.purpose, settings.backup_connection_id/backup_keep
+- [x] `workspace.plugin_class` / `build_connection_target` (no platform bucket, no workspace file bucket);
+      purpose-aware specs/create/check (backups: check_target, no public URL), set_mode/copy refuse backup buckets
+- [x] `services/storage/workspace_backups.py`: save (keys `marvin-backups/<slug>/<stamp>-<bundle>`, keep N), list,
+      fetch (sha256-checked), backup_now, events workspace_backup_saved/_failed
+- [x] Daily bundles task also saves to a workspace's own bucket; "Back up now" = task backup_to_workspace_bucket
+- [x] API: PUT /backup-bucket, GET/POST /backups, GET /backups/download; page: Backups section, add form "For"
+- [x] Tests (4): private check + choose + back up now + list + download + key guard; keep N; never share; daily task
+- [ ] Browser check: shared local dev servers can't be swapped (permission denied) → check on admin-dev after deploy
+- [ ] Live R2 check needs a second private bucket + key from Jared
+- [ ] Full suite (marvin_test_byo); SDK main; push from the worktree (rebase onto origin/develop, one alembic head)
+
 # Bring your own storage — slice 4 (2026-10-14)
 
 Jared: "move on to the next slice". Health task, events, Admin/Backup-health visibility, bundle toggle.

@@ -26,6 +26,12 @@ class WorkspaceStorageSettingsModel(SqlAlchemyBase, BaseMixins):
     active_connection_id: Mapped[GUID | None] = mapped_column(
         GUID, sa.ForeignKey("workspace_storage_connections.id", ondelete="SET NULL"), nullable=True
     )
+    # The private bucket the workspace's own backups go to (a connection with purpose "backups"); None: no own backups.
+    backup_connection_id: Mapped[GUID | None] = mapped_column(
+        GUID, sa.ForeignKey("workspace_storage_connections.id", ondelete="SET NULL"), nullable=True
+    )
+    # How many of its backups the workspace keeps in that bucket (older ones are deleted after each new one).
+    backup_keep: Mapped[int] = mapped_column(sa.Integer, default=7, nullable=False, server_default="7")
     # Workspace backup bundles include files in the workspace's own bucket (off: size and egress are theirs).
     bundle_includes_own_bucket: Mapped[bool] = mapped_column(sa.Boolean, default=False, nullable=False, server_default=sa.false())
     updated_by: Mapped[GUID | None] = mapped_column(GUID, nullable=True)
@@ -41,6 +47,8 @@ class WorkspaceStorageConnectionModel(SqlAlchemyBase, BaseMixins):
     id: Mapped[GUID] = mapped_column(GUID, primary_key=True, default=GUID.generate)
     group_id: Mapped[GUID] = mapped_column(GUID, sa.ForeignKey("groups.id", ondelete="CASCADE"), nullable=False, index=True)
     plugin_slug: Mapped[str] = mapped_column(sa.String, nullable=False)
+    # "assets" (files are stored and served from it) or "backups" (a private bucket for the workspace's own backups).
+    purpose: Mapped[str] = mapped_column(sa.String, default="assets", nullable=False, server_default="assets")
     label: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     # The provider's non-secret workspace settings, keyed by Setting.env (bucket, endpoint, region, prefix, public URL…).
     # Bucket, endpoint and prefix never change on a connection: a different bucket is a new connection.
