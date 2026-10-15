@@ -273,8 +273,9 @@ SYSTEM_AGENTS: dict[str, AgentSpec] = {
         name="Ask",
         description="Grounded answers from your content only (semantic search; no writes).",
         system_prompt=ASK_SYSTEM_PROMPT,
-        # suggest_agent runs nothing: Ask can point the user at a specialist but never calls one.
-        tool_allowlist=("search_content", "workspace_overview", "search_docs", "read_doc", "suggest_agent"),
+        # suggest_agent runs nothing: Ask can point the user at a specialist but never calls one. get_entry / get_asset /
+        # get_resource read a hit in full: search returns 400-character snippets, and without them Ask searched again.
+        tool_allowlist=("search_content", "get_entry", "get_asset", "get_resource", "workspace_overview", "search_docs", "read_doc", "suggest_agent"),
         handoff_hint="the user wants a grounded answer from the workspace content, with citations",
         is_system=True,
     ),
