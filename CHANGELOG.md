@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.347 (2026-10-15)
+
+### Features
+
+- **ai**: One gateway for unattended tool calls, with the AI budget
+  ([`6f7f384`](https://github.com/InnerOpen/marvin/commit/6f7f384348804d70cc8f0bb847b466c9254abe1f))
+
+- **mcp**: Remote MCP slice 1 — OAuth tables, the remote_mcp switch (off), discovery metadata, purge
+  ([`0339548`](https://github.com/InnerOpen/marvin/commit/0339548900a81fc9baa18c639b3ddc32aaa287d0))
+
+
 ## v1.0.0-rc.346 (2026-10-15)
 
 ### Features
