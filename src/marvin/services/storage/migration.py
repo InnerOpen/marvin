@@ -30,6 +30,7 @@ import hashlib
 import logging
 import mimetypes
 import tempfile
+import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -394,6 +395,27 @@ def _group_id(session: Session, workspace: str | None) -> Any:
     return group.id
 
 
+def _check_workspace_target(session: Session, to: str, group_id: Any) -> None:
+    """A workspace's own bucket (``ws:<connection id>``) only ever takes that workspace's files: refuse a run without
+    ``workspace``, or for another workspace than the connection's, or into a retired connection."""
+    from marvin.db.models.groups.storage_settings import WorkspaceStorageConnectionModel, WorkspaceStorageSettingsModel
+
+    from .workspace import STATUS_RETIRED, connection_id_of
+
+    if group_id is None:
+        raise MigrationError(f"{to} is a workspace's own bucket: give --workspace, the workspace that owns it")
+    conn = session.get(WorkspaceStorageConnectionModel, uuid.UUID(connection_id_of(to)))
+    if conn is None:
+        raise MigrationError(f"no workspace storage connection {to}")
+    if str(conn.group_id) != str(group_id):
+        raise MigrationError(f"{to} belongs to another workspace: its files can't go there")
+    if conn.status == STATUS_RETIRED:
+        raise MigrationError(f"{to} is retired: add or pick another bucket")
+    row = session.query(WorkspaceStorageSettingsModel).filter_by(group_id=group_id).one_or_none()
+    if not row or row.credential_mode != "workspace" or str(row.active_connection_id) != str(conn.id):
+        log.warning("the workspace's new uploads don't go to %s yet: switch it first, or files uploaded meanwhile stay behind", to)
+
+
 def migrate(
     to: str | None,
     *,
@@ -418,9 +440,13 @@ def migrate(
     with session_factory() as session:
         group_id = _group_id(session, workspace)
         codes = _codes(session, group_id) if rekey else None
-    uploads = provider_factory.upload_target()
-    if to is not None and uploads.effective != to:
-        log.warning("new uploads go to %r, not %r: switch Admin → Storage first, or files uploaded meanwhile stay behind", uploads.effective, to)
+        own_bucket = to is not None and to.startswith(provider_factory.WORKSPACE_LOCATION_PREFIX)
+        if own_bucket:
+            _check_workspace_target(session, to, group_id)
+    if not own_bucket:  # a workspace's bucket: _check_workspace_target warned about its uploads
+        uploads = provider_factory.upload_target()
+        if to is not None and uploads.effective != to:
+            log.warning("new uploads go to %r, not %r: switch Admin → Storage first, or files uploaded meanwhile stay behind", uploads.effective, to)
 
     failed: set[Any] = set()
     while report.passes < MAX_PASSES:

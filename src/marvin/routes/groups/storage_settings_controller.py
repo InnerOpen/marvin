@@ -16,11 +16,14 @@ from marvin.schemas.group.storage_settings import (
     WorkspaceStorageConnectionCreate,
     WorkspaceStorageConnectionRead,
     WorkspaceStorageConnectionUpdate,
+    WorkspaceStorageCopyPlan,
+    WorkspaceStorageCopyStarted,
     WorkspaceStorageModeUpdate,
     WorkspaceStorageRead,
 )
 from marvin.services.event_bus_service.event_types import (
     EventOperation,
+    EventScheduledTaskData,
     EventStorageProviderChangedData,
     EventTypes,
     EventWorkspaceSettingsData,
@@ -131,6 +134,42 @@ class StorageSettingsController(BaseUserController):
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
         self._announce(f"connection {conn.label or conn.id} retired by {self._name()}")
         return WorkspaceStorageConnectionRead.model_validate(admin.connection_view(conn))
+
+    @router.get("/connections/{connection_id}/copy", response_model=WorkspaceStorageCopyPlan, summary="Plan Copying Files into a Bucket")
+    def copy_plan(self, connection_id: str) -> WorkspaceStorageCopyPlan:
+        """A dry run: how many of the workspace's files would be copied into the bucket (by where they are now), and
+        how many entries embed links to them (those keep working: originals are never deleted)."""
+        require_workspace_admin(self.user, self.group_id)
+        conn = self._connection(connection_id)
+        return WorkspaceStorageCopyPlan.model_validate(admin.copy_plan(self.session, self.group_id, conn.id))
+
+    @router.post(
+        "/connections/{connection_id}/copy",
+        response_model=WorkspaceStorageCopyStarted,
+        status_code=status.HTTP_202_ACCEPTED,
+        summary="Copy Files into a Bucket",
+    )
+    def start_copy(self, connection_id: str) -> WorkspaceStorageCopyStarted:
+        """Copy the workspace's existing files into a verified bucket, in the background: a workspace scheduled task
+        ("Copy files to …") whose history shows the result. Each copy's sha256 is checked before its file is
+        repointed; originals are kept. Safe to start again: files already copied are skipped."""
+        self._require_owner()
+        conn = self._connection(connection_id)
+        try:
+            task, workspace = admin.start_copy(self.session, self.group_id, self.user.id, conn.id)
+        except admin.WorkspaceStorageError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+        self.event_bus.dispatch(
+            integration_id="workspace_storage",
+            group_id=self.group_id,
+            event_type=EventTypes.scheduled_task_triggered,
+            document_data=EventScheduledTaskData.from_model(task, workspace_name=workspace.name if workspace else None),
+            message=f"Scheduled task '{task.name}' started from Workspace → Storage",
+            entity_id=task.id,
+            entity_type="scheduled_task",
+        )
+        self._announce(f"copying files into {conn.label or conn.id} started by {self._name()}")
+        return WorkspaceStorageCopyStarted(task_id=str(task.id), task_slug=task.slug, message=f"Copying started: see the task '{task.name}'")
 
     @router.put("/mode", response_model=WorkspaceStorageRead, summary="Choose Where the Workspace's Uploads Go")
     def set_mode(self, data: WorkspaceStorageModeUpdate) -> WorkspaceStorageRead:

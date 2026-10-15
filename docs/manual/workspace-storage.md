@@ -61,5 +61,20 @@ AWS S3 and Backblaze B2 work the same way: leave the endpoint empty for AWS (and
 - `GET` / `PUT /api/admin/storage/workspace-policy`: `{"allowed": …, "endpointPolicy": "known" | "public" | "any"}`
   (super admins).
 
-Moving existing files into a workspace's bucket is planned (a dry run first, then a copy that never deletes the
-originals); until then only new uploads go there.
+## Copying existing files into the bucket
+
+On a verified bucket, **Copy existing files here…** first shows what it would do, without copying anything: how many
+of the workspace's files (and how much data) are elsewhere, and how many entries embed links to them. **Start copying**
+then copies them in the background as a workspace scheduled task, **Copy files to <bucket>** (its history in
+**Automation → Scheduled Tasks** says how many moved and what failed). Each file is copied, its copy's sha256 checked,
+and only then is its row pointed at the bucket, in a short transaction that leaves alone a file changed or deleted
+meanwhile. **Originals are never deleted**, so links already published (in entries, built sites, emails) keep working.
+A run that stops part way is finished by starting it again: files already there are skipped. Switch new uploads to the
+bucket first, or files uploaded during the copy stay behind (the dry run says so).
+
+The command line does the same, and the way back: `python -m marvin.scripts.storage_migrate --workspace <slug> --to
+ws:<connection id> --verify [--dry-run]`, and `--to s3` (or `local`) to move a workspace's files back to the platform.
+A run into a workspace's bucket must name that workspace (`--workspace`); another workspace's files are refused.
+
+- `GET /api/groups/storage-settings/connections/{id}/copy`: the dry run.
+- `POST /api/groups/storage-settings/connections/{id}/copy`: start copying (OWNER; 202 with the task).

@@ -122,12 +122,14 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
                   {canEdit && c.status !== "retired" && (
                     <div class="connection-actions">
                       <button type="button" class="button small" data-check={c.id}>Check connection</button>
+                      {c.status === "ok" && <button type="button" class="button secondary small" data-copy-plan={c.id}>Copy existing files here…</button>}
                       {!(c.id === data?.activeConnectionId && data?.mode === "workspace") && (
                         <button type="button" class="button secondary small" data-retire={c.id}>Retire</button>
                       )}
                     </div>
                   )}
                   <ol class="check-steps" data-steps={c.id} hidden></ol>
+                  <div class="copy-plan" data-copy-box={c.id} hidden></div>
                 </li>
               );
             })}
@@ -287,6 +289,57 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
     }),
   );
 
+  const mb = (bytes: number) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(2)} GB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`);
+  type CopyPlan = { files: number; bytes: number; entriesWithLinks: number; uploadsGoHere: boolean };
+
+  document.querySelectorAll<HTMLButtonElement>("[data-copy-plan]").forEach((button) =>
+    button.addEventListener("click", async () => {
+      const id = button.dataset.copyPlan!;
+      const box = document.querySelector<HTMLElement>(`[data-copy-box="${id}"]`)!;
+      box.hidden = false;
+      box.textContent = "Counting files…";
+      try {
+        const plan = await fetchApi<CopyPlan>(`${BASE}/connections/${id}/copy`);
+        box.innerHTML = "";
+        const p = document.createElement("p");
+        if (plan.files === 0) {
+          p.textContent = "Every file of this workspace is already in this bucket.";
+          box.appendChild(p);
+          return;
+        }
+        p.textContent =
+          `${plan.files.toLocaleString()} file${plan.files === 1 ? "" : "s"} (${mb(plan.bytes)}) would be copied here, each checked ` +
+          `before it moves. The originals stay where they are, so links already published keep working` +
+          (plan.entriesWithLinks ? ` (${plan.entriesWithLinks} entr${plan.entriesWithLinks === 1 ? "y links" : "ies link"} to them).` : ".") +
+          (plan.uploadsGoHere ? "" : " New uploads don't go to this bucket yet: switch above first, or files uploaded meanwhile stay behind.");
+        const start = document.createElement("button");
+        start.type = "button";
+        start.className = "button small";
+        start.textContent = "Start copying";
+        start.addEventListener("click", async () => {
+          start.disabled = true;
+          try {
+            const res = await fetchApi<{ message: string }>(`${BASE}/connections/${id}/copy`, { method: "POST" });
+            box.innerHTML = "";
+            const done = document.createElement("p");
+            done.textContent = `${res.message}. It runs in the background; its result is in `;
+            const link = document.createElement("a");
+            link.href = "/workspace/scheduled-tasks";
+            link.textContent = "Scheduled Tasks";
+            done.append(link, ". Reload this page to see the file counts.");
+            box.appendChild(done);
+          } catch (e) {
+            start.disabled = false;
+            p.textContent = message(e);
+          }
+        });
+        box.append(p, start);
+      } catch (e) {
+        box.textContent = message(e);
+      }
+    }),
+  );
+
   document.querySelectorAll<HTMLButtonElement>("[data-retire]").forEach((button) =>
     button.addEventListener("click", async () => {
       button.disabled = true;
@@ -327,6 +380,8 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
   .connection-fields dt { color: var(--muted); }
   .connection-fields dd { margin: 0; overflow-wrap: anywhere; }
   .connection-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .copy-plan { margin-top: 10px; padding: 12px; border: 1px dashed var(--line); border-radius: var(--radius); font-size: 13px; display: grid; gap: 8px; justify-items: start; }
+  .copy-plan p { margin: 0; line-height: 1.5; }
   .check-steps { margin: 10px 0 0; padding-left: 0; list-style: none; font-size: 13px; display: grid; gap: 4px; }
   .check-steps .ok { color: #16a34a; }
   .check-steps .bad { color: var(--color-error, #dc2626); }

@@ -18,6 +18,7 @@ from .handlers import (  # noqa: F401  — imported for handler registration sid
     maintenance,
     media,
     publishing,
+    storage,
 )
 
 __all__ = [

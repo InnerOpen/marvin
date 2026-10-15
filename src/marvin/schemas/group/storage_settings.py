@@ -93,3 +93,29 @@ class WorkspaceStorageModeUpdate(_MarvinModel):
 class WorkspaceStoragePolicyUpdate(_MarvinModel):
     allowed: bool
     endpoint_policy: str = "known"
+
+
+class WorkspaceStorageLocationCount(_MarvinModel):
+    location: str
+    files: int = 0
+    bytes: int = 0
+
+
+class WorkspaceStorageCopyPlan(_MarvinModel):
+    """What copying the workspace's existing files into a bucket would do (nothing is copied to answer)."""
+
+    connection_id: str
+    files: int = 0
+    bytes: int = 0
+    by_location: list[WorkspaceStorageLocationCount] = []
+    entries_with_links: int = 0
+    """Entries whose content embeds a link to one of the workspace's files (those links keep working)."""
+    uploads_go_here: bool = False
+    ready: bool = False
+    """The connection is verified."""
+
+
+class WorkspaceStorageCopyStarted(_MarvinModel):
+    task_id: str
+    task_slug: str
+    message: str

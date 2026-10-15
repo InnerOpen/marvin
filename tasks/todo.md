@@ -1,3 +1,18 @@
+# Bring your own storage — slice 3 (2026-10-14)
+
+Jared: "Next slice". Copy existing files into a workspace's bucket (explicit only; originals never deleted).
+
+- [x] migration.migrate guard: a `ws:` target needs `--workspace`, the connection's own workspace, not retired
+- [x] `workspace_admin.copy_plan` (files/bytes by location, entries embedding links via the workspace code) and
+      `start_copy` (a disabled, run-on-demand workspace scheduled task `copy_to_workspace_storage`)
+- [x] Handler `scheduled_tasks/handlers/storage.py` (policy on + verified connection; failures fail the run)
+- [x] API: GET/POST `/groups/storage-settings/connections/{id}/copy`; page: "Copy existing files here…" dry run → start
+- [x] Tests (4): guard, plan counts incl. linked entries, full copy keeps originals, verified-only/OWNER-only
+- [x] Local E2E with the real R2 test bucket: dry run 51 files 3.8 MB → started from the page → task success
+      "51 copied, 51 moved, 0 failed" → moved image serves 200 image/jpeg, original kept → CLI rollback to local → 52 local
+- [ ] Deferred: pruning the platform copies after a move (needs a moved-at record and a grace period)
+- [ ] Full suite; SDK main; push; dev check
+
 # Bring your own storage — slice 2 (2026-10-14)
 
 Jared: "start BYO storage slice 2". Settings page, API, check connection, policy, SSRF, audit.

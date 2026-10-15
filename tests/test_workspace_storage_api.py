@@ -2,6 +2,7 @@
 check proves the bucket and its public URL; keys changed after a check stop uploads; the platform policy is a
 super admin's. Uses the stand-in plugin of tests/test_workspace_storage.py."""
 
+import uuid
 from types import SimpleNamespace
 from urllib.parse import urlsplit
 
@@ -179,3 +180,105 @@ def test_the_policy_is_a_super_admins_and_off_blocks_switching(api, db_session):
     owner = _as(api.workspace, WorkspaceRole.OWNER)
     blocked = owner.put(f"{BASE}/mode", json={"mode": "workspace", "connectionId": "00000000-0000-0000-0000-000000000000"})
     assert blocked.status_code == 422 and "doesn't allow" in blocked.json()["detail"]
+
+
+# ── copying existing files into the bucket (slice 3) ─────────────────────────
+
+
+def _verified(owner) -> dict:
+    conn = _add(owner)
+    assert owner.post(f"{BASE}/connections/{conn['id']}/check").json()["ok"] is True
+    return conn
+
+
+def test_a_run_into_a_workspace_bucket_only_takes_that_workspaces_files(api, db_session):
+    from marvin.services.storage.migration import MigrationError, migrate
+
+    conn = _verified(_as(api.workspace, WorkspaceRole.OWNER))
+    with pytest.raises(MigrationError, match="give --workspace"):
+        migrate(f"ws:{conn['id']}", dry_run=True)
+    from tests.test_opaque_storage_keys import _drop_workspace, _make_workspace
+
+    other = _make_workspace(db_session, "Other")
+    try:
+        with pytest.raises(MigrationError, match="belongs to another workspace"):
+            migrate(f"ws:{conn['id']}", workspace=other.slug, dry_run=True)
+    finally:
+        _drop_workspace(db_session, other)
+
+
+def test_the_plan_counts_files_and_entries_that_link_to_them(api, db_session, platform):  # noqa: F811
+    from marvin.db.models.platform import Entries, EntryTypes
+    from marvin.services.storage.keys import workspace_code
+
+    owner = _as(api.workspace, WorkspaceRole.OWNER)
+    first, second = (_upload(db_session, api.workspace.gid, api.workspace.uid, data) for data in (b"one", b"three"))
+    et = EntryTypes(session=db_session, group_id=api.workspace.gid, name="Note", slug="note", schema_json={})
+    db_session.add(et)
+    db_session.flush()
+    code = workspace_code(db_session, api.workspace.gid)
+    db_session.add_all(
+        [
+            Entries(
+                session=db_session,
+                group_id=api.workspace.gid,
+                entry_type_id=et.id,
+                title="Linked",
+                slug="linked",
+                data_json={"body": f"<img src='https://cdn.example/{code}/x.png'>"},
+            ),
+            Entries(session=db_session, group_id=api.workspace.gid, entry_type_id=et.id, title="Plain", slug="plain", data_json={"body": "no files"}),
+        ]
+    )
+    db_session.commit()
+    conn = _verified(owner)
+    try:
+        plan = owner.get(f"{BASE}/connections/{conn['id']}/copy").json()
+        assert (plan["files"], plan["bytes"], plan["entriesWithLinks"], plan["ready"]) == (2, len(b"one") + len(b"three"), 1, True)
+        assert plan["byLocation"] == [{"location": "local", "files": 2, "bytes": 8}]
+        assert first.storage_provider == second.storage_provider == "local"
+    finally:
+        db_session.query(Entries).filter(Entries.group_id == api.workspace.gid).delete()
+        db_session.query(EntryTypes).filter(EntryTypes.group_id == api.workspace.gid).delete()
+        db_session.commit()
+
+
+def test_copying_moves_every_file_into_the_bucket_and_keeps_the_originals(api, db_session, platform, monkeypatch):  # noqa: F811
+    from marvin.db.models.platform import Assets
+    from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
+    from marvin.services.event_bus_service.event_bus_service import EventBusService
+    from marvin.services.event_bus_service.event_types import EventTypes
+    from marvin.services.scheduled_tasks import TaskHandlerRegistry
+
+    sent = []
+    monkeypatch.setattr(EventBusService, "dispatch", lambda self, **kw: sent.append(kw["event_type"]))
+
+    owner = _as(api.workspace, WorkspaceRole.OWNER)
+    old = [_upload(db_session, api.workspace.gid, api.workspace.uid, data) for data in (b"alpha", b"beta")]
+    conn = _verified(owner)
+
+    started = owner.post(f"{BASE}/connections/{conn['id']}/copy")
+    assert started.status_code == 202, started.text
+    task = db_session.get(ScheduledTaskModel, uuid.UUID(started.json()["taskId"]))
+    assert (task.task_type, task.enabled, task.task_config["connection_id"]) == ("copy_to_workspace_storage", False, conn["id"])
+
+    assert EventTypes.scheduled_task_triggered in sent  # Run Now's trigger; run it here instead of the listener
+    summary = TaskHandlerRegistry.get_handler(task.task_type).execute(task, None)
+    assert "2 asset rows moved" in summary and "0 failed" in summary
+    db_session.expire_all()
+    bucket = BucketProvider.buckets["theirs"]
+    for asset in old:
+        row = db_session.get(Assets, asset.id)
+        assert row.storage_provider == f"ws:{conn['id']}" and bucket.exists(row.storage_key)
+        assert platform.local.exists(row.storage_key)  # the original stays: published links keep working
+    assert owner.get(f"{BASE}/connections/{conn['id']}/copy").json()["files"] == 0
+    db_session.query(ScheduledTaskModel).filter_by(id=task.id).delete()
+    db_session.commit()
+
+
+def test_only_a_verified_bucket_takes_a_copy(api):
+    owner = _as(api.workspace, WorkspaceRole.OWNER)
+    conn = _add(owner)
+    res = owner.post(f"{BASE}/connections/{conn['id']}/copy")
+    assert res.status_code == 422 and "Check the connection first" in res.json()["detail"]
+    assert _as(api.workspace, WorkspaceRole.ADMIN).post(f"{BASE}/connections/{conn['id']}/copy").status_code == 403

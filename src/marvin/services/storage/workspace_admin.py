@@ -382,3 +382,82 @@ def save_policy(session, *, allowed: bool, endpoint_policy: str) -> tuple[dict, 
     if before.endpoint_policy != endpoint_policy:
         changes.append(f"Endpoint policy: {before.endpoint_policy} -> {endpoint_policy}")
     return stored, changes
+
+
+# ── copying existing files into a bucket ─────────────────────────────────────
+
+COPY_TASK_TYPE = "copy_to_workspace_storage"
+
+
+def copy_plan(session, group_id, connection_id) -> dict[str, Any]:
+    """What copying the workspace's existing files into the connection would do, without doing it: the files and
+    bytes by where they are now, and how many entries embed their current links (those links keep working: a copy
+    never deletes the original)."""
+    import sqlalchemy as sa
+
+    from marvin.db.models.platform import Assets, Entries
+    from marvin.services.storage.keys import workspace_code
+
+    conn = get_connection(session, group_id, connection_id)
+    location = ws.location_for(conn.id)
+    rows = (
+        session.query(Assets.storage_provider, sa.func.count(Assets.id), sa.func.coalesce(sa.func.sum(Assets.file_size), 0))
+        .filter(Assets.group_id == group_id, Assets.storage_provider != location)
+        .group_by(Assets.storage_provider)
+        .all()
+    )
+    code = workspace_code(session, group_id)
+    embedding = (
+        session.query(sa.func.count(Entries.id))
+        .filter(Entries.group_id == group_id, sa.cast(Entries.data_json, sa.Text).like(f"%{code}/%"))
+        .scalar()
+        or 0
+    )
+    from marvin.db.models.groups.storage_settings import WorkspaceStorageSettingsModel
+
+    row = session.query(WorkspaceStorageSettingsModel).filter_by(group_id=group_id).one_or_none()
+    uploads_here = bool(row and row.credential_mode == ws.MODE_WORKSPACE and str(row.active_connection_id) == str(conn.id))
+    return {
+        "connection_id": str(conn.id),
+        "files": int(sum(n for _, n, _ in rows)),
+        "bytes": int(sum(b for _, _, b in rows)),
+        "by_location": [{"location": loc, "files": int(n), "bytes": int(b)} for loc, n, b in rows],
+        "entries_with_links": int(embedding),
+        "uploads_go_here": uploads_here,
+        "ready": conn.status == ws.STATUS_OK,
+    }
+
+
+def start_copy(session, group_id, user_id, connection_id, *, verify: bool = True):
+    """Copy the workspace's files into a verified connection in the background: a workspace scheduled task (never on
+    a schedule, run now) whose history shows the outcome. Returns the task."""
+    from marvin.db.models.groups import Groups
+    from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
+
+    conn = get_connection(session, group_id, connection_id)
+    if conn.status != ws.STATUS_OK:
+        raise WorkspaceStorageError("Check the connection first: files are only copied into a verified bucket")
+    if not ws.policy(session).allowed:
+        raise WorkspaceStorageError("The platform doesn't allow workspace storage")
+    slug = f"copy-to-bucket-{str(conn.id)[:8]}"
+    task = session.query(ScheduledTaskModel).filter_by(group_id=group_id, slug=slug).one_or_none()
+    name = f"Copy files to {conn.label or 'own bucket'}"
+    if task is None:
+        task = ScheduledTaskModel(
+            session=session,
+            group_id=group_id,
+            name=name,
+            slug=slug,
+            description="Copies this workspace's existing files into its own bucket (Workspace settings → Storage). Originals are kept.",
+            enabled=False,  # runs only when started from the Storage page (or Run Now)
+            schedule_type="once",
+            schedule_config={},
+            task_type=COPY_TASK_TYPE,
+            task_config={},
+        )
+        session.add(task)
+    task.name = name
+    task.task_config = {"connection_id": str(conn.id), "verify": bool(verify), "started_by": str(user_id) if user_id else None}
+    session.commit()
+    workspace = session.get(Groups, group_id)
+    return task, workspace
