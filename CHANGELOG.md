@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.359 (2026-10-15)
+
+### Features
+
+- **ai**: Marvin's own embedding model — search no longer depends on the chat provider
+  ([`6c6ca06`](https://github.com/InnerOpen/marvin/commit/6c6ca06b89c58ccc94ad0f9b22af149a7a8c2137))
+
+
 ## v1.0.0-rc.358 (2026-10-15)
 
 ### Bug Fixes
