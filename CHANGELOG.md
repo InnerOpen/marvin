@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.355 (2026-10-15)
+
+### Bug Fixes
+
+- **ai**: A slug that parses as a UUID (an Instagram media id) resolves by slug
+  ([`d5dd5ac`](https://github.com/InnerOpen/marvin/commit/d5dd5ac789e70a9f8c103dc545e42b2f45179ee4))
+
+### Chores
+
+- **mcp**: Log each remote tool listing and call (name, outcome, content types)
+  ([`5cc75dd`](https://github.com/InnerOpen/marvin/commit/5cc75dde13e9129f0d8951023a731c42c3f4d198))
+
+
 ## v1.0.0-rc.354 (2026-10-15)
 
 ### Bug Fixes
