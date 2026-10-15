@@ -156,6 +156,13 @@ are added by each caller. Keep in step with configmap.yaml / secret.yaml.
     configMapKeyRef:
       name: {{ include "marvin.fullname" . }}
       key: corsOrigins
+{{- if or .Values.config.publicApiUrl (and .Values.route.enabled .Values.route.api.enabled .Values.route.api.host) }}
+- name: PUBLIC_API_URL
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: publicApiUrl
+{{- end }}
 {{- if or .Values.config.publicUiUrl (and .Values.route.enabled .Values.route.ui.enabled .Values.route.ui.host) }}
 - name: BASE_URL
   valueFrom:

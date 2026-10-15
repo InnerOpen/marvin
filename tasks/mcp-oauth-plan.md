@@ -2,7 +2,7 @@
 
 Jared: "update the code to the MCP server so that it has a authentication mechanism so we do not have to store the key. Kinda like the BrainMCP" → "plan the MCP sign-in". Drafted by a planning agent from the code (read-only); nothing built yet. Backlog: ~/brain/10-Tasks/TASKS.md → "remote MCP with OAuth sign-in".
 
-Status: research only, no files changed. Every claim below cites code I read. Items I could not verify are marked **(unverified)**.
+Status: slice 1 built 2026-10-14 (see "Slice 1 as built"); slices 2–5 to do. Every claim below cites code I read. Items I could not verify are marked **(unverified)**.
 
 ---
 
@@ -495,6 +495,31 @@ Each slice ships with a push to develop. Promote takes it to marvin-dev, then pr
 - Optional follow-ups: CIMD (`client_id_metadata_document_supported`, fetch with an SSRF guard), per-workspace resource URLs `/mcp/w/<slug>`, AI operations projection after extracting `execute_operation`, the Access JWT check.
 
 ---
+
+## Slice 1 as built (2026-10-14)
+
+Built as planned, with these differences, so later slices start from the code rather than the text above:
+
+- The gateway is `services/ai/tool_gateway.py`: `visible_tools`, `invoke_unattended`, `check_invocation_source`
+  (the controller's `_check_invocation_source` now delegates to it) and `is_read_tool` (the read scope). The role is
+  `tools.base.user_role(user, group_id)`, which `caller_role` now wraps. There is no `extra` argument yet; slice 4 adds it
+  with `compose_entry`. Gates 1, 2 and 5 raise HTTPException; slice 3 maps those to MCP tool errors.
+- The budget check (decision 13) reads a new `ToolSpec.uses_ai` flag, set on `search_content`, `compose_entry`,
+  `revise_entry`, `view_image` and `run_agent`; `tests/test_tool_gateway.py` fails if a handler reaches `ctx.provider`
+  without it. Over budget the invoke route answers 429 with the limit's message, like the other AI routes.
+- Parity was checked twice: a one-off dump of 573 calls (every tool, seven caller kinds, several sources, MCP turned
+  off, a failing handler, over budget) from a HEAD worktree and a patched worktree, identical except the four
+  over-budget AI tools; and `tests/test_tool_gateway.py`, which keeps the old controller logic as a frozen oracle.
+- `oauth_authorization_requests` gained `grant_id` (FK to the grant, SET NULL), so a reused code can revoke what it
+  issued (§6.1 item 5) without another migration.
+- The admin API is `GET/PUT /api/admin/platform-policy/remote-mcp`, beside the existing `/security` route, not
+  `/api/admin/platform/remote-mcp`. Env defaults: `MCP_REMOTE_ENABLED`, `MCP_ACCESS_TOKEN_MINUTES`,
+  `MCP_REFRESH_TOKEN_DAYS`, `MCP_GRANT_MAX_DAYS`. `remote_mcp()` returns the policy in force.
+- The purge is the system task `purge_oauth_records` in `services/scheduled_tasks/handlers/oauth.py` (the existing
+  handler layout), daily, listed in `database_report.TABLES`.
+- Dev has the switch on through `MCP_REMOTE_ENABLED=true` in `values-dev.yaml`; prod has nothing set, so it is off.
+- Not done in slice 1, as planned: §6.1 item 17 (revoking copied grants on a dev refresh) belongs with slice 2, once
+  grants exist.
 
 ## Decisions (Jared, 2026-10-14: "your recommendations for mcp")
 

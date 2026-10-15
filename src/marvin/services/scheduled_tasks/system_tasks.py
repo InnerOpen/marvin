@@ -124,6 +124,18 @@ SYSTEM_SCHEDULED_TASKS: list[SystemTaskDefinition] = [
         task_config={"age_days": 30},
     ),
     SystemTaskDefinition(
+        slug="purge_oauth_records",
+        name="Purge OAuth Records",
+        task_type="purge_oauth_records",
+        description=(
+            "Delete the remote MCP server's expired sign-ins and tokens, connections revoked or unusable for 90 days, "
+            "and registered clients unused for 7 days with no connection. Admin-only; runs daily."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _DAILY_SECONDS},
+        task_config={"grant_days": 90, "client_days": 7},
+    ),
+    SystemTaskDefinition(
         slug="create_workspace_bundles",
         name="Workspace Backup Bundles",
         task_type="create_workspace_bundles",

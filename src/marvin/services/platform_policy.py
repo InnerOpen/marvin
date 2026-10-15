@@ -1,8 +1,9 @@
 """Platform settings an admin edits in the UI that used to be environment-only: the security policy (sign-in
-throttling, password and reset-link rules, session length) and the branding of Marvin's emails.
+throttling, password and reset-link rules, session length), the branding of Marvin's emails, and the remote MCP
+server's switch and token lifetimes.
 
-Each is a row in `platform_settings`. A security value set there wins over the environment variable of the same
-name; one not set falls back to it, so a fresh install behaves exactly as its env says. Reads are cached for a few
+Each is a row in `platform_settings`. A security or remote MCP value set there wins over the environment variable of
+the same name; one not set falls back to it, so a fresh install behaves exactly as its env says. Reads are cached for a few
 seconds — they sit on the sign-in path — and a save clears the cache.
 """
 
@@ -15,6 +16,7 @@ from dataclasses import dataclass
 
 SECURITY_KEY = "security_policy"
 EMAIL_BRANDING_KEY = "email_branding"
+REMOTE_MCP_KEY = "remote_mcp"
 CACHE_SECONDS = 15
 
 
@@ -174,3 +176,158 @@ def save_email_branding(session, values: dict) -> dict:
     PlatformSettingsService(session).set(EMAIL_BRANDING_KEY, clean)
     clear_cache()
     return email_branding()
+
+
+# ── remote MCP ───────────────────────────────────────────────────────────────
+
+REMOTE_MCP_FIELDS: tuple[SecurityField, ...] = (
+    SecurityField("MCP_ACCESS_TOKEN_MINUTES", "Access token lifetime", "A client refreshes it without asking.", "minutes", 5, 1440),
+    SecurityField("MCP_REFRESH_TOKEN_DAYS", "Idle connection lifetime", "Unused this long, a connection must sign in again.", "days", 1, 365),
+    SecurityField("MCP_GRANT_MAX_DAYS", "Longest connection", "However often it is used, then sign in again.", "days", 1, 730),
+)
+_MCP_FIELDS = {f.key: f for f in REMOTE_MCP_FIELDS}
+MAX_EXTRA_REDIRECT_URIS = 20
+_REDIRECT_URI = re.compile(r"^https://[A-Za-z0-9.-]+(:\d+)?(/[^\s*]*)?\*?$")
+
+
+@dataclass(frozen=True)
+class RemoteMcpPolicy:
+    enabled: bool
+    """Switched on, and able to run: in PRODUCTION that also needs PUBLIC_API_URL (the OAuth issuer)."""
+    access_token_minutes: int
+    refresh_token_days: int
+    grant_max_days: int
+    extra_redirect_uris: tuple[str, ...]
+    """Exact https redirect URIs, or `https://host/path*` prefixes, allowed on top of the built-in list."""
+    allow_dynamic_registration: bool
+
+
+def _mcp_unavailable_reason() -> str | None:
+    """Why remote MCP can't be switched on here, or None."""
+    from marvin.core.config import get_app_settings
+
+    env = get_app_settings()
+    if env.PRODUCTION and not env.PUBLIC_API_URL:
+        return "PUBLIC_API_URL is not set (the chart's config.publicApiUrl): remote MCP needs the API's public address."
+    return None
+
+
+def _mcp_int(stored: dict, key: str) -> int:
+    from marvin.core.config import get_app_settings
+
+    value = stored.get(key)
+    return int(value) if value is not None else int(getattr(get_app_settings(), key))
+
+
+def remote_mcp() -> RemoteMcpPolicy:
+    """The remote MCP policy in force: the admin's values, else the environment's."""
+    from marvin.core.config import get_app_settings
+
+    stored = _stored(REMOTE_MCP_KEY)
+    switched_on = stored.get("enabled")
+    if switched_on is None:
+        switched_on = bool(get_app_settings().MCP_REMOTE_ENABLED)
+    return RemoteMcpPolicy(
+        enabled=bool(switched_on) and _mcp_unavailable_reason() is None,
+        access_token_minutes=_mcp_int(stored, "MCP_ACCESS_TOKEN_MINUTES"),
+        refresh_token_days=_mcp_int(stored, "MCP_REFRESH_TOKEN_DAYS"),
+        grant_max_days=_mcp_int(stored, "MCP_GRANT_MAX_DAYS"),
+        extra_redirect_uris=tuple(stored.get("extra_redirect_uris") or ()),
+        allow_dynamic_registration=stored.get("allow_dynamic_registration", True) is not False,
+    )
+
+
+def remote_mcp_view(session) -> dict:
+    """What the admin card shows: the switch, each lifetime with its environment default, the extra redirect URIs,
+    and the issuer the metadata would name."""
+    from marvin.core.config import get_app_settings
+    from marvin.services.platform_settings import PlatformSettingsService
+
+    stored = PlatformSettingsService(session).get(REMOTE_MCP_KEY) or {}
+    env = get_app_settings()
+    fields = []
+    for f in REMOTE_MCP_FIELDS:
+        default = int(getattr(env, f.key))
+        value = stored.get(f.key)
+        fields.append(
+            {
+                "key": f.key,
+                "label": f.label,
+                "help": f.help,
+                "unit": f.unit,
+                "min": f.minimum,
+                "max": f.maximum,
+                "default": default,
+                "value": int(value) if value is not None else default,
+                "overridden": value is not None,
+            }
+        )
+    switched_on = stored.get("enabled")
+    issuer = env.PUBLIC_API_URL or None
+    return {
+        "enabled": bool(env.MCP_REMOTE_ENABLED) if switched_on is None else bool(switched_on),
+        "enabled_default": bool(env.MCP_REMOTE_ENABLED),
+        "unavailable_reason": _mcp_unavailable_reason(),
+        "issuer": issuer,
+        "resource": f"{issuer}/mcp" if issuer else None,
+        "fields": fields,
+        "extra_redirect_uris": list(stored.get("extra_redirect_uris") or []),
+        "allow_dynamic_registration": stored.get("allow_dynamic_registration", True) is not False,
+    }
+
+
+def save_remote_mcp(session, values: dict) -> dict:
+    """Save the keys present in `values`: `enabled` (bool, or None for the environment's), the lifetimes (an int, or
+    None for the environment's), `extra_redirect_uris` (a list) and `allow_dynamic_registration` (bool)."""
+    from marvin.core.config import get_app_settings
+    from marvin.services.platform_settings import PlatformSettingsService
+
+    svc = PlatformSettingsService(session)
+    stored = dict(svc.get(REMOTE_MCP_KEY) or {})
+    env = get_app_settings()
+    for key, raw in (values or {}).items():
+        if key == "enabled":
+            if raw is None or bool(raw) == bool(env.MCP_REMOTE_ENABLED):
+                stored.pop("enabled", None)
+            else:
+                stored["enabled"] = bool(raw)
+            if raw and (reason := _mcp_unavailable_reason()):
+                raise PolicyError(reason)
+        elif key == "allow_dynamic_registration":
+            if raw is None or bool(raw):
+                stored.pop(key, None)
+            else:
+                stored[key] = False
+        elif key == "extra_redirect_uris":
+            uris = [str(u).strip() for u in (raw or []) if str(u).strip()]
+            if len(uris) > MAX_EXTRA_REDIRECT_URIS:
+                raise PolicyError(f"At most {MAX_EXTRA_REDIRECT_URIS} extra redirect URIs")
+            for uri in uris:
+                if len(uri) > 500 or not _REDIRECT_URI.match(uri):
+                    raise PolicyError(f"{uri} is not an https URI (a trailing * makes it a prefix)")
+            if uris:
+                stored[key] = list(dict.fromkeys(uris))
+            else:
+                stored.pop(key, None)
+        elif key in _MCP_FIELDS:
+            field = _MCP_FIELDS[key]
+            if raw is None or raw == "":
+                stored.pop(key, None)
+                continue
+            try:
+                value = int(raw)
+            except (TypeError, ValueError) as e:
+                raise PolicyError(f"{field.label} must be a whole number") from e
+            if not field.minimum <= value <= field.maximum:
+                raise PolicyError(f"{field.label} must be between {field.minimum} and {field.maximum} {field.unit}")
+            if value == int(getattr(env, key)):
+                stored.pop(key, None)
+            else:
+                stored[key] = value
+        else:
+            raise PolicyError(f"{key} is not a remote MCP setting")
+    if _mcp_int(stored, "MCP_REFRESH_TOKEN_DAYS") > _mcp_int(stored, "MCP_GRANT_MAX_DAYS"):
+        raise PolicyError("The idle connection lifetime can't be longer than the longest connection")
+    svc.set(REMOTE_MCP_KEY, stored)
+    clear_cache()
+    return remote_mcp_view(session)

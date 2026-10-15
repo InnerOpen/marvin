@@ -140,6 +140,10 @@ extraEnv:
     value: https://marvin-api-marvin-dev.apps.ocp4.iwobble.com/assets
   - name: INTEGRATION_HTTP_MAX_BYTES
     value: "16777216"
+  # The remote MCP server (OAuth sign-in) is switched on here only, to build and verify it before production;
+  # Admin → Site Settings → Remote MCP can still override it.
+  - name: MCP_REMOTE_ENABLED
+    value: "true"
   # Assets on R2 (storage slice 8): the s3 provider is configured (Secret marvin-r2-assets, a token scoped to
   # marvin-assets-dev only); which provider takes NEW uploads is the admin choice (Admin → Storage).
   - name: STORAGE_REMOTE_PUBLIC_URL

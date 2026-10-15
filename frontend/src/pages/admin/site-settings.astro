@@ -22,6 +22,13 @@ const trashDefault = await getPlatformTrashSettings(authToken).catch(() => null)
 // The security policy an admin can set here; each value overrides its environment variable (services/platform_policy.py).
 type SecurityRow = { key: string; label: string; help: string; unit: string; min: number; max: number; default: number; value: number; overridden: boolean };
 const securityRows: SecurityRow[] = await fetchApi<SecurityRow[]>("/api/admin/platform-policy/security", {}, authToken).catch(() => []);
+// The remote MCP server (OAuth sign-in for claude.ai, ChatGPT, Claude Code): off unless switched on here or by
+// MCP_REMOTE_ENABLED. Its token lifetimes and extra redirect URIs follow the security fields' pattern.
+type RemoteMcp = {
+  enabled: boolean; enabledDefault: boolean; unavailableReason: string | null; issuer: string | null; resource: string | null;
+  fields: SecurityRow[]; extraRedirectUris: string[]; allowDynamicRegistration: boolean;
+};
+const remoteMcp = await fetchApi<RemoteMcp>("/api/admin/platform-policy/remote-mcp", {}, authToken).catch(() => null);
 
 // The UI address emailed links point at (BASE_URL / FRONTEND_URL, the chart's config.publicUiUrl). Left at the
 // laptop defaults, every password-reset and invitation email links to localhost — say so at the top of the page.
@@ -142,6 +149,64 @@ function toTitleCase(str: string) {
         </section>
       )}
 
+      {remoteMcp && (
+        <section class="card" id="remote-mcp">
+          <h3>Remote MCP</h3>
+          <p class="card-description">
+            Lets AI assistants (claude.ai, ChatGPT, Claude Code) connect to Marvin by signing in, with no token to
+            store. Each connection is for one workspace, and that workspace's "External MCP hosts" AI source must be on.
+            Switched off, its addresses answer 404 and existing connections stop working until it is back on.
+          </p>
+          <form id="remote-mcp-form" class="security-form">
+            <label class="security-field remote-mcp-switch">
+              <span class="security-label">
+                <input type="checkbox" name="enabled" checked={remoteMcp.enabled} disabled={Boolean(remoteMcp.unavailableReason) && !remoteMcp.enabled} />
+                Remote MCP server on
+              </span>
+              <span class="security-help">
+                {remoteMcp.unavailableReason
+                  ? remoteMcp.unavailableReason
+                  : remoteMcp.resource
+                    ? <>Clients connect to <code>{remoteMcp.resource}</code>.</>
+                    : <>PUBLIC_API_URL isn't set, so clients connect to <code>/mcp</code> at whatever address they reach the API by (development only).</>}
+                {" "}Environment: {remoteMcp.enabledDefault ? "on" : "off"}.
+              </span>
+            </label>
+            {remoteMcp.fields.map((r: SecurityRow) => (
+              <label class="security-field">
+                <span class="security-label">{r.label}</span>
+                <span class="security-input">
+                  <input type="number" class="input" name={r.key} min={r.min} max={r.max}
+                    value={r.overridden ? String(r.value) : ""} placeholder={String(r.default)} />
+                  <span class="security-unit">{r.unit}</span>
+                </span>
+                <span class="security-help">{r.help} Environment: {r.default}.</span>
+              </label>
+            ))}
+            <label class="security-field remote-mcp-wide">
+              <span class="security-label">Extra redirect URIs</span>
+              <textarea class="input" name="extraRedirectUris" rows="3"
+                placeholder="https://example.com/oauth/callback">{remoteMcp.extraRedirectUris.join("\n")}</textarea>
+              <span class="security-help">
+                One per line, https only; end one with * to allow every address that starts with it. claude.ai, ChatGPT
+                and local clients (Claude Code) are always allowed.
+              </span>
+            </label>
+            <label class="security-field remote-mcp-wide">
+              <span class="security-label">
+                <input type="checkbox" name="allowDynamicRegistration" checked={remoteMcp.allowDynamicRegistration} />
+                Clients may register themselves
+              </span>
+              <span class="security-help">Off, only clients already registered can connect.</span>
+            </label>
+            <div class="security-actions">
+              <button type="submit" class="button">Save remote MCP</button>
+              <span class="security-status" role="status"></span>
+            </div>
+          </form>
+        </section>
+      )}
+
       <!-- Feature Status -->
       {featureSettings.length > 0 && (
         <section class="card">
@@ -235,9 +300,37 @@ function toTitleCase(str: string) {
       status.classList.add('error');
     }
   });
+
+  // Remote MCP: the switch, the lifetimes (blank = the environment's), the extra redirect URIs and self-registration.
+  const remoteMcpForm = document.getElementById('remote-mcp-form') as HTMLFormElement | null;
+  remoteMcpForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const status = remoteMcpForm.querySelector('.security-status') as HTMLElement;
+    const values: Record<string, number | null> = {};
+    remoteMcpForm.querySelectorAll<HTMLInputElement>('input[type="number"]').forEach((el) => {
+      values[el.name] = el.value.trim() === '' ? null : Number(el.value);
+    });
+    const checked = (name: string) => (remoteMcpForm.elements.namedItem(name) as HTMLInputElement).checked;
+    const uris = (remoteMcpForm.elements.namedItem('extraRedirectUris') as HTMLTextAreaElement).value
+      .split('\n').map((u) => u.trim()).filter(Boolean);
+    status.textContent = 'Saving…';
+    status.classList.remove('error');
+    try {
+      await fetchApi('/api/admin/platform-policy/remote-mcp', {
+        method: 'PUT',
+        body: JSON.stringify({ enabled: checked('enabled'), values, extraRedirectUris: uris, allowDynamicRegistration: checked('allowDynamicRegistration') }),
+      });
+      status.textContent = 'Saved.';
+    } catch (err) {
+      status.textContent = err instanceof Error ? err.message : String(err);
+      status.classList.add('error');
+    }
+  });
 </script>
 
 <style>
+  .remote-mcp-switch, .remote-mcp-wide { grid-column: 1 / -1; }
+  .remote-mcp-wide textarea { max-width: 640px; font-family: var(--font-mono, monospace); font-size: 13px; }
   .security-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px 20px; }
   .security-field { display: grid; gap: 4px; }
   .security-label { font-size: 13px; font-weight: 600; }

@@ -141,6 +141,11 @@ class AppSettings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:4322"
     """URL of the frontend app. Used for OIDC callback redirects in dev. In production same-origin deployments, set to BASE_URL."""
 
+    PUBLIC_API_URL: str = ""
+    """The API's public address (e.g. ``https://api.example.com``; the chart's ``config.publicApiUrl``). The remote MCP
+    server's OAuth issuer is this, and its resource is this plus ``/mcp``. Empty: in PRODUCTION remote MCP stays off;
+    in development the issuer is taken from each request. Trailing slashes are trimmed."""
+
     CORS_ORIGINS: str = ""
     """Comma-separated list of browser origins allowed to call the API in PRODUCTION
     (e.g. ``https://marvin.example.com``). Required for SPLIT deployments where the UI
@@ -475,6 +480,19 @@ class AppSettings(BaseSettings):
     SECURITY_USER_LOCKOUT_TIME: int = 24
     "time in hours; only for a lock set before sign-in throttling (users.locked_at), which nothing sets now"
 
+    # Remote MCP server (OAuth sign-in) — each is a default an admin can override (Admin → Site Settings → Remote MCP)
+    MCP_REMOTE_ENABLED: bool = False
+    """Serve the remote MCP server with OAuth sign-in (/mcp, /oauth/*, /.well-known/oauth-*). Off: those answer 404."""
+
+    MCP_ACCESS_TOKEN_MINUTES: int = 60
+    "how long a remote MCP access token works"
+
+    MCP_REFRESH_TOKEN_DAYS: int = 30
+    "how long an unused remote MCP refresh token works; each use replaces it with a new one"
+
+    MCP_GRANT_MAX_DAYS: int = 180
+    "the longest a remote MCP connection lasts before its user must sign in again, however often it is used"
+
     # Token Security Settings
     SECURITY_TOKEN_PREFIX_USER: str = "marvin_tk_"
     """Prefix for user API tokens (Personal Access Tokens). Default: marvin_tk_"""
@@ -624,7 +642,7 @@ class AppSettings(BaseSettings):
 
     model_config = SettingsConfigDict(arbitrary_types_allowed=True, extra="allow")
 
-    @field_validator("BASE_URL", "FRONTEND_URL")
+    @field_validator("BASE_URL", "FRONTEND_URL", "PUBLIC_API_URL")
     @classmethod
     def remove_trailing_slash(cls, v: str) -> str:
         """Pydantic validator to remove trailing slashes from URL settings."""

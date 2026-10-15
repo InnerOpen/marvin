@@ -127,6 +127,12 @@ spec:
             configMapKeyRef:
               name: {{ include "marvin.fullname" . }}
               key: publicApiUrl
+        # The same address for the backend: the remote MCP server's OAuth issuer (empty = remote MCP off).
+        - name: PUBLIC_API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "marvin.fullname" . }}
+              key: publicApiUrl
         # Allowed browser origins for the API in production (split UI/API deploys). Empty =
         # no CORS middleware (same-origin/combined). See config.corsOrigins / route.ui.host.
         - name: CORS_ORIGINS

@@ -114,6 +114,7 @@ there replaces the environment variable of the same name for the whole platform;
 | AI executions (`prune_ai_executions`) | `AI_EXECUTION_RETENTION_DAYS` | 90 days; a workspace's `logging_config.retention_days` overrides |
 | Scheduled-task execution log (`prune_scheduled_task_executions`) | task config `retention_days` | 30 days (rc.97) |
 | Revoked API tokens and site clients (`prune_revoked_tokens`) | task config `age_days` | 30 days after revocation |
+| Remote MCP sign-ins, tokens, connections and clients (`purge_oauth_records`) | task config `grant_days`, `client_days` | expired sign-ins and tokens at once; connections 90 days after revocation or their last token; clients 7 days unused with no connection |
 | Workflow runs and their steps (`prune_workflow_runs`) | `WORKFLOW_RUN_RETENTION_DAYS` | 90 days after the run finished; a run still running or waiting is never deleted; `0` keeps forever |
 
 Since rc.96 an automatic run whose handler returns `None` writes no execution row; manual runs always do.
@@ -135,6 +136,8 @@ These are per-workspace content exports kept on the data volume. For the whole i
 | `API_PORT` | `8080` | port the API listens on (all interfaces) |
 | `GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS` | unset | how long the server waits for in-flight requests after SIGTERM; unset waits until the process is killed. The Helm chart derives it from the grace period (see [Helm chart](#helm-chart)) |
 | `CORS_ORIGINS` | empty | comma list; ignored outside production |
+| `PUBLIC_API_URL` | empty | the API's public address; the remote MCP server's OAuth issuer (its resource is this plus `/mcp`). Chart: `config.publicApiUrl`, which also sets the frontend's `PUBLIC_MARVIN_API_URL` |
+| `MCP_REMOTE_ENABLED` | `false` | the remote MCP server's switch; Admin → Site Settings → Remote MCP overrides it. With `MCP_ACCESS_TOKEN_MINUTES` (60), `MCP_REFRESH_TOKEN_DAYS` (30) and `MCP_GRANT_MAX_DAYS` (180); see [MCP and OAuth](auth-and-tokens.md#mcp-and-oauth) |
 | `DATA_DIR` | unset | database, `.secret`, assets, secrets, seeds |
 | `DB_ENGINE` | `postgres` | the only engine (SQLite retired 2026-10-13; `sqlite_to_postgres` moves an old database) |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_SERVER`, `POSTGRES_PORT`, `POSTGRES_DB` | empty | or `POSTGRES_URL_OVERRIDE` for a full URL |
