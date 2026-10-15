@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.354 (2026-10-15)
+
+### Bug Fixes
+
+- **ai**: Marvin-ai-anthropic 0.3.1 — a leading thinking block no longer breaks completions
+  ([`e52d2b8`](https://github.com/InnerOpen/marvin/commit/e52d2b8c7030882661c593c9fcf74f14e2b69900))
+
+### Features
+
+- **mcp**: Show_image — the remote MCP server hands back the picture itself
+  ([`2bf5a07`](https://github.com/InnerOpen/marvin/commit/2bf5a07437b526c1ec0afbfad6baeff9cb1446ba))
+
+
 ## v1.0.0-rc.353 (2026-10-15)
 
 ### Bug Fixes
