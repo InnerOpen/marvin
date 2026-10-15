@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.356 (2026-10-15)
+
+### Features
+
+- **mcp**: Compose_entry over the remote MCP server — a connection can create drafts
+  ([`0fc8902`](https://github.com/InnerOpen/marvin/commit/0fc890205f74352799a81fc94cbb473d4747f6d4))
+
+
 ## v1.0.0-rc.355 (2026-10-15)
 
 ### Bug Fixes
