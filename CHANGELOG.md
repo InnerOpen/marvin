@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.358 (2026-10-15)
+
+### Bug Fixes
+
+- **mcp**: Hide search_content where the workspace has no embedding model
+  ([`b482f7c`](https://github.com/InnerOpen/marvin/commit/b482f7cf46c6d9f51e6eda3c7c92e78917635128))
+
+
 ## v1.0.0-rc.357 (2026-10-15)
 
 ### Features
