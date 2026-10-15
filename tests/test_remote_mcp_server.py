@@ -284,8 +284,9 @@ def test_a_connection_that_floods_mcp_is_slowed_down(client, on, ws, monkeypatch
     assert _mcp(client, theirs["access_token"]).status_code == 200  # per connection, not for everyone
 
 
-def test_search_content_is_hidden_where_there_are_no_embeddings(client, on, ws, db_session):
+def test_search_content_is_listed_while_there_is_an_embedding_model(client, on, ws, db_session, monkeypatch):
     from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+    from marvin.services.ai import embeddings
 
     owner = ws()
     _reg, tokens = _connect(client, owner)
@@ -294,10 +295,10 @@ def test_search_content_is_hidden_where_there_are_no_embeddings(client, on, ws, 
     db_session.add(WorkspaceAISettingsModel(session=db_session, group_id=owner.gid, provider="anthropic", model="claude-sonnet-5-5"))
     db_session.commit()
     try:
-        assert "search_content" not in {t["name"] for t in _tools(client, token, session)}  # Anthropic has no embeddings
-        db_session.query(WorkspaceAISettingsModel).filter_by(group_id=owner.gid).update({"provider": "openai"})
-        db_session.commit()
-        assert "search_content" in {t["name"] for t in _tools(client, token, session)}
+        monkeypatch.setattr(embeddings, "builtin_embeddings_available", lambda: True)
+        assert "search_content" in {t["name"] for t in _tools(client, token, session)}  # Marvin's own model, any provider
+        monkeypatch.setattr(embeddings, "builtin_embeddings_available", lambda: False)
+        assert "search_content" not in {t["name"] for t in _tools(client, token, session)}  # and Anthropic has none
     finally:
         db_session.query(WorkspaceAISettingsModel).filter_by(group_id=owner.gid).delete()
         db_session.commit()
