@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.351 (2026-10-15)
+
+### Bug Fixes
+
+- **deps**: Keep mcp below 2 — the remote MCP server is built on 1.x's low-level Server
+  ([`e5d6591`](https://github.com/InnerOpen/marvin/commit/e5d6591230ed88c92420bdd1b1c8064db1fd5a7d))
+
+
 ## v1.0.0-rc.350 (2026-10-15)
 
 ### Features
