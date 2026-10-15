@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.345 (2026-10-15)
+
+### Features
+
+- **storage**: Copy events — workspace_storage_copy_started and _finished
+  ([`445c40f`](https://github.com/InnerOpen/marvin/commit/445c40f02d62a43b1bf5c1cf67bf31e73d3a1b72))
+
+
 ## v1.0.0-rc.344 (2026-10-15)
 
 ### Documentation
