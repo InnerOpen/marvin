@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.348 (2026-10-15)
+
+### Features
+
+- **storage**: Bring your own storage, slice 5 — a workspace's own backups in its own private bucket
+  ([`d9ab2d1`](https://github.com/InnerOpen/marvin/commit/d9ab2d1650b2ffed6436c468f6a3052c2d055dc7))
+
+
 ## v1.0.0-rc.347 (2026-10-15)
 
 ### Features
