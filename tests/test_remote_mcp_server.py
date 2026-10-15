@@ -282,3 +282,22 @@ def test_a_connection_that_floods_mcp_is_slowed_down(client, on, ws, monkeypatch
     limited = _mcp(client, mine["access_token"], "ping", session=session, rpc_id=3)
     assert limited.status_code == 429 and int(limited.headers["retry-after"]) >= 1
     assert _mcp(client, theirs["access_token"]).status_code == 200  # per connection, not for everyone
+
+
+def test_search_content_is_hidden_where_there_are_no_embeddings(client, on, ws, db_session):
+    from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+
+    owner = ws()
+    _reg, tokens = _connect(client, owner)
+    token = tokens["access_token"]
+    session = _open_session(client, token)
+    db_session.add(WorkspaceAISettingsModel(session=db_session, group_id=owner.gid, provider="anthropic", model="claude-sonnet-5-5"))
+    db_session.commit()
+    try:
+        assert "search_content" not in {t["name"] for t in _tools(client, token, session)}  # Anthropic has no embeddings
+        db_session.query(WorkspaceAISettingsModel).filter_by(group_id=owner.gid).update({"provider": "openai"})
+        db_session.commit()
+        assert "search_content" in {t["name"] for t in _tools(client, token, session)}
+    finally:
+        db_session.query(WorkspaceAISettingsModel).filter_by(group_id=owner.gid).delete()
+        db_session.commit()

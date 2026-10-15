@@ -31,7 +31,7 @@ logger = get_logger(__name__)
 INSTRUCTIONS = (
     "Marvin is a content workspace: entries (typed content such as pages, posts and releases), collections, "
     "assets, reusable resources and workflows. This connection works in one workspace, chosen when it was "
-    "approved. Start with search_content or find_entries; workspace_overview describes the workspace. Whenever "
+    "approved. Start with search (or find_entries); workspace_overview describes the workspace. Whenever "
     "you mention an entry or an asset that a tool gave a `url` or `reviewLink` for, include that link as is so "
     "the user can open it. To show the user an image asset, call show_image: it returns the picture itself "
     "(view_image only describes one in words). Write tools make drafts and links; they never publish, and "
@@ -123,12 +123,23 @@ def project_tool(spec) -> types.Tool:
     )
 
 
+def _has_semantic_search(session, group_id) -> bool:
+    """Whether the workspace's AI provider has an embedding model (Anthropic has none, so its workspaces don't)."""
+    from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+    from marvin.services.ai.embeddings import default_embedding_model
+
+    settings = session.query(WorkspaceAISettingsModel).filter_by(group_id=group_id).first()
+    return bool(settings and settings.provider and default_embedding_model(settings.provider))
+
+
 def list_tools_for(conn: Connection) -> list[types.Tool]:
     from marvin.services.ai.tool_gateway import visible_tools
 
     def run(session, user):
-        own = [project_tool(t) for t in visible_tools(session, conn.group_id, user, allow_writes=conn.can_write, extra=EXTRA_TOOLS)]
-        return [*own, SHOW_IMAGE, SEARCH, FETCH]
+        listed = visible_tools(session, conn.group_id, user, allow_writes=conn.can_write, extra=EXTRA_TOOLS)
+        if not _has_semantic_search(session, conn.group_id):  # it would only answer "unavailable"; `search` falls back
+            listed = [t for t in listed if t.name != "search_content"]
+        return [*(project_tool(t) for t in listed), SHOW_IMAGE, SEARCH, FETCH]
 
     return _with_user(conn, run)
 
