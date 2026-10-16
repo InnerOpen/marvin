@@ -714,6 +714,7 @@ const sortedGroups = [...collectionGroups.values()].sort(
   .query-count { color: var(--muted); font-size: 13px; }
   .query-clear { font-size: 13px; }
   .query-editor { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+  .query-editor[hidden] { display: none; } /* the flex rule above would otherwise show it before "+ Add condition" */
   .query-editor select, .query-editor input { padding: 6px 8px; max-width: 100%; }
   .query-editor select[multiple] { min-height: 6.5em; }
   .query-note { color: var(--color-error, #dc2626); margin: -6px 0 16px; font-size: 14px; }
