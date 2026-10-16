@@ -205,7 +205,11 @@ class AssetStorageService(BaseService):
         if not group:
             raise ValueError(f"Workspace not found: {group_id}")
 
-        ext = (extension or getattr(source, "extension", None) or "jpg").lstrip(".")
+        from marvin.services.assets.image_type import EXTENSIONS, sniff_image_mime
+
+        # The bytes decide: the media pipeline's output isn't always the source's type (an AI-generated PNG made from a
+        # JPEG), and the stored type is read from the extension.
+        ext = EXTENSIONS.get(sniff_image_mime(data) or "") or (extension or getattr(source, "extension", None) or "jpg").lstrip(".")
         original_filename = f"{slug}.{ext}"
         with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as temp_file:
             temp_path = Path(temp_file.name)

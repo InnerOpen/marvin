@@ -35,3 +35,10 @@ def test_a_png_stored_as_jpeg_is_sent_as_png(monkeypatch):
     builder.with_asset_images(limit=1)
     asset = builder._ctx.assets[0]
     assert asset["mime_type"] == "image/png" and asset["image_data"]
+
+
+def test_a_version_is_labelled_by_its_bytes_not_its_originals_type():
+    """An AI-generated PNG made from a JPEG was saved as .jpg / image/jpeg (create_derivative took the source's extension)."""
+    from marvin.services.assets.image_type import EXTENSIONS
+
+    assert EXTENSIONS[sniff_image_mime(_bytes("PNG"))] == "png" and EXTENSIONS[sniff_image_mime(_bytes("JPEG"))] == "jpg"

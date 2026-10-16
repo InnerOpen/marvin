@@ -18,21 +18,9 @@ from datetime import UTC, datetime
 from pydantic import UUID4
 from sqlalchemy.orm import Session
 
+from marvin.services.assets.image_type import sniff_image_mime
+
 from .operations.base import OperationContext
-
-
-def sniff_image_mime(data: bytes) -> str | None:
-    """An image's type from its first bytes (PNG, JPEG, GIF, WebP), or None when it isn't one of those."""
-    head = data[:12]
-    if head.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if head.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if head[:6] in (b"GIF87a", b"GIF89a"):
-        return "image/gif"
-    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
-        return "image/webp"
-    return None
 
 
 class ContextBuilder:
