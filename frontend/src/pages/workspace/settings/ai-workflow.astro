@@ -344,7 +344,7 @@ const modCfg = s.moderationConfig ?? {};
           library={characterLibrary}
           removeConfirm="Your uploaded character's files are deleted. Continue?"
         />
-        <small class="hint">A library character comes with its own persona: picking one makes the assistant that character — its name, Character, bubble lines and tone — for you to edit from there.</small>
+        <small class="hint">Picking a library character names the assistant after it, and one with a character sheet brings its Character, bubble lines and tone too, for you to edit from there.</small>
         {personaPack && (
           <p class="persona-from" id="persona-from">
             From {personaPackName} — edit freely. <button type="button" id="persona-reset">Reset to {personaPackName}'s</button>
@@ -644,8 +644,8 @@ const modCfg = s.moderationConfig ?? {};
   const BUBBLE_API = '/api/groups/ai-settings/bubble-lines';
   const BUBBLE_POLL_MS = 3000;
   // ── A library character's persona (services/ai/character_library.py) ──
-  // Picking a pack copies its name, Character and lines over the workspace's: ask first when that would
-  // replace a Character written here, and reload once it's done so the form shows the copy.
+  // Picking a pack names the assistant after it and copies its sheet (Character, lines…) over the workspace's:
+  // ask first when that would replace a Character written here, and reload once it's done so the form shows it.
   const PERSONA_API = '/api/groups/ai-settings/character';
   const library: { id: string; name: string; persona?: { assistantName?: string | null; personaPrompt?: string | null } | null }[] =
     JSON.parse(document.getElementById('persona-section')?.dataset.library || '[]');
@@ -663,9 +663,8 @@ const modCfg = s.moderationConfig ?? {};
       ev.preventDefault();
     }
   });
-  picker?.addEventListener('character-picked', (ev) => {
-    if (packOf((ev as CustomEvent).detail?.library)?.persona) window.location.reload();
-  });
+  // Any pick renames the assistant after the pack (and a sheet brings the rest): show the form as saved.
+  picker?.addEventListener('character-picked', () => window.location.reload());
   document.getElementById('persona-reset')?.addEventListener('click', async (ev) => {
     const button = ev.currentTarget as HTMLButtonElement;
     if (!confirm(`${button.textContent}? Your edits to the name, Character, bubble lines, tone and mood are replaced.`)) return;

@@ -676,8 +676,8 @@ const builtins = agents.filter((a) => a.isSystem);
           ev.preventDefault();
         }
       });
-      characterBox?.addEventListener("character-picked", async (ev) => {
-        if (!agent || !packOf((ev as CustomEvent).detail?.library)?.persona) return;
+      characterBox?.addEventListener("character-picked", async () => {
+        if (!agent) return; // any pick renames the agent after the pack; a sheet brings the rest
         const form = editBox && !editBox.hidden ? editBox.querySelector("form") : null;
         if (!form) {
           location.reload();

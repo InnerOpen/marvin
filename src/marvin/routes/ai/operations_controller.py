@@ -1061,7 +1061,7 @@ class AIOperationsController(BaseUserController):
         replacing the agent's edits. 409 when its character isn't a library pack, or the pack has none."""
         from marvin.services.ai.agents import spec_from_row
         from marvin.services.ai.character import library_ref
-        from marvin.services.ai.character_library import apply_pack_persona, get_pack
+        from marvin.services.ai.character_library import apply_pack_persona, get_pack, pack_persona
 
         row = self._character_admin_row(slug)
         ref = library_ref(row.character)
@@ -1070,8 +1070,9 @@ class AIOperationsController(BaseUserController):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="This agent's character isn't from the library: there's nothing to reset to."
             )
-        if not apply_pack_persona(row, pack):
+        if pack_persona(pack) is None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That library character has no persona to reset to.")
+        apply_pack_persona(row, pack)
         self.session.commit()
         spec = spec_from_row(row)
         self._record_agent_change([f"agents.{spec.slug}.persona_prompt"], f"Agent reset to its character: {spec.name}")

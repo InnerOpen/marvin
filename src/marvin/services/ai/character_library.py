@@ -366,15 +366,17 @@ def pack_persona(pack: CharacterPackModel) -> dict | None:
 def apply_pack_persona(target, pack: CharacterPackModel) -> bool:
     """Copy the pack's persona onto a workspace's AI settings row or a workspace agent: name, Character, bubble
     lines (source "character"; none → none, so the workspace's are written from the Character), tone, icon and
-    mood. A tone or icon the sheet leaves unset keeps the target's. Nothing happens for a pack without a sheet.
-    True when copied; the caller commits."""
+    mood. A tone or icon the sheet leaves unset keeps the target's. A pack without a sheet still names the
+    assistant (or agent) after itself, and leaves the rest as it was. True when a sheet was copied; the caller
+    commits."""
     from marvin.db.models.groups.agents import WorkspaceAgentModel
     from marvin.services.ai import bubble_lines
 
+    is_agent = isinstance(target, WorkspaceAgentModel)
     persona = pack_persona(pack)
     if persona is None:
+        setattr(target, "name" if is_agent else "assistant_name", pack.name)
         return False
-    is_agent = isinstance(target, WorkspaceAgentModel)
     lines = persona["bubble_lines"]
     target.persona_prompt = persona["persona_prompt"]
     target.mood = persona["mood"]

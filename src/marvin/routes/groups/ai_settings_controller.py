@@ -485,6 +485,7 @@ class AISettingsController(BaseUserController):
         """Copy the current library pack's persona in again — name, Character, bubble lines, tone and icon —
         replacing the workspace's edits. 409 when the character isn't a library pack, or the pack has none."""
         from marvin.services.ai.character import library_ref
+        from marvin.services.ai.character_library import apply_pack_persona, get_pack, pack_persona
 
         self._require_admin()
         row = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
@@ -492,8 +493,10 @@ class AISettingsController(BaseUserController):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="The bubble's character isn't from the library: there's nothing to reset to."
             )
-        if not _apply_pack_persona(self.session, row, row.assistant_character):
+        pack = get_pack(self.session, library_ref(row.assistant_character))
+        if pack is None or pack_persona(pack) is None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That library character has no persona to reset to.")
+        apply_pack_persona(row, pack)
         self.session.commit()
         _persona_copied(self.session, row, self.user.id)
         return self.get_ai_settings()

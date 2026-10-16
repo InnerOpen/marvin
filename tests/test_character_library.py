@@ -594,11 +594,27 @@ def test_picking_a_pack_with_a_character_but_no_lines_has_them_written(admin, se
     assert settings.get().bubble_lines is None and started == [settings.group_id]
 
 
-def test_picking_a_pack_without_a_character_sheet_keeps_the_workspace_persona(admin, settings, started):
+def test_picking_a_pack_without_a_character_sheet_takes_its_name_and_keeps_the_rest(admin, settings, started):
     settings.patch(assistant_name="Ada", persona_prompt="Warm and direct.")
     settings.use_library(admin.create("idle.gif", name="Robot").slug)
     got = settings.get()
-    assert (got.assistant_name, got.persona_prompt) == ("Ada", "Warm and direct.")
+    assert (got.assistant_name, got.persona_prompt) == ("Robot", "Warm and direct.")
+
+
+def test_an_agent_picking_a_pack_without_a_sheet_is_named_after_it(admin, agents):
+    agents.update("scout", persona_prompt="Terse.")
+    agents.use_library("scout", admin.create("idle.gif", name="Night Shift").slug)
+    agent = agents.get("scout")
+    assert (agent.name, agent.persona_prompt) == ("Night Shift", "Terse.")
+
+
+def test_reset_to_a_pack_without_a_sheet_is_a_409_and_renames_nothing(admin, settings, db_session):
+    settings.use_library(admin.create("idle.gif", name="Robot").slug)
+    settings.patch(assistant_name="Ada")
+    with pytest.raises(HTTPException) as e:
+        settings.reset()
+    db_session.rollback()
+    assert e.value.status_code == 409 and settings.get().assistant_name == "Ada"
 
 
 def test_the_settings_patch_picking_a_pack_copies_it_but_explicit_fields_win(admin, settings, started):
