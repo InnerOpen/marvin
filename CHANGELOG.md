@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.377 (2026-10-16)
+
+### Features
+
+- **character**: A lone PNG upload names the character from its file name (Elvira.png → Elvira); a
+  .zip's name and the Name box still win
+  ([`c113ea8`](https://github.com/InnerOpen/marvin/commit/c113ea824ff13a061c8774205e73e5e4590aedcc))
+
+
 ## v1.0.0-rc.376 (2026-10-16)
 
 ### Features
