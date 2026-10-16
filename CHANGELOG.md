@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.365 (2026-10-16)
+
+### Bug Fixes
+
+- **ai**: Send a picture to the model with the type its bytes say
+  ([`33492c0`](https://github.com/InnerOpen/marvin/commit/33492c0c3f58a1a419281951e610984431dca867))
+
+
 ## v1.0.0-rc.364 (2026-10-16)
 
 ### Features
