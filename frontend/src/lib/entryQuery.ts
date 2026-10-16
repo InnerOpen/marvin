@@ -131,26 +131,6 @@ export function addCond(conds: Cond[], next: Cond): Cond[] {
   return [...conds, next];
 }
 
-/** A quick menu's pick (Type / Status / Tag): that one value replaces the chip's values; "" (All …) removes the chip. */
-export function setListCond(conds: Cond[], dim: string, value: string | null): Cond[] {
-  const at = conds.findIndex((c) => c.dim === dim);
-  if (!value) return at >= 0 ? withoutCond(conds, at) : conds;
-  const chip: Cond = { dim, op: "is", value: [value] };
-  return at >= 0 ? conds.map((c, i) => (i === at ? chip : c)) : [...conds, chip];
-}
-
-/** The search box's Enter: its text becomes the one "Title contains" chip. */
-export function setTitleCond(conds: Cond[], text: string): Cond[] {
-  const rest = conds.filter((c) => c.dim !== "title");
-  return text.trim() ? [...rest, { dim: "title", op: "contains", value: text.trim() }] : rest;
-}
-
-/** The value a quick menu shows: the chip's, when it has exactly one ("" otherwise). */
-export function singleValue(conds: Cond[], dim: string): string {
-  const values = list(conds.find((c) => c.dim === dim)?.value);
-  return values.length === 1 ? values[0] : "";
-}
-
 /** The old links (`?status=inbox,draft` from the sidebar, `?tag=leather`) as chips. */
 export function legacyConds(params: URLSearchParams): Cond[] {
   const conds: Cond[] = [];

@@ -1,6 +1,5 @@
 ---
 import EntryCard from "@/components/EntryCard.astro";
-import FilterBar from "@/components/FilterBar.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { type CollectionRead, getCollectionEntries, listCollections } from "@/lib/api/collections";
@@ -8,7 +7,7 @@ import { type EntryRead, listEntries } from "@/lib/api/entries";
 import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
 import { listTags, type TagRead } from "@/lib/api/tags";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
-import { condLabel, condsHref, fieldsFor, legacyConds, readConds, singleValue, STATUSES, toSpec, withoutCond } from "@/lib/entryQuery";
+import { condLabel, condsHref, fieldsFor, legacyConds, readConds, STATUSES, toSpec, withoutCond } from "@/lib/entryQuery";
 
 const authToken = getAuthToken(Astro.cookies);
 // Everyone reads; creating entries is AUTHOR+.
@@ -84,9 +83,6 @@ if (trashCollection && (trashCollection.entryCount ?? 0) > 0 && authToken) {
 // Sort entry types by sort_order
 const sortedTypes = entryTypes.sort((a, b) => a.sortOrder - b.sortOrder);
 
-// Tags that are actually applied to something, for the filter dropdown (alpha by name).
-const filterTags = allTags.filter((t) => (t.entryCount ?? 0) > 0).sort((a, b) => a.name.localeCompare(b.name));
-
 // Group entries by collection (entries can appear in multiple collections)
 const collectionGroups = new Map<string, { collection: CollectionRead; entries: EntryRead[] }>();
 const uncollected: EntryRead[] = [];
@@ -142,40 +138,6 @@ const sortedGroups = [...collectionGroups.values()].sort(
           <p style="margin:4px 0 0;color:var(--muted);">Manage all your content entries.</p>
         </div>
         <div style="display:flex;gap:0.75rem;">
-          <FilterBar
-            searchPlaceholder="Search entries..."
-            filters={[
-              {
-                id: "type-filter",
-                label: "Types",
-                defaultValue: singleValue(conds, "type"),
-                options: sortedTypes.map(type => ({
-                  value: type.slug,
-                  label: type.name
-                }))
-              },
-              {
-                id: "status-filter",
-                label: "Statuses",
-                defaultValue: singleValue(conds, "status"),
-                options: [
-                  { value: "inbox", label: "Inbox" },
-                  { value: "draft", label: "Draft" },
-                  { value: "needs_review", label: "Needs Review" },
-                  { value: "approved", label: "Approved" },
-                  { value: "published", label: "Published" },
-                  { value: "archived", label: "Archived" },
-                  { value: "trashed", label: "In the Trash" }
-                ]
-              },
-              ...(filterTags.length > 0 ? [{
-                id: "tag-filter",
-                label: "Tags",
-                defaultValue: singleValue(conds, "tag"),
-                options: filterTags.map(tag => ({ value: tag.slug, label: tag.name }))
-              }] : [])
-            ]}
-          />
           {access.canAuthor && <a class="button" href="/workspace/entries/new">New Entry</a>}
         </div>
       </div>
@@ -347,7 +309,7 @@ const sortedGroups = [...collectionGroups.values()].sort(
 
 <script>
   import { restoreFromTrash } from '@/lib/api/trash';
-  import { addCond, condsHref, DIMENSIONS, OP_LABELS, opsFor, setListCond, setTitleCond, type Cond, type FieldDef } from '@/lib/entryQuery';
+  import { addCond, condsHref, DIMENSIONS, OP_LABELS, opsFor, type Cond, type FieldDef } from '@/lib/entryQuery';
 
   // The chip editor: what to filter on → how → the value → Add, which reloads with the new chip in ?c=.
   const queryData = JSON.parse(document.getElementById('query-data')?.textContent || '{}');
@@ -449,10 +411,6 @@ const sortedGroups = [...collectionGroups.values()].sort(
     });
   }
 
-  const searchInput = document.getElementById('filter-search') as HTMLInputElement;
-  const typeFilter = document.getElementById('type-filter') as HTMLSelectElement;
-  const statusFilter = document.getElementById('status-filter') as HTMLSelectElement;
-  const tagFilter = document.getElementById('tag-filter') as HTMLSelectElement | null;
   const gridView = document.getElementById('grid-view');
   const groupedView = document.getElementById('grouped-view');
   const viewGridBtn = document.getElementById('view-grid');
@@ -478,36 +436,16 @@ const sortedGroups = [...collectionGroups.values()].sort(
   const savedView = localStorage.getItem('entries-view') as 'grid' | 'grouped' | null;
   if (savedView) setView(savedView);
 
-  // The search box filters what's shown as you type (titles and summaries); the menus and Enter make chips.
+  // Without chips, the list is everything but the Trash (the Trash group lists it); with chips, the server chose.
   function filterEntries() {
-    const searchQuery = searchInput?.value.toLowerCase().trim() || '';
+    if (hasChips) return;
     document.querySelectorAll('.entry-wrapper').forEach((wrapper) => {
-      const title = wrapper.getAttribute('data-title') || '';
-      const summary = wrapper.getAttribute('data-summary') || '';
-      const status = wrapper.getAttribute('data-status') || '';
-      const matchesSearch = !searchQuery || title.includes(searchQuery) || summary.includes(searchQuery);
-      // Without chips, everything but the Trash (the Trash group lists it); with chips, the server already chose.
-      const shown = hasChips || status !== 'trashed' || wrapper.hasAttribute('data-in-trash');
-      (wrapper as HTMLElement).style.display = matchesSearch && shown ? '' : 'none';
-    });
-    // Hide collection groups the search empties; a group listed only by its count shows while nothing is typed.
-    document.querySelectorAll('.collection-group').forEach((group) => {
-      const listed = group.querySelectorAll('.entry-wrapper').length;
-      const visible = group.querySelectorAll('.entry-wrapper:not([style*="display: none"])').length;
-      (group as HTMLElement).style.display = visible > 0 || (listed === 0 && !searchQuery) ? '' : 'none';
+      const trashed = wrapper.getAttribute('data-status') === 'trashed' && !wrapper.hasAttribute('data-in-trash');
+      (wrapper as HTMLElement).style.display = trashed ? 'none' : '';
     });
   }
 
   filterEntries();
-
-  const go = (conds: Cond[]) => { window.location.href = condsHref(conds); };
-  searchInput?.addEventListener('input', filterEntries);
-  searchInput?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); go(setTitleCond(queryData.conds ?? [], searchInput.value)); }
-  });
-  typeFilter?.addEventListener('change', () => go(setListCond(queryData.conds ?? [], 'type', typeFilter.value)));
-  statusFilter?.addEventListener('change', () => go(setListCond(queryData.conds ?? [], 'status', statusFilter.value)));
-  tagFilter?.addEventListener('change', () => go(setListCond(queryData.conds ?? [], 'tag', tagFilter.value)));
 </script>
 
 <style>
