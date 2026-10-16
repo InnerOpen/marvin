@@ -6,12 +6,16 @@ from pydantic import UUID4
 from marvin.db.models.platform import EntryCollections, EntryTypes
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import editable_entry, require_can_create_entry, require_can_edit_entry, require_workspace_admin
-from marvin.schemas.platform import CollectionRead, EntryCreate, EntryRead, EntryUpdate
+from marvin.schemas.platform import CollectionRead, EntryCreate, EntryQueryRequest, EntryQueryResult, EntryRead, EntryUpdate
 from marvin.services.entries import EntryService, trash
 from marvin.services.entries.entry_service import TRASHED, count_by_status, restore_status
 from marvin.services.entry_urls import entry_url, site_base_url
 
 router = APIRouter(prefix="/entries")
+
+
+# One page of a structured search at most (the Entries page asks for this many).
+QUERY_MAX_ROWS = 500
 
 
 @controller(router)
@@ -47,6 +51,19 @@ class EntriesController(BaseUserController):
         data_dict = data.model_dump()
         data_dict["created_by"] = self.user.id  # inject the authenticated author
         return self._entries().create(data_dict)
+
+    @router.post("/query", response_model=EntryQueryResult, summary="Search entries by conditions")
+    def query_entries(self, body: EntryQueryRequest) -> EntryQueryResult:
+        """A structured search: the conditions in `spec`, all ANDed, through the same engine the assistants'
+        find_entries uses (so the Entries page and the AI find the same entries). Read-only; the Trash is left out
+        unless `status` asks for it. Declared before `/{item_id}`."""
+        from marvin.services.entries.query import run as run_entry_query
+
+        limit = max(1, min(body.limit, QUERY_MAX_ROWS))
+        result = run_entry_query(self.session, self.group_id, body.spec, limit=limit, offset=max(0, body.offset))
+        if result.note:
+            return EntryQueryResult(entries=[], total=0, note=result.note, unknown_ops=list(result.unknown_ops or []))
+        return EntryQueryResult(entries=[EntryRead.model_validate(e) for e in result.rows], total=result.total)
 
     @router.get("/counts", summary="Entry counts by status")
     def entry_counts(self) -> dict[str, int]:

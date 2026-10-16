@@ -332,3 +332,23 @@ class EntrySummary(EntryRead):
     """Summary schema for an entry."""
 
     pass
+
+
+class EntryQueryRequest(_MarvinModel):
+    """A structured search: `spec` takes the keys the assistants' find_entries takes (entry_types, status, tags,
+    collection, where [{field, op, value}], query, has_images, created_/updated_/published_ after|before, sort…),
+    all ANDed. See services/entries/query.py."""
+
+    spec: dict = {}
+    limit: int = 200
+    offset: int = 0
+
+
+class EntryQueryResult(_MarvinModel):
+    entries: list[EntryRead]
+    total: int
+    """Every match, not only this page."""
+    note: str | None = None
+    """Why a condition can't match anything (an unknown tag, a status that isn't one), when it can't."""
+    unknown_ops: list[str] = []
+    """Comparison operators the engine doesn't know: it refuses the search, and `note` lists the valid ones."""

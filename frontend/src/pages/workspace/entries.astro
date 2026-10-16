@@ -2,12 +2,13 @@
 import EntryCard from "@/components/EntryCard.astro";
 import FilterBar from "@/components/FilterBar.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
-import { getAuthToken } from "@/lib/api/client";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { type CollectionRead, getCollectionEntries, listCollections } from "@/lib/api/collections";
 import { type EntryRead, listEntries } from "@/lib/api/entries";
 import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
 import { listTags, type TagRead } from "@/lib/api/tags";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
+import { condLabel, condsHref, fieldsFor, readConds, STATUSES, toSpec, withoutCond } from "@/lib/entryQuery";
 
 const authToken = getAuthToken(Astro.cookies);
 // Everyone reads; creating entries is AUTHOR+.
@@ -18,6 +19,8 @@ const statusParam = Astro.url.searchParams.get("status");
 const statusFilters = statusParam ? statusParam.split(",").map((s) => s.trim()) : [];
 // A single tag slug can pre-select the tag filter (deep-link, e.g. ?tag=leather).
 const tagParam = Astro.url.searchParams.get("tag") || "";
+// Structured search: condition chips in `?c=` (lib/entryQuery.ts). With any, the page shows what the engine finds.
+const conds = readConds(Astro.url.searchParams);
 // Set by the entry page's Move to Trash: offer Undo (restore) right here.
 const trashedParam = Astro.url.searchParams.get("trashed") || "";
 
@@ -43,6 +46,34 @@ if (!authToken) {
     console.error("[Entries] Failed to load:", error);
   }
 }
+
+// The structured search's results (the same engine as the assistants' find_entries).
+type QueryResult = { entries: EntryRead[]; total: number; note?: string | null; unknownOps?: string[] };
+let search: QueryResult | null = null;
+if (conds.length && authToken && !error) {
+  try {
+    search = await fetchApi<QueryResult>("/api/platform/entries/query", { method: "POST", body: JSON.stringify({ spec: toSpec(conds), limit: 500 }) }, authToken);
+  } catch (e) {
+    search = { entries: [], total: 0, note: e instanceof Error ? e.message : String(e) };
+  }
+}
+const chosenTypes = (conds.find((c) => c.dim === "type")?.value as string[] | undefined) ?? [];
+const typeFields = fieldsFor(entryTypes, chosenTypes);
+const labels = {
+  types: Object.fromEntries(entryTypes.map((t) => [t.slug, t.name])),
+  tags: Object.fromEntries(allTags.map((t) => [t.slug, t.name])),
+  collections: Object.fromEntries(collections.map((c) => [c.slug, c.name])),
+  fields: Object.fromEntries(entryTypes.flatMap((t) => ((t.schemaJson?.fields as any[]) ?? []).map((f) => [f.key, f.label || f.key]))),
+};
+// What the chip editor offers (its script reads this).
+const builderData = {
+  conds,
+  types: entryTypes.map((t) => ({ value: t.slug, label: t.name })),
+  statuses: Object.entries(STATUSES).map(([value, label]) => ({ value, label })),
+  tags: allTags.map((t) => ({ value: t.slug, label: t.name })).sort((a, b) => a.label.localeCompare(b.label)),
+  collections: collections.filter((c: any) => (c.targetType ?? "entry") === "entry").map((c) => ({ value: c.slug, label: c.name })),
+  fields: typeFields,
+};
 
 // Create a map of collection ID to collection for quick lookup
 const collectionsMap = new Map(collections.map((c) => [c.id, c]));
@@ -151,6 +182,31 @@ const sortedGroups = [...collectionGroups.values()].sort(
         </div>
       </div>
 
+      <div class="query-bar" aria-label="Search by conditions">
+        {conds.map((c, i) => (
+          <span class="query-chip">
+            {condLabel(c, labels)}
+            <a href={condsHref(withoutCond(conds, i))} class="query-chip-x" aria-label={`Remove “${condLabel(c, labels)}”`}>×</a>
+          </span>
+        ))}
+        <button type="button" class="query-add" id="query-add">+ Add condition</button>
+        {conds.length > 0 && (
+          <>
+            {search && <span class="query-count">{search.total} {search.total === 1 ? "entry" : "entries"}</span>}
+            <a href="/workspace/entries" class="query-clear">Clear</a>
+          </>
+        )}
+        <form class="query-editor" id="query-editor" hidden>
+          <select id="q-dim" aria-label="Filter on"></select>
+          <select id="q-op" aria-label="How"></select>
+          <span id="q-value"></span>
+          <button type="submit" class="button small">Add</button>
+          <button type="button" class="button secondary small" id="q-cancel">Cancel</button>
+        </form>
+        <script type="application/json" id="query-data" set:html={JSON.stringify(builderData)} />
+      </div>
+      {search?.note && <p class="query-note">{search.note}</p>}
+
       {trashedParam && (
         <div class="undo-notice" id="undo-notice" data-entry-id={trashedParam} role="status">
           <span>Entry moved to the Trash.</span>
@@ -159,7 +215,23 @@ const sortedGroups = [...collectionGroups.values()].sort(
         </div>
       )}
 
-      {entries.length === 0 && trashedEntries.length === 0 ? (
+      {conds.length > 0 ? (
+        search && search.entries.length > 0 ? (
+          <section class="grid" aria-label="Matching entries">
+            {search.entries.map((entry) => (
+              <div class="query-result">
+                <EntryCard entry={entry} collectionsMap={collectionsMap} />
+              </div>
+            ))}
+            {search.total > search.entries.length && <p class="query-more">Showing {search.entries.length} of {search.total}: add a condition to narrow it.</p>}
+          </section>
+        ) : (
+          <div class="empty-state">
+            <h3>Nothing matches</h3>
+            <p>Remove a condition, or <a href="/workspace/entries">clear them all</a>.</p>
+          </div>
+        )
+      ) : entries.length === 0 && trashedEntries.length === 0 ? (
         <div class="empty-state">
           <div class="empty-icon">📝</div>
           <h3>No entries yet</h3>
@@ -279,6 +351,82 @@ const sortedGroups = [...collectionGroups.values()].sort(
 
 <script>
   import { restoreFromTrash } from '@/lib/api/trash';
+  import { addCond, condsHref, DIMENSIONS, OP_LABELS, opsFor, type Cond, type FieldDef } from '@/lib/entryQuery';
+
+  // The chip editor: what to filter on → how → the value → Add, which reloads with the new chip in ?c=.
+  const queryData = JSON.parse(document.getElementById('query-data')?.textContent || '{}');
+  const editor = document.getElementById('query-editor') as HTMLFormElement | null;
+  const dimSel = document.getElementById('q-dim') as HTMLSelectElement | null;
+  const opSel = document.getElementById('q-op') as HTMLSelectElement | null;
+  const valueBox = document.getElementById('q-value');
+  type Opt = { value: string; label: string };
+  const choices: Record<string, Opt[]> = { type: queryData.types, status: queryData.statuses, tag: queryData.tags, collection: queryData.collections };
+  const fields: FieldDef[] = queryData.fields ?? [];
+  const fieldOf = (dim: string) => fields.find((f) => `field:${f.key}` === dim);
+  const option = (o: Opt) => { const el = document.createElement('option'); el.value = o.value; el.textContent = o.label; return el; };
+
+  function fillDims() {
+    if (!dimSel) return;
+    dimSel.replaceChildren(
+      ...Object.entries(DIMENSIONS).map(([value, label]) => option({ value, label })),
+      ...fields.map((f) => option({ value: `field:${f.key}`, label: `${f.label} (field)` })),
+    );
+  }
+  function fillOps() {
+    if (!dimSel || !opSel) return;
+    opSel.replaceChildren(...opsFor(dimSel.value, fieldOf(dimSel.value)).map((op) => option({ value: op, label: OP_LABELS[op] ?? op })));
+    fillValue();
+  }
+  function fillValue() {
+    if (!dimSel || !opSel || !valueBox) return;
+    const dim = dimSel.value, op = opSel.value, field = fieldOf(dim);
+    let input: HTMLElement | null = null;
+    const list = choices[dim] ?? (field?.kind === 'select' ? field.options : undefined);
+    if (op === 'exists' || op === 'missing' || op === 'yes') input = null;
+    else if (list) {
+      const sel = document.createElement('select');
+      sel.multiple = dim in choices || op === 'in';
+      sel.replaceChildren(...list.map(option));
+      input = sel;
+    } else if (field?.kind === 'boolean') {
+      const sel = document.createElement('select');
+      sel.replaceChildren(option({ value: 'true', label: 'yes' }), option({ value: 'false', label: 'no' }));
+      input = sel;
+    } else {
+      const el = document.createElement('input');
+      el.type = op === 'within' || field?.kind === 'number' ? 'number' : ['after', 'before'].includes(op) || field?.kind === 'date' ? 'date' : 'text';
+      el.placeholder = op === 'within' ? 'days' : '';
+      el.required = true;
+      input = el;
+    }
+    if (input) input.id = 'q-input';
+    valueBox.replaceChildren(...(input ? [input] : []));
+  }
+  function readValue(): Cond['value'] {
+    const el = document.getElementById('q-input') as HTMLInputElement | HTMLSelectElement | null;
+    if (!el) return null;
+    if (el instanceof HTMLSelectElement && el.multiple) return [...el.selectedOptions].map((o) => o.value);
+    const field = fieldOf(dimSel!.value);
+    if (field?.kind === 'boolean') return el.value === 'true';
+    if (field?.kind === 'number' || opSel!.value === 'within') return Number(el.value);
+    return el.value;
+  }
+  document.getElementById('query-add')?.addEventListener('click', () => {
+    if (!editor) return;
+    editor.hidden = false;
+    fillDims();
+    fillOps();
+    dimSel?.focus();
+  });
+  dimSel?.addEventListener('change', fillOps);
+  opSel?.addEventListener('change', fillValue);
+  document.getElementById('q-cancel')?.addEventListener('click', () => { if (editor) editor.hidden = true; });
+  editor?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const value = readValue();
+    if (Array.isArray(value) && !value.length) return;
+    window.location.href = condsHref(addCond(queryData.conds ?? [], { dim: dimSel!.value, op: opSel!.value, value }));
+  });
 
   // Undo a Move to Trash: restore the entry and go back to it. Drop ?trashed so a reload doesn't offer it again.
   const undoNotice = document.getElementById('undo-notice');
@@ -558,4 +706,17 @@ const sortedGroups = [...collectionGroups.values()].sort(
     font-size: 0.8125rem;
     color: var(--muted);
   }
+  .query-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 16px; }
+  .query-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 13px; }
+  .query-chip-x { color: var(--muted); text-decoration: none; font-size: 16px; line-height: 1; padding: 0 4px; }
+  .query-chip-x:hover { color: var(--ink); }
+  .query-add { padding: 4px 10px; border: 1px dashed var(--line); border-radius: 999px; background: transparent; color: var(--accent); font: inherit; font-size: 13px; cursor: pointer; }
+  .query-count { color: var(--muted); font-size: 13px; }
+  .query-clear { font-size: 13px; }
+  .query-editor { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+  .query-editor select, .query-editor input { padding: 6px 8px; max-width: 100%; }
+  .query-editor select[multiple] { min-height: 6.5em; }
+  .query-note { color: var(--color-error, #dc2626); margin: -6px 0 16px; font-size: 14px; }
+  .query-more { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
+  @media (max-width: 640px) { .query-editor > * { flex: 1 1 100%; } }
 </style>

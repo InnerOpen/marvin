@@ -98,6 +98,7 @@ OPEN_ROUTES = {
     ("GET", "/api/groups/webhooks/types"): "event-type list for pickers; no webhook config in it",
     ("GET", "/api/platform/scheduled-tasks/task-types"): "task-type catalog for pickers; admin_only types are refused on create",
     ("GET", "/api/groups/secrets/slugs"): "slug names only, no values: {{SLUG}} autocomplete (docs/admin-model.md keeps it open)",
+    ("POST", "/api/platform/entries/query"): "a read sent as POST (the conditions are a JSON body): any member, as GET /api/platform/entries",
     # AI: member-level by design. Running agents and operations is gated per agent/operation/tool by the
     # permission matrix (min_role, invocation sources), which the inline checks and may_talk cover.
     ("POST", "/api/ai/chat"): "plain completion, read-only (changes nothing): any member, behind the source policy and budget",
