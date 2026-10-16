@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { addCond, condLabel, condsHref, fieldKind, fieldsFor, legacyConds, opsFor, readConds, toSpec, withoutCond } from "./entryQuery.ts";
+import { addCond, condLabel, condsHref, fieldKind, fieldsFor, legacyConds, opsFor, readConds, toggleValue, toSpec, withoutCond } from "./entryQuery.ts";
 
 const bench = { slug: "bench-note", schemaJson: { fields: [{ key: "readTime", label: "Read time", type: "text" }, { key: "noteNumber", type: "number" }, { key: "hero", type: "asset" }] } };
 const project = { slug: "project", schemaJson: { fields: [{ key: "readTime", label: "Read time", type: "text" }, { key: "price", type: "number" }] } };
@@ -64,4 +64,12 @@ test("the sidebar's old ?status= and ?tag= links open as chips", () => {
     { dim: "tag", op: "is", value: ["leather"] },
   ]);
   assert.deepEqual(legacyConds(new URLSearchParams("trashed=x")), []);
+});
+
+test("a status button turns its status on and off", () => {
+  let conds = toggleValue([], "status", "inbox");
+  conds = toggleValue(conds, "status", "draft");
+  assert.deepEqual(conds, [{ dim: "status", op: "is", value: ["inbox", "draft"] }]);
+  conds = toggleValue(toggleValue(conds, "status", "inbox"), "status", "draft");
+  assert.deepEqual(conds, []);
 });

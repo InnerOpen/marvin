@@ -7,7 +7,7 @@ import { type EntryRead, listEntries } from "@/lib/api/entries";
 import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
 import { listTags, type TagRead } from "@/lib/api/tags";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
-import { condLabel, condsHref, fieldsFor, legacyConds, readConds, STATUSES, toSpec, withoutCond } from "@/lib/entryQuery";
+import { condsHref, legacyConds, readConds, STATUSES, toggleValue, toSpec } from "@/lib/entryQuery";
 
 const authToken = getAuthToken(Astro.cookies);
 // Everyone reads; creating entries is AUTHOR+.
@@ -52,22 +52,19 @@ if (conds.length && authToken && !error) {
     search = { entries: [], total: 0, note: e instanceof Error ? e.message : String(e) };
   }
 }
-const chosenTypes = (conds.find((c) => c.dim === "type")?.value as string[] | undefined) ?? [];
-const typeFields = fieldsFor(entryTypes, chosenTypes);
-const labels = {
-  types: Object.fromEntries(entryTypes.map((t) => [t.slug, t.name])),
-  tags: Object.fromEntries(allTags.map((t) => [t.slug, t.name])),
-  collections: Object.fromEntries(collections.map((c) => [c.slug, c.name])),
-  fields: Object.fromEntries(entryTypes.flatMap((t) => ((t.schemaJson?.fields as any[]) ?? []).map((f) => [f.key, f.label || f.key]))),
-};
-// What the chip editor offers (its script reads this).
+// The search bar (Beaker-style): a title box and status buttons, then "Show search options" for stacked rows of
+// field | operation | value. The rows hold everything but the title and the status, which the bar shows.
+const titleText = String(conds.find((c) => c.dim === "title")?.value ?? "");
+const statusOn = ((conds.find((c) => c.dim === "status")?.value as string[] | undefined) ?? []).map(String);
+const QUICK_STATUSES = ["inbox", "draft", "needs_review", "approved", "published", "archived"];
+const optionsOpen = conds.some((c) => c.dim !== "title" && c.dim !== "status");
 const builderData = {
   conds,
   types: entryTypes.map((t) => ({ value: t.slug, label: t.name })),
+  typeDefs: entryTypes.map((t) => ({ slug: t.slug, schemaJson: { fields: ((t.schemaJson?.fields as any[]) ?? []) } })),
   statuses: Object.entries(STATUSES).map(([value, label]) => ({ value, label })),
   tags: allTags.map((t) => ({ value: t.slug, label: t.name })).sort((a, b) => a.label.localeCompare(b.label)),
   collections: collections.filter((c: any) => (c.targetType ?? "entry") === "entry").map((c) => ({ value: c.slug, label: c.name })),
-  fields: typeFields,
 };
 
 // Create a map of collection ID to collection for quick lookup
@@ -142,29 +139,32 @@ const sortedGroups = [...collectionGroups.values()].sort(
         </div>
       </div>
 
-      <div class="query-bar" aria-label="Search by conditions">
-        {conds.map((c, i) => (
-          <span class="query-chip">
-            {condLabel(c, labels)}
-            <a href={condsHref(withoutCond(conds, i))} class="query-chip-x" aria-label={`Remove “${condLabel(c, labels)}”`}>×</a>
-          </span>
-        ))}
-        <button type="button" class="query-add" id="query-add">+ Add condition</button>
-        {conds.length > 0 && (
-          <>
-            {search && <span class="query-count">{search.total} {search.total === 1 ? "entry" : "entries"}</span>}
-            <a href="/workspace/entries" class="query-clear">Clear</a>
-          </>
-        )}
-        <form class="query-editor" id="query-editor" hidden>
-          <select id="q-dim" aria-label="Filter on"></select>
-          <select id="q-op" aria-label="How"></select>
-          <span id="q-value"></span>
-          <button type="submit" class="button">Add</button>
-          <button type="button" class="button secondary" id="q-cancel">Cancel</button>
+      <div class="search-bar">
+        <form class="search-quick" id="quick-search" role="search">
+          <input type="search" id="q-text" class="search-text" placeholder="Search titles…" value={titleText} aria-label="Search titles" />
+          <button type="submit" class="button">Search</button>
         </form>
-        <script type="application/json" id="query-data" set:html={JSON.stringify(builderData)} />
+        <div class="search-statuses" role="group" aria-label="Filter by status">
+          <span class="search-label">Status:</span>
+          {QUICK_STATUSES.map((v) => (
+            <a class:list={["status-pill", { on: statusOn.includes(v) }]} href={condsHref(toggleValue(conds, "status", v))} aria-pressed={statusOn.includes(v) ? "true" : "false"}>{STATUSES[v]}</a>
+          ))}
+        </div>
+        <button type="button" class="search-toggle" id="toggle-options" aria-expanded={optionsOpen ? "true" : "false"} aria-controls="search-options">
+          {optionsOpen ? "Hide search options" : "Show search options"}
+        </button>
+        {conds.length > 0 && <a href="/workspace/entries" class="search-clear">Clear filters</a>}
       </div>
+      <form class="search-options" id="search-options" hidden={!optionsOpen}>
+        <div class="search-row search-head" aria-hidden="true"><span>Field</span><span>Operation</span><span>Value</span><span></span></div>
+        <div id="search-rows"></div>
+        <div class="search-actions">
+          <button type="button" class="button secondary" id="row-add">+ Add</button>
+          <button type="submit" class="button">Search</button>
+        </div>
+      </form>
+      <script type="application/json" id="query-data" set:html={JSON.stringify(builderData)} />
+      {search && <p class="search-count">Entries ({search.total})</p>}
       {search?.note && <p class="query-note">{search.note}</p>}
 
       {trashedParam && (
@@ -309,86 +309,136 @@ const sortedGroups = [...collectionGroups.values()].sort(
 
 <script>
   import { restoreFromTrash } from '@/lib/api/trash';
-  import { addCond, condsHref, DIMENSIONS, OP_LABELS, opsFor, type Cond, type FieldDef } from '@/lib/entryQuery';
+  import { addCond, condsHref, DIMENSIONS, fieldsFor, OP_LABELS, opsFor, type Cond, type FieldDef } from '@/lib/entryQuery';
 
-  // The chip editor: what to filter on → how → the value → Add, which reloads with the new chip in ?c=.
+  // The search bar: the title box and the status buttons; "Show search options" opens stacked rows of
+  // field | operation | value (Beaker-style). Nothing runs until Search; the conditions go in ?c=.
   const queryData = JSON.parse(document.getElementById('query-data')?.textContent || '{}');
-  const editor = document.getElementById('query-editor') as HTMLFormElement | null;
-  const dimSel = document.getElementById('q-dim') as HTMLSelectElement | null;
-  const opSel = document.getElementById('q-op') as HTMLSelectElement | null;
-  const valueBox = document.getElementById('q-value');
+  const conds: Cond[] = queryData.conds ?? [];
   type Opt = { value: string; label: string };
-  const choices: Record<string, Opt[]> = { type: queryData.types, status: queryData.statuses, tag: queryData.tags, collection: queryData.collections };
-  const fields: FieldDef[] = queryData.fields ?? [];
-  const fieldOf = (dim: string) => fields.find((f) => `field:${f.key}` === dim);
-  const option = (o: Opt) => { const el = document.createElement('option'); el.value = o.value; el.textContent = o.label; return el; };
+  const choices: Record<string, Opt[]> = { type: queryData.types, tag: queryData.tags, collection: queryData.collections };
+  const ROW_DIMS = Object.entries(DIMENSIONS).filter(([dim]) => dim !== 'title' && dim !== 'status');
+  const option = (o: Opt, selected = false) => { const el = document.createElement('option'); el.value = o.value; el.textContent = o.label; el.selected = selected; return el; };
+  const rowsBox = document.getElementById('search-rows')!;
+  const optionsForm = document.getElementById('search-options') as HTMLFormElement | null;
+  const textBox = document.getElementById('q-text') as HTMLInputElement | null;
 
-  function fillDims() {
-    if (!dimSel) return;
-    dimSel.replaceChildren(
-      ...Object.entries(DIMENSIONS).map(([value, label]) => option({ value, label })),
-      ...fields.map((f) => option({ value: `field:${f.key}`, label: `${f.label} (field)` })),
-    );
+  // A type's own fields are offered once a row picks that type.
+  function currentFields(): FieldDef[] {
+    const picked = [...rowsBox.querySelectorAll<HTMLSelectElement>('.row-dim')].flatMap((d) => d.value === 'type' ? [(d.closest('.search-row')!.querySelector('.row-value') as HTMLSelectElement)?.value] : []);
+    return fieldsFor(queryData.typeDefs ?? [], picked.filter(Boolean));
   }
-  function fillOps() {
-    if (!dimSel || !opSel) return;
-    opSel.replaceChildren(...opsFor(dimSel.value, fieldOf(dimSel.value)).map((op) => option({ value: op, label: OP_LABELS[op] ?? op })));
-    fillValue();
-  }
-  function fillValue() {
-    if (!dimSel || !opSel || !valueBox) return;
-    const dim = dimSel.value, op = opSel.value, field = fieldOf(dim);
-    let input: HTMLElement | null = null;
+  const fieldOf = (dim: string) => currentFields().find((f) => `field:${f.key}` === dim);
+
+  function valueControl(dim: string, op: string, value: Cond['value']): HTMLElement | null {
+    const field = fieldOf(dim);
     const list = choices[dim] ?? (field?.kind === 'select' ? field.options : undefined);
-    if (op === 'exists' || op === 'missing' || op === 'yes') input = null;
-    else if (list) {
-      // One value at a time; picking another later joins the same chip ("… or …").
+    const current = Array.isArray(value) ? String(value[0] ?? '') : value == null ? '' : String(value);
+    if (op === 'exists' || op === 'missing' || op === 'yes') return null;
+    if (list || field?.kind === 'boolean') {
       const sel = document.createElement('select');
-      sel.replaceChildren(...list.map(option));
-      input = sel;
-    } else if (field?.kind === 'boolean') {
-      const sel = document.createElement('select');
-      sel.replaceChildren(option({ value: 'true', label: 'yes' }), option({ value: 'false', label: 'no' }));
-      input = sel;
-    } else {
-      const el = document.createElement('input');
-      el.type = op === 'within' || field?.kind === 'number' ? 'number' : ['after', 'before'].includes(op) || field?.kind === 'date' ? 'date' : 'text';
-      el.placeholder = op === 'within' ? 'days' : '';
-      el.required = true;
-      input = el;
+      const opts = list ?? [{ value: 'true', label: 'yes' }, { value: 'false', label: 'no' }];
+      sel.replaceChildren(option({ value: '', label: 'Choose…' }), ...opts.map((o) => option(o, o.value === current)));
+      return sel;
     }
-    if (input) input.id = 'q-input';
-    valueBox.replaceChildren(...(input ? [input] : []));
+    const el = document.createElement('input');
+    el.type = op === 'within' || field?.kind === 'number' ? 'number' : ['after', 'before'].includes(op) || field?.kind === 'date' ? 'date' : 'text';
+    el.placeholder = op === 'within' ? 'days' : 'Enter value';
+    el.value = current;
+    return el;
   }
-  function readValue(): Cond['value'] {
-    const el = document.getElementById('q-input') as HTMLInputElement | HTMLSelectElement | null;
-    if (!el) return null;
-    if (dimSel!.value in choices) return [el.value];
-    const field = fieldOf(dimSel!.value);
-    if (field?.kind === 'boolean') return el.value === 'true';
-    if (field?.kind === 'number' || opSel!.value === 'within') return Number(el.value);
-    return el.value;
+
+  function fillRow(row: HTMLElement, cond?: Cond) {
+    const dimSel = row.querySelector<HTMLSelectElement>('.row-dim')!;
+    const opSel = row.querySelector<HTMLSelectElement>('.row-op')!;
+    const holder = row.querySelector<HTMLElement>('.row-value-cell')!;
+    const dim = dimSel.value;
+    opSel.replaceChildren(...opsFor(dim, fieldOf(dim)).map((op) => option({ value: op, label: OP_LABELS[op] ?? op }, op === cond?.op)));
+    const control = valueControl(dim, opSel.value, cond?.value ?? null);
+    if (control) control.classList.add('row-value');
+    holder.replaceChildren(...(control ? [control] : []));
   }
-  document.getElementById('query-add')?.addEventListener('click', () => {
-    if (!editor) return;
-    editor.hidden = false;
-    fillDims();
-    fillOps();
-    dimSel?.focus();
-  });
-  if (location.hash === '#add') {
-    history.replaceState(null, '', location.pathname + location.search);
-    document.getElementById('query-add')?.click();
+
+  function addRow(cond?: Cond) {
+    const row = document.createElement('div');
+    row.className = 'search-row';
+    row.innerHTML = '<select class="row-dim" aria-label="Field"></select><select class="row-op" aria-label="Operation"></select><span class="row-value-cell"></span><button type="button" class="row-remove">✕ Remove</button>';
+    const dimSel = row.querySelector<HTMLSelectElement>('.row-dim')!;
+    const fields = currentFields();
+    dimSel.replaceChildren(
+      ...ROW_DIMS.map(([value, label]) => option({ value, label }, value === cond?.dim)),
+      ...fields.map((f) => option({ value: `field:${f.key}`, label: f.label }, `field:${f.key}` === cond?.dim)),
+    );
+    if (cond?.dim.startsWith('field:') && !fields.some((f) => `field:${f.key}` === cond.dim)) {
+      dimSel.append(option({ value: cond.dim, label: cond.dim.slice(6) }, true));
+    }
+    rowsBox.append(row);
+    fillRow(row, cond);
+    dimSel.addEventListener('change', () => fillRow(row));
+    // A row the user touched counts: left without a value it stops the search instead of vanishing from it.
+    row.addEventListener('change', () => { row.dataset.touched = '1'; row.classList.remove('incomplete'); });
+    if (cond) row.dataset.touched = '1';
+    row.querySelector('.row-op')!.addEventListener('change', (e) => {
+      const keep = row.querySelector<HTMLInputElement | HTMLSelectElement>('.row-value')?.value;
+      fillRow(row, { dim: dimSel.value, op: (e.target as HTMLSelectElement).value, value: keep ?? null });
+    });
+    row.querySelector('.row-remove')!.addEventListener('click', () => { row.remove(); if (!rowsBox.children.length) addRow(); });
+    return row;
   }
-  dimSel?.addEventListener('change', fillOps);
-  opSel?.addEventListener('change', fillValue);
-  document.getElementById('q-cancel')?.addEventListener('click', () => { if (editor) editor.hidden = true; });
-  editor?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const value = readValue();
-    if (Array.isArray(value) && !value.length) return;
-    // "#add": the editor opens again on the new page, ready for the next condition.
-    window.location.href = condsHref(addCond(queryData.conds ?? [], { dim: dimSel!.value, op: opSel!.value, value })) + '#add';
+
+  function rowCond(row: HTMLElement): Cond | null {
+    const dim = row.querySelector<HTMLSelectElement>('.row-dim')!.value;
+    const op = row.querySelector<HTMLSelectElement>('.row-op')!.value;
+    const el = row.querySelector<HTMLInputElement | HTMLSelectElement>('.row-value');
+    if (!el) return { dim, op };
+    const raw = el.value.trim();
+    if (!raw) return null;
+    const field = fieldOf(dim);
+    if (dim in choices) return { dim, op, value: [raw] };
+    if (field?.kind === 'boolean') return { dim, op, value: raw === 'true' };
+    if (field?.kind === 'number' || op === 'within') return { dim, op, value: Number(raw) };
+    return { dim, op, value: raw };
+  }
+
+  // The bar's own conditions (title, status) plus the rows'; several rows on one list field join as "… or …".
+  // null when a touched row has no value yet (it's marked, and the search waits).
+  function collect(): Cond[] | null {
+    let next: Cond[] = conds.filter((c) => c.dim === 'status');
+    const text = textBox?.value.trim();
+    if (text) next.push({ dim: 'title', op: 'contains', value: text });
+    let incomplete = false;
+    for (const row of rowsBox.querySelectorAll<HTMLElement>('.search-row')) {
+      const c = rowCond(row);
+      if (c) next = addCond(next, c);
+      else if (row.dataset.touched) { row.classList.add('incomplete'); incomplete = true; }
+    }
+    if (incomplete) {
+      rowsBox.querySelector<HTMLElement>('.incomplete .row-value')?.focus();
+      return null;
+    }
+    return next;
+  }
+  const search = () => {
+    const next = collect();
+    if (next) window.location.href = condsHref(next);
+  };
+
+  // The rows start as the current conditions (one row per value), or one empty row.
+  for (const c of conds.filter((c) => c.dim !== 'title' && c.dim !== 'status')) {
+    const values = Array.isArray(c.value) ? c.value : [c.value];
+    for (const v of values) addRow({ ...c, value: v as Cond['value'] });
+  }
+  if (!rowsBox.children.length) addRow();
+
+  document.getElementById('quick-search')?.addEventListener('submit', (e) => { e.preventDefault(); search(); });
+  optionsForm?.addEventListener('submit', (e) => { e.preventDefault(); search(); });
+  document.getElementById('row-add')?.addEventListener('click', () => addRow().querySelector('select')?.focus());
+  document.getElementById('toggle-options')?.addEventListener('click', (e) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    if (!optionsForm) return;
+    optionsForm.hidden = !optionsForm.hidden;
+    btn.textContent = optionsForm.hidden ? 'Show search options' : 'Hide search options';
+    btn.setAttribute('aria-expanded', String(!optionsForm.hidden));
   });
 
   // Undo a Move to Trash: restore the entry and go back to it. Drop ?trashed so a reload doesn't offer it again.
@@ -626,26 +676,40 @@ const sortedGroups = [...collectionGroups.values()].sort(
     font-size: 0.8125rem;
     color: var(--muted);
   }
-  .query-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 16px; }
-  .query-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 13px; }
-  .query-chip-x { color: var(--muted); text-decoration: none; font-size: 16px; line-height: 1; padding: 0 4px; }
-  .query-chip-x:hover { color: var(--ink); }
-  .query-add { padding: 4px 10px; border: 1px dashed var(--line); border-radius: 999px; background: transparent; color: var(--accent); font: inherit; font-size: 13px; cursor: pointer; }
-  .query-count { color: var(--muted); font-size: 13px; }
-  .query-clear { font-size: 13px; color: var(--muted); text-decoration: none; }
-  .query-clear:hover { color: var(--ink); text-decoration: underline; }
-  .query-editor { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-  .query-editor[hidden] { display: none; } /* the flex rule above would otherwise show it before "+ Add condition" */
-  /* The same height as the chips beside it. */
-  .query-editor select, .query-editor input, .query-editor .button {
-    height: 28px; padding: 0 10px; max-width: 100%; border: 1px solid var(--line); border-radius: 999px;
-    background: var(--bg); color: var(--ink); font-size: 13px; line-height: 26px;
+  .search-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 0 0 14px; }
+  .search-quick { display: flex; gap: 8px; flex: 1 1 320px; max-width: 520px; }
+  .search-text, .search-options :global(select), .search-options :global(input) {
+    height: 38px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg);
+    color: var(--ink); font: inherit; font-size: 14px; min-width: 0;
   }
-  .query-editor .button { border-color: var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
-  .query-editor .button.secondary { border-color: var(--line); background: transparent; color: var(--muted); }
-  .query-editor select:focus, .query-editor input:focus { outline: none; border-color: var(--accent); }
-  #q-value { display: contents; }
+  .search-text { flex: 1; }
+  .search-text:focus, .search-options :global(select:focus), .search-options :global(input:focus) { outline: none; border-color: var(--accent); }
+  .search-statuses { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-left: 14px; border-left: 1px solid var(--line); }
+  .search-label { color: var(--muted); font-size: 14px; margin-right: 2px; }
+  .status-pill { padding: 7px 12px; border-radius: 6px; background: var(--panel-2, var(--panel)); color: var(--ink); font-size: 13px; text-decoration: none; border: 1px solid transparent; }
+  .status-pill:hover { border-color: var(--line); }
+  .status-pill.on { background: var(--accent); color: #fff; }
+  .search-toggle { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-size: 14px; cursor: pointer; }
+  .search-toggle:hover, .search-clear:hover { text-decoration: underline; }
+  .search-clear { color: var(--muted); font-size: 14px; text-decoration: none; }
+  .search-options { margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+  .search-options[hidden] { display: none; }
+  /* Rows are built in the browser: :global, or Astro's scoped styles never reach them. */
+  .search-options :global(.search-row) { display: grid; grid-template-columns: minmax(150px, 2fr) minmax(120px, 1.2fr) minmax(160px, 3fr) auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .search-head { margin-bottom: 4px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .search-options :global(.row-value-cell) { display: flex; }
+  .search-options :global(.row-value-cell > *) { flex: 1; }
+  .search-options :global(.row-remove) { height: 38px; padding: 0 14px; border: 1px solid var(--color-error, #dc2626); border-radius: 6px; background: var(--color-error, #dc2626); color: #fff; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .search-options :global(.row-remove:hover) { filter: brightness(1.1); }
+  .search-options :global(.search-row.incomplete .row-value) { border-color: var(--color-error, #dc2626); }
+  .search-options :global(.search-row.incomplete .row-value-cell::after) { content: "Pick a value"; align-self: center; margin-left: 8px; color: var(--color-error, #dc2626); font-size: 12px; white-space: nowrap; }
+  .search-actions { display: flex; gap: 8px; margin-top: 4px; }
+  .search-count { margin: 0 0 12px; color: var(--muted); font-size: 14px; }
   .query-note { color: var(--color-error, #dc2626); margin: -6px 0 16px; font-size: 14px; }
   .query-more { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
-  @media (max-width: 640px) { .query-editor { display: flex; width: 100%; } .query-editor > * { flex: 1 1 100%; } }
+  @media (max-width: 640px) {
+    .search-statuses { padding-left: 0; border-left: 0; }
+    .search-options :global(.search-row) { grid-template-columns: 1fr 1fr; }
+    .search-head { display: none; }
+  }
 </style>

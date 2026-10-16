@@ -131,6 +131,15 @@ export function addCond(conds: Cond[], next: Cond): Cond[] {
   return [...conds, next];
 }
 
+/** A status button: its value joins the chip, or leaves it (the chip goes with its last value). */
+export function toggleValue(conds: Cond[], dim: string, value: string): Cond[] {
+  const at = conds.findIndex((c) => c.dim === dim);
+  if (at < 0) return [...conds, { dim, op: "is", value: [value] }];
+  const values = list(conds[at].value);
+  const next = values.includes(value) ? values.filter((v) => v !== value) : [...values, value];
+  return next.length ? conds.map((c, i) => (i === at ? { ...c, value: next } : c)) : withoutCond(conds, at);
+}
+
 /** The old links (`?status=inbox,draft` from the sidebar, `?tag=leather`) as chips. */
 export function legacyConds(params: URLSearchParams): Cond[] {
   const conds: Cond[] = [];
