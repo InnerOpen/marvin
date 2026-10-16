@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.367 (2026-10-16)
+
+### Features
+
+- **entries**: Structured search — add a condition, then another, then another
+  ([`6102c98`](https://github.com/InnerOpen/marvin/commit/6102c986f45e2b6c851011594ff90c1c0a2c2ca9))
+
+
 ## v1.0.0-rc.366 (2026-10-16)
 
 ### Bug Fixes
