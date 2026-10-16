@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.363 (2026-10-16)
+
+### Features
+
+- **assets**: Say which pictures search can't find, and let a person describe them
+  ([`0ce247f`](https://github.com/InnerOpen/marvin/commit/0ce247fac92dbfaec4cfeec3734693270b9df1f5))
+
+
 ## v1.0.0-rc.362 (2026-10-15)
 
 ### Bug Fixes
