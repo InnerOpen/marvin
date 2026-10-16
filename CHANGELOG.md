@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.371 (2026-10-16)
+
+### Bug Fixes
+
+- **entries**: A compact condition editor, one value at a time
+  ([`3e13dfd`](https://github.com/InnerOpen/marvin/commit/3e13dfd4cbe936e6c090e0c11f247aa64808783e))
+
+
 ## v1.0.0-rc.370 (2026-10-16)
 
 ### Bug Fixes
