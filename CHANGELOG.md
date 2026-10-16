@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.368 (2026-10-16)
+
+### Bug Fixes
+
+- **entries**: The condition editor stays hidden until "+ Add condition"
+  ([`a5789aa`](https://github.com/InnerOpen/marvin/commit/a5789aa251dc60884c6963689a9f88b475658148))
+
+
 ## v1.0.0-rc.367 (2026-10-16)
 
 ### Features
