@@ -271,8 +271,6 @@ function isActive(itemPath: string, currentPath: string): boolean {
         <div class="nav-group">
           <a class="nav-group-label nav-group-link" href="/workspace/entries" aria-current={onEntries ? "page" : undefined}>Entries</a>
           <nav class="nav" aria-label="Entries">
-            {/* The heading links here too, but reads as a title: a plain row nobody has to guess at. */}
-            <a href="/workspace/entries" aria-current={onEntries ? "page" : undefined}><span aria-hidden="true">📄</span><span>All entries</span></a>
             {ENTRY_FOLDERS.map((f) => (
               <a href={f.href} aria-current={here === f.href || path === f.href ? "page" : undefined}>
                 <span aria-hidden="true">{f.icon}</span>
@@ -285,6 +283,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
         <div class="nav-group">
           <div class="nav-group-label">Content</div>
           <nav class="nav" aria-label="Content">
+            <a href="/workspace/entries" aria-current={onEntries ? "page" : undefined}><span aria-hidden="true">📄</span><span>All entries</span></a>
             <details class="nav-fold" open={onCollections}>
               <summary class="nav-fold-row" aria-current={onCollections ? "page" : undefined}>
                 <span aria-hidden="true">📚</span><span>Collections</span><span class="nav-chevron" aria-hidden="true">›</span>
