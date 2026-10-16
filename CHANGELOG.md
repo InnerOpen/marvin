@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.372 (2026-10-16)
+
+### Bug Fixes
+
+- **entries**: One search only — the chips; the right-hand search box and menus are gone
+  ([`5b40843`](https://github.com/InnerOpen/marvin/commit/5b408436870152f97fa6f2cb8cafb2a8b3ee208d))
+
+- **nav**: All entries sits under Content, above Collections (Jared)
+  ([`b29bf85`](https://github.com/InnerOpen/marvin/commit/b29bf858111ddcb1cddd58741e8e1f9349310ba3))
+
+- **nav**: An "All entries" row at the top of the sidebar's Entries group
+  ([`ee3ea1a`](https://github.com/InnerOpen/marvin/commit/ee3ea1a9914f49ec4f55ef6ad3bdb3656b19b6bc))
+
+
 ## v1.0.0-rc.371 (2026-10-16)
 
 ### Bug Fixes
