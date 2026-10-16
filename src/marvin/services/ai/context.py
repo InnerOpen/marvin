@@ -21,6 +21,20 @@ from sqlalchemy.orm import Session
 from .operations.base import OperationContext
 
 
+def sniff_image_mime(data: bytes) -> str | None:
+    """An image's type from its first bytes (PNG, JPEG, GIF, WebP), or None when it isn't one of those."""
+    head = data[:12]
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
 class ContextBuilder:
     def __init__(self, session: Session, group_id: UUID4) -> None:
         self._session = session
@@ -174,7 +188,11 @@ class ContextBuilder:
                 continue
             try:
                 fh = provider_for(asset.get("storage_provider")).get(asset["storage_key"])
-                asset["image_data"] = base64.b64encode(fh.read()).decode("ascii")
+                data = fh.read()
+                asset["image_data"] = base64.b64encode(data).decode("ascii")
+                # The model gets the file's real type: a stored label can be wrong (a PNG version saved as image/jpeg),
+                # and Anthropic refuses an image whose bytes don't match the type it was told.
+                asset["mime_type"] = sniff_image_mime(data) or mime
                 loaded += 1
             except Exception:
                 continue  # skip unreadable assets rather than failing the whole operation
