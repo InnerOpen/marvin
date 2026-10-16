@@ -8,7 +8,7 @@ import { listTags } from "@/lib/api/tags";
 import { listTrashedAssets } from "@/lib/api/trash";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { getMimeCategory } from "@/lib/assetCategory";
-import { DECISIONS, isFiltered, listParams, ORIGINS, readLibraryView, SORTS, TYPES, viewHref } from "@/lib/assetLibraryView";
+import { DECISIONS, isFiltered, isUnsearchableImage, listParams, ORIGINS, readLibraryView, SORTS, TYPES, viewHref } from "@/lib/assetLibraryView";
 import { decisionOf } from "@/lib/assetLineage";
 import { createSdkClient } from "@/lib/sdk";
 
@@ -46,7 +46,10 @@ try {
   error = e instanceof Error ? e.message : String(e);
   console.error("[Assets] Failed to load:", error);
 }
-const rows = view.status === "trashed" ? trashedAssets : assets;
+const listed = view.status === "trashed" ? trashedAssets : assets;
+// "Not searchable yet": pictures search and the assistants can't find, having no alt text or description.
+const rows = view.searchable === "no" ? listed.filter(isUnsearchableImage) : listed;
+const unsearchable = view.status === "trashed" ? [] : assets.filter(isUnsearchableImage);
 
 // Group assets by MIME category
 const categoryLabels: Record<string, string> = {
@@ -127,6 +130,11 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
             <option value={o.value} selected={o.selected}>{o.label}</option>
           ))}
         </select>
+        <select name="searchable" class="filter-select" aria-label="Searchable">
+          {[opt("", "Searchable or not", view.searchable), opt("no", "Not searchable yet", view.searchable)].map((o) => (
+            <option value={o.value} selected={o.selected}>{o.label}</option>
+          ))}
+        </select>
         <select name="sort" class="filter-select" aria-label="Sort">
           {Object.entries(SORTS).map(([v, l]) => <option value={v} selected={view.sort === v}>{l}</option>)}
         </select>
@@ -152,6 +160,24 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
         </div>
       ) : (
         <>
+          {unsearchable.length > 0 && view.searchable !== "no" && (
+            <p class="search-nudge">
+              {unsearchable.length === 1 ? "1 picture has" : `${unsearchable.length} pictures have`} no alt text or description, so search and
+              the assistants can't find {unsearchable.length === 1 ? "it" : "them"}. <a href={viewHref(view, { searchable: "no" })}>Show {unsearchable.length === 1 ? "it" : "them"}</a>
+            </p>
+          )}
+          {view.searchable === "no" && rows.length > 0 && access.canEdit && (
+            <div class="search-nudge">
+              <p>
+                Give each a description so it can be found: open one and type it, or let AI look at {rows.length === 1 ? "it" : "them"} and
+                write one ({rows.length === 1 ? "one AI call" : `one AI call each, ${rows.length} in all`}). The text is saved straight away; edit it any time.
+              </p>
+              <button type="button" class="button" id="describe-all" data-ids={rows.map((a: any) => a.id).join(",")}>
+                ✨ Describe and save {rows.length === 1 ? "it" : `these ${rows.length}`} with AI
+              </button>
+              <p id="describe-status" class="describe-status" aria-live="polite"></p>
+            </div>
+          )}
           <div class="view-toggle">
             <button class="toggle-btn active" id="view-table" title="All assets">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
@@ -204,6 +230,7 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
                     {asset.width && asset.height ? `${asset.width}×${asset.height}` : asset.mimeType}
                     {asset.origin === "derived" && <span class="card-badge">Version</span>}
                     {asset.origin === "generated" && <span class="card-badge">Generated</span>}
+                    {isUnsearchableImage(asset) && <span class="card-badge unsearchable" title="No alt text or description: search can't find it">Not searchable</span>}
                     {decisionOf(asset.metadataJson) && <span class={`card-badge decision-${decisionOf(asset.metadataJson)!.decision}`}>{decisionOf(asset.metadataJson)!.label}</span>}
                     {asset.versionsCount > 0 && (
                       <a class="card-badge versions" href={viewHref(view, { source: asset.id, versions: false })}>{asset.versionsCount} {asset.versionsCount === 1 ? "version" : "versions"}</a>
@@ -252,6 +279,40 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
 </AppLayout>
 
 <script>
+  import { createSdkClient } from '@/lib/sdk';
+
+  // "Describe and save these with AI": one generate-alt-text call per picture, one after another, each saved as it
+  // comes back (the person clicked, so this is their save), then the list reloads without the described ones.
+  const describeAll = document.getElementById('describe-all') as HTMLButtonElement | null;
+  const describeStatus = document.getElementById('describe-status');
+  describeAll?.addEventListener('click', async () => {
+    const ids = (describeAll.dataset.ids ?? '').split(',').filter(Boolean);
+    const sdk = createSdkClient();
+    describeAll.disabled = true;
+    let done = 0;
+    const failed: string[] = [];
+    for (const id of ids) {
+      if (describeStatus) describeStatus.textContent = `Describing ${done + failed.length + 1} of ${ids.length}…`;
+      try {
+        const exec: any = await sdk.ai.operations.execute('generate-alt-text', { entityType: 'asset', entityId: id });
+        const out = exec?.outputJson ?? exec?.output_json ?? {};
+        const altText = out.alt_text ?? out.altText;
+        if (!altText) throw new Error('no description came back');
+        await sdk.assets.update(id, { altText, description: out.description ?? null } as any);
+        done += 1;
+      } catch (e: any) {
+        failed.push(e?.message || e?.detail || 'failed');
+      }
+    }
+    if (describeStatus) {
+      describeStatus.textContent = failed.length
+        ? `Described ${done} of ${ids.length}. ${failed.length} failed: ${failed[0]}`
+        : `Described all ${done}. Reloading…`;
+    }
+    if (!failed.length) setTimeout(() => window.location.reload(), 800);
+    else describeAll.disabled = false;
+  });
+
   const tableView = document.getElementById('table-view');
   const groupedView = document.getElementById('grouped-view');
   const gridView = document.getElementById('grid-view');
@@ -537,4 +598,9 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
     padding: 0.125rem 0.5rem;
     border-radius: 10px;
   }
+  .search-nudge { margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); font-size: 14px; }
+  .search-nudge p { margin: 0 0 10px; }
+  .search-nudge p:last-child { margin-bottom: 0; }
+  .describe-status { color: var(--muted); font-size: 13px; }
+  .card-badge.unsearchable { opacity: 0.8; }
 </style>

@@ -6,6 +6,7 @@
 import TagList from "@/components/TagList.astro";
 import { getMimeCategory } from "@/lib/assetCategory";
 import { decisionOf } from "@/lib/assetLineage";
+import { isUnsearchableImage } from "@/lib/assetLibraryView";
 
 interface Props {
   asset: any;
@@ -69,7 +70,7 @@ const openHref = inTrash ? `/workspace/assets/${asset.id}` : `/workspace/assets/
       ? `${(asset.fileSize / 1024).toFixed(1)} KB`
       : '—'}
   </td>
-  <td class="alt-text-cell stack-hide">{asset.altText || '—'}</td>
+  <td class="alt-text-cell stack-hide">{asset.altText || (isUnsearchableImage(asset) ? <span class="not-searchable" title="No alt text or description: search can't find it">Not searchable</span> : '—')}</td>
   <td>
     <div class="actions">
       {inTrash ? (
@@ -202,4 +203,5 @@ const openHref = inTrash ? `/workspace/assets/${asset.id}` : `/workspace/assets/
     font-weight: 600;
   }
 
+  .not-searchable { color: var(--muted); font-style: italic; }
 </style>

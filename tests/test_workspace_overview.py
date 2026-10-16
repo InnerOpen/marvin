@@ -101,6 +101,6 @@ def test_workspace_overview_reports_counts_by_type_status_and_index_coverage(db_
     assert out["entries"]["total"] == 3
     bench = next(t for t in out["entries"]["byType"] if t["slug"] == type_slug)
     assert bench["byStatus"] == {"published": 2, "draft": 1}
-    assert out["assets"] == {"total": 1, "byType": {"image": 1}}
+    assert out["assets"] == {"total": 1, "byType": {"image": 1}, "imagesNotSearchable": 1}
     assert out["index"]["entry"] == {"indexed": 1, "total": 3, "chunks": 2}
     assert out["index"]["asset"] == {"indexed": 0, "total": 1, "chunks": 0}

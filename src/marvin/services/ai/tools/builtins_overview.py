@@ -93,18 +93,32 @@ def workspace_overview(ctx: ToolContext, _args: dict) -> str:
         Assets.group_id == g, Assets.trashed_at.is_(None), Assets.scope == "library"
     )  # not the Trash, not Ask files
     assets = dict(live_assets.group_by(Assets.asset_type).all())
+    blank = lambda col: func.coalesce(func.trim(col), "") == ""  # noqa: E731
+    # Pictures search can't find: an image is indexed only for its alt text or description.
+    images_not_searchable = (
+        s.query(func.count(Assets.id))
+        .filter(Assets.group_id == g, Assets.trashed_at.is_(None), Assets.scope == "library", Assets.mime_type.like("image/%"))
+        .filter(blank(Assets.alt_text), blank(Assets.description))
+        .scalar()
+        or 0
+    )
     live_resources = s.query(Resources.resource_type, func.count(Resources.id)).filter(Resources.group_id == g, Resources.trashed_at.is_(None))
     resources = dict(live_resources.group_by(Resources.resource_type).all())
     tags = s.query(func.count(Tags.id)).filter(Tags.group_id == g).scalar() or 0
 
     totals = {"entry": entries_total, "asset": sum(assets.values()), "resource": sum(resources.values())}
     index = {}
-    for entity_type, indexed, chunks in (
-        s.query(AIEmbeddingModel.entity_type, func.count(func.distinct(AIEmbeddingModel.entity_id)), func.count(AIEmbeddingModel.id))
-        .filter(AIEmbeddingModel.group_id == g)
-        .group_by(AIEmbeddingModel.entity_type)
-        .all()
-    ):
+    from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+    from marvin.services.ai.embeddings import embedding_model_for_settings
+
+    ai_settings = s.query(WorkspaceAISettingsModel).filter_by(group_id=g).first()
+    current_model = embedding_model_for_settings(ai_settings.provider if ai_settings else None)
+    vectors = s.query(AIEmbeddingModel.entity_type, func.count(func.distinct(AIEmbeddingModel.entity_id)), func.count(AIEmbeddingModel.id)).filter(
+        AIEmbeddingModel.group_id == g
+    )
+    if current_model:  # only what search can read: another model's vectors stay until a re-index replaces them
+        vectors = vectors.filter(AIEmbeddingModel.model_id == current_model)
+    for entity_type, indexed, chunks in vectors.group_by(AIEmbeddingModel.entity_type).all():
         index[entity_type] = {"indexed": indexed, "total": totals.get(entity_type), "chunks": chunks}
     for entity_type, total in totals.items():
         index.setdefault(entity_type, {"indexed": 0, "total": total, "chunks": 0})
@@ -115,11 +129,16 @@ def workspace_overview(ctx: ToolContext, _args: dict) -> str:
             "structure": workspace_structure(s, g, settings=caller_role(ctx) >= ROLE_ADMIN),
             "entries": {"total": entries_total, "byType": sorted(by_type.values(), key=lambda t: -t["total"]), "inTrash": in_trash},
             "collections": collections,
-            "assets": {"total": totals["asset"], "byType": assets},
+            "assets": {"total": totals["asset"], "byType": assets, "imagesNotSearchable": images_not_searchable},
             "resources": {"total": totals["resource"], "byType": resources},
             "tags": tags,
             "index": index,
-            "note": "index = what semantic search (search_content) can see; unindexed items are only reachable by the list/get tools.",
+            "note": (
+                "index = what semantic search (search_content) can see; unindexed items are only reachable by the list/get tools. "
+                "assets.imagesNotSearchable = pictures with no alt text or description, which search can't find: when it matters to "
+                "the user (looking for images, say), tell them and point them to Assets → 'Not searchable yet', where they can type "
+                "descriptions or have AI write them."
+            ),
         }
     )
 

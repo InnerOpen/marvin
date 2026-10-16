@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { isFiltered, listParams, readLibraryView, viewHref } from "./assetLibraryView.ts";
+import { isFiltered, isUnsearchableImage, listParams, readLibraryView, viewHref } from "./assetLibraryView.ts";
 
 const view = (qs) => readLibraryView(new URLSearchParams(qs));
 
@@ -46,4 +46,21 @@ test("the decision filter (what an approval said about a picture) reaches the AP
   assert.equal(isFiltered(v), true);
   assert.match(viewHref(v), /decision=denied/);
   assert.equal("decision" in listParams(view("decision=maybe")), false);
+});
+
+
+test("'not searchable yet' filters on the page, not in the API query, and survives links", () => {
+  const v = view("searchable=no&type=image");
+  assert.equal(v.searchable, "no");
+  assert.equal(isFiltered(v), true);
+  assert.equal("searchable" in listParams(v), false);
+  assert.equal(viewHref(v, { sort: "newest" }), "/workspace/assets?type=image&searchable=no&sort=newest");
+  assert.equal(view("searchable=maybe").searchable, "");
+});
+
+test("a picture with no alt text or description is not searchable; anything else is left alone", () => {
+  assert.equal(isUnsearchableImage({ mimeType: "image/jpeg", altText: "", description: "  " }), true);
+  assert.equal(isUnsearchableImage({ mimeType: "image/jpeg", altText: "Hands at a sewing machine" }), false);
+  assert.equal(isUnsearchableImage({ mimeType: "image/png", description: "A worn knee" }), false);
+  assert.equal(isUnsearchableImage({ mimeType: "application/pdf" }), false);
 });

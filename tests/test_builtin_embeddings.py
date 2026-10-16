@@ -91,3 +91,37 @@ def test_search_content_finds_by_meaning_with_no_ai_provider(builtin, db_session
         db_session.query(EntryTypes).filter(EntryTypes.group_id == gid).delete()
         db_session.query(Groups).filter(Groups.id == gid).delete()
         db_session.commit()
+
+
+def test_the_overview_counts_pictures_search_cannot_find(db_session):
+    """workspace_overview tells the assistant how many images have no alt text or description (not in the index)."""
+    from marvin.db.models.groups import Groups
+    from marvin.db.models.platform.assets import Assets
+    from marvin.db.models.users import Users
+
+    gid, uid = uuid.uuid4(), uuid.uuid4()
+    g = Groups(session=db_session, name=f"ov-{gid.hex[:8]}", slug=f"ov-{gid.hex[:8]}")
+    g.id = gid
+    db_session.add(g)
+    db_session.flush()
+    import sqlalchemy as sa
+
+    user = {"id": uid, "group_id": gid, "full_name": "O", "username": f"o-{gid.hex[:8]}", "email": f"o-{gid.hex[:8]}@x.test", "password": "x"}
+    db_session.execute(sa.insert(Users.__table__).values(**user, auth_method="MARVIN", is_superuser=False, platform_role="NONE", admin=False))
+
+    def asset(slug, mime, alt=None, desc=None):
+        return Assets(session=db_session, group_id=gid, slug=slug, name=slug, original_filename=slug, filename=slug, extension="x", file_size=1,
+                      mime_type=mime, asset_type="image" if mime.startswith("image/") else "document", checksum=uuid.uuid4().hex,
+                      storage_provider="local", storage_key=f"lib/{gid.hex}/{slug}", uploaded_by=uid, alt_text=alt, description=desc)  # fmt: skip
+
+    db_session.add_all([asset("bare", "image/jpeg"), asset("blank", "image/png", alt=" "), asset("alt", "image/png", alt="A coat"),
+                        asset("desc", "image/webp", desc="A worn knee"), asset("pdf", "application/pdf")])  # fmt: skip
+    db_session.commit()
+    try:
+        out = json.loads(get_tool("workspace_overview").handler(ToolContext(session=db_session, group_id=gid, provider=None), {}))
+        assert out["assets"]["imagesNotSearchable"] == 2 and "Not searchable yet" in out["note"]
+    finally:
+        db_session.query(Assets).filter(Assets.group_id == gid).delete()
+        db_session.query(Users).filter(Users.id == uid).delete()
+        db_session.query(Groups).filter(Groups.id == gid).delete()
+        db_session.commit()

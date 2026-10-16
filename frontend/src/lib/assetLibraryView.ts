@@ -12,6 +12,8 @@ export interface LibraryView {
   collection: string;
   /** "" any, "yes" on an entry, "no" on no entry */
   attached: string;
+  /** "no": only pictures search can't find yet (no alt text or description). Filtered on the page, not by the API. */
+  searchable: string;
   sort: string;
   /** Show versions as their own rows (else folded under their original). */
   versions: boolean;
@@ -56,6 +58,7 @@ export function readLibraryView(params: URLSearchParams): LibraryView {
     tag: text("tag"),
     collection: text("collection"),
     attached: ["yes", "no"].includes(text("attached")) ? text("attached") : "",
+    searchable: text("searchable") === "no" ? "no" : "",
     sort: pick(params.get("sort"), SORTS) || "name",
     versions: params.get("versions") === "show",
     source: text("source"),
@@ -82,7 +85,7 @@ export function listParams(view: LibraryView): Record<string, string | boolean |
 export function viewHref(view: LibraryView, changes: Partial<LibraryView> = {}, path = "/workspace/assets"): string {
   const next = { ...view, ...changes };
   const qs = new URLSearchParams();
-  for (const key of ["q", "type", "origin", "decision", "tag", "collection", "attached", "source", "status"] as const) {
+  for (const key of ["q", "type", "origin", "decision", "tag", "collection", "attached", "searchable", "source", "status"] as const) {
     if (next[key]) qs.set(key, next[key]);
   }
   if (next.sort && next.sort !== "name") qs.set("sort", next.sort);
@@ -93,5 +96,11 @@ export function viewHref(view: LibraryView, changes: Partial<LibraryView> = {}, 
 
 /** Whether any filter narrows the list (so an empty result says "nothing matches", not "no assets yet"). */
 export function isFiltered(view: LibraryView): boolean {
-  return Boolean(view.q || view.type || view.origin || view.decision || view.tag || view.collection || view.attached || view.source);
+  return Boolean(view.q || view.type || view.origin || view.decision || view.tag || view.collection || view.attached || view.searchable || view.source);
+}
+
+/** A picture search can't find: search and the assistants find an image only by its alt text or description. */
+export function isUnsearchableImage(asset: { mimeType?: string | null; altText?: string | null; description?: string | null }): boolean {
+  const isPicture = (asset.mimeType ?? "").startsWith("image/");
+  return isPicture && !(asset.altText ?? "").trim() && !(asset.description ?? "").trim();
 }
