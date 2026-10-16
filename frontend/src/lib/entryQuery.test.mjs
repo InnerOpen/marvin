@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { addCond, condLabel, condsHref, fieldKind, fieldsFor, opsFor, readConds, toSpec, withoutCond } from "./entryQuery.ts";
+import { addCond, condLabel, condsHref, fieldKind, fieldsFor, legacyConds, opsFor, readConds, setListCond, setTitleCond, singleValue, toSpec, withoutCond } from "./entryQuery.ts";
 
 const bench = { slug: "bench-note", schemaJson: { fields: [{ key: "readTime", label: "Read time", type: "text" }, { key: "noteNumber", type: "number" }, { key: "hero", type: "asset" }] } };
 const project = { slug: "project", schemaJson: { fields: [{ key: "readTime", label: "Read time", type: "text" }, { key: "price", type: "number" }] } };
@@ -56,4 +56,28 @@ test("fields offered are the comparable ones the chosen types share", () => {
   assert.equal(fieldKind("asset"), null);
   assert.deepEqual(opsFor("field:noteNumber", { key: "noteNumber", label: "n", kind: "number" }).slice(0, 3), ["eq", "neq", "gt"]);
   assert.deepEqual(opsFor("published"), ["after", "before", "within"]);
+});
+
+test("a quick menu sets, replaces or (All …) removes its chip, and shows a single value", () => {
+  let conds = setListCond([], "type", "bench-note");
+  conds = setListCond(conds, "status", "published");
+  conds = setListCond(conds, "type", "project");
+  assert.deepEqual(conds, [{ dim: "type", op: "is", value: ["project"] }, { dim: "status", op: "is", value: ["published"] }]);
+  assert.equal(singleValue(conds, "type"), "project");
+  assert.deepEqual(setListCond(conds, "type", ""), [{ dim: "status", op: "is", value: ["published"] }]);
+  assert.equal(singleValue(addCond(conds, { dim: "type", op: "is", value: ["page"] }), "type"), "");  // two values: no single pick
+});
+
+test("the search box's Enter keeps one title chip", () => {
+  const conds = setTitleCond(setTitleCond([], "denim"), "  canvas ");
+  assert.deepEqual(conds, [{ dim: "title", op: "contains", value: "canvas" }]);
+  assert.deepEqual(setTitleCond(conds, ""), []);
+});
+
+test("the sidebar's old ?status= and ?tag= links open as chips", () => {
+  assert.deepEqual(legacyConds(new URLSearchParams("status=inbox,needs_review,bogus&tag=leather")), [
+    { dim: "status", op: "is", value: ["inbox", "needs_review"] },
+    { dim: "tag", op: "is", value: ["leather"] },
+  ]);
+  assert.deepEqual(legacyConds(new URLSearchParams("trashed=x")), []);
 });

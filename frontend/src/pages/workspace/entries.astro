@@ -8,19 +8,15 @@ import { type EntryRead, listEntries } from "@/lib/api/entries";
 import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
 import { listTags, type TagRead } from "@/lib/api/tags";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
-import { condLabel, condsHref, fieldsFor, readConds, STATUSES, toSpec, withoutCond } from "@/lib/entryQuery";
+import { condLabel, condsHref, fieldsFor, legacyConds, readConds, singleValue, STATUSES, toSpec, withoutCond } from "@/lib/entryQuery";
 
 const authToken = getAuthToken(Astro.cookies);
 // Everyone reads; creating entries is AUTHOR+.
 const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
-// Get URL parameters for pre-filtering
-const statusParam = Astro.url.searchParams.get("status");
-const statusFilters = statusParam ? statusParam.split(",").map((s) => s.trim()) : [];
-// A single tag slug can pre-select the tag filter (deep-link, e.g. ?tag=leather).
-const tagParam = Astro.url.searchParams.get("tag") || "";
 // Structured search: condition chips in `?c=` (lib/entryQuery.ts). With any, the page shows what the engine finds.
-const conds = readConds(Astro.url.searchParams);
+// The sidebar's old links (?status=inbox, ?tag=…) open as the same chips.
+const conds = readConds(Astro.url.searchParams).length ? readConds(Astro.url.searchParams) : legacyConds(Astro.url.searchParams);
 // Set by the entry page's Move to Trash: offer Undo (restore) right here.
 const trashedParam = Astro.url.searchParams.get("trashed") || "";
 
@@ -152,14 +148,16 @@ const sortedGroups = [...collectionGroups.values()].sort(
               {
                 id: "type-filter",
                 label: "Types",
+                defaultValue: singleValue(conds, "type"),
                 options: sortedTypes.map(type => ({
-                  value: type.id,
+                  value: type.slug,
                   label: type.name
                 }))
               },
               {
                 id: "status-filter",
                 label: "Statuses",
+                defaultValue: singleValue(conds, "status"),
                 options: [
                   { value: "inbox", label: "Inbox" },
                   { value: "draft", label: "Draft" },
@@ -173,7 +171,7 @@ const sortedGroups = [...collectionGroups.values()].sort(
               ...(filterTags.length > 0 ? [{
                 id: "tag-filter",
                 label: "Tags",
-                defaultValue: tagParam,
+                defaultValue: singleValue(conds, "tag"),
                 options: filterTags.map(tag => ({ value: tag.slug, label: tag.name }))
               }] : [])
             ]}
@@ -219,7 +217,7 @@ const sortedGroups = [...collectionGroups.values()].sort(
         search && search.entries.length > 0 ? (
           <section class="grid" aria-label="Matching entries">
             {search.entries.map((entry) => (
-              <div class="query-result">
+              <div class="entry-wrapper" data-title={entry.title.toLowerCase()} data-summary={(entry.summary || "").toLowerCase()}>
                 <EntryCard entry={entry} collectionsMap={collectionsMap} />
               </div>
             ))}
@@ -261,7 +259,6 @@ const sortedGroups = [...collectionGroups.values()].sort(
           {/* Flat grid view */}
           <section class="grid view-section" id="grid-view" aria-label="Entries">
             {[...entries, ...trashedEntries].map((entry) => {
-              const matchesStatusFilter = statusFilters.length === 0 || statusFilters.includes(entry.status);
               return (
                 <div class="entry-wrapper"
                   data-type={entry.entryTypeId}
@@ -269,8 +266,7 @@ const sortedGroups = [...collectionGroups.values()].sort(
                   data-title={entry.title.toLowerCase()}
                   data-summary={(entry.summary || '').toLowerCase()}
                   data-collections={entry.collections?.map((c: any) => typeof c === 'string' ? c : c.id).join(',') || ''}
-                  data-tags={((entry.tags as string[] | undefined) || []).join(' ')}
-                  style={matchesStatusFilter ? '' : 'display: none;'}>
+                  data-tags={((entry.tags as string[] | undefined) || []).join(' ')}>
                   <EntryCard entry={entry} collectionsMap={collectionsMap} />
                 </div>
               );
@@ -351,7 +347,7 @@ const sortedGroups = [...collectionGroups.values()].sort(
 
 <script>
   import { restoreFromTrash } from '@/lib/api/trash';
-  import { addCond, condsHref, DIMENSIONS, OP_LABELS, opsFor, type Cond, type FieldDef } from '@/lib/entryQuery';
+  import { addCond, condsHref, DIMENSIONS, OP_LABELS, opsFor, setListCond, setTitleCond, type Cond, type FieldDef } from '@/lib/entryQuery';
 
   // The chip editor: what to filter on → how → the value → Add, which reloads with the new chip in ?c=.
   const queryData = JSON.parse(document.getElementById('query-data')?.textContent || '{}');
@@ -383,9 +379,21 @@ const sortedGroups = [...collectionGroups.values()].sort(
     let input: HTMLElement | null = null;
     const list = choices[dim] ?? (field?.kind === 'select' ? field.options : undefined);
     if (op === 'exists' || op === 'missing' || op === 'yes') input = null;
-    else if (list) {
+    else if (list && (dim in choices || op === 'in')) {
+      // Several may be ticked: they're ORed within the chip.
+      const box = document.createElement('div');
+      box.className = 'q-checks';
+      box.replaceChildren(...list.map((o) => {
+        const label = document.createElement('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = o.value;
+        label.append(cb, ` ${o.label}`);
+        return label;
+      }));
+      input = box;
+    } else if (list) {
       const sel = document.createElement('select');
-      sel.multiple = dim in choices || op === 'in';
       sel.replaceChildren(...list.map(option));
       input = sel;
     } else if (field?.kind === 'boolean') {
@@ -405,7 +413,7 @@ const sortedGroups = [...collectionGroups.values()].sort(
   function readValue(): Cond['value'] {
     const el = document.getElementById('q-input') as HTMLInputElement | HTMLSelectElement | null;
     if (!el) return null;
-    if (el instanceof HTMLSelectElement && el.multiple) return [...el.selectedOptions].map((o) => o.value);
+    if (el.classList.contains('q-checks')) return [...el.querySelectorAll<HTMLInputElement>('input:checked')].map((cb) => cb.value);
     const field = fieldOf(dimSel!.value);
     if (field?.kind === 'boolean') return el.value === 'true';
     if (field?.kind === 'number' || opSel!.value === 'within') return Number(el.value);
@@ -457,9 +465,7 @@ const sortedGroups = [...collectionGroups.values()].sort(
   const viewGridBtn = document.getElementById('view-grid');
   const viewGroupedBtn = document.getElementById('view-grouped');
 
-  const urlParams = new URLSearchParams(window.location.search);
-  const statusParam = urlParams.get('status');
-  const urlStatusFilters = statusParam ? statusParam.split(',').map(s => s.trim()) : [];
+  const hasChips = (queryData.conds ?? []).length > 0;
 
   // View toggle
   function setView(view: 'grid' | 'grouped') {
@@ -479,53 +485,36 @@ const sortedGroups = [...collectionGroups.values()].sort(
   const savedView = localStorage.getItem('entries-view') as 'grid' | 'grouped' | null;
   if (savedView) setView(savedView);
 
+  // The search box filters what's shown as you type (titles and summaries); the menus and Enter make chips.
   function filterEntries() {
-    const searchQuery = searchInput?.value.toLowerCase() || '';
-    const typeQuery = typeFilter?.value || '';
-    const statusQuery = statusFilter?.value || '';
-    const tagQuery = tagFilter?.value || '';
-
-    // Filter all entry wrappers across both views
-    const wrappers = document.querySelectorAll('.entry-wrapper');
-    wrappers.forEach(wrapper => {
+    const searchQuery = searchInput?.value.toLowerCase().trim() || '';
+    document.querySelectorAll('.entry-wrapper').forEach((wrapper) => {
       const title = wrapper.getAttribute('data-title') || '';
       const summary = wrapper.getAttribute('data-summary') || '';
-      const type = wrapper.getAttribute('data-type') || '';
       const status = wrapper.getAttribute('data-status') || '';
-      const tags = (wrapper.getAttribute('data-tags') || '').split(' ').filter(Boolean);
-
       const matchesSearch = !searchQuery || title.includes(searchQuery) || summary.includes(searchQuery);
-      const matchesType = !typeQuery || type === typeQuery;
-      const matchesTag = !tagQuery || tags.includes(tagQuery);
-
-      // "All statuses" means everything but the Trash — except inside the Trash group, which lists it; pick
-      // "In the Trash" (or ?status=trashed) to see trashed entries anywhere.
-      let matchesStatus = status !== 'trashed' || wrapper.hasAttribute('data-in-trash');
-      if (statusQuery) {
-        matchesStatus = status === statusQuery;
-      } else if (urlStatusFilters.length > 0) {
-        matchesStatus = urlStatusFilters.includes(status);
-      }
-
-      (wrapper as HTMLElement).style.display = (matchesSearch && matchesType && matchesStatus && matchesTag) ? '' : 'none';
+      // Without chips, everything but the Trash (the Trash group lists it); with chips, the server already chose.
+      const shown = hasChips || status !== 'trashed' || wrapper.hasAttribute('data-in-trash');
+      (wrapper as HTMLElement).style.display = matchesSearch && shown ? '' : 'none';
     });
-
-    // Hide collection groups where all entries are filtered out. A group with none listed here (only its count and
-    // a link) shows while nothing is filtered.
-    const filtering = Boolean(searchQuery || typeQuery || tagQuery || statusQuery || urlStatusFilters.length);
-    document.querySelectorAll('.collection-group').forEach(group => {
+    // Hide collection groups the search empties; a group listed only by its count shows while nothing is typed.
+    document.querySelectorAll('.collection-group').forEach((group) => {
       const listed = group.querySelectorAll('.entry-wrapper').length;
-      const visibleEntries = group.querySelectorAll('.entry-wrapper:not([style*="display: none"])');
-      (group as HTMLElement).style.display = visibleEntries.length > 0 || (listed === 0 && !filtering) ? '' : 'none';
+      const visible = group.querySelectorAll('.entry-wrapper:not([style*="display: none"])').length;
+      (group as HTMLElement).style.display = visible > 0 || (listed === 0 && !searchQuery) ? '' : 'none';
     });
   }
 
   filterEntries();
 
+  const go = (conds: Cond[]) => { window.location.href = condsHref(conds); };
   searchInput?.addEventListener('input', filterEntries);
-  typeFilter?.addEventListener('change', filterEntries);
-  statusFilter?.addEventListener('change', filterEntries);
-  tagFilter?.addEventListener('change', filterEntries);
+  searchInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); go(setTitleCond(queryData.conds ?? [], searchInput.value)); }
+  });
+  typeFilter?.addEventListener('change', () => go(setListCond(queryData.conds ?? [], 'type', typeFilter.value)));
+  statusFilter?.addEventListener('change', () => go(setListCond(queryData.conds ?? [], 'status', statusFilter.value)));
+  tagFilter?.addEventListener('change', () => go(setListCond(queryData.conds ?? [], 'tag', tagFilter.value)));
 </script>
 
 <style>
@@ -712,11 +701,18 @@ const sortedGroups = [...collectionGroups.values()].sort(
   .query-chip-x:hover { color: var(--ink); }
   .query-add { padding: 4px 10px; border: 1px dashed var(--line); border-radius: 999px; background: transparent; color: var(--accent); font: inherit; font-size: 13px; cursor: pointer; }
   .query-count { color: var(--muted); font-size: 13px; }
-  .query-clear { font-size: 13px; }
+  .query-clear { font-size: 13px; color: var(--muted); text-decoration: none; }
+  .query-clear:hover { color: var(--ink); text-decoration: underline; }
   .query-editor { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
   .query-editor[hidden] { display: none; } /* the flex rule above would otherwise show it before "+ Add condition" */
-  .query-editor select, .query-editor input { padding: 6px 8px; max-width: 100%; }
-  .query-editor select[multiple] { min-height: 6.5em; }
+  .query-editor select, .query-editor input:not([type="checkbox"]) {
+    padding: 0.5rem 0.75rem; max-width: 100%; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--bg); color: var(--ink); font-size: 0.875rem;
+  }
+  .query-editor select:focus, .query-editor input:focus { outline: none; border-color: var(--accent); }
+  .q-checks { display: flex; flex-wrap: wrap; gap: 4px 14px; max-height: 9.5em; overflow-y: auto; padding: 6px 10px;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 0.875rem; }
+  .q-checks label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
   .query-note { color: var(--color-error, #dc2626); margin: -6px 0 16px; font-size: 14px; }
   .query-more { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
   @media (max-width: 640px) { .query-editor > * { flex: 1 1 100%; } }
