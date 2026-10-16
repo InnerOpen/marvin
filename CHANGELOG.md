@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.373 (2026-10-16)
+
+### Features
+
+- **entries**: Beaker-style search — a title box, status buttons, and stacked condition rows
+  ([`ef7dab7`](https://github.com/InnerOpen/marvin/commit/ef7dab756793fd774405889fed61f890261e6bfc))
+
+
 ## v1.0.0-rc.372 (2026-10-16)
 
 ### Bug Fixes
