@@ -472,6 +472,14 @@ def test_everything_a_blueprint_creates_records_its_integration(db_session, work
     hook = next(h for h in _api("get", "/incoming-webhooks", 200) if h["slug"] == "acme-events")
     assert (hook["sourceIntegrationId"], hook["sourceBlueprint"]) == (str(acme.id), "acme-events")
 
+    # A collection also carries that integration's name, which members read (the sidebar groups by it) though the
+    # integrations list is admin-only.
+    from marvin.db.models.platform.collections import Collections
+    from marvin.schemas.platform.collections import CollectionRead
+
+    picks = db_session.query(Collections).filter_by(group_id=workspace, slug="acme-picks").one()
+    assert CollectionRead.model_validate(picks).source_integration_name == "Acme"
+
 
 def test_with_two_connections_the_one_the_card_passed_wins_else_none(db_session, workspace):
     from marvin.services.blueprints import apply_blueprint

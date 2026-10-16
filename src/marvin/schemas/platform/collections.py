@@ -122,6 +122,8 @@ class CollectionRead(CollectionSummary):
     """Read-only "installed by": the integration whose blueprint created this (null: made by a person)."""
     source_blueprint: str | None = None
     """Read-only: the slug of the blueprint that created this, if one did."""
+    source_integration_name: str | None = None
+    """Read-only: that integration's name (the sidebar groups its collections under it)."""
 
     model_config = ConfigDict(from_attributes=True)
 

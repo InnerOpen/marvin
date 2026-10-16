@@ -129,7 +129,7 @@ let canAuthor = false;
 // The system collections (Inbox, Drafts, Needs Review, Approved — every workspace has them) are Gmail's folders, with
 // Published and Trash after them; a person's own collections fold under Content, like labels.
 let folders: { id: string; name: string; slug: string; icon: string | null; count: number }[] = [];
-let collections: { id: string; name: string; icon: string | null }[] = [];
+let collections: { id: string; name: string; icon: string | null; integrationId: string | null; integrationName: string | null }[] = [];
 // Assets and Resources fold open to their types in use, each with a count.
 let assetTypes: { type: string; count: number }[] = [];
 let resourceTypes: { type: string; count: number }[] = [];
@@ -149,7 +149,10 @@ if (authToken) {
     const all = (colls ?? [])
       .slice()
       .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-      .map((c: any) => ({ id: c.id, name: c.name, slug: c.slug, icon: c.icon ?? null, system: Boolean(c.isSystem), inSidebar: c.inSidebar !== false, count: Number(c.entryCount ?? 0) }));
+      .map((c: any) => ({
+        id: c.id, name: c.name, slug: c.slug, icon: c.icon ?? null, system: Boolean(c.isSystem), inSidebar: c.inSidebar !== false,
+        count: Number(c.entryCount ?? 0), integrationId: c.sourceIntegrationId ?? null, integrationName: c.sourceIntegrationName ?? null,
+      }));
     folders = all.filter((c) => c.system);
     // In the Collections page's order; each collection's "Sidebar" switch decides whether it is listed.
     collections = all.filter((c) => !c.system && c.inSidebar);
@@ -158,6 +161,28 @@ if (authToken) {
   }
 }
 const hasFolder = (slug: string) => folders.some((c) => c.slug === slug);
+
+// Collections an integration installed fold under that integration ("n8n › In flight, Failed"); a person's own stay
+// at the top. Inside its group a collection drops the "n8n: " its name repeats. A collection whose integration is
+// gone has no integration id any more and is listed with the person's own.
+const ownCollections = collections.filter((c) => !c.integrationId);
+const integrationGroups = [
+  ...collections
+    .filter((c) => c.integrationId)
+    .reduce((groups, c) => {
+      // The integration's own name (sourceIntegrationName); without it, the name's "n8n:" prefix, else "Integration".
+      const prefix = c.name.includes(":") ? c.name.split(":")[0].trim() : null;
+      const name = c.integrationName ?? prefix ?? "Integration";
+      const group = groups.get(c.integrationId!) ?? { id: c.integrationId!, name, items: [] as typeof collections };
+      group.items.push(c);
+      return groups.set(c.integrationId!, group);
+    }, new Map<string, { id: string; name: string; items: typeof collections }>())
+    .values(),
+].sort((a, b) => a.name.localeCompare(b.name));
+const withinGroup = (name: string, group: string) => {
+  const rest = name.toLowerCase().startsWith(`${group.toLowerCase()}:`) ? name.slice(group.length + 1).trim() : name;
+  return rest ? rest[0].toUpperCase() + rest.slice(1) : name;
+};
 // Each folder with the icon and count the Collections page gives it; Inbox and Needs Review are things to do, so
 // their counts stand out (Gmail's unread), the rest read as plain totals.
 const ATTENTION = new Set(["inbox", "needs-review"]);
@@ -289,8 +314,18 @@ function isActive(itemPath: string, currentPath: string): boolean {
                 <span aria-hidden="true">📚</span><span>Collections</span><span class="nav-chevron" aria-hidden="true">›</span>
               </summary>
               <div class="nav nav-fold-items">
-                {collections.map((c) => (
+                {ownCollections.map((c) => (
                   <a href={`/workspace/collections/${c.id}`} aria-current={path === `/workspace/collections/${c.id}` ? "page" : undefined}><span aria-hidden="true">{c.icon || "📁"}</span><span>{c.name}</span></a>
+                ))}
+                {integrationGroups.map((g) => (
+                  <details class="nav-fold nav-subfold" open={g.items.some((c) => path === `/workspace/collections/${c.id}`)}>
+                    <summary class="nav-fold-row"><span aria-hidden="true">🔌</span><span>{g.name}</span><span class="nav-chevron" aria-hidden="true">›</span></summary>
+                    <div class="nav nav-fold-items">
+                      {g.items.map((c) => (
+                        <a href={`/workspace/collections/${c.id}`} aria-current={path === `/workspace/collections/${c.id}` ? "page" : undefined}><span aria-hidden="true">{c.icon || "📁"}</span><span>{withinGroup(c.name, g.name)}</span></a>
+                      ))}
+                    </div>
+                  </details>
                 ))}
                 <a href="/workspace/collections" class="nav-fold-all"><span aria-hidden="true">📚</span><span>All collections</span></a>
               </div>

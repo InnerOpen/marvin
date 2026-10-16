@@ -80,3 +80,15 @@ class Collections(SqlAlchemyBase, BaseMixins, InstalledByMixin):
     def __init__(self, session: Session, **kwargs) -> None:
         """Initialize via Marvin's auto-init model helper."""
         pass
+
+    @property
+    def source_integration_name(self) -> str | None:
+        """The name of the integration that installed this collection (the sidebar groups by it), or None. Read here
+        rather than from the integrations list, which only admins may read."""
+        if not self.source_integration_id:
+            return None
+        from ..groups.integrations import IntegrationModel
+
+        session = orm.object_session(self)
+        row = session.get(IntegrationModel, self.source_integration_id) if session is not None else None
+        return row.name if row is not None else None

@@ -81,48 +81,7 @@ if (trashCollection && (trashCollection.entryCount ?? 0) > 0 && authToken) {
   trashedEntries = await getCollectionEntries(trashCollection.id, authToken).catch(() => []);
 }
 
-// Sort entry types by sort_order
-const sortedTypes = entryTypes.sort((a, b) => a.sortOrder - b.sortOrder);
 
-// Group entries by collection (entries can appear in multiple collections)
-const collectionGroups = new Map<string, { collection: CollectionRead; entries: EntryRead[] }>();
-const uncollected: EntryRead[] = [];
-
-for (const entry of entries) {
-  if (entry.collections && entry.collections.length > 0) {
-    for (const item of entry.collections) {
-      const colId = typeof item === "string" ? item : item.id;
-      const col = collectionsMap.get(colId);
-      if (col) {
-        if (!collectionGroups.has(colId)) {
-          collectionGroups.set(colId, { collection: col, entries: [] });
-        }
-        collectionGroups.get(colId)!.entries.push(entry);
-      }
-    }
-  } else {
-    uncollected.push(entry);
-  }
-}
-
-if (trashCollection && trashedEntries.length > 0) {
-  collectionGroups.set(trashCollection.id, { collection: trashCollection, entries: trashedEntries });
-}
-
-// Every entry collection that has entries gets a group, from its own count — not only the ones the loaded entries
-// name: trashed entries aren't loaded here, so the Trash (and a collection whose entries are all in it) would vanish.
-// A group with nothing loaded shows its count and links to the collection.
-for (const col of collections) {
-  const holdsEntries = (col.targetType ?? "entry") === "entry";
-  if (holdsEntries && (col.entryCount ?? 0) > 0 && !collectionGroups.has(col.id)) {
-    collectionGroups.set(col.id, { collection: col, entries: [] });
-  }
-}
-
-// Sort groups by collection sort_order (Inbox/Drafts/… lead), then name as a tiebreaker.
-const sortedGroups = [...collectionGroups.values()].sort(
-  (a, b) => a.collection.sortOrder - b.collection.sortOrder || a.collection.name.localeCompare(b.collection.name),
-);
 ---
 
 <AppLayout title="Entries">
@@ -201,17 +160,13 @@ const sortedGroups = [...collectionGroups.values()].sort(
       ) : (
         <>
           <div class="view-toggle">
-            <button class="toggle-btn active" id="view-grid" title="All entries">
+            <button class="toggle-btn active" id="view-grid" title="Cards">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
-              All
+              Cards
             </button>
             <button class="toggle-btn" id="view-list" title="List">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="2" width="3" height="3" rx="0.5"/><rect x="5.5" y="2.5" width="9.5" height="2" rx="0.5"/><rect x="1" y="6.5" width="3" height="3" rx="0.5"/><rect x="5.5" y="7" width="9.5" height="2" rx="0.5"/><rect x="1" y="11" width="3" height="3" rx="0.5"/><rect x="5.5" y="11.5" width="9.5" height="2" rx="0.5"/></svg>
               List
-            </button>
-            <button class="toggle-btn" id="view-grouped" title="Group by collection">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="14" height="3" rx="1"/><rect x="3" y="5.5" width="12" height="2" rx="0.5" opacity="0.6"/><rect x="3" y="8.5" width="12" height="2" rx="0.5" opacity="0.6"/><rect x="1" y="12" width="14" height="3" rx="1"/></svg>
-              Collections
             </button>
           </div>
 
@@ -244,72 +199,6 @@ const sortedGroups = [...collectionGroups.values()].sort(
             <EntryList entries={entries} typeNames={typeNames} />
           </div>
 
-          {/* Grouped by collection view */}
-          <div class="view-section" id="grouped-view" style="display:none;">
-            {sortedGroups.map(({ collection, entries: groupEntries }) => (
-              <details class="collection-group" data-collection-id={collection.id}>
-                <summary class="collection-header">
-                  <h3 class="collection-title">
-                    <span class="collapse-chevron"></span>
-                    {collection.icon && <span class="collection-icon">{collection.icon}</span>}
-                    <a
-                      href={`/workspace/collections/${collection.id}`}
-                      class="collection-link"
-                      title={`Open ${collection.name}`}
-                      onclick="event.stopPropagation()"
-                    >{collection.name}</a>
-                    <span class="collection-count">{Math.max(groupEntries.length, collection.entryCount ?? 0)}</span>
-                  </h3>
-                  {collection.description && (
-                    <p class="collection-desc">{collection.description}</p>
-                  )}
-                </summary>
-                {groupEntries.length === 0 && (
-                  <p class="collection-desc">
-                    Its entries aren't listed here{collection.slug === "trash" ? " (deleted entries)" : ""}.{" "}
-                    <a href={`/workspace/collections/${collection.id}`}>Open {collection.name}</a>
-                  </p>
-                )}
-                <section class="grid" aria-label={`${collection.name} entries`}>
-                  {groupEntries.map((entry) => (
-                    <div class="entry-wrapper"
-                      data-in-trash={collection.id === trashCollection?.id ? "" : undefined}
-                      data-type={entry.entryTypeId}
-                      data-status={entry.status}
-                      data-title={entry.title.toLowerCase()}
-                      data-summary={(entry.summary || '').toLowerCase()}
-                      data-tags={((entry.tags as string[] | undefined) || []).join(' ')}>
-                      <EntryCard entry={entry} collectionsMap={collectionsMap} />
-                    </div>
-                  ))}
-                </section>
-              </details>
-            ))}
-
-            {uncollected.length > 0 && (
-              <details class="collection-group" data-collection-id="uncollected">
-                <summary class="collection-header">
-                  <h3 class="collection-title">
-                    <span class="collapse-chevron"></span>
-                    Uncollected
-                    <span class="collection-count">{uncollected.length}</span>
-                  </h3>
-                </summary>
-                <section class="grid" aria-label="Uncollected entries">
-                  {uncollected.map((entry) => (
-                    <div class="entry-wrapper"
-                      data-type={entry.entryTypeId}
-                      data-status={entry.status}
-                      data-title={entry.title.toLowerCase()}
-                      data-summary={(entry.summary || '').toLowerCase()}
-                      data-tags={((entry.tags as string[] | undefined) || []).join(' ')}>
-                      <EntryCard entry={entry} collectionsMap={collectionsMap} />
-                    </div>
-                  ))}
-                </section>
-              </details>
-            )}
-          </div>
         </>
       )}
     </>
@@ -470,16 +359,15 @@ const sortedGroups = [...collectionGroups.values()].sort(
     });
   }
 
-  type View = 'grid' | 'list' | 'grouped';
+  type View = 'grid' | 'list';
   const views: Record<View, { el: HTMLElement | null; btn: HTMLElement | null }> = {
     grid: { el: document.getElementById('grid-view'), btn: document.getElementById('view-grid') },
     list: { el: document.getElementById('list-view'), btn: document.getElementById('view-list') },
-    grouped: { el: document.getElementById('grouped-view'), btn: document.getElementById('view-grouped') },
   };
 
   const hasChips = (queryData.conds ?? []).length > 0;
 
-  // View toggle: Cards (grid), List, or Collections (grouped; not on search results). The choice is remembered.
+  // View toggle: Cards (grid) or List. The choice is remembered.
   function setView(view: View) {
     if (!views[view].el) view = 'grid';
     for (const [name, v] of Object.entries(views) as [View, (typeof views)[View]][]) {
@@ -601,90 +489,6 @@ const sortedGroups = [...collectionGroups.values()].sort(
     box-shadow: 0 1px 2px rgba(0,0,0,0.06);
   }
 
-  .collection-group {
-    margin-bottom: 1.5rem;
-  }
-
-  .collection-group > .grid {
-    margin-top: 1rem;
-  }
-
-  .collection-header {
-    padding: 0.625rem 0.75rem;
-    border-bottom: 1px solid var(--line);
-    cursor: pointer;
-    list-style: none;
-    user-select: none;
-  }
-
-  .collection-header::-webkit-details-marker {
-    display: none;
-  }
-
-  .collection-header:hover {
-    background: var(--panel-2);
-    border-radius: 6px;
-  }
-
-  .collection-title {
-    margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .collapse-chevron {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    transition: transform 0.15s;
-  }
-
-  .collapse-chevron::before {
-    content: '';
-    display: block;
-    width: 6px;
-    height: 6px;
-    border-right: 2px solid var(--muted);
-    border-bottom: 2px solid var(--muted);
-    transform: rotate(-45deg) translate(1px, -1px);
-    margin: 4px auto;
-  }
-
-  details[open] > .collection-header .collapse-chevron {
-    transform: rotate(90deg);
-  }
-
-  .collection-icon {
-    font-size: 1.125rem;
-  }
-
-  .collection-link {
-    color: inherit;
-    text-decoration: none;
-  }
-
-  .collection-link:hover {
-    text-decoration: underline;
-    text-underline-offset: 3px;
-  }
-
-  .collection-count {
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: var(--muted);
-    background: var(--panel-2);
-    padding: 0.125rem 0.5rem;
-    border-radius: 10px;
-  }
-
-  .collection-desc {
-    margin: 0.25rem 0 0;
-    font-size: 0.8125rem;
-    color: var(--muted);
-  }
   .search-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 0 0 14px; }
   .search-quick { display: flex; gap: 8px; flex: 1 1 320px; max-width: 520px; }
   .search-text, .search-options :global(select), .search-options :global(input) {
