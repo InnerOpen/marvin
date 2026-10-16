@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.376 (2026-10-16)
+
+### Features
+
+- **ui**: Assets and Resources get the Entries search; slim lists; Trash counts; integration logos
+  in the sidebar
+  ([`43c05cb`](https://github.com/InnerOpen/marvin/commit/43c05cbb6e56f7dbc01c7e2ee98ae00cb7be5046))
+
+
 ## v1.0.0-rc.375 (2026-10-16)
 
 ### Features
