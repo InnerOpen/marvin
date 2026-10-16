@@ -16,6 +16,8 @@ import json
 import time
 from datetime import UTC, datetime
 
+from marvin.services.ai.operations.base import ROLE_EDITOR
+
 from .base import ToolContext, caller_role, register_tool
 
 _EXTERNAL_SOURCES = ("mcp", "api", "editor", "agent")
@@ -29,8 +31,9 @@ REFERRAL_REASON_MAX = 300
     name="list_agents",
     description=(
         "List this workspace's AI agents — the built-ins (marvin, ask, chat) and any user-defined ones — "
-        "with slug, name, kind (persona | model), description, and whether you may run each. "
-        "Use before run_agent."
+        "with slug, name, kind (persona | model), description, whether you may run each, and canWrite: whether "
+        "it may change things for this user (create, edit, attach). Use before run_agent, and before suggest_agent "
+        "to find an agent that can do what you can't."
     ),
     input_schema={"type": "object", "properties": {}},
     sources=_EXTERNAL_SOURCES,
@@ -52,6 +55,8 @@ def list_agents(ctx: ToolContext, _args: dict) -> str:
                 "isSystem": spec.is_system,
                 "enabled": spec.enabled,
                 "canRun": ok,
+                # Writes need both: the agent binds write tools, and the user may write (Editor or above).
+                "canWrite": bool(spec.allow_writes) and role >= ROLE_EDITOR,
                 **({"reason": reason} if not ok else {}),
             }
         )
@@ -222,7 +227,10 @@ def _run_standalone(ctx: ToolContext, args: dict) -> str:
     name="suggest_agent",
     description=(
         "Refer the user to another workspace agent (see list_agents) WITHOUT running it. Use when part of the "
-        "question clearly belongs to a different agent. Records the referral for the caller to surface; you still "
+        "question clearly belongs to a different agent, or asks for something you can't do: for a change (create, "
+        "edit, attach) when you can only read, refer to an agent whose list_agents entry has canWrite, the workspace's "
+        "main agent (marvin) first, and put everything it needs in `question` (which entry, which asset ids). The "
+        "user gets a button that sends it there. Records the referral for the caller to surface; you still "
         "answer what you can yourself. Call it at most once per answer."
     ),
     input_schema={

@@ -567,6 +567,23 @@ def test_list_agents_tool_gates_can_run_on_the_context_source():
     assert by_slug(from_agent)["mcp-only"] is False and by_slug(from_mcp)["mcp-only"] is True
 
 
+def test_list_agents_says_which_agents_can_write_for_this_user():
+    """A read-only agent asked for a change refers it to one that canWrite (suggest_agent says so)."""
+    from types import SimpleNamespace
+
+    from marvin.db.models.users.roles import WorkspaceRole
+
+    rows = [_row(slug="workshop", name="Workshop", allow_writes=False), _row(slug="editor-bot", name="Editor bot", allow_writes=True)]
+    editor = SimpleNamespace(admin=False, workspace_memberships=[SimpleNamespace(group_id="g1", workspace_role=WorkspaceRole.EDITOR)])
+    can_write = lambda user: {a["slug"]: a["canWrite"] for a in json.loads(list_agents_tool(_ctx(rows, user=user), {}))["agents"]}  # noqa: E731
+    as_editor, as_viewer = can_write(editor), can_write(None)
+    assert as_editor["marvin"] is True and as_editor["editor-bot"] is True and as_editor["workshop"] is False
+    assert not any(as_viewer.values())  # a viewer can't write through anyone
+    from marvin.services.ai.tools import get_tool
+
+    assert "canWrite" in get_tool("suggest_agent").description
+
+
 def test_run_agent_and_suggest_agent_are_bound_for_the_agent_source_but_not_chained():
     from marvin.services.ai.tools import get_tool
 

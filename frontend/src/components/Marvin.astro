@@ -56,7 +56,7 @@ try {
 
 <script>
   import { fetchApi } from '@/lib/api/client';
-  import { resolveCapability, helpHtml, esc, setPendingRegister, resumePendingRun, onRunProgress, getActiveAgent, getSessionTone, setSessionTone, TONE_EVENT, setAskPageAllowed, resumeBubbleRun, parkedCardFor, type MarvinResult } from '@/lib/marvin/capabilities';
+  import { resolveCapability, helpHtml, esc, setPendingRegister, resumePendingRun, onRunProgress, getActiveAgent, setActiveAgent, getSessionTone, setSessionTone, TONE_EVENT, setAskPageAllowed, resumeBubbleRun, parkedCardFor, type MarvinResult } from '@/lib/marvin/capabilities';
   import { type ApprovalCard, approvalCardHtml, decisionsFrom } from '@/lib/approvals';
   import { OPEN_BUBBLE_EVENT } from '@/lib/activity/toast';
   import { createCast, sameStates, type Cast } from '@/lib/marvin/cast';
@@ -824,6 +824,20 @@ try {
       }
     }
 
+    // A referral's "Continue with <agent> →": that agent becomes the bubble's, and the request goes to it now.
+    log.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-mv-continue-agent]');
+      if (!btn || busy) return;
+      const agent = btn.dataset.mvContinueAgent ?? '';
+      const question = btn.dataset.mvQuestion ?? '';
+      if (!agent || !question) return;
+      btn.disabled = true;
+      setActiveAgent(agent);
+      handBack();
+      input.value = question;
+      form.requestSubmit();
+    });
+
     log.addEventListener('click', async (e) => {
       const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-mv-approve], [data-mv-deny]');
       const cardEl = btn?.closest<HTMLElement>('.mv-approval');
@@ -1134,6 +1148,9 @@ try {
   }
   .marvin-log :global(.mv-sources a), .marvin-log :global(.mv-answer a) { color: var(--accent); text-decoration: none; }
   .marvin-log :global(.mv-sources a:hover) { text-decoration: underline; }
+  .marvin-log :global(.mv-continue) { padding: 4px 10px; border: 1px solid var(--accent); border-radius: 6px; background: transparent; color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; }
+  .marvin-log :global(.mv-continue:disabled) { opacity: 0.5; cursor: default; }
+  .marvin-log :global(.mv-ref-reason) { color: var(--muted); }
   .marvin-log :global(.mv-help ul) { margin: 8px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
   .marvin-log :global(.mv-help code), .marvin-log :global(.mv-marvin code) {
     font-size: 12px; background: var(--panel); border: 1px solid var(--line);
