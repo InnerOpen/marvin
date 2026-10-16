@@ -67,7 +67,7 @@ const FIELD_OPS: Record<string, string[]> = {
   text: ["contains", "eq", "neq", "exists", "missing"],
   number: ["eq", "neq", "gt", "gte", "lt", "lte", "exists", "missing"],
   date: ["eq", "gt", "gte", "lt", "lte", "exists", "missing"],
-  select: ["eq", "neq", "in", "exists", "missing"],
+  select: ["eq", "neq", "exists", "missing"],
   boolean: ["eq"],
 };
 
