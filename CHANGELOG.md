@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.366 (2026-10-16)
+
+### Bug Fixes
+
+- **assets**: A new version is labelled by its bytes, not its original's type
+  ([`a699894`](https://github.com/InnerOpen/marvin/commit/a699894546a2db77109ad42270fba142eef51df4))
+
+
 ## v1.0.0-rc.365 (2026-10-16)
 
 ### Bug Fixes
