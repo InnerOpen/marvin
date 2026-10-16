@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.379 (2026-10-16)
+
+### Bug Fixes
+
+- **character**: Picking a library character always names the assistant (or agent) after it
+  ([`439b0f9`](https://github.com/InnerOpen/marvin/commit/439b0f96feb93970134526e2b774854ecc679886))
+
+
 ## v1.0.0-rc.378 (2026-10-16)
 
 ### Features
