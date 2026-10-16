@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.375 (2026-10-16)
+
+### Features
+
+- **nav**: Integration collections fold under their integration; Entries is Cards · List
+  ([`bee2cb1`](https://github.com/InnerOpen/marvin/commit/bee2cb170dc9422f9f1e6e7d808ca7f5a48eca6b))
+
+
 ## v1.0.0-rc.374 (2026-10-16)
 
 ### Features
