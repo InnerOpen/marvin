@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.369 (2026-10-16)
+
+### Features
+
+- **entries**: One search bar — the quick filters set chips, the search box still filters as you
+  type
+  ([`1c3620f`](https://github.com/InnerOpen/marvin/commit/1c3620f84e029ba64a6cf3a2e9c81a4a6dc206f8))
+
+
 ## v1.0.0-rc.368 (2026-10-16)
 
 ### Bug Fixes
