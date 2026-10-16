@@ -859,6 +859,7 @@ class WorkspaceSeedLoader:
             "bubbleLines": "bubble_lines",
             "bubbleLinesSource": "bubble_lines_source",
             "defaultRegister": "default_register",
+            "mood": "mood",
         }
 
         row = self.repos.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.repos.group_id).first()
@@ -1176,6 +1177,10 @@ class WorkspaceSeedLoader:
                 "icon": d.get("icon"),
                 "suggestions": d.get("suggestions"),
                 "handoff_hint": d.get("handoffHint"),
+                "persona_prompt": d.get("personaPrompt"),
+                "bubble_lines": d.get("bubbleLines"),
+                "bubble_lines_source": d.get("bubbleLinesSource"),
+                "mood": d.get("mood"),
             }
             existing = session.query(WorkspaceAgentModel).filter_by(group_id=self.repos.group_id, slug=slug).first()
             if existing:

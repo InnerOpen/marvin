@@ -87,6 +87,14 @@ def list_agents(ctx: ToolContext, _args: dict) -> str:
                 },
             },
             "max_steps": {"type": "integer", "description": "tool-call budget (default 6, max 12)"},
+            "tone": {
+                "type": "string",
+                "description": (
+                    "how the answer reads: a tone slug such as 'professional' (plain, no character), 'auto' or 'playful' "
+                    "(in the agent's character), or one of the workspace's own. Default: the agent's own default tone, "
+                    "else professional"
+                ),
+            },
         },
         "required": ["agent", "message"],
     },
@@ -121,6 +129,21 @@ def standalone_tools(spec, ctx: ToolContext, role: int) -> list:
             continue
         tools.append(AgentTool(name=s.name, description=s.description, input_schema=s.input_schema, run=bulk_writes.unattended(s, ctx), category=cat))
     return tools
+
+
+def _character_section(ctx: ToolContext, spec, tone: str | None) -> str:
+    """The Character / tone section an external client's run of `spec` ends its system prompt with: the caller's
+    `tone`, else the agent's own default tone, else professional — which drops the character — so over MCP an
+    agent answers plainly unless its owner or the caller chose otherwise. A tone that lets the character in uses
+    the agent's own Character, else the workspace's."""
+    from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+    from marvin.services.ai.agents import agent_persona
+    from marvin.services.ai.tones import PROFESSIONAL, tone_clause, workspace_tones
+
+    _, persona = agent_persona(ctx.session, ctx.group_id, spec)
+    row = ctx.session.query(WorkspaceAISettingsModel).filter_by(group_id=ctx.group_id).first()
+    requested = str(tone).strip().lower() if tone else None
+    return tone_clause(workspace_tones(row).resolve(requested, spec.default_register, PROFESSIONAL), persona)
 
 
 def _run_standalone(ctx: ToolContext, args: dict) -> str:
@@ -160,6 +183,7 @@ def _run_standalone(ctx: ToolContext, args: dict) -> str:
         "browse, and (only when asked) author content. Prefer tools over guessing and ground your answer in "
         "what they return. Authoring creates a DRAFT for human review — never claim anything is published. Be concise."
     )
+    system += _character_section(ctx, spec, args.get("tone"))
     messages = [Message(role="system", content=system), *history, Message(role="user", content=message)]
 
     tools = standalone_tools(spec, ctx, role) if spec.kind == "persona" else []

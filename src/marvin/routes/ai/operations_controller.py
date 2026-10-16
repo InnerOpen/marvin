@@ -13,6 +13,7 @@ from marvin.routes._base.controller import controller
 from marvin.schemas.group.agent import (
     AgentCreate,
     AgentDefinitionPreviewRequest,
+    AgentLinesRequest,
     AgentPromptPreview,
     AgentPromptPreviewRequest,
     AgentRead,
@@ -33,6 +34,7 @@ from marvin.schemas.group.ai_settings import (
     AssistantCharacterAssign,
     AssistantCharacterLibraryChoice,
     AssistantCharacterUpload,
+    BubbleLines,
 )
 from marvin.schemas.group.ai_thread import AIThreadDetail, AIThreadMessageRead, AIThreadRead, AIThreadResumeRequest, AIThreadUpdate
 from marvin.services.ai.agents import ROUTER_SLUG
@@ -62,6 +64,30 @@ def _human_size(size: int | None) -> str:
     if size < 1024 * 1024:
         return f"{size // 1024} KB"
     return f"{size / (1024 * 1024):.1f} MB"
+
+
+def _own_character(spec, workspace_persona: str) -> str:
+    """The Character a named agent speaks with: its own when it has one, else the workspace's."""
+    return spec.persona_prompt or workspace_persona
+
+
+def _agent_columns(data, values: dict) -> dict:
+    """`values` (a create or update payload's fields) as the agent's columns store them: bubble lines cleaned
+    and marked edited, mood settings only as far as they're set, a blank Character as none."""
+    from marvin.services.ai.bubble_lines import SOURCE_EDITED, BubbleLinesError, clean_edited
+
+    if "persona_prompt" in values:
+        values["persona_prompt"] = (values["persona_prompt"] or "").strip() or None
+    if "bubble_lines" in values:
+        try:
+            lines = clean_edited(values["bubble_lines"]) if values["bubble_lines"] else None
+        except BubbleLinesError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+        values["bubble_lines"] = lines
+        values["bubble_lines_source"] = SOURCE_EDITED if lines else None
+    if "mood" in values:
+        values["mood"] = data.mood.stored() if data.mood else None
+    return values
 
 
 @controller(router)
@@ -798,7 +824,8 @@ class AIOperationsController(BaseUserController):
         if exists:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"An agent with slug '{data.slug}' already exists.")
         self._require_known_tone(data.default_register)
-        row = WorkspaceAgentModel(session=self.session, group_id=self.group_id, created_by=self.user.id, **data.model_dump())
+        columns = _agent_columns(data, data.model_dump())
+        row = WorkspaceAgentModel(session=self.session, group_id=self.group_id, created_by=self.user.id, **columns)
         self.session.add(row)
         self.session.commit()
         self.session.refresh(row)
@@ -816,7 +843,7 @@ class AIOperationsController(BaseUserController):
             return self._update_builtin_agent(slug, data)
         row = self._agent_row_or_404(slug)
         self._require_known_tone(data.default_register)
-        sent = data.model_dump(exclude_unset=True)
+        sent = _agent_columns(data, data.model_dump(exclude_unset=True))
         before = {k: getattr(row, k) for k in sent}
         for k, v in sent.items():
             setattr(row, k, v)
@@ -1013,18 +1040,63 @@ class AIOperationsController(BaseUserController):
 
     @router.put("/agents/{slug}/character/library", response_model=AssistantCharacter, summary="Give an agent a library character")
     def use_agent_library_character(self, slug: str, data: AssistantCharacterLibraryChoice) -> AssistantCharacter:
-        """The agent plays a library pack; its own uploaded character, if any, is deleted."""
+        """The agent plays a library pack and becomes that character: the pack's name, Character, bubble lines,
+        tone and icon are copied onto the agent, to edit from there. Its own uploaded character, if any, is deleted."""
         from marvin.services.ai.agents import spec_from_row
         from marvin.services.ai.character import CharacterError
-        from marvin.services.ai.character_library import library_reference
+        from marvin.services.ai.character_library import apply_pack_persona, get_pack, library_reference
 
         row = self._character_admin_row(slug)
         try:
             choice = library_reference(self.session, data.pack)
         except CharacterError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+        apply_pack_persona(row, get_pack(self.session, choice["library"]))
         self._save_agent_character(row, choice)
         return AssistantCharacter(**self._agent_character(spec_from_row(row)))
+
+    @router.post("/agents/{slug}/character/reset-persona", response_model=AgentRead, summary="Reset an agent's persona to its library character's")
+    def reset_agent_persona(self, slug: str) -> AgentRead:
+        """Copy the agent's library pack's persona in again — name, Character, bubble lines, tone and icon —
+        replacing the agent's edits. 409 when its character isn't a library pack, or the pack has none."""
+        from marvin.services.ai.agents import spec_from_row
+        from marvin.services.ai.character import library_ref
+        from marvin.services.ai.character_library import apply_pack_persona, get_pack
+
+        row = self._character_admin_row(slug)
+        ref = library_ref(row.character)
+        pack = get_pack(self.session, ref) if ref else None
+        if pack is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="This agent's character isn't from the library: there's nothing to reset to."
+            )
+        if not apply_pack_persona(row, pack):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That library character has no persona to reset to.")
+        self.session.commit()
+        spec = spec_from_row(row)
+        self._record_agent_change([f"agents.{spec.slug}.persona_prompt"], f"Agent reset to its character: {spec.name}")
+        return self._agent_read(spec, self._agent_character(spec))
+
+    @router.post("/agents/{slug}/bubble-lines/generate", response_model=BubbleLines, summary="Write an agent's bubble lines")
+    def generate_agent_lines(self, slug: str, data: AgentLinesRequest | None = None) -> BubbleLines:
+        """Write the agent's bubble lines from its Character with one model call, and return them unsaved — the
+        Edit form fills them in to edit and save. `personaPrompt` / `name` stand in for the stored ones."""
+        from marvin.services.ai.bubble_lines import NO_CHARACTER, BubbleLinesError, ready_to_write, write_lines
+
+        row = self._character_admin_row(slug)
+        sent = data.model_fields_set if data else set()
+        persona = (data.persona_prompt if "persona_prompt" in sent else row.persona_prompt) or ""
+        name = (data.name if "name" in sent else row.name) or row.name
+        if not persona.strip():
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=NO_CHARACTER)
+        if reason := ready_to_write(self.session, self.group_id):
+            code = status.HTTP_429_TOO_MANY_REQUESTS if reason.startswith("AI budget") else status.HTTP_422_UNPROCESSABLE_ENTITY
+            raise HTTPException(status_code=code, detail=reason)
+        try:
+            lines = write_lines(self.session, self.group_id, name.strip(), persona, self.user.id, source="ai_agents")
+        except BubbleLinesError as e:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from None
+        return BubbleLines(**lines)
 
     @router.delete("/agents/{slug}/character", status_code=status.HTTP_204_NO_CONTENT, summary="Remove an agent's bubble character")
     def delete_agent_character(self, slug: str) -> None:
@@ -1063,6 +1135,7 @@ class AIOperationsController(BaseUserController):
         from marvin.services.ai import tones as t
 
         assistant_name, persona_prompt = self._persona()
+        persona_prompt = _own_character(spec, persona_prompt)
         tones = self._tones()
         register = self._effective_register(None, spec)
         instructions = self._named_agent_instructions(spec, assistant_name)
@@ -1141,6 +1214,7 @@ class AIOperationsController(BaseUserController):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No model configured. Set a default model on the provider.")
 
         assistant_name, persona_prompt = self._persona()
+        persona_prompt = _own_character(spec, persona_prompt)
         register = self._effective_register(body.tone_register, spec)
         system = self._named_agent_instructions(spec, assistant_name) + self._register_clause(register, persona_prompt)
         if spec.kind == "model":
@@ -1715,6 +1789,10 @@ class AIOperationsController(BaseUserController):
             is_system=spec.is_system,
             tool_policy_overridden=spec.tool_policy_overridden,
             character=character,
+            persona_prompt=spec.persona_prompt,
+            bubble_lines=spec.bubble_lines,
+            bubble_lines_source=spec.bubble_lines_source,
+            mood=spec.mood,
         )
 
     @staticmethod
@@ -2334,6 +2412,7 @@ class AIOperationsController(BaseUserController):
                     meta["parent_thread_id"] = parent_id
                 child_on_event = self._via_listener(on_event, spec.slug)
                 assistant_name, persona_prompt = self._persona()
+                persona_prompt = _own_character(spec, persona_prompt)
                 register = self._effective_register(parent_body.tone_register, spec)
                 system = self._named_agent_instructions(spec, assistant_name) + self._register_clause(register, persona_prompt)
                 if spec.kind == "model":
@@ -2844,15 +2923,15 @@ class AIOperationsController(BaseUserController):
         return workspace_approval_mode(self.session, self.group_id)
 
     def _persona(self) -> tuple[str, str]:
-        """(assistant_name, persona_prompt) from the workspace AI settings.
+        """(assistant_name, persona_prompt) from the workspace AI settings. A named agent with a Character of its
+        own speaks with that instead (`_own_character`).
 
         Unset, the assistant is Marvin with Marvin's built-in voice — the "default voice" the AI settings
         page promises (see marvin.services.ai.persona). A workspace persona replaces it.
         """
-        from marvin.services.ai.persona import resolve_persona
+        from marvin.services.ai.agents import agent_persona
 
-        settings = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
-        return resolve_persona(settings.assistant_name if settings else None, settings.persona_prompt if settings else None)
+        return agent_persona(self.session, self.group_id)
 
     # Tones. Persona and tone are DIFFERENT axes and must not share one knob:
     #   persona = the CHARACTER: who the assistant is and how it speaks (workspace-level, user-authored)

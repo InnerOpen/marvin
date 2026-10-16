@@ -5,6 +5,7 @@ import ToneEditor from "@/components/ToneEditor.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getTones } from "@/lib/api/aiTones";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { moodFieldsHtml } from "@/lib/marvin/characterSheet";
 import { sourceAllowed } from "@/lib/marvin/gate";
 import { voiceFor } from "@/lib/marvin/persona";
 import { createSdkClient } from "@/lib/sdk";
@@ -17,7 +18,7 @@ let settings: any = null;
 let secrets: any[] = [];
 let sources: any[] = [];
 let characterCatalog: any[] = [];
-let characterLibrary: { id: string; name: string; states?: Record<string, string> }[] = [];
+let characterLibrary: { id: string; name: string; states?: Record<string, string>; persona?: { assistantName?: string | null; personaPrompt?: string | null } | null }[] = [];
 let tones: TonesState | null = null;
 // The AI providers this platform has: core's built-ins and installed AI provider plugins
 // (GET /api/ai/provider-types, services/ai/registry.py). The provider list and model picker come from it.
@@ -67,7 +68,12 @@ const s = {
   assistantIcon: (settings as any)?.assistantIcon ?? null,
   assistantCharacter: (settings as any)?.assistantCharacter ?? null,
   personaPrompt: settings?.personaPrompt ?? null,
+  mood: (settings as any)?.mood ?? null,
 };
+// The library character the persona was copied from (services/ai/character_library.py: apply_pack_persona), when
+// the bubble plays one that has a character sheet: the page offers "Reset to <its name>'s".
+const personaPack = characterLibrary.find((p) => p.id === s.assistantCharacter?.library && p.persona) ?? null;
+const personaPackName = personaPack ? personaPack.persona?.assistantName || personaPack.name : "";
 
 // The bubble's canned lines (AI settings → Persona → Bubble lines; services/ai/bubble_lines.py). An empty
 // list shows, as its placeholder, the built-in lines the bubble falls back to.
@@ -303,7 +309,7 @@ const modCfg = s.moderationConfig ?? {};
     </div>
 
     <!-- 5. Persona -->
-    <div class="section-card ai-dependent" id="persona-section">
+    <div class="section-card ai-dependent" id="persona-section" data-library={JSON.stringify(characterLibrary.map((p) => ({ id: p.id, name: p.name, persona: p.persona ?? null })))}>
       <div class="section-title">
         <h3>Persona</h3>
         <p>Who your assistant is: its name, look and character for this workspace. How it delivers a given piece of work is the tone's job (Tones, below).</p>
@@ -338,6 +344,12 @@ const modCfg = s.moderationConfig ?? {};
           library={characterLibrary}
           removeConfirm="Your uploaded character's files are deleted. Continue?"
         />
+        <small class="hint">A library character comes with its own persona: picking one makes the assistant that character — its name, Character, bubble lines and tone — for you to edit from there.</small>
+        {personaPack && (
+          <p class="persona-from" id="persona-from">
+            From {personaPackName} — edit freely. <button type="button" id="persona-reset">Reset to {personaPackName}'s</button>
+          </p>
+        )}
       </div>
       <label class="form-field">
         <span class="label">Character</span>
@@ -379,6 +391,7 @@ const modCfg = s.moderationConfig ?? {};
           <span class="save-status" id="bubble-lines-msg"></span>
         </div>
       </div>
+      <div class="form-field" id="persona-mood" set:html={moodFieldsHtml(s.mood)} />
     </div>
 
     <!-- 5b. Tones -->
@@ -526,6 +539,7 @@ const modCfg = s.moderationConfig ?? {};
   import { previewTone } from '@/lib/api/aiTones';
   import { characterPreviewView, promptPreviewHtml, promptPreviewMessage } from '@/lib/promptPreview';
   import { createSdkClient } from '@/lib/sdk';
+  import { readMood } from '@/lib/marvin/characterSheet';
   // ── Usage & limits ── (GET /api/groups/ai-settings/usage; see services/ai/budget.py)
   const usd = (n: number) => (n < 0.01 && n > 0 ? '<$0.01' : `$${n.toFixed(2)}`);
   const num = (n: number) => n.toLocaleString();
@@ -629,6 +643,42 @@ const modCfg = s.moderationConfig ?? {};
   // Generation runs in the background after a voice is saved, so the card polls while it does.
   const BUBBLE_API = '/api/groups/ai-settings/bubble-lines';
   const BUBBLE_POLL_MS = 3000;
+  // ── A library character's persona (services/ai/character_library.py) ──
+  // Picking a pack copies its name, Character and lines over the workspace's: ask first when that would
+  // replace a Character written here, and reload once it's done so the form shows the copy.
+  const PERSONA_API = '/api/groups/ai-settings/character';
+  const library: { id: string; name: string; persona?: { assistantName?: string | null; personaPrompt?: string | null } | null }[] =
+    JSON.parse(document.getElementById('persona-section')?.dataset.library || '[]');
+  const personaBox = document.querySelector<HTMLTextAreaElement>('textarea[name="persona_prompt"]');
+  const picker = document.querySelector<HTMLElement>('#persona-section .character-picker');
+  const packOf = (id: string | null | undefined) => library.find((p) => p.id === id) ?? null;
+  const currentPack = () => packOf(JSON.parse(picker?.dataset.character || 'null')?.library);
+  picker?.addEventListener('character-before-pick', (ev) => {
+    const pack = packOf((ev as CustomEvent).detail?.pack);
+    if (!pack?.persona) return; // animations only: nothing of the persona changes
+    const written = personaBox?.value.trim() ?? '';
+    const fromPack = (currentPack()?.persona?.personaPrompt ?? '').trim();
+    const name = pack.persona.assistantName || pack.name;
+    if (written && written !== fromPack && !confirm(`${name} brings its own persona: your Character, name and bubble lines are replaced with ${name}'s. Continue?`)) {
+      ev.preventDefault();
+    }
+  });
+  picker?.addEventListener('character-picked', (ev) => {
+    if (packOf((ev as CustomEvent).detail?.library)?.persona) window.location.reload();
+  });
+  document.getElementById('persona-reset')?.addEventListener('click', async (ev) => {
+    const button = ev.currentTarget as HTMLButtonElement;
+    if (!confirm(`${button.textContent}? Your edits to the name, Character, bubble lines, tone and mood are replaced.`)) return;
+    button.disabled = true;
+    try {
+      await fetchApi(`${PERSONA_API}/reset-persona`, { method: 'POST' });
+      window.location.reload();
+    } catch (err) {
+      button.disabled = false;
+      button.after(` Couldn't reset: ${err instanceof Error ? err.message : err}`);
+    }
+  });
+
   const BUBBLE_POLL_LIMIT = 60; // ~3 minutes, then the card stops waiting and says so
   const bubbleBox = document.getElementById('bubble-lines');
   const bubbleAreas = Array.from(document.querySelectorAll<HTMLTextAreaElement>('.bubble-lines-list'));
@@ -643,6 +693,7 @@ const modCfg = s.moderationConfig ?? {};
     if (st.bubbleLinesGenerating) return 'Writing lines from the persona…';
     if (!st.bubbleLines) return 'Using the built-in lines.';
     const when = st.bubbleLinesUpdatedAt ? ` on ${new Date(st.bubbleLinesUpdatedAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}` : '';
+    if (st.bubbleLinesSource === 'character') return `From the library character${when}.`;
     return st.bubbleLinesSource === 'edited' ? `Edited${when}.` : `Generated from the persona${when}.`;
   }
 
@@ -925,6 +976,7 @@ const modCfg = s.moderationConfig ?? {};
       assistantIcon: ((document.getElementById('assistant_icon_url') as HTMLInputElement).value.trim()
         || (document.getElementById('assistant_icon_emoji') as HTMLInputElement).value.trim() || null),
       personaPrompt: (fd.get('persona_prompt')?.toString().trim() || null),
+      mood: readMood(document.getElementById('persona-mood') ?? document),
     };
 
     const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;

@@ -103,7 +103,13 @@ def admin(db_session, workspace, storage):
     _bind(C, c, "_pack_or_404", "_read", "_uploads")
     c.create = lambda *names, name="": C.create_pack(c, name=name, files=_files(*names))
     c.replace = lambda ref, *names: C.replace_pack_files(c, ref, _files(*names))
-    c.rename = lambda ref, name: C.rename_pack(c, ref, _update(name))
+    c.rename = lambda ref, name: C.update_pack(c, ref, _update(name))
+    c.save_persona = lambda ref, persona: C.update_pack(c, ref, _persona_update(persona))
+    c.create_from = lambda filename, data, name="": C.create_pack(c, name=name, files=[UploadFile(io.BytesIO(data), filename=filename)])
+    c.replace_from = lambda ref, filename, data: C.replace_pack_files(c, ref, [UploadFile(io.BytesIO(data), filename=filename)])
+    c.download = lambda ref: C.download_pack(c, ref)
+    c.group_id = workspace[0]  # the admin's current workspace, which pays for writing a pack's lines
+    c.generate = lambda ref, **kw: C.generate_pack_lines(c, ref, _pack_lines(**kw) if kw else None)
     c.assign = lambda ref, state, file: C.assign_pack_state(c, ref, _assign(state, file))
     c.delete = lambda ref, force=False: C.delete_pack(c, ref, force=force)
     c.list = lambda: C.list_character_packs(c)
@@ -123,7 +129,8 @@ def settings(db_session, workspace, storage):
     c = SimpleNamespace(session=db_session, group_id=gid, user=SimpleNamespace(id=uid), repos=repos, logger=logging.getLogger("test"))
     c._require_admin = lambda: None
     c._allow_workspace_credentials = lambda: True
-    _bind(C, c, "_settings_row", "_asset_service", "_character_store", "_effective_character", "_described")
+    _bind(C, c, "_settings_row", "_asset_service", "_character_store", "_effective_character", "_described", "get_ai_settings")
+    c.reset = lambda: C.reset_persona(c)
     c.get = lambda: C.get_ai_settings(c)
     c.upload = lambda *names: C.upload_character(c, _files(*names))
     c.use_library = lambda pack: C.use_library_character(c, _choice(pack))
@@ -155,6 +162,11 @@ def agents(db_session, workspace, storage):
     c.delete_agent = lambda slug: C.delete_agent(c, slug)
     c.get = lambda slug: C.get_agent(c, slug)
     c.list = lambda: C.list_agents(c)
+    c.reset = lambda slug: C.reset_agent_persona(c, slug)
+    _bind(C, c, "_require_known_tone", "_tones")
+    c._is_builtin, c._agent_edit_message = C._is_builtin, C._agent_edit_message
+    c.update = lambda slug, **kw: C.update_agent(c, slug, _agent_update(**kw))
+    c.generate = lambda slug, **kw: C.generate_agent_lines(c, slug, _agent_lines(**kw) if kw else None)
     return c
 
 
@@ -162,6 +174,30 @@ def _update(name):
     from marvin.schemas.platform.character_packs import CharacterPackUpdate
 
     return CharacterPackUpdate(name=name)
+
+
+def _pack_lines(**kw):
+    from marvin.schemas.platform.character_packs import CharacterPackLinesRequest
+
+    return CharacterPackLinesRequest(**kw)
+
+
+def _agent_update(**kw):
+    from marvin.schemas.group.agent import AgentUpdate
+
+    return AgentUpdate(**kw)
+
+
+def _agent_lines(**kw):
+    from marvin.schemas.group.agent import AgentLinesRequest
+
+    return AgentLinesRequest(**kw)
+
+
+def _persona_update(persona):
+    from marvin.schemas.platform.character_packs import CharacterPackUpdate
+
+    return CharacterPackUpdate(persona=persona)
 
 
 def _assign(state, file):
@@ -267,6 +303,9 @@ def test_the_library_admin_routes_refuse_a_workspace_admin(client):
     try:
         assert client.get("/api/admin/character-packs").status_code == 403
         assert client.delete(f"/api/admin/character-packs/{uuid.uuid4()}").status_code == 403
+        assert client.get(f"/api/admin/character-packs/{uuid.uuid4()}/download").status_code == 403
+        assert client.post(f"/api/admin/character-packs/{uuid.uuid4()}/bubble-lines/generate").status_code == 403
+        assert client.patch(f"/api/admin/character-packs/{uuid.uuid4()}", json={"persona": None}).status_code == 403
     finally:
         app.dependency_overrides.pop(get_current_user, None)
 
@@ -484,3 +523,347 @@ def test_a_pet_sheet_uploaded_by_a_workspace_or_an_agent_becomes_its_character(s
     assert own.built_from.startswith("ChatGPT pet sheet") and {"peek_left", "peek_top", "idle_variant"} <= set(own.states)
     character = settings.upload("idle.gif")  # an ordinary upload says nothing was built
     assert character.built_from is None
+
+
+# --- a pack's persona: its character sheet, copied on pick ----------------------------------------
+
+ELVIRA = {
+    "assistantName": "Elvira",
+    "personaPrompt": "You are Elvira, Mistress of the Dark: campy, warm, wicked puns.",
+    "bubbleLines": {"greetings": ["  Well, hello there.  ", ""], "taglines": ["unpleasant dreams"], "emotes": ["*flips hair*"]},
+    "defaultRegister": "playful",
+    "icon": "🦇",
+    "mood": {"drains": "treatment", "meter": "hidden", "low": {"greetings": ["Mm-hmm."]}},
+}
+
+
+@pytest.fixture
+def started(monkeypatch):
+    """Background line generations asked for, instead of running them."""
+    from marvin.services.ai import bubble_lines
+
+    calls = []
+    monkeypatch.setattr(bubble_lines, "start", lambda group_id, user_id=None, **kw: calls.append(group_id) or True)
+    return calls
+
+
+def _elvira(admin, sheet=ELVIRA):
+    pack = admin.create("idle.gif", "waving.gif", name="Elvira")
+    return admin.save_persona(pack.slug, sheet)
+
+
+def test_a_packs_character_sheet_is_saved_cleaned(admin):
+    persona = _elvira(admin).persona
+    assert (persona.assistant_name, persona.default_register, persona.icon) == ("Elvira", "playful", "🦇")
+    assert persona.bubble_lines.greetings == ["Well, hello there."] and persona.bubble_lines.thinking == []
+    assert persona.mood.drains == "treatment" and persona.mood.low.greetings == ["Mm-hmm."] and persona.mood.high is None
+
+
+def test_clearing_a_packs_character_sheet_leaves_it_animations_only(admin):
+    pack = _elvira(admin)
+    assert admin.save_persona(pack.slug, None).persona is None
+
+
+def test_a_character_sheet_takes_only_a_built_in_tone(admin):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="auto, professional, playful"):
+        _persona_update({**ELVIRA, "defaultRegister": "pirate"})
+
+
+def test_a_character_sheet_icon_is_an_emoji_not_a_url(admin):
+    pack = admin.create("idle.gif", name="Elvira")
+    with pytest.raises(HTTPException) as e:
+        admin.save_persona(pack.slug, {"icon": "http://a.b/c.png"})
+    assert e.value.status_code == 422
+
+
+def test_picking_a_pack_makes_the_workspace_that_character(admin, settings, started):
+    settings.patch(assistant_name="Marvin", persona_prompt="A gloomy robot.")
+    started.clear()
+    settings.use_library(_elvira(admin).slug)
+    got = settings.get()
+    assert (got.assistant_name, got.persona_prompt, got.default_register, got.assistant_icon) == ("Elvira", ELVIRA["personaPrompt"], "playful", "🦇")
+    assert got.bubble_lines.greetings == ["Well, hello there."] and got.bubble_lines_source == "character"
+    assert got.mood.drains == "treatment"
+    assert started == []  # the pack brought its own lines
+
+
+def test_picking_a_pack_with_a_character_but_no_lines_has_them_written(admin, settings, started):
+    settings.use_library(_elvira(admin, {"personaPrompt": "You are Elvira."}).slug)
+    assert settings.get().bubble_lines is None and started == [settings.group_id]
+
+
+def test_picking_a_pack_without_a_character_sheet_keeps_the_workspace_persona(admin, settings, started):
+    settings.patch(assistant_name="Ada", persona_prompt="Warm and direct.")
+    settings.use_library(admin.create("idle.gif", name="Robot").slug)
+    got = settings.get()
+    assert (got.assistant_name, got.persona_prompt) == ("Ada", "Warm and direct.")
+
+
+def test_the_settings_patch_picking_a_pack_copies_it_but_explicit_fields_win(admin, settings, started):
+    pack = _elvira(admin)
+    got = settings.patch(assistant_character={"library": pack.slug}, assistant_name="Vira")
+    assert (got.assistant_name, got.persona_prompt) == ("Vira", ELVIRA["personaPrompt"])
+
+
+def test_any_member_sees_each_packs_persona_to_choose_from(admin, settings):
+    _elvira(admin)
+    listed = {p.name: p for p in settings.library()}
+    assert listed["Elvira"].persona.assistant_name == "Elvira"
+
+
+def test_reset_copies_the_packs_persona_in_again(admin, settings, started):
+    settings.use_library(_elvira(admin).slug)
+    settings.patch(assistant_name="Vira", persona_prompt="Someone else entirely.")
+    got = settings.reset()
+    assert (got.assistant_name, got.persona_prompt, got.bubble_lines_source) == ("Elvira", ELVIRA["personaPrompt"], "character")
+
+
+def test_reset_without_a_library_character_is_a_409(settings):
+    settings.upload("idle.gif")
+    with pytest.raises(HTTPException) as e:
+        settings.reset()
+    assert e.value.status_code == 409
+
+
+def test_a_character_edit_rewrites_a_packs_lines_but_never_edited_ones(admin, settings, started, db_session):
+    from marvin.services.ai.bubble_lines import SOURCE_EDITED, store
+
+    settings.use_library(_elvira(admin).slug)
+    settings.patch(persona_prompt="Elvira, but on a diet of puns.")
+    assert started == [settings.group_id]
+    store(settings._settings_row(), {"greetings": ["mine"]}, SOURCE_EDITED)
+    db_session.commit()
+    settings.patch(persona_prompt="Elvira, unpunned.")
+    assert started == [settings.group_id] and settings.get().bubble_lines.greetings == ["mine"]
+
+
+def test_the_workspace_saves_its_own_mood_settings(settings):
+    assert settings.patch(mood={"memory": "weeks", "absence": "cools"}).mood.model_dump(exclude_none=True) == {"memory": "weeks", "absence": "cools"}
+    assert settings.patch(mood={}).mood is None
+
+
+def test_an_agent_picking_a_pack_becomes_that_character(admin, agents):
+    agents.use_library("scout", _elvira(admin).slug)
+    agent = agents.get("scout")
+    assert (agent.name, agent.persona_prompt, agent.default_register, agent.icon) == ("Elvira", ELVIRA["personaPrompt"], "playful", "🦇")
+    assert agent.bubble_lines.taglines == ["unpleasant dreams"] and agent.bubble_lines_source == "character"
+    assert agent.mood.meter == "hidden"
+
+
+def test_an_agent_reset_copies_its_packs_persona_in_again(admin, agents, db_session, workspace):
+    from marvin.db.models.groups.agents import WorkspaceAgentModel
+
+    agents.use_library("scout", _elvira(admin).slug)
+    row = db_session.query(WorkspaceAgentModel).filter_by(group_id=workspace[0], slug="scout").one()
+    row.name, row.persona_prompt = "Scout", "Terse."
+    db_session.commit()
+    assert (agents.reset("scout").name, agents.get("scout").persona_prompt) == ("Elvira", ELVIRA["personaPrompt"])
+
+
+def test_an_agent_reset_without_a_library_character_is_a_409(agents):
+    with pytest.raises(HTTPException) as e:
+        agents.reset("scout")
+    assert e.value.status_code == 409
+
+
+def test_the_bubble_gets_each_agents_name_and_lines(admin, settings, agents):
+    agents.use_library("scout", _elvira(admin).slug)
+    voice = settings.get().agent_voices["scout"]
+    assert voice.name == "Elvira" and voice.bubble_lines.greetings == ["Well, hello there."]
+
+
+def test_the_bubble_reads_each_agents_voice_in_camel_case_like_the_rest(admin, settings, agents):
+    """Regression (2026-10-16, seen live): the voices went out as raw dicts (`bubble_lines`), so the bubble swapped
+    the name but found no lines and fell back to neutral ones."""
+    agents.use_library("scout", _elvira(admin).slug)
+    dumped = settings.get().model_dump(by_alias=True, mode="json")
+    assert dumped["agentVoices"]["scout"]["bubbleLines"]["taglines"] == ["unpleasant dreams"]
+
+
+def test_an_agent_without_a_voice_of_its_own_speaks_as_the_workspace(settings, agents):
+    assert "scout" not in settings.get().agent_voices
+
+
+# --- the portable pack file -------------------------------------------------------------------------
+
+
+def _zip(entries: dict[str, bytes]) -> bytes:
+    import zipfile
+
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as archive:
+        for name, data in entries.items():
+            archive.writestr(name, data)
+    return out.getvalue()
+
+
+def _manifest(**overrides) -> bytes:
+    import json
+
+    manifest = {"format": "marvin-character/1", "name": "Ada", "states": {"idle": "a.gif", "success": "b.gif"}, **overrides}
+    return json.dumps(manifest).encode()
+
+
+def _by_file(pack) -> dict[str, str]:
+    """{state: file name}: a pack's states, independent of where its files are stored."""
+    names = {f.url: f.name for f in pack.files}
+    return {state: names[url] for state, url in pack.states.items()}
+
+
+def test_a_downloaded_pack_uploads_back_as_the_same_pack(admin, storage, db_session):
+    import zipfile
+
+    pack = _elvira(admin)
+    admin.assign(pack.slug, "success", "waving.gif")  # an assignment no file name would guess
+    pack = admin.assign(pack.slug, "idle_variant", "idle.gif")
+    insets = {f.name: f.inset for f in admin._pack_or_404(pack.slug).pack["files"] for f in [SimpleNamespace(**f)]}
+    data = admin.download(pack.slug).body
+    assert set(zipfile.ZipFile(io.BytesIO(data)).namelist()) == {"idle.gif", "waving.gif", "character.json"}
+    admin.delete(pack.slug)
+
+    back = admin.create_from("anything.zip", data)
+    assert (back.name, back.slug) == ("Elvira", pack.slug)
+    assert _by_file(back) == _by_file(pack) and back.persona == pack.persona
+    assert {f["name"]: f.get("inset") for f in admin._pack_or_404(back.slug).pack["files"]} == insets
+
+
+def test_a_complete_packs_states_are_taken_as_written_not_guessed(admin):
+    pack = admin.create_from("ada.zip", _zip({"a.gif": _gif(), "b.gif": _gif(), "waving.gif": _gif(), "character.json": _manifest()}))
+    assert _by_file(pack) == {"idle": "a.gif", "success": "b.gif"} and not pack.idle_guessed
+
+
+def test_replacing_with_a_complete_pack_brings_its_name_and_persona(admin):
+    pack = admin.create("idle.gif", name="Robot")
+    manifest = _manifest(persona={"personaPrompt": "You are Ada.", "icon": "🧁"})
+    replaced = admin.replace_from(pack.slug, "ada.zip", _zip({"a.gif": _gif(), "b.gif": _gif(), "character.json": manifest}))
+    assert (replaced.name, replaced.slug, replaced.persona.persona_prompt, replaced.persona.icon) == ("Ada", "robot", "You are Ada.", "🧁")
+
+
+def test_a_zip_without_a_manifest_is_read_as_before(admin):
+    pack = admin.create_from("Hoots.zip", _zip({"waving.gif": _gif(), "jump.gif": _gif()}))
+    assert pack.name == "Hoots" and pack.persona is None and pack.idle_guessed
+    assert _by_file(pack) == {"idle": "waving.gif", "greeting": "waving.gif", "success": "jump.gif"}
+
+
+@pytest.mark.parametrize(
+    ("manifest", "problem"),
+    [
+        (b"x" * (256 * 1024 + 1), "over 256 KB"),
+        (b"{not json", "isn't valid JSON"),
+        (_manifest(format="marvin-character/2"), "this version of Marvin reads"),
+        (_manifest(states={"idle": "a.gif", "dancing": "b.gif"}), "unknown state"),
+        (_manifest(states={"idle": "missing.gif"}), "isn't in the pack"),
+        (_manifest(insets={"a.gif": {"top": 2}}), "four shares"),
+        (_manifest(persona={"defaultRegister": "pirate"}), "tone is one of"),
+        (_manifest(persona={"bubbleLines": {"greetings": ["x" * 201]}}), "longer than 200"),
+    ],
+)
+def test_a_bad_manifest_is_refused_before_anything_is_stored(admin, storage, manifest, problem):
+    with pytest.raises(HTTPException) as e:
+        admin.create_from("ada.zip", _zip({"a.gif": _gif(), "b.gif": _gif(), "character.json": manifest}))
+    assert e.value.status_code == 422 and problem in e.value.detail
+    assert _stored(storage.root) == set()
+
+
+def test_a_manifests_unknown_keys_are_ignored(admin):
+    assert admin.create_from("ada.zip", _zip({"a.gif": _gif(), "b.gif": _gif(), "character.json": _manifest(sparkles=True)})).name == "Ada"
+
+
+# --- writing a character's lines, and an agent's own persona fields -------------------------------
+
+
+@pytest.fixture
+def provider(monkeypatch):
+    from tests.test_bubble_lines import FakeProvider
+
+    fake = FakeProvider()
+    monkeypatch.setattr("marvin.services.ai.factory.get_workspace_ai_provider", lambda session, gid: fake)
+    monkeypatch.setattr("marvin.services.ai.authoring.default_authoring_model", lambda session, gid, provider=None: "m")
+    return fake
+
+
+def test_a_packs_lines_are_written_from_the_sheets_unsaved_character_and_not_saved(admin, provider, db_session, workspace):
+    from marvin.db.models.groups.ai_executions import AIExecutionModel
+
+    pack = admin.create("idle.gif", name="Elvira")
+    lines = admin.generate(pack.slug, persona_prompt="You are Elvira.")
+    assert lines.greetings and "You are Elvira." in provider.calls[0][1].content and admin.list()[0].persona is None
+    runs = db_session.query(AIExecutionModel).filter_by(group_id=workspace[0])
+    assert [r.status for r in runs] == ["completed"]  # billed to the admin's workspace
+    runs.delete()
+    db_session.commit()
+
+
+def test_a_pack_without_a_character_has_no_lines_to_write(admin, provider):
+    with pytest.raises(HTTPException) as e:
+        admin.generate(admin.create("idle.gif", name="Elvira").slug)
+    assert e.value.status_code == 422 and provider.calls == []
+
+
+def test_an_agents_lines_are_written_from_its_character(agents, provider, db_session, workspace):
+    from marvin.db.models.groups.ai_executions import AIExecutionModel
+
+    agents.update("scout", persona_prompt="You are Ada.")
+    assert agents.generate("scout").taglines and "You are Ada." in provider.calls[0][1].content
+    db_session.query(AIExecutionModel).filter_by(group_id=workspace[0]).delete()
+    db_session.commit()
+
+
+def test_an_agents_own_lines_and_mood_are_saved_as_edited(agents):
+    agent = agents.update("scout", bubble_lines={"greetings": [" Howdy ", ""]}, mood={"absence": "recharges"}, persona_prompt="  ")
+    assert agent.bubble_lines.greetings == ["Howdy"] and agent.bubble_lines_source == "edited"
+    assert agent.mood.absence == "recharges" and agent.persona_prompt is None
+    assert agents.update("scout", bubble_lines=None).bubble_lines_source is None
+
+
+def _mcp_system_prompt(db_session, workspace, monkeypatch, **args) -> str:
+    """The system prompt an external client's run_agent call sends for `scout`."""
+    import json
+
+    from marvin.db.models.groups.ai_executions import AIExecutionModel
+    from marvin.db.models.users.roles import WorkspaceRole
+    from marvin.services.ai import agent as loop_mod
+    from marvin.services.ai.tools import ToolContext
+    from marvin.services.ai.tools import builtins_agents as ba
+
+    sent: list[str] = []
+
+    def loop(provider, model, messages, tools, opts=None, max_steps=6, **_):
+        sent.append(messages[0].content)
+        return SimpleNamespace(answer="ok", steps=[], prompt_tokens=0, completion_tokens=0, total_tokens=0)
+
+    def complete(messages, model, opts):
+        sent.append(messages[0].content)
+        return SimpleNamespace(content="ok", prompt_tokens=0, completion_tokens=0, total_tokens=0)
+
+    monkeypatch.setattr(loop_mod, "run_agent_loop", loop)
+    monkeypatch.setattr(ba, "_default_model", lambda ctx: "m")
+    gid, uid = workspace
+    user = SimpleNamespace(id=uid, admin=False, workspace_memberships=[SimpleNamespace(group_id=gid, workspace_role=WorkspaceRole.ADMIN)])
+    ctx = ToolContext(session=db_session, group_id=gid, user=user, provider=SimpleNamespace(provider_type="fake", complete=complete), logger=None)
+    out = json.loads(ba._run_standalone(ctx, {"agent": "scout", "message": "hi", **args}))
+    assert out.get("answer") == "ok", out
+    db_session.query(AIExecutionModel).filter_by(group_id=gid).delete()
+    db_session.commit()
+    return sent[-1]
+
+
+ELVIRA_CHARACTER = "Character: You are Elvira, Mistress of the Dark."
+
+
+def test_an_mcp_run_of_an_agent_is_plain_by_default(agents, db_session, workspace, monkeypatch):
+    agents.update("scout", persona_prompt="You are Elvira, Mistress of the Dark.")
+    system = _mcp_system_prompt(db_session, workspace, monkeypatch)
+    assert "Elvira" not in system and "Write plainly" in system  # professional: the character is dropped
+
+
+def test_an_mcp_caller_can_ask_for_the_agents_character(agents, db_session, workspace, monkeypatch):
+    agents.update("scout", persona_prompt="You are Elvira, Mistress of the Dark.")
+    assert ELVIRA_CHARACTER in _mcp_system_prompt(db_session, workspace, monkeypatch, tone="playful")
+
+
+def test_an_agents_own_default_tone_decides_its_mcp_runs(agents, db_session, workspace, monkeypatch):
+    agents.update("scout", persona_prompt="You are Elvira, Mistress of the Dark.", default_register="auto")
+    assert ELVIRA_CHARACTER in _mcp_system_prompt(db_session, workspace, monkeypatch)

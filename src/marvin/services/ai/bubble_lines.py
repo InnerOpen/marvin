@@ -11,9 +11,12 @@ can take longer than a settings save should, so the save returns at once and the
 why in `bubble_lines_warning`, which the card shows.
 
 - Saving a persona (a new one, a changed one or a new assistant name, or any persona while there are no
-  lines yet) regenerates lines that are still `generated`; `edited` lines are never overwritten by it —
-  only by an explicit Regenerate.
-- Clearing the persona drops generated lines (their voice is gone); edited ones stay.
+  lines yet) regenerates lines that are still `generated` or `character` (copied from a library pack);
+  `edited` lines are never overwritten by it — only by an explicit Regenerate.
+- Clearing the persona drops generated lines (their voice is gone); a character's and edited ones stay.
+
+A library pack's own lines (Admin → Character library) and an agent's are written by the same one call
+(write_lines), synchronously: they belong to no workspace settings row to record a warning on.
 
 In-process state: a restart drops a generation in flight (nothing is half-written; Regenerate runs it again).
 """
@@ -37,8 +40,14 @@ logger = get_logger(__name__)
 LISTS = ("greetings", "taglines", "thinking", "errors", "emotes")
 SOURCE_GENERATED = "generated"
 SOURCE_EDITED = "edited"
+# Copied from a library character pack (services/ai/character_library.py: apply_pack_persona). Treated as
+# generated: a later Character edit regenerates them, which an edit never does.
+SOURCE_CHARACTER = "character"
+REGENERABLE_SOURCES = (SOURCE_GENERATED, SOURCE_CHARACTER)
 OPERATION_SLUG = "generate-bubble-lines"
 TRIGGER_TYPE = "settings"
+
+NO_CHARACTER = "There's no character to write lines from. Write one in the Character field and save first."
 
 # Hand-edited lines: generous bounds that still keep the bubble a bubble.
 MAX_EDITED_LINES = 50
@@ -78,6 +87,10 @@ _SPACE = re.compile(r"\s+")
 
 class BubbleLinesError(Exception):
     """Why lines couldn't be generated or saved — readable, shown on the Persona card."""
+
+
+class BubbleLinesRejected(BubbleLinesError):
+    """The model answered, but with too few usable lines."""
 
 
 class GenerateBubbleLinesOperation(AIOperation):
@@ -210,7 +223,7 @@ def _norm(value: str | None) -> str:
 def should_regenerate(row, before_name: str | None, before_persona: str | None) -> bool:
     """After a persona save: regenerate when there's a persona, the lines aren't hand-edited, and the persona
     or name changed (or there are no lines yet)."""
-    if not _norm(row.persona_prompt) or row.bubble_lines_source == SOURCE_EDITED:
+    if not _norm(row.persona_prompt) or row.bubble_lines_source not in (None, *REGENERABLE_SOURCES):
         return False
     changed = (_norm(before_name), _norm(before_persona)) != (_norm(row.assistant_name), _norm(row.persona_prompt))
     return changed or not row.bubble_lines
@@ -230,16 +243,10 @@ def on_persona_saved(session, row, before_name: str | None, before_persona: str 
 
 def preflight(session, group_id) -> str | None:
     """Why a generation can't run right now (no persona, AI off, over budget), or None."""
-    from marvin.services.ai import budget
-
     row = _row(session, group_id)
     if not row or not _norm(row.persona_prompt):
-        return "There's no character to write lines from. Write one in the Character field and save first."
-    if not row.enabled:
-        return "AI is turned off for this workspace."
-    if reason := budget.blocked_reason(session, group_id):
-        return f"AI budget: {reason}"
-    return None
+        return NO_CHARACTER
+    return ready_to_write(session, group_id)
 
 
 def _fail(session, group_id, message: str) -> BubbleLinesError:
@@ -253,32 +260,29 @@ def _fail(session, group_id, message: str) -> BubbleLinesError:
     return BubbleLinesError(message)
 
 
-def generate(session, group_id, user_id=None, *, force: bool = False) -> dict[str, list[str]] | None:
-    """Run the model once and store the lines it writes. None when the lines were hand-edited meanwhile
-    (an automatic run never overwrites them; `force` — Regenerate — does). Raises BubbleLinesError."""
+def write_lines(session, group_id, name: str, persona: str, user_id=None, *, source: str = "ai_settings") -> dict[str, list[str]]:
+    """Run the model once for `name` and `persona` and return the lines it writes, cleaned. Billed and logged
+    as an AI execution of the workspace `group_id`; stores nothing else. Raises BubbleLinesError (a reply too
+    thin to use as BubbleLinesRejected)."""
     from marvin.core.config import get_app_settings
     from marvin.db.models.groups.ai_executions import AIExecutionModel
     from marvin.services.ai import budget
     from marvin.services.ai.authoring import default_authoring_model
     from marvin.services.ai.base import CompletionOptions
     from marvin.services.ai.factory import get_workspace_ai_provider
-    from marvin.services.ai.persona import resolve_persona
     from marvin.services.ai.pricing import cost_of
 
-    if reason := preflight(session, group_id):
-        raise _fail(session, group_id, reason)
-    row = _row(session, group_id)
-    name, _ = resolve_persona(row.assistant_name, row.persona_prompt)
-    op_input = {"assistant_name": name, "persona": _norm(row.persona_prompt)}
+    op_input = {"assistant_name": name, "persona": _norm(persona)}
     try:
         provider = get_workspace_ai_provider(session, group_id)
     except Exception as e:  # noqa: BLE001 — AI off, misconfigured or missing a key: all read the same here
-        raise _fail(session, group_id, f"No AI provider to write with: {e}") from e
+        raise BubbleLinesError(f"No AI provider to write with: {e}") from e
     model = default_authoring_model(session, group_id)
     if not model:
-        raise _fail(session, group_id, "No default AI model is configured for this workspace.")
+        raise BubbleLinesError("No default AI model is configured for this workspace.")
 
-    cfg = row.logging_config or {}
+    row = _row(session, group_id)
+    cfg = (row.logging_config if row else None) or {}
     execution = AIExecutionModel(
         session=session,
         group_id=group_id,
@@ -304,7 +308,7 @@ def generate(session, group_id, user_id=None, *, force: bool = False) -> dict[st
         execution.completed_at = datetime.now(UTC)
         execution.duration_ms = int((time.monotonic() - start_clock) * 1000)
         session.commit()
-        raise _fail(session, group_id, f"The model call failed: {e}") from e
+        raise BubbleLinesError(f"The model call failed: {e}") from e
 
     execution.status = "completed"
     execution.completed_at = datetime.now(UTC)
@@ -318,17 +322,53 @@ def generate(session, group_id, user_id=None, *, force: bool = False) -> dict[st
     execution.estimated_cost_usd = cost_of(provider.provider_type, model, completion)
     session.commit()
     if crossing := budget.crossing_after(session, group_id, execution.estimated_cost_usd):
-        budget.emit_crossing(group_id, crossing, user_id=user_id, source="ai_settings")
+        budget.emit_crossing(group_id, crossing, user_id=user_id, source=source)
 
     try:
-        lines = clean_generated(parsed)
+        return clean_generated(parsed)
     except BubbleLinesError as e:
         execution.metadata_json = {**(execution.metadata_json or {}), "rejected": str(e)}
         session.commit()
+        raise BubbleLinesRejected(str(e)) from e
+
+
+def ready_to_write(session, group_id) -> str | None:
+    """Why the workspace can't pay for a generation right now (AI off, over budget), or None."""
+    from marvin.services.ai import budget
+
+    row = _row(session, group_id)
+    if row is not None and not row.enabled:
+        return "AI is turned off for this workspace."
+    if reason := budget.blocked_reason(session, group_id):
+        return f"AI budget: {reason}"
+    return None
+
+
+def generate(session, group_id, user_id=None, *, force: bool = False) -> dict[str, list[str]] | None:
+    """Run the model once and store the lines it writes. None when the lines were hand-edited meanwhile
+    (an automatic run never overwrites them; `force` — Regenerate — does), or the name or Character changed
+    meanwhile (the lines would be in the wrong voice). Raises BubbleLinesError."""
+    from marvin.services.ai.persona import resolve_persona
+
+    if reason := preflight(session, group_id):
+        raise _fail(session, group_id, reason)
+    row = _row(session, group_id)
+    written_for = (_norm(row.assistant_name), _norm(row.persona_prompt))
+    name, _ = resolve_persona(row.assistant_name, row.persona_prompt)
+    try:
+        lines = write_lines(session, group_id, name, row.persona_prompt, user_id)
+    except BubbleLinesRejected as e:
         raise _fail(session, group_id, f"{e} The previous lines were kept.") from e
+    except BubbleLinesError as e:
+        raise _fail(session, group_id, str(e)) from e
 
     session.refresh(row)
     if not force and row.bubble_lines_source == SOURCE_EDITED:
+        return None
+    if (_norm(row.assistant_name), _norm(row.persona_prompt)) != written_for:
+        # The persona changed while the model wrote (a pick, a reset, another save): these lines are in a voice
+        # that's gone. A save queues its own run (start); a pick or reset brought lines of its own.
+        logger.info("bubble lines for %s discarded: the persona changed while they were written", group_id)
         return None
     store(row, lines, SOURCE_GENERATED)
     session.commit()

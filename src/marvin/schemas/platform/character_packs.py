@@ -5,7 +5,16 @@ from datetime import datetime
 from pydantic import Field
 
 from marvin.schemas._marvin import _MarvinModel
-from marvin.schemas.group.ai_settings import AssistantCharacter, AssistantCharacterUpload
+from marvin.schemas.group.ai_settings import AssistantCharacter, AssistantCharacterUpload, CharacterPackPersona
+
+__all__ = [
+    "CharacterPackLinesRequest",
+    "CharacterPackPersona",
+    "CharacterPackRead",
+    "CharacterPackUpdate",
+    "CharacterPackUploadRead",
+    "CharacterPackUser",
+]
 
 
 class CharacterPackUser(_MarvinModel):
@@ -22,6 +31,7 @@ class CharacterPackRead(AssistantCharacter):
     name: str
     created_at: datetime | None = None
     used_by: list[CharacterPackUser] = []
+    persona: CharacterPackPersona | None = None  # its character sheet; None: animations only
 
 
 class CharacterPackUploadRead(CharacterPackRead, AssistantCharacterUpload):
@@ -29,4 +39,14 @@ class CharacterPackUploadRead(CharacterPackRead, AssistantCharacterUpload):
 
 
 class CharacterPackUpdate(_MarvinModel):
-    name: str = Field(min_length=1, max_length=120)
+    """Either or both: a new name (its slug stays), and its character sheet (null clears it)."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    persona: CharacterPackPersona | None = None
+
+
+class CharacterPackLinesRequest(_MarvinModel):
+    """The character sheet's unsaved fields to write lines from; one left out is the stored one."""
+
+    assistant_name: str | None = Field(default=None, max_length=120)
+    persona_prompt: str | None = Field(default=None, max_length=8000)

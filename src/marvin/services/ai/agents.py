@@ -255,6 +255,12 @@ class AgentSpec:
     # The bubble's character while this agent talks, as stored (an own pack or {"library": id}); None →
     # the workspace's. System agents have none: they're code, and `marvin` *is* the workspace's character.
     character: dict | None = None
+    # Its own Character, in place of the workspace's (None → the workspace's), and its bubble lines and mood
+    # settings (not active yet) — copied from a library pack when it picks one, then the owner's to edit.
+    persona_prompt: str | None = None
+    bubble_lines: dict | None = None
+    bubble_lines_source: str | None = None
+    mood: dict | None = None
     # A built-in agent whose matrix this workspace changed (Settings → AI → Agents): `tool_policy` is then
     # the code default with the workspace's override merged over it (see `_system_agent`).
     tool_policy_overridden: bool = False
@@ -349,6 +355,10 @@ def spec_from_row(row) -> AgentSpec:
         is_system=False,
         id=str(row.id),
         character=getattr(row, "character", None) or None,
+        persona_prompt=(getattr(row, "persona_prompt", None) or "").strip() or None,
+        bubble_lines=getattr(row, "bubble_lines", None) or None,
+        bubble_lines_source=getattr(row, "bubble_lines_source", None) or None,
+        mood=getattr(row, "mood", None) or None,
     )
 
 
@@ -358,6 +368,19 @@ def unsaved_spec(values: dict, slug: str) -> AgentSpec:
     from types import SimpleNamespace
 
     return replace(spec_from_row(SimpleNamespace(**values, slug=slug, id=None, character=None)), id=None)
+
+
+def agent_persona(session, group_id, spec: AgentSpec | None = None) -> tuple[str, str]:
+    """(assistant name, Character) for a run: the workspace's assistant name, always — it names the router —
+    and the agent's own Character when it has one, else the workspace's (Marvin's built-in voice while the
+    workspace has none and is still called Marvin)."""
+    from marvin.services.ai.persona import resolve_persona
+
+    row = _ai_settings(session, group_id)
+    name, persona = resolve_persona(row.assistant_name if row else None, row.persona_prompt if row else None)
+    if spec is not None and spec.persona_prompt:
+        persona = spec.persona_prompt
+    return name, persona
 
 
 def _ai_settings(session, group_id):

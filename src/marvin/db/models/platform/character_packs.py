@@ -23,6 +23,10 @@ class CharacterPackModel(SqlAlchemyBase, BaseMixins):
     name: Mapped[str] = mapped_column(sa.String(120), nullable=False)
     pack: Mapped[dict] = mapped_column(sa.JSON, nullable=False)
     """{"states": {state: url}, "files": [{name, key, url}]} — see services/ai/character.py."""
+    # Who the character is — {assistant_name, persona_prompt, bubble_lines, default_register, icon, mood} —
+    # copied into a workspace or agent when it picks the pack (services/ai/character_library.py:
+    # apply_pack_persona). None → the pack is only animations.
+    persona: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     created_by: Mapped[GUID | None] = mapped_column(GUID, nullable=True)
 
     @auto_init()

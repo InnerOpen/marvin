@@ -3,6 +3,8 @@ import CharacterPicker from "@/components/CharacterPicker.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
+import { linesFieldsHtml, moodFieldsHtml } from "@/lib/marvin/characterSheet";
+import { voiceFor } from "@/lib/marvin/persona";
 
 await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
 const authToken = getAuthToken(Astro.cookies);
@@ -20,7 +22,25 @@ interface Pack {
   files: { name: string; url: string }[];
   missing: string[];
   usedBy: PackUser[];
+  persona?: Persona | null;
 }
+// The pack's character sheet (schemas/group/ai_settings.py: CharacterPackPersona), copied into a workspace or
+// agent that picks it.
+interface Persona {
+  assistantName?: string | null;
+  personaPrompt?: string | null;
+  bubbleLines?: Record<string, string[]> | null;
+  defaultRegister?: string | null;
+  icon?: string | null;
+  mood?: Record<string, unknown> | null;
+}
+// A character's tone is a built-in one: custom tones belong to one workspace.
+const TONES = [
+  ["", "Not set — the workspace's own"],
+  ["auto", "Auto"],
+  ["professional", "Professional"],
+  ["playful", "Playful"],
+];
 
 let packs: Pack[] = [];
 let catalog: { key: string; aliases: string[] }[] = [];
@@ -37,6 +57,7 @@ try {
 }
 
 const usedBy = (p: Pack) => p.usedBy.map((u) => (u.agent ? `${u.workspace} (agent ${u.agent})` : u.workspace)).join(", ");
+const nameOf = (p: Pack) => p.persona?.assistantName || p.name;
 ---
 
 <AdminLayout crumb="admin.character-library">
@@ -52,7 +73,7 @@ const usedBy = (p: Pack) => p.usedBy.map((u) => (u.agent ? `${u.workspace} (agen
   <div class="page-container">
     <form id="pack-form" class="settings-section">
       <h3>Add a pack</h3>
-      <p>A .zip or GIF, WebP or PNG files named for the states — waving.gif, running.gif and so on. Files named otherwise are kept to assign by hand. Or one character sheet — a ChatGPT pet sheet, or 16 poses on one flat colour — and every animation is built from it.</p>
+      <p>A .zip or GIF, WebP or PNG files named for the states — waving.gif, running.gif and so on. Files named otherwise are kept to assign by hand. Or one character sheet — a ChatGPT pet sheet, or 16 poses on one flat colour — and every animation is built from it. Or a complete pack — the .zip a pack's <strong>Download pack</strong> gives you — and everything fills in: its animations, its states and its character sheet.</p>
       <div class="pack-new">
         <input class="input" name="name" placeholder="Name (defaults to the .zip's or the lone .png's name)" maxlength="120" />
         <input class="input" type="file" name="files" accept=".zip,image/gif,image/webp,image/png" multiple required />
@@ -82,6 +103,33 @@ const usedBy = (p: Pack) => p.usedBy.map((u) => (u.agent ? `${u.workspace} (agen
           uploadLabel="Replace files…"
           removable={false}
         />
+        <details class="sheet" open={!p.persona}>
+          <summary>Character sheet {p.persona ? `— ${nameOf(p)}` : "— not filled in yet"}</summary>
+          <p class="hint">Who this character is. A workspace or agent that picks the pack becomes it: its name, Character, bubble lines, tone and icon are copied in for the owner to edit, and <em>Reset to {nameOf(p)}'s</em> copies them again. Saving here changes the pack, not the copies already made.</p>
+          <div class="sheet-row">
+            <label class="form-field"><span class="label">Assistant name</span><input class="input sheet-name" maxlength="120" value={p.persona?.assistantName ?? ""} placeholder={p.name} /></label>
+            <label class="form-field"><span class="label">Icon</span><input class="input sheet-icon" maxlength="16" value={p.persona?.icon ?? ""} placeholder="🤖" /></label>
+            <label class="form-field"><span class="label">Tone</span>
+              <select class="input sheet-tone">
+                {TONES.map(([value, label]) => <option value={value} selected={(p.persona?.defaultRegister ?? "") === value}>{label}</option>)}
+              </select>
+            </label>
+          </div>
+          <label class="form-field"><span class="label">Character</span>
+            <textarea class="input sheet-persona" rows="5" maxlength="8000" placeholder="Who the character is and how it speaks — sent to the model as its Character.">{p.persona?.personaPrompt ?? ""}</textarea>
+          </label>
+          <div class="form-field"><span class="label">Bubble lines</span>
+            <small class="hint">One line per row. Empty lists fall back to the bubble's own lines; <em>Write lines</em> fills them from the Character with one AI call (billed to your current workspace), for you to edit and save.</small>
+            <Fragment set:html={linesFieldsHtml(p.persona?.bubbleLines, voiceFor(nameOf(p)))} />
+          </div>
+          <Fragment set:html={moodFieldsHtml(p.persona?.mood)} />
+          <div class="form-actions">
+            <button type="button" class="button sheet-save">Save sheet</button>
+            <button type="button" class="button secondary sheet-generate">Write lines</button>
+            <button type="button" class="button secondary sheet-download" data-file={`${p.slug}.zip`}>Download pack</button>
+            <span class="status-text sheet-status" role="status"></span>
+          </div>
+        </details>
       </section>
     ))}
   </div>
@@ -89,6 +137,8 @@ const usedBy = (p: Pack) => p.usedBy.map((u) => (u.agent ? `${u.workspace} (agen
 
 <script>
   import { fetchApi } from '@/lib/api/client';
+  import { getApiUrl } from '@/lib/api/config';
+  import { fillLines, readLines, readMood } from '@/lib/marvin/characterSheet';
   import { builtFromLine } from '@/lib/marvin/characterPicker';
 
   const API = '/api/admin/character-packs';
@@ -141,6 +191,73 @@ const usedBy = (p: Pack) => p.usedBy.map((u) => (u.agent ? `${u.workspace} (agen
         status.textContent = `Error: ${message(err)}`;
       }
     });
+    // The character sheet: saved as a whole (PATCH {persona}); lines written by the model come back unsaved.
+    const sheet = card.querySelector<HTMLElement>('.sheet')!;
+    const sheetStatus = sheet.querySelector<HTMLElement>('.sheet-status')!;
+    const field = <T extends HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(cls: string) => sheet.querySelector<T>(`.${cls}`)!;
+    const persona = () => ({
+      assistantName: field('sheet-name').value.trim() || null,
+      icon: field('sheet-icon').value.trim() || null,
+      defaultRegister: field('sheet-tone').value || null,
+      personaPrompt: field('sheet-persona').value.trim() || null,
+      bubbleLines: readLines(sheet),
+      mood: readMood(sheet),
+    });
+    sheet.querySelector('.sheet-save')?.addEventListener('click', async () => {
+      sheetStatus.textContent = 'Saving…';
+      try {
+        const sheetValue = persona();
+        const empty = Object.values(sheetValue).every((v) => v === null);
+        await fetchApi(`${API}/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ persona: empty ? null : sheetValue }),
+        });
+        sheetStatus.textContent = 'Saved';
+      } catch (err) {
+        sheetStatus.textContent = `Error: ${message(err)}`;
+      }
+    });
+    sheet.querySelector('.sheet-generate')?.addEventListener('click', async (ev) => {
+      const button = ev.currentTarget as HTMLButtonElement;
+      const current = readLines(sheet);
+      if (current && !confirm('Replace the lines below with new ones written from the Character?')) return;
+      sheetStatus.textContent = 'Writing lines from the Character…';
+      button.disabled = true;
+      try {
+        const { assistantName, personaPrompt } = persona();
+        const lines = await fetchApi<Record<string, string[]>>(`${API}/${id}/bubble-lines/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assistantName: assistantName || name.value.trim(), personaPrompt: personaPrompt ?? '' }),
+        });
+        fillLines(sheet, lines);
+        sheetStatus.textContent = 'Written — edit them, then Save sheet.';
+      } catch (err) {
+        sheetStatus.textContent = `Error: ${message(err)}`;
+      } finally {
+        button.disabled = false;
+      }
+    });
+    // The whole pack as one .zip — its images and a character.json — which Add or Replace takes back as is.
+    sheet.querySelector<HTMLButtonElement>('.sheet-download')?.addEventListener('click', async (ev) => {
+      const button = ev.currentTarget as HTMLButtonElement;
+      sheetStatus.textContent = 'Packing…';
+      button.disabled = true;
+      try {
+        const res = await fetch(getApiUrl(`${API}/${id}/download`), { credentials: 'include' });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? `HTTP ${res.status}`);
+        const url = URL.createObjectURL(await res.blob());
+        Object.assign(document.createElement('a'), { href: url, download: button.dataset.file ?? 'character.zip' }).click();
+        setTimeout(() => URL.revokeObjectURL(url), 10_000);
+        sheetStatus.textContent = '';
+      } catch (err) {
+        sheetStatus.textContent = `Error: ${message(err)}`;
+      } finally {
+        button.disabled = false;
+      }
+    });
+
     // A pack in use is deleted only on an informed "delete anyway": its users fall back to their icon
     // (agents to the workspace's character) — the server unlinks them first (force=true).
     const del = card.querySelector<HTMLButtonElement>('.pack-delete')!;
@@ -181,6 +298,14 @@ const usedBy = (p: Pack) => p.usedBy.map((u) => (u.agent ? `${u.workspace} (agen
   .pack-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
   .pack-head .pack-name { width: auto; flex: 1 1 220px; font-weight: 600; }
   .pack-slug { font-size: 12px; color: var(--muted); }
+  .sheet { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); display: grid; gap: 12px; }
+  .sheet summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+  .sheet[open] { gap: 14px; }
+  .sheet .hint { font-size: 12px; color: var(--muted); }
+  .sheet .form-field { display: grid; gap: 6px; }
+  .sheet .label { font-size: 13px; font-weight: 500; }
+  .sheet-row { display: grid; grid-template-columns: 2fr 1fr 1.4fr; gap: 12px; }
+  .sheet .form-actions { margin-top: 4px; }
   .settings-section > .pack-users { font-size: 13px; margin-bottom: 12px; }
   .form-actions {
     display: flex;
@@ -199,5 +324,5 @@ const usedBy = (p: Pack) => p.usedBy.map((u) => (u.agent ? `${u.workspace} (agen
     color: #c33;
     margin-bottom: 16px;
   }
-  @media (max-width: 700px) { .pack-new { grid-template-columns: 1fr; } }
+  @media (max-width: 700px) { .pack-new, .sheet-row { grid-template-columns: 1fr; } }
 </style>

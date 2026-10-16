@@ -9,6 +9,9 @@
  * Used for the workspace's character (AI settings), each agent's (Settings → Agents) and each library
  * pack's (Admin → Character library). Changes save as they're made: an upload stores files, so it can't
  * wait for a form's "Save". The root fires `character-change` (detail: the character, or null) after each.
+ * Choosing a library pack also copies its persona in, so it first fires a cancelable `character-before-pick`
+ * (detail: {pack}) — a page can confirm, or call preventDefault() to keep what it has — and once saved,
+ * `character-picked` (detail: the character).
  */
 
 import { fetchApi } from "@/lib/api/client";
@@ -265,9 +268,16 @@ export function mountCharacterPicker(root: HTMLElement): void {
       return;
     }
     const pack = choice.slice(LIBRARY_PREFIX.length);
+    // A pick copies the pack's persona over the page's own (services/ai/character_library.py): the page may ask first.
+    const asked = new CustomEvent("character-before-pick", { detail: { pack }, bubbles: true, cancelable: true });
+    if (!root.dispatchEvent(asked)) {
+      source.value = sourceOf(current);
+      return;
+    }
     const res = await call("Saving…", () => fetchApi<StoredCharacter>(`${api}/library`, json("PUT", { pack })));
     report.hidden = true;
     render(res ?? current);
+    if (res) root.dispatchEvent(new CustomEvent("character-picked", { detail: res, bubbles: true }));
   });
 
   render(current);

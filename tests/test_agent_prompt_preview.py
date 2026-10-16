@@ -129,6 +129,32 @@ def test_preview_tone_is_the_agents_default_and_carries_the_precedence_rule(ctrl
     assert "Tone (Warm): Write warmly." in out.system and out.system.count(PRECEDENCE_RULE) == 1
 
 
+def _give_scout_a_character(db_session, gid, persona="You are Elvira, Mistress of the Dark."):
+    from marvin.db.models.groups.agents import WorkspaceAgentModel
+
+    db_session.query(WorkspaceAgentModel).filter_by(group_id=gid, slug="scout").one().persona_prompt = persona
+    db_session.commit()
+
+
+def test_preview_of_an_agent_with_its_own_character_speaks_as_that_character(ctrl, db_session, workspace):
+    _give_scout_a_character(db_session, workspace)
+    out = ctrl.preview("scout", default_register="warm")
+    assert out.tone.character == "Character: You are Elvira, Mistress of the Dark."
+    assert "You are Ada." not in out.system
+
+
+def test_preview_uses_the_forms_unsaved_character_and_a_cleared_one_is_the_workspaces(ctrl, db_session, workspace):
+    _give_scout_a_character(db_session, workspace)
+    assert ctrl.preview("scout", default_register="warm", persona_prompt="You are Vira.").tone.character == "Character: You are Vira."
+    assert ctrl.preview("scout", default_register="warm", persona_prompt=None).tone.character == "Character: You are Ada."
+
+
+def test_a_run_of_an_agent_with_its_own_character_sends_it(ctrl, db_session, workspace, monkeypatch):
+    _give_scout_a_character(db_session, workspace)
+    test_preview_matches_the_system_prompt_a_run_sends(ctrl, monkeypatch)
+    assert "Mistress of the Dark" in ctrl.preview("scout").system
+
+
 def test_preview_tone_falls_back_to_the_workspace_default(ctrl, db_session, workspace):
     _set_workspace_default(db_session, workspace, "playful")
     for over in ({}, {"default_register": None}, {"default_register": "deleted-tone"}):

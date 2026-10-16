@@ -117,14 +117,9 @@ try {
     // or an image URL. The canned lines are the workspace's own bubble lines where it has them, else
     // Marvin's while it's still named Marvin (see voiceFor).
     function applyIdentity(settings: any) {
-      const name = (settings?.assistantName || '').trim() || 'Marvin';
       const icon = (settings?.assistantIcon || '').trim();
-      voice = voiceFor(name, settings?.bubbleLines);
-      document.querySelector('#marvin-root .marvin-name')!.textContent = name;
-      for (const el of [toggle, panel]) el.setAttribute('aria-label', `Ask ${name}`);
-      toggle.title = `Ask ${name}`;
-      input.placeholder = `Ask ${name}…  (try /help)`;
-      sub.textContent = pick(voice.taglines);
+      readVoices(settings);
+      applyVoice();
       workspaceIcon = icon;
       characterInsets = settings?.characterInsets ?? {};
       cast = createCast(settings?.assistantCharacter?.states, settings?.agentCharacters ?? {}, getActiveAgent());
@@ -137,6 +132,31 @@ try {
         if (progress.status === 'awaiting_approval') cue('parked');
         else if (progress.events.length) cue('progress');
       });
+    }
+
+    // Who the bubble speaks as: the active agent where it has a voice of its own (a library character's name and
+    // lines, or its own — the AI settings' agentVoices), else the workspace's assistant.
+    let workspaceVoice: { name: string; lines: any } = { name: 'Marvin', lines: null };
+    let agentVoices: Record<string, { name: string; bubbleLines?: any }> = {};
+    let speaker = '';
+
+    function readVoices(settings: any) {
+      workspaceVoice = { name: (settings?.assistantName || '').trim() || 'Marvin', lines: settings?.bubbleLines };
+      agentVoices = settings?.agentVoices ?? {};
+    }
+
+    function applyVoice() {
+      const own = agentVoices[getActiveAgent() ?? ''];
+      const name = own?.name || workspaceVoice.name;
+      voice = own ? voiceFor(name, own.bubbleLines) : voiceFor(name, workspaceVoice.lines);
+      const key = `${name}\n${JSON.stringify(own?.bubbleLines ?? workspaceVoice.lines ?? null)}`;
+      if (key === speaker) return;
+      speaker = key;
+      document.querySelector('#marvin-root .marvin-name')!.textContent = name;
+      for (const el of [toggle, panel]) el.setAttribute('aria-label', `Ask ${name}`);
+      toggle.title = `Ask ${name}`;
+      input.placeholder = `Ask ${name}…  (try /help)`;
+      sub.textContent = pick(voice.taglines);
     }
 
     /**
@@ -152,6 +172,8 @@ try {
         characterInsets = settings?.characterInsets ?? {};
         cast = createCast(settings?.assistantCharacter?.states, settings?.agentCharacters ?? {}, getActiveAgent());
         if (!sameStates(before, cast.states)) showCast();
+        readVoices(settings);
+        applyVoice(); // the name and lines change with the character
       } catch {
         /* keep what's showing */
       }
@@ -204,6 +226,7 @@ try {
     /** The active agent is the one talking again (a new message: the delegate that answered the last one steps back). */
     function handBack() {
       if (cast?.use(getActiveAgent())) showCast();
+      applyVoice();
     }
 
     function showIcon() {

@@ -3,6 +3,7 @@
  * omit it in the browser to go through the same-origin proxy with the HttpOnly cookie.
  */
 
+import type { BubbleLines, MoodSettings } from "@/lib/marvin/characterSheet";
 import type { AgentPromptPreview } from "@/lib/promptPreview";
 import { fetchApi } from "./client";
 
@@ -42,11 +43,25 @@ export interface Agent {
    * through /api/ai/agents/{slug}/character. Null → the workspace's. Built-ins never have one.
    */
   character?: { library?: string | null; name?: string | null; states: Record<string, string> } | null;
+  /**
+   * Its own Character in place of the workspace's, its bubble lines and its mood settings (not active yet) —
+   * copied from a library pack when it picks one, then edited here. Null → the workspace's.
+   */
+  personaPrompt?: string | null;
+  bubbleLines?: BubbleLines | null;
+  /** "character" (a library pack's), "generated" or "edited". Read-only: saving lines marks them edited. */
+  bubbleLinesSource?: string | null;
+  mood?: MoodSettings | null;
 }
 
-export type AgentCreate = Omit<Agent, "id" | "isSystem" | "minRole" | "enabled" | "allowWrites" | "character"> &
+export type AgentCreate = Omit<
+  Agent,
+  "id" | "isSystem" | "minRole" | "enabled" | "allowWrites" | "character" | "bubbleLinesSource"
+> &
   Partial<Pick<Agent, "minRole" | "enabled" | "allowWrites">>;
-export type AgentUpdate = Partial<Omit<Agent, "id" | "slug" | "isSystem" | "character" | "toolPolicyOverridden">>;
+export type AgentUpdate = Partial<
+  Omit<Agent, "id" | "slug" | "isSystem" | "character" | "toolPolicyOverridden" | "bubbleLinesSource">
+>;
 
 export interface ToolCategory {
   id: string;
@@ -264,6 +279,32 @@ export function createAgent(data: AgentCreate, authToken?: string): Promise<Agen
 }
 export function updateAgent(slug: string, data: AgentUpdate, authToken?: string): Promise<Agent> {
   return fetchApi<Agent>(`/api/ai/agents/${encodeURIComponent(slug)}`, { ...json(data), method: "PATCH" }, authToken);
+}
+/**
+ * Copy the agent's library character's persona in again — name, Character, bubble lines, tone, icon and mood —
+ * replacing its edits (ADMIN+). 409 when its character isn't a library pack with a persona.
+ */
+export function resetAgentPersona(slug: string, authToken?: string): Promise<Agent> {
+  return fetchApi<Agent>(
+    `/api/ai/agents/${encodeURIComponent(slug)}/character/reset-persona`,
+    { method: "POST" },
+    authToken,
+  );
+}
+/**
+ * Bubble lines written from the agent's Character by one AI call, returned unsaved for the Edit form to fill in.
+ * `name` / `personaPrompt` are the form's unsaved values (ADMIN+).
+ */
+export function generateAgentLines(
+  slug: string,
+  data: { name?: string; personaPrompt?: string },
+  authToken?: string,
+): Promise<BubbleLines> {
+  return fetchApi<BubbleLines>(
+    `/api/ai/agents/${encodeURIComponent(slug)}/bubble-lines/generate`,
+    json(data),
+    authToken,
+  );
 }
 /**
  * Drop every override of an agent's permission matrix (ADMIN+): a built-in goes back to its code matrix, a

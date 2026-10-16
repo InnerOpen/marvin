@@ -55,6 +55,16 @@ class WorkspaceAgentModel(SqlAlchemyBase, BaseMixins):
     # {"states", "files"} or a library pack {"library": id} — see services/ai/character.py. Unset → the
     # workspace's character, state by state.
     character: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
+    # The agent's own Character (who it is and how it speaks), in place of the workspace's; unset → the
+    # workspace's. Copied from a library pack when the agent picks one, then the owner's to edit.
+    persona_prompt: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    # The bubble's lines while this agent talks ({greetings, taglines, thinking, errors, emotes}); unset →
+    # the workspace's. Source as the workspace's: "generated" | "character" | "edited" (services/ai/bubble_lines.py).
+    bubble_lines: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
+    bubble_lines_source: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The Social Battery settings for this agent (schemas/group/ai_settings.py: MoodSettings). Stored only:
+    # nothing reads them until the meter is built.
+    mood: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     created_by: Mapped[GUID | None] = mapped_column(GUID, nullable=True)
 
     @auto_init()

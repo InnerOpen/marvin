@@ -445,3 +445,53 @@ def test_the_settings_the_bubble_reads_carry_the_lines(db_session, ctrl, workspa
 
     dumped = result.model_dump(by_alias=True)
     assert dumped["bubbleLines"]["greetings"] == ["old hi"] and dumped["bubbleLinesSource"] == "generated"
+
+
+# --- a library character's lines (services/ai/character_library.py) ------------------------------------
+
+
+@pytest.mark.parametrize(("source", "regenerates"), [(bl.SOURCE_CHARACTER, True), (bl.SOURCE_GENERATED, True), (bl.SOURCE_EDITED, False)])
+def test_a_character_edit_rewrites_a_packs_lines_as_it_does_generated_ones(source, regenerates):
+    row = SimpleNamespace(assistant_name="Ada", persona_prompt="New voice.", bubble_lines=OLD, bubble_lines_source=source)
+    assert bl.should_regenerate(row, "Ada", "Old voice.") is regenerates
+
+
+def test_clearing_the_persona_keeps_a_packs_lines(db_session, workspace, started):
+    _set_lines(db_session, workspace, OLD, bl.SOURCE_CHARACTER)
+    row = _row(db_session, workspace)
+    row.persona_prompt = None
+    db_session.commit()
+    bl.on_persona_saved(db_session, row, "Ada", ADA)
+    assert _row(db_session, workspace).bubble_lines == OLD
+
+
+def test_write_lines_returns_lines_for_any_character_and_leaves_the_workspace_row_alone(db_session, workspace, provider):
+    lines = bl.write_lines(db_session, workspace, "Elvira", "You are Elvira.")
+    assert lines["greetings"] and _row(db_session, workspace).bubble_lines is None
+    assert "Assistant name: Elvira" in provider.calls[0][1].content and [e.status for e in _executions(db_session, workspace)] == ["completed"]
+
+
+def test_write_lines_with_a_thin_reply_is_rejected_without_a_warning_on_the_row(db_session, workspace, provider):
+    provider.reply = _reply(thinking=[])
+    with pytest.raises(bl.BubbleLinesRejected, match="too few usable thinking"):
+        bl.write_lines(db_session, workspace, "Elvira", "You are Elvira.")
+    assert _row(db_session, workspace).bubble_lines_warning is None
+
+
+def test_lines_written_for_a_persona_that_changed_meanwhile_are_discarded(db_session, workspace, provider, monkeypatch):
+    """Regression (2026-10-16, seen live): a Character edit started a generation; a Reset to the library character
+    landed while it ran, and the stale lines then overwrote the character's restored ones."""
+    _set_lines(db_session, workspace, OLD, bl.SOURCE_CHARACTER)
+    real_write = bl.write_lines
+
+    def write_then_reset(session, gid, name, persona, user_id=None, **kw):
+        lines = real_write(session, gid, name, persona, user_id, **kw)
+        row = _row(session, gid)
+        row.persona_prompt = "You are Elvira."  # the reset, committed while the model was writing
+        session.commit()
+        return lines
+
+    monkeypatch.setattr(bl, "write_lines", write_then_reset)
+    assert bl.generate(db_session, workspace) is None
+    row = _row(db_session, workspace)
+    assert (row.bubble_lines, row.bubble_lines_source) == (OLD, bl.SOURCE_CHARACTER)

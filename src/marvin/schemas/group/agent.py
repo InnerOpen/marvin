@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import UUID4, ConfigDict, Field, field_validator
 
 from marvin.schemas._marvin import _MarvinModel
-from marvin.schemas.group.ai_settings import AssistantCharacter, TonePreview
+from marvin.schemas.group.ai_settings import PERSONA_PROMPT_MAX_CHARS, AssistantCharacter, BubbleLines, MoodSettings, TonePreview
 from marvin.services.ai.operations.base import INVOCATION_SOURCES
 from marvin.services.ai.tones import SLUG_RE as TONE_SLUG_RE
 
@@ -64,6 +64,11 @@ class AgentBase(_MarvinModel):
     suggestions: list[str] | None = Field(default=None, max_length=8)
     # When the router (marvin) should hand a question to this agent; shown on its roster line.
     handoff_hint: str | None = Field(default=None, max_length=300)
+    # Its own Character (who it is and how it speaks) in place of the workspace's, its bubble lines and its
+    # mood settings (not active yet); unset → the workspace's. A library character fills these in when picked.
+    persona_prompt: str | None = Field(default=None, max_length=PERSONA_PROMPT_MAX_CHARS)
+    bubble_lines: BubbleLines | None = None
+    mood: MoodSettings | None = None
 
     @field_validator("default_register")
     @classmethod
@@ -111,6 +116,9 @@ class AgentUpdate(_MarvinModel):
     icon: str | None = Field(default=None, max_length=16)
     suggestions: list[str] | None = Field(default=None, max_length=8)
     handoff_hint: str | None = Field(default=None, max_length=300)
+    persona_prompt: str | None = Field(default=None, max_length=PERSONA_PROMPT_MAX_CHARS)
+    bubble_lines: BubbleLines | None = None
+    mood: MoodSettings | None = None
 
     @field_validator("default_register")
     @classmethod
@@ -138,6 +146,8 @@ class AgentRead(AgentBase):
     # The bubble's character while this agent talks (a library pack resolved to its states); None → the
     # workspace's. Set through /ai/agents/{slug}/character; see services/ai/character.py.
     character: AssistantCharacter | None = None
+    # Where the bubble lines came from: "character" (a library pack's), "generated" or "edited"; None = none.
+    bubble_lines_source: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -151,6 +161,13 @@ class AgentDefinitionPreviewRequest(AgentBase):
     optional and unchecked: nothing is stored, and it only keeps the agent off its own roster."""
 
     slug: str | None = None
+
+
+class AgentLinesRequest(_MarvinModel):
+    """The Edit form's unsaved Character and name to write bubble lines from; one left out is the stored one."""
+
+    name: str | None = Field(default=None, max_length=120)
+    persona_prompt: str | None = Field(default=None, max_length=PERSONA_PROMPT_MAX_CHARS)
 
 
 class AgentToolCategory(_MarvinModel):

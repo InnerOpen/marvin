@@ -574,6 +574,7 @@ class WorkspaceExporter:
             "bubbleLines": row.bubble_lines,
             "bubbleLinesSource": row.bubble_lines_source,
             "defaultRegister": row.default_register,
+            "mood": row.mood,
             "tones": row.tones,
             "hiddenTones": row.hidden_tones,
             "agentToolPolicies": row.agent_tool_policies,
@@ -749,6 +750,10 @@ class WorkspaceExporter:
                 "icon": r.icon,
                 "suggestions": r.suggestions,
                 "handoffHint": r.handoff_hint,
+                "personaPrompt": r.persona_prompt,
+                "bubbleLines": r.bubble_lines,
+                "bubbleLinesSource": r.bubble_lines_source,
+                "mood": r.mood,
             }
             for r in self._group_rows(WorkspaceAgentModel)
         ]

@@ -8,6 +8,7 @@ from marvin.routes._base import MarvinCrudRoute
 from marvin.routes._base.base_controllers import BaseUserController
 from marvin.routes._base.controller import controller
 from marvin.schemas.group.ai_settings import (
+    AgentVoice,
     AIUnpricedModel,
     AIUsageLimits,
     AIUsageOperation,
@@ -36,6 +37,31 @@ def _bubble_lines_generating(group_id) -> bool:
     from marvin.services.ai.bubble_lines import is_generating
 
     return is_generating(group_id)
+
+
+def _column_updates(data: WorkspaceAISettingsUpdate) -> dict:
+    """The fields the request sets, as their columns store them."""
+    updates = data.model_dump(exclude_unset=True)
+    updates.pop("assistant_character", None)  # merged separately: the file list isn't the caller's to set
+    if "mood" in updates:
+        updates["mood"] = data.mood.stored() if data.mood else None
+    return updates
+
+
+def _apply_pack_persona(session, row: WorkspaceAISettingsModel, choice: dict) -> bool:
+    """Copy the chosen library pack's persona onto the workspace's settings (the caller commits)."""
+    from marvin.services.ai.character import library_ref
+    from marvin.services.ai.character_library import apply_pack_persona, get_pack
+
+    pack = get_pack(session, library_ref(choice))
+    return pack is not None and apply_pack_persona(row, pack)
+
+
+def _persona_copied(session, row: WorkspaceAISettingsModel, user_id) -> None:
+    """After a pick or reset committed a pack's persona: a Character with no lines of its own gets them written."""
+    from marvin.services.ai.bubble_lines import on_persona_saved
+
+    on_persona_saved(session, row, row.assistant_name, row.persona_prompt, user_id)
 
 
 @controller(router)
@@ -99,19 +125,26 @@ class AISettingsController(BaseUserController):
         allow_ws = self._allow_workspace_credentials()
         from marvin.services.ai.character import insets_by_url
         from marvin.services.ai.character_library import agent_characters as resolve_agent_characters
+        from marvin.services.ai.character_library import agent_voices
 
         agents = resolve_agent_characters(self.session, self.group_id)
         agent_characters = {slug: character["states"] for slug, character in agents.items()}
         insets = {url: inset for character in agents.values() for url, inset in insets_by_url(character).items()}
+        voices = {slug: AgentVoice(**voice) for slug, voice in agent_voices(self.session, self.group_id).items()}
         row = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
         if not row:
             return WorkspaceAISettingsRead(
-                group_id=self.group_id, allow_workspace_credentials=allow_ws, agent_characters=agent_characters, character_insets=insets
+                group_id=self.group_id,
+                allow_workspace_credentials=allow_ws,
+                agent_characters=agent_characters,
+                agent_voices=voices,
+                character_insets=insets,
             )
         result = WorkspaceAISettingsRead.model_validate(row)
         result.allow_workspace_credentials = allow_ws
         result.assistant_character = self._effective_character(row)
         result.agent_characters = agent_characters
+        result.agent_voices = voices
         result.character_insets = {**insets, **insets_by_url(result.assistant_character)}
         result.bubble_lines_generating = _bubble_lines_generating(self.group_id)
         return result
@@ -185,9 +218,12 @@ class AISettingsController(BaseUserController):
 
         before_embedding = embedding_model_for_settings(row.provider)
 
-        updates = data.model_dump(exclude_unset=True)
-        updates.pop("assistant_character", None)  # merged below: the file list isn't the caller's to set
-        for field, value in updates.items():
+        if library_choice:
+            # A pick copies the pack's persona in; anything this same request sets explicitly wins over it.
+            _apply_pack_persona(self.session, row, library_choice)
+            before_name, before_persona = row.assistant_name, row.persona_prompt
+
+        for field, value in _column_updates(data).items():
             if hasattr(row, field):
                 setattr(row, field, value)
 
@@ -223,7 +259,7 @@ class AISettingsController(BaseUserController):
             store = self._character_store()
             delete_character_files(store, previous_character, keep=character_file_ids(store, row.assistant_character))
 
-        if persona_set:
+        if persona_set or library_choice:
             from marvin.services.ai.bubble_lines import on_persona_saved
 
             on_persona_saved(self.session, row, before_name, before_persona, self.user.id)
@@ -411,16 +447,25 @@ class AISettingsController(BaseUserController):
     def character_library(self) -> list[CharacterPackSummary]:
         """The packs a platform admin installed, any of which the workspace or its agents can use."""
         from marvin.services.ai.character import missing_states
-        from marvin.services.ai.character_library import list_packs
+        from marvin.services.ai.character_library import list_packs, pack_persona
 
         return [
-            CharacterPackSummary(id=str(p.id), slug=p.slug, name=p.name, states=(p.pack or {}).get("states") or {}, missing=missing_states(p.pack))
+            CharacterPackSummary(
+                id=str(p.id),
+                slug=p.slug,
+                name=p.name,
+                states=(p.pack or {}).get("states") or {},
+                missing=missing_states(p.pack),
+                persona=pack_persona(p),
+            )
             for p in list_packs(self.session)
         ]
 
     @router.put("/character/library", response_model=AssistantCharacter, summary="Use a library character")
     def use_library_character(self, data: AssistantCharacterLibraryChoice) -> AssistantCharacter:
-        """The bubble plays a library pack; the workspace's own uploaded character, if any, is deleted."""
+        """The bubble plays a library pack, and the assistant becomes that character: the pack's name, Character,
+        bubble lines, tone and icon are copied into the workspace's own settings, to edit from there. The
+        workspace's own uploaded character, if any, is deleted."""
         from marvin.services.ai.character import CharacterError, save_character
         from marvin.services.ai.character_library import library_reference
 
@@ -430,8 +475,28 @@ class AISettingsController(BaseUserController):
         except CharacterError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
         row = self._settings_row()
+        _apply_pack_persona(self.session, row, choice)
         save_character(self.session, row, "assistant_character", choice, self._character_store())
+        _persona_copied(self.session, row, self.user.id)
         return AssistantCharacter(**self._described(row))
+
+    @router.post("/character/reset-persona", response_model=WorkspaceAISettingsRead, summary="Reset the persona to the library character's")
+    def reset_persona(self) -> WorkspaceAISettingsRead:
+        """Copy the current library pack's persona in again — name, Character, bubble lines, tone and icon —
+        replacing the workspace's edits. 409 when the character isn't a library pack, or the pack has none."""
+        from marvin.services.ai.character import library_ref
+
+        self._require_admin()
+        row = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
+        if row is None or not library_ref(row.assistant_character):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="The bubble's character isn't from the library: there's nothing to reset to."
+            )
+        if not _apply_pack_persona(self.session, row, row.assistant_character):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That library character has no persona to reset to.")
+        self.session.commit()
+        _persona_copied(self.session, row, self.user.id)
+        return self.get_ai_settings()
 
     @router.post("/character", response_model=AssistantCharacterUpload, summary="Upload the bubble character")
     def upload_character(self, files: list[UploadFile] = File(...)) -> AssistantCharacterUpload:
