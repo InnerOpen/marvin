@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.378 (2026-10-16)
+
+### Features
+
+- **character**: Library characters carry their persona — pick copies it, Reset re-copies; agents
+  get their own; portable pack .zip
+  ([`00c1bf8`](https://github.com/InnerOpen/marvin/commit/00c1bf83fe6e950c28f1796265a286c37c901ebb))
+
+
 ## v1.0.0-rc.377 (2026-10-16)
 
 ### Features
