@@ -1,0 +1,163 @@
+---
+/**
+ * Entries as an inbox-style list: one row each with the status dot, a small picture (the entry's featured / hero
+ * image, else its first asset; none when the entry has no picture), title, summary, type, status and date.
+ * Used by a collection's page and the Entries page's List view, so both look the same.
+ */
+import LocalTime from "@/components/LocalTime.astro";
+
+interface Props {
+  entries: any[];
+  /** entry type id → name */
+  typeNames: Map<string, string> | Record<string, string>;
+}
+
+const { entries, typeNames } = Astro.props;
+const typeName = (id: string) => (typeNames instanceof Map ? typeNames.get(id) : typeNames[id]);
+const statusMeta: Record<string, { label: string; cls: string }> = {
+  inbox: { label: "Inbox", cls: "s-inbox" },
+  processing: { label: "Processing", cls: "s-processing" },
+  draft: { label: "Draft", cls: "s-draft" },
+  needs_review: { label: "Needs Review", cls: "s-review" },
+  approved: { label: "Approved", cls: "s-approved" },
+  published: { label: "Published", cls: "s-published" },
+  archived: { label: "Archived", cls: "s-archived" },
+  trashed: { label: "In Trash", cls: "s-archived" },
+};
+---
+
+<ul class="inbox">
+  {entries.map((entry) => {
+    const s = statusMeta[entry.status] ?? { label: entry.status, cls: "s-default" };
+    const pic = entry.assets?.find((a: any) => a.role === "featured" || a.role === "hero") ?? entry.assets?.[0];
+    return (
+      <li class="inbox-row entry-wrapper" data-status={entry.status} data-title={(entry.title || "").toLowerCase()}>
+        <a class="inbox-link" href={`/workspace/entries/${entry.id}`}>
+          <span class={`status-dot ${s.cls}`} title={s.label}></span>
+          {pic?.publicUrl && <img class="inbox-thumb" src={pic.publicUrl} alt="" loading="lazy" style={`object-position: ${pic.focalPoint ?? "50% 50%"}`} />}
+          <span class="inbox-main">
+            <span class="inbox-title">{entry.title || "Untitled"}</span>
+            {entry.summary && <span class="inbox-summary">{entry.summary}</span>}
+          </span>
+          <span class="inbox-meta">
+            {typeName(entry.entryTypeId) && <span class="inbox-type">{typeName(entry.entryTypeId)}</span>}
+            <span class={`status-pill ${s.cls}`}>{s.label}</span>
+            <span class="inbox-date"><LocalTime iso={entry.updateAt ?? entry.createdAt} format="short-date" fallback="" /></span>
+          </span>
+        </a>
+      </li>
+    );
+  })}
+</ul>
+
+<style>
+  .inbox {
+    list-style: none;
+    margin: 1.25rem 0 0;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--panel);
+  }
+
+  .inbox-row + .inbox-row {
+    border-top: 1px solid var(--line);
+  }
+
+  .inbox-link {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.7rem 1rem;
+    text-decoration: none;
+    color: var(--ink);
+    transition: background 0.12s;
+  }
+  .inbox-link:hover {
+    background: var(--panel-2);
+  }
+
+  .status-dot {
+    flex: 0 0 auto;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--muted);
+  }
+
+  .inbox-thumb {
+    flex: 0 0 auto;
+    width: 44px;
+    height: 44px;
+    border-radius: 6px;
+    object-fit: cover;
+    background: var(--panel-2);
+  }
+
+  .inbox-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+  .inbox-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .inbox-summary {
+    font-size: 0.8rem;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .inbox-meta {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .inbox-type {
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .inbox-date {
+    font-size: 0.75rem;
+    color: var(--muted);
+    min-width: 3rem;
+    text-align: right;
+  }
+
+  .status-pill {
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.1rem 0.5rem;
+    border-radius: 10px;
+    background: var(--panel-2);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  /* status colors (dot + pill tint) */
+  .s-inbox { --sc: #6b7280; }
+  .s-processing { --sc: #8b5cf6; }
+  .s-draft { --sc: #d97706; }
+  .s-review { --sc: #2563eb; }
+  .s-approved { --sc: #059669; }
+  .s-published { --sc: #16a34a; }
+  .s-archived { --sc: #9ca3af; }
+  .s-default { --sc: var(--muted); }
+
+  .status-dot { background: var(--sc, var(--muted)); }
+  .status-pill {
+    color: var(--sc, var(--muted));
+    background: color-mix(in srgb, var(--sc, var(--muted)) 14%, transparent);
+  }
+
+</style>

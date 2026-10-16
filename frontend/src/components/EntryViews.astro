@@ -1,0 +1,64 @@
+---
+/**
+ * A list of entries with a Cards · List switch: the entry cards, or the inbox-style rows (EntryList). Used by a
+ * collection's page and the Entries page's search results. The choice is remembered per `storageKey`.
+ */
+import EntryCard from "@/components/EntryCard.astro";
+import EntryList from "@/components/EntryList.astro";
+
+interface Props {
+  entries: any[];
+  typeNames: Map<string, string> | Record<string, string>;
+  collectionsMap?: Map<string, any>;
+  /** localStorage key for the remembered view */
+  storageKey: string;
+  defaultView?: "cards" | "list";
+}
+
+const { entries, typeNames, collectionsMap, storageKey, defaultView = "cards" } = Astro.props;
+const LIST_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="2" width="3" height="3" rx="0.5"/><rect x="5.5" y="2.5" width="9.5" height="2" rx="0.5"/><rect x="1" y="6.5" width="3" height="3" rx="0.5"/><rect x="5.5" y="7" width="9.5" height="2" rx="0.5"/><rect x="1" y="11" width="3" height="3" rx="0.5"/><rect x="5.5" y="11.5" width="9.5" height="2" rx="0.5"/></svg>';
+const CARDS_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>';
+---
+
+<div class="entry-views" data-storage-key={storageKey} data-default-view={defaultView}>
+  <div class="view-toggle" role="group" aria-label="Show as">
+    <button type="button" class="toggle-btn" data-view="cards"><Fragment set:html={CARDS_ICON} /> Cards</button>
+    <button type="button" class="toggle-btn" data-view="list"><Fragment set:html={LIST_ICON} /> List</button>
+  </div>
+  <section class="grid" data-pane="cards" aria-label="Entries">
+    {entries.map((entry) => (
+      <div class="entry-wrapper" data-status={entry.status} data-title={(entry.title || "").toLowerCase()}>
+        <EntryCard entry={entry} collectionsMap={collectionsMap} />
+      </div>
+    ))}
+  </section>
+  <div data-pane="list">
+    <EntryList entries={entries} typeNames={typeNames} />
+  </div>
+</div>
+
+<script>
+  // Each list on the page switches on its own; the choice is remembered under its storage key.
+  document.querySelectorAll<HTMLElement>('.entry-views').forEach((box) => {
+    const key = box.dataset.storageKey ?? 'entry-views';
+    const show = (view: string) => {
+      box.querySelectorAll<HTMLElement>('[data-pane]').forEach((p) => { p.hidden = p.dataset.pane !== view; });
+      box.querySelectorAll<HTMLElement>('[data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
+    };
+    let saved: string | null = null;
+    try { saved = localStorage.getItem(key); } catch { /* no storage */ }
+    show(saved === 'cards' || saved === 'list' ? saved : box.dataset.defaultView ?? 'cards');
+    box.querySelectorAll<HTMLElement>('[data-view]').forEach((b) => b.addEventListener('click', () => {
+      show(b.dataset.view!);
+      try { localStorage.setItem(key, b.dataset.view!); } catch { /* not remembered */ }
+    }));
+  });
+</script>
+
+<style>
+  .view-toggle { display: flex; gap: 2px; background: var(--panel-2); border-radius: 6px; padding: 2px; width: fit-content; margin-bottom: 1rem; }
+  .toggle-btn { display: flex; align-items: center; gap: 0.375rem; padding: 0.375rem 0.75rem; border: none; border-radius: 4px; background: transparent; color: var(--muted); font-size: 0.8125rem; font-weight: 500; cursor: pointer; }
+  .toggle-btn:hover { color: var(--ink); }
+  .toggle-btn.active { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
+  [data-pane][hidden] { display: none; }
+</style>

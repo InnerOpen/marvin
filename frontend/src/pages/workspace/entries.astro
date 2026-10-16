@@ -1,5 +1,7 @@
 ---
 import EntryCard from "@/components/EntryCard.astro";
+import EntryList from "@/components/EntryList.astro";
+import EntryViews from "@/components/EntryViews.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { type CollectionRead, getCollectionEntries, listCollections } from "@/lib/api/collections";
@@ -66,6 +68,8 @@ const builderData = {
   tags: allTags.map((t) => ({ value: t.slug, label: t.name })).sort((a, b) => a.label.localeCompare(b.label)),
   collections: collections.filter((c: any) => (c.targetType ?? "entry") === "entry").map((c) => ({ value: c.slug, label: c.name })),
 };
+
+const typeNames = new Map(entryTypes.map((t) => [t.id, t.name]));
 
 // Create a map of collection ID to collection for quick lookup
 const collectionsMap = new Map(collections.map((c) => [c.id, c]));
@@ -177,14 +181,10 @@ const sortedGroups = [...collectionGroups.values()].sort(
 
       {conds.length > 0 ? (
         search && search.entries.length > 0 ? (
-          <section class="grid" aria-label="Matching entries">
-            {search.entries.map((entry) => (
-              <div class="entry-wrapper" data-title={entry.title.toLowerCase()} data-summary={(entry.summary || "").toLowerCase()}>
-                <EntryCard entry={entry} collectionsMap={collectionsMap} />
-              </div>
-            ))}
+          <>
+            <EntryViews entries={search.entries} typeNames={typeNames} collectionsMap={collectionsMap} storageKey="entries-search-view" />
             {search.total > search.entries.length && <p class="query-more">Showing {search.entries.length} of {search.total}: add a condition to narrow it.</p>}
-          </section>
+          </>
         ) : (
           <div class="empty-state">
             <h3>Nothing matches</h3>
@@ -204,6 +204,10 @@ const sortedGroups = [...collectionGroups.values()].sort(
             <button class="toggle-btn active" id="view-grid" title="All entries">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
               All
+            </button>
+            <button class="toggle-btn" id="view-list" title="List">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="2" width="3" height="3" rx="0.5"/><rect x="5.5" y="2.5" width="9.5" height="2" rx="0.5"/><rect x="1" y="6.5" width="3" height="3" rx="0.5"/><rect x="5.5" y="7" width="9.5" height="2" rx="0.5"/><rect x="1" y="11" width="3" height="3" rx="0.5"/><rect x="5.5" y="11.5" width="9.5" height="2" rx="0.5"/></svg>
+              List
             </button>
             <button class="toggle-btn" id="view-grouped" title="Group by collection">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="14" height="3" rx="1"/><rect x="3" y="5.5" width="12" height="2" rx="0.5" opacity="0.6"/><rect x="3" y="8.5" width="12" height="2" rx="0.5" opacity="0.6"/><rect x="1" y="12" width="14" height="3" rx="1"/></svg>
@@ -234,6 +238,11 @@ const sortedGroups = [...collectionGroups.values()].sort(
               );
             })}
           </section>
+
+          {/* List view: the inbox-style rows a collection's page uses */}
+          <div class="view-section" id="list-view" style="display:none;">
+            <EntryList entries={entries} typeNames={typeNames} />
+          </div>
 
           {/* Grouped by collection view */}
           <div class="view-section" id="grouped-view" style="display:none;">
@@ -461,30 +470,30 @@ const sortedGroups = [...collectionGroups.values()].sort(
     });
   }
 
-  const gridView = document.getElementById('grid-view');
-  const groupedView = document.getElementById('grouped-view');
-  const viewGridBtn = document.getElementById('view-grid');
-  const viewGroupedBtn = document.getElementById('view-grouped');
+  type View = 'grid' | 'list' | 'grouped';
+  const views: Record<View, { el: HTMLElement | null; btn: HTMLElement | null }> = {
+    grid: { el: document.getElementById('grid-view'), btn: document.getElementById('view-grid') },
+    list: { el: document.getElementById('list-view'), btn: document.getElementById('view-list') },
+    grouped: { el: document.getElementById('grouped-view'), btn: document.getElementById('view-grouped') },
+  };
 
   const hasChips = (queryData.conds ?? []).length > 0;
 
-  // View toggle
-  function setView(view: 'grid' | 'grouped') {
-    if (!gridView || !groupedView) return;
-    gridView.style.display = view === 'grid' ? '' : 'none';
-    groupedView.style.display = view === 'grouped' ? '' : 'none';
-    viewGridBtn?.classList.toggle('active', view === 'grid');
-    viewGroupedBtn?.classList.toggle('active', view === 'grouped');
-    localStorage.setItem('entries-view', view);
+  // View toggle: Cards (grid), List, or Collections (grouped; not on search results). The choice is remembered.
+  function setView(view: View) {
+    if (!views[view].el) view = 'grid';
+    for (const [name, v] of Object.entries(views) as [View, (typeof views)[View]][]) {
+      if (v.el) v.el.style.display = name === view ? '' : 'none';
+      v.btn?.classList.toggle('active', name === view);
+    }
+    try { localStorage.setItem('entries-view', view); } catch { /* private mode: not remembered */ }
     filterEntries();
   }
+  for (const [name, v] of Object.entries(views) as [View, (typeof views)[View]][]) v.btn?.addEventListener('click', () => setView(name));
 
-  viewGridBtn?.addEventListener('click', () => setView('grid'));
-  viewGroupedBtn?.addEventListener('click', () => setView('grouped'));
-
-  // Restore saved view preference
-  const savedView = localStorage.getItem('entries-view') as 'grid' | 'grouped' | null;
-  if (savedView) setView(savedView);
+  let savedView: View | null = null;
+  try { savedView = localStorage.getItem('entries-view') as View | null; } catch { /* no storage */ }
+  if (savedView && savedView in views) setView(savedView);
 
   // Without chips, the list is everything but the Trash (the Trash group lists it); with chips, the server chose.
   function filterEntries() {
