@@ -478,7 +478,11 @@ def test_everything_a_blueprint_creates_records_its_integration(db_session, work
     from marvin.schemas.platform.collections import CollectionRead
 
     picks = db_session.query(Collections).filter_by(group_id=workspace, slug="acme-picks").one()
-    assert CollectionRead.model_validate(picks).source_integration_name == "Acme"
+    read = CollectionRead.model_validate(picks)
+    assert read.source_integration_name == "Acme"
+    # …and its provider, so the sidebar can show the provider's logo or emoji on the group.
+    assert read.source_integration_provider == acme.provider
+    assert read.source_integration_has_logo is False
 
 
 def test_with_two_connections_the_one_the_card_passed_wins_else_none(db_session, workspace):

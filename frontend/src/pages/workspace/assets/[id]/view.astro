@@ -69,6 +69,11 @@ const isPdf = asset?.mimeType?.includes("pdf");
               Edit
             </a>
           )}
+          {canEdit && !(asset as any).trashedAt && (
+            <button type="button" id="trash-button" class="button secondary" data-asset-id={asset.id} title="Move this asset to the Trash. You can restore it from there.">
+              Move to Trash
+            </button>
+          )}
           <a href="/workspace/assets" class="button secondary">
             Back
           </a>
@@ -184,6 +189,26 @@ const isPdf = asset?.mimeType?.includes("pdf");
     </div>
   )}
 </AppLayout>
+
+<script>
+  import { createSdkClient } from '@/lib/sdk';
+  import { isForbidden } from '@/lib/workspaceRole';
+
+  // Move to Trash, as on the edit page: reversible (the file stays until the Trash is emptied), so it doesn't ask.
+  const trashButton = document.getElementById('trash-button') as HTMLButtonElement | null;
+  trashButton?.addEventListener('click', async () => {
+    trashButton.disabled = true;
+    trashButton.textContent = 'Moving…';
+    try {
+      await createSdkClient().assets.delete(trashButton.dataset.assetId!);
+      window.location.href = '/workspace/assets';
+    } catch (error: any) {
+      alert(isForbidden(error) ? "You don't have permission to do this." : error?.message || error?.detail || 'Failed to move the asset to the Trash');
+      trashButton.disabled = false;
+      trashButton.textContent = 'Move to Trash';
+    }
+  });
+</script>
 
 <style>
   .error-banner {

@@ -73,6 +73,8 @@ const memberHref = (m: CollectionMember) =>
       ? `/workspace/resources/${m.id}`
       : `/workspace/entries/${m.id}`;
 const totalCount = targetType === "entry" ? entries.length : members.length;
+// The Trash counts everything in it, as its tabs and the sidebar do.
+const headerCount = isTrash ? entries.length + trashedAssets.length + trashedResources.length : totalCount;
 
 ---
 
@@ -95,7 +97,7 @@ const totalCount = targetType === "entry" ? entries.length : members.length;
           <h2 class="col-title">
             {collection.icon && <span class="col-icon">{collection.icon}</span>}
             {collection.name}
-            <span class="col-count">{totalCount}</span>
+            <span class="col-count">{headerCount}</span>
             {collection.isSmart && <span class="pill">Smart</span>}
             {targetType !== "entry" && <span class="pill target-pill">{targetType}s</span>}
             {collection.isSystem && <span class="pill system-pill">System</span>}

@@ -101,7 +101,7 @@ Only actions a provider names this way can be run to fill a list, with the provi
 
 ### Logos
 
-A provider can ship its official logo (`marvin-integration-sdk` 0.6.0, `logo = "logo.svg"`, an SVG or PNG inside its package). Marvin shows it on the integration cards, the **Add an integration** catalog, **Admin → Extensions → Plugins** and the workflow **Run integration** step: 32px tall on a white tile in both light and dark mode, keeping its shape (wordmarks get a wider tile), with the name beside it. Without a logo, or if it fails to load, the provider's emoji shows as before.
+A provider can ship its official logo (`marvin-integration-sdk` 0.6.0, `logo = "logo.svg"`, an SVG or PNG inside its package). Marvin shows it on the integration cards, the **Add an integration** catalog, **Admin → Extensions → Plugins**, the workflow **Run integration** step and, icon-sized, beside the sidebar group of collections the integration installed (Collections › Buttondown): 32px tall on a white tile in both light and dark mode, keeping its shape (wordmarks get a wider tile), with the name beside it. Without a logo, or if it fails to load, the provider's emoji shows as before.
 
 Marvin checks every logo when it loads the provider and refuses one that is larger than 64 KB, a PNG that isn't really a PNG, or an SVG that could run a script, load something from elsewhere or link out (a DOCTYPE or entity, `<script>`, `<foreignObject>`, `on…` event attributes, links or `url(…)` that don't point inside the file, `javascript:`). A refused logo is logged at startup and the emoji is used instead.
 

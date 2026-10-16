@@ -21,8 +21,10 @@ import { createSdkClient } from "@/lib/sdk";
 import { listAssetTypes } from "@/lib/api/assets";
 import { listCollections } from "@/lib/api/collections";
 import { listResourceTypes } from "@/lib/api/resources";
+import { getTrashCounts } from "@/lib/api/trash";
 import { listEntryTypes } from "@/lib/api/entryTypes";
 import { getContentAccess } from "@/lib/api/workspaces";
+import { logoUrl } from "@/lib/integrationLogo";
 import { ADMINS_ONLY } from "@/lib/workspaceRole";
 
 interface Props {
@@ -129,19 +131,27 @@ let canAuthor = false;
 // The system collections (Inbox, Drafts, Needs Review, Approved — every workspace has them) are Gmail's folders, with
 // Published and Trash after them; a person's own collections fold under Content, like labels.
 let folders: { id: string; name: string; slug: string; icon: string | null; count: number }[] = [];
-let collections: { id: string; name: string; icon: string | null; integrationId: string | null; integrationName: string | null }[] = [];
+let collections: {
+  id: string; name: string; icon: string | null; integrationId: string | null; integrationName: string | null;
+  /** The installing integration's provider mark: its logo when it ships one, else its emoji (lib/integrationLogo.ts). */
+  provider: string | null; providerIcon: string | null; providerHasLogo: boolean;
+}[] = [];
 // Assets and Resources fold open to their types in use, each with a count.
 let assetTypes: { type: string; count: number }[] = [];
 let resourceTypes: { type: string; count: number }[] = [];
+// The Trash row counts everything in it (entries, assets and resources), not just the entries its collection holds.
+let trashTotal: number | null = null;
 if (authToken) {
   try {
-    const [types, access, colls, aTypes, rTypes] = await Promise.all([
+    const [types, access, colls, aTypes, rTypes, trash] = await Promise.all([
       listEntryTypes(authToken),
       getContentAccess(authToken),
       listCollections(authToken),
       listAssetTypes(authToken).catch(() => []),
       listResourceTypes(authToken).catch(() => []),
+      getTrashCounts(authToken).catch(() => null),
     ]);
+    trashTotal = trash?.total ?? null;
     assetTypes = aTypes;
     resourceTypes = rTypes;
     canAuthor = access.canAuthor;
@@ -152,6 +162,7 @@ if (authToken) {
       .map((c: any) => ({
         id: c.id, name: c.name, slug: c.slug, icon: c.icon ?? null, system: Boolean(c.isSystem), inSidebar: c.inSidebar !== false,
         count: Number(c.entryCount ?? 0), integrationId: c.sourceIntegrationId ?? null, integrationName: c.sourceIntegrationName ?? null,
+        provider: c.sourceIntegrationProvider ?? null, providerIcon: c.sourceIntegrationIcon ?? null, providerHasLogo: Boolean(c.sourceIntegrationHasLogo),
       }));
     folders = all.filter((c) => c.system);
     // In the Collections page's order; each collection's "Sidebar" switch decides whether it is listed.
@@ -173,10 +184,11 @@ const integrationGroups = [
       // The integration's own name (sourceIntegrationName); without it, the name's "n8n:" prefix, else "Integration".
       const prefix = c.name.includes(":") ? c.name.split(":")[0].trim() : null;
       const name = c.integrationName ?? prefix ?? "Integration";
-      const group = groups.get(c.integrationId!) ?? { id: c.integrationId!, name, items: [] as typeof collections };
+      const mark = { slug: c.provider, icon: c.providerIcon, hasLogo: c.providerHasLogo };
+      const group = groups.get(c.integrationId!) ?? { id: c.integrationId!, name, mark, items: [] as typeof collections };
       group.items.push(c);
       return groups.set(c.integrationId!, group);
-    }, new Map<string, { id: string; name: string; items: typeof collections }>())
+    }, new Map<string, { id: string; name: string; mark: { slug: string | null; icon: string | null; hasLogo: boolean }; items: typeof collections }>())
     .values(),
 ].sort((a, b) => a.name.localeCompare(b.name));
 const withinGroup = (name: string, group: string) => {
@@ -192,6 +204,7 @@ const rank = (slug: string) => (LIFECYCLE.includes(slug) ? LIFECYCLE.indexOf(slu
 const folderRows = folders.map((c) => ({ slug: c.slug, href: `/workspace/collections/${c.id}`, label: c.name, icon: c.icon || "📁", count: c.count, attention: ATTENTION.has(c.slug) }));
 if (!hasFolder("published")) folderRows.push({ slug: "published", href: "/workspace/entries?status=published", label: "Published", icon: "✅", count: 0, attention: false });
 if (!hasFolder("trash") && !hasFolder("trashed")) folderRows.push({ slug: "trash", href: "/workspace/entries?status=trashed", label: "Trash", icon: "🗑", count: 0, attention: false });
+for (const row of folderRows) if ((row.slug === "trash" || row.slug === "trashed") && trashTotal !== null) row.count = trashTotal;
 const ENTRY_FOLDERS = folderRows.sort((a, b) => rank(a.slug) - rank(b.slug));
 const here = Astro.url.pathname + Astro.url.search;
 const onEntries = Astro.url.pathname === "/workspace/entries" && !Astro.url.searchParams.get("status");
@@ -300,7 +313,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
               <a href={f.href} aria-current={here === f.href || path === f.href ? "page" : undefined}>
                 <span aria-hidden="true">{f.icon}</span>
                 <span>{f.label}</span>
-                {(f.count ?? 0) > 0 && <span class:list={["nav-count", { attention: f.attention }]} aria-label={`${f.count} entries`}>{(f.count ?? 0) > 999 ? "999+" : f.count}</span>}
+                {(f.count ?? 0) > 0 && <span class:list={["nav-count", { attention: f.attention }]} aria-label={`${f.count} ${f.slug === "trash" || f.slug === "trashed" ? "in the Trash" : "entries"}`}>{(f.count ?? 0) > 999 ? "999+" : f.count}</span>}
               </a>
             ))}
           </nav>
@@ -319,7 +332,13 @@ function isActive(itemPath: string, currentPath: string): boolean {
                 ))}
                 {integrationGroups.map((g) => (
                   <details class="nav-fold nav-subfold" open={g.items.some((c) => path === `/workspace/collections/${c.id}`)}>
-                    <summary class="nav-fold-row"><span aria-hidden="true">🔌</span><span>{g.name}</span><span class="nav-chevron" aria-hidden="true">›</span></summary>
+                    <summary class="nav-fold-row">
+                      {g.mark.slug && g.mark.hasLogo ? (
+                        <span class="int-mark nav-int-mark" data-emoji={g.mark.icon || "🔌"}><img class="int-mark-img" src={logoUrl(g.mark.slug)} alt="" decoding="async" /></span>
+                      ) : (
+                        <span aria-hidden="true">{g.mark.icon || "🔌"}</span>
+                      )}
+                      <span>{g.name}</span><span class="nav-chevron" aria-hidden="true">›</span></summary>
                     <div class="nav nav-fold-items">
                       {g.items.map((c) => (
                         <a href={`/workspace/collections/${c.id}`} aria-current={path === `/workspace/collections/${c.id}` ? "page" : undefined}><span aria-hidden="true">{c.icon || "📁"}</span><span>{withinGroup(c.name, g.name)}</span></a>
@@ -396,6 +415,9 @@ function isActive(itemPath: string, currentPath: string): boolean {
           </div>
         )}
         <script>
+          import { installLogoFallback } from "@/lib/integrationLogo";
+          // An integration group's logo that fails to load becomes its emoji.
+          installLogoFallback();
           // The Settings group remembers whether it was open, per device — unless the page is one of its own.
           const group = document.getElementById("nav-settings") as HTMLDetailsElement | null;
           if (group && !group.dataset.forced) {

@@ -38,6 +38,8 @@ interface Row {
   id: string;
   title: string;
   href: string;
+  /** A small picture: an asset that is one, an entry's featured / hero image (else its first). None otherwise. */
+  image?: string | null;
   sub: string[];
   /** When it went to the Trash (ISO), shown as a local date after `sub`. */
   trashed: string | null;
@@ -63,6 +65,7 @@ const tabs: Tab[] = [
         id: entry.id,
         title: entry.title || "Untitled",
         href: `/workspace/entries/${entry.id}`,
+        image: ((entry as any).assets?.find((a: any) => a.role === "featured" || a.role === "hero") ?? (entry as any).assets?.[0])?.publicUrl ?? null,
         sub: [typeMap.get(entry.entryTypeId) ?? "", `Restores to ${label(restoresTo(meta))}`],
         trashed: when ?? null,
         allowed: mayChange(entry),
@@ -78,6 +81,7 @@ const tabs: Tab[] = [
       id: asset.id,
       title: asset.name || asset.originalFilename || "Untitled",
       href: `/workspace/assets/${asset.id}`,
+      image: (asset.mimeType ?? "").startsWith("image/") ? asset.publicUrl : null,
       sub: [asset.assetType ?? "", asset.originalFilename ?? ""],
       trashed: trashedOn(asset),
       allowed: mayChangeItems,
@@ -167,6 +171,7 @@ const countOf = (key: string) => tabs.find((tab) => tab.key === key)?.rows.lengt
           {tab.rows.map((row) => (
             <li class="trash-row" data-id={row.id}>
               <input type="checkbox" class="trash-pick" value={row.id} disabled={!row.allowed} aria-label={`Select ${row.title}`} />
+              {row.image && <img class="trash-thumb" src={row.image} alt="" loading="lazy" />}
               <a class="trash-main" href={row.href}>
                 <span class="trash-title">{row.title}</span>
                 <span class="trash-sub">{row.sub.filter(Boolean).map((part) => <span>{part}</span>)}{row.trashed && <span>Trashed <LocalTime iso={row.trashed} format="date" /></span>}</span>
@@ -400,6 +405,15 @@ const countOf = (key: string) => tabs.find((tab) => tab.key === key)?.rows.lengt
     gap: 0.1rem;
     color: var(--ink);
     text-decoration: none;
+  }
+  .trash-thumb {
+    flex: 0 0 auto;
+    width: 44px;
+    height: 44px;
+    border-radius: 6px;
+    object-fit: cover;
+    background: var(--panel-2);
+    opacity: 0.7;
   }
   .trash-title {
     font-weight: 600;

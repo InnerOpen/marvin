@@ -1187,6 +1187,10 @@ code {
   line-height: 1;
 }
 
+/* The sidebar's integration groups: the same tile, icon-sized. */
+.int-mark.nav-int-mark { height: 20px; min-width: 20px; padding: 2px; border-radius: 4px; }
+.nav-int-mark .int-mark-img { height: 16px; max-width: 32px; }
+
 /* ── Option picker for integration action inputs (lib/integrationOptionPicker.ts) ── */
 .opt-picker {
   display: flex;

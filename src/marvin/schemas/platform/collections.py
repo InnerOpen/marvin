@@ -124,6 +124,12 @@ class CollectionRead(CollectionSummary):
     """Read-only: the slug of the blueprint that created this, if one did."""
     source_integration_name: str | None = None
     """Read-only: that integration's name (the sidebar groups its collections under it)."""
+    source_integration_provider: str | None = None
+    """Read-only: that integration's provider slug (the sidebar shows its logo on the group)."""
+    source_integration_icon: str | None = None
+    """Read-only: the provider's emoji, for when it ships no logo."""
+    source_integration_has_logo: bool = False
+    """Read-only: whether the provider ships a logo (served by GET /api/groups/integrations/providers/{slug}/logo)."""
 
     model_config = ConfigDict(from_attributes=True)
 
