@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.364 (2026-10-16)
+
+### Features
+
+- **agents**: A read-only agent's referral reaches an agent that can write, in one click
+  ([`46fd6ab`](https://github.com/InnerOpen/marvin/commit/46fd6abbb13c30bc5ebd4a53c828b2a1c2b9c784))
+
+
 ## v1.0.0-rc.363 (2026-10-16)
 
 ### Features
