@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.374 (2026-10-16)
+
+### Features
+
+- **entries**: A List view with small pictures, and Cards · List on every collection
+  ([`3c09209`](https://github.com/InnerOpen/marvin/commit/3c0920927cd520208a84e36630331b8372d2a406))
+
+
 ## v1.0.0-rc.373 (2026-10-16)
 
 ### Features
