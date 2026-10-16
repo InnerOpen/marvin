@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.370 (2026-10-16)
+
+### Bug Fixes
+
+- **entries**: The condition editor's checkbox list wraps inside the editor
+  ([`7915f61`](https://github.com/InnerOpen/marvin/commit/7915f61687bbb4be2ccc75c4fa80af97acea5802))
+
+
 ## v1.0.0-rc.369 (2026-10-16)
 
 ### Features
