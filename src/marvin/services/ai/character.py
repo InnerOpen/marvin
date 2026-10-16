@@ -309,8 +309,11 @@ def plan_character(uploads: list[tuple[str, bytes]]) -> CharacterPlan:
     idle_guessed = IDLE_STATE not in states
     if idle_guessed:
         states[IDLE_STATE] = images[0]
+    # The name: a .zip's ("Hoots.zip"), else a lone PNG's ("Elvira.png", most often a character sheet); loose GIFs
+    # and the rest name nothing. The upload form's Name box overrides either.
     zips = [_path(name).stem for name, data in uploads if is_zip(data)]
-    name = zips[0] if zips else None
+    lone_png = len(uploads) == 1 and uploads[0][1].startswith(_PNG_MAGIC)
+    name = zips[0] if zips else ((_path(uploads[0][0]).stem.strip() or None) if lone_png else None)
     return CharacterPlan(images=images, states=states, ignored=ignored, idle_guessed=idle_guessed, name=name, cleared=cleared, built_from=built_from)
 
 

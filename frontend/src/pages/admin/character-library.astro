@@ -54,7 +54,7 @@ const usedBy = (p: Pack) => p.usedBy.map((u) => (u.agent ? `${u.workspace} (agen
       <h3>Add a pack</h3>
       <p>A .zip or GIF, WebP or PNG files named for the states — waving.gif, running.gif and so on. Files named otherwise are kept to assign by hand. Or one character sheet — a ChatGPT pet sheet, or 16 poses on one flat colour — and every animation is built from it.</p>
       <div class="pack-new">
-        <input class="input" name="name" placeholder="Name (defaults to the .zip's name)" maxlength="120" />
+        <input class="input" name="name" placeholder="Name (defaults to the .zip's or the lone .png's name)" maxlength="120" />
         <input class="input" type="file" name="files" accept=".zip,image/gif,image/webp,image/png" multiple required />
       </div>
       <div class="form-actions">
