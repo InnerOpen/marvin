@@ -224,3 +224,36 @@ def test_admin_plugins_rows_carry_icon_and_has_logo(providers, monkeypatch):
     assert read.icon == "🛰️"
     assert read.has_logo is True
     assert plugins._provider_read(INTEGRATION_REGISTRY[_BadLogo.slug], {}).has_logo is False
+
+
+# ---- AI providers --------------------------------------------------------------------------------------------------
+
+
+class _AIWithLogo:
+    """Stands in for an AIProvider class: the logo is read from the class the plugin names, as for an integration."""
+
+    slug = "test_ai_logo"
+
+
+@pytest.fixture
+def ai_providers(monkeypatch):
+    from marvin.services.ai import registry
+
+    monkeypatch.setattr(registry, "plugins", lambda: {"test_ai_logo": SimpleNamespace(provider=_AIWithLogo)})
+    monkeypatch.setattr(sdk, "load_logo", lambda provider: (CLEAN_SVG, SVG_TYPE) if provider is _AIWithLogo else None, raising=False)
+    logos.clear_cache()
+    yield
+    logos.clear_cache()
+
+
+def test_an_ai_providers_logo_is_served_without_auth_like_an_integrations(ai_providers):
+    res = TestClient(app).get("/api/ai/provider-types/test_ai_logo/logo")
+    assert res.status_code == 200
+    assert res.content == CLEAN_SVG
+    assert res.headers["content-security-policy"] == "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+    assert logos.has_ai_logo("test_ai_logo") is True
+
+
+def test_an_ai_provider_without_a_logo_or_not_installed_is_404(ai_providers):
+    assert TestClient(app).get("/api/ai/provider-types/not_installed/logo").status_code == 404
+    assert logos.has_ai_logo("not_installed") is False

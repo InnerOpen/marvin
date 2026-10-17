@@ -100,6 +100,7 @@ def _ai_provider_read(plugin: Any, usage: dict[str, int]) -> PluginProviderRead:
         name=plugin.name or plugin.slug,
         provides=[name for name, on in plugin.provider.capabilities().items() if on],
         workspaces=usage.get(plugin.slug, 0),
+        has_logo=_has_ai_logo(plugin.slug),
     )
 
 
@@ -107,6 +108,12 @@ def connected_workspaces(session: Session) -> dict[str, int]:
     """Provider slug → how many distinct workspaces have at least one connection to it."""
     rows = session.query(IntegrationModel.provider, sa.func.count(sa.distinct(IntegrationModel.group_id))).group_by(IntegrationModel.provider).all()
     return dict(rows)
+
+
+def _has_ai_logo(slug: str) -> bool:
+    from marvin.services.integrations import logos
+
+    return logos.has_ai_logo(slug)
 
 
 def _has_logo(slug: str) -> bool:

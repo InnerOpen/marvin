@@ -20,6 +20,11 @@ export function logoUrl(slug: string): string {
   return `/api/groups/integrations/providers/${encodeURIComponent(slug)}/logo`;
 }
 
+/** An AI provider's logo (GET /api/ai/provider-types/{slug}/logo), public the same way. */
+export function aiLogoUrl(slug: string): string {
+  return `/api/ai/provider-types/${encodeURIComponent(slug)}/logo`;
+}
+
 function esc(s: unknown): string {
   return String(s ?? "").replace(
     /[&<>"']/g,

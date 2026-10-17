@@ -126,7 +126,10 @@ try {
                     {plugin.providers.map((provider) => (
                       <tr>
                         <td class="name-col">
-                          {provider.name}
+                          <span class="int-named">
+                            <IntegrationMark slug={provider.slug} hasLogo={provider.hasLogo} kind="ai" />
+                            {provider.name}
+                          </span>
                           <code>{provider.slug}</code>
                         </td>
                         <td>{capabilities(provider.provides)}</td>

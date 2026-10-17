@@ -150,11 +150,11 @@ def _sdk_load_logo():
     return getattr(marvin_integration_sdk, "load_logo", None)
 
 
-def _read(provider) -> Logo | None:
+def _read(provider, slug: str | None = None) -> Logo | None:
     loader = _sdk_load_logo()
     if loader is None:
         return None
-    slug = getattr(provider, "slug", "?")
+    slug = slug or getattr(provider, "slug", "?")
     try:
         found = loader(provider)
     except Exception as e:  # noqa: BLE001 — a plugin's logo must never break loading
@@ -196,6 +196,24 @@ def get_logo(slug: str) -> Logo | None:
 
 def has_logo(slug: str) -> bool:
     return get_logo(slug) is not None
+
+
+def get_ai_logo(slug: str) -> Logo | None:
+    """The validated logo for an installed AI provider (its AIProvider class declares ``logo``, read the same way as
+    an integration's), or None."""
+    key = f"ai:{slug}"
+    if key not in _cache:
+        from marvin.services.ai import registry
+
+        plugin = registry.plugins().get(slug)
+        if plugin is None:
+            return None
+        _cache[key] = _read(plugin.provider, slug)
+    return _cache[key]
+
+
+def has_ai_logo(slug: str) -> bool:
+    return get_ai_logo(slug) is not None
 
 
 def clear_cache() -> None:
