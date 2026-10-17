@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.380 (2026-10-17)
+
+### Features
+
+- **logos**: AI providers show their logos; integration plugins bumped to the versions that ship one
+  ([`de653f6`](https://github.com/InnerOpen/marvin/commit/de653f6063409f7c8bc87a0ef2b521c17c2f6a8f))
+
+
 ## v1.0.0-rc.379 (2026-10-16)
 
 ### Bug Fixes
