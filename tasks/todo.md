@@ -48,6 +48,16 @@ Every slice: dry run + second run tested for any recipe it unblocks; catalogue c
       counts — via `embeddings` on GET /api/admin/about (no model load); Admin → Plugins rows show
       "update available → vX.Y" from `plugin_updates.available_updates` (today only Overview lists them)
 - Out of scope (phase 3 / later): TTS adapter (audio-edition), social adapters (poll-companion, campaign-scoreboard),
+
+## Review (2026-10-18)
+- All slices done and stacked on develop (local; Jared pushes): S0–S6, A1, T1, V1/V1b, plus metric add mode, the
+  guide-budget fix after stacking, and the ops guard fix (a workflow sharing a failure chain was muted; now exactly the
+  causing workflows are). Catalogue: only phase-3 recipes still blocked.
+- S1–S2 ran one at a time; S3–S6 ran in parallel worktrees with their own test DBs and were cherry-picked (conflicts in
+  catalogue counts/docs/labels/union, migration down_revision repointed: email 4a76d199eb5f → metrics c4139a718fc6 →
+  metric add 4d8eabca4995).
+- Before pushing: SDK types regenerated on MarvinSDK feat/drop-publish-assets (a0f288d) — the SDK Quality Gate reads the
+  SDK's default branch, so that branch must reach SDK main first.
   comments (reply-drafting-desk — Marvin has no comments feature)
 
 # Bring your own storage — slice 5 (2026-10-14)
