@@ -193,6 +193,32 @@ def request_rebuild(session: Session, group_id: UUID, reason: str | None, *, cha
     return session.execute(select(SiteRebuildRequestModel.request_count).where(SiteRebuildRequestModel.group_id == group_id)).scalar_one()
 
 
+def auto_rebuild_enabled(session: Session, group_id: UUID) -> bool:
+    """Whether a content change should queue a rebuild here: on unless the workspace turned "Rebuild the site
+    automatically" off — and only where a rebuild reaches something: with no deploy hook or deploy integration on
+    `webhook_triggered`, a queued rebuild would build nothing and only toast."""
+    from marvin.db.models.groups.preferences import GroupPreferencesModel
+
+    prefs = session.query(GroupPreferencesModel).filter_by(group_id=group_id).first()
+    if getattr(prefs, "site_auto_rebuild", True) is False:
+        return False
+    return bool(deploy_targets(session, group_id))
+
+
+def request_content_rebuild(session: Session, group_id: UUID, reason: str, *, change: dict | None = None) -> bool:
+    """:func:`request_rebuild` for a change a site serves, from a code path that has no event for it (a tag renamed
+    or deleted). Does nothing where automatic rebuilds are off or reach nothing. Best-effort: never breaks the write."""
+    try:
+        if not auto_rebuild_enabled(session, group_id):
+            return False
+        request_rebuild(session, group_id, f"content change: {reason}"[:200], change=change)
+        return True
+    except Exception as e:  # noqa: BLE001 — a rebuild request must never fail the edit that caused it
+        session.rollback()
+        logger.warning(f"Could not queue a site rebuild for {reason!r}: {e}")
+        return False
+
+
 def pending_rebuild(session: Session, group_id: UUID) -> SiteRebuildRequestModel | None:
     """The workspace's queued rebuild that hasn't been sent yet, if any."""
     return session.execute(select(SiteRebuildRequestModel).where(SiteRebuildRequestModel.group_id == group_id)).scalar_one_or_none()

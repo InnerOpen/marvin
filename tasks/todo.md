@@ -12,6 +12,15 @@ Every slice: dry run + second run tested for any recipe it unblocks; catalogue c
 - [x] S1 Custom events `custom.<name>` (2026-10-18; 96 verified-current, 5 needs-engine-capability): registered per workspace
       in `group_preferences.custom_events_json` (migration c32c63c7a131; Settings → Automation → Custom events), emit_event
       templated `payload` held to typed fields, triggerable + subscribable, depth-bounded → achievement-cabinet runs
+- [x] T1 Site rebuilds only when a site's content changes (Jared 2026-10-18: "only rebuild when it makes sense… publish
+      or unpublish (whether by moving to trash or archive or delete)… maybe more things"): audit every event vs what the
+      publishing API serves (over- and under-triggering); delete events carry pre-delete visibility (entry status,
+      asset/resource visible-to-sites, collection is_public) so Empty Trash / auto-empty / draft deletes don't rebuild;
+      check trashing a published entry does rebuild; when unsure, rebuild
+      Done: entry_deleted carries before.status, asset/resource_deleted carry visible_to_sites, asset/resource edits need a
+      served item, archive/unpublish need a published entry, custom_events & other unrendered settings skipped; added
+      entry_created (born published), entry_type_updated/deleted, workspace_updated, collection_created, tag delete/attach
+      (no event: request_content_rebuild). Tag rename skipped (API serves the immutable slug).
 - [ ] S2 Schema check step: validate a JSON document (e.g. a fetch step's body) against a JSON schema,
       violations as output → choose-your-own-adventure, agent-directory-intake run
 - [ ] S3 Ops events as triggers: ai_budget_*, integration_attention_*, webhook_delivery_failed,

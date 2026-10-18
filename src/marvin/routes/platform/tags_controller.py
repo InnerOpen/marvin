@@ -2,7 +2,9 @@
 
 ``POST /tags`` is find-or-create by slug (see ``TagsRepository``), so the UI can resolve a
 freshly typed tag name to a stable id in one call. Attach/detach are lightweight and emit no
-events — tags are labels, not curated placements like collections.
+events — tags are labels, not curated placements like collections. A site serves a tag's slug, though, so a
+change to one that a site can see (deleting a tag that is on served content, or tagging or untagging a published
+entry) asks for a site rebuild directly (services/site_rebuild.request_content_rebuild) — no event involved.
 
 Any member reads. ``POST /tags`` is AUTHOR and above: it is how the entry editor resolves a typed tag
 name, and an AUTHOR tags their own entries. Renaming or deleting a tag changes every entry carrying
@@ -19,6 +21,7 @@ from marvin.db.models.users.roles import WorkspaceRole
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import editable_entry, require_workspace_editor, require_workspace_role
 from marvin.schemas.platform import TagCreate, TagRead, TagUpdate
+from marvin.services.publish_visibility import is_publishable_type, item_served_to_sites, tag_served_to_sites
 
 router = APIRouter(prefix="/tags")
 
@@ -71,15 +74,20 @@ class TagsController(BaseUserController):
         require_workspace_editor(self.user, self.group_id)
         if not self.repos.tags.get_one(item_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found.")
+        # No rebuild: the publishing API serves a tag's slug, which a rename never changes.
         return self.repos.tags.update(item_id, data)
 
     @router.delete("/{item_id}", summary="Delete Tag")
     def delete_tag(self, item_id: UUID4) -> dict:
         require_workspace_editor(self.user, self.group_id)
-        if not self.repos.tags.get_one(item_id):
+        existing = self.repos.tags.get_one(item_id)
+        if not existing:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found.")
+        served = tag_served_to_sites(self.session, item_id)  # asked while its links still exist
         # FK cascade on entry_tags clears the junction rows; deleting a tag just unlabels entries.
         self.repos.tags.delete(item_id)
+        if served:
+            self._queue_rebuild(f"tag '{existing.name}' deleted", "tag", item_id)
         return {"status": "ok", "message": "Tag deleted successfully"}
 
     @router.post("/{tag_id}/entries/{entry_id}", status_code=status.HTTP_201_CREATED, summary="Attach Tag to Entry")
@@ -116,6 +124,8 @@ class TagsController(BaseUserController):
         from marvin.services.collections.smart_collections import sync_entry
 
         entry = self.session.get(Entries, entry_id)
+        if entry and entry.status == "published" and (entry.entry_type is None or is_publishable_type(entry.entry_type)):
+            self._queue_rebuild(f"tags changed on '{entry.title}'", "entry", entry_id)
         if entry and sync_entry(self.session, entry.group_id, entry):
             self.session.commit()
 
@@ -188,5 +198,13 @@ class TagsController(BaseUserController):
 
         model = {"asset": Assets, "resource": Resources}[target_type]
         item = self.session.get(model, item_id)
+        if item and item_served_to_sites(self.session, target_type, item):
+            self._queue_rebuild(f"tags changed on {target_type} '{item.name}'", target_type, item_id)
         if item and sync_item(self.session, item.group_id, item, target_type):
             self.session.commit()
+
+    def _queue_rebuild(self, label: str, entity_type: str, entity_id: UUID4) -> None:
+        """Ask for a site rebuild: a tag change a site can see, which sends no event."""
+        from marvin.services.site_rebuild import rebuild_change, request_content_rebuild
+
+        request_content_rebuild(self.session, self.group_id, label, change=rebuild_change(label, None, entity_type, entity_id))

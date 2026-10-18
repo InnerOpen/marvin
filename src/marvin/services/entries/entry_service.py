@@ -327,7 +327,11 @@ class EntryService:
         if not entry:
             return False
         names = self._names(entry)
-        self._emit(entry, EventTypes.entry_deleted, EventOperation.delete, f"Entry '{entry.title}' deleted", names)
+        # The row is about to go, so the event carries what it was: a site-rebuild trigger needs to know a
+        # published entry left the site and a draft or trashed one did not.
+        self._emit(
+            entry, EventTypes.entry_deleted, EventOperation.delete, f"Entry '{entry.title}' deleted", names, diff=([], {"status": entry.status}, {})
+        )
         self.repos.entries.delete(entry_id)
         return True
 

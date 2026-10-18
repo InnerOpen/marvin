@@ -212,6 +212,7 @@ def get_payload_example(event_type: str) -> dict:
             "workspaceName": "My Workspace",
             "authorId": "<user-uuid>",
             "authorName": "Jane Smith",
+            "before": {"status": "trashed"},
         },
         "entry_added_to_collection": {
             "documentType": "entry",
@@ -308,6 +309,7 @@ def get_payload_example(event_type: str) -> dict:
             "workspaceName": "My Workspace",
             "uploaderId": "<user-uuid>",
             "uploaderName": "Jane Smith",
+            "visibleToSites": False,
         },
         "asset_trashed": {
             "documentType": "asset",
@@ -617,6 +619,7 @@ def get_payload_example(event_type: str) -> dict:
             "resourceType": "supplier",
             "workspaceId": "<workspace-uuid>",
             "workspaceName": "My Workspace",
+            "visibleToSites": False,
         },
         "resource_trashed": {
             "documentType": "resource",

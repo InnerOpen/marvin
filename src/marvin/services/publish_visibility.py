@@ -48,3 +48,34 @@ def item_visible_to_sites(session, kind: str, row) -> bool:
         # By slug or id (what the publishing API's site settings carry), or by its URL / storage key.
         return any(n in (row.slug, str(row.id)) or (row.storage_key and row.storage_key in n) for n in named)
     return False
+
+
+def item_served_to_sites(session, kind: str, row) -> bool:
+    """Whether the publishing API serves this asset or resource right now: not in the Trash, and a site can
+    see it (``item_visible_to_sites``). What an edit to it, or its deletion, changes for a site — a trashed
+    item is already gone from the API, so deleting it for good changes nothing."""
+    return getattr(row, "trashed_at", None) is None and item_visible_to_sites(session, kind, row)
+
+
+def tag_served_to_sites(session, tag_id) -> bool:
+    """Whether a tag is on something the publishing API serves — a published entry of a publishable type, or an asset
+    or resource a site can see. Renaming or deleting such a tag changes what a site gets; one on nothing served doesn't."""
+    from marvin.db.models.platform import Assets, AssetTags, Entries, EntryTags, EntryTypes, Resources, ResourceTags
+
+    published = (
+        session.query(Entries.entry_type_id)
+        .join(EntryTags, EntryTags.entry_id == Entries.id)
+        .filter(EntryTags.tag_id == tag_id, Entries.status == "published")
+        .distinct()
+        .all()
+    )
+    type_ids = {row[0] for row in published}
+    if None in type_ids:
+        return True  # an untyped entry: can't say it isn't served
+    if type_ids and any(is_publishable_type(et) for et in session.query(EntryTypes).filter(EntryTypes.id.in_(type_ids)).all()):
+        return True
+    for kind, model, junction, key in (("asset", Assets, AssetTags, "asset_id"), ("resource", Resources, ResourceTags, "resource_id")):
+        rows = session.query(model).join(junction, getattr(junction, key) == model.id).filter(junction.tag_id == tag_id).all()
+        if any(item_served_to_sites(session, kind, row) for row in rows):
+            return True
+    return False

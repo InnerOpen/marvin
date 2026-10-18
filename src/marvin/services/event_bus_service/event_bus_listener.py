@@ -35,7 +35,7 @@ from marvin.db.db_setup import session_context  # Context manager for DB session
 from marvin.db.models.groups.webhooks import GroupWebhooksModel  # , Method # Method enum not directly used here
 from marvin.repos.repository_factory import AllRepositories  # Central repository access
 from marvin.schemas.group.webhook import WebhookRead  # Schema for reading webhook configurations
-from marvin.services.publish_visibility import is_publishable_type, item_visible_to_sites  # What the publishing API serves
+from marvin.services.publish_visibility import is_publishable_type, item_served_to_sites, item_visible_to_sites  # What the publishing API serves
 from marvin.services.webhooks.all_webhooks import AllWebhooks, get_webhooks  # For accessing webhook runners
 
 from .event_types import (  # Core event system types
@@ -938,25 +938,31 @@ class MediaEmbedReactionListener(BuiltinReaction):
 
 class SiteRebuildReactionListener(BuiltinReaction):
     """
-    Requests a static-site rebuild when published content changes, so a publish, an edit to a live
-    entry, a collection change or a site-settings change reaches the site without a workflow.
+    Requests a static-site rebuild when something a site can fetch from the publishing API changes, so a
+    publish, an edit to a live entry, a collection change or a site-settings change reaches the site
+    without a workflow. The rule: a change counts only if it changes what the API serves (see
+    services/publish_visibility and routes/publish/publishing_controller); when this can't tell, it
+    counts — a spare (coalesced) build beats a stale site.
 
     Requests are coalesced per workspace (services/site_rebuild): a burst of edits becomes one build,
-    sent once they go quiet. Changes nothing a visitor can see are ignored: a draft saved or moved
-    between workflow collections, anything done to an entry of a non-publishable type (a newsletter
-    signup confirmed), and changes to a collection that isn't "Visible to sites" — unless that change
-    is the visibility toggle itself. Visibility follows the publishing API (services/publish_visibility,
-    `Collections.is_public`). An asset or resource going into or out of the Trash counts when a site can
-    see it (publish_visibility.item_visible_to_sites). Off when the workspace turns off "Rebuild the site
-    automatically" (preferences.site_auto_rebuild). Best-effort: never breaks the write.
+    sent once they go quiet. Ignored as changing nothing a visitor can see: a draft saved, archived,
+    trashed or deleted (an entry that was never published, or already in the Trash — so emptying the
+    Trash rebuilds nothing), anything done to an entry of a non-publishable type (a newsletter signup
+    confirmed), changes to a collection that isn't "Visible to sites" — unless that change is the
+    visibility toggle itself — an edit to an asset or resource no site can see (attached to a published
+    entry, in a public collection, or the site's logo/favicon), and settings no site renders. An asset or
+    resource going into or out of the Trash counts when a site can see it. Off when the workspace turns off
+    "Rebuild the site automatically" (preferences.site_auto_rebuild). Best-effort: never breaks the write.
     """
 
     # Events that can change what a static site renders. Entry-scoped ones count only for a published
-    # entry (or one leaving 'published') of a publishable type; an entry delete counts for any entry of
-    # a publishable type (the row is gone, so its status is too). Collection events count only for a
-    # public collection, or one changing visibility.
+    # entry (or one leaving 'published') of a publishable type; an entry delete counts only for one that
+    # was published (the event carries the status it had: the row is gone). Collection events count only
+    # for a public collection, or one changing visibility. Asset and resource events count only when the
+    # publishing API serves the item.
     ENTRY_EVENTS = frozenset(
         {
+            EventTypes.entry_created,  # an entry can be created already published
             EventTypes.entry_published,
             EventTypes.entry_unpublished,
             EventTypes.entry_archived,
@@ -972,31 +978,45 @@ class SiteRebuildReactionListener(BuiltinReaction):
             EventTypes.asset_detached_from_entry,
         }
     )
+    # Counted whatever they carry: nothing in the event says what changed, and a site fetches the thing —
+    # the workspace's identity (name, slug), the entry-types list (rendering, capabilities, URL patterns).
     ALWAYS_EVENTS = frozenset(
         {
-            EventTypes.entry_deleted,
-            EventTypes.collection_updated,
-            EventTypes.collection_deleted,
-            EventTypes.asset_updated,
-            EventTypes.asset_deleted,
-            EventTypes.resource_updated,
-            EventTypes.resource_deleted,
-            EventTypes.workspace_settings_changed,
+            EventTypes.workspace_updated,
+            EventTypes.entry_type_updated,
+            EventTypes.entry_type_deleted,
         }
     )
-    # An asset or resource moved into or out of the Trash: counts only when a site can see it.
+    # An asset or resource moved into or out of the Trash: counts only when a site can see it (a trashed
+    # item is judged by its links, trashed or not — the move is what changes).
     TRASH_EVENTS = {
         EventTypes.asset_trashed: "asset",
         EventTypes.asset_restored: "asset",
         EventTypes.resource_trashed: "resource",
         EventTypes.resource_restored: "resource",
     }
+    # An asset or resource edited or deleted for good: counts only when the API serves it (not in the Trash,
+    # and a site can see it). A delete asks the flag the event carries — the row is gone.
+    ITEM_EVENTS = {
+        EventTypes.asset_updated: "asset",
+        EventTypes.asset_deleted: "asset",
+        EventTypes.resource_updated: "resource",
+        EventTypes.resource_deleted: "resource",
+    }
     label = "Queues a site rebuild"
     subscriber = "site_rebuild"
-    REACTS_TO = ENTRY_EVENTS | ALWAYS_EVENTS | frozenset(TRASH_EVENTS)
-    # Leaving 'published' is visible even though the entry no longer is.
+    REACTS_TO = (
+        ENTRY_EVENTS
+        | ALWAYS_EVENTS
+        | frozenset({EventTypes.entry_deleted, EventTypes.workspace_settings_changed})
+        | frozenset(TRASH_EVENTS)
+        | frozenset(ITEM_EVENTS)
+        | frozenset({EventTypes.collection_created, EventTypes.collection_updated, EventTypes.collection_deleted})
+    )
+    # Leaving 'published' is visible even though the entry no longer is — but only when it was published:
+    # archiving a draft changes nothing a site serves.
     LEAVING_EVENTS = frozenset({EventTypes.entry_unpublished, EventTypes.entry_archived})
-    COLLECTION_EVENTS = frozenset({EventTypes.collection_updated, EventTypes.collection_deleted})
+    COLLECTION_EVENTS = frozenset({EventTypes.collection_created, EventTypes.collection_updated, EventTypes.collection_deleted})
     MEMBERSHIP_EVENTS = frozenset({EventTypes.entry_added_to_collection, EventTypes.entry_removed_from_collection})
     # Document-data fields that name the changed thing, for a change line whose message doesn't.
     TITLE_FIELDS = ("entry_title", "collection_name", "resource_name", "name")
@@ -1004,7 +1024,24 @@ class SiteRebuildReactionListener(BuiltinReaction):
     EMPTY_BODY = "generic"
     # Workspace settings no site renders: a settings change touching only these queues no rebuild. A field
     # counts by its first dotted segment, so "agents" covers every "agents.<slug>[.<field>]" an agent edit names.
-    UNSEEN_SETTINGS = frozenset({"audit_overrides", "agents", "trash_auto_empty_days", "notifications", "storage"})
+    # A denylist on purpose: a setting nobody has classified (a new `site_*` field, say) rebuilds. The site's own
+    # settings (`site_*`, name, slug) are what the publishing API's /site serves.
+    UNSEEN_SETTINGS = frozenset(
+        {
+            "audit_overrides",
+            "agents",
+            "trash_auto_empty_days",
+            "notifications",
+            "storage",
+            "custom_events",
+            "first_day_of_week",
+            "scheduled_publish_requires_approval",
+            "integration_alert_reminder_hours",
+            "workflow_max_steps",
+            "approval_expires_hours",
+            "submission_protection_json",
+        }
+    )
 
     def __init__(self, group_id: UUID4) -> None:
         from .publisher import ConsolePublisher
@@ -1048,13 +1085,9 @@ class SiteRebuildReactionListener(BuiltinReaction):
     def _enabled(self, session: Session) -> bool:
         """On unless the workspace turned it off — and only where a rebuild reaches something: with no deploy
         hook or deploy integration on `webhook_triggered`, a queued rebuild would build nothing and only toast."""
-        from marvin.db.models.groups.preferences import GroupPreferencesModel
-        from marvin.services.site_rebuild import deploy_targets
+        from marvin.services.site_rebuild import auto_rebuild_enabled
 
-        prefs = session.query(GroupPreferencesModel).filter_by(group_id=self.group_id).first()
-        if getattr(prefs, "site_auto_rebuild", True) is False:
-            return False
-        return bool(deploy_targets(session, self.group_id))
+        return auto_rebuild_enabled(session, self.group_id)
 
     def _visible(self, session: Session, event: Event) -> bool:
         """Whether this event changes what a site can see. When it can't tell, it says yes — a spare
@@ -1068,19 +1101,29 @@ class SiteRebuildReactionListener(BuiltinReaction):
             return not changed or not {str(f).split(".", 1)[0] for f in changed} <= self.UNSEEN_SETTINGS
         if event.event_type in self.ALWAYS_EVENTS:
             return True
-        if event.event_type in self.TRASH_EVENTS:
+        if event.event_type in self.TRASH_EVENTS or event.event_type in self.ITEM_EVENTS:
             return self._item_visible(session, event)
         return self._entry_visible(session, event)
 
     def _item_visible(self, session: Session, event: Event) -> bool:
-        kind = self.TRASH_EVENTS[event.event_type]
+        """An asset or resource event. A trash/restore is judged by the item's links (it is the move that
+        changes what the API serves); an edit, or a delete for good, only if the API serves the item."""
+        kind = self.TRASH_EVENTS.get(event.event_type) or self.ITEM_EVENTS[event.event_type]
+        if event.event_type in (EventTypes.asset_deleted, EventTypes.resource_deleted):
+            # The row is gone: the delete recorded whether it was served. An older event, or one without it, counts.
+            served = getattr(event.document_data, "visible_to_sites", None)
+            return served is None or bool(served)
         item_id = getattr(event.document_data, f"{kind}_id", None) or event.entity_id
         if not item_id:
             return True
         from marvin.db.models.platform import Assets, Resources
 
         row = session.get(Assets if kind == "asset" else Resources, item_id)
-        return row is None or item_visible_to_sites(session, kind, row)
+        if row is None:
+            return True
+        if event.event_type in self.TRASH_EVENTS:
+            return item_visible_to_sites(session, kind, row)
+        return item_served_to_sites(session, kind, row)
 
     def _entry_visible(self, session: Session, event: Event) -> bool:
         entry_id = getattr(event.document_data, "entry_id", None) or event.entity_id
@@ -1095,21 +1138,28 @@ class SiteRebuildReactionListener(BuiltinReaction):
             return False  # never served, whatever its status
         if event.event_type in self.MEMBERSHIP_EVENTS and not self._collection_public(session, event.document_data):
             return False  # entries list only their public collections
-        if event.event_type in self.LEAVING_EVENTS or entry.status == "published":
+        if entry.status == "published":
             return True
-        # An update that took the entry out of 'published' (status in its changed fields) is visible too.
+        # An event that took the entry out of 'published' is visible too: an update, trash or archive whose
+        # diff says it was published. Unpublish/archive with no status in the diff can't be told: it counts.
         before = getattr(event.document_data, "before", None) or {}
-        return before.get("status") == "published"
+        if "status" in before:
+            return before["status"] == "published"
+        return event.event_type in self.LEAVING_EVENTS
 
     def _deleted_entry_visible(self, session: Session, event: Event) -> bool:
-        """The row is gone; its type survives by slug in the event."""
+        """The row is gone; its type survives by slug in the event, and so does the status it had. Only a
+        published entry was on the site — a draft, or one already in the Trash (so every Empty Trash and
+        nightly auto-empty), leaves nothing to rebuild. An event without the status can't be told: it counts."""
         slug = getattr(event.document_data, "entry_type", None)
-        if not slug:
-            return True
-        from marvin.db.models.platform import EntryTypes
+        if slug:
+            from marvin.db.models.platform import EntryTypes
 
-        entry_type = session.query(EntryTypes).filter_by(group_id=self.group_id, slug=slug).first()
-        return entry_type is None or is_publishable_type(entry_type)
+            entry_type = session.query(EntryTypes).filter_by(group_id=self.group_id, slug=slug).first()
+            if entry_type is not None and not is_publishable_type(entry_type):
+                return False
+        before = getattr(event.document_data, "before", None) or {}
+        return "status" not in before or before["status"] == "published"
 
     def _collection_visible(self, session: Session, event: Event) -> bool:
         data = event.document_data

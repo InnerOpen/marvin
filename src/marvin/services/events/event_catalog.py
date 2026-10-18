@@ -294,6 +294,7 @@ CATALOG: list[CatalogEntry] = [
         description="A workspace's name or configuration was updated.",
         category="Workspaces",
         sent_by=["A platform admin editing a workspace"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("workspace_slug", "URL slug of the workspace", "my-blog", type="slug"),
@@ -347,6 +348,7 @@ CATALOG: list[CatalogEntry] = [
             "A site visitor's form submission, stored as an inbox entry",
             "An integration task storing fetched records as entries",
         ],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_title", "Title of the entry", "Draft Post", type="title"),
@@ -500,6 +502,7 @@ CATALOG: list[CatalogEntry] = [
         trigger_group="Collections",
         triggerable=True,
         sent_by=["Creating a collection (app, API, CLI)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("collection_name", "Name of the collection", "Featured Posts", type="name"),
@@ -654,6 +657,7 @@ CATALOG: list[CatalogEntry] = [
         triggerable=True,
         emittable=True,
         sent_by=["Editing an entry type (app, API, CLI)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_type_name", "Name of the entry type", "Blog Post", type="name"),
@@ -669,6 +673,7 @@ CATALOG: list[CatalogEntry] = [
         triggerable=True,
         emittable=True,
         sent_by=["Deleting an entry type (app, API, CLI)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_type_name", "Name of the entry type", "Blog Post", type="name"),

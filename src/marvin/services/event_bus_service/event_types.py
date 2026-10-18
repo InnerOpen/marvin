@@ -771,7 +771,8 @@ class EventEntryData(EventDocumentDataBase):
     changed_fields: list[str] = []
     """Names of the (tracked scalar) fields that changed on an update. Empty for create/delete."""
     before: dict = {}
-    """Prior scalar values for the changed fields (only)."""
+    """Prior scalar values for the changed fields (only). On `entry_deleted` — the row is gone — `before.status`
+    is the status the entry had when it was deleted (a published one was on the site, a trashed one was not)."""
     after: dict = {}
     """New scalar values for the changed fields (only)."""
 
@@ -950,6 +951,9 @@ class EventAssetData(EventDocumentDataBase):
     """The full name of the uploader."""
     role: str | None = None
     """On asset_attached_to_entry: the role the asset was attached in (hero, gallery…), if any."""
+    visible_to_sites: bool | None = None
+    """On asset_deleted: whether the publishing API was serving the asset when it went (not in the Trash and
+    attached to a published entry, in a public collection, or named by the site settings). None: not recorded."""
 
     @classmethod
     def from_schema(
@@ -1418,6 +1422,9 @@ class EventResourceData(EventDocumentDataBase):
     """The human-readable name of the workspace."""
     url: str | None = None
     """The external URL of the resource."""
+    visible_to_sites: bool | None = None
+    """On resource_deleted: whether the publishing API was serving the resource when it went (not in the Trash and
+    attached to a published entry or in a public collection). None: not recorded."""
 
 
 class EventTrashEmptiedData(EventDocumentDataBase):

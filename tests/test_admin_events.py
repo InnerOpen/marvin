@@ -103,7 +103,13 @@ def test_workspace_updated_is_only_emitted_by_the_admin_controller():
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parents[1] / "src" / "marvin"
-    emitters = sorted(str(f.relative_to(root)) for f in root.rglob("*.py") if "EventTypes.workspace_updated" in f.read_text())
+    # The listeners that react to it (the site rebuild one) name it too, without emitting it.
+    listeners = {"services/event_bus_service/event_bus_listener.py"}
+    emitters = sorted(
+        str(f.relative_to(root))
+        for f in root.rglob("*.py")
+        if "EventTypes.workspace_updated" in f.read_text() and str(f.relative_to(root)) not in listeners
+    )
     assert emitters == ["routes/admin/group_controller.py"]
 
 
