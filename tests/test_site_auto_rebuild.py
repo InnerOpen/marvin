@@ -614,6 +614,77 @@ def test_an_asset_in_a_public_collection_is_visible(db_session, site, media):
         db_session.commit()
 
 
+def _with_link_fields(db_session, site, media):
+    """The venue type gets one field of each link type; the live entry holds the loose asset and resource in
+    them (the asset in a list, the resource alone), the draft the same ones' siblings."""
+    from marvin.db.models.platform import Entries, EntryTypes
+
+    fields = [
+        {"key": "gallery", "type": "asset-list"},
+        {"key": "cover", "type": "asset"},
+        {"key": "source", "type": "resource"},
+        {"key": "sources", "type": "resource-list"},
+        {"key": "note", "type": "text"},
+    ]
+    live = db_session.query(Entries).filter_by(id=site.live).one()
+    db_session.query(EntryTypes).filter_by(id=live.entry_type_id).update({"schema_json": {"fields": fields}})
+    return fields
+
+
+def test_an_asset_or_resource_held_in_a_published_entrys_field_is_visible(db_session, site, media):
+    from marvin.db.models.platform import Entries
+
+    _with_link_fields(db_session, site, media)
+    db_session.query(Entries).filter_by(id=site.live).update(
+        {"data_json": {"gallery": [str(uuid.uuid4()), str(media.asset_loose).upper()], "source": str(media.resource_loose), "note": "x"}}
+    )
+    db_session.query(Entries).filter_by(id=site.draft).update(
+        {"data_json": {"cover": str(media.asset_draft), "sources": [str(media.resource_draft)]}}
+    )
+    db_session.commit()
+    # Trashing what only the live entry's fields hold changes the site; what only the draft's hold does not.
+    _fire(site.gid, _item_event(EventTypes.asset_trashed, "asset_id", media.asset_draft))
+    _fire(site.gid, _item_event(EventTypes.resource_trashed, "resource_id", media.resource_draft))
+    assert _queued(db_session, site.gid) == 0
+    _fire(site.gid, _item_event(EventTypes.asset_trashed, "asset_id", media.asset_loose))
+    _fire(site.gid, _item_event(EventTypes.resource_trashed, "resource_id", media.resource_loose))
+    assert _queued(db_session, site.gid) == 2
+
+
+def test_an_id_in_a_field_that_is_not_a_link_or_on_a_private_type_does_not_count(db_session, site, media):
+    from marvin.db.models.platform import Entries
+
+    _with_link_fields(db_session, site, media)
+    # In a text field (not a link), and in a published entry of a type the API never serves.
+    db_session.query(Entries).filter_by(id=site.live).update({"data_json": {"note": str(media.asset_loose)}})
+    db_session.query(Entries).filter_by(id=site.subscriber).update({"data_json": {"cover": str(media.asset_draft)}})
+    db_session.commit()
+    _fire(site.gid, _item_event(EventTypes.asset_trashed, "asset_id", media.asset_loose))
+    _fire(site.gid, _item_event(EventTypes.asset_trashed, "asset_id", media.asset_draft))
+    assert _queued(db_session, site.gid) == 0
+
+
+def test_a_brand_or_share_image_value_naming_an_asset_makes_it_visible(db_session, site, media):
+    from marvin.db.models.groups.preferences import GroupPreferencesModel
+    from marvin.db.models.platform import Assets
+
+    seal = db_session.query(Assets).filter_by(id=media.asset_loose).one()
+    other = db_session.query(Assets).filter_by(id=media.asset_draft).one()
+    db_session.query(GroupPreferencesModel).filter_by(group_id=site.gid).update(
+        {"site_metadata_json": {"brand": {"seal": seal.slug, "colour": "#fff", "n": 3}, "seo": {"image": str(other.id)}}}
+    )
+    db_session.commit()
+    _fire(site.gid, _item_event(EventTypes.asset_trashed, "asset_id", seal.id))
+    _fire(site.gid, _item_event(EventTypes.asset_trashed, "asset_id", other.id))
+    assert _queued(db_session, site.gid) == 2
+    db_session.query(GroupPreferencesModel).filter_by(group_id=site.gid).update({"site_metadata_json": {"brand": {"colour": "#fff"}}})
+    db_session.commit()
+    db_session.execute(delete(SiteRebuildRequestModel).where(SiteRebuildRequestModel.group_id == site.gid))
+    db_session.commit()
+    _fire(site.gid, _item_event(EventTypes.asset_trashed, "asset_id", seal.id))
+    assert _queued(db_session, site.gid) == 0
+
+
 def test_a_deleted_asset_or_resource_queues_a_rebuild_only_if_it_was_served(db_session, site):
     for event_type, field in ((EventTypes.asset_deleted, "asset_id"), (EventTypes.resource_deleted, "resource_id")):
         _fire(site.gid, _item_event(event_type, field, uuid.uuid4(), visible_to_sites=False))

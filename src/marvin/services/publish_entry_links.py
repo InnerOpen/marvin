@@ -77,6 +77,16 @@ def _as_id(value) -> UUID | None:
     return None
 
 
+def linked_ids(entry, kind: str) -> set[UUID]:
+    """The ids of the assets (``kind`` "asset") or resources the entry's link fields hold, whatever their state."""
+    ids: set[UUID] = set()
+    for key, field_kind, is_list in _link_fields(entry):
+        if field_kind == kind:
+            value = entry.data_json[key]
+            ids.update(i for i in map(_as_id, value if is_list and isinstance(value, list) else [value]) if i)
+    return ids
+
+
 def resolve_entry_links(session: Session, group_id, entries) -> dict:
     """``{entry.id: data}`` for each entry that has link fields, with their ids resolved; other entries are absent
     (their ``data_json`` is served as stored). The entries need their ``entry_type`` loaded."""
