@@ -187,7 +187,7 @@ def test_show_image_returns_the_picture_itself_scaled_down(client, on, ws, db_se
         return Assets(session=db_session, group_id=owner.gid, slug=slug_, name=name, original_filename=key, filename=key,
                       extension=mime.split("/")[-1],
                       file_size=10, mime_type=mime, asset_type="image", checksum=uuid.uuid4().hex, storage_provider="local", storage_key=key,
-                      uploaded_by=owner.uid)  # fmt: skip
+                      uploaded_by=owner.uid, alt_text="A navy chore coat")  # fmt: skip
 
     asset = stored_asset("Chore coat", slug, "image/png", "lib/coat")
     svg = stored_asset("Icon", f"{slug}-svg", "image/svg+xml", "lib/icon")
@@ -202,6 +202,7 @@ def test_show_image_returns_the_picture_itself_scaled_down(client, on, ws, db_se
         result = _call(client, token, session, "tools/call", {"name": "show_image", "arguments": {"asset": slug}})["result"]
         info, picture = result["content"]
         assert not result.get("isError") and json.loads(info["text"])["name"] == "Chore coat"
+        assert json.loads(info["text"])["altText"] == "A navy chore coat"  # what the MCP Apps viewer puts on the <img>
         assert picture["type"] == "image" and picture["mimeType"] == "image/jpeg"
         assert Image.open(io.BytesIO(base64.b64decode(picture["data"]))).size == (1024, 512)
 

@@ -25,6 +25,7 @@ from mcp.server.lowlevel import Server
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 
 from marvin.core.root_logger import get_logger
+from marvin.services.mcp_remote import viewer
 
 logger = get_logger(__name__)
 
@@ -177,6 +178,7 @@ SHOW_IMAGE = types.Tool(
     ),
     inputSchema={"type": "object", "properties": {"asset": {"type": "string", "description": "asset id or slug"}}, "required": ["asset"]},
     annotations=types.ToolAnnotations(title="Show image", readOnlyHint=True, destructiveHint=False, openWorldHint=False),
+    _meta=viewer.TOOL_META,  # MCP Apps: a host that supports it draws the result in the conversation (viewer.py)
 )
 
 
@@ -201,7 +203,13 @@ def show_image_for(conn: Connection, args: dict | None) -> tuple[dict, str | Non
         asset = session.get(Assets, asset_id) if isinstance(asset_id, uuid.UUID) else None
         if asset is None or str(asset.group_id) != str(conn.group_id) or asset.trashed_at is not None:
             return {"error": f"no asset '{ref}' in this workspace (try list_assets)"}, None, None
-        info = {"id": str(asset.id), "name": asset.name, "mimeType": asset.mime_type, "url": _asset_public_url(asset)}
+        info = {
+            "id": str(asset.id),
+            "name": asset.name,
+            "altText": asset.alt_text or None,
+            "mimeType": asset.mime_type,
+            "url": _asset_public_url(asset),
+        }
         if (asset.mime_type or "").lower() not in SHOWABLE:
             return {**info, "error": "not a picture Marvin can show here; give the user the link"}, None, None
         try:
@@ -437,10 +445,20 @@ def _version() -> str:
 server: Server = Server("Marvin", version=_version(), instructions=INSTRUCTIONS)
 
 
+def _client_has_ui() -> bool:
+    """Whether the client's `initialize` advertised the MCP Apps extension (logged, so a real connection shows whether
+    its host can draw the image viewer; the metadata is sent either way)."""
+    try:
+        caps = server.request_context.session.client_params.capabilities
+        return viewer.UI_EXTENSION in ((getattr(caps, "model_extra", None) or {}).get("extensions") or {})
+    except Exception:  # noqa: BLE001 — a log detail, never worth failing tools/list
+        return False
+
+
 @server.list_tools()
 async def _list_tools() -> list[types.Tool]:
     tools = await _in_thread(list_tools_for, _connection())
-    logger.info("remote MCP tools/list → %d tools", len(tools))
+    logger.info("remote MCP tools/list → %d tools (client advertises MCP Apps: %s)", len(tools), "yes" if _client_has_ui() else "no")
     return tools
 
 
@@ -474,10 +492,21 @@ async def _get_prompt(name: str, _arguments: dict[str, str] | None) -> types.Get
 
 @server.list_resources()
 async def _list_resources() -> list[types.Resource]:
-    return [
+    listed = [
         types.Resource(uri=uri, name=uri.removeprefix("marvin://"), title=title, description=desc, mimeType="application/json")
         for uri, (title, desc, _tool, _args) in RESOURCES.items()
     ]
+    # The page show_image's result is drawn in, by hosts that support MCP Apps (no data of the workspace in it).
+    listed.append(
+        types.Resource(
+            uri=viewer.VIEWER_URI,
+            name="image-viewer",
+            title="Marvin image viewer",
+            description="Draws show_image's picture in the conversation.",
+            mimeType=viewer.VIEWER_MIME,
+        )
+    )
+    return listed
 
 
 @server.list_resource_templates()
@@ -490,6 +519,8 @@ async def _list_resource_templates() -> list[types.ResourceTemplate]:
 
 @server.read_resource()
 async def _read_resource(uri) -> list[ReadResourceContents]:
+    if str(uri) == viewer.VIEWER_URI:
+        return [ReadResourceContents(content=viewer.VIEWER_HTML, mime_type=viewer.VIEWER_MIME, meta={"ui": {"prefersBorder": False}})]
     target = resolve_resource(str(uri))
     if target is None:
         raise ValueError(f"Unknown resource: {uri}")
