@@ -151,7 +151,7 @@
       "name": "Data-field change detection",
       "priority": "P1",
       "capabilities_md": "Queries / relationships",
-      "acceptance": "entry_updated's changed_fields/before/after cover the entry type's own fields (opt-in per type, values elided for large fields) so `entry.data.body` with op `changed` works."
+      "acceptance": "Delivered 2026-10-18: entry_updated (and the publish, unpublish, archive, trash and restore events) name every changed field of the entry's type as `data.<key>` in `changed_fields`, with `before.data.<key>` / `after.data.<key>`; `changed`, `changed_from`, `changed_to` and `${event.before.data.price}` read them. Bounded, not opt-in: a short scalar (≤ 160 characters) is carried by value, a long text (a body), list, object or secret-like field name reads `‹elided›` — still named, so “the body changed” works; 100 names and 25 values per event."
     },
     "manual-params": {
       "name": "Manual / MCP run parameters",
@@ -579,13 +579,6 @@
       "failure_behaviour": "A budget block (`AI budget: …`), disabled AI or a provider error fails the step; the second operation does not run. Nothing is written on failure.",
       "dependencies": [
         {
-          "capability": "data-change-detection",
-          "name": "Data-field change detection",
-          "priority": "P1",
-          "acceptance": "entry_updated's changed_fields/before/after cover the entry type's own fields (opt-in per type, values elided for large fields) so `entry.data.body` with op `changed` works.",
-          "why": "to run on body changes rather than the review transition"
-        },
-        {
           "capability": "custom-operation",
           "name": "Free-form AI operation",
           "priority": "P0",
@@ -595,7 +588,7 @@
       ],
       "notes": [
         "Title generation is not available: no operation writes `title`; summary (meta description) and tags are what the registry offers with a write-back map.",
-        "“Body changes” cannot be detected: entry_updated's changed_fields covers only status/title/slug. The recipe keys on the review transition instead.",
+        "Body changes can now be detected (`changed_fields` contains `data.<field>`, 2026-10-18); this recipe still keys on the review transition.",
         "Write-back follows the workspace approval mode (services/ai/approval.py): mid-review entries are always staged."
       ],
       "verification": {
@@ -1407,13 +1400,6 @@
       "failure_behaviour": "The webhook step makes one attempt; a non-2xx or a timeout fails the run (recorded in the run history, `workflow_failed` alert if enabled) and the metadata step after it does not run. Re-publishing re-sends: there is no per-step idempotency key.",
       "dependencies": [
         {
-          "capability": "data-change-detection",
-          "name": "Data-field change detection",
-          "priority": "P1",
-          "acceptance": "entry_updated's changed_fields/before/after cover the entry type's own fields (opt-in per type, values elided for large fields) so `entry.data.body` with op `changed` works.",
-          "why": "to fire only when the body changed"
-        },
-        {
           "capability": "idempotency",
           "name": "Per-step idempotency keys",
           "priority": "P0",
@@ -1422,7 +1408,7 @@
         }
       ],
       "notes": [
-        "“Body changes” cannot be detected: changed_fields covers only status, title and slug (services/entries/entry_service.py `_TRACKED_FIELDS`). The recipe fires on every save of a published entry, including the publish itself and metadata writes made by other workflows.",
+        "It fires on every save of a published entry, including the publish itself and metadata writes made by other workflows; a `changed_fields contains data.<field>` condition (2026-10-18) would narrow it to one field.",
         "If the external copy is the site itself, prefer the native rebuild: content changes already queue a coalesced rebuild (site_rebuild_queued → webhook_triggered)."
       ],
       "verification": {

@@ -2423,6 +2423,26 @@ def operational_fields(event_type: str) -> dict[str, dict[str, str]]:
     return {v.slug: {"type": v.type, "description": v.description} for v in entry.variables if v.slug not in common}
 
 
+# The events whose payload carries the update's diff (entry_service._diff).
+DIFF_EVENTS = frozenset({"entry_updated", "entry_published", "entry_unpublished", "entry_archived", "entry_restored", "entry_trashed"})
+
+
+def diff_fields(event_type: str) -> dict[str, dict[str, str]]:
+    """What a workflow reads of an entry update's diff (`event.changed_fields`, `event.before`, `event.after`); empty for any
+    other event. Status, title and slug, plus the type's own fields as `data.<key>` (values bounded: long text, lists and
+    secret-like fields read ‹elided›)."""
+    if event_type not in DIFF_EVENTS:
+        return {}
+    return {
+        "changed_fields": {"type": "list", "description": "what changed: status, title, slug and data.<field> for the type's own fields"},
+        "before": {"type": "object", "description": "prior values of the changed fields (before.status, before.data.<field>)"},
+        "after": {
+            "type": "object",
+            "description": "new values of the changed fields (after.status, after.data.<field>); long text, lists and secrets read ‹elided›",
+        },
+    }
+
+
 def offered_emittable() -> list[str]:
     """What the builder's Emit event step offers, in catalog order: emittable events that are also subscribable
     (an event nothing else sends isn't offered, though the step still accepts it)."""

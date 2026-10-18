@@ -116,6 +116,15 @@ def test_a_draft_saved_or_moved_between_collections_does_not(db_session, site):
     assert _queued(db_session, site.gid) == 0
 
 
+def test_a_data_field_diff_changes_nothing_for_the_rebuild(db_session, site):
+    # entry_updated now names type fields (`before.data`); only `before.status` and the entry's own status decide.
+    diff = {"data": {"price": 5}}
+    _fire(site.gid, _event(EventTypes.entry_updated, site.draft, before=diff))
+    assert _queued(db_session, site.gid) == 0
+    _fire(site.gid, _event(EventTypes.entry_updated, site.live, before=diff))
+    assert _queued(db_session, site.gid) == 1
+
+
 def test_leaving_published_is_visible(db_session, site):
     _fire(site.gid, _event(EventTypes.entry_updated, site.draft, before={"status": "published"}))
     _fire(site.gid, _event(EventTypes.entry_archived, site.draft))

@@ -117,3 +117,22 @@ def test_unknown_entry_returns_none(db_session, workspace):
     gid, _, _ = workspace
     svc, _ = _svc(db_session, gid)
     assert svc.add_to_collection(uuid.uuid4(), "featured") is None
+
+
+def test_update_diffs_the_stored_data_fields_not_a_shared_object(db_session, workspace):
+    # Real repos: `old` must be a snapshot, or the diff would compare an entry with itself.
+    from marvin.schemas.platform import EntryUpdate
+
+    class _Docs(_SpyBus):
+        def dispatch(self, *, event_type, document_data=None, **_):
+            super().dispatch(event_type=event_type)
+            self.doc = document_data
+
+    gid, entry_id, _ = workspace
+    bus = _Docs()
+    svc = EntryService(db_session, gid, event_bus=bus, integration_id="entry_management")
+    svc.update(entry_id, EntryUpdate(data_json={"price": 5}))
+    svc.update(entry_id, EntryUpdate(data_json={"price": 9}))
+
+    assert bus.doc.changed_fields == ["data.price"]
+    assert (bus.doc.before, bus.doc.after) == ({"data": {"price": 5}}, {"data": {"price": 9}})

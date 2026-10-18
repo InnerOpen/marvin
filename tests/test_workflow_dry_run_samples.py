@@ -473,5 +473,20 @@ class TestExplain:
 
         assert (node["actual"], node["expected"], node["pass"]) == (["status"], "status", True)
 
+    def test_a_type_field_is_checked_against_the_diff(self):
+        ctx = {"event": {"changed_fields": ["data.price"], "before": {"data": {"price": 5}}, "after": {"data": {"price": 7}}}}
+
+        changed, was, now = explain(
+            [
+                {"field": "entry.data.price", "op": "changed"},
+                {"field": "entry.data.price", "op": "changed_from", "value": 5},
+                {"field": "entry.data.price", "op": "changed_to", "value": 5},
+            ],
+            ctx,
+        )
+
+        assert (changed["actual"], changed["expected"], changed["pass"]) == (["data.price"], "data.price", True)
+        assert (was["actual"], was["pass"], now["actual"], now["pass"]) == (5, True, 7, False)
+
     def test_no_conditions_is_an_empty_checklist(self):
         assert explain(None, self.CTX) == []

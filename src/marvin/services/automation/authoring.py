@@ -389,6 +389,9 @@ def _conditions() -> dict:
         "ops": list(_OPS),
         "field": "a bare dotted path (no $), e.g. entry.status, entry.data.<field>, event.payload.<key>",
         "note": "Conditions are checked before any step runs, so steps.* / previous.* aren't available in them.",
+        "changed": "On entry_updated, `changed` / `changed_from` / `changed_to` read the diff: status, title, slug and the type's own fields "
+        "as `data.<key>` (entry.data.price changed; event.changed_fields contains data.price). event.before.data.<key> / event.after.data.<key> "
+        "carry short scalars only: long text, lists and secret-like fields read ‹elided› (the field still shows as changed).",
     }
     out["fields"] = condition_field_catalog()  # per trigger type, each field with what it means
     return out

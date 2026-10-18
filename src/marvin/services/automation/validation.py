@@ -48,7 +48,22 @@ _ENTRY_FIELDS = [
     {
         "field": "event.changed_fields",
         "label": "Changed fields",
-        "description": "Which fields changed — use with 'contains' (e.g. contains 'status').",
+        "description": "Which fields changed — use with 'contains' (e.g. contains 'status', or 'data.price' for the type's own field).",
+    },
+    {
+        "field": "event.after.data.",
+        "label": "Type field changed to…",
+        "description": "New value of an entry-type field that changed (event.after.data.price); long text and secrets read ‹elided›.",
+    },
+    {
+        "field": "event.before.data.",
+        "label": "Type field changed from…",
+        "description": "Prior value of a type field that changed (event.before.data.price).",
+    },
+    {
+        "field": "entry.data.",
+        "label": "Type field",
+        "description": "A field of the entry's type, e.g. entry.data.price (op 'changed': did it change?).",
     },
 ]
 

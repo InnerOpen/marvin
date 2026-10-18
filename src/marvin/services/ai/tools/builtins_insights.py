@@ -301,7 +301,7 @@ def describe_event(ctx: ToolContext, args: dict) -> str:
     workspaces, as on the admin Events page)."""
     from marvin.db.models.users.roles import PlatformRole
     from marvin.services.events import connections, custom_events
-    from marvin.services.events.event_catalog import CATALOG, canonical_event_type, get_catalog_entry, operational_fields
+    from marvin.services.events.event_catalog import CATALOG, canonical_event_type, diff_fields, get_catalog_entry, operational_fields
 
     user = ctx.user
     super_admin = getattr(user, "platform_role", None) == PlatformRole.SUPER_ADMIN or bool(getattr(user, "is_superuser", False))
@@ -332,6 +332,13 @@ def describe_event(ctx: ToolContext, args: dict) -> str:
             "triggerable": True,
             "fields": fields,
             "note": "A workflow starting on this reads these as ${event.<field>}. It never runs for a failure its own run caused.",
+        }
+    elif fields := diff_fields(entry.event_type):  # an entry update's diff: `changed data.price` / ${event.before.data.price}
+        out["workflowTrigger"] = {
+            "triggerable": True,
+            "fields": fields,
+            "note": "A workflow reads these as ${event.<field>}, or with the changed / changed_from / changed_to operators "
+            "(entry.data.price changed; event.changed_fields contains data.price).",
         }
     if entry.scope == "workspace":
         detail = connections.detail(ctx.session, ctx.group_id, entry, limit=1, visible=_visible_events(ctx))

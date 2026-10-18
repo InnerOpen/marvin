@@ -43,7 +43,7 @@ overlap (serial in the leader tick).
 |---|---|
 | Target scope vs triggering entry | Without `target`, steps act on the trigger's entry (`$event.entry_id`). With `target`, the query **replaces** it: each row is bound as `entry` and `event.entry_id` (`engine.py:248-252`); conditions become the WHERE over the set, always applied, even on manual runs. Entity: `entry`, `asset` or `resource` (2026-10-17; was entry only), cap 250 |
 | Condition operand typing | `_like` (`matcher.py:45`) reads typed-in text as the actual's type (bool/number); `in` accepts a list or CSV; `exists` checks `is not None` (`""` exists); `contains` is substring or membership; unknown op fails closed |
-| before/after paths | `event.before.<f>` / `event.after.<f>` hold **only changed fields** among `status`, `title`, `slug` (`entry_service.py:40` `_TRACKED_FIELDS`); `changed`, `changed_from`, `changed_to` key on the field's last segment. **Data-field changes are not detectable** |
+| before/after paths | `event.before.<f>` / `event.after.<f>` hold **only changed fields**: `status`, `title`, `slug` (`entry_service.py` `_TRACKED_FIELDS`) and, since 2026-10-18, the type's own fields as `data.<key>` in `changed_fields` and `before.data.<key>` / `after.data.<key>` (`_diff`; a short scalar by value, long text / lists / secret-like names read `‹elided›`, 25 values and 100 names per event). `changed`, `changed_from`, `changed_to` key on the last segment, or from `data` on (`matcher.diff_key`) |
 | Event payload propagation | `document_data` is flattened into `event.*` (`context.py:11-57`); curated keys override; `entry.*` loads only when the subject is an entry; `user_id` is the actor (a UUID object) |
 | Action ordering | strictly sequential, default 10 (`engine.py` `MAX_ACTIONS`), a workspace may raise it to 25 (Settings → General → Workflows, 2026-10-14); a failure stops the rest and runs `on_failure` once |
 | Step output availability | `${previous.*}`, `${steps.<id|index>.output.*}` in later **steps only**; never in conditions (evaluated before any step) |
@@ -117,7 +117,7 @@ recipes avoid `{{field}}` templating so an installer can't confuse them.
   and recovery recipes stay configuration too (native alerts do what they ask); `integration_attention_*`,
   `webhook_delivery_failed`, `scheduled_task_failed` and `ai_budget_*` *are* triggers since 2026-10-18, and
   integration-health-companion and webhook-repair-desk are workflows (a repair task per connection / webhook).
-- "Body changes" cannot gate a workflow (`_TRACKED_FIELDS`).
+- ~~"Body changes" cannot gate a workflow~~ done 2026-10-18: `changed_fields contains data.body` (the body's text itself reads `‹elided›`).
 - `classify-form-submission` from a workflow classifies `{}`: the runner loads no submission context and
   new submissions are entries, not `FormSubmissions` rows.
 - Custom completion events (`newsletter_issue_processed`) cannot be emitted; `automation_ran` + `chained` is
