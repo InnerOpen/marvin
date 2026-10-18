@@ -22,7 +22,7 @@ from marvin.core.root_logger import get_logger
 from marvin.db.db_setup import session_context
 from marvin.services.mcp_remote import limits
 from marvin.services.mcp_remote import oauth as svc
-from marvin.services.mcp_remote.policy import issuer, resource_url
+from marvin.services.mcp_remote.policy import issuer
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -129,7 +129,7 @@ def authorize(request: Request) -> Response:
     params = dict(request.query_params)
     with session_context() as session:
         try:
-            pending = svc.start_authorization(session, params, ip=ip, resource=resource_url(issuer_url))
+            pending = svc.start_authorization(session, params, ip=ip, issuer=issuer_url)
         except svc.AuthorizeError as e:
             if not e.redirect_uri:
                 return _error_page(e)
@@ -145,7 +145,7 @@ def authorize(request: Request) -> Response:
 
 @router.post("/oauth/token")
 async def token(request: Request) -> Response:
-    _issuer, policy = _on(request)
+    issuer_url, policy = _on(request)
     ip = _ip(request)
     try:
         limits.check("token_failure", ip)
@@ -157,7 +157,7 @@ async def token(request: Request) -> Response:
             client = svc.authenticate_client(session, basic=_basic(request), form=form)
             grant_type = form.get("grant_type")
             if grant_type == "authorization_code":
-                out = svc.exchange_code(session, client, form, policy=policy)
+                out = svc.exchange_code(session, client, form, policy=policy, issuer=issuer_url)
             elif grant_type == "refresh_token":
                 out = svc.refresh(
                     session,

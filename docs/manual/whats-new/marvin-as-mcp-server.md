@@ -13,6 +13,8 @@ Marvin serves MCP two ways: a **remote server** built into the API, which an ass
 
 The assistant opens Marvin's consent page (behind Cloudflare Access): you sign in, pick **one workspace**, and choose **Read-only** (the default) or **Read & write** (Editor or above). Each approval is a connected app, listed with Disconnect on Profile → API Tokens.
 
+**One connector per workspace:** add `https://api.iwobble.com/mcp/w/<workspace-slug>` instead (Profile → Command line & MCP shows yours). It is a resource of its own: the consent page offers that workspace only (the form can't change it), and the token it issues works at that address and nowhere else, not at `/mcp` and not at another workspace's address, even one you belong to. A token from plain `/mcp` doesn't work there either. Use it to keep, say, Mash & Burn and Grace's site as separate connectors without picking at consent. Renaming the workspace keeps the old address working (a former slug still resolves) and the connection with it; a slug that later names a different workspace never inherits the old token. Its discovery metadata is at `/.well-known/oauth-protected-resource/mcp/w/<slug>` and answers for any well-formed slug, so it can't be used to find out which workspaces exist. A connected app on a workspace address shows "its own address" in the lists. `/mcp` works exactly as before.
+
 **What a connection gets:** Marvin's registry tools under the same rules as the local package with a personal token (role, the workspace's "External MCP hosts" switch, Marvin's permission matrix for its main agent, the AI budget, the bulk-write gate). A Read-only connection sees and runs read tools only. On top of the registry:
 
 | Tool | For |

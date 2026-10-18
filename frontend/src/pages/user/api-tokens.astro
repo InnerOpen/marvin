@@ -11,7 +11,7 @@ let tokens = [];
 let error: string | null = null;
 
 // Apps that signed in to Marvin's remote MCP server as this user (OAuth): one per approval, revocable here.
-type ConnectedApp = { id: string; clientName: string; redirectHost: string; access: string; workspace: string; createdAt: string | null; lastUsedAt: string | null };
+type ConnectedApp = { id: string; pinned?: boolean; clientName: string; redirectHost: string; access: string; workspace: string; createdAt: string | null; lastUsedAt: string | null };
 const connectedApps = await fetchApi<ConnectedApp[]>("/api/users/self/connected-apps", {}, authToken).catch(() => [] as ConnectedApp[]);
 try {
   tokens = await sdk.user.listApiTokens();
@@ -86,7 +86,7 @@ function relativeDate(date: string | null | undefined): string | null {
           <div class="token-card">
             <div class="token-info">
               <strong>{app.clientName}</strong>
-              <p class="token-desc">{app.redirectHost} · {app.workspace} · {app.access === "write" ? "Read & write" : "Read-only"}</p>
+              <p class="token-desc">{app.redirectHost} · {app.workspace}{app.pinned ? " (its own address)" : ""} · {app.access === "write" ? "Read & write" : "Read-only"}</p>
               <div class="token-meta">
                 <span>Last used: {relativeDate(app.lastUsedAt) ?? <LocalTime iso={app.lastUsedAt} format="date" />}</span>
                 <span>•</span>

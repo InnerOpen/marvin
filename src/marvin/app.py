@@ -410,6 +410,7 @@ def include_api_routers() -> None:  # Renamed from api_routers for clarity
     from marvin.services.mcp_remote.transport import transport as remote_mcp_transport
 
     app.router.routes.append(Route("/mcp", endpoint=remote_mcp_transport, methods=["GET", "POST", "DELETE"]))
+    app.router.routes.append(Route("/mcp/w/{slug}", endpoint=remote_mcp_transport, methods=["GET", "POST", "DELETE"]))  # pinned to a workspace
     logger.info("API routers included.")
 
 

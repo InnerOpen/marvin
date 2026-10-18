@@ -32,6 +32,8 @@ const SITE_TOKEN = "<site client token>";
 const cliInstall = "npm install -g @inneropen/marvin-cli";
 const cliLogin = `marvin --api-url ${apiUrl} login --user-token ${USER_TOKEN} --site-token ${SITE_TOKEN} --workspace ${workspaceSlug}`;
 const cliCheck = "marvin user profile show";
+// The same server pinned to this workspace: its own address, so a connector can't be pointed at another workspace.
+const pinnedMcpUrl = remoteMcpUrl && workspaceSlug !== "<workspace-slug>" ? `${remoteMcpUrl}/w/${workspaceSlug}` : null;
 const claudeCodeRemote = remoteMcpUrl ? `claude mcp add --transport http --scope user marvin ${remoteMcpUrl}` : "";
 const claudeCode = [
   "claude mcp add marvin",
@@ -118,6 +120,15 @@ const desktopConfig = JSON.stringify(
             <li><strong>ChatGPT:</strong> Settings → Apps &amp; Connectors → Create (developer mode for all tools), paste the address.</li>
           </ul>
           <div class="cmd"><pre><code>{claudeCodeRemote}</code></pre><button type="button" class="copy" data-copy={claudeCodeRemote}>Copy</button></div>
+          {pinnedMcpUrl && (
+            <>
+              <p>
+                To pin a connector to <strong>this workspace</strong> (the consent page then offers no other), add this address
+                instead. Each workspace has its own, and it keeps working if the workspace is renamed.
+              </p>
+              <div class="cmd"><pre><code>{pinnedMcpUrl}</code></pre><button type="button" class="copy" data-copy={pinnedMcpUrl}>Copy</button></div>
+            </>
+          )}
           <p class="muted">Use either this or the token setup below for one assistant, not both, or its tools show up twice.</p>
           <h4>Or with a token</h4>
         </>

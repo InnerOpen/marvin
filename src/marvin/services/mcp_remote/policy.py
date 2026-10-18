@@ -2,11 +2,15 @@
 
 The issuer is `PUBLIC_API_URL` (the chart's `config.publicApiUrl`) and the protected resource is that plus `/mcp`.
 Both stay the public host whatever host a request arrived on (the LAN `.apps` route, say), because a token is bound
-to the resource it was issued for. With no `PUBLIC_API_URL`, PRODUCTION keeps the server off
-(`platform_policy.remote_mcp`); development takes the issuer from the request and says so in the log.
+to the resource it was issued for. A connector can also be pinned to one workspace: `/mcp/w/<workspace-slug>` is a
+resource of its own (see `canonical_resource`), with metadata at `.well-known/oauth-protected-resource/mcp/w/<slug>`.
+With no `PUBLIC_API_URL`, PRODUCTION keeps the server off (`platform_policy.remote_mcp`);
+development takes the issuer from the request and says so in the log.
 """
 
 from __future__ import annotations
+
+import re
 
 from marvin.core.root_logger import get_logger
 
@@ -16,6 +20,8 @@ SCOPE_READ = "marvin:read"
 SCOPE_WRITE = "marvin:write"
 SCOPES = (SCOPE_READ, SCOPE_WRITE)
 MCP_PATH = "/mcp"
+WORKSPACE_PATH = "/mcp/w/"
+SLUG_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,99}")
 
 _warned = False
 
@@ -40,6 +46,31 @@ def resource_url(issuer_url: str) -> str:
     return f"{issuer_url}{MCP_PATH}"
 
 
+def workspace_resource_url(issuer_url: str, slug: str) -> str:
+    return f"{issuer_url}{WORKSPACE_PATH}{slug}"
+
+
+def canonical_resource(issuer_url: str, resource: str | None) -> str | None:
+    """`resource` as this server names it, or None when it isn't one of its resources: `<issuer>/mcp` (the workspace is
+    chosen at consent) or `<issuer>/mcp/w/<slug>` (pinned to a workspace; the slug lower-cased). Trailing slash ignored."""
+    base = (resource or "").strip().rstrip("/")
+    if base == resource_url(issuer_url):
+        return base
+    prefix = f"{issuer_url}{WORKSPACE_PATH}"
+    if base.startswith(prefix):
+        slug = base[len(prefix) :].lower()
+        if SLUG_RE.fullmatch(slug):
+            return f"{prefix}{slug}"
+    return None
+
+
+def pinned_slug(issuer_url: str, resource: str | None) -> str | None:
+    """The workspace slug a resource is pinned to, or None (`/mcp`, or not ours)."""
+    prefix = f"{issuer_url}{WORKSPACE_PATH}"
+    canonical = canonical_resource(issuer_url, resource)
+    return canonical[len(prefix) :] if canonical and canonical.startswith(prefix) else None
+
+
 def authorization_server_metadata(issuer_url: str, *, allow_dynamic_registration: bool = True) -> dict:
     """RFC 8414 metadata. S256 is the only PKCE method; a confidential client may send its secret either way."""
     meta = {
@@ -60,10 +91,11 @@ def authorization_server_metadata(issuer_url: str, *, allow_dynamic_registration
     return meta
 
 
-def protected_resource_metadata(issuer_url: str) -> dict:
-    """RFC 9728 metadata for `/mcp`: which authorization server issues its tokens."""
+def protected_resource_metadata(issuer_url: str, slug: str | None = None) -> dict:
+    """RFC 9728 metadata for `/mcp` (or, with a slug, for that workspace's own URL): which authorization server issues
+    its tokens."""
     return {
-        "resource": resource_url(issuer_url),
+        "resource": workspace_resource_url(issuer_url, slug) if slug else resource_url(issuer_url),
         "authorization_servers": [issuer_url],
         "scopes_supported": list(SCOPES),
         "bearer_methods_supported": ["header"],

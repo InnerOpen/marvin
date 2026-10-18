@@ -1,4 +1,6 @@
-"""`/mcp`: the remote MCP server's HTTP endpoint (streamable HTTP, the MCP SDK's session manager behind a token check).
+"""`/mcp` and `/mcp/w/<workspace-slug>`: the remote MCP server's HTTP endpoint (streamable HTTP, the MCP SDK's session
+manager behind a token check). The second form is a connector pinned to one workspace: its own OAuth resource, so a
+token for it works there and nowhere else (`oauth.serves_resource`).
 
 Each request:
 1. 404 while the platform switch is off (or there is no issuer);
@@ -25,7 +27,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import Receive, Scope, Send
 
 from marvin.core.root_logger import get_logger
-from marvin.services.mcp_remote.policy import SCOPE_WRITE, issuer, resource_url
+from marvin.services.mcp_remote.policy import SCOPE_WRITE, SLUG_RE, issuer, resource_url, workspace_resource_url
 
 logger = get_logger(__name__)
 
@@ -33,8 +35,8 @@ SESSION_HEADER = "mcp-session-id"
 SESSION_IDLE_SECONDS = 3600
 
 
-def _challenge(issuer_url: str, *, invalid: bool) -> Response:
-    meta = f"{issuer_url}/.well-known/oauth-protected-resource/mcp"
+def _challenge(issuer_url: str, *, invalid: bool, slug: str | None = None) -> Response:
+    meta = f"{issuer_url}/.well-known/oauth-protected-resource/mcp" + (f"/w/{slug}" if slug else "")
     value = f'Bearer resource_metadata="{meta}"' + (', error="invalid_token"' if invalid else "")
     return JSONResponse({"error": "invalid_token" if invalid else "unauthorized"}, status_code=401, headers={"WWW-Authenticate": value})
 
@@ -82,8 +84,9 @@ class RemoteMcpTransport:
             await self._handle(request, scope, receive, send_logged, status_box)
         finally:
             logger.info(
-                "remote MCP %s /mcp → %s in %dms (auth=%s grant=%s session=%s ua=%s)",
+                "remote MCP %s %s → %s in %dms (auth=%s grant=%s session=%s ua=%s)",
                 request.method,
+                request.url.path[:100],
                 status_box.get("status", "-"),
                 (time.monotonic() - started) * 1000,
                 "yes" if request.headers.get("authorization") else "no",
@@ -96,8 +99,12 @@ class RemoteMcpTransport:
         from marvin.services.platform_policy import remote_mcp
 
         issuer_url = issuer(request) if remote_mcp().enabled else None
-        if not issuer_url:
+        slug = (scope.get("path_params") or {}).get("slug")  # set on /mcp/w/{slug}: the connector pinned to a workspace
+        if slug is not None:
+            slug = slug.lower()
+        if not issuer_url or (slug is not None and not SLUG_RE.fullmatch(slug)):
             return await JSONResponse({"detail": "Not Found"}, status_code=404)(scope, receive, send)
+        resource = workspace_resource_url(issuer_url, slug) if slug else resource_url(issuer_url)
         if self._manager is None:
             return await JSONResponse({"detail": "The MCP server is starting"}, status_code=503)(scope, receive, send)
 
@@ -107,14 +114,14 @@ class RemoteMcpTransport:
         bound = self._live(session_id)
 
         if bearer:
-            conn = await _connection_for_token(request, bearer, resource_url(issuer_url))
+            conn = await _connection_for_token(request, bearer, resource, issuer_url)
         elif bound is not None and request.method in ("GET", "DELETE"):
-            conn = await _connection_for_grant(bound)
+            conn = await _connection_for_grant(bound, resource, issuer_url)
         else:
             conn = None
         if conn is None:
             logger.warning("remote MCP: /mcp refused (%s)", "bad token" if bearer else "no token")
-            return await _challenge(issuer_url, invalid=bool(bearer))(scope, receive, send)
+            return await _challenge(issuer_url, invalid=bool(bearer), slug=slug)(scope, receive, send)
         if isinstance(conn, Response):
             return await conn(scope, receive, send)
         box["grant"] = conn.grant_id
@@ -178,7 +185,7 @@ def _connection(session, grant, request: Request | None):
     return Connection(grant_id=grant.id, user_id=grant.user_id, group_id=grant.group_id, can_write=SCOPE_WRITE in grant.scope.split())
 
 
-async def _connection_for_token(request: Request, bearer: str, resource: str):
+async def _connection_for_token(request: Request, bearer: str, resource: str, issuer_url: str):
     import anyio
 
     from marvin.db.db_setup import session_context
@@ -188,15 +195,20 @@ async def _connection_for_token(request: Request, bearer: str, resource: str):
     def check():
         with session_context() as session:
             grant = svc.verify_access_token(
-                session, bearer, resource=resource, on_revoke=lambda g, reason: limits.announce("mcp_connection_revoked", session, g, reason=reason)
+                session,
+                bearer,
+                resource=resource,
+                issuer=issuer_url,
+                on_revoke=lambda g, reason: limits.announce("mcp_connection_revoked", session, g, reason=reason),
             )
             return None if grant is None else _connection(session, grant, request)
 
     return await anyio.to_thread.run_sync(check)
 
 
-async def _connection_for_grant(grant_id: UUID):
-    """A tokenless GET/DELETE on a live session: its grant must still be unrevoked and its user a member."""
+async def _connection_for_grant(grant_id: UUID, resource: str, issuer_url: str):
+    """A tokenless GET/DELETE on a live session: its grant must still be unrevoked, serve the URL it came to and its
+    user a member."""
     import anyio
 
     from marvin.db.db_setup import session_context
@@ -206,7 +218,12 @@ async def _connection_for_grant(grant_id: UUID):
     def check():
         with session_context() as session:
             grant = session.get(OAuthGrantModel, grant_id)
-            if grant is None or grant.revoked_at is not None or svc.member_role(session, grant.user_id, grant.group_id) <= 0:
+            if (
+                grant is None
+                or grant.revoked_at is not None
+                or not svc.serves_resource(session, grant, resource, issuer_url)
+                or svc.member_role(session, grant.user_id, grant.group_id) <= 0
+            ):
                 return None
             return _connection(session, grant, None)
 

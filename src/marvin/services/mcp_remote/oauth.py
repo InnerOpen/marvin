@@ -28,7 +28,7 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 from marvin.core.root_logger import get_logger
 
 from . import redirects
-from .policy import SCOPE_READ, SCOPE_WRITE, SCOPES
+from .policy import SCOPE_READ, SCOPE_WRITE, SCOPES, canonical_resource, pinned_slug, resource_url
 
 logger = get_logger(__name__)
 
@@ -186,9 +186,11 @@ class PendingRequest:
     """The opaque value the consent page URL carries (``?req=``)."""
 
 
-def start_authorization(session, params: dict, *, ip: str | None, resource: str) -> PendingRequest:
+def start_authorization(session, params: dict, *, ip: str | None, issuer: str) -> PendingRequest:
     """Validate an authorization request and store it pending. Errors before the client and redirect URI are
-    known-good carry no redirect_uri (shown as a page); later ones go back to the client."""
+    known-good carry no redirect_uri (shown as a page); later ones go back to the client. The resource is `<issuer>/mcp`
+    or a workspace's own `<issuer>/mcp/w/<slug>` (its slug is looked up at consent, where only a signed-in user sees
+    the answer)."""
     from marvin.db.models.platform.oauth import OAuthAuthorizationRequestModel
 
     client = _client(session, params.get("client_id"))
@@ -207,8 +209,8 @@ def start_authorization(session, params: dict, *, ip: str | None, resource: str)
     challenge, method = params.get("code_challenge"), params.get("code_challenge_method")
     if not challenge or method != "S256" or not (43 <= len(challenge) <= 128):
         raise back("invalid_request", "PKCE with code_challenge_method=S256 is required")
-    asked_resource = params.get("resource") or resource
-    if asked_resource.rstrip("/") != resource:
+    resource = canonical_resource(issuer, params.get("resource") or resource_url(issuer))
+    if resource is None:
         raise back("invalid_target", "unknown resource")
     scopes = _scopes(params.get("scope"))
     if any(s not in SCOPES for s in scopes):
@@ -270,8 +272,18 @@ def _mcp_allowed(session, group_id) -> bool:
     return source_allowed(settings.invocation_sources if settings else None, "mcp")
 
 
-def consent_view(session, ref: str, user) -> dict:
-    """What the consent page shows, and a fresh consent nonce for its form (only its hash is kept)."""
+def _pinned_group(session, issuer: str, resource: str):
+    """The workspace a pinned resource names (its current slug or a former one), or None."""
+    from marvin.services.group.workspace_rename import find_group_by_slug
+
+    slug = pinned_slug(issuer, resource)
+    return find_group_by_slug(session, slug) if slug else None
+
+
+def consent_view(session, ref: str, user, *, issuer: str) -> dict:
+    """What the consent page shows, and a fresh consent nonce for its form (only its hash is kept). A request for a
+    workspace's own URL offers that workspace only (none when the user isn't a member, or it doesn't exist: the page
+    can't tell them apart, which keeps slugs from being probed)."""
     from marvin.db.models.platform.oauth import OAuthClientModel
 
     row = _pending(session, ref)
@@ -283,7 +295,10 @@ def consent_view(session, ref: str, user) -> dict:
         row.consent_nonce_hash = _hash(nonce)
         session.commit()
     asked = row.requested_scope.split()
+    pinned = pinned_slug(issuer, row.resource) is not None
+    pinned_group = _pinned_group(session, issuer, row.resource) if pinned else None
     return {
+        "pinned": pinned,
         "status": "expired" if expired else row.status,
         "client_name": client.client_name if client else "Unknown app",
         "redirect_host": redirects.host_of(row.redirect_uri),
@@ -292,6 +307,7 @@ def consent_view(session, ref: str, user) -> dict:
         "workspaces": [
             {"id": str(gid), "name": name, "slug": slug, "can_write": role >= ROLE_EDITOR, "mcp_allowed": _mcp_allowed(session, gid)}
             for gid, name, slug, role in _memberships(session, user.id)
+            if not pinned or (pinned_group is not None and gid == pinned_group.id)
         ],
     }
 
@@ -319,6 +335,11 @@ def approve(session, ref: str, user, *, workspace_id, access: str, nonce: str | 
         return {"redirect_to": None, "already": True}
     if row.status != "pending":
         raise OAuthError("forbidden", f"This sign-in request was already {row.status}.", 403)
+    if pinned_slug(issuer, row.resource) is not None:  # the connector's own URL names the workspace; the form can't change it
+        pinned = _pinned_group(session, issuer, row.resource)
+        if pinned is None or (workspace_id and str(workspace_id) != str(pinned.id)):
+            raise OAuthError("forbidden", "You aren't a member of the workspace this connector is for.", 403)
+        workspace_id = pinned.id
     role = member_role(session, user.id, workspace_id)
     if role <= 0:
         raise OAuthError("forbidden", "You aren't a member of that workspace.", 403)
@@ -390,7 +411,7 @@ def _public(tokens: dict) -> dict:
     return {k: v for k, v in tokens.items() if not k.startswith("_")}
 
 
-def exchange_code(session, client, form: dict, *, policy) -> dict:
+def exchange_code(session, client, form: dict, *, policy, issuer: str) -> dict:
     """authorization_code: a single-use, 5-minute code bound to the client, the redirect URI and the PKCE challenge."""
     from marvin.db.models.platform.oauth import OAuthAuthorizationRequestModel, OAuthGrantModel
 
@@ -411,7 +432,7 @@ def exchange_code(session, client, form: dict, *, policy) -> dict:
     expected = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     if not verifier or not hmac.compare_digest(expected, row.code_challenge):
         raise OAuthError("invalid_grant", "PKCE verification failed")
-    if form.get("resource") and form["resource"].rstrip("/") != row.resource:
+    if form.get("resource") and canonical_resource(issuer, form["resource"]) != row.resource:
         raise OAuthError("invalid_target", "unknown resource")
     grant = session.get(OAuthGrantModel, row.grant_id) if row.grant_id else None
     if grant is None or grant.revoked_at is not None:
@@ -468,9 +489,22 @@ def revoke_token(session, client, token: str):
     return None
 
 
-def verify_access_token(session, token: str, *, resource: str, on_revoke=None):
-    """The grant an access token at /mcp stands for, or None: unexpired, unrevoked, for this resource, and its user
-    still a member of the workspace (else the grant is revoked as membership_lost)."""
+def serves_resource(session, grant, resource: str, issuer: str) -> bool:
+    """Whether a grant's token may be used at `resource` (the URL the request came to). A grant for `<issuer>/mcp`
+    works there only. One for a workspace's own URL works only at a workspace URL that now names that same workspace
+    (the slug may have been renamed: a former slug still counts), never at `/mcp` or another workspace's URL."""
+    slug = pinned_slug(issuer, resource)
+    if slug is None:
+        return canonical_resource(issuer, resource) == grant.resource
+    if pinned_slug(issuer, grant.resource) is None:
+        return False
+    group = _pinned_group(session, issuer, resource)
+    return group is not None and str(group.id) == str(grant.group_id)
+
+
+def verify_access_token(session, token: str, *, resource: str, issuer: str, on_revoke=None):
+    """The grant an access token at /mcp stands for, or None: unexpired, unrevoked, issued for this resource (see
+    `serves_resource`), and its user still a member of the workspace (else the grant is revoked as membership_lost)."""
     from marvin.db.models.platform.oauth import OAuthGrantModel, OAuthTokenModel
 
     if not token or not token.startswith(PREFIX_ACCESS):
@@ -479,7 +513,7 @@ def verify_access_token(session, token: str, *, resource: str, on_revoke=None):
     if row is None or _aware(row.expires_at) < _now():
         return None
     grant = session.get(OAuthGrantModel, row.grant_id)
-    if grant is None or grant.revoked_at is not None or grant.resource != resource:
+    if grant is None or grant.revoked_at is not None or not serves_resource(session, grant, resource, issuer):
         return None
     if member_role(session, grant.user_id, grant.group_id) <= 0:
         revoke_grant(session, grant.id, reason="membership_lost")
@@ -520,6 +554,7 @@ def grant_view(session, grant) -> dict:
         "access": "write" if SCOPE_WRITE in grant.scope.split() else "read",
         "workspace_id": str(grant.group_id),
         "workspace": group.name if group else "?",
+        "pinned": "/mcp/w/" in grant.resource,
         "user_id": str(grant.user_id),
         "user": (user.full_name or user.username) if user else "?",
         "created_at": grant.created_at,

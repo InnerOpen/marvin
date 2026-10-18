@@ -33,6 +33,8 @@ class ConsentWorkspace(_MarvinModel):
 
 class ConsentRequestRead(_MarvinModel):
     status: str
+    pinned: bool = False
+    """The app connected to one workspace's own URL: only that workspace is offered."""
     client_name: str
     """What the app calls itself: unverified."""
     redirect_host: str
@@ -55,6 +57,8 @@ class ConsentResult(_MarvinModel):
 
 class ConnectedAppRead(_MarvinModel):
     id: str
+    pinned: bool = False
+    """Connected to the workspace's own URL (/mcp/w/<slug>), not the general /mcp."""
     client_name: str
     redirect_host: str
     access: str
@@ -102,10 +106,10 @@ def _issuer_or_404(request: Request) -> str:
 
 @router.get("/oauth/requests/{ref}", response_model=ConsentRequestRead, include_in_schema=False)
 def get_request(ref: str, request: Request, user=Depends(session_user)) -> ConsentRequestRead:
-    _issuer_or_404(request)
+    issuer_url = _issuer_or_404(request)
     with session_context() as session:
         try:
-            return ConsentRequestRead.model_validate(svc.consent_view(session, ref, user))
+            return ConsentRequestRead.model_validate(svc.consent_view(session, ref, user, issuer=issuer_url))
         except svc.OAuthError as e:
             raise _http(e) from None
 

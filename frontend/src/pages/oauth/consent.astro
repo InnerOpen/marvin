@@ -3,7 +3,8 @@
  * Remote MCP consent: an app (claude.ai, ChatGPT, Claude Code…) asks to use Marvin as the signed-in user, in one
  * workspace. /oauth/authorize on the API host sends the browser here with `?req=`; this page signs the user in if
  * needed (and Cloudflare Access sits in front of it), shows what the app asks, and posts Approve / Deny to itself,
- * which answers 303 straight back to the app. No JavaScript is needed. The app's name is what it calls itself; where
+ * which answers 303 straight back to the app. An app added at a workspace's own address (/mcp/w/<slug>) is offered that
+ * workspace only. No JavaScript is needed. The app's name is what it calls itself; where
  * the approval goes back to is the verified fact. See tasks/mcp-oauth-plan.md §3.
  */
 import ThemeInit from "@/components/ThemeInit.astro";
@@ -13,7 +14,7 @@ import { requireAuth } from "@/lib/auth";
 
 type Workspace = { id: string; name: string; slug: string; canWrite: boolean; mcpAllowed: boolean };
 type ConsentView = {
-  status: string; clientName: string; redirectHost: string; wantsWrite: boolean; consentNonce: string | null; workspaces: Workspace[];
+  status: string; pinned: boolean; clientName: string; redirectHost: string; wantsWrite: boolean; consentNonce: string | null; workspaces: Workspace[];
 };
 
 const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname + Astro.url.search);
@@ -91,8 +92,11 @@ const who = user.fullName || user.username;
           <p class="consent-dest">After you approve, you go back to <strong>{view.redirectHost}</strong>.</p>
           {error && <p class="consent-error">{error}</p>}
           <input type="hidden" name="nonce" value={view.consentNonce ?? ""} />
+          {view.pinned && view.workspaces.length === 0 && (
+            <p class="consent-error">This connector is for one workspace, and you aren't a member of it (or it doesn't exist). Check the address you gave your app.</p>
+          )}
           <label class="field">
-            <span>Workspace</span>
+            <span>Workspace{view.pinned && <span class="muted"> (fixed by the connector's address)</span>}</span>
             <select name="workspace" required>
               {view.workspaces.map((w) => (
                 <option value={w.id} disabled={!w.mcpAllowed} selected={w.id === first?.id}>
