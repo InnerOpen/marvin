@@ -6,6 +6,76 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.381 (2026-10-18)
+
+### Bug Fixes
+
+- **sites**: An asset used only in an entry's field or the brand counts as on the site
+  ([`6d7d043`](https://github.com/InnerOpen/marvin/commit/6d7d04324a863da8b6496508608f533ee0c236c5))
+
+- **sites**: Rebuild only when something a site serves changes — emptying the Trash no longer
+  rebuilds
+  ([`56c4391`](https://github.com/InnerOpen/marvin/commit/56c4391fe7da6637263e493cf15614554847477e))
+
+- **workflows**: An operational event names the workflows that caused it, not whichever had run in
+  its chain
+  ([`b47fcac`](https://github.com/InnerOpen/marvin/commit/b47fcacb9b07e73cc45aae907d28e4d9bc1720eb))
+
+- **workflows**: The guide fits its budgets again with every new step
+  ([`9a337dd`](https://github.com/InnerOpen/marvin/commit/9a337dd51de60c684574ba50b8b5321b8e5cd7e1))
+
+### Documentation
+
+- **tasks**: Review of the 2026-10-18 Workflow Library and publishing work
+  ([`5313907`](https://github.com/InnerOpen/marvin/commit/531390765dd638c1bbf636e107ad85fe1cd5c6e0))
+
+- **workflows**: Roadmap row 22 names the commit that delivered custom events
+  ([`367cc67`](https://github.com/InnerOpen/marvin/commit/367cc672d656aa1edababce30b80fbfc9ba0165a))
+
+- **workflows**: The library's roadmap and catalogue match what ships
+  ([`9c12941`](https://github.com/InnerOpen/marvin/commit/9c12941fc75190580f698c287eb75cd9d32f6407))
+
+### Features
+
+- **admin**: System shows the embedding model and its versions; Plugins shows available updates
+  ([`07def60`](https://github.com/InnerOpen/marvin/commit/07def609617fa7afd5a87d2f976e4e124f744cd1))
+
+- **publish**: Entries resolve their asset and resource fields; the last resource route goes
+  ([`73daa0a`](https://github.com/InnerOpen/marvin/commit/73daa0a056900848c5cdfd782ba9b423ca1a499a))
+
+- **publish**: The publishing API serves entries and the site — assets and resources come with their
+  entries
+  ([`4e71f42`](https://github.com/InnerOpen/marvin/commit/4e71f42074482b6a104c920827daf561e09ab5d0))
+
+- **workflows**: A metric step can add to the count — each event once
+  ([`c265d9c`](https://github.com/InnerOpen/marvin/commit/c265d9c4f8256dbfb4fd9acfe8f869ecf0e191e0))
+
+- **workflows**: Check against a schema — a step that validates JSON and reports what's wrong
+  ([`241af62`](https://github.com/InnerOpen/marvin/commit/241af627e19ef596fe5e7b90a7a90edfe823ca3a))
+
+- **workflows**: Custom events — a workspace names its own, workflows send and react to them
+  ([`2a450a8`](https://github.com/InnerOpen/marvin/commit/2a450a82d8fb285de448728210c14316bbdd2d4d))
+
+- **workflows**: Email a person — a step that writes to a member of the workspace
+  ([`a5b4b54`](https://github.com/InnerOpen/marvin/commit/a5b4b54f1495da1a815262a035b5221f85fff76c))
+
+- **workflows**: Metrics — a step records an observation per variant and window; a page lists them
+  ([`89d9bb7`](https://github.com/InnerOpen/marvin/commit/89d9bb7b10f1491db210e8c4b572a168de78f6a7))
+
+- **workflows**: Operational events as triggers — a workflow can answer a failed webhook, a budget
+  alert or a stuck integration
+  ([`2f1d13a`](https://github.com/InnerOpen/marvin/commit/2f1d13af4100aa9337352a7293e500acdaf4017e))
+
+- **workflows**: Run branches side by side and join them — all or any, merged in order
+  ([`378554e`](https://github.com/InnerOpen/marvin/commit/378554e3cef312dc1ae4aef4d5772c06481d9692))
+
+### Testing
+
+- **workflows**: Repair tasks sharing a title list oldest first, so the health-companion test
+  doesn't depend on row order
+  ([`d3b88e9`](https://github.com/InnerOpen/marvin/commit/d3b88e92ba90610ae58f41aee8be181b8be79eba))
+
+
 ## v1.0.0-rc.380 (2026-10-17)
 
 ### Features
