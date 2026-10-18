@@ -6,6 +6,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.382 (2026-10-18)
+
+### Bug Fixes
+
+- **assistant**: The agent knows the greeting the bubble showed
+  ([`75ea3f1`](https://github.com/InnerOpen/marvin/commit/75ea3f160e4950bc68fe013156b153293bfa5b50))
+
+### Chores
+
+- **publish**: API clients lose read:assets and read:resources
+  ([`abffb57`](https://github.com/InnerOpen/marvin/commit/abffb57827361f3528c5ab05bb4a876156b169d3))
+
+### Continuous Integration
+
+- **sdk**: The SDK gate installs from uv.lock, like the image
+  ([`2ab13b1`](https://github.com/InnerOpen/marvin/commit/2ab13b19ededd91e4cfcff0acd10787fafd5c702))
+
+
 ## v1.0.0-rc.381 (2026-10-18)
 
 ### Bug Fixes
