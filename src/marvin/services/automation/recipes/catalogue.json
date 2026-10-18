@@ -15,10 +15,10 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 98,
+    "verified-current": 100,
     "needs-adapter": 3,
     "needs-engine-capability": 3,
-    "supported-after-configuration": 11
+    "supported-after-configuration": 9
   },
   "capabilities": {
     "create-entry": {
@@ -121,7 +121,7 @@
       "name": "Operational events as workflow triggers",
       "priority": "P2",
       "capabilities_md": "Event provenance",
-      "acceptance": "ai_budget_*, integration_attention_*, webhook_delivery_failed and scheduled_task_failed become triggerable with origin filtering (a workflow never reacts to a failure its own run caused) and an independent fallback channel."
+      "acceptance": "Delivered 2026-10-18: ai_budget_threshold_reached/_exceeded, integration_attention_needed/_resolved, webhook_delivery_failed and scheduled_task_failed (the workspace's own tasks; a platform task belongs to no workspace) are triggerable under the editor's Operations heading, their payload fields read as `${event.<field>}` (describe_event and the authoring guide list them). A workflow is never woken by a failure its own run caused: the engine's running-workflow guard covers what a run does itself, and a failed delivery that runs after the run joins the delivered event's chain (correlation id, reaction depth), where a workflow with a run in it sits out. The independent fallback is Settings → Automation → Notifications, which needs no workflow."
     },
     "joins": {
       "name": "Parallel branches and joins",
@@ -9691,60 +9691,63 @@
     {
       "id": "integration-health-companion",
       "title": "Integration health companion",
-      "outcome": "Marvin's own integration alerts (deduplicated, with reminders) reach your channels; nothing duplicates them.",
+      "outcome": "When a connection needs attention, a repair task is drafted for it — once per connection and error code while the task is open; Marvin's own alerts (with reminders) still reach your channels.",
       "category": "Event-driven extensions",
       "category_slug": "events",
       "tags": [
         "integrations",
         "alerts",
-        "notify"
+        "tasks"
       ],
-      "target_entity": "integration",
+      "target_entity": "entry",
       "trigger": {
-        "type": "subscription",
+        "type": "event",
         "event": "integration_attention_needed",
         "builtin_event": true,
-        "custom_event": false,
-        "note": "Not a workflow trigger: this event is delivered to subscriptions / Automation → Notifications, never to the automation engine."
+        "custom_event": false
       },
-      "status": "supported-after-configuration",
-      "shape": "configuration",
+      "status": "verified-current",
+      "shape": "workflow",
       "runnable": true,
-      "recipe": null,
-      "vars": null,
+      "recipe": "integration-health-companion.json",
+      "vars": "integration-health-companion.vars.json",
       "setup_variables": [
         {
-          "name": "ops_recipients",
-          "type": "list",
-          "description": "Email addresses for alerts (empty: owners and admins)."
+          "name": "task_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type a repair task is drafted as.",
+          "example": "task"
         },
         {
-          "name": "reminder_hours",
-          "type": "integer",
-          "description": "Hours between reminders for an open alert (0 = never).",
-          "example": 24
+          "name": "body_field",
+          "type": "field_key",
+          "description": "That type's text field, where the details go.",
+          "example": "body"
         }
       ],
       "requires": {
-        "trigger": "subscription:integration_attention_needed",
-        "action_kinds": [],
-        "entry_ops": [],
+        "trigger": "event:integration_attention_needed",
+        "action_kinds": [
+          "collect",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
         "operations": [],
         "handlers": [],
         "integration_actions": [],
-        "condition_ops": []
-      },
-      "prerequisites": {
-        "features": [
-          "SMTP (workspace or platform) for email; VAPID for push"
+        "condition_ops": [
+          "exists"
         ]
       },
+      "prerequisites": {},
       "supporting_objects": [
         {
           "kind": "notification_settings",
-          "required": true,
+          "required": false,
           "name": "Automation → Notifications",
-          "purpose": "Turns the `integration_attention` kind on and picks channels.",
+          "purpose": "Optional, and independent of this workflow: the `integration_attention` kind (on by default) emails owners and admins and can post to a chat channel, so people hear about it even if this workflow fails.",
           "referenced_by": "settings",
           "create": "PUT /api/groups/notifications",
           "configuration": {
@@ -9752,43 +9755,33 @@
               "integration_attention": true
             },
             "email": {
-              "enabled": true,
-              "recipients": "{{ops_recipients}}"
+              "enabled": true
             },
             "push": {
               "enabled": true
             },
             "routes": [],
-            "integration_reminder_hours": "{{reminder_hours}}"
-          },
-          "notes": "Routes can add a chat channel: `{integration_id, action, args, kinds}` naming a connected notify-capable action (Apprise `notify`, Slack `send_message`)."
+            "integration_reminder_hours": 24
+          }
         }
       ],
       "side_effects": [
         {
-          "kind": "notification",
-          "description": "Email/push/route per opened alert and per reminder window; a resolved notice goes to the same channels."
+          "kind": "content_mutation",
+          "description": "Drafts a repair task entry (metadata.integration_alert: <connection>:<code>); nothing is sent."
         }
       ],
-      "cost_notes": "None.",
-      "failure_behaviour": "Delivery is one attempt per channel; the last delivery status is shown on the Notifications page.",
-      "dependencies": [
-        {
-          "capability": "ops-triggers",
-          "name": "Operational events as workflow triggers",
-          "priority": "P2",
-          "acceptance": "ai_budget_*, integration_attention_*, webhook_delivery_failed and scheduled_task_failed become triggerable with origin filtering (a workflow never reacts to a failure its own run caused) and an independent fallback channel.",
-          "why": "to open a repair task from the alert"
-        }
-      ],
+      "cost_notes": "Free: no AI.",
+      "failure_behaviour": "One open task per connection and error code: a reminder, or a second failure while the task is open, finds it and does nothing. Archive or trash the task when the connection works again and the next outage drafts a new one. A task type or field that doesn't exist fails the run (recorded; a `workflow_failed` alert if enabled). The workflow is never woken by a failure its own run caused, and it makes no call to the connection.",
+      "dependencies": [],
       "notes": [
-        "Not a workflow: integration_attention_needed is deliberately not triggerable (a reacting workflow could call the failing connection). The “repair task” half would need the event as a trigger (roadmap: ops-triggers) or an integration event subscription to n8n."
+        "Marvin's alerts are unchanged: the Notifications page still sends the alert, its reminders and the “working again” note; this recipe adds the task beside them, so nothing is duplicated.",
+        "The task is a draft: the person who fixes the connection archives it. `integration_attention_resolved` is triggerable too, for a second workflow that closes tasks."
       ],
       "verification": {
-        "level": "none",
+        "level": "fixture-executed",
         "mocked": [],
-        "test": null,
-        "note": "Configuration objects are validated by their own API models on save; the fixture does not provision them."
+        "test": "tests/test_workflow_library.py::TestExecution::test_integration_health_companion"
       },
       "brief": {
         "flow": "Reuse native alerts; add supported repair task without duplicate notifications",
@@ -9817,7 +9810,7 @@
         "event": "integration_attention_resolved",
         "builtin_event": true,
         "custom_event": false,
-        "note": "Not a workflow trigger: this event is delivered to subscriptions / Automation → Notifications, never to the automation engine."
+        "note": "This recipe is Notifications / subscription configuration. A workflow can start on this event too (the editor's Operations heading), but never on a failure its own run caused."
       },
       "status": "supported-after-configuration",
       "shape": "configuration",
@@ -9892,53 +9885,63 @@
     {
       "id": "webhook-repair-desk",
       "title": "Webhook repair desk",
-      "outcome": "When an outgoing webhook fails after its retries, people hear about it on a channel that does not depend on that webhook.",
+      "outcome": "When an outgoing webhook fails after its retries, a repair task is drafted for it on this workspace's own entries — once per webhook while the task is open.",
       "category": "Event-driven extensions",
       "category_slug": "events",
       "tags": [
         "webhooks",
-        "alerts"
+        "alerts",
+        "tasks"
       ],
-      "target_entity": "webhook",
+      "target_entity": "entry",
       "trigger": {
-        "type": "subscription",
+        "type": "event",
         "event": "webhook_delivery_failed",
         "builtin_event": true,
-        "custom_event": false,
-        "note": "Not a workflow trigger: this event is delivered to subscriptions / Automation → Notifications, never to the automation engine."
+        "custom_event": false
       },
-      "status": "supported-after-configuration",
-      "shape": "configuration",
+      "status": "verified-current",
+      "shape": "workflow",
       "runnable": true,
-      "recipe": null,
-      "vars": null,
+      "recipe": "webhook-repair-desk.json",
+      "vars": "webhook-repair-desk.vars.json",
       "setup_variables": [
         {
-          "name": "ops_recipients",
-          "type": "list",
-          "description": "Email addresses (empty: owners and admins)."
+          "name": "task_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type a repair task is drafted as.",
+          "example": "task"
+        },
+        {
+          "name": "body_field",
+          "type": "field_key",
+          "description": "That type's text field, where the details go.",
+          "example": "body"
         }
       ],
       "requires": {
-        "trigger": "subscription:webhook_delivery_failed",
-        "action_kinds": [],
-        "entry_ops": [],
+        "trigger": "event:webhook_delivery_failed",
+        "action_kinds": [
+          "collect",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
         "operations": [],
         "handlers": [],
         "integration_actions": [],
-        "condition_ops": []
-      },
-      "prerequisites": {
-        "features": [
-          "SMTP or VAPID push"
+        "condition_ops": [
+          "exists"
         ]
       },
+      "prerequisites": {},
       "supporting_objects": [
         {
           "kind": "notification_settings",
-          "required": true,
+          "required": false,
           "name": "Automation → Notifications",
-          "purpose": "The `webhook_delivery_failed` kind is off by default; turn it on with email/push.",
+          "purpose": "Optional, and independent of the failing webhook and of this workflow: the `webhook_delivery_failed` kind is off by default; turn it on to be emailed or pushed for each failure.",
           "referenced_by": "settings",
           "create": "PUT /api/groups/notifications",
           "configuration": {
@@ -9946,8 +9949,7 @@
               "webhook_delivery_failed": true
             },
             "email": {
-              "enabled": true,
-              "recipients": "{{ops_recipients}}"
+              "enabled": true
             },
             "push": {
               "enabled": true
@@ -9957,29 +9959,21 @@
       ],
       "side_effects": [
         {
-          "kind": "notification",
-          "description": "One email/push per failed delivery (every failure, no dedup for this kind)."
+          "kind": "content_mutation",
+          "description": "Drafts a repair task entry (metadata.webhook_repair: the webhook's id); nothing is sent."
         }
       ],
-      "cost_notes": "None.",
-      "failure_behaviour": "Independent of the failing webhook by construction (email/push). The publisher never emits webhook_delivery_failed for a delivery of webhook_delivery_failed itself (loop guard).",
-      "dependencies": [
-        {
-          "capability": "ops-triggers",
-          "name": "Operational events as workflow triggers",
-          "priority": "P2",
-          "acceptance": "ai_budget_*, integration_attention_*, webhook_delivery_failed and scheduled_task_failed become triggerable with origin filtering (a workflow never reacts to a failure its own run caused) and an independent fallback channel.",
-          "why": "to open a repair task automatically"
-        }
-      ],
+      "cost_notes": "Free: no AI.",
+      "failure_behaviour": "One open task per webhook: the next failure while it is open finds it and does nothing; archive or trash it once the webhook works and the next failure drafts a new one. The task lives in Marvin, so it doesn't depend on the failing webhook. If the webhook that fails is one that carries this workflow's own entries (creating the task is an `entry_created` event), the failure that causes is not answered by this workflow — it can't loop; the Notifications page still alerts if you turned it on.",
+      "dependencies": [],
       "notes": [
-        "Not a workflow: webhook_delivery_failed is hidden from triggers. The webhook's own delivery log (GET /api/groups/webhooks/{id}/logs) is the repair context."
+        "The webhook's own delivery log (Automation → Webhooks → Log, or GET /api/groups/webhooks/{id}/logs) is the repair context; the task names the webhook and the event it couldn't deliver.",
+        "The publisher never announces a failed delivery of `webhook_delivery_failed` itself, so a webhook subscribed to it can't make this fire again."
       ],
       "verification": {
-        "level": "none",
+        "level": "fixture-executed",
         "mocked": [],
-        "test": null,
-        "note": "Configuration objects are validated by their own API models on save; the fixture does not provision them."
+        "test": "tests/test_workflow_library.py::TestExecution::test_webhook_repair_desk"
       },
       "brief": {
         "flow": "Notify via independent channel after native retries are exhausted",
@@ -10007,7 +10001,7 @@
         "event": "scheduled_task_failed",
         "builtin_event": true,
         "custom_event": false,
-        "note": "Not a workflow trigger: this event is delivered to subscriptions / Automation → Notifications, never to the automation engine."
+        "note": "This recipe is Notifications / subscription configuration. A workflow can start on this event too (the editor's Operations heading), but never on a failure its own run caused."
       },
       "status": "supported-after-configuration",
       "shape": "configuration",
@@ -10063,7 +10057,7 @@
       "failure_behaviour": "Incidents are keyed `scheduled_task:<id>`; repeated failures only bump the count — no loop, no spam.",
       "dependencies": [],
       "notes": [
-        "Not a workflow: scheduled_task_* are internal scheduler events, not triggerable. A workflow run on a schedule that fails reports through `automation_failed` (the `workflow_failed` kind), not here."
+        "The alert is native, one per incident. A workflow can start on `scheduled_task_failed` (the workspace's own tasks; a platform task belongs to no workspace) and reads `${event.task_name}`, `${event.error_message}` and `${event.consecutive_failures}`; it would run on every failed run, so gate it on `event.consecutive_failures`. A workflow run on a schedule that fails reports through `automation_failed` (the `workflow_failed` kind), not here."
       ],
       "verification": {
         "level": "none",
@@ -10098,7 +10092,7 @@
         "event": "ai_budget_threshold_reached",
         "builtin_event": true,
         "custom_event": false,
-        "note": "Not a workflow trigger: this event is delivered to subscriptions / Automation → Notifications, never to the automation engine."
+        "note": "This recipe is Notifications / subscription configuration. A workflow can start on this event too (the editor's Operations heading), but never on a failure its own run caused."
       },
       "status": "supported-after-configuration",
       "shape": "configuration",
@@ -10154,7 +10148,7 @@
       "failure_behaviour": "Email delivery failures are logged; no retry.",
       "dependencies": [],
       "notes": [
-        "Not a workflow trigger. “Propose cheaper options” is a concept (would need the model list and pricing as event fields)."
+        "A workflow can start on this event (`${event.current_value}`, `${event.limit_value}`, `${event.percent}`). “Propose cheaper options” is a concept (would need the model list and pricing as event fields)."
       ],
       "verification": {
         "level": "none",
@@ -10189,7 +10183,7 @@
         "event": "ai_budget_exceeded",
         "builtin_event": true,
         "custom_event": false,
-        "note": "Not a workflow trigger: this event is delivered to subscriptions / Automation → Notifications, never to the automation engine."
+        "note": "This recipe is Notifications / subscription configuration. A workflow can start on this event too (the editor's Operations heading), but never on a failure its own run caused."
       },
       "status": "supported-after-configuration",
       "shape": "configuration",

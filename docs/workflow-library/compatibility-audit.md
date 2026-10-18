@@ -22,13 +22,14 @@ remain are in [`roadmap.md`](roadmap.md).
 
 | Trigger | Status | Notes |
 |---|---|---|
-| `event` (52 triggerable events, 2026-10-17) | exists | `services/events/event_catalog.py` `triggerable=True`; listener gate `event_bus_listener.py:1139-1146` |
+| `event` (58 triggerable events, 2026-10-18) | exists | `services/events/event_catalog.py` `triggerable=True`; listener gate `event_bus_listener.py:1139-1146` |
 | `manual`, `mcp` | exists | `engine.py:697` `run_automation_now` (skips trigger/condition gates unless a `target`) |
 | `schedule` | exists-with-caveat | creates its own backing `run_automation` scheduled task (`workflows.py:101` `sync_schedule`, slug `wf-<id>`); interval, once and cron all fire (cron since 2026-10-08: `services/cron.py`, five numeric fields in an IANA timezone; an expression that can't run is refused on save — before, cron computed no next run and never fired) |
 | `chained` / `on_error` | exists | match `automation_ran` / `automation_failed` (`engine.py:391-394`); the failed run's entry is `event.trigger_entity_type/id` (`summary.py:153`) |
 | `incoming_webhook` | exists | body → `${event.payload.*}` (`routes/hooks/hooks_controller.py:77-148`); headers/query not carried; no dedup store; signature presets incl. HMAC |
 | Custom emitted events | exists (2026-10-18) | a workspace registers `custom.<name>` events with typed fields (`services/events/custom_events.py`, `group_preferences.custom_events_json`); `emit_event` sends one with a templated `payload`; triggerable and subscribable; depth-bounded like every emitted event |
-| Operational events as triggers (`webhook_triggered`, `integration_attention_*`, `webhook_delivery_failed`, `scheduled_task_*`, `ai_budget_*`, `approval_*`, `api_client_*`; `member_added` / `member_role_changed` became triggers 2026-10-13) | needs-engine-capability (by design) | not triggerable; reach subscriptions (email / integration / outgoing webhook) and Automation → Notifications instead. 46 of the brief's 85 events are **not** workflow triggers |
+| Operational events as triggers (`ai_budget_threshold_reached` / `_exceeded`, `integration_attention_needed` / `_resolved`, `webhook_delivery_failed`, `scheduled_task_failed`) | exists (2026-10-18) | triggerable under the editor's **Operations** heading (`event_catalog.OPERATIONS`), payload fields as `${event.<field>}` (`operational_fields`; `describe_event`, authoring guide). Origin: `engine._running` keeps a workflow out of what its own run does, and `engine._own_chain_workflows` out of a failure announced in the chain of an event it sent (the publisher gives a failed delivery the delivered event's correlation id and reaction depth). Scheduled tasks: the workspace's own only — a system task has no workspace (its failure is dispatched without a group). Fallback: Automation → Notifications needs no workflow |
+| Operational events still not triggers (`webhook_triggered`, `approval_*`, `api_client_*`, `ai_provider_quota_exceeded`, `ai_model_unpriced`; `member_added` / `member_role_changed` became triggers 2026-10-13) | needs-engine-capability (by design) | not triggerable; reach subscriptions (email / integration / outgoing webhook) and Automation → Notifications instead |
 
 **Scheduled dispatch path**: tick → `scheduled_task_triggered` → `ScheduledTaskListener` → `run_automation`
 handler → `run_automation_now(trigger_kind="schedule")` with `event = {event_type: "manual"}` (no `$event.*`
@@ -110,9 +111,11 @@ recipes avoid `{{field}}` templating so an installer can't confuse them.
 
 ## Brief assumptions that do not hold
 
-- `webhook_triggered` and the other operational events are not workflow triggers → `host-rebuild-dispatch`,
-  the AI budget, integration-health, watchdog, approval, member and token recipes are **configuration**, not
-  workflows.
+- `webhook_triggered`, `approval_*`, `api_client_*` and the provider-quota events are not workflow triggers →
+  `host-rebuild-dispatch`, the approval and token recipes are **configuration**, not workflows. The AI budget, watchdog
+  and recovery recipes stay configuration too (native alerts do what they ask); `integration_attention_*`,
+  `webhook_delivery_failed`, `scheduled_task_failed` and `ai_budget_*` *are* triggers since 2026-10-18, and
+  integration-health-companion and webhook-repair-desk are workflows (a repair task per connection / webhook).
 - "Body changes" cannot gate a workflow (`_TRACKED_FIELDS`).
 - `classify-form-submission` from a workflow classifies `{}`: the runner loads no submission context and
   new submissions are entries, not `FormSubmissions` rows.

@@ -1956,6 +1956,83 @@ class TestExecution:
         _fire(ws, "custom.milestone", {"event_name": "milestone", "payload": {"milestone": "x"}}, entity=lantern.id, entity_type="entry")
         assert len(badges()) == 3
 
+    def _repair_tasks(self, ws, key: str) -> list:
+        from marvin.db.models.platform import Entries
+
+        ws.session.expire_all()
+        rows = ws.session.query(Entries).filter_by(group_id=ws.gid, entry_type_id=ws.types["article"]).all()
+        return sorted((e for e in rows if key in (e.metadata_json or {})), key=lambda e: e.title)
+
+    def test_integration_health_companion(self, ws):
+        _install(ws, "integration-health-companion")
+        alert = {
+            "alert_id": str(uuid.uuid4()), "integration_id": str(uuid.uuid4()), "integration_slug": "shop", "integration_name": "Shop",
+            "provider": "square", "provider_name": "Square", "code": "auth", "error": "The access token expired", "count": 3,
+            "reminder": False, "title": "Square needs attention", "workspace_id": str(ws.gid),
+            "summary": "Square (shop) needs attention: auth - The access token expired (3 failures)",
+        }  # fmt: skip
+
+        assert _fire(ws, "integration_attention_needed", alert, correlation_id="alert-1") == 1
+        (task,) = self._repair_tasks(ws, "integration_alert")
+        assert (task.title, task.status) == ("Square needs attention: shop (auth)", "draft")
+        assert task.metadata_json["integration_alert"] == "shop:auth" and task.metadata_json["integration"] == "shop"
+        body = task.data_json["body"]
+        assert "Square (shop) needs attention" in body and "The access token expired" in body and "Failures since the alert opened: 3" in body
+
+        # Run #2: a reminder for the same alert, and the same failure again, find the open task and make no second one.
+        _fire(ws, "integration_attention_needed", {**alert, "reminder": True, "count": 9}, correlation_id="alert-1-reminder")
+        _fire(ws, "integration_attention_needed", alert, correlation_id="alert-1-again")
+        assert [t.id for t in self._repair_tasks(ws, "integration_alert")] == [task.id]
+        assert len(_runs(ws, "integration-health-companion")) == 3
+
+        # Another error code on the same connection, or the same code on another connection, is another task.
+        _fire(ws, "integration_attention_needed", {**alert, "code": "rate_limit", "title": "Square is rate limited"}, correlation_id="alert-2")
+        _fire(ws, "integration_attention_needed", {**alert, "integration_slug": "cafe"}, correlation_id="alert-3")
+        assert sorted(t.metadata_json["integration_alert"] for t in self._repair_tasks(ws, "integration_alert")) == [
+            "cafe:auth",
+            "shop:auth",
+            "shop:rate_limit",
+        ]
+
+        # An archived task is closed: the next outage of that connection drafts a new one.
+        task.status = "archived"
+        ws.session.commit()
+        _fire(ws, "integration_attention_needed", {**alert, "reminder": True}, correlation_id="alert-4")
+        assert [t.status for t in self._repair_tasks(ws, "integration_alert") if t.metadata_json["integration_alert"] == "shop:auth"] == [
+            "archived",
+            "draft",
+        ]
+
+        # An alert naming no connection is ignored.
+        before = len(self._repair_tasks(ws, "integration_alert"))
+        _fire(ws, "integration_attention_needed", {k: v for k, v in alert.items() if k != "integration_slug"}, correlation_id="alert-5")
+        assert len(self._repair_tasks(ws, "integration_alert")) == before
+
+    def test_webhook_repair_desk(self, ws):
+        _install(ws, "webhook-repair-desk")
+        failure = {
+            "webhook_id": str(ws.webhooks["announce"]), "webhook_name": "Announce", "delivered_event_type": "entry_published",
+            "status_code": 503, "error_message": "HTTP 503", "attempts": 3,
+        }  # fmt: skip
+
+        assert _fire(ws, "webhook_delivery_failed", failure, entity=ws.webhooks["announce"], entity_type="webhook", correlation_id="wh-1") == 1
+        (task,) = self._repair_tasks(ws, "webhook_repair")
+        assert (task.title, task.status) == ("Repair webhook “Announce”", "draft")
+        assert task.metadata_json["webhook_repair"] == failure["webhook_id"] and task.metadata_json["last_event"] == "entry_published"
+        assert "failed after 3 attempts: HTTP 503" in task.data_json["body"] and "delivery log" in task.data_json["body"]
+
+        # Run #2: the same webhook failing again while its task is open makes no second task; another webhook does.
+        _fire(ws, "webhook_delivery_failed", {**failure, "error_message": "ConnectTimeout"}, correlation_id="wh-2")
+        assert [t.id for t in self._repair_tasks(ws, "webhook_repair")] == [task.id]
+        _fire(ws, "webhook_delivery_failed", {**failure, "webhook_id": str(uuid.uuid4()), "webhook_name": "Forum"}, correlation_id="wh-3")
+        assert [t.title for t in self._repair_tasks(ws, "webhook_repair")] == ["Repair webhook “Announce”", "Repair webhook “Forum”"]
+
+        # A task that is closed (trashed) lets the next failure of that webhook draft a new one.
+        task.status = "archived"
+        ws.session.commit()
+        _fire(ws, "webhook_delivery_failed", failure, correlation_id="wh-4")
+        assert len(self._repair_tasks(ws, "webhook_repair")) == 3
+
     def test_community_welcome_pack(self, ws):
         from marvin.db.models.platform import Collections, EntryCollections
 
@@ -2764,6 +2841,48 @@ def test_a_dry_run_of_the_achievement_cabinet_previews_the_badge_and_the_event_t
     result = run_automation_now(ws.session, ws.gid, sender, user_id=ws.uid, dry_run=True)
     assert result["ok"], _step_errors(result["plan"])
     assert result["plan"][0]["resolved"]["payload"] == {"badge": "B", "milestone": "M"}
+
+
+def test_a_dry_run_of_the_repair_recipes_previews_the_task_and_makes_none_then_skips_it_once_one_is_open(ws):
+    from marvin.db.models.platform import Entries
+    from marvin.services.automation.engine import dry_run_for_event
+
+    cases = {
+        "integration-health-companion": (
+            "integration_attention_needed",
+            {"integration_slug": "shop", "provider_name": "Square", "code": "auth", "error": "expired", "count": 1, "title": "Square needs attention",
+             "summary": "Square (shop) needs attention"},  # fmt: skip
+            "Square needs attention: shop (auth)",
+        ),
+        "webhook-repair-desk": (
+            "webhook_delivery_failed",
+            {
+                "webhook_id": str(ws.webhooks["announce"]),
+                "webhook_name": "Announce",
+                "delivered_event_type": "entry_published",
+                "error_message": "HTTP 503",
+                "attempts": 3,
+            },
+            "Repair webhook “Announce”",
+        ),
+    }  # fmt: skip
+    for rid, (event, doc, title) in cases.items():
+        row = _install(ws, rid)
+        ctx = event_context(event, doc, correlation_id="dry")
+
+        preview = dry_run_for_event(ws.session, ws.gid, row, ctx)
+        assert preview["would_fire"] and _step_errors(preview["plan"]) == [], rid
+        create = next(p for p in preview["plan"] if p.get("kind") == "entry" and p["resolved"].get("title"))
+        assert create["resolved"]["title"] == title and create["resolved"]["status"] == "draft", rid
+        assert ws.session.query(Entries).filter_by(group_id=ws.gid, title=title).count() == 0  # previewed, not made
+
+        # Run #2: with the task made (a real run), a dry run of the same event no longer plans a create.
+        assert _fire(ws, event, doc, correlation_id="real") == 1
+        assert ws.session.query(Entries).filter_by(group_id=ws.gid, title=title).count() == 1
+        again = dry_run_for_event(ws.session, ws.gid, row, event_context(event, doc, correlation_id="dry-2"))
+        assert again["would_fire"] and _step_errors(again["plan"]) == [], rid
+        (create_step,) = [p for p in again["plan"] if p.get("kind") == "entry"]
+        assert create_step["status"] == "skipped" and create_step["resolved"]["when"][0]["actual"] == 1, rid
 
 
 def test_a_dry_run_of_the_schema_recipes_checks_nothing_it_cant_have(ws, monkeypatch):

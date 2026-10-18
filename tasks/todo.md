@@ -31,9 +31,14 @@ Every slice: dry run + second run tested for any recipe it unblocks; catalogue c
       their assets/resources inline); /site returns logo, favicon, SEO image and metadata.brand values as resolved URLs (never a bare slug).
       SDK + MarvinAstro dropped their helpers on branch feat/drop-publish-assets
 - [x] V1b: resources/{slug}/entries + read:resources gone; brand non-asset values pass through; entry data asset/resource fields resolved
-- [ ] S3 Ops events as triggers: ai_budget_*, integration_attention_*, webhook_delivery_failed,
-      scheduled_task_failed, with origin filtering (never react to a failure the run itself caused)
-      → integration-health-companion, webhook-repair-desk become workflows
+- [x] S3 Ops events as triggers (2026-10-18; 100 verified-current, 9 supported-after-configuration): ai_budget_* (2),
+      integration_attention_* (2), webhook_delivery_failed, scheduled_task_failed are triggerable under the editor's
+      "Operations" heading (`event_catalog.OPERATIONS`), fields as `${event.<field>}` (`operational_fields` → describe_event
+      `workflowTrigger`, guide `events.operations`). Origin: the engine's `_running` guard (a run's own work is dispatched
+      inside it) + `_own_chain_workflows` (a failed delivery after the run ended joins the delivered event's correlation id
+      and reaction depth in the publisher; a workflow with a run in that chain sits it out, depth > 0 only). Workspace-scoped
+      only: a system scheduled task has no workspace. Fallback = Notifications (needs no workflow) →
+      integration-health-companion, webhook-repair-desk are workflows (a repair task per connection+code / webhook, once while open)
 - [ ] S4 Member-addressed email: member_added carries the member's email / recipient `member` → new-member-welcome
 - [ ] S5 Parallel branches + join (all/any, deterministic merge, partial-failure semantics) → publication-release-gate
 - [ ] S6 Metrics windows: a step records an observation per variant/window; a report lists them (no causal claims)

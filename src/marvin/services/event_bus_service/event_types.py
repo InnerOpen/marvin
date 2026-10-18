@@ -1490,6 +1490,8 @@ class EventScheduledTaskData(EventDocumentDataBase):
     """On a failure: how many runs in a row have now failed (1 = the first)."""
     transient: bool | None = None
     """On a failure: a network blip (a timeout, a dropped connection) rather than a real error."""
+    error_message: str | None = None
+    """On a failure: what went wrong (the first 500 characters), for a workflow's `${event.error_message}`."""
     alert_deferred: bool | None = None
     """On a failure: a blip not announced yet — failing for under ten minutes with the next run due within ten
     (services/scheduled_tasks/blips.py). Notifications and the bell skip it; the event log keeps it."""

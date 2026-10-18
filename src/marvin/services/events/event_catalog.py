@@ -23,6 +23,11 @@ from typing import Literal
 EventScope = Literal["workspace", "platform"]
 
 
+OPERATIONS = "Operations"
+"""The builder's heading for the events that report the platform failing or running short: a budget crossing, a
+connection needing attention, a webhook that couldn't deliver, a scheduled task that failed."""
+
+
 @dataclass
 class EventVariable:
     slug: str
@@ -54,10 +59,12 @@ class CatalogEntry:
     """A workflow can start on it (an "event" trigger): the builder's trigger dropdown offers it and the
     automation listener reacts to it. Curated, not the whole firehose: only events that are actually sent and
     worth reacting to. Left out on purpose: internal/audit noise (AI runs, reindexing, deliveries,
-    scheduled_task_*, webhook_task, auth, budgets), automation_ran/automation_failed (they drive the chained /
+    scheduled_task_completed, webhook_task, auth), automation_ran/automation_failed (they drive the chained /
     on_error trigger types instead), automation_started (a workflow reacting to runs starting — its own
     included — would loop) and site_rebuild_queued (rebuild progress, not content). A triggerable event's
-    `document_data` is flattened into `$event.*`, so conditions can key on its fields."""
+    `document_data` is flattened into `$event.*`, so conditions can key on its fields. The OPERATIONS group
+    (ai_budget_*, integration_attention_*, webhook_delivery_failed, scheduled_task_failed) is the platform
+    reporting a failure; the engine never runs a workflow for one its own run caused (engine._caused_by_own_run)."""
     trigger_group: str | None = None
     """The heading the builder lists a triggerable event under, when it isn't `category` ("Entries",
     "Collections", … split the Content category the way the dropdown reads best)."""
@@ -1129,8 +1136,9 @@ CATALOG: list[CatalogEntry] = [
         ],
     ),
     # ── Connect: Integrations ─────────────────────────────────────────────────
-    # Not workflow triggers (automation/triggers.py): a workflow reacting to a connection alert could
-    # call the failing connection again. Route them from Settings → Integrations → Integration alerts.
+    # Workflow triggers under "Operations" — see the OPERATIONS rule: a workflow never answers a failure its own run
+    # caused, so a workflow that calls the failing connection is not woken by it. The alert itself still reaches
+    # people without any workflow (Settings → Automation → Notifications, Integration alerts).
     CatalogEntry(
         event_type="integration_attention_needed",
         name="Integration Needs Attention",
@@ -1139,11 +1147,15 @@ CATALOG: list[CatalogEntry] = [
         "never once per affected item.",
         category="Connect",
         sent_by=["An integration failing (Alerts & health)"],
+        triggerable=True,
+        trigger_group=OPERATIONS,
         variables=COMMON_VARS
         + [
             EventVariable("integration_name", "The connection's name", "Shop", type="name"),
             EventVariable("integration_slug", "The connection's slug", "shop"),
+            EventVariable("provider", "The provider's registry key", "square"),
             EventVariable("provider_name", "The provider's name", "Square", type="name"),
+            EventVariable("alert_id", "The alert's ID (one per connection and error code)", "<alert-uuid>"),
             EventVariable("code", "The provider's error code", "auth"),
             EventVariable("error", "The latest failure's message", "The access token expired"),
             EventVariable("count", "Failures since the alert opened", "3", type="number"),
@@ -1159,6 +1171,8 @@ CATALOG: list[CatalogEntry] = [
         "or an admin's Resolve. Also delivered to every channel that delivered the alert.",
         category="Connect",
         sent_by=["An integration working again: a passing health check, a successful action, or an admin"],
+        triggerable=True,
+        trigger_group=OPERATIONS,
         variables=COMMON_VARS
         + [
             EventVariable("integration_name", "The connection's name", "Shop", type="name"),
@@ -1264,6 +1278,8 @@ CATALOG: list[CatalogEntry] = [
         description="An outgoing webhook couldn't deliver an event, even after its retries.",
         category="Connect",
         sent_by=["An outgoing webhook delivery failing after its retries (event, scheduled and test sends)"],
+        triggerable=True,
+        trigger_group=OPERATIONS,
         variables=COMMON_VARS
         + [
             EventVariable("webhook_id", "ID of the webhook", "<webhook-uuid>", type="string"),
@@ -1639,10 +1655,17 @@ CATALOG: list[CatalogEntry] = [
         category="Automation",
         internal=True,
         sent_by=["Running a scheduled task, when it fails"],
+        triggerable=True,
+        trigger_group=OPERATIONS,
         variables=COMMON_VARS
         + [
+            EventVariable("task_id", "ID of the task", "<task-uuid>"),
             EventVariable("task_name", "Name of the failed task", "Daily Cleanup", type="name"),
+            EventVariable("task_slug", "The task's slug", "daily-cleanup"),
+            EventVariable("task_type", "What kind of task it is", "cleanup"),
             EventVariable("error_message", "What went wrong", "Connection timeout", type="error"),
+            EventVariable("consecutive_failures", "Runs in a row that have failed, this one included (1 = the first)", "2", type="count"),
+            EventVariable("transient", "True for a network blip (a timeout, a dropped connection) rather than a real error", "false"),
         ],
     ),
     CatalogEntry(
@@ -2109,11 +2132,14 @@ CATALOG: list[CatalogEntry] = [
         description="Workspace AI spend crossed a budget warning threshold (~80% of the monthly cost limit).",
         category="AI",
         sent_by=["An AI call crossing the workspace's monthly budget warning (AI operations, workflow steps, persona lines)"],
+        triggerable=True,
+        trigger_group=OPERATIONS,
         variables=COMMON_VARS
         + [
             EventVariable("current_value", "Current monthly spend (USD)", "40.00", type="number"),
             EventVariable("limit_value", "Monthly cost limit (USD)", "50.00", type="number"),
             EventVariable("percent", "Percent of limit reached", "80", type="number"),
+            EventVariable("detail", "One line saying what was reached", "AI spend reached 80% of the $50.00 monthly limit"),
         ],
     ),
     CatalogEntry(
@@ -2137,10 +2163,13 @@ CATALOG: list[CatalogEntry] = [
         description="The workspace monthly AI cost limit was reached.",
         category="AI",
         sent_by=["An AI call going over the workspace's monthly budget (AI operations, workflow steps, persona lines)"],
+        triggerable=True,
+        trigger_group=OPERATIONS,
         variables=COMMON_VARS
         + [
             EventVariable("current_value", "Current monthly spend (USD)", "50.00", type="number"),
             EventVariable("limit_value", "Monthly cost limit (USD)", "50.00", type="number"),
+            EventVariable("detail", "One line saying what was reached", "Monthly AI cost limit of $50.00 reached (spent $50.12)"),
         ],
     ),
     CatalogEntry(
@@ -2362,6 +2391,10 @@ TRIGGERABLE_EVENT_TYPES: frozenset[str] = frozenset(e.event_type for e in CATALO
 """What a workflow's "event" trigger can name — the automation listener reacts to exactly these (plus the
 incoming_webhook / chained / on_error trigger types' own events)."""
 
+OPERATIONAL_EVENT_TYPES: frozenset[str] = frozenset(e.event_type for e in CATALOG if e.triggerable and e.trigger_group == OPERATIONS)
+"""The triggerable events that report a failure or a shortfall (the builder's Operations heading): the engine never
+runs a workflow for one that workflow's own run caused."""
+
 EMITTABLE_EVENT_TYPES: frozenset[str] = frozenset(e.event_type for e in CATALOG if e.emittable)
 """What a workflow's Emit event step accepts."""
 
@@ -2376,6 +2409,18 @@ def trigger_groups() -> dict[str, list[str]]:
         if e.triggerable:
             groups.setdefault(e.trigger_group or e.category, []).append(e.event_type)
     return groups
+
+
+def operational_fields(event_type: str) -> dict[str, dict[str, str]]:
+    """What a workflow reads of an operational event as `${event.<field>}` (and in a condition as `event.<field>`):
+    each field of its payload with its type and meaning. Empty for any other event. The catalog's variables minus the
+    template extras every event offers to an email (workspace_name, message_title…), which `$event` doesn't carry;
+    tests/test_ops_triggers.py holds each one to the payload model that really sends it."""
+    entry = CATALOG_BY_TYPE.get(event_type)
+    if entry is None or not entry.triggerable or entry.trigger_group != OPERATIONS:
+        return {}
+    common = {v.slug for v in COMMON_VARS}
+    return {v.slug: {"type": v.type, "description": v.description} for v in entry.variables if v.slug not in common}
 
 
 def offered_emittable() -> list[str]:

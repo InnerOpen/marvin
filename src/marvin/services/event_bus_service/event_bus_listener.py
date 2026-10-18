@@ -676,6 +676,7 @@ class ScheduledTaskListener(BuiltinReaction):
                     "transient": is_transient_network_error(exc),
                     "alert_deferred": deferred,
                     "last_status": "failed",
+                    "error_message": error_message[:500],
                 }
             )
         event_bus.dispatch(

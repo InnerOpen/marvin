@@ -317,7 +317,7 @@ def _triggers() -> dict:
 
 
 def _events(refs: WorkspaceRefs) -> dict:
-    from marvin.services.events.event_catalog import CATALOG_BY_TYPE, offered_emittable, trigger_groups
+    from marvin.services.events.event_catalog import CATALOG_BY_TYPE, OPERATIONS, offered_emittable, operational_fields, trigger_groups
 
     groups: dict[str, Any] = {g: {e: CATALOG_BY_TYPE[e].description for e in names} for g, names in trigger_groups().items()}
     out: dict[str, Any] = {
@@ -325,6 +325,17 @@ def _events(refs: WorkspaceRefs) -> dict:
         "emittable": offered_emittable(),
         "note": "An event trigger names one triggerable event. describe_event gives an event's `event.*` fields.",
     }
+    if OPERATIONS in groups:
+        out["operations"] = {
+            "fields": {e: {k: f["type"] for k, f in operational_fields(e).items()} for e in groups[OPERATIONS]},
+            "note": (
+                "The Operations events report the platform failing or running short; a workflow reads their fields as ${event.<field>} "
+                "(`event.<field>` in a condition). A workflow is never woken by a failure its own run caused (its webhook, its AI call, its "
+                "integration step), so it can't loop; its own failures still reach people through Settings → Automation → Notifications, "
+                "which needs no workflow. Scheduled tasks count only the workspace's own, not the platform's. A repeat while a repair task "
+                "is open should make no second one: look it up first (a `collect` step on a metadata key) and `when` the create on none."
+            ),
+        }
     if refs.custom_events:
         # The workspace's own events: triggerable and emittable like the rest, their fields typed.
         types = [e["event_type"] for e in refs.custom_events]

@@ -1,0 +1,15 @@
+{
+  "recipe": "webhook-repair-desk",
+  "variables": {
+    "task_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type a repair task is drafted as.",
+      "example": "task"
+    },
+    "body_field": {
+      "type": "field_key",
+      "description": "That type's text field, where the details go.",
+      "example": "body"
+    }
+  }
+}

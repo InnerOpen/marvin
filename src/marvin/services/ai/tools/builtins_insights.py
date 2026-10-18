@@ -301,7 +301,7 @@ def describe_event(ctx: ToolContext, args: dict) -> str:
     workspaces, as on the admin Events page)."""
     from marvin.db.models.users.roles import PlatformRole
     from marvin.services.events import connections, custom_events
-    from marvin.services.events.event_catalog import CATALOG, canonical_event_type, get_catalog_entry
+    from marvin.services.events.event_catalog import CATALOG, canonical_event_type, get_catalog_entry, operational_fields
 
     user = ctx.user
     super_admin = getattr(user, "platform_role", None) == PlatformRole.SUPER_ADMIN or bool(getattr(user, "is_superuser", False))
@@ -327,6 +327,12 @@ def describe_event(ctx: ToolContext, args: dict) -> str:
     }
     if custom_events.is_custom(entry.event_type):  # the workspace's own: what its payload carries (`event.payload.<field>`)
         out["payload"] = {v.slug: v.type for v in entry.variables}
+    if fields := operational_fields(entry.event_type):  # a failure or shortfall a workflow can answer: `${event.<field>}`
+        out["workflowTrigger"] = {
+            "triggerable": True,
+            "fields": fields,
+            "note": "A workflow starting on this reads these as ${event.<field>}. It never runs for a failure its own run caused.",
+        }
     if entry.scope == "workspace":
         detail = connections.detail(ctx.session, ctx.group_id, entry, limit=1, visible=_visible_events(ctx))
         out |= {

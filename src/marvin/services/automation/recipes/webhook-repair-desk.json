@@ -1,0 +1,57 @@
+{
+  "name": "Webhook repair desk",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "webhook_delivery_failed"
+    },
+    "conditions": [
+      {
+        "field": "event.webhook_id",
+        "op": "exists"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "open",
+        "entity": "entry",
+        "query": {
+          "entry_type": "{{task_entry_type}}",
+          "statuses": [
+            "inbox",
+            "processing",
+            "draft",
+            "needs_review",
+            "approved",
+            "published"
+          ],
+          "metadata": {
+            "webhook_repair": "${event.webhook_id}"
+          }
+        },
+        "limit": 1
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{task_entry_type}}",
+        "title": "Repair webhook “${event.webhook_name}”",
+        "data": {
+          "{{body_field}}": "Delivering ${event.delivered_event_type} to “${event.webhook_name}” failed after ${event.attempts} attempts: ${event.error_message}.\n\nThe webhook's delivery log (Automation → Webhooks) shows each attempt. Fix the webhook or the endpoint, then archive this task. While it stays open, further failures make no second one."
+        },
+        "metadata": {
+          "webhook_repair": "${event.webhook_id}",
+          "webhook": "${event.webhook_name}",
+          "last_event": "${event.delivered_event_type}"
+        },
+        "status": "draft",
+        "when": {
+          "field": "steps.open.output.total",
+          "op": "eq",
+          "value": 0
+        }
+      }
+    ]
+  }
+}

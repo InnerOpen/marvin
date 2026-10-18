@@ -114,7 +114,9 @@ def _announce_delivery_failure(
     error: str,
 ) -> None:
     """One `webhook_delivery_failed` per delivery that failed after its retries: the webhook's name and id, the
-    event it carried, the HTTP status or error — never its URL, headers or a body."""
+    event it carried, the HTTP status or error — never its URL, headers or a body. It joins the delivered event's
+    causal chain (correlation id, reaction depth), so a workflow that answers it can tell whether a workflow's own
+    work caused the failure (a delivery can run after the run that sent the event has ended)."""
     if webhook_id is None or group_id is None:
         return
     delivered = getattr(event.event_type, "name", None)
@@ -140,6 +142,8 @@ def _announce_delivery_failure(
             message=f"Outgoing webhook '{name}' couldn't deliver {delivered or 'an event'}: {error}",
             entity_id=webhook_id,
             entity_type="webhook",
+            reaction_depth=getattr(event, "reaction_depth", 0) or 0,
+            correlation_id=getattr(event, "correlation_id", None),
         )
     except Exception as e:  # announcing a failure must never break the delivery path
         get_logger().error(f"Failed to announce webhook delivery failure: {e}")
