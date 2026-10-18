@@ -630,6 +630,53 @@ class RepeatAction(_StepBase):
         return name
 
 
+# Parallel branches: named lists of steps that run independently, then join. A branch holds plain steps only (the same
+# ones a repeat may): a run can't park mid-branch, and nesting stops at one level.
+MAX_PARALLEL_BRANCHES = 5
+MAX_BRANCH_STEPS = 5
+NOT_IN_A_BRANCH = ("wait", "approval", "repeat", "parallel")
+
+
+class ParallelBranch(_DefnBase):
+    """One branch of a parallel step: a `name` (read later as ${steps.<id>.output.branches.<name>.*}) and its `steps`
+    (1–5)."""
+
+    name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,30}$")
+    steps: list[RepeatStep] = Field(min_length=1, max_length=MAX_BRANCH_STEPS)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _plain_steps_only(cls, data: Any) -> Any:
+        steps = data.get("steps") if isinstance(data, dict) else None
+        held = sorted({str(s.get("kind")) for s in steps if isinstance(s, dict)} & set(NOT_IN_A_BRANCH)) if isinstance(steps, list) else []
+        if held:
+            raise ValueError(
+                f"a branch can't hold a {', '.join(held)} step: a run can't wait, or nest, in the middle of branches. "
+                "Put the wait or approval before the parallel step or after it"
+            )
+        return data
+
+
+class ParallelAction(_StepBase):
+    """Runs 2–5 named `branches` (1–5 steps each) in order; a branch reads what ran before, not its siblings. `join`:
+    all (default) or any (the first branch to succeed wins, the rest are skipped). `on_branch_failure`: fail (default:
+    fails the step when the join isn't met) or continue (never fails the step: read `satisfied`, `text`). Output
+    `branches.<name>` {status, error, steps, output}. No wait/approval/repeat inside."""
+
+    kind: Literal["parallel"]
+    branches: list[ParallelBranch] = Field(min_length=2, max_length=MAX_PARALLEL_BRANCHES)
+    join: Literal["all", "any"] = "all"
+    on_branch_failure: Literal["fail", "continue"] = "fail"
+    id: str | None = None
+
+    @model_validator(mode="after")
+    def _names_differ(self):
+        names = [b.name for b in self.branches]
+        if len(set(names)) != len(names):
+            raise ValueError("each branch needs its own name")
+        return self
+
+
 ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "operation": OperationAction,
     "entry": EntryAction,
@@ -644,6 +691,7 @@ ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "schema_check": SchemaCheckAction,
     "wait": WaitAction,
     "repeat": RepeatAction,
+    "parallel": ParallelAction,
 }
 
 Action = Annotated[
@@ -659,7 +707,8 @@ Action = Annotated[
     | FetchAction
     | SchemaCheckAction
     | WaitAction
-    | RepeatAction,
+    | RepeatAction
+    | ParallelAction,
     Field(discriminator="kind"),
 ]
 

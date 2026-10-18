@@ -492,9 +492,12 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const COND_OP_LABELS: Record<string, string> = WORKFLOW_LABELS.conditionOps;
   // Most-useful-first (backend returns kinds alphabetically). New steps default to the first
   // available — an AI operation when AI is on, otherwise the first non-AI kind.
-  const KIND_ORDER = ["operation", "entry", "media", "collect", "repeat", "fetch", "schema_check", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
-  // A repeat's inner steps: a run can't park mid-loop, so no wait, approval or repeat inside (backend: NOT_INSIDE).
-  const NOT_IN_REPEAT = new Set(["wait", "approval", "repeat"]);
+  const KIND_ORDER = ["operation", "entry", "media", "collect", "repeat", "parallel", "fetch", "schema_check", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
+  // A repeat's or a parallel branch's inner steps: a run can't park mid-loop or mid-branch, so no wait, approval, repeat or
+  // parallel inside (backend: NOT_INSIDE, NOT_IN_A_BRANCH).
+  const NOT_IN_REPEAT = new Set(["wait", "approval", "repeat", "parallel"]);
+  const MAX_BRANCHES = 5;
+  const MAX_BRANCH_STEPS = 5;
   const orderedKinds = (): string[] => {
     const avail = OPTIONS.actionKinds || [];
     return KIND_ORDER.filter((k) => avail.includes(k)).concat(avail.filter((k: string) => !KIND_ORDER.includes(k)));
@@ -708,6 +711,29 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     return row;
   }
 
+  /** One branch of a parallel step: its name and its steps (ordinary rows, up to MAX_BRANCH_STEPS). */
+  function branchBlock(branch: any, onChange: () => void): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "a-p-branch";
+    el.innerHTML = `
+      <div class="a-p-head">
+        <label class="tf"><span>Branch name <span class="muted">(lower case, e.g. images)</span></span>
+          <input class="input a-p-name" value="${esc(branch.name ?? "")}" placeholder="e.g. images" spellcheck="false" autocomplete="off" /></label>
+        <button type="button" class="icon-btn a-p-remove" title="Remove branch">✕</button>
+      </div>
+      <div class="a-p-steps rows"></div>
+      <button type="button" class="linkish a-p-add-step">+ Add a step to this branch</button>`;
+    const box = el.querySelector(".a-p-steps") as HTMLElement;
+    for (const step of (Array.isArray(branch.steps) && branch.steps.length ? branch.steps : [{}])) box.appendChild(actionRow(step, true));
+    const add = el.querySelector(".a-p-add-step") as HTMLButtonElement;
+    const syncAdd = () => { add.hidden = box.querySelectorAll(":scope > .action-row").length >= MAX_BRANCH_STEPS; };
+    add.addEventListener("click", () => { box.appendChild(actionRow({}, true)); syncAdd(); revalidate(); });
+    box.addEventListener("click", () => setTimeout(syncAdd));  // a removed step frees a place
+    el.querySelector(".a-p-remove")!.addEventListener("click", () => { el.remove(); onChange(); revalidate(); });
+    syncAdd();
+    return el;
+  }
+
   // ── The step key: what later steps write to read this step's result ──────────
   /** The output keys a step of this kind (and op) gives later steps — `${steps.<id>.output.<key>}`. */
   function stepOutputs(kind: string, row: HTMLElement): string[] {
@@ -742,6 +768,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         return ["waited_until", "late"];
       case "repeat":
         return ["count", "done", "failed", "results"];
+      case "parallel":
+        return ["satisfied", "failed", "text", "branches"];
       case "webhook":
         return ["status_code", "body"];
       default:
@@ -1176,6 +1204,24 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       add.addEventListener("click", () => { box.appendChild(actionRow({}, true)); syncAdd(); revalidate(); });
       box.addEventListener("click", () => setTimeout(syncAdd));  // a removed inner step frees a place
       syncAdd();
+    } else if (kind === "parallel") {
+      wrap.innerHTML = `
+        <div class="inline">
+          <label class="tf"><span>Done when</span>
+            <select class="input a-p-join">${[["all", "Every branch succeeds"], ["any", "Any branch succeeds (the first wins, the rest are skipped)"]].map(([v, l]) => `<option value="${v}" ${(a.join ?? "all") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+          <label class="tf"><span>If a branch fails</span>
+            <select class="input a-p-onerr">${[["fail", "Fail the step"], ["continue", "Carry on and report"]].map(([v, l]) => `<option value="${v}" ${(a.on_branch_failure ?? "fail") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        </div>
+        <div class="a-p-branches rows"></div>
+        <button type="button" class="linkish a-p-add">+ Add a branch</button>
+        <span class="hint small">Branches run one after another, in the order written, each on its own: a branch reads what ran before this step but not another branch. Read a result later as <code>\${steps.&lt;id&gt;.output.branches.&lt;name&gt;.output…}</code>. A check that should block must fail its step (e.g. Check against a schema with “Fail the step if it doesn't fit”). “Carry on and report” never fails the step: use “Only run this step when…” on <code>steps.&lt;id&gt;.output.failed</code>. No wait, approval or repeat inside a branch — put it before or after.</span>`;
+      const box = wrap.querySelector(".a-p-branches") as HTMLElement;
+      const add = wrap.querySelector(".a-p-add") as HTMLButtonElement;
+      const syncBranches = () => { add.hidden = box.querySelectorAll(":scope > .a-p-branch").length >= MAX_BRANCHES; };
+      const given = Array.isArray(a.branches) && a.branches.length ? a.branches : [{ name: "first" }, { name: "second" }];
+      for (const branch of given) box.appendChild(branchBlock(branch, syncBranches));
+      add.addEventListener("click", () => { box.appendChild(branchBlock({ name: `branch_${box.children.length + 1}` }, syncBranches)); syncBranches(); revalidate(); });
+      syncBranches();
     } else if (kind === "approval") {
       const hours = Number(a.expires_in_hours ?? 72);
       wrap.innerHTML = `
@@ -1345,7 +1391,9 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       const extra = (field(".a-c-fields")?.value ?? "").split(",").map((f) => f.trim()).filter(Boolean);
       setOrDrop("fields", extra.length ? extra : null);
       const limit = Number(field(".a-c-limit")?.value);
-      step.limit = Number.isInteger(limit) && limit >= 1 ? Math.min(limit, 250) : 25;
+      const atMost = Number.isInteger(limit) && limit >= 1 ? Math.min(limit, 250) : 25;
+      // The default isn't written unless the step already said it, so a collect without a limit still opens guided.
+      if (atMost !== 25 || "limit" in step) step.limit = atMost;
       return step;
     }
     if (kind === "fetch") {
@@ -1436,6 +1484,21 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       setOrDrop("on_item_error", field(".a-r-onerr")?.value === "continue" ? "continue" : null);
       step.steps = readSteps(r.querySelector(".a-r-steps")!);
       if (!step.steps.length) throw new Error(`Step ${i + 1}: add a step to repeat.`);
+      return step;
+    }
+    if (kind === "parallel") {
+      setOrDrop("join", field(".a-p-join")?.value === "any" ? "any" : null);
+      setOrDrop("on_branch_failure", field(".a-p-onerr")?.value === "continue" ? "continue" : null);
+      step.branches = [...r.querySelectorAll(".a-p-branch")].map((b, n) => {
+        const name = (b.querySelector(".a-p-name") as HTMLInputElement).value.trim();
+        if (!/^[a-z][a-z0-9_]{0,30}$/.test(name)) throw new Error(`Step ${i + 1}, branch ${n + 1}: give it a name in lower case — letters, digits and _, e.g. images.`);
+        const steps = readSteps(b.querySelector(".a-p-steps")!);
+        if (!steps.length) throw new Error(`Step ${i + 1}, branch “${name}”: add a step to it.`);
+        return { name, steps };
+      });
+      const names = step.branches.map((b: any) => b.name);
+      if (new Set(names).size !== names.length) throw new Error(`Step ${i + 1}: each branch needs its own name.`);
+      if (step.branches.length < 2) throw new Error(`Step ${i + 1}: a parallel step needs at least two branches.`);
       return step;
     }
     if (kind === "webhook") {
@@ -2376,6 +2439,14 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   /* Step numbers follow the order on screen; the id is what later steps use to read a step's result. */
   .workflows-page :global(#wf-actions) { counter-reset: step; }
   .workflows-page :global(#wf-actions > .action-row) { counter-increment: step; }
+  /* A parallel step's branches: each boxed, its steps indented and lettered like a repeat's. */
+  .workflows-page :global(.a-p-branches) { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 6px; }
+  .workflows-page :global(.a-p-branch) { border: 1px solid var(--line); border-radius: 8px; padding: 10px; min-width: 0; }
+  .workflows-page :global(.a-p-head) { display: flex; gap: 8px; align-items: flex-end; }
+  .workflows-page :global(.a-p-head .tf) { flex: 1; min-width: 0; }
+  .workflows-page :global(.a-p-steps) { counter-reset: inner; display: flex; flex-direction: column; gap: 8px; margin: 10px 0 6px; padding-left: 12px; border-left: 2px solid var(--line); }
+  .workflows-page :global(.a-p-steps > .action-row) { counter-increment: inner; }
+  .workflows-page :global(.a-p-steps > .action-row > .action-head .a-num::before) { content: counter(inner, lower-alpha); }
   /* A repeat's inner steps: indented under it, lettered a, b, c… */
   .workflows-page :global(.a-r-steps) { counter-reset: inner; display: flex; flex-direction: column; gap: 8px; margin: 10px 0 6px; padding-left: 12px; border-left: 2px solid var(--line); }
   .workflows-page :global(.a-r-steps > .action-row) { counter-increment: inner; }

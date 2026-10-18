@@ -435,6 +435,8 @@ def ws(db_session, monkeypatch):
         "product_type": "article",
         "open_after": "26w",
         "queues": "commissions, orders, press, other",
+        "text_field": "body",
+        "min_characters": 20,
         "document_url_field": "message",
         "capability_schema": {
             "type": "object",
@@ -2634,6 +2636,72 @@ class TestExecution:
         ws.session.query(Resources).filter(Resources.group_id == ws.gid).delete(synchronize_session=False)
         ws.session.commit()
 
+    # ── several checks side by side, then one verdict (a parallel step) ──
+    def test_publication_release_gate(self, ws):
+        from marvin.db.models.platform import Assets, EntryAssets
+
+        _install(ws, "publication-release-gate")
+        long_text = {"body": "A body that is comfortably longer than twenty characters."}
+        approved = lambda e: _entry_doc(e, changed_fields=["status"], before={"status": "needs_review"}, after={"status": "approved"})  # noqa: E731
+
+        def attach(entry, name, *, mime="image/png", **extra):
+            asset = _asset(ws, name, asset_type="image" if mime.startswith("image/") else "document", mime=mime, **extra)
+            ws.session.add(EntryAssets(entry_id=entry.id, asset_id=asset.id, position=0))
+            ws.session.commit()
+            return asset
+
+        ready = _entry(ws, "article", "Ready", status="approved", data=long_text)
+        attach(ready, "cover", alt_text="A lighthouse at dusk")
+        attach(ready, "brochure", mime="application/pdf", description="The printable brochure")
+        no_picture = _entry(ws, "article", "No picture", status="approved", data=long_text)
+        bare = _entry(ws, "article", "Bare", status="approved", data={"body": "short"})
+        photo = attach(bare, "photo")  # no alt text
+        attach(bare, "terms", mime="application/pdf")  # no description
+
+        for entry in (ready, no_picture, bare):
+            _fire(ws, "entry_updated", approved(entry), entity=entry.id, entity_type="entry", correlation_id=f"corr-gate-{entry.slug}")
+
+        assert _reload(ws, ready).status == "published"
+        held = _reload(ws, no_picture)
+        assert held.status == "needs_review"
+        (reason,) = held.metadata_json["review_reasons"]
+        assert (
+            reason.startswith("Held back by the release gate:\n- images: ")
+            and "$.count" in reason
+            and "text:" not in reason
+            and "downloads:" not in reason
+        )
+        # Every failed check is named at once — a missing picture doesn't hide a short text.
+        (reason,) = _reload(ws, bare).metadata_json["review_reasons"]
+        assert [line.split(":")[0] for line in reason.splitlines()[1:]] == ["- text", "- images", "- downloads"]
+        assert "$.body" in reason and "$.rows[0].alt_text" in reason and "$.rows[0].description" in reason
+        assert _reload(ws, bare).status == "needs_review"
+
+        # A second delivery of the same event changes nothing: the published entry stays published, the held one is
+        # held for the same reason (not listed twice).
+        _fire(ws, "entry_updated", approved(ready), entity=ready.id, entity_type="entry", correlation_id=f"corr-gate-{ready.slug}")
+        _fire(ws, "entry_updated", approved(no_picture), entity=no_picture.id, entity_type="entry", correlation_id=f"corr-gate-{no_picture.slug}")
+        assert _reload(ws, ready).status == "published"
+        assert len(_reload(ws, no_picture).metadata_json["review_reasons"]) == 1
+
+        # Fix what the reasons name, approve again: now it passes.
+        entry = _reload(ws, bare)
+        entry.data_json = long_text
+        entry.status = "approved"
+        ws.session.get(Assets, photo.id).alt_text = "A storm over the point"
+        for link in ws.session.query(EntryAssets).filter(EntryAssets.entry_id == bare.id):
+            other = ws.session.get(Assets, link.asset_id)
+            other.description = other.description or "Terms of sale"
+        ws.session.commit()
+        _fire(ws, "entry_updated", approved(bare), entity=bare.id, entity_type="entry", correlation_id="corr-gate-bare-again")
+        assert _reload(ws, bare).status == "published", _reload(ws, bare).metadata_json
+        runs = [r.status for r in _runs(ws, "publication-release-gate")]
+        assert runs.count("success") == len(runs)  # a failed check is a verdict, not a failed run
+
+        ws.session.query(EntryAssets).filter(EntryAssets.entry_id.in_([ready.id, bare.id])).delete(synchronize_session=False)
+        ws.session.query(Assets).filter(Assets.group_id == ws.gid).delete(synchronize_session=False)
+        ws.session.commit()
+
     # ── checking a document against a schema (a schema_check step) ──
     def test_agent_directory_intake(self, ws, monkeypatch):
         _install(ws, "agent-directory-intake")
@@ -2904,6 +2972,27 @@ def test_a_dry_run_of_the_schema_recipes_checks_nothing_it_cant_have(ws, monkeyp
     assert result["ok"], _step_errors(result["plan"])  # the AI wasn't asked: its stand-in isn't a story to fail on
     assert ws.ai.requests == [] and result["plan"][1]["resolved"]["valid"] is None
     assert result["plan"][-1]["resolved"]["title"] == "‹AI answer: title›"
+
+
+def test_a_dry_run_of_the_release_gate_shows_each_check_and_changes_nothing(ws):
+    from marvin.services.automation.engine import dry_run_for_event
+
+    entry = _entry(ws, "article", "Dry gate", status="approved", data={"body": "short"})
+    row = _install(ws, "publication-release-gate")
+    ctx = event_context(
+        "entry_updated",
+        _entry_doc(entry, changed_fields=["status"], before={"status": "needs_review"}, after={"status": "approved"}),
+        entity_id=entry.id,
+        entity_type="entry",
+        correlation_id="dry-gate",
+    )
+    for _ in range(2):  # and again: a dry run leaves nothing behind to change the next one
+        preview = dry_run_for_event(ws.session, ws.gid, row, ctx)
+        assert preview["would_fire"] and _step_errors(preview["plan"]) == []
+        checks = preview["plan"][0]["resolved"]
+        assert checks["order"] == ["text", "images", "downloads"]
+        assert {n: b["status"] for n, b in checks["branches"].items()} == {"text": "failed", "images": "failed", "downloads": "ok"}
+        assert _reload(ws, entry).status == "approved" and not (_reload(ws, entry).metadata_json or {}).get("review_reasons")
 
 
 def test_a_dry_run_fills_a_render_from_an_ai_step_without_a_browser(ws, monkeypatch):

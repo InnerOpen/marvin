@@ -30,7 +30,8 @@
     "fetch": "Check a web address",
     "schema_check": "Check against a schema",
     "wait": "Wait",
-    "repeat": "Repeat for each"
+    "repeat": "Repeat for each",
+    "parallel": "Parallel branches"
   },
   "entryOps": {
     "publish": "Publish",

@@ -127,6 +127,7 @@ An asset or resource query takes only these keys: no `where`, `sort`, `status`, 
 | `collect` (Gather items) | `entity` (`entry`, `asset`, `resource`), `query` (a target's keys), `fields`, `limit` (default 25, at most 250) | Gathers a set into one output so the steps after it see them all — see [Gather items](#gather-items-many-one). |
 | `wait` (Wait) | `for` (a span) or `until` (a date) with `offset` and `at` | Keeps the run and goes on later — see [Wait](#wait). |
 | `repeat` (Repeat for each) | `for_each` (a list), `as` (the item's name), `steps` (1–5), `limit`, `on_item_error` | Runs its steps once for each item — see [Repeat for each](#repeat-for-each). |
+| `parallel` (Parallel branches) | `branches` (2–5, each a `name` and `steps` 1–5), `join` (`all`, the default, or `any`), `on_branch_failure` (`fail`, the default, or `continue`) | Runs independent branches of steps and joins them — see [Parallel branches](#parallel-branches). |
 | `fetch` (Check a web address) | `url` (+ `method` `GET`/`HEAD`, `find`) or `links` (a text, + `base`) | Reads a public web address, or checks the links in a text. A dead link is output, not a failure — see [Check a web address](#check-a-web-address). |
 | `schema_check` (Check against a schema) | `document`, `schema` or `schema_resource`; `fail_on_invalid`, `max_errors` | Holds a JSON document up against a JSON Schema and reports what doesn't fit. An invalid document is output, not a failure, unless `fail_on_invalid` — see [Check against a schema](#check-against-a-schema). |
 | `media` (Process an image) | `op` (`resize`, `crop`, `convert`, `grade`, `inspect`, `palette`), `source`, the op's own fields, `attach_as` | Makes a new image from an image, or reads one — no AI or provider needed. See [Process an image](#process-an-image). |
@@ -514,6 +515,51 @@ A **Repeat for each** step (`repeat`) runs a few steps once for each item of a l
   **At most** and **If one fails**, then the steps to repeat (indented, lettered a, b, c — **+ Add a step to repeat**,
   up to 5). An Entry action inside usually targets the item: **Target entry → By id** with `${person.id}`.
 
+### Parallel branches
+
+A **Parallel branches** step (`parallel`) runs two to five named branches of steps independently and joins them: the
+way to run several checks and decide once, or to try one source and fall back to another.
+
+```json
+{"kind": "parallel", "id": "checks", "join": "all", "on_branch_failure": "continue",
+ "branches": [
+   {"name": "text", "steps": [{"kind": "schema_check", "document": "${entry.data}", "schema": {…}, "fail_on_invalid": true}]},
+   {"name": "images", "steps": [
+     {"kind": "collect", "id": "pictures", "entity": "asset", "query": {"entry": "${entry.id}"}},
+     {"kind": "schema_check", "document": "${steps.pictures.output}", "schema": {…}, "fail_on_invalid": true}]}
+ ]}
+```
+
+- **Branches run one after another, in the order written, inside the run** — not at the same moment. What "parallel"
+  means here is independence and a fixed merge: a branch reads what ran before the step (the entry, earlier steps) but
+  never a sibling's output, nothing a branch ran leaks into the next one, and the result is merged by name in written
+  order, so it can't depend on which branch happened to finish first.
+- **Each branch** has a `name` (lower case, letters, digits and `_`; each different) and 1–5 steps, with the same
+  step kinds and `when` as a Repeat's. Steps inside a branch read each other as `${steps.<id>.output}`. **A wait, an
+  approval, a repeat or another parallel step can't go inside** (a run can't be parked, or nested, in the middle of
+  branches): put the wait or approval before the step or after it. A save with one says so.
+- **The join.** `all` (the default): every branch must succeed. `any`: the first branch that succeeds satisfies it and the
+  branches after it are skipped (not run) — a fallback chain, cheapest first.
+- **When a branch fails** (`on_branch_failure`): `fail` (the default) fails the step when the join isn't met — under `all`
+  the first failing branch stops the rest, which are skipped; under `any` the step fails only if every branch did. What
+  a branch had already done stays done. `continue` never fails the step for a branch: every branch under `all` still
+  runs, and the output says how it went for a later step's `when` to act on.
+- **Output:** `branches.<name>` (`status` `ok`, `failed` or `skipped`; `error` and `step` for a failure; `steps`, each
+  step's output by id; `output`, the last step's), `order`, `count`, `ok`, `failed`, `skipped`, `satisfied` (the join was
+  met), `winner` (under `any`), `errors` and `text` (one line per failed branch, for a note or a review reason). Read a
+  value as `${steps.checks.output.branches.images.output.count}`.
+- **A check that should block must fail its step**: a Check against a schema step with `fail_on_invalid`, say. A gate is
+  `continue`, then one step with **Only run this step when** `steps.checks.output.failed` equals 0 (go ahead) and another
+  with it greater than 0 (send `${steps.checks.output.text}` to review) — the [Publication release gate](#workflow-library)
+  recipe does this.
+- **Limits.** At most five branches of five steps; all the branches' steps together count against the workspace's
+  **steps per workflow** (Settings → General), so a save warns, and a run fails with the count, when they're over it.
+  A create inside a branch is keyed on the branch, so the same event handled twice makes nothing again.
+- **A dry run** previews every branch and writes nothing. Under `any`, the branches after the first success show as
+  `skipped` with what they would have done.
+- **In the guided builder**, choose **Parallel branches**: **Join when** (all / any), **If a branch fails** (stop / carry
+  on), then each branch (**+ Add a branch**) with its name and its steps (**+ Add a step to this branch**).
+
 ### Wait for approval
 
 A **Wait for approval** step (`approval`) stops the run until a person decides. The members who may decide — editors and
@@ -663,6 +709,7 @@ A workflow is `enabled: false` when created. A disabled workflow does not run fr
 ## Since
 
 Operational events as triggers (**Operations** heading: `webhook_delivery_failed`, `integration_attention_*`, `scheduled_task_failed`, `ai_budget_*`; a workflow never answers a failure its own run caused; Integration health companion and Webhook repair desk recipes): 2026-10-18.
+Parallel branches (`parallel`; the Publication release gate recipe): 2026-10-18.
 
 Custom events (`custom.<name>`: registered fields, Emit event `payload`, trigger and subscriptions, Achievement cabinet recipe): 2026-10-18.
 

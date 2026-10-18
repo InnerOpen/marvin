@@ -420,6 +420,7 @@ def _actions() -> dict:
         "collect": COLLECT_NOTE,
         "fetch": FETCH_NOTE,
         "schema_check": SCHEMA_CHECK_NOTE,
+        "parallel": PARALLEL_NOTE,
     }
 
 
@@ -456,6 +457,11 @@ SCHEMA_CHECK_NOTE = (
     "review with ${steps.<id>.output.text} — and fails the run only with fail_on_invalid: true. A malformed inline schema "
     "is refused when the workflow is saved. Formats aren't asserted; $ref reaches only into the schema; documents over "
     "100 KB are reported, not checked."
+)
+PARALLEL_NOTE = (
+    "parallel: ${steps.<id>.output.branches.<name>.output.<key>} is a branch's last step. A "
+    "check that should block must fail its step (schema_check fail_on_invalid). Gate: on_branch_failure continue, then "
+    "`when` failed eq 0 goes ahead, failed gt 0 sends ${steps.<id>.output.text}."
 )
 MEDIA_NOTE = (
     "A media step works on one image (jpeg, png, webp): source is an asset id or slug (default ${asset.id}), "
@@ -757,7 +763,7 @@ def reference_issues(session, group_id, definition: dict, refs: WorkspaceRefs | 
     listen to, an operation, job, integration, webhook, collection or entry type that isn't there. Each
     is an ERROR issue ({level, message, where, path}); a template value (`$…`) is left to run time.
     Run on a structurally valid definition."""
-    from .validation import subject_of
+    from .validation import inner_steps, subject_of
 
     refs = refs or workspace_refs(session, group_id)
     issues = _Issues()
@@ -772,9 +778,8 @@ def reference_issues(session, group_id, definition: dict, refs: WorkspaceRefs | 
             if isinstance(step, dict):
                 gated = after_approval and list_key == "actions"
                 _step_issues(step, f"{list_key}[{i}]", where, refs, issues, subject, after_approval=gated)
-                for j, inner in enumerate(step.get("steps") or [] if step.get("kind") == "repeat" else []):
-                    if isinstance(inner, dict):
-                        _step_issues(inner, f"{list_key}[{i}].steps[{j}]", where, refs, issues, subject, after_approval=gated)
+                for path, inner in inner_steps(step):
+                    _step_issues(inner, f"{list_key}[{i}].{path}", where, refs, issues, subject, after_approval=gated)
                 after_approval = after_approval or step.get("kind") == "approval"
     return issues
 

@@ -358,6 +358,7 @@ class TestActionRegistry:
             "schema_check",
             "wait",
             "repeat",
+            "parallel",
         }
         assert set(available_kinds()) == kinds
 

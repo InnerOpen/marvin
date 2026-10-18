@@ -15,9 +15,9 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 100,
+    "verified-current": 101,
     "needs-adapter": 3,
-    "needs-engine-capability": 3,
+    "needs-engine-capability": 2,
     "supported-after-configuration": 9
   },
   "capabilities": {
@@ -127,7 +127,7 @@
       "name": "Parallel branches and joins",
       "priority": "P1",
       "capabilities_md": "Parallel branches / joins",
-      "acceptance": "Fan-out steps run independently and a join step waits for all (or any), with deterministic merge of outputs and partial-failure semantics."
+      "acceptance": "Delivered 2026-10-18: a `parallel` step (\"Parallel branches\") runs 2–5 named branches of 1–5 steps (no wait, approval, repeat or parallel inside) one after another in the order written, each reading what ran before it but not its siblings; `join` all (default) or any (the first branch to succeed wins, the rest are skipped); `on_branch_failure` fail (the step fails when the join isn't met; under all the first failing branch stops the rest) or continue (the step reports `satisfied`, `failed`, `text` and each branch's status for a `when`). The merge is by name in written order (`branches.<name>` {status ok|failed|skipped, error, steps, output}, `order`), so it never depends on which branch finished first; branches' steps are keyed per branch so a create inside runs once per event and count against the workspace's steps-per-workflow limit; a dry run previews every branch. Branches run in-process, not concurrently."
     },
     "snapshots": {
       "name": "Entity snapshots and restore",
@@ -1220,7 +1220,7 @@
     {
       "id": "publication-release-gate",
       "title": "Publication release gate",
-      "outcome": "Wait until text, images and downloads pass checks → publish together",
+      "outcome": "When an entry is approved, its text, its pictures and its downloads are checked side by side; if all pass it is published, otherwise it goes back to Needs review with every check that failed named.",
       "category": "Publishing and editorial",
       "category_slug": "publishing",
       "tags": [
@@ -1235,34 +1235,77 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "publication-release-gate.json",
+      "vars": "publication-release-gate.vars.json",
+      "setup_variables": [
         {
-          "capability": "joins",
-          "name": "Parallel branches and joins",
-          "priority": "P1",
-          "acceptance": "Fan-out steps run independently and a join step waits for all (or any), with deterministic merge of outputs and partial-failure semantics.",
-          "why": "wait for several checks"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "Slug of the entry type whose approved entries go through the gate.",
+          "example": "article"
+        },
+        {
+          "name": "text_field",
+          "type": "field_key",
+          "description": "That type's text field, which must be filled in.",
+          "example": "body"
+        },
+        {
+          "name": "min_characters",
+          "type": "integer",
+          "description": "The least text it must hold, in characters.",
+          "example": 200
         }
       ],
+      "requires": {
+        "trigger": "event:entry_updated",
+        "action_kinds": [
+          "parallel",
+          "schema_check",
+          "collect",
+          "entry"
+        ],
+        "entry_ops": [
+          "publish",
+          "request_review"
+        ],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "changed_to",
+          "eq",
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Publishes the entry when every check passes (emits entry_published; a site rebuild is queued when a deploy target exists)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Otherwise moves the entry to Needs review and appends the failed checks to metadata.review_reasons (emits entry_updated at depth+1)."
+        }
+      ],
+      "cost_notes": "None (no AI).",
+      "failure_behaviour": "A check that fails is not a failed run: the entry goes back to Needs review and its reason lists each failed check (text, images, downloads), all of them at once. If the publish itself is refused (Marvin's completeness rules) or a step errors, the on_failure step puts it back with that message and the run is recorded as failed.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): the publish gate already blocks on required fields, required asset roles and resource types (completeness rules); the editorial-approval-gate recipe uses it."
+        "The three checks are the branches of one parallel step (join all, on_branch_failure continue): they run one after another in the order written, each independent of the others, so a missing picture never hides a short text. The step then reports how many failed and one line per failed branch.",
+        "Text: the chosen field must hold at least min_characters. Images: at least one picture (jpeg, png, webp, gif) attached to the entry, each with alt text. Downloads (PDF, zip): optional, but each one attached needs a description.",
+        "This is on top of Marvin's own publish gate (completeness rules: required fields, asset roles, resource types); a refusal there is caught by the on_failure step.",
+        "Only the move to Approved starts the gate (changed_to), so fixing a held entry and approving it again runs it again."
       ],
       "verification": {
-        "level": "none",
+        "level": "fixture-executed",
         "mocked": [],
-        "test": null
+        "test": "tests/test_workflow_library.py::TestExecution::test_publication_release_gate"
       },
       "brief": {
         "flow": "Wait until text, images and downloads pass checks → publish together",

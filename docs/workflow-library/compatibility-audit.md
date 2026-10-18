@@ -11,7 +11,7 @@ remain are in [`roadmap.md`](roadmap.md).
 | Feature | Status | Where |
 |---|---|---|
 | Discriminated definition model (triggers on `type`, actions on `kind`, recursive conditions, target) | exists | `schemas/group/automation_definition.py` |
-| Kind tags: operation, entry, emit_event, handler, webhook, integration, approval, media, collect, fetch, schema_check, wait, repeat *(2026-10-18)* | exists | `automation_definition.py:194-201`; `ai` / `http` do not exist |
+| Kind tags: operation, entry, emit_event, handler, webhook, integration, approval, media, collect, fetch, schema_check, wait, repeat, parallel *(2026-10-18)* | exists | `automation_definition.py:194-201`; `ai` / `http` do not exist |
 | Structural gate on save (422 with paths) | exists | `services/automation/validation.py:276` `structural_issues`; `workflows.py:44` |
 | Unknown-key and workspace-reference checks (agent drafts) | exists | `validation.py:304` `unknown_key_issues`; `authoring.py` `reference_issues` / `draft_issues` |
 | Advisory coherence warnings (`entry.*` under a trigger without an entry…) | exists | `validation.py:100` `validate_definition`, `POST /api/automations/validate` |
@@ -64,7 +64,7 @@ overlap (serial in the leader tick).
 | `integration` | exists | provider action with `args`; `requires_approval` actions refused (`actions/integration.py`) unless an earlier `approval` step approved the run (2026-10-11); `instagram.send_private_reply` / `instagram.auto_reply` stay out of reach; error policy (review/retry/notify/succeed) from SDK ≥0.5 providers; retries resume at the failed step with idempotency seed |
 | `emit_event` | exists-with-caveat | entry_* (from the context entry) and site_deployment_* only (`EMITTABLE_EVENT_TYPES`) |
 | Branches, approvals, waits, collect, repeat *(2026-10-17)* | exists | `when` on any step (skipped ≠ failed); `approval` parks the run (`approvals.py`); `wait` parks it until a date or span (`waits.py`); `collect` gathers a query into rows; `repeat` runs 1–5 steps per item (≤ 25; no wait/approval inside) |
-| Parallel branches / joins | needs-engine-capability | steps are strictly sequential |
+| Parallel branches / joins *(2026-10-18)* | exists | `parallel` runs 2–5 named branches (1–5 steps; no wait/approval/repeat/parallel inside) in written order inside the run, each independent of its siblings; `join` all/any, `on_branch_failure` fail/continue; merged by name (`actions/parallel.py`). Branches run in-process, not concurrently |
 
 Installed-plugin actions (origin/main of each MarvinIntegration* repo): Buttondown `subscribe`,
 `lookup_subscriber`, `create_issue_email`, `connect_webhooks`; Apprise `notify`; Slack `send_message`; n8n

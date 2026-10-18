@@ -261,6 +261,18 @@ def validate_definition(definition: dict | None, max_steps: int | None = None) -
 
     for i, act in enumerate(actions):
         issues.extend(_step_issues(act, i, "action", ttype, has_entry, subject))
+        if isinstance(act, dict) and act.get("kind") == "parallel":
+            held = len(inner_steps(act))
+            if held > step_limit:
+                issues.append(
+                    _issue(
+                        "warning",
+                        f"This parallel step's branches hold {held} steps, over this workspace's limit of {step_limit} "
+                        "steps per workflow — it will fail when it runs. Trim a branch or raise the limit.",
+                        "action",
+                        i,
+                    )
+                )
     # Steps that run when one above fails — same entry, same checks.
     on_failure = definition.get("on_failure") or []
     if len(on_failure) > step_limit:
@@ -383,10 +395,28 @@ def _step_issues(act, i: int, where: str, ttype: str, has_entry: bool, subject: 
                 i,
             )
         )
-    if kind == "repeat":  # its inner steps get the same checks, reported at the repeat
-        for inner in act.get("steps") or []:
-            issues.extend(_step_issues(inner, i, where, ttype, has_entry, subject))
+    for _, inner in inner_steps(act):  # its inner steps get the same checks, reported at the repeat / parallel step
+        issues.extend(_step_issues(inner, i, where, ttype, has_entry, subject))
     return issues
+
+
+def inner_steps(act) -> list[tuple[str, dict]]:
+    """The steps a repeat step or a parallel step's branches hold, in order, each with its path inside the step
+    (``steps[0]``, ``branches[1].steps[0]``) — none for any other step."""
+    if not isinstance(act, dict):
+        return []
+    if act.get("kind") == "repeat":
+        held = [(f"steps[{j}]", s) for j, s in enumerate(act.get("steps") or [])]
+    elif act.get("kind") == "parallel":
+        held = [
+            (f"branches[{b}].steps[{j}]", s)
+            for b, branch in enumerate(act.get("branches") or [])
+            if isinstance(branch, dict)
+            for j, s in enumerate(branch.get("steps") or [])
+        ]
+    else:
+        return []
+    return [(path, s) for path, s in held if isinstance(s, dict)]
 
 
 # ── Queries and item targets ─────────────────────────────────────────────────

@@ -1,0 +1,188 @@
+{
+  "name": "Publication release gate",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_updated"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      },
+      {
+        "field": "entry.status",
+        "op": "changed_to",
+        "value": "approved"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "parallel",
+        "id": "checks",
+        "join": "all",
+        "on_branch_failure": "continue",
+        "branches": [
+          {
+            "name": "text",
+            "steps": [
+              {
+                "kind": "schema_check",
+                "id": "text",
+                "document": "${entry.data}",
+                "fail_on_invalid": true,
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "{{text_field}}"
+                  ],
+                  "properties": {
+                    "{{text_field}}": {
+                      "type": "string",
+                      "minLength": "{{min_characters}}"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "name": "images",
+            "steps": [
+              {
+                "kind": "collect",
+                "id": "pictures",
+                "entity": "asset",
+                "query": {
+                  "entry": "${entry.id}",
+                  "mime_types": [
+                    "image/jpeg",
+                    "image/png",
+                    "image/webp",
+                    "image/gif"
+                  ]
+                }
+              },
+              {
+                "kind": "schema_check",
+                "id": "pictures_ok",
+                "document": "${steps.pictures.output}",
+                "fail_on_invalid": true,
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "count",
+                    "rows"
+                  ],
+                  "properties": {
+                    "count": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "rows": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "alt_text"
+                        ],
+                        "properties": {
+                          "alt_text": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "name": "downloads",
+            "steps": [
+              {
+                "kind": "collect",
+                "id": "files",
+                "entity": "asset",
+                "fields": [
+                  "description"
+                ],
+                "query": {
+                  "entry": "${entry.id}",
+                  "mime_types": [
+                    "application/pdf",
+                    "application/zip"
+                  ]
+                }
+              },
+              {
+                "kind": "schema_check",
+                "id": "files_ok",
+                "document": "${steps.files.output}",
+                "fail_on_invalid": true,
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "rows"
+                  ],
+                  "properties": {
+                    "rows": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "description"
+                        ],
+                        "properties": {
+                          "description": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "entry",
+        "op": "publish",
+        "id": "publish",
+        "when": [
+          {
+            "field": "steps.checks.output.failed",
+            "op": "eq",
+            "value": 0
+          }
+        ]
+      },
+      {
+        "kind": "entry",
+        "op": "request_review",
+        "id": "hold",
+        "reason": "Held back by the release gate:\n${steps.checks.output.text}",
+        "when": [
+          {
+            "field": "steps.checks.output.failed",
+            "op": "gt",
+            "value": 0
+          }
+        ]
+      }
+    ],
+    "on_failure": [
+      {
+        "kind": "entry",
+        "op": "request_review",
+        "reason": "Release gate stopped: ${error.message}"
+      }
+    ]
+  }
+}

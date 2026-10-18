@@ -15,6 +15,7 @@ from . import (  # noqa: E402,F401
     integration,
     media,
     operation,
+    parallel,
     repeat,
     schema_check,
     wait,
