@@ -492,7 +492,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const COND_OP_LABELS: Record<string, string> = WORKFLOW_LABELS.conditionOps;
   // Most-useful-first (backend returns kinds alphabetically). New steps default to the first
   // available — an AI operation when AI is on, otherwise the first non-AI kind.
-  const KIND_ORDER = ["operation", "entry", "media", "collect", "repeat", "parallel", "fetch", "schema_check", "email", "metric", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
+  const KIND_ORDER = ["operation", "entry", "media", "collect", "repeat", "parallel", "fetch", "schema_check", "email", "metric", "snapshot", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
   // A repeat's or a parallel branch's inner steps: a run can't park mid-loop or mid-branch, so no wait, approval, repeat or
   // parallel inside (backend: NOT_INSIDE, NOT_IN_A_BRANCH).
   const NOT_IN_REPEAT = new Set(["wait", "approval", "repeat", "parallel"]);
@@ -757,6 +757,10 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         return (row.querySelector(".a-mt-op") as HTMLSelectElement | null)?.value === "read"
           ? ["text", "count", "rows", "total"]
           : ["value", "previous_value", "added", "changed", "created", "window"];
+      case "snapshot":
+        return (row.querySelector(".a-sn-op") as HTMLSelectElement | null)?.value === "restore"
+          ? ["restored", "changed", "content", "collections", "assets"]
+          : ["snapshot_id", "created", "label"];
       case "media": {
         const mediaOp = (row.querySelector(".a-media-op") as HTMLSelectElement | null)?.value;
         if (mediaOp === "inspect") return ["width", "height", "sharpness", "orientation"];
@@ -1246,6 +1250,27 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       opSel.addEventListener("change", syncMetric);
       winSel.addEventListener("change", syncMetric);
       syncMetric();
+    } else if (kind === "snapshot") {
+      const restoring = a.op === "restore";
+      const parts: string[] = Array.isArray(a.parts) && a.parts.length ? a.parts : ["content", "collections", "assets"];
+      wrap.innerHTML = `
+        <label class="tf"><span>What to do</span>
+          <select class="input a-sn-op"><option value="capture" ${restoring ? "" : "selected"}>Save a version of the entry</option><option value="restore" ${restoring ? "selected" : ""}>Put a saved version back</option></select></label>
+        <label class="tf"><span>Name <span class="muted a-sn-label-note">(optional: what this version is — “before the rewrite”)</span></span>
+          <input class="input a-sn-label" value="${esc(a.label ?? "")}" placeholder="before the rewrite" maxlength="100" /></label>
+        <div class="a-sn-restore">
+          <label class="tf"><span>Which version <span class="muted">(an earlier step's \${steps.save.output.snapshot_id}; empty = the entry's latest, or the latest with that name)</span></span>
+            <input class="input a-sn-snapshot" value="${esc(a.snapshot ?? "")}" placeholder="\${steps.save.output.snapshot_id}" spellcheck="false" /></label>
+          <div class="a-sn-parts">${[["content", "Title, summary, description, fields and metadata"], ["collections", "Collections"], ["assets", "Attached pictures and files"], ["status", "Status (publishing or unpublishing — only if you tick it)"]]
+            .map(([v, l]) => `<label class="check"><input type="checkbox" class="a-sn-part" value="${v}" ${parts.includes(v) ? "checked" : ""} /> ${l}</label>`).join("")}</div>
+        </div>
+        <span class="hint small">Saving an unchanged entry reuses its latest version; an entry keeps its latest 20. Restoring runs like an edit: the usual events go out, and a dry run shows what would change without writing. Tags and linked resources aren't saved. Give the saving step an id to read <code>\${steps.&lt;step id&gt;.output.snapshot_id}</code> later.</span>`;
+      const snOp = wrap.querySelector(".a-sn-op") as HTMLSelectElement;
+      const syncSnapshot = () => {
+        (wrap.querySelector(".a-sn-restore") as HTMLElement).hidden = snOp.value !== "restore";
+      };
+      snOp.addEventListener("change", syncSnapshot);
+      syncSnapshot();
     } else if (kind === "wait") {
       const untilMode = Boolean(a.until);
       wrap.innerHTML = `
@@ -1558,6 +1583,19 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       } else {
         setOrDrop("window", windowKind === "day" ? null : windowKind);
         setOrDrop("at", field(".a-mt-at")?.value.trim());
+      }
+      return step;
+    }
+    if (kind === "snapshot") {
+      for (const key of ["op", "label", "snapshot", "parts"]) delete step[key];
+      setOrDrop("label", field(".a-sn-label")?.value.trim());
+      if (field(".a-sn-op")?.value === "restore") {
+        step.op = "restore";
+        setOrDrop("snapshot", field(".a-sn-snapshot")?.value.trim());
+        const ticked = Array.from(r.querySelectorAll<HTMLInputElement>(".a-sn-part:checked")).map((box) => box.value);
+        if (!ticked.length) throw new Error(`Step ${i + 1}: tick what to put back (content, collections, pictures, status).`);
+        const standard = ticked.length === 3 && ["content", "collections", "assets"].every((p) => ticked.includes(p));
+        setOrDrop("parts", standard ? null : ticked);
       }
       return step;
     }

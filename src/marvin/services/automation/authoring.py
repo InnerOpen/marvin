@@ -454,6 +454,7 @@ def _actions() -> dict:
         "collect": COLLECT_NOTE,
         "fetch": FETCH_NOTE,
         "schema_check": SCHEMA_CHECK_NOTE,
+        "snapshot": SNAPSHOT_NOTE,
         "parallel": PARALLEL_NOTE,
     }
 
@@ -504,6 +505,11 @@ EMAIL_NOTE = (
     "once: the same event handled twice sends nothing more; once_per: welcome:${member.id} sends that person this step's email "
     "once, ever. Links by role: a `when` on ${member.role} (eq/in) per email step; ${site.url} is the public site, "
     "${site.app_url} the admin app. A dry run shows the rendered email (would_send) and sends nothing."
+)
+SNAPSHOT_NOTE = (
+    "snapshot capture keeps the entry's content, status, collections, asset refs → "
+    "${steps.<id>.output.snapshot_id} (an unchanged entry reuses its latest; 20 kept). restore: snapshot (that id; left out: "
+    "the latest, or latest with `label`); parts content | collections | assets (default) | status (only when listed)."
 )
 MEDIA_NOTE = (
     "A media step works on one image (jpeg, png, webp): source is an asset id or slug (default ${asset.id}), "

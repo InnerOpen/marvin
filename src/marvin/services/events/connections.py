@@ -399,6 +399,10 @@ def _step_sends(step, subject: str = "entry") -> list[tuple[str, str]]:
     if kind == "handler" and step.get("task") in AUTOMATION_ALLOWED_HANDLERS and TaskHandlerRegistry.is_registered(step["task"]):
         handler = TaskHandlerRegistry.get_handler(step["task"])
         return [(e, f"{handler.name} step") for e in handler.sends]
+    if kind == "snapshot" and step.get("op") == "restore":
+        from marvin.services.snapshots import RESTORE_SENDS
+
+        return [(e, "Snapshot step: restore") for e in RESTORE_SENDS]
     item_op = (step.get("entity_type") or (subject if step.get("op") in ITEM_OPS else "entry"), step.get("op"))
     if kind == "entry" and item_op in ITEM_OP_SENDS:
         return [(e, f"Entry step: {step['op']} ({item_op[0]})") for e in ITEM_OP_SENDS[item_op]]

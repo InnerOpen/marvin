@@ -13,6 +13,7 @@ from .entries import Entries
 from .entry_assets import EntryAssets
 from .entry_collections import EntryCollections
 from .entry_resources import EntryResources
+from .entry_snapshots import EntrySnapshotModel
 from .entry_tags import EntryTags
 from .entry_types import EntryTypes
 from .event_log import EventLogModel
@@ -45,6 +46,7 @@ __all__ = [
     "EntryAssets",
     "EntryCollections",
     "EntryResources",
+    "EntrySnapshotModel",
     "EntryTags",
     "EntryTypes",
     "EventLogModel",

@@ -133,7 +133,7 @@
       "name": "Entity snapshots and restore",
       "priority": "P2",
       "capabilities_md": "Snapshots and restoration",
-      "acceptance": "A step captures an entry version; a later step (or person) restores it; external publications are listed as not restorable."
+      "acceptance": "Delivered 2026-10-18: a `snapshot` step captures an entry's title, summary, description, data, metadata, status, collections and attached asset references into `entry_snapshots` (reusing the latest when identical; 20 kept per entry) and a later `restore` step (or `POST /entries/{id}/snapshots/{id}/restore`) puts content, collections and assets back through the entry service, so the normal events fire; status only when asked, through the publish gate, never into or out of the Trash; AUTHOR+ like any entry write; a dry run previews the diff. External publications (a newsletter sent, a webhook delivered) are not restorable and the entry page has no snapshots list yet."
     },
     "sandbox": {
       "name": "Schema validation / sandbox handler",

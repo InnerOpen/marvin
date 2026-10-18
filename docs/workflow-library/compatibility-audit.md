@@ -112,6 +112,11 @@ recipes avoid `{{field}}` templating so an installer can't confuse them.
   that a JSON column cannot store — the publication-ledger recipe crashed the step with
   `Object of type UUID is not JSON serializable`.
 
+- Entity snapshots (2026-10-18): the entity history (`get_entity_history`) is an event log — what happened, with no
+  content — so there was nothing to restore from. A `snapshot` step and `/entries/{id}/snapshots` keep and restore a
+  version (title, summary, description, data, metadata, collections, attached asset refs; status only when asked);
+  external publications are not restorable.
+
 ## Brief assumptions that do not hold
 
 - `webhook_triggered`, `approval_*`, `api_client_*` and the provider-quota events are not workflow triggers →

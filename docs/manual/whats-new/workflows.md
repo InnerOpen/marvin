@@ -146,6 +146,7 @@ A **webhook** or **integration** step can carry an `idempotency_key`, a template
 | `schema_check` (Check against a schema) | `document`, `schema` or `schema_resource`; `fail_on_invalid`, `max_errors` | Holds a JSON document up against a JSON Schema and reports what doesn't fit. An invalid document is output, not a failure, unless `fail_on_invalid` — see [Check against a schema](#check-against-a-schema). |
 | `email` (Email a member) | `to` (a member's id or email), `subject`, `body` (markdown), `heading`, `button_text` + `button_link`, `once_per` | Writes to a member of the workspace — never an outside address — in the workspace's email layout; sent once per event. See [Email a member](#email-a-member). |
 | `metric` (Record a metric) | `op` (`record`, the default, `add` or `read`), `metric`, `value`, `variant`, `subject`, `window` (`day`/`week`/`month` or `2026-10-18` / `2026-W42` / `2026-10`), `at`; for a read `window_from`, `window_to`, `limit` | Records a number as an observation for a metric, variant and window — or adds to a count, or reads observations back. Recording again replaces the number; adding raises it, once for each event; a dry run writes nothing. Observations, not conclusions — see [Record a metric](#record-a-metric). |
+| `snapshot` (Save or restore a version) | `op` (`capture`, the default, or `restore`), `label`, `snapshot` (an id), `parts`, `entity_id`/`entity_slug` | Keeps a version of an entry and puts it back — see [Save and restore a version](#save-and-restore-a-version). |
 | `media` (Process an image) | `op` (`resize`, `crop`, `convert`, `grade`, `inspect`, `palette`), `source`, the op's own fields, `attach_as` | Makes a new image from an image, or reads one — no AI or provider needed. See [Process an image](#process-an-image). |
 | `operation` (AI operation) | `op` (AI operation slug), `input`, `entity_type`, `entity_id`/`entity_slug`, `write_back` | Offered only when AI is enabled and the **Workflows** invocation source is on. **Write the result back to the entry** (`write_back: true`) follows the workspace approval mode: the result is applied or staged as a suggestion, and the output's `_write_back` says which (`applied` or `staged`). On an asset or resource the step sees the item (an image asset's picture, for an operation that looks at images) and `write_back` is a map of output keys to the item's fields, for example `{"alt_text": "alt_text"}`: an asset takes `alt_text`, `description`, `name`, `tags` or `metadata.<key>`, a resource `description`, `name`, `tags` or `metadata.<key>`. It follows the same approval mode, and needs a workflow author who is an EDITOR or above (else `_write_back` is `not_permitted`). The workspace's AI limits apply: over the daily request or monthly cost limit the step fails, and the per-request token cap bounds the call (see [Agents and Ask → Usage and limits](agents-and-ask.md#usage-and-limits)). |
 | `handler` (Run task) | `task`, `config` | Allowlist: `request_site_rebuild`, `publish_scheduled_entries`, `unpublish_expired_entries`, `ai_reindex_embeddings`, `resync_smart_collections`, `media_enrich`. `request_site_rebuild` queues a coalesced rebuild (see [Operations → Site rebuilds](../operations.md#site-rebuilds)). |
@@ -219,6 +220,43 @@ after it preview as they will run. The submission's text goes to the workspace's
 submission protection already flagged are best left out with a condition on `event.flagged`.
 
 Workflow Library recipe: **Form submission sorter**.
+
+### Save and restore a version {#save-and-restore-a-version}
+
+Entries had a history of *what happened* but no record of *what they looked like*. A **Save or restore a version** step
+(`kind: "snapshot"`) keeps one, and puts it back later:
+
+```json
+{"kind": "snapshot", "id": "save", "label": "before the rewrite"}
+{"kind": "snapshot", "op": "restore", "snapshot": "${steps.save.output.snapshot_id}"}
+```
+
+**Capture** (the default) keeps the entry's title, summary, description, fields, metadata, status, its collections and
+which assets are attached (references — the files aren't copied). Smart collections, tags and linked resources aren't
+kept. Output: `snapshot_id`, `label`, `created`. An entry whose latest version is already identical gets that one back
+(`created: false`), so a run repeated for the same entry adds nothing; an entry keeps its **latest 20** versions and the
+oldest go first. They are removed with the entry.
+
+**Restore** puts `snapshot` back on its entry; left out, the entry's latest (or the latest with `label`) is used.
+`parts` says what comes back: `content` (title, summary, description, fields, metadata — metadata whole, except the
+Trash record), `collections` (added to the ones it was in, removed from the others), `assets` (the links it had are made
+again in their role, the ones added since are detached; an asset that has been trashed or deleted since is listed as
+`missing`). The default is those three. **`status` is only restored when you list it**: restoring content never publishes
+or unpublishes an entry by itself, and a status that would publish goes through the same publish checks as any edit. It
+never moves an entry into or out of the Trash (an entry in the Trash must be restored from there first). Restoring runs
+through the entry service, so the usual events go out at the next reaction depth (`entry_updated`, collection and asset
+link events, a status change's own) and other workflows see them. A restore that would change nothing writes nothing;
+output: `restored`, `changed`, and what changed by part.
+
+A dry run previews the same difference (`would`: `capture` | `reuse`, or `restore` | `leave`) and writes nothing; when the
+snapshot comes from an earlier step that only previewed, there is no id yet and it says so. Both ops need the workflow
+author to be at least an AUTHOR, like any entry step. A typical use: capture before an AI rewrite, and restore in an
+`on_failure` step.
+
+**API**, for a person: `GET`/`POST /entries/{id}/snapshots` (list; keep one, `{"label": …}`),
+`GET …/snapshots/{snapshot_id}/diff?parts=…` (what a restore would change), `POST …/snapshots/{snapshot_id}/restore`
+(`{"parts": […]}`) and `DELETE …/snapshots/{snapshot_id}`. AUTHOR and above, on entries the caller may change (an AUTHOR:
+their own until approved or published). There is no snapshot list on the entry page yet; use the API or a workflow.
 
 ### Run inputs
 
@@ -814,6 +852,8 @@ Operational events as triggers (**Operations** heading: `webhook_delivery_failed
 Parallel branches (`parallel`; the Publication release gate recipe): 2026-10-18.
 
 Custom events (`custom.<name>`: registered fields, Emit event `payload`, trigger and subscriptions, Achievement cabinet recipe): 2026-10-18.
+
+Save or restore a version (`snapshot` step, `/entries/{id}/snapshots`, migration `c5b1eb095038`): 2026-10-18.
 
 Classify a form submission (`${form_submission.*}`, the `classify-form-submission` step from a workflow; Form submission sorter recipe): 2026-10-18.
 

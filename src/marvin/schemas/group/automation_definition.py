@@ -177,9 +177,8 @@ def writeback_field_ok(kind: str, field: str) -> bool:
 
 
 class OperationAction(_StepBase):
-    """Runs an AI operation (`op`: its slug) on the entry, or (`entity_type`) an asset | resource | form_submission (the run's
-    `${form_submission.*}`: classify-form-submission sets entity_type itself; its answer — category, is_spam, sentiment,
-    action_required — is for a `when` or a template). `op: "custom"` takes
+    """Runs an AI operation (`op`: its slug) on the entry, or (`entity_type`) an asset | resource | form_submission. classify-form-submission
+    reads the run's `${form_submission.*}`; its answer is for a `when` or a template. `op: "custom"` takes
     your own `prompt` (with ${…} templates) and `output_schema` (a JSON Schema object); `see` adds context: item,
     attachments, images, persona. `write_back`: true saves a built-in op's own fields on an entry; a map {output key:
     field} names them (entry summary/tags, asset alt_text/description/name/tags, resource description/name/tags,
@@ -596,6 +595,27 @@ class EmailAction(_StepBase):
         return self
 
 
+class SnapshotAction(_StepBase):
+    """Keeps a version of an entry and puts it back (`op` capture | restore) — the triggering entry, or `entity_id` / `entity_slug`."""
+
+    kind: Literal["snapshot"]
+    op: Literal["capture", "restore"] = "capture"
+    label: str | None = Field(default=None, max_length=100)
+    snapshot: str | None = None
+    parts: list[Literal["content", "collections", "assets", "status"]] | None = None
+    entity_id: str | None = None
+    entity_slug: str | None = None
+    id: str | None = None
+
+    @model_validator(mode="after")
+    def _shape(self):
+        if self.op == "capture" and (self.snapshot is not None or self.parts is not None):
+            raise ValueError("snapshot and parts go with op restore")
+        if self.op == "restore" and self.parts is not None and not self.parts:
+            raise ValueError("parts is empty: name content, collections, assets or status — or leave it out for the first three")
+        return self
+
+
 class MetricAction(_StepBase):
     """Records a number as an observation (never a conclusion). `metric` (slug), `value`, optional `variant` / `subject`
     labels, `window` day | week | month (the run's own, in the workspace zone; `at` = another date) or 2026-10-18 /
@@ -695,7 +715,8 @@ RepeatStep = Annotated[
     | FetchAction
     | SchemaCheckAction
     | EmailAction
-    | MetricAction,
+    | MetricAction
+    | SnapshotAction,
     Field(discriminator="kind"),
 ]
 MAX_REPEAT_ITEMS = 25
@@ -787,6 +808,7 @@ ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "schema_check": SchemaCheckAction,
     "email": EmailAction,
     "metric": MetricAction,
+    "snapshot": SnapshotAction,
     "wait": WaitAction,
     "repeat": RepeatAction,
     "parallel": ParallelAction,
@@ -806,6 +828,7 @@ Action = Annotated[
     | SchemaCheckAction
     | EmailAction
     | MetricAction
+    | SnapshotAction
     | WaitAction
     | RepeatAction
     | ParallelAction,

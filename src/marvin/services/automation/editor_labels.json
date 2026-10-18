@@ -31,6 +31,7 @@
     "schema_check": "Check against a schema",
     "email": "Email a member",
     "metric": "Record a metric",
+    "snapshot": "Save or restore a version",
     "wait": "Wait",
     "repeat": "Repeat for each",
     "parallel": "Parallel branches"

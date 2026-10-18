@@ -361,6 +361,7 @@ class TestActionRegistry:
             "schema_check",
             "email",
             "metric",
+            "snapshot",
             "wait",
             "repeat",
             "parallel",
