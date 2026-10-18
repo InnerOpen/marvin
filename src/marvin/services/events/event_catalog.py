@@ -2443,6 +2443,35 @@ def diff_fields(event_type: str) -> dict[str, dict[str, str]]:
     }
 
 
+FORM_SUBMISSION_FIELDS: dict[str, str] = {
+    "id": "the submission's id (an entry of the form's type — the same as ${entry.id} — or a legacy Forms row)",
+    "form": "the form's name",
+    "form_slug": "the form's slug (its entry type's)",
+    "data.<field>": "what the visitor submitted, by field",
+    "status": "the submission's status (inbox, or needs_review when submission protection held it)",
+    "submitted_at": "when it was received",
+    "flagged": "true when submission protection held it for review",
+    "review_reasons": "why it was held (a list)",
+}
+"""What a run on a submission reads as `${form_submission.<field>}` (engine._form_submission_context)."""
+
+
+def workflow_reads(event_type: str) -> dict | None:
+    """The extra namespace a workflow starting on this event can read besides `event` and `entry`: a form
+    submission's `${form_submission.*}`, which classify-form-submission works on. None for any other event."""
+    if event_type != "form_submission_received":
+        return None
+    return {
+        "namespace": "form_submission",
+        "fields": FORM_SUBMISSION_FIELDS,
+        "note": (
+            "An operation step with op classify-form-submission (input.categories: [...]) reads it itself; its answer "
+            "(category, confidence, is_spam, sentiment, tags, action_required) is ${steps.<id>.output.<key>} for a `when` "
+            "or a template. A dry run doesn't ask the AI: it previews with a stand-in answer."
+        ),
+    }
+
+
 def offered_emittable() -> list[str]:
     """What the builder's Emit event step offers, in catalog order: emittable events that are also subscribable
     (an event nothing else sends isn't offered, though the step still accepts it)."""

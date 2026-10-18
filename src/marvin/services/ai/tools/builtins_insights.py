@@ -301,7 +301,7 @@ def describe_event(ctx: ToolContext, args: dict) -> str:
     workspaces, as on the admin Events page)."""
     from marvin.db.models.users.roles import PlatformRole
     from marvin.services.events import connections, custom_events
-    from marvin.services.events.event_catalog import CATALOG, canonical_event_type, diff_fields, get_catalog_entry, operational_fields
+    from marvin.services.events.event_catalog import CATALOG, canonical_event_type, diff_fields, get_catalog_entry, operational_fields, workflow_reads
 
     user = ctx.user
     super_admin = getattr(user, "platform_role", None) == PlatformRole.SUPER_ADMIN or bool(getattr(user, "is_superuser", False))
@@ -339,6 +339,8 @@ def describe_event(ctx: ToolContext, args: dict) -> str:
             "note": "A workflow starting on this reads these as ${event.<field>}, or with the changed / changed_from / changed_to operators "
             "(entry.data.price changed; event.changed_fields contains data.price).",
         }
+    if reads := workflow_reads(entry.event_type):  # a form submission: what a run on it reads besides `event` and `entry`
+        out["workflowReads"] = reads
     if entry.scope == "workspace":
         detail = connections.detail(ctx.session, ctx.group_id, entry, limit=1, visible=_visible_events(ctx))
         out |= {

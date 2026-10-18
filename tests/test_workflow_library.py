@@ -443,6 +443,7 @@ def ws(db_session, monkeypatch):
         "product_type": "article",
         "open_after": "26w",
         "queues": "commissions, orders, press, other",
+        "categories": ["inquiry", "support", "feedback", "other"],
         "text_field": "body",
         "min_characters": 20,
         "document_url_field": "message",
@@ -1850,6 +1851,39 @@ class TestExecution:
         assert "commissions, orders, press, other" in json.dumps(ws.ai.requests[0])
         assert len(ws.ai.requests) == 1 and "triage" not in (_reload(ws, spam).metadata_json or {})  # flagged: never sent to the AI
 
+    def test_form_submission_sorter(self, ws):
+        _install(ws, "form-submission-sorter")
+        lead = _entry(ws, "contact-request", "Ada", status="inbox", data={"email": "ada@example.com", "message": "Can you engrave brass?"})
+        spam = _entry(ws, "contact-request", "Cheap", status="inbox", data={"email": "x@spam.test", "message": "cheap pills, click here"})
+        quiet = _entry(ws, "contact-request", "Thanks", status="inbox", data={"email": "t@example.com", "message": "Lovely work, thanks."})
+        held = _entry(ws, "contact-request", "Held", status="needs_review", data={"email": "h@spam.test", "message": "buy now"})
+        answers = [
+            {"category": "inquiry", "confidence": 0.93, "is_spam": False, "sentiment": "positive", "tags": [], "action_required": True},
+            {"category": "other", "confidence": 0.99, "is_spam": True, "sentiment": "neutral", "tags": [], "action_required": False},
+            {"category": "feedback", "confidence": 0.8, "is_spam": False, "sentiment": "positive", "tags": [], "action_required": False},
+        ]
+        for answer in answers:
+            ws.ai.reply_text(json.dumps(answer))
+
+        for entry, flagged in ((lead, False), (spam, False), (quiet, False), (held, True)):
+            doc = _entry_doc(entry, form_name="Contact", flagged=flagged, submission_id=str(entry.id), submission_data=entry.data_json)
+            _fire(ws, "form_submission_received", doc, entity=entry.id, entity_type="entry", correlation_id=f"form-{entry.slug}")
+
+        asked = [json.dumps(r) for r in ws.ai.requests]
+        assert len(asked) == 3  # the flagged one never reached the AI
+        assert "Can you engrave brass?" in asked[0] and "inquiry, support, feedback, other" in asked[0] and "Contact" in asked[0]
+        routed = _reload(ws, lead)
+        assert routed.metadata_json["classified"] == {
+            "category": "inquiry", "confidence": 0.93, "is_spam": False, "sentiment": "positive", "action_required": True,
+        }  # fmt: skip
+        assert routed.status == "needs_review" and routed.metadata_json["review_reasons"] == ["inquiry · positive"]
+        junk = _reload(ws, spam)
+        assert junk.metadata_json["classified"]["is_spam"] is True and junk.status == "needs_review"
+        assert junk.metadata_json["review_reasons"] == ["Looks like spam — check it, then trash it or keep it"]
+        fine = _reload(ws, quiet)  # nothing to act on: classified, left where it landed
+        assert fine.metadata_json["classified"]["category"] == "feedback" and fine.status == "inbox"
+        assert "classified" not in (_reload(ws, held).metadata_json or {})
+
     def test_thumbnail_audition(self, ws, store):
         from marvin.db.models.platform import EntryAssets
         from marvin.services.automation import approvals
@@ -3254,3 +3288,149 @@ def test_a_workspace_type_and_a_built_in_with_the_same_slug_are_listed_once(ws):
     finally:
         ws.session.delete(built_in)
         ws.session.commit()
+
+
+# ── A run on a form submission reads it, and an operation step classifies it ─
+def _submission_doc(entry, **extra) -> dict:
+    return _entry_doc(entry, form_name="Contact", submission_id=str(entry.id), submission_data=entry.data_json, **extra)
+
+
+def _classify_workflow(ws, **step):
+    return _install_workflow(
+        ws,
+        "classify-it",
+        "form_submission_received",
+        [
+            {"kind": "operation", "id": "judge", "op": "classify-form-submission", "input": {"categories": ["lead", "support"]}, **step},
+            {
+                "kind": "entry",
+                "op": "set_metadata",
+                "metadata": {
+                    "seen": {"form": "${form_submission.form}", "who": "${form_submission.data.email}", "kind": "${steps.judge.output.category}"}
+                },
+            },
+            {
+                "kind": "entry",
+                "op": "request_review",
+                "reason": "spam: ${form_submission.data.message}",
+                "when": [{"field": "steps.judge.output.is_spam", "op": "eq", "value": True}],
+            },
+        ],
+    )
+
+
+def test_a_workflow_on_a_submission_classifies_what_was_submitted_and_branches_on_the_answer(ws):
+    _classify_workflow(ws)
+    spam = _entry(ws, "contact-request", "Pills", status="inbox", data={"email": "x@spam.test", "message": "cheap pills"})
+    lead = _entry(ws, "contact-request", "Ada", status="inbox", data={"email": "ada@example.com", "message": "A brass plate, please"})
+    ws.ai.reply_text(json.dumps({"category": "lead", "confidence": 0.9, "is_spam": True, "sentiment": "neutral", "action_required": False}))
+    ws.ai.reply_text(json.dumps({"category": "lead", "confidence": 0.9, "is_spam": False, "sentiment": "positive", "action_required": True}))
+
+    for entry in (spam, lead):
+        assert _fire(ws, "form_submission_received", _submission_doc(entry), entity=entry.id, entity_type="entry") == 1
+
+    first, second = (json.dumps(r) for r in ws.ai.requests)
+    assert "cheap pills" in first and "A brass plate" not in first and "A brass plate" in second  # each run read its own submission
+    assert "lead, support" in first and "Contact Request" in first
+    assert _reload(ws, spam).metadata_json["seen"] == {"form": "Contact Request", "who": "x@spam.test", "kind": "lead"}
+    assert _reload(ws, spam).status == "needs_review" and _reload(ws, spam).metadata_json["review_reasons"] == ["spam: cheap pills"]
+    assert _reload(ws, lead).status == "inbox"  # the branch on is_spam held for one only
+
+
+def test_a_submission_is_the_entry_the_form_saved_or_a_legacy_row_in_this_workspace_only(ws):
+    from marvin.db.models.platform.form_submissions import FormSubmissions
+    from marvin.db.models.platform.forms import Forms
+    from marvin.services import form_submissions
+
+    entry = _entry(
+        ws, "contact-request", "Ada", status="needs_review", data={"message": "hi"},
+        metadata={"submission": {"received_at": "2026-10-01T10:00:00+00:00", "review_reasons": ["honeypot"]}},
+    )  # fmt: skip
+    assert form_submissions.load(ws.session, ws.gid, entry.id) == {
+        "id": str(entry.id), "form": "Contact Request", "form_slug": "contact-request", "data": {"message": "hi"},
+        "status": "needs_review", "submitted_at": "2026-10-01T10:00:00+00:00", "flagged": True, "review_reasons": ["honeypot"],
+    }  # fmt: skip
+    assert form_submissions.load(ws.session, uuid.uuid4(), entry.id) is None  # another workspace's, or a stranger's
+    assert form_submissions.load(ws.session, ws.gid, "not-an-id") is None
+    article = _entry(ws, "article", "Post", data={"body": "x"})
+    assert form_submissions.load(ws.session, ws.gid, article.id) is None  # an entry of a type that takes no submissions
+
+    form = Forms(session=ws.session, group_id=ws.gid, name="Old form", slug="old-form")
+    form.id = uuid.uuid4()
+    ws.session.add(form)
+    ws.session.flush()
+    legacy = FormSubmissions(session=ws.session, form_id=form.id, group_id=ws.gid, data_json={"message": "from the old table"})
+    ws.session.add(legacy)
+    ws.session.commit()
+    try:
+        found = form_submissions.load(ws.session, ws.gid, legacy.id)
+        assert (found["form"], found["data"], found["status"], found["flagged"]) == ("Old form", {"message": "from the old table"}, "received", False)
+        assert form_submissions.load(ws.session, uuid.uuid4(), legacy.id) is None
+    finally:
+        ws.session.delete(legacy)
+        ws.session.delete(form)
+        ws.session.commit()
+
+
+def test_form_submission_is_bound_for_a_submittable_entry_and_nothing_else(ws):
+    from marvin.services.automation.engine import match_context
+
+    contact = _entry(ws, "contact-request", "Ada", status="inbox", data={"message": "hi"})
+    article = _entry(ws, "article", "Post", data={"body": "x"})
+    for event_type, entry, bound in (
+        ("form_submission_received", contact, True),
+        ("entry_created", contact, True),  # any run on a form's entry reads it as a submission
+        ("entry_updated", article, False),
+    ):
+        ctx = match_context(ws.session, ws.gid, event_context(event_type, _entry_doc(entry), entity_id=entry.id, entity_type="entry"))
+        assert ("form_submission" in ctx) is bound, event_type
+        if bound:
+            assert ctx["form_submission"]["data"] == {"message": "hi"} and ctx["form_submission"]["id"] == str(contact.id)
+
+
+def test_classifying_without_a_submission_fails_the_step_plainly(ws):
+    from marvin.db.models.groups.automation_executions import AutomationActionExecutionModel
+
+    _install_workflow(ws, "no-sub", "entry_updated", [{"kind": "operation", "op": "classify-form-submission"}])
+    article = _entry(ws, "article", "Post", data={"body": "x"})
+
+    _fire(ws, "entry_updated", _entry_doc(article), entity=article.id, entity_type="entry")
+
+    (step,) = ws.session.query(AutomationActionExecutionModel).filter_by(group_id=ws.gid).all()
+    assert step.status == "failed" and "no form submission to read" in (step.error or "")
+    assert ws.ai.requests == []
+
+
+def test_a_dry_run_on_a_submission_previews_the_classification_without_asking_the_ai_and_run_two_matches(ws):
+    from marvin.services.automation.engine import dry_run_for_event
+
+    row = _install(ws, "form-submission-sorter")
+    request = _entry(ws, "contact-request", "Ada", status="inbox", data={"email": "ada@example.com", "message": "Can you engrave brass?"})
+    for n in (1, 2):  # a dry run changes nothing, so the second shows the same
+        ctx = event_context(
+            "form_submission_received", _submission_doc(request, flagged=False), entity_id=request.id, entity_type="entry", correlation_id=f"d{n}"
+        )
+        preview = dry_run_for_event(ws.session, ws.gid, row, ctx)
+        assert preview["would_fire"] and _step_errors(preview["plan"]) == [], n
+        classify, notes, *_ = preview["plan"]
+        assert (classify["resolved"]["entity_type"], classify["resolved"]["entity_id"]) == ("form_submission", str(request.id))
+        assert classify["resolved"]["category"] == "‹AI answer: category›"
+        assert notes["resolved"]["would_merge"]["classified"]["category"] == "‹AI answer: category›"
+        assert ws.ai.requests == []  # previewed, not asked
+        assert "classified" not in (_reload(ws, request).metadata_json or {})
+
+
+def test_the_guide_and_describe_event_say_what_a_run_on_a_submission_reads(ws):
+    events = authoring_guide(ws.session, ws.gid, "events")["events"]["form_submission_received"]
+    assert events["namespace"] == "form_submission" and {"data.<field>", "flagged"} <= set(events["fields"])
+    assert "classify-form-submission" in events["note"]
+    namespaces = authoring_guide(ws.session, ws.gid, "templates")["templates"]["namespaces"]
+    assert "data.<field>" in namespaces["form_submission"]
+    described = _tool(ws, "describe_event", {"event": "form_submission_received"})
+    assert described["workflowReads"]["namespace"] == "form_submission" and "review_reasons" in described["workflowReads"]["fields"]
+    assert "workflowReads" not in _tool(ws, "describe_event", {"event": "entry_published"})
+
+    ok = {"trigger": {"type": "event", "event": "form_submission_received"}, "actions": [{"kind": "operation", "op": "classify-form-submission"}]}
+    assert draft_issues(ws.session, ws.gid, ok) == []
+    wrong = {**ok, "actions": [{"kind": "operation", "op": "classify-form-submission", "entity_type": "entry"}]}
+    assert "runs on form_submission" in draft_issues(ws.session, ws.gid, wrong)[0]["message"]

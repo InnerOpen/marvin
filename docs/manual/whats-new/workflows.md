@@ -63,6 +63,7 @@ The builder sends every value as text. `eq` and `neq` convert it to the type of 
 | `entry.*` | `id`, `entry_type`, `status`, `title`, `slug`, `summary`, `data.<field>` (the entry type's fields), `metadata.<key>`, `image` (the featured image's public URL, or empty). Present for entry events and for every row of a query run. |
 | `asset.*` | `id`, `slug`, `name`, `asset_type`, `mime_type`, `filename`, `file_size`, `description`, `tags`, `metadata.<key>`, `url` (its public URL, or empty), `trashed`, `derived_from` (the id of the asset it was made from — a [Process an image](#process-an-image) step's or an entry type's media derivative; empty for an original), `origin` (`upload`, `derived` or `generated`). Present for `asset_*` events and for every row of an asset query run. |
 | `resource.*` | `id`, `slug`, `name`, `resource_type`, `description`, `tags`, `metadata.<key>`, `url` (its link), `external_id`, `trashed`. Present for `resource_*` events and for every row of a resource query run. |
+| `form_submission.*` | `id`, `form` (the form's name), `form_slug`, `data.<field>`, `status`, `submitted_at`, `flagged` (submission protection held it), `review_reasons`. Present for `form_submission_received` and for any run on an entry of a form (a submittable entry type) — see [Classify a form submission](#classify-a-form-submission). |
 | `previous.*`, `steps.<id or index>.output.*` | Step outputs; usable in step inputs only, never in conditions. |
 
 A numeric path segment indexes a list: `event.payload.items.0.id`.
@@ -199,6 +200,25 @@ in, and calls nothing.
 
 Workflow Library recipes that use it: **Community question**, **Marvin margin notes**, **Soundtrack brief**,
 **Resource attachment notes** and **Asset attachment social kit**.
+
+### Classify a form submission {#classify-a-form-submission}
+
+A workflow that starts on `form_submission_received` (or runs on an entry of a form) reads the submission as
+`${form_submission.*}` — what the visitor sent, as the public form saved it. An **AI operation** step with
+`op: "classify-form-submission"` finds that submission itself (no `entity_type` or `entity_id` needed; name
+`entity_id` to classify another) and answers `category`, `confidence`, `is_spam`, `sentiment`, `tags` and
+`action_required`. Give the step an `id` and read the answer as `${steps.<id>.output.<key>}`, in a `when` or in
+later steps. `input.categories` is the list to choose from (default inquiry, support, feedback, other).
+
+```json
+{"kind": "operation", "id": "sort", "op": "classify-form-submission", "input": {"categories": ["lead", "support", "press"]}}
+```
+
+A dry run asks no AI: the step previews with a stand-in for each text answer (`‹AI answer: category›`) and the steps
+after it preview as they will run. The submission's text goes to the workspace's AI provider; submissions that
+submission protection already flagged are best left out with a condition on `event.flagged`.
+
+Workflow Library recipe: **Form submission sorter**.
 
 ### Run inputs
 
@@ -794,6 +814,8 @@ Operational events as triggers (**Operations** heading: `webhook_delivery_failed
 Parallel branches (`parallel`; the Publication release gate recipe): 2026-10-18.
 
 Custom events (`custom.<name>`: registered fields, Emit event `payload`, trigger and subscriptions, Achievement cabinet recipe): 2026-10-18.
+
+Classify a form submission (`${form_submission.*}`, the `classify-form-submission` step from a workflow; Form submission sorter recipe): 2026-10-18.
 
 Check against a schema (`schema_check`; Agent directory intake and Choose your own adventure recipes): 2026-10-18.
 

@@ -293,6 +293,8 @@ def _item_contexts(session, group_id, event_ctx: dict) -> dict:
             out[kind] = ctx
     if event_ctx.get("entity_type") == "member" and event_ctx.get("entity_id") and (ctx := _member_context(session, event_ctx)):
         out["member"] = ctx
+    if submission := _form_submission_context(session, group_id, event_ctx):
+        out["form_submission"] = submission
     return out
 
 
@@ -371,6 +373,8 @@ TEMPLATE_NAMESPACES: dict[str, str] = {
     "derived_from (the id of the asset it was made from; None for an original), origin (upload | derived | generated)",
     "resource": "the resource the run acts on (a resource event's, or each resource-target match): id, name, slug, resource_type, "
     "description, url, external_id, tags, metadata.<key>, trashed",
+    "form_submission": "a form submission event's (or a submittable entry's) submission: id, form (its name), form_slug, "
+    "data.<field>, status, submitted_at, flagged (held for review by submission protection), review_reasons",
     "previous": "the previous step's output",
     "steps": "steps.<id>.output.<key>: an earlier step's output, by its `id` (or its position, from 0)",
     "site": "site.url: the workspace's Canonical URL; site.app_url: where the admin app is (for a link in an email)",
@@ -392,6 +396,23 @@ def match_context(session, group_id, event_ctx: dict) -> dict:
             context["entry"] = entry_ctx
     context.update(_item_contexts(session, group_id, event_ctx))
     return context
+
+
+def _form_submission_context(session, group_id, event_ctx: dict) -> dict | None:
+    """`form_submission` for a run on a submission: a form_submission_received event's (its `submission_id`: the entry
+    the public form made, or a legacy Forms row), or any run on an entry of a submittable type — read as it is now,
+    like `entry`. It is also what an operation step (classify-form-submission) is handed."""
+    from marvin.services import form_submissions
+
+    if event_ctx.get("event_type") == "form_submission_received" and event_ctx.get("submission_id"):
+        return form_submissions.load(session, group_id, event_ctx["submission_id"])
+    if event_ctx.get("entry_id"):  # an entry of a submittable type is a submission, whatever event woke the run
+        from marvin.db.models.platform.entries import Entries
+
+        entry = session.get(Entries, event_ctx["entry_id"])
+        if entry is not None and entry.group_id == group_id:
+            return form_submissions.from_entry(entry)
+    return None
 
 
 def run_automations_for_event(
@@ -1051,6 +1072,8 @@ def run_automation_now(
     }
     if entry_id and (entry_ctx := _entry_context(session, group_id, entry_id)):
         context["entry"] = entry_ctx
+        if submission := _form_submission_context(session, group_id, context["event"]):
+            context["form_submission"] = submission
     # A dry run captures the resolved plan in memory and persists nothing; a real run uses the caller's
     # recorder (or none).
     dry_recorder = CollectingRecorder() if dry_run else None

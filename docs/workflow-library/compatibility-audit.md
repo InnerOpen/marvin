@@ -120,8 +120,9 @@ recipes avoid `{{field}}` templating so an installer can't confuse them.
   `webhook_delivery_failed`, `scheduled_task_failed` and `ai_budget_*` *are* triggers since 2026-10-18, and
   integration-health-companion and webhook-repair-desk are workflows (a repair task per connection / webhook).
 - ~~"Body changes" cannot gate a workflow~~ done 2026-10-18: `changed_fields contains data.body` (the body's text itself reads `‹elided›`).
-- `classify-form-submission` from a workflow classifies `{}`: the runner loads no submission context and
-  new submissions are entries, not `FormSubmissions` rows.
+- ~~`classify-form-submission` from a workflow classifies `{}`~~ (the runner loaded no submission context and
+  new submissions are entries, not `FormSubmissions` rows) — fixed 2026-10-18: a run on a submission binds
+  `${form_submission.*}` and the step reads it (form-submission-sorter).
 - Custom completion events (`newsletter_issue_processed`) cannot be emitted; `automation_ran` + `chained` is
   the completion signal.
 - Image generation is `requires_approval` and therefore unreachable from workflows; every image recipe waits on

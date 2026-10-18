@@ -175,11 +175,27 @@ def test_guide_tool_needs_admin_and_rejects_an_unknown_section(ws):
     assert "events" in _tool(ws, "workflow_authoring_guide", {"section": "events"})
 
 
+def _submission_entry(ws):
+    """An entry of a submittable type — what the public form saves for a submission."""
+    from marvin.db.models.platform import EntryTypes
+    from marvin.db.models.platform.entries import Entries
+
+    ws.session.get(EntryTypes, ws.et["id"]).capabilities_json = {"submittable": True}
+    row = Entries(
+        session=ws.session, group_id=ws.gid, entry_type_id=ws.et["id"], title="Ada", slug=f"sub-{uuid.uuid4().hex[:6]}",
+        status="inbox", data_json={"message": "Hello"}, metadata_json={},
+    )  # fmt: skip
+    ws.session.add(row)
+    ws.session.commit()
+    return row
+
+
 def test_template_namespaces_are_what_a_run_can_read(ws):
     from marvin.db.models.platform import Assets, Resources
     from marvin.services.automation.engine import TEMPLATE_NAMESPACES, _entry_context, _item_context, match_context
 
     entry = gates._sign_in(ws.workspace, AD).post(f"{P}/entries", json={"entry_type_id": ws.et["id"], "title": "Soup", "status": "draft"}).json()
+    submission = _submission_entry(ws)
     photo = Assets(
         session=ws.session, group_id=ws.gid, slug=f"ns-{ws.gid.hex[:6]}", name="P", original_filename="p.png", filename="p.png",
         extension="png", file_size=1, mime_type="image/png", asset_type="image", checksum=uuid.uuid4().hex,
@@ -195,6 +211,7 @@ def test_template_namespaces_are_what_a_run_can_read(ws):
         {"event_type": "asset_uploaded", "asset_id": str(photo.id)},
         {"event_type": "resource_created", "resource_id": str(tool.id)},
         {"event_type": "member_added", "entity_type": "member", "entity_id": str(ws.uid), "role": "EDITOR"},
+        {"event_type": "form_submission_received", "entry_id": str(submission.id), "submission_id": str(submission.id)},
     ):
         seen |= set(match_context(ws.session, ws.gid, event_ctx))
     # A run adds step outputs (`steps`), in on_failure steps the failure (`error`) and, in a manual run, its inputs
@@ -205,8 +222,13 @@ def test_template_namespaces_are_what_a_run_can_read(ws):
     for kind, row in (("asset", photo), ("resource", tool)):
         for key in _item_context(ws.session, ws.gid, kind, row.id):
             assert key in TEMPLATE_NAMESPACES[kind], (kind, key)
+    from marvin.services import form_submissions
+
+    for key in form_submissions.from_entry(submission):
+        assert key in TEMPLATE_NAMESPACES["form_submission"], key
     ws.session.delete(photo)
     ws.session.delete(tool)
+    ws.session.delete(submission)
     ws.session.commit()
 
 

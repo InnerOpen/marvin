@@ -91,6 +91,8 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
 
     entity_type = action.get("entity_type") or subject_kind(context) or "entry"
     supported = getattr(operation, "entity_types", None) or ()  # empty: the op needs no entity (a workspace question)
+    if not action.get("entity_type") and entity_type not in supported and "form_submission" in supported:
+        entity_type = "form_submission"  # a form operation acts on the run's submission (`${form_submission.*}`)
     if supported and entity_type not in supported:
         raise AutomationActionError(f"operation '{slug}' does not run on an {entity_type} (it runs on: {', '.join(supported)})")
     op_input = interpolate(action.get("input", {}) or {}, context)
@@ -99,13 +101,21 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
     if entity_type == "entry" and entity_slug:
         entity_id = _resolve_entry_id_by_slug(session, group_id, str(entity_slug))
     else:
-        entity_id = interpolate(action.get("entity_id", f"$event.{entity_type}_id"), context)
+        default_id = "${form_submission.id}" if entity_type == "form_submission" else f"$event.{entity_type}_id"
+        entity_id = interpolate(action.get("entity_id", default_id), context)
+
+    if custom:
+        stand_ins = _stand_ins(action.get("output_schema"))
+    elif entity_type == "form_submission":  # its answer feeds a `when` and the steps after it, like a custom step's
+        stand_ins = _stand_ins(operation.output_schema)
+    else:
+        stand_ins = {}
 
     if dry_run:
         # Preview: the op is authorized and its inputs/target resolve — but don't call the provider,
         # create an AIExecution row, or write back. (An AI call is the expensive, side-effectful part.)
         return {
-            **(_stand_ins(action.get("output_schema")) if custom else {}),
+            **stand_ins,
             "dry_run": True,
             "kind": "operation",
             "op": slug,
@@ -115,6 +125,9 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
             **({"prompt": operation.prompt[:2000], "see": list(operation.see)} if custom else {}),
             "would_write_back": bool(action.get("write_back")),
         }
+
+    if entity_type == "form_submission" and not entity_id:
+        raise AutomationActionError("this run has no form submission to read: run it on a form submission event, or name entity_id")
 
     from marvin.services.ai import budget
 
@@ -206,7 +219,12 @@ def _operation_context(session, group_id, operation, entity_type: str, entity_id
             builder.with_asset_images()
     elif entity_type == "resource" and entity_id:
         builder.with_resource(entity_id)
-    return builder.build()
+    elif entity_type == "form_submission" and entity_id:
+        builder.with_form_submission(entity_id)
+    built = builder.build()
+    if entity_type == "form_submission" and built.form_submission is None:
+        raise AutomationActionError("no form submission with that id in this workspace")
+    return built
 
 
 def _apply_write_back(session, group_id, action, operation, parsed, entity_type, entity_id, context, user_id, authorizer_role, execution_id) -> dict:

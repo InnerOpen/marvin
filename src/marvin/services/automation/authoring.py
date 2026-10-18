@@ -319,7 +319,14 @@ def _triggers() -> dict:
 
 
 def _events(refs: WorkspaceRefs) -> dict:
-    from marvin.services.events.event_catalog import CATALOG_BY_TYPE, OPERATIONS, offered_emittable, operational_fields, trigger_groups
+    from marvin.services.events.event_catalog import (
+        CATALOG_BY_TYPE,
+        OPERATIONS,
+        offered_emittable,
+        operational_fields,
+        trigger_groups,
+        workflow_reads,
+    )
 
     groups: dict[str, Any] = {g: {e: CATALOG_BY_TYPE[e].description for e in names} for g, names in trigger_groups().items()}
     out: dict[str, Any] = {
@@ -338,6 +345,10 @@ def _events(refs: WorkspaceRefs) -> dict:
                 "is open should make no second one: look it up first (a `collect` step on a metadata key) and `when` the create on none."
             ),
         }
+    out["form_submission_received"] = {  # its extra namespace, for a step that classifies or routes the submission
+        **(reads := workflow_reads("form_submission_received")),
+        "fields": list(reads["fields"]),
+    }
     if refs.custom_events:
         # The workspace's own events: triggerable and emittable like the rest, their fields typed.
         types = [e["event_type"] for e in refs.custom_events]
@@ -892,6 +903,24 @@ def _condition_issues(node: Any, path: str, issues: _Issues) -> None:
             issues.add(f"{path}.op", "condition", f"Unknown condition operator “{node.get('op')}”. Operators: {', '.join(_OPS)}.")
 
 
+def _operation_step_issues(step: dict, refs: WorkspaceRefs, subject: str, bad) -> None:
+    ops = {o["op"]: o for o in refs.operations or []}
+    if refs.operations is None:
+        bad("", "AI operations can't run from workflows in this workspace (AI is off, or its automation source is disabled).")
+    elif step.get("op") not in ops:
+        bad("op", f"No AI operation “{step.get('op')}”. Operations: {_close(str(step.get('op')), list(ops))}.")
+    else:
+        # The step runs on its entity_type, else on what the run acts on (an asset/resource target's rows or
+        # event's item, else an entry) — the operation has to support that kind.
+        etype = step.get("entity_type") or subject
+        supported = ops[step["op"]]["entity_types"]
+        if not step.get("entity_type") and etype not in supported and "form_submission" in supported:
+            etype = "form_submission"  # a form operation acts on the run's submission
+        if supported and etype not in supported:
+            runs_on = f"this workflow runs on {etype}s" if not step.get("entity_type") else f"entity_type is {etype}"
+            bad("op" if not step.get("entity_type") else "entity_type", f"“{step['op']}” runs on {' / '.join(supported)}, but {runs_on}.")
+
+
 def _step_issues(
     step: dict, path: str, where: str, refs: WorkspaceRefs, issues: _Issues, subject: str = "entry", *, after_approval: bool = False
 ) -> None:
@@ -900,19 +929,7 @@ def _step_issues(
 
     kind = step.get("kind")
     if kind == "operation":
-        ops = {o["op"]: o for o in refs.operations or []}
-        if refs.operations is None:
-            bad("", "AI operations can't run from workflows in this workspace (AI is off, or its automation source is disabled).")
-        elif step.get("op") not in ops:
-            bad("op", f"No AI operation “{step.get('op')}”. Operations: {_close(str(step.get('op')), list(ops))}.")
-        else:
-            # The step runs on its entity_type, else on what the run acts on (an asset/resource target's rows or
-            # event's item, else an entry) — the operation has to support that kind.
-            etype = step.get("entity_type") or subject
-            supported = ops[step["op"]]["entity_types"]
-            if supported and etype not in supported:
-                runs_on = f"this workflow runs on {etype}s" if not step.get("entity_type") else f"entity_type is {etype}"
-                bad("op" if not step.get("entity_type") else "entity_type", f"“{step['op']}” runs on {' / '.join(supported)}, but {runs_on}.")
+        _operation_step_issues(step, refs, subject, bad)
     elif kind == "entry":
         _entry_step_issues(step, refs, bad)
     elif kind == "emit_event":

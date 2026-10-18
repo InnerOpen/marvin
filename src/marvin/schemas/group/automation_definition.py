@@ -177,7 +177,9 @@ def writeback_field_ok(kind: str, field: str) -> bool:
 
 
 class OperationAction(_StepBase):
-    """Runs an AI operation (`op`: its slug) on the entry, or (`entity_type`) an asset | resource. `op: "custom"` takes
+    """Runs an AI operation (`op`: its slug) on the entry, or (`entity_type`) an asset | resource | form_submission (the run's
+    `${form_submission.*}`: classify-form-submission sets entity_type itself; its answer — category, is_spam, sentiment,
+    action_required — is for a `when` or a template). `op: "custom"` takes
     your own `prompt` (with ${…} templates) and `output_schema` (a JSON Schema object); `see` adds context: item,
     attachments, images, persona. `write_back`: true saves a built-in op's own fields on an entry; a map {output key:
     field} names them (entry summary/tags, asset alt_text/description/name/tags, resource description/name/tags,
@@ -186,8 +188,8 @@ class OperationAction(_StepBase):
     kind: Literal["operation"]
     op: str  # AI operation slug
     input: dict[str, Any] = Field(default_factory=dict)
-    entity_type: str = "entry"  # unset: the target's or the triggering item's kind, else entry
-    entity_id: str | None = None  # defaults to the run's $event.<entity_type>_id
+    entity_type: str = "entry"  # unset: the target's or the triggering item's kind, else entry (a form op: form_submission)
+    entity_id: str | None = None  # defaults to the run's $event.<entity_type>_id (a submission: ${form_submission.id})
     entity_slug: str | None = None  # preferred for webhook payloads; resolved at run time
     write_back: bool | dict[str, str] = False
     prompt: str | None = None  # op "custom" only: the instructions (≤ 8000 characters)

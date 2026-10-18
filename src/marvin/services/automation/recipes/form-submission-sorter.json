@@ -1,0 +1,73 @@
+{
+  "name": "Form submission sorter",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "form_submission_received"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{form_entry_type}}"
+      },
+      {
+        "field": "event.flagged",
+        "op": "neq",
+        "value": true
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "classify",
+        "op": "classify-form-submission",
+        "input": {
+          "categories": "{{categories}}"
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "classified": {
+            "category": "${steps.classify.output.category}",
+            "confidence": "${steps.classify.output.confidence}",
+            "is_spam": "${steps.classify.output.is_spam}",
+            "sentiment": "${steps.classify.output.sentiment}",
+            "action_required": "${steps.classify.output.action_required}"
+          }
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "request_review",
+        "reason": "Looks like spam — check it, then trash it or keep it",
+        "when": [
+          {
+            "field": "steps.classify.output.is_spam",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      },
+      {
+        "kind": "entry",
+        "op": "request_review",
+        "reason": "${steps.classify.output.category} · ${steps.classify.output.sentiment}",
+        "when": [
+          {
+            "field": "steps.classify.output.is_spam",
+            "op": "neq",
+            "value": true
+          },
+          {
+            "field": "steps.classify.output.action_required",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    ]
+  }
+}

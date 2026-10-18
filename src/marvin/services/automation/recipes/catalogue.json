@@ -15,7 +15,7 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 103,
+    "verified-current": 104,
     "needs-adapter": 3,
     "needs-engine-capability": 1,
     "supported-after-configuration": 8
@@ -145,7 +145,7 @@
       "name": "Form-submission classification from workflows",
       "priority": "P0",
       "capabilities_md": "Typed output contracts",
-      "acceptance": "The workflow runner loads an entry-backed submission into `ctx.form_submission` so classify-form-submission classifies the real data; its output (`is_spam`, `category`) is usable by branches."
+      "acceptance": "Delivered 2026-10-18: a run on a form submission — a form_submission_received event, or any event on an entry of a submittable type — binds `${form_submission.*}` (id, form, form_slug, data.<field>, status, submitted_at, flagged, review_reasons: the entry the public form saved, or a legacy Forms row), and an operation step with op classify-form-submission reads it by itself (entity_type and entity_id default to the run's submission). Its answer — category, confidence, is_spam, sentiment, tags, action_required — is `${steps.<id>.output.<key>}` for a `when` or a template; a dry run previews with a stand-in answer and asks no AI. describe_event and the authoring guide list the fields."
     },
     "data-change-detection": {
       "name": "Data-field change detection",
@@ -9215,17 +9215,9 @@
       ],
       "cost_notes": "None (no AI).",
       "failure_behaviour": "A provider error fails the step and the provider's error policy applies (Buttondown: review/retry/notify by code); with `integration_errors: \"fail\"` or on_failure steps it fails plainly. The run is recorded and the `workflow_failed` alert fires (if enabled). Metadata and review land before the notice is attempted.",
-      "dependencies": [
-        {
-          "capability": "form-classification",
-          "name": "Form-submission classification from workflows",
-          "priority": "P0",
-          "acceptance": "The workflow runner loads an entry-backed submission into `ctx.form_submission` so classify-form-submission classifies the real data; its output (`is_spam`, `category`) is usable by branches.",
-          "why": "to classify before routing"
-        }
-      ],
+      "dependencies": [],
       "notes": [
-        "The brief's “classify” step is not possible yet: `classify-form-submission` receives no submission context from the workflow runner (it reads the legacy FormSubmissions table). See intake-triage.",
+        "To classify submissions (spam, category, sentiment) as they arrive, use form-submission-sorter, which sorts with an AI step; this desk stays free of AI.",
         "Marvin already creates the entry (status inbox, or needs_review when protection flagged it) and pushes form_submission_received to people with the app.",
         "Legacy Forms (the Forms table) also send this event, but with no entry — the `entry.entry_type` condition keeps the recipe to submittable entry types."
       ],
@@ -9245,6 +9237,108 @@
         ],
         "suggested_trigger_event": "form_submission_received"
       }
+    },
+    {
+      "id": "form-submission-sorter",
+      "title": "Form submission sorter",
+      "outcome": "A new submission is classified by AI — its category, whether it is spam, its sentiment, whether it needs a reply — recorded on the entry, and sent to Needs review when it looks like spam or needs action.",
+      "category": "Event-driven extensions",
+      "category_slug": "events",
+      "tags": [
+        "forms",
+        "classify",
+        "spam",
+        "review",
+        "ai"
+      ],
+      "target_entity": "entry",
+      "trigger": {
+        "type": "event",
+        "event": "form_submission_received",
+        "custom_event": false,
+        "builtin_event": true
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "form-submission-sorter.json",
+      "vars": "form-submission-sorter.vars.json",
+      "setup_variables": [
+        {
+          "name": "form_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type that takes public submissions (a contact or request form).",
+          "example": "contact-request"
+        },
+        {
+          "name": "categories",
+          "type": "list",
+          "description": "The kinds of submission you get — the AI puts each in one (a list of words).",
+          "example": [
+            "inquiry",
+            "support",
+            "feedback",
+            "other"
+          ]
+        }
+      ],
+      "requires": {
+        "trigger": "event:form_submission_received",
+        "action_kinds": [
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "set_metadata",
+          "request_review"
+        ],
+        "operations": [
+          "classify-form-submission"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "neq"
+        ]
+      },
+      "prerequisites": {
+        "features": [
+          "a submittable entry type (capabilities.submittable) — submissions are entries of that type",
+          "AI on for workflows (Settings → AI)"
+        ]
+      },
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per submission (none for one that submission protection already flagged)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Merges metadata.classified (category, confidence, is_spam, sentiment, action_required) into the entry (emits entry_updated at depth+1)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Moves a submission that looks like spam, or needs action, to Needs review with the reason (emits entry_updated at depth+1). Nothing is deleted."
+        }
+      ],
+      "cost_notes": "One AI call per submission that isn't flagged, from the workspace's monthly AI budget.",
+      "failure_behaviour": "A flagged submission is left alone; an AI error fails the run and the submission stays where it landed. A dry run doesn't ask the AI: it previews with a stand-in category.",
+      "dependencies": [],
+      "notes": [
+        "The submission's text is sent to the workspace's AI provider — say so in the form's privacy note.",
+        "The classification is the AI's opinion: spam is sent to Needs review, never trashed. A submission that is neither spam nor needs action stays in Inbox with metadata.classified for a view or a later workflow.",
+        "It reads ${form_submission.*} (the submission as the public form saved it); the classify-form-submission step finds it itself."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:classify-form-submission"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_form_submission_sorter"
+      },
+      "brief": null
     },
     {
       "id": "submission-surge-alert",
