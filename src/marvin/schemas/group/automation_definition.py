@@ -229,8 +229,8 @@ class OperationAction(_StepBase):
 
 
 class EntryAction(_StepBase):
-    """Changes an entry without AI: a status op, collection membership, a metadata/data write or a review
-    request — or `create` makes one (`entry_type` slug, `title`, `data`, `metadata`, `status` inbox|draft; output
+    """Changes an entry without AI — a status op, collection membership, a metadata/data write or a review
+    request — or creates one. `create` takes (`entry_type` slug, `title`, `data`, `metadata`, `status` inbox|draft; output
     entry_id/slug). `trash` / `restore` also act on an asset or a resource (`entity_type`; unset, the kind of the
     target's or the triggering item): `entity_slug` / `entity_id`, else the current one — never `entity_query`."""
 
@@ -364,7 +364,7 @@ class WebhookAction(_StepBase):
 
 
 class IntegrationAction(_StepBase):
-    """Runs a connected integration's action (`integration`: its slug, `action`: the action key) with `args` — or,
+    """Runs a connected integration's action with `args`. `integration`: its slug, `action`: the action key — or,
     with `capability` instead of `action`, whichever of its actions offers that (`notify`: `title`, `body`). An image.*
     action's pictures are kept as assets (output `images: [{asset}]`); `attach_as` links them to the run's entry, `tags` tags them.
     `source` (an image.* action that works on a picture, e.g. image.edit) is that picture, as a media step's source: it
@@ -565,7 +565,7 @@ class SchemaCheckAction(_StepBase):
 
 
 class EmailAction(_StepBase):
-    """Emails a member of the workspace — never an outside address: `to` (a user id or email: ${member.id}), `subject`,
+    """Emails a member of the workspace — never an outside address. `to` (a user id or email: ${member.id}), `subject`,
     `body` (markdown), optional `heading`, `button_text` + `button_link`, `once_per`. Sent once per event; the workflow
     guide's `email` section has the rules. Output `sent`, `to`, `name`, `role`, `subject`."""
 
@@ -587,7 +587,7 @@ class EmailAction(_StepBase):
 
 
 class MetricAction(_StepBase):
-    """Records a number as an observation (never a conclusion): `metric` (slug), `value`, optional `variant` / `subject`
+    """Records a number as an observation (never a conclusion). `metric` (slug), `value`, optional `variant` / `subject`
     labels, `window` day | week | month (the run's own, in the workspace zone; `at` = another date) or 2026-10-18 /
     2026-W42 / 2026-10. One per metric+variant+subject+window. `op` record (the default) REPLACES it (a total you
     already have; a rerun can't double-count); `op` add raises it by `value` (default 1, negative counts down) — counting

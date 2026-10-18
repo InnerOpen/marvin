@@ -297,7 +297,8 @@ def test_the_editor_and_validator_take_the_step_and_refuse_a_to_that_is_neither_
 
 def test_the_guide_documents_the_step_and_keeps_the_rules_in_its_own_section(ws):
     actions = authoring_guide(ws.session, ws.gid, "actions")["actions"]
-    assert set(actions["kinds"]["email"]["required"]) == {"to", "subject", "body"} and "once_per" in actions["kinds"]["email"]["optional"]
-    assert actions["email"].startswith("section=email")
-    note = authoring_guide(ws.session, ws.gid, "email")["email"]["note"]
+    assert "section=email" in actions["kinds"]["email"]["description"]  # one line in actions; the rest in its section
+    email = authoring_guide(ws.session, ws.gid, "email")["email"]
+    assert set(email["step"]["required"]) == {"to", "subject", "body"} and "once_per" in email["step"]["optional"]
+    note = email["note"]
     assert "never an outside address" in note and "once_per" in note and "${site.app_url}" in note

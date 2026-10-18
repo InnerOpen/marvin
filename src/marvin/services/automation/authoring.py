@@ -394,13 +394,32 @@ def _conditions() -> dict:
     return out
 
 
+# Step kinds whose fields and rules live in their own guide section; `actions` names them in one line.
+OWN_SECTION_KINDS = ("media", "email")
+
+
+def _kind_doc(model) -> dict:
+    return {"description": _doc(model), **_fields(model, skip=("kind",))}
+
+
+def _step_doc(kind: str) -> dict:
+    from marvin.schemas.group.automation_definition import ACTION_MODELS
+
+    return _kind_doc(ACTION_MODELS[kind])
+
+
 def _actions() -> dict:
     from marvin.schemas.group.automation_definition import ACTION_MODELS
 
     from .actions.entry import ENTRY_OPS, OP_SENDS, REVIEW_STATUS
     from .engine import MAX_ACTIONS
 
-    kinds = {kind: {"description": _doc(model), **_fields(model, skip=("kind",))} for kind, model in ACTION_MODELS.items()}
+    kinds = {
+        kind: {"description": f"{_first_sentence(_doc(model))} section={kind} has its fields and rules."}
+        if kind in OWN_SECTION_KINDS
+        else _kind_doc(model)
+        for kind, model in ACTION_MODELS.items()
+    }
     entry_ops: dict[str, Any] = {}
     for op, sends in OP_SENDS.items():
         status = ENTRY_OPS.get(op) or (REVIEW_STATUS if op == "request_review" else None)
@@ -418,12 +437,10 @@ def _actions() -> dict:
         "max_steps": MAX_ACTIONS,
         "step_id": "Give a step an `id` to read its output later as ${steps.<id>.output.<key>}; any step takes `when` (run only if).",
         "when": WHEN_NOTE,
-        "media": "section=media has the media step in full: each op's rules and the render templates.",
         "collect": COLLECT_NOTE,
         "fetch": FETCH_NOTE,
         "schema_check": SCHEMA_CHECK_NOTE,
         "parallel": PARALLEL_NOTE,
-        "email": "section=email has the email step in full: recipients, sending once, links by role.",
     }
 
 
@@ -644,9 +661,9 @@ def authoring_guide(session, group_id, section: str | None = None, recipe: str |
     if "actions" in want:
         out["actions"] = _actions()
     if "media" in want:
-        out["media"] = {"note": MEDIA_NOTE, "render_templates": _render_templates()}
+        out["media"] = {"step": _step_doc("media"), "note": MEDIA_NOTE, "render_templates": _render_templates()}
     if "email" in want:
-        out["email"] = {"note": EMAIL_NOTE}
+        out["email"] = {"step": _step_doc("email"), "note": EMAIL_NOTE}
     if "templates" in want:
         out["templates"] = _templates()
     if "workspace" in want or "examples" in want:
