@@ -124,6 +124,10 @@ export interface Referral {
   name?: string | null;
   question?: string | null;
   reason?: string | null;
+  /** The tool the change needs; when set, `agent` is the one that may run it for this user. */
+  tool?: string | null;
+  /** What the referring agent found (ids, slugs, a short note) for the receiver to act on. */
+  context?: { entry?: string | null; assetIds?: string[] | null; summary?: string | null } | null;
 }
 /**
  * An approval card's preview: what a big bulk write would link, or what an ask-first call would touch

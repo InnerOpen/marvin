@@ -33,18 +33,30 @@ REFERRAL_REASON_MAX = 300
         "List this workspace's AI agents — the built-ins (marvin, ask, chat) and any user-defined ones — "
         "with slug, name, kind (persona | model), description, whether you may run each, and canWrite: whether "
         "it may change things for this user (create, edit, attach). Use before run_agent, and before suggest_agent "
-        "to find an agent that can do what you can't."
+        "to find an agent that can do what you can't. Pass `tool` (e.g. attach_asset) to also get, per agent, "
+        "canUseTool: whether its permissions let it run that tool for this user."
     ),
-    input_schema={"type": "object", "properties": {}},
+    input_schema={
+        "type": "object",
+        "properties": {"tool": {"type": "string", "description": "a tool name; each agent then says whether it may run it (canUseTool)"}},
+    },
     sources=_EXTERNAL_SOURCES,
 )
-def list_agents(ctx: ToolContext, _args: dict) -> str:
+def list_agents(ctx: ToolContext, args: dict) -> str:
+    from marvin.services.ai.agents import agents_that_can, may_talk
     from marvin.services.ai.agents import list_agents as _list
-    from marvin.services.ai.agents import may_talk
 
     role = caller_role(ctx)
+    specs = _list(ctx.session, ctx.group_id)
+    tool = str(args.get("tool") or "").strip()
+    capable = {}
+    if tool:
+        found, error = _tool_category(tool)
+        if error:
+            return json.dumps({"error": error})
+        capable = {s.slug: d for s, d in agents_that_can(specs, tool, found, role, ctx.source or "mcp")}
     out = []
-    for spec in _list(ctx.session, ctx.group_id):
+    for spec in specs:
         ok, reason = may_talk(spec, role, ctx.source or "mcp")
         out.append(
             {
@@ -58,9 +70,22 @@ def list_agents(ctx: ToolContext, _args: dict) -> str:
                 # Writes need both: the agent binds write tools, and the user may write (Editor or above).
                 "canWrite": bool(spec.allow_writes) and role >= ROLE_EDITOR,
                 **({"reason": reason} if not ok else {}),
+                **({"canUseTool": spec.slug in capable, **({"toolPolicy": capable[spec.slug]} if spec.slug in capable else {})} if tool else {}),
             }
         )
     return json.dumps({"agents": out, "count": len(out)})
+
+
+def _tool_category(tool: str) -> tuple[str, str | None]:
+    """(category id, None) for a registry tool an agent can bind, else ("", the error to answer with)."""
+    from marvin.services.ai.tools import list_tools
+    from marvin.services.ai.tools.categories import category_of
+
+    spec = next((s for s in list_tools() if s.name == tool), None)
+    if spec is None or "agent" not in spec.sources:
+        writers = sorted(s.name for s in list_tools() if "agent" in s.sources and not s.read_only)
+        return "", f"unknown tool '{tool}' — use the name of a tool, one of: {', '.join(writers)}"
+    return category_of(spec.name, read_only=spec.read_only), None
 
 
 @register_tool(
@@ -251,46 +276,103 @@ def _run_standalone(ctx: ToolContext, args: dict) -> str:
     name="suggest_agent",
     description=(
         "Refer the user to another workspace agent (see list_agents) WITHOUT running it. Use when part of the "
-        "question clearly belongs to a different agent, or asks for something you can't do: for a change (create, "
-        "edit, attach) when you can only read, refer to an agent whose list_agents entry has canWrite, the workspace's "
-        "main agent (marvin) first, and put everything it needs in `question` (which entry, which asset ids). The "
-        "user gets a button that sends it there. Records the referral for the caller to surface; you still "
-        "answer what you can yourself. Call it at most once per answer."
+        "question clearly belongs to a different agent, or asks for something you can't do. For a change you can't "
+        "make (create, edit, attach), set `tool` to the tool it needs (attach_asset, attach_tag, create_draft, "
+        "update_draft, revise_entry…): the workspace then picks the agent whose permissions let it run THAT tool for "
+        "this user, the main agent (marvin) first, and `agent` becomes optional. Put what you found in `context` "
+        "(entry slug, asset ids, short summary) so that agent need not ask again; it still checks permissions "
+        "itself. If no agent may run the tool you get back which setting would allow one: tell the user that, in "
+        "one line. The user gets a button that sends the request there. Records the referral for the caller to "
+        "surface; you still answer what you can yourself. Call it at most once per answer."
     ),
     input_schema={
         "type": "object",
         "properties": {
-            "agent": {"type": "string", "description": "slug of the agent to refer to"},
+            "agent": {"type": "string", "description": "slug of the agent to refer to (optional with `tool`: marvin unless told otherwise)"},
             "question": {"type": "string", "description": "the question to ask that agent, as the user would phrase it"},
             "reason": {"type": "string", "description": "one short line: why that agent, not you"},
+            "tool": {"type": "string", "description": "the tool the change needs, e.g. attach_asset; the workspace finds an agent that may run it"},
+            "context": {
+                "type": "object",
+                "description": "what you found, for the agent to act on without asking again — ids and slugs only, plus a short note",
+                "properties": {
+                    "entry": {"type": "string", "description": "the entry's slug or id"},
+                    "assetIds": {"type": "array", "items": {"type": "string"}, "description": "asset ids you chose (up to 20)"},
+                    "summary": {"type": "string", "description": "one or two lines: what you found or decided"},
+                },
+            },
         },
-        "required": ["agent", "question"],
+        "required": ["question"],
     },
     sources=("agent", "mcp", "api"),
 )
 def suggest_agent(ctx: ToolContext, args: dict) -> str:
-    from marvin.services.ai.agents import resolve_agent
+    from marvin.services.ai.agents import (
+        AGENT_SETTINGS_PATH,
+        AGENT_SETTINGS_URL,
+        agents_that_can,
+        clean_handoff_context,
+        how_to_allow,
+        list_agents,
+        resolve_agent,
+    )
 
     slug = str(args.get("agent") or "").strip().lower()
-    spec = resolve_agent(ctx.session, ctx.group_id, slug)
-    if spec is None:
-        return json.dumps({"error": f"unknown agent '{slug}' — call list_agents"})
-    if not spec.enabled:
-        return json.dumps({"error": f"agent '{spec.slug}' is disabled"})
+    tool = str(args.get("tool") or "").strip()
+    decision = None
+    if tool:
+        category, error = _tool_category(tool)
+        if error:
+            return json.dumps({"error": error})
+        specs = list_agents(ctx.session, ctx.group_id)
+        role, source = caller_role(ctx), ctx.source or "mcp"
+        capable = agents_that_can(specs, tool, category, role, source)
+        if not capable:
+            how = how_to_allow(specs, tool, category, role, source)
+            return json.dumps(
+                {
+                    "recorded": False,
+                    "tool": tool,
+                    "blocked": f"No agent may run {tool} for this user right now. {how}",
+                    "settingsUrl": AGENT_SETTINGS_URL,
+                    "next": (
+                        "Nothing was handed off. Finish your own answer and tell the user in one line that no agent may do "
+                        f"this yet: {how} (link: [{AGENT_SETTINGS_PATH}]({AGENT_SETTINGS_URL}))."
+                    ),
+                }
+            )
+        # The named agent when it may run the tool, else the best that may (marvin first).
+        chosen = next(((s, d) for s, d in capable if s.slug == slug), capable[0])
+        spec, decision = chosen
+    else:
+        spec = resolve_agent(ctx.session, ctx.group_id, slug)
+        if spec is None:
+            return json.dumps({"error": f"unknown agent '{slug}' — call list_agents"})
+        if not spec.enabled:
+            return json.dumps({"error": f"agent '{spec.slug}' is disabled"})
     referral = {
         "agent": spec.slug,
         "name": spec.name,
         "question": str(args.get("question") or "").strip()[:REFERRAL_QUESTION_MAX],
         "reason": str(args.get("reason") or "").strip()[:REFERRAL_REASON_MAX],
     }
+    if tool:
+        referral["tool"] = tool
+        if context := clean_handoff_context(args.get("context")):
+            referral["context"] = context
+        if not referral["reason"]:
+            referral["reason"] = f"{spec.name} may run {tool} for you" + (" (it asks you first)" if decision == "ask" else "")
     ctx.referrals.append(referral)
+    redirected = bool(tool and slug and slug != spec.slug)
     return json.dumps(
         {
             "recorded": True,
             "agent": spec.slug,
             "name": spec.name,
+            **({"context": referral["context"]} if "context" in referral else {}),
             "next": (
-                f"The referral to {spec.name} is recorded and will be shown to the user. Do NOT call that agent. "
+                (f"{slug} may not run {tool} for this user, so the referral went to {spec.name} instead. " if redirected else "")
+                + f"The referral to {spec.name} is recorded and will be shown to the user. Do NOT call that agent. "
                 "Finish your own answer now and mention in one line that this part is for "
                 f"{spec.name}."
             ),

@@ -178,6 +178,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
   import { groupThreads, handOffNote, highlight, SEARCH_MIN_CHARS } from "@/lib/askThreads";
   import { renderMarkdown } from "@/lib/marvin/capabilities";
   import { MAIN_AGENT } from "@/lib/marvin/cast";
+  import { referralQuestion } from "@/lib/marvin/referrals";
   import { createSdkClient } from "@/lib/sdk";
   import { assetName, assetSlug } from "@/lib/share";
   import {
@@ -352,14 +353,15 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       );
       return items.length ? `<span>Handed off:</span> ${items.join(" · ")}` : "";
     }
-    // A referral runs nothing: "Continue →" pre-fills the question for that agent, never sends it.
+    // A referral runs nothing itself: "Continue with <agent> →" sends its request (and what the referring agent found)
+    // to that agent in a fresh conversation, as the bubble's button does.
     function referralsHtml(referrals: Referral[] | undefined | null): string {
       return (referrals ?? [])
         .map((r) => {
           const name = esc(r.name || agentName(r.agent));
           const reason = r.reason ? ` — ${esc(r.reason)}` : "";
           const cont = agents.some((a) => a.slug === r.agent)
-            ? ` · <button type="button" class="meta-link" data-continue-agent="${esc(r.agent)}" data-question="${esc(r.question ?? "")}">Continue →</button>`
+            ? ` · <button type="button" class="meta-link" data-continue-agent="${esc(r.agent)}" data-question="${esc(referralQuestion(r))}">Continue with ${name} →</button>`
             : "";
           return `<span>Suggests asking ${name}</span>${reason}${cont}`;
         })
@@ -407,6 +409,11 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       syncAgent();
       questionEl.value = btn.dataset.question ?? "";
       questionEl.focus();
+      // Send it now, like the bubble (a click on "Continue with Marvin →" means do it). If a run is still in
+      // flight the text stays in the box for the user to send.
+      if (questionEl.value.trim() && !sendBtn.disabled) {
+        void send();
+      }
     });
     function resetConversation() {
       threadId = null;
