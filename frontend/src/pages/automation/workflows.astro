@@ -492,7 +492,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const COND_OP_LABELS: Record<string, string> = WORKFLOW_LABELS.conditionOps;
   // Most-useful-first (backend returns kinds alphabetically). New steps default to the first
   // available — an AI operation when AI is on, otherwise the first non-AI kind.
-  const KIND_ORDER = ["operation", "entry", "media", "collect", "repeat", "parallel", "fetch", "schema_check", "email", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
+  const KIND_ORDER = ["operation", "entry", "media", "collect", "repeat", "parallel", "fetch", "schema_check", "email", "metric", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
   // A repeat's or a parallel branch's inner steps: a run can't park mid-loop or mid-branch, so no wait, approval, repeat or
   // parallel inside (backend: NOT_INSIDE, NOT_IN_A_BRANCH).
   const NOT_IN_REPEAT = new Set(["wait", "approval", "repeat", "parallel"]);
@@ -753,6 +753,10 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         return ["valid", "errors", "error_count", "text"];
       case "email":
         return ["sent", "to", "name", "role", "subject"];
+      case "metric":
+        return (row.querySelector(".a-mt-op") as HTMLSelectElement | null)?.value === "read"
+          ? ["text", "count", "rows", "total"]
+          : ["value", "previous_value", "changed", "created", "window"];
       case "media": {
         const mediaOp = (row.querySelector(".a-media-op") as HTMLSelectElement | null)?.value;
         if (mediaOp === "inspect") return ["width", "height", "sharpness", "orientation"];
@@ -1177,6 +1181,52 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         <label class="tf"><span>Send each person this once, ever <span class="muted">(optional — a name for what it is, e.g. welcome:\${member.id}; left empty it is once per event)</span></span>
           <input class="input a-e-once" value="${esc(a.once_per ?? "")}" placeholder="welcome:\${member.id}" /></label>
         <span class="hint small">Needs an SMTP profile (Settings → Email). The same event handled twice sends nothing more; a dry run shows the email and sends nothing. Give a role its own link with “Only run this step when…” on <code>member.role</code>. Later steps read <code>\${steps.&lt;step id&gt;.output.sent}</code>.</span>`;
+    } else if (kind === "metric") {
+      const reading = a.op === "read";
+      const windowSpec = String(a.window ?? "day");
+      const windowKind = ["day", "week", "month"].includes(windowSpec) ? windowSpec : "explicit";
+      wrap.innerHTML = `
+        <label class="tf"><span>What to do</span>
+          <select class="input a-mt-op"><option value="record" ${reading ? "" : "selected"}>Record an observation</option><option value="read" ${reading ? "selected" : ""}>Read observations back</option></select></label>
+        <label class="tf"><span>Metric <span class="muted">(a name: lowercase letters, digits, - and _)</span></span>
+          <input class="input a-mt-metric" value="${esc(a.metric ?? "")}" placeholder="clicks" spellcheck="false" /></label>
+        <div class="a-mt-record">
+          <label class="tf"><span>Value <span class="muted">(a number, or a template — e.g. \${input.clicks})</span></span>
+            <input class="input a-mt-value" value="${esc(a.value ?? "")}" placeholder="\${input.clicks}" /></label>
+          <label class="tf"><span>Window</span>
+            <select class="input a-mt-window">${[["day", "The day of the run"], ["week", "The week of the run (Monday to Sunday)"], ["month", "The month of the run"], ["explicit", "A window I name…"]].map(([v, l]) => `<option value="${v}" ${windowKind === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+          <label class="tf a-mt-explicit-wrap"><span>The window <span class="muted">(2026-10-18, 2026-W42 or 2026-10; may be a template)</span></span>
+            <input class="input a-mt-explicit" value="${esc(windowKind === "explicit" ? windowSpec : "")}" placeholder="2026-W42" spellcheck="false" /></label>
+          <label class="tf a-mt-at-wrap"><span>Count the date as <span class="muted">(optional: a date to take the window from instead of the run's time — e.g. \${entry.published_at})</span></span>
+            <input class="input a-mt-at" value="${esc(a.at ?? "")}" placeholder="\${entry.published_at}" /></label>
+        </div>
+        <div class="inline">
+          <label class="tf"><span>Variant <span class="muted">(optional: a, b…)</span></span>
+            <input class="input a-mt-variant" value="${esc(a.variant ?? "")}" placeholder="a" /></label>
+          <label class="tf"><span>Subject <span class="muted">(optional: an entry slug, a campaign)</span></span>
+            <input class="input a-mt-subject" value="${esc(a.subject ?? "")}" placeholder="\${entry.slug}" /></label>
+        </div>
+        <div class="a-mt-read inline">
+          <label class="tf"><span>From window</span>
+            <input class="input a-mt-from" value="${esc(a.window_from ?? "")}" placeholder="2026-W40" spellcheck="false" /></label>
+          <label class="tf"><span>To window</span>
+            <input class="input a-mt-to" value="${esc(a.window_to ?? "")}" placeholder="2026-W44" spellcheck="false" /></label>
+          <label class="tf"><span>At most</span>
+            <input class="input a-mt-limit" type="number" min="1" max="250" value="${esc(String(a.limit ?? 50))}" /></label>
+        </div>
+        <span class="hint small">These are observations, not conclusions: nothing here compares variants or says what caused a number. One number is kept per metric, variant, subject and window — recording again <strong>replaces</strong> it, so a rerun doesn't double-count (record what you read, not an increment). A dry run writes nothing. The <strong>Metrics</strong> page (Settings → Automation) lists them. Give this step an id to read <code>\${steps.&lt;step id&gt;.output.text}</code> from a read.</span>`;
+      const opSel = wrap.querySelector(".a-mt-op") as HTMLSelectElement;
+      const winSel = wrap.querySelector(".a-mt-window") as HTMLSelectElement;
+      const syncMetric = () => {
+        const read = opSel.value === "read";
+        (wrap.querySelector(".a-mt-record") as HTMLElement).hidden = read;
+        (wrap.querySelector(".a-mt-read") as HTMLElement).hidden = !read;
+        (wrap.querySelector(".a-mt-explicit-wrap") as HTMLElement).hidden = winSel.value !== "explicit";
+        (wrap.querySelector(".a-mt-at-wrap") as HTMLElement).hidden = winSel.value === "explicit";
+      };
+      opSel.addEventListener("change", syncMetric);
+      winSel.addEventListener("change", syncMetric);
+      syncMetric();
     } else if (kind === "wait") {
       const untilMode = Boolean(a.until);
       wrap.innerHTML = `
@@ -1457,6 +1507,36 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       setOrDrop("button_text", buttonText);
       setOrDrop("button_link", buttonLink);
       setOrDrop("once_per", field(".a-e-once")?.value.trim());
+      return step;
+    }
+    if (kind === "metric") {
+      const reading = field(".a-mt-op")?.value === "read";
+      const metric = field(".a-mt-metric")?.value.trim() ?? "";
+      if (!metric) throw new Error(`Step ${i + 1}: name the metric (e.g. clicks).`);
+      step.metric = metric;
+      setOrDrop("variant", field(".a-mt-variant")?.value.trim());
+      setOrDrop("subject", field(".a-mt-subject")?.value.trim());
+      for (const key of ["op", "value", "window", "at", "window_from", "window_to", "limit"]) delete step[key];
+      if (reading) {
+        step.op = "read";
+        setOrDrop("window_from", field(".a-mt-from")?.value.trim());
+        setOrDrop("window_to", field(".a-mt-to")?.value.trim());
+        const limit = Number(field(".a-mt-limit")?.value);
+        setOrDrop("limit", Number.isInteger(limit) && limit >= 1 && limit !== 50 ? Math.min(limit, 250) : null);
+        return step;
+      }
+      const value = field(".a-mt-value")?.value.trim() ?? "";
+      if (!value) throw new Error(`Step ${i + 1}: give the value to record (a number or a template).`);
+      step.value = value !== "" && !Number.isNaN(Number(value)) ? Number(value) : value;
+      const windowKind = field(".a-mt-window")?.value || "day";
+      if (windowKind === "explicit") {
+        const named = field(".a-mt-explicit")?.value.trim() ?? "";
+        if (!named) throw new Error(`Step ${i + 1}: name the window (2026-10-18, 2026-W42 or 2026-10).`);
+        step.window = named;
+      } else {
+        setOrDrop("window", windowKind === "day" ? null : windowKind);
+        setOrDrop("at", field(".a-mt-at")?.value.trim());
+      }
       return step;
     }
     if (kind === "wait") {

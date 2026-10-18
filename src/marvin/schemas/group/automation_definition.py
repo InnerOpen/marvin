@@ -586,6 +586,65 @@ class EmailAction(_StepBase):
         return self
 
 
+class MetricAction(_StepBase):
+    """Records a number as an observation (never a conclusion): `metric` (slug), `value`, optional `variant` / `subject`
+    labels, `window` day | week | month (the run's own, in the workspace zone; `at` = another date) or 2026-10-18 /
+    2026-W42 / 2026-10. One per metric+variant+subject+window: recording again REPLACES it (a rerun can't double-count).
+    A dry run writes nothing. `op` read: `metric` (+ `variant`, `subject`, `window_from`, `window_to`, `limit`) → output
+    `rows`, `count`, `total`, `text`."""
+
+    kind: Literal["metric"]
+    op: Literal["record", "read"] = "record"
+    metric: str
+    value: float | str | None = None
+    variant: str | None = None
+    subject: str | None = None
+    window: str = "day"
+    at: str | None = None
+    window_from: str | None = None
+    window_to: str | None = None
+    limit: int = Field(default=50, ge=1, le=250)
+    id: str | None = None
+
+    @model_validator(mode="after")
+    def _shape(self):
+        from marvin.services import metrics
+
+        def literal(text) -> bool:
+            return isinstance(text, str) and "${" not in text
+
+        if literal(self.metric):
+            try:
+                metrics.clean_metric(self.metric)
+            except metrics.MetricError as e:
+                raise ValueError(str(e)) from e
+        if self.op == "record":
+            if self.value is None or (isinstance(self.value, str) and not self.value.strip()):
+                raise ValueError("a metric step that records needs a `value` (a number, or a template that gives one)")
+            if isinstance(self.value, str) and literal(self.value):
+                try:
+                    metrics.clean_value(self.value)
+                except metrics.MetricError as e:
+                    raise ValueError(str(e)) from e
+            if self.window_from or self.window_to or "limit" in self.model_fields_set:
+                raise ValueError("window_from, window_to and limit go with op read")
+            if literal(self.window) and self.window.strip().lower() not in metrics.GRANULARITIES:
+                try:
+                    metrics.parse_window(self.window)
+                except metrics.MetricError as e:
+                    raise ValueError(str(e)) from e
+        else:
+            if self.value is not None or self.at is not None or "window" in self.model_fields_set:
+                raise ValueError("value, window and at go with op record; a read takes window_from and window_to")
+            for bound in (self.window_from, self.window_to):
+                if bound and literal(bound):
+                    try:
+                        metrics.parse_window(bound)
+                    except metrics.MetricError as e:
+                        raise ValueError(str(e)) from e
+        return self
+
+
 class WaitAction(_StepBase):
     """Waits, then goes on — the run is kept and resumed later. `for`: a span (30m, 12h, 3d, 2w); or `until`: a date
     or a date and time (e.g. ${entry.data.event_date}, or one every entry has: ${entry.publish_at}, ${entry.expire_at},
@@ -622,7 +681,8 @@ RepeatStep = Annotated[
     | CollectAction
     | FetchAction
     | SchemaCheckAction
-    | EmailAction,
+    | EmailAction
+    | MetricAction,
     Field(discriminator="kind"),
 ]
 MAX_REPEAT_ITEMS = 25
@@ -713,6 +773,7 @@ ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "fetch": FetchAction,
     "schema_check": SchemaCheckAction,
     "email": EmailAction,
+    "metric": MetricAction,
     "wait": WaitAction,
     "repeat": RepeatAction,
     "parallel": ParallelAction,
@@ -731,6 +792,7 @@ Action = Annotated[
     | FetchAction
     | SchemaCheckAction
     | EmailAction
+    | MetricAction
     | WaitAction
     | RepeatAction
     | ParallelAction,

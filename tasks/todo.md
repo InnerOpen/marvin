@@ -41,7 +41,7 @@ Every slice: dry run + second run tested for any recipe it unblocks; catalogue c
       integration-health-companion, webhook-repair-desk are workflows (a repair task per connection+code / webhook, once while open)
 - [x] S4 Member-addressed email (email step "Email a member"): member_added carries the member's email / recipient `member` → new-member-welcome
 - [x] S5 Parallel branches + join (all/any, deterministic merge, partial-failure semantics) → publication-release-gate
-- [ ] S6 Metrics windows: a step records an observation per variant/window; a report lists them (no causal claims)
+- [x] S6 Metrics windows: a step records an observation per variant/window; a report lists them (no causal claims)
       → social-experiment-log (campaign-scoreboard still needs social adapters)
 - [x] A1 Admin (Jared 2026-10-17 "Ok"): Embeddings card on admin/system.astro — model (`BUILTIN_EMBEDDING_MODEL`),
       enabled/available, fastembed + onnxruntime versions (importlib.metadata), dimensions, indexed model ids + chunk

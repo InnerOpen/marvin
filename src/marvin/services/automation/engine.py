@@ -780,6 +780,7 @@ class _StepRunner:
             "index": action_index,
             "target": self.target_index,
             "on_failure": on_failure,
+            "automation_id": getattr(self.automation, "id", None),
             "workflow_slug": getattr(self.automation, "slug", None),
             "workflow_name": getattr(self.automation, "name", None),
             "author_id": getattr(self.automation, "created_by", None),

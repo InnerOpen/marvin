@@ -1,0 +1,228 @@
+---
+// Automation → Metrics: the numbers a workflow's Metric step recorded, per metric, variant and window — a plain report,
+// observations not conclusions. Editors and above read; admins can remove an observation.
+// Backend: routes/groups/metrics_controller.py, services/metrics.py, services/automation/actions/metric.py.
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { listMetrics, listObservations, type MetricObservationList, type MetricSummary } from "@/lib/api/metrics";
+import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
+import { isForbidden } from "@/lib/workspaceRole";
+
+const authToken = getAuthToken(Astro.cookies);
+let metrics: MetricSummary[] = [];
+let observations: MetricObservationList | null = null;
+let error: string | null = null;
+let restricted = false;
+try {
+  [metrics, observations] = await Promise.all([listMetrics(authToken), listObservations({}, authToken)]);
+} catch (e) {
+  if (isForbidden(e)) restricted = true;
+  else error = e instanceof Error ? e.message : String(e);
+}
+const canRemove = await canManageCurrentWorkspace(authToken!).catch(() => false);
+const data = JSON.stringify({ metrics, observations, canRemove }).replace(/</g, "\\u003c");
+---
+
+<AppLayout crumb="automation.metrics" restrictedNote={restricted ? "Metrics are for editors and above." : null}>
+  <div class="metrics-page">
+    <script type="application/json" id="mt-data" is:inline set:html={data}></script>
+    <div class="toolbar">
+      <div>
+        <h2>Metrics</h2>
+        <p>
+          Numbers a workflow's <strong>Record a metric</strong> step noted down, by variant and window.{" "}
+          <strong>Observations, not conclusions:</strong> this page lists what was recorded and says nothing about what caused it.
+          Recording the same metric, variant, subject and window again replaces the number, so a repeated run never counts twice.
+        </p>
+      </div>
+    </div>
+
+    {error && <div class="banner error">Could not load metrics: {error}</div>}
+
+    <form id="mt-filters" class="filters" hidden>
+      <label>Metric <select id="mt-metric" class="input"></select></label>
+      <label>Variant <select id="mt-variant" class="input"></select></label>
+      <label>From <input id="mt-from" class="input" placeholder="2026-W40" spellcheck="false" /></label>
+      <label>To <input id="mt-to" class="input" placeholder="2026-W44" spellcheck="false" /></label>
+      <button class="button ghost sm" type="submit">Show</button>
+      <span id="mt-status" class="hint"></span>
+    </form>
+
+    <div id="mt-report"></div>
+    <div id="mt-empty" class="empty" hidden>
+      Nothing recorded yet. Add a <strong>Record a metric</strong> step to a workflow (or start from the <a href="/automation/library">Social experiment log</a> recipe); each run's number shows up here.
+    </div>
+
+    <details id="mt-all" class="all" hidden>
+      <summary>Every observation <span id="mt-count" class="muted"></span></summary>
+      <div class="table-scroll"><table id="mt-list" class="grid"></table></div>
+    </details>
+  </div>
+</AppLayout>
+
+<script>
+  import { deleteObservation, listObservations, type MetricObservation } from "@/lib/api/metrics";
+
+  const $ = (id: string): any => document.getElementById(id);
+  const esc = (s: unknown) =>
+    String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
+  const num = (v: number) => String(Number(v.toPrecision(10)));
+
+  const init = JSON.parse($("mt-data").textContent || "{}");
+  const canRemove: boolean = Boolean(init.canRemove);
+  const metricNames: string[] = (init.metrics ?? []).map((m: any) => m.metric);
+  let items: MetricObservation[] = init.observations?.items ?? [];
+  let total: number = init.observations?.total ?? 0;
+
+  /** metric → subject → variant → window → observation, for one table per metric and subject. */
+  function pivot(rows: MetricObservation[]) {
+    const out = new Map<string, Map<string, MetricObservation[]>>();
+    for (const r of rows) {
+      const bySubject = out.get(r.metric) ?? new Map<string, MetricObservation[]>();
+      bySubject.set(r.subject, [...(bySubject.get(r.subject) ?? []), r]);
+      out.set(r.metric, bySubject);
+    }
+    return out;
+  }
+
+  function table(rows: MetricObservation[]) {
+    const variants = [...new Set(rows.map((r) => r.variant))].sort();
+    const windows = [...new Map(rows.map((r) => [r.window, r.windowStart])).entries()].sort((a, b) => (a[1] < b[1] ? 1 : a[1] > b[1] ? -1 : a[0] < b[0] ? 1 : -1));
+    const cell = new Map(rows.map((r) => [`${r.window}\u0000${r.variant}`, r]));
+    const head = variants.map((v) => `<th scope="col">${v ? `Variant ${esc(v)}` : "Value"}</th>`).join("");
+    const body = windows
+      .map(
+        ([w]) =>
+          `<tr><th scope="row">${esc(w)}</th>${variants
+            .map((v) => {
+              const r = cell.get(`${w}\u0000${v}`);
+              return r ? `<td title="${esc(r.workflowName ? `Recorded by ${r.workflowName}` : "")}">${num(r.value)}</td>` : `<td class="none">—</td>`;
+            })
+            .join("")}</tr>`,
+      )
+      .join("");
+    return `<div class="table-scroll"><table class="grid"><thead><tr><th scope="col">Window</th>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  }
+
+  function render() {
+    const groups = pivot(items);
+    $("mt-report").innerHTML = [...groups.entries()]
+      .map(
+        ([metric, bySubject]) =>
+          `<section class="metric"><h3><code>${esc(metric)}</code></h3>${[...bySubject.entries()]
+            .map(([subject, rows]) => `<div class="subject">${subject ? `<p class="subj">Subject: <strong>${esc(subject)}</strong></p>` : ""}${table(rows)}</div>`)
+            .join("")}</section>`,
+      )
+      .join("");
+    const empty = items.length === 0;
+    $("mt-empty").toggleAttribute("hidden", !empty || metricNames.length > 0);
+    $("mt-filters").toggleAttribute("hidden", metricNames.length === 0);
+    $("mt-all").toggleAttribute("hidden", empty);
+    $("mt-count").textContent = total > items.length ? `(newest ${items.length} of ${total} — narrow the filters)` : `(${items.length})`;
+    $("mt-list").innerHTML =
+      `<thead><tr><th>Window</th><th>Metric</th><th>Variant</th><th>Subject</th><th>Value</th><th>Workflow</th>${canRemove ? "<th></th>" : ""}</tr></thead><tbody>` +
+      items
+        .map(
+          (r) =>
+            `<tr data-id="${esc(r.id)}"><td>${esc(r.window)}</td><td><code>${esc(r.metric)}</code></td><td>${esc(r.variant || "—")}</td><td>${esc(r.subject || "—")}</td><td>${num(r.value)}</td><td>${esc(r.workflowName || "—")}</td>${
+              canRemove ? `<td><button class="button ghost sm danger" data-remove title="Remove this observation">Remove</button></td>` : ""
+            }</tr>`,
+        )
+        .join("") +
+      "</tbody>";
+  }
+
+  function fillFilters(selected: { metric?: string; variant?: string }) {
+    const variants = [...new Set(items.map((r) => r.variant))].sort();
+    $("mt-metric").innerHTML = `<option value="">All metrics</option>` + metricNames.map((m) => `<option ${m === selected.metric ? "selected" : ""}>${esc(m)}</option>`).join("");
+    $("mt-variant").innerHTML =
+      `<option value="">Any variant</option>` + variants.map((v) => `<option value="${esc(v)}" ${v === selected.variant ? "selected" : ""}>${v ? esc(v) : "(none)"}</option>`).join("");
+  }
+
+  $("mt-filters").addEventListener("submit", async (ev: Event) => {
+    ev.preventDefault();
+    const status = $("mt-status");
+    status.classList.remove("error");
+    status.textContent = "Loading…";
+    try {
+      const variant = $("mt-variant").value;
+      const metric = $("mt-metric").value;
+      const found = await listObservations({
+        metric: metric || undefined,
+        variant: variant === "" ? undefined : variant,
+        windowFrom: $("mt-from").value.trim() || undefined,
+        windowTo: $("mt-to").value.trim() || undefined,
+      });
+      items = found.items;
+      total = found.total;
+      render();
+      status.textContent = "";
+    } catch (e: any) {
+      status.classList.add("error");
+      status.textContent = e?.message ?? String(e);
+    }
+  });
+
+  $("mt-list").addEventListener("click", async (ev: Event) => {
+    const btn = (ev.target as HTMLElement).closest("[data-remove]") as HTMLElement | null;
+    const row = btn?.closest("tr") as HTMLElement | null;
+    const obs = items.find((r) => r.id === row?.dataset.id);
+    if (!btn || !row || !obs) return;
+    if (!confirm(`Remove ${obs.metric} ${obs.variant ? `(variant ${obs.variant}) ` : ""}for ${obs.window}? A workflow that records that window again writes it afresh.`)) return;
+    try {
+      await deleteObservation(obs.id);
+      items = items.filter((r) => r.id !== obs.id);
+      total -= 1;
+      render();
+    } catch (e: any) {
+      $("mt-status").classList.add("error");
+      $("mt-status").textContent = e?.message ?? String(e);
+    }
+  });
+
+  fillFilters({});
+  render();
+</script>
+
+<style>
+  .metrics-page { max-width: 900px; }
+  .toolbar h2 { margin: 0 0 4px; font-size: 22px; }
+  .toolbar p { margin: 0 0 16px; color: var(--muted); font-size: 14px; max-width: 70ch; }
+  .banner { padding: 12px 14px; border-radius: var(--radius); font-size: 14px; margin-bottom: 16px; }
+  .banner.error { background: var(--color-error-bg, rgba(192,57,43,.1)); color: var(--color-error, #c0392b); border: 1px solid var(--color-error, #c0392b); }
+
+  .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-bottom: 16px; }
+  .filters[hidden] { display: none; }
+  .filters label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; min-width: 0; }
+  .filters .input { padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 14px; background: var(--bg); color: var(--ink); width: 140px; box-sizing: border-box; }
+  .button { padding: 8px 14px; border-radius: var(--radius); border: 1px solid var(--accent); background: var(--accent); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .button.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+  .button.sm { padding: 6px 12px; font-size: 13px; }
+  .button.danger { color: var(--color-error, #c0392b); border-color: var(--color-error, #c0392b); }
+  .hint { font-size: 12px; color: var(--muted); }
+  .hint.error { color: var(--color-error, #c0392b); }
+  .muted { color: var(--muted); font-weight: 400; font-size: 13px; }
+
+  .metrics-page :global(.metric) { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 14px; }
+  .metrics-page :global(.metric h3) { margin: 0 0 8px; font-size: 16px; }
+  .metrics-page :global(.subj) { margin: 8px 0 4px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .metrics-page :global(.table-scroll) { overflow-x: auto; max-width: 100%; }
+  .metrics-page :global(table.grid) { border-collapse: collapse; font-size: 14px; min-width: 100%; }
+  .metrics-page :global(table.grid th), .metrics-page :global(table.grid td) { border-bottom: 1px solid var(--line); padding: 6px 12px; text-align: right; white-space: nowrap; }
+  .metrics-page :global(table.grid th:first-child), .metrics-page :global(table.grid td:first-child) { text-align: left; }
+  .metrics-page :global(table.grid thead th) { font-size: 12px; color: var(--muted); font-weight: 600; }
+  .metrics-page :global(table.grid tbody th) { font-weight: 600; }
+  .metrics-page :global(td.none) { color: var(--muted); }
+  .metrics-page :global(td code), .metrics-page :global(h3 code) { font-size: 13px; }
+
+  .all { margin-top: 18px; }
+  .all summary { cursor: pointer; font-weight: 600; font-size: 14px; padding: 6px 0; }
+  .all :global(table.grid td), .all :global(table.grid th) { text-align: left; }
+  .empty { color: var(--muted); font-size: 14px; padding: 24px; text-align: center; border: 1px dashed var(--line); border-radius: var(--radius); }
+
+  @media (max-width: 640px) {
+    .filters .input { width: 100%; }
+    .filters label { flex: 1 1 130px; }
+    .button.sm { min-height: 36px; }
+  }
+</style>

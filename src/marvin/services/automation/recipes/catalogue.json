@@ -15,9 +15,9 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 102,
+    "verified-current": 103,
     "needs-adapter": 3,
-    "needs-engine-capability": 2,
+    "needs-engine-capability": 1,
     "supported-after-configuration": 8
   },
   "capabilities": {
@@ -163,7 +163,7 @@
       "name": "Metrics windows and experiments",
       "priority": "P2",
       "capabilities_md": "Experimental comparisons",
-      "acceptance": "A step records a metric observation against a variant id and window; a report lists observations without causal claims."
+      "acceptance": "Delivered 2026-10-18: a `metric` step (\"Record a metric\") records a number against a `metric` (slug), optional `variant` and `subject`, and a `window` — day, week (ISO) or month in the workspace's time zone, or one named outright (2026-10-18, 2026-W42, 2026-10); one observation per key, so recording again replaces the value and a rerun never double-counts. `op: \"read\"` lists observations back (rows, count, total, text headed \"Observations, not conclusions:\"). A dry run writes nothing. Settings → Automation → Metrics and GET /api/groups/metrics/observations list them (filters: metric, variant, subject, window range); an admin can remove one. No comparison or significance is computed, and no scheduled task trims them. Left: collecting the numbers from a network (social-adapters)."
     }
   },
   "recipes": [
@@ -2769,16 +2769,11 @@
           "priority": "P1",
           "acceptance": "Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry).",
           "why": "metrics actions"
-        },
-        {
-          "capability": "metrics",
-          "name": "Metrics windows and experiments",
-          "priority": "P2",
-          "acceptance": "A step records a metric observation against a variant id and window; a report lists observations without causal claims.",
-          "why": "baseline comparison"
         }
       ],
-      "notes": [],
+      "notes": [
+        "Recording and listing the numbers exists (the `metric` step, 2026-10-18); what is missing is a provider that collects them from a network (social-adapters)."
+      ],
       "verification": {
         "level": "none",
         "mocked": [],
@@ -2797,12 +2792,14 @@
     {
       "id": "social-experiment-log",
       "title": "Social experiment log",
-      "outcome": "Create two draft variants → assign experiment IDs → report observed results",
+      "outcome": "Run it on a post: an AI writes two versions that differ in one element, each drafted as an entry marked with the experiment id and its variant; run it again with what you observed for each and the numbers are recorded for the window (a repeat of the same window replaces the number, never adds), and a plain list of what was observed — not a verdict — is kept on the post.",
       "category": "Social and community",
       "category_slug": "social",
       "tags": [
         "ai",
-        "metrics"
+        "metrics",
+        "experiments",
+        "create-entry"
       ],
       "target_entity": "entry",
       "trigger": {
@@ -2810,34 +2807,80 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "social-experiment-log.json",
+      "vars": "social-experiment-log.vars.json",
+      "setup_variables": [
         {
-          "capability": "metrics",
-          "name": "Metrics windows and experiments",
-          "priority": "P2",
-          "acceptance": "A step records a metric observation against a variant id and window; a report lists observations without causal claims.",
-          "why": "observations"
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the two variants are drafted as.",
+          "example": "social-post"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field, where each variant's wording goes.",
+          "example": "body"
+        },
+        {
+          "name": "metric",
+          "type": "string",
+          "description": "What you observe for each variant: a short name — lowercase letters, digits, - and _.",
+          "example": "clicks"
         }
       ],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "operation",
+          "entry",
+          "metric"
+        ],
+        "entry_ops": [
+          "create",
+          "set_metadata"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "exists",
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call, on the first run for a post only."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "First run: creates two draft entries (variant A and B, metadata.experiment = {id, variant, differs}) and marks the post with metadata.experiment_id and experiment_variants. Later runs: record the numbers you give and keep metadata.experiment_report on the post (only when the list changed)."
+        }
+      ],
+      "cost_notes": "One AI call per post, the first time it is run on it, from the workspace's monthly AI budget.",
+      "failure_behaviour": "A number that isn't a number is refused by the Run form; a metric name that isn't a slug is refused when the workflow is saved. An AI answer missing its fields fails the first run before anything is drafted.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): set_metadata can stamp an experiment id (`${event.correlation_id}`) on an entry today."
+        "Observations, not conclusions: the report lists what was recorded per window and variant and compares nothing; whether one version did better, and why, is for a person to judge.",
+        "Run it on a post once to draft the two variants (leave the numbers blank). Run it again, any time, with the numbers observed so far for A and B: the window defaults to the week (day or month on request), counted in the workspace's time zone.",
+        "Recording the same window again replaces the number rather than adding to it, so enter what the network shows to date, not the increase since last time; running it twice with the same numbers changes nothing.",
+        "A post that already carries metadata.experiment_id is not drafted again; remove that key (and the two drafts) to start a new experiment on it.",
+        "The numbers also appear on Settings → Automation → Metrics, one table of windows by variant."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_social_experiment_log"
       },
       "brief": {
         "flow": "Create two draft variants → assign experiment IDs → report observed results",

@@ -357,6 +357,7 @@ class TestActionRegistry:
             "fetch",
             "schema_check",
             "email",
+            "metric",
             "wait",
             "repeat",
             "parallel",

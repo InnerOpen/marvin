@@ -396,6 +396,7 @@ def ws(db_session, monkeypatch):
         "report_entry_type": "newsletter-issue",
         "report_body_field": "body",
         "draft_body_field": "body",
+        "metric": "clicks",
         "resource_type": "supplier",
         "unavailable_text": "sold out",
         "notes_body_field": "body",
@@ -2863,6 +2864,70 @@ class TestExecution:
 
         assert run(story)["ok"]  # run again: another draft, the premise is untouched
         assert len(adventures()) == 2 and "adventure_of" not in (_reload(ws, premise).metadata_json or {})
+
+    # ── recording observations per variant and window (a metric step) ──
+    def test_social_experiment_log(self, ws):
+        from marvin.db.models.groups.metric_observations import MetricObservationModel
+        from marvin.db.models.platform import Entries
+
+        row = _install(ws, "social-experiment-log")
+        post = _entry(ws, "article", "Spring sale", status="published", data={"body": "Everything half price this weekend."})
+        ws.ai.reply_text(
+            json.dumps(
+                {"variant_a": "Half price, this weekend only.", "variant_b": "Ever seen a sale this good?", "what_differs": "the opening hook"}
+            )
+        )
+
+        def variants():
+            ws.session.expire_all()
+            found = ws.session.query(Entries).filter(Entries.group_id == ws.gid, Entries.metadata_json["experiment"]["id"].as_string() == post.slug)
+            return {e.metadata_json["experiment"]["variant"]: e for e in found.all()}
+
+        def observed():
+            ws.session.expire_all()
+            return {(o.variant, o.window_label): o.value for o in ws.session.query(MetricObservationModel).filter_by(group_id=ws.gid).all()}
+
+        def run(**inputs):
+            recorder = ExecutionRecorder(ws.session, ws.gid)
+            return run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, recorder=recorder, inputs={"post": post.slug, **inputs})
+
+        # A dry run drafts nothing and asks nobody; with numbers it previews what it would record and writes nothing.
+        preview = run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, dry_run=True, inputs={"post": post.slug, "a_value": 10})
+        assert preview["ok"], _step_errors(preview["plan"])
+        assert ws.ai.requests == [] and variants() == {} and observed() == {}
+        assert [p["resolved"].get("would") for p in preview["plan"] if p["resolved"].get("would")] == ["create"]
+
+        first = run()  # the first run: two drafts, marked, and nothing yet to report
+        assert first["ok"] and len(ws.ai.requests) == 1
+        both = variants()
+        assert sorted(both) == ["a", "b"] and all(e.status == "draft" for e in both.values())
+        assert (
+            both["a"].data_json["body"] == "Half price, this weekend only." and both["b"].metadata_json["experiment"]["differs"] == "the opening hook"
+        )
+        marked = _reload(ws, post).metadata_json
+        assert marked["experiment_id"] == post.slug and marked["experiment_variants"] == {"a": str(both["a"].id), "b": str(both["b"].id)}
+        assert "experiment_report" not in marked and observed() == {}
+
+        second = run(a_value=10, b_value=8)  # the numbers observed so far: no new drafts, no new AI call
+        assert second["ok"] and len(ws.ai.requests) == 1 and len(variants()) == 2
+        week = next(window for (_, window) in observed())
+        assert week.startswith("20") and "-W" in week and observed() == {("a", week): 10.0, ("b", week): 8.0}
+        report = _reload(ws, post).metadata_json["experiment_report"]
+        assert report.startswith("Observations, not conclusions:") and f"{week} clicks (variant a · {post.slug}): 10" in report
+        assert report.count("\n- ") == 2  # a line per observation
+
+        before = _reload(ws, post).update_at
+        third = run(a_value=10, b_value=8)  # the same numbers again: nothing doubles, nothing is rewritten
+        assert third["ok"] and observed() == {("a", week): 10.0, ("b", week): 8.0} and len(variants()) == 2
+        assert _reload(ws, post).update_at == before
+        dry = run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, dry_run=True, inputs={"post": post.slug, "a_value": 10, "b_value": 9})
+        assert dry["ok"] and [p["resolved"]["would"] for p in dry["plan"] if p["resolved"].get("would")] == ["leave", "change"]
+        assert observed()[("b", week)] == 8.0  # previewed, not written
+
+        assert run(a_value=12)["ok"]  # a later reading of the same window replaces it
+        assert observed() == {("a", week): 12.0, ("b", week): 8.0}
+        assert run(a_value=3, window="day")["ok"] and len(observed()) == 3  # another window is another observation
+        assert "variant a" in _reload(ws, post).metadata_json["experiment_report"]
 
     @needs_browser
     def test_best_of_month(self, ws, store):
