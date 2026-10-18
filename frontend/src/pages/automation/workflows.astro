@@ -821,6 +821,15 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       .catch(() => ({ bySlug: new Map(), providers: new Map() }));
     return integrationCatalog;
   }
+  // Idempotency (webhook and integration steps): the same key within the window makes the call once.
+  function idempotencyHtml(a: any): string {
+    return `<div class="a-idem">
+      <label class="tf"><span>Make this call once <span class="muted">(a key, e.g. handoff-\${entry.id}: the same key again within the window calls nothing and reuses the first answer)</span></span>
+        <input class="input a-idem-key" placeholder="leave blank to call every time" value="${esc(a.idempotency_key ?? "")}" /></label>
+      <label class="tf"><span>For how many hours <span class="muted">(1–720, default 24)</span></span>
+        <input class="input a-idem-hours" type="number" min="1" max="720" placeholder="24" value="${esc(a.idempotency_window_hours ?? "")}" /></label>
+    </div>`;
+  }
   let integrationRowSeq = 0;
 
   function integrationFields(wrap: HTMLElement, a: any) {
@@ -840,7 +849,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       <label class="tf"><span>Attach as <span class="muted">(actions that make images: link each picture to the entry in this role, e.g. cover-variant)</span></span>
         <input class="input a-int-attach" placeholder="leave blank to only keep them in Assets" value="${esc(a.attach_as ?? "")}" /></label>
       <label class="tf"><span>Tag them <span class="muted">(actions that make images; comma-separated)</span></span>
-        <input class="input a-int-tags" placeholder="e.g. generated, cover-ideas" value="${esc((a.tags ?? []).join(", "))}" /></label>`;
+        <input class="input a-int-tags" placeholder="e.g. generated, cover-ideas" value="${esc((a.tags ?? []).join(", "))}" /></label>
+      ${idempotencyHtml(a)}`;
     const slugInput = wrap.querySelector(".a-integration") as HTMLInputElement;
     const actionInput = wrap.querySelector(".a-int-action") as HTMLInputElement;
     const argsInput = wrap.querySelector(".a-int-args") as HTMLTextAreaElement;
@@ -1336,7 +1346,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         return wrap;
       }
       const opts = whs.map((w: any) => `<option value="${esc(w.id)}" ${a.webhook_id === w.id ? "selected" : ""}>${esc(w.name)} · ${esc(w.method)}</option>`).join("");
-      wrap.innerHTML = `<select class="input a-webhook">${opts}</select><span class="hint small">Fires one of your configured webhooks (its URL, method, headers, and payload).</span>`;
+      wrap.innerHTML = `<select class="input a-webhook">${opts}</select><span class="hint small">Fires one of your configured webhooks (its URL, method, headers, and payload).</span>${idempotencyHtml(a)}`;
     }
     return wrap;
   }
@@ -1585,6 +1595,15 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       if (!task) return null;
       step.task = task;
       return step;
+    }
+    if (kind === "integration" || kind === "webhook") {
+      // Both step kinds can call once: the same key within the window makes the call a single time.
+      const idemKey = field(".a-idem-key");
+      if (idemKey) {
+        setOrDrop("idempotency_key", idemKey.value.trim());
+        const hours = Number(field(".a-idem-hours")?.value);
+        setOrDrop("idempotency_window_hours", step.idempotency_key && Number.isFinite(hours) && hours >= 1 ? Math.min(Math.round(hours), 720) : null);
+      }
     }
     if (kind === "integration") {
       const integration = field(".a-integration")!.value.trim();
@@ -2481,6 +2500,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.a-int-mark:empty) { display: none; }
   .workflows-page :global(.a-int-pickers:empty) { display: none; }
   .workflows-page :global(.a-int-pickers) { display: flex; flex-direction: column; gap: 8px; }
+  .workflows-page :global(.a-idem) { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
   .workflows-page :global(.tf) { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
   .workflows-page :global(.tf > span) { color: var(--muted); }
   .workflows-page :global(.target-checks) { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 10px; }

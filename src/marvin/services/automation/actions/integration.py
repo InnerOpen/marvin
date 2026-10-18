@@ -52,8 +52,7 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
         raise AutomationActionError("integrations are not available on this install (SDK not installed)")
 
     from marvin.db.models.groups.integrations import IntegrationModel
-    from marvin.services.integrations import IntegrationContext, build_http, get_provider
-    from marvin.services.secrets.resolver import resolve_secret
+    from marvin.services.integrations import get_provider
 
     row = session.query(IntegrationModel).filter_by(group_id=group_id, slug=slug).first()
     if row is None:
@@ -83,10 +82,16 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
     # previews it after one) — services/automation/approvals.py.
     if getattr(declared, "requires_approval", False) and not (context.get("_approved") is True or (dry_run and context.get("_approval_ahead"))):
         raise AutomationActionError(f"'{row.provider}.{key}' requires approval: put an Approval step before it (it runs once approved)")
-    from .media import keep_generated_images, returns_images
+    from .media import returns_images
 
     keeps_images = returns_images(declared)
     src = _source_picture(session, group_id, action, context, keeps_images)
+    # An idempotency_key that already made this call within its window: nothing is called, the earlier output is reused.
+    from .. import idempotency
+
+    gate = idempotency.open_gate(session, group_id, action, context, destination=f"integration:{slug}.{key}", dry_run=dry_run)
+    if gate is not None and gate.duplicate and not dry_run:
+        return gate.skipped()
     if dry_run:
         preview = {"dry_run": True, "kind": "integration", "integration": slug, "action": key, "args": args}
         if src is not None:
@@ -95,7 +100,28 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
             preview["keeps_images_as_assets"] = True
             if action.get("attach_as"):
                 preview["attach_as"] = interpolate(action["attach_as"], context)
-        return preview
+        if gate is None:
+            return preview
+        return gate.skipped(preview) if gate.duplicate else {**preview, **gate.preview()}
+    try:
+        out = _call_provider(session, group_id, row, provider, key, args, src, keeps_images, action, context, user_id)
+    except BaseException:
+        if gate is not None:
+            gate.release()  # a call that failed is made again by the retry, not skipped as a duplicate
+        raise
+    if gate is not None:
+        gate.complete(out)
+    return out
+
+
+def _call_provider(session, group_id, row, provider, key, args, src, keeps_images, action, context, user_id) -> dict:
+    """Make the provider call with the workspace's credentials and keep what it returns (the step's output)."""
+    from marvin.services.integrations import IntegrationContext, build_http
+    from marvin.services.secrets.resolver import resolve_secret
+
+    from .media import keep_generated_images
+
+    slug = action.get("integration")
     from marvin.services.integrations.arg_secrets import MissingSecretError, resolve_arg_secrets
 
     try:

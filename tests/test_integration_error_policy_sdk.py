@@ -319,3 +319,59 @@ def test_credentials_and_secret_args_never_leave_in_an_error(db_session, shop, m
     assert entry.metadata_json["review_reasons"] == ["Policy Shop · invalid — rejected [redacted] with key [redacted]"]
     (alert,) = db_session.query(IntegrationAlertModel).filter_by(group_id=shop.gid).all()
     assert "secret" not in alert.message and "[redacted]" in alert.message
+
+
+def _keyed(db_session, shop):
+    """The workflow's step now carries an idempotency_key (a new definition: the column holds the dict)."""
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+
+    row = db_session.query(WorkspaceAutomationModel).filter_by(group_id=shop.gid, slug="list").one()
+    step = {**WORKFLOW["actions"][0], "idempotency_key": "list-${entry.id}"}
+    row.definition = {**WORKFLOW, "actions": [step]}
+    db_session.commit()
+
+
+def _idempotency_rows(db_session, shop):
+    from marvin.db.models.groups.workflow_step_idempotency import WorkflowStepIdempotencyModel as Key
+
+    db_session.expire_all()
+    return db_session.query(Key).filter_by(group_id=shop.gid).all()
+
+
+def test_an_idempotency_key_and_a_retry_do_not_fight(db_session, shop):
+    """The failed call gives its claim back, so the retry (which resumes at that step with the chain's partial progress
+    and seed) makes the call; once it succeeded a duplicate event is skipped."""
+    _keyed(db_session, shop)
+    shop.provider.failures = [IntegrationError("try later", code="unavailable", partial={"order_id": "O1"}), None]
+
+    _publish(db_session, shop)
+    assert _idempotency_rows(db_session, shop) == []  # nothing held for a call that failed
+    (row,) = _retries(db_session, shop)
+    row.next_attempt_at = datetime.now(UTC) - timedelta(seconds=1)
+    db_session.commit()
+    (claimed,) = errors.claim_due(db_session)
+
+    assert run_retry(db_session, shop.gid, claimed, recorder=ExecutionRecorder(db_session, shop.gid)) == "succeeded"
+
+    first, retry = shop.provider.contexts
+    assert retry.resume == {"order_id": "O1"} and retry.idempotency_seed == first.idempotency_seed
+    (key,) = _idempotency_rows(db_session, shop)
+    assert key.status == "done" and key.output == {"listing_id": "L1"}
+
+    _publish(db_session, shop)  # the same event again
+    assert len(shop.provider.contexts) == 2  # not called a third time
+
+
+def test_a_fresh_run_that_made_the_call_supersedes_the_pending_retry(db_session, shop):
+    _keyed(db_session, shop)
+    shop.provider.failures = [IntegrationError("try later", code="unavailable"), None]
+    _publish(db_session, shop)
+    _publish(db_session, shop)  # a fresh run gets through before the retry is due
+    assert len(shop.provider.contexts) == 2
+
+    (row,) = _retries(db_session, shop)
+    assert row.status == "superseded"  # the retry is spent, so it can't repeat the call
+    (key,) = _idempotency_rows(db_session, shop)
+    assert key.status == "done"
+    _publish(db_session, shop)
+    assert len(shop.provider.contexts) == 2  # and a further duplicate is skipped

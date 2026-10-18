@@ -118,6 +118,17 @@ With **Assets** or **Resources**, the target is `{"entity": "asset", "query": {â
 
 An asset or resource query takes only these keys: no `where`, `sort`, `status`, `fields` or `metadata`. Saving a workflow whose target, or whose entry step's `entity_query`, has an unknown key or the wrong shape is refused with the path of each problem (`POST /api/automations/validate` lists them too). The [Workflow Library](https://github.com/InnerOpen/marvin/blob/develop/docs/workflow-library/catalogue.md) has worked examples: *Trash every unattached image*, *Restore all resources in the Trash* and *Post new uploads to a chat channel*.
 
+### Make a call once (idempotency keys) {#idempotency}
+
+A **webhook** or **integration** step can carry an `idempotency_key`, a template that names what makes this call the same call again: `handoff-${entry.id}`, `subscribe-${entry.data.email}`. The first call goes out and its output is kept. The same key at the same webhook (or integration action), in the same workflow, within the window calls nothing: the step is recorded as a success and its output is the first call's, so `${steps.<id>.outputâ€¦}` reads what it read the first time, plus `idempotency: {key, duplicate: true, recorded_at}`.
+
+- **The window** is `idempotency_window_hours`, 1 to 720, 24 by default. When it ends the next call goes out and a new window starts. The editor has both fields under the step ("Make this call once", "For how many hours").
+- **A failed call doesn't count.** The step gives its key back, so a retry (an integration's retry resumes at the failed step with its own seed) or the next event makes the call. A call still in flight holds the key, so two duplicates racing deliver once; one a crashed worker never finished is open again after five minutes.
+- **Different keys are different calls**, and so is the same key at another destination or in another workflow. An entry saved ten times with `handoff-${entry.id}` is handed off once a day, not once per save: put what changed into the key if a later change should go out.
+- **A key that reads nothing** (`${entry.data.missing}`) fails the step instead of treating every call as one.
+- **A dry run** shows `would: call` or `would: skip (duplicate)` with the key, and claims nothing; after a skip it hands the next step the output a real run would.
+- Marvin keeps a hash of the key, the workflow, the destination and the output (up to 100,000 characters; a larger one is dropped, the call still counts). The scheduled **Prune Workflow Runs** task deletes keys whose window ended.
+
 ### Step kinds
 
 | `kind` (builder label) | Fields | Behaviour |

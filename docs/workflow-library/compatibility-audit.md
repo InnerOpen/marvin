@@ -60,7 +60,7 @@ overlap (serial in the leader tick).
 | Create entry | exists *(2026-10-11)* | `op: "create"` makes a schema-validated draft/inbox entry once per event (`actions/entry.py`) |
 | `operation` (AI) | exists-with-caveat | built-in ops all allow the `automation` source (`services/ai/operations/system.py`), plus `op: "custom"` (own prompt and answer schema, 2026-10-11); context for entries, and for assets (the image is seen) and resources *(2026-10-17)*, but **form_submission targets still run blind**; write-back is a `write_back` field map, gated by approval mode (default suggest-only → staged in `suggestion_json`); budget-gated |
 | `handler` | exists-with-caveat | allowlist of 6 (`actions/handler.py:24`); `resync_smart_collections` is admin-only and **no-ops from a workflow** (`handlers/maintenance.py:409`) |
-| `webhook` | exists | configured webhook (`webhook_id`, type `workflow`) or raw `url`; one attempt, 15 s, no retry; response JSON → `${steps.<id>.output.body}`; delivery logged |
+| `webhook` | exists | configured webhook (`webhook_id`, type `workflow`) or raw `url`; one attempt, 15 s, no retry; response JSON → `${steps.<id>.output.body}`; delivery logged; optional `idempotency_key` / `idempotency_window_hours` *(2026-10-18)* |
 | `integration` | exists | provider action with `args`; `requires_approval` actions refused (`actions/integration.py`) unless an earlier `approval` step approved the run (2026-10-11); `instagram.send_private_reply` / `instagram.auto_reply` stay out of reach; error policy (review/retry/notify/succeed) from SDK ≥0.5 providers; retries resume at the failed step with idempotency seed |
 | `emit_event` | exists-with-caveat | entry_* (from the context entry) and site_deployment_* only (`EMITTABLE_EVENT_TYPES`) |
 | Branches, approvals, waits, collect, repeat *(2026-10-17)* | exists | `when` on any step (skipped ≠ failed); `approval` parks the run (`approvals.py`); `wait` parks it until a date or span (`waits.py`); `collect` gathers a query into rows; `repeat` runs 1–5 steps per item (≤ 25; no wait/approval inside) |
@@ -92,8 +92,10 @@ No TTS or social-publishing adapters exist. (2026-10-12→14: image processing, 
 - History: `automation_executions` + per-step rows with outputs, `correlation_id`, `retry_of_id`, retry chains
   (`GET /api/automations/{id}/executions[/{run}]`).
 - Provenance: `correlation_id` threads event → runs → re-emitted events; `reaction_depth` bounds chains.
-- Idempotency: integration retries carry an idempotency seed and partial progress; **no per-step idempotency
-  key** for webhook/integration steps on duplicate events.
+- Idempotency: integration retries carry an idempotency seed and partial progress; since 2026-10-18 a webhook or
+  integration step also takes a templated `idempotency_key` (`services/automation/idempotency.py`, table
+  `workflow_step_idempotency`, migration `90652659626a`): a duplicate within `idempotency_window_hours` (24) calls nothing
+  and reuses the first output.
 
 ## Syntax collisions to design around
 

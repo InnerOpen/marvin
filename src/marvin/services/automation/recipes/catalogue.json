@@ -73,7 +73,7 @@
       "name": "Per-step idempotency keys",
       "priority": "P0",
       "capabilities_md": "Idempotency",
-      "acceptance": "A webhook/integration step with `idempotency_key` (templated) that already succeeded for that key within the window is skipped and its recorded output reused; two concurrent duplicate events deliver once."
+      "acceptance": "Delivered 2026-10-18: a webhook or integration step with a templated `idempotency_key` that already made that call (same workflow, same destination, same key) within `idempotency_window_hours` (default 24, 1–720) is skipped and its recorded output reused, marked `idempotency: {duplicate: true}`; two concurrent duplicates deliver once (the first claims the key before it calls); a failed call gives the key back so retries still make it; a dry run says `would: call` or `would: skip (duplicate)`. Kept in `workflow_step_idempotency` as a hash; the Prune Workflow Runs task drops ended windows. It dedupes identical calls: it does not coalesce different keys."
     },
     "media-adapters": {
       "name": "Image, file and audio processing adapters",
@@ -1398,18 +1398,11 @@
       ],
       "cost_notes": "None (no AI).",
       "failure_behaviour": "The webhook step makes one attempt; a non-2xx or a timeout fails the run (recorded in the run history, `workflow_failed` alert if enabled) and the metadata step after it does not run. Re-publishing re-sends: there is no per-step idempotency key.",
-      "dependencies": [
-        {
-          "capability": "idempotency",
-          "name": "Per-step idempotency keys",
-          "priority": "P0",
-          "acceptance": "A webhook/integration step with `idempotency_key` (templated) that already succeeded for that key within the window is skipped and its recorded output reused; two concurrent duplicate events deliver once.",
-          "why": "to coalesce bursts of saves"
-        }
-      ],
+      "dependencies": [],
       "notes": [
         "It fires on every save of a published entry, including the publish itself and metadata writes made by other workflows; a `changed_fields contains data.<field>` condition (2026-10-18) would narrow it to one field.",
-        "If the external copy is the site itself, prefer the native rebuild: content changes already queue a coalesced rebuild (site_rebuild_queued → webhook_triggered)."
+        "If the external copy is the site itself, prefer the native rebuild: content changes already queue a coalesced rebuild (site_rebuild_queued → webhook_triggered).",
+        "Idempotency keys exist (2026-10-18) but dedupe identical calls; a burst of different saves is still one call each unless the key ignores what changed."
       ],
       "verification": {
         "level": "fixture-executed",
@@ -7860,18 +7853,11 @@
       ],
       "cost_notes": "None (no AI).",
       "failure_behaviour": "The webhook step makes one attempt; a non-2xx or a timeout fails the run (recorded in the run history, `workflow_failed` alert if enabled) and the metadata step after it does not run. Re-publishing re-sends: there is no per-step idempotency key. A non-JSON response is stored as trimmed text.",
-      "dependencies": [
-        {
-          "capability": "idempotency",
-          "name": "Per-step idempotency keys",
-          "priority": "P0",
-          "acceptance": "A webhook/integration step with `idempotency_key` (templated) that already succeeded for that key within the window is skipped and its recorded output reused; two concurrent duplicate events deliver once.",
-          "why": "to never hand off the same version twice"
-        }
-      ],
+      "dependencies": [],
       "notes": [
         "`ready_status` must be one of Marvin's statuses (needs_review, approved, published); `changed_to` fires once on the transition.",
-        "The whole `entry.data` object is sent — review what the type's fields contain before enabling."
+        "The whole `entry.data` object is sent — review what the type's fields contain before enabling.",
+        "Idempotency keys exist (2026-10-18): an `idempotency_key` on the webhook step such as `handoff-${entry.id}` would make the call once per window; this recipe doesn't set one."
       ],
       "verification": {
         "level": "fixture-executed",

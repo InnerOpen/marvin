@@ -535,7 +535,8 @@ class PruneWorkflowRunsHandler(ScheduledTaskHandler):
     Delete finished workflow runs older than the retention window, with their steps (platform-wide).
 
     A run that is still running or waiting (on an approval or a wait) is never touched, whatever its age: its
-    resume needs it. Rows that point at a run (waits, approvals, integration retries) keep theirs as null.
+    resume needs it. Rows that point at a run (waits, approvals, integration retries) keep theirs as null. The same
+    pass drops the idempotency keys (webhook / integration steps) whose window has ended.
 
     Configuration (task_config):
     - retention_days: int - Delete runs that finished longer ago than this. Defaults to the
@@ -561,6 +562,12 @@ class PruneWorkflowRunsHandler(ScheduledTaskHandler):
 
         from marvin.core.config import get_app_settings
 
+        # Idempotency keys whose window has ended go too, whatever the run retention is: a duplicate no longer finds them.
+        from marvin.services.automation.idempotency import purge_expired
+
+        with session_context() as session:
+            keys = purge_expired(session)
+            session.commit()
         default_days = getattr(get_app_settings(), "WORKFLOW_RUN_RETENTION_DAYS", 90)
         retention_days = task.task_config.get("retention_days", default_days)
         if retention_days is None or retention_days <= 0:
@@ -569,9 +576,11 @@ class PruneWorkflowRunsHandler(ScheduledTaskHandler):
         with session_context() as session:
             deleted = prune_workflow_runs(session, retention_days)
             session.commit()
-        if not deleted:
+        if not deleted and not keys:
             return None  # the usual daily answer once caught up; not worth a row
         summary = f"Deleted {deleted} finished workflow run{'s' if deleted != 1 else ''} older than {retention_days} days"
+        if keys:
+            summary += f" and {keys} expired idempotency key{'s' if keys != 1 else ''}"
         logger.info("Workflow run prune: %s", summary)
         return summary
 
