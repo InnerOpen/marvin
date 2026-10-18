@@ -198,6 +198,9 @@ class _FakeQuery:
     def filter(self, *criteria):
         return self
 
+    def order_by(self, *criteria):
+        return self
+
     def all(self):
         return self._rows
 

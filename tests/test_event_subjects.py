@@ -65,7 +65,7 @@ class _Session:
         rows = self._automations
         return SimpleNamespace(
             filter_by=lambda **kw: SimpleNamespace(all=lambda: rows),
-            filter=lambda *_: SimpleNamespace(scalar=lambda: None, all=lambda: rows),
+            filter=lambda *_: SimpleNamespace(scalar=lambda: None, all=lambda: rows, order_by=lambda *_: SimpleNamespace(all=lambda: rows)),
         )
 
     def get(self, model, _id):

@@ -13,13 +13,12 @@ the engine is unit-testable without real executors.
 import uuid
 from collections.abc import Callable
 from contextlib import contextmanager
-from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from marvin.services.event_bus_service.correlation import correlation_scope, current_correlation_id
+from marvin.services.event_bus_service.correlation import correlation_scope, current_correlation_id, workflows_running
 
 from .actions import AutomationActionError, IntegrationStepError
 from .actions import run_action as _registry_run_action
@@ -68,29 +67,26 @@ MAX_REACTION_DEPTH = 3  # how many automation/emit_event hops a single chain may
 # it, so an automation that finds its own id here would be reacting to its own work (or to a reaction
 # to it): it sits that event out. Other automations react as usual, and a later, independent event
 # (dispatched outside the run) triggers it again.
-_running: ContextVar[frozenset[str]] = ContextVar("automations_running", default=frozenset())
+_running = workflows_running
 
 
 def _run_key(automation) -> str:
     return str(getattr(automation, "id", None) or getattr(automation, "slug", ""))
 
 
-def _own_chain_workflows(session, group_id, event_ctx) -> set[str]:
+def _own_chain_workflows(event_ctx) -> set[str]:
     """The workflows an operational event (a failed webhook delivery, a budget crossing, a connection needing
     attention, a failed scheduled task) must not wake because their own work caused it. Normally that is the `_running`
     guard: what a run does is dispatched inside it. This covers the cause that runs after the run — a webhook
-    delivery of an event the workflow sent — which is announced inside the delivered event's chain (same correlation
-    id, reaction depth > 0 because a workflow sent it): a workflow with a run in that chain sits it out. A failure
-    nobody's workflow caused (depth 0, whatever chain it is in) wakes every workflow that answers it."""
+    delivery of an event the workflow sent — whose failure is announced with the workflows that sent that event
+    (`caused_by_workflows`, read when it was dispatched). The event says who caused it; nothing is looked up, so the
+    answer can't depend on which run has been recorded yet, or on which other workflows happened to run first in the
+    chain. A failure nobody's workflow caused names none and wakes every workflow that answers it."""
     from marvin.services.events.event_catalog import OPERATIONAL_EVENT_TYPES
 
-    chain = event_ctx.get("correlation_id")
-    if event_ctx.get("event_type") not in OPERATIONAL_EVENT_TYPES or not chain or not int(event_ctx.get("reaction_depth") or 0):
+    if event_ctx.get("event_type") not in OPERATIONAL_EVENT_TYPES:
         return set()
-    from marvin.db.models.groups.automation_executions import AutomationExecutionModel as Run
-
-    rows = session.query(Run.automation_id).filter(Run.group_id == group_id, Run.correlation_id == chain, Run.automation_id.isnot(None)).distinct()
-    return {str(automation_id) for (automation_id,) in rows}
+    return {str(key) for key in event_ctx.get("caused_by_workflows") or ()}
 
 
 @contextmanager
@@ -433,6 +429,7 @@ def run_automations_for_event(
             # an old name a row still holds (stored before the alias migration) counts as the event
             WorkspaceAutomationModel.trigger_event.in_([event_type, *aliases_of(event_type)]),
         )
+        .order_by(WorkspaceAutomationModel.created_at, WorkspaceAutomationModel.id)  # the same order every time
         .all()
         if event_type
         else []
@@ -447,7 +444,7 @@ def run_automations_for_event(
     ran = 0
     # Open the triggering event's chain (or mint one) so every automation that reacts, and everything
     # they re-emit, threads under one correlation id.
-    running = _running.get() | _own_chain_workflows(session, group_id, event_ctx)
+    running = _running.get() | _own_chain_workflows(event_ctx)
     with correlation_scope(event_ctx.get("correlation_id")):
         for automation in automations:
             if _run_key(automation) in running:

@@ -1872,6 +1872,10 @@ class Event(_MarvinModel):
     """Id shared by every event + execution in one causal chain (see services/event_bus_service/
     correlation.py). Set by `dispatch` from the ambient correlation scope, so a whole reaction cascade
     threads under one id. None only for events built outside `dispatch`."""
+    caused_by_workflows: list[str] = Field(default_factory=list)
+    """The workflows (automation ids) whose runs sent this event, read by `dispatch` from the runs on the call stack
+    (correlation.workflows_running). Empty for what no workflow did. A failed delivery of this event can happen after
+    the run ended; it is announced with these, so the workflows that caused it don't answer it."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """

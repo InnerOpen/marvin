@@ -181,7 +181,13 @@ def desk(db_session, world, monkeypatch):
         db_session.commit()
         return row
 
-    yield SimpleNamespace(workflow=workflow, anchor=anchor, posts=posts)
+    rows: dict[str, WorkspaceAutomationModel] = {}
+
+    def remembered(slug: str, *a, **kw):
+        rows[slug] = workflow(slug, *a, **kw)
+        return rows[slug]
+
+    yield SimpleNamespace(workflow=remembered, anchor=anchor, posts=posts, rows=rows)
     db_session.rollback()
     db_session.query(WorkspaceAutomationModel).filter_by(group_id=world.gid).delete()
     db_session.query(GroupWebhooksModel).filter_by(group_id=world.gid).delete()
@@ -210,16 +216,25 @@ FAILED = {
 }
 
 
-def test_a_workflow_does_not_answer_the_failure_its_own_work_caused(db_session, world, desk):
+@pytest.mark.parametrize("bystander_first", [False, True], ids=["repair-runs-first", "bystander-runs-first"])
+def test_a_workflow_does_not_answer_the_failure_its_own_work_caused(db_session, world, desk, bystander_first):
     """`repair` answers a failed delivery by sending entry_updated — which the down webhook then fails to deliver:
-    a second failure, caused by `repair`. Only the bystander answers that one."""
-    # (an entry event is built from the run's entry: an ops event has none, so the workflow targets the anchor)
-    desk.workflow(
-        "repair",
-        [{"kind": "emit_event", "event": "entry_updated", "entity_id": "${entry.id}"}],
-        target={"entity": "entry", "query": {"entry_type": "task"}},
-    )
-    desk.workflow("bystander", [{"kind": "collect", "id": "all", "entity": "entry", "query": {}, "limit": 1}])
+    a second failure, caused by `repair`. Only the bystander answers that one, whichever of the two runs first (the
+    bystander that ran first has a run in the same chain, but it did not cause the failure)."""
+
+    def repair():
+        # (an entry event is built from the run's entry: an ops event has none, so the workflow targets the anchor)
+        desk.workflow(
+            "repair",
+            [{"kind": "emit_event", "event": "entry_updated", "entity_id": "${entry.id}"}],
+            target={"entity": "entry", "query": {"entry_type": "task"}},
+        )
+
+    def bystander():
+        desk.workflow("bystander", [{"kind": "collect", "id": "all", "entity": "entry", "query": {}, "limit": 1}])
+
+    for make in (bystander, repair) if bystander_first else (repair, bystander):
+        make()
 
     assert _answer(db_session, world, "webhook_delivery_failed", FAILED) == 2
 
@@ -247,18 +262,19 @@ def test_the_failure_of_an_ops_workflow_still_reaches_the_admins(db_session, wor
 
 
 def test_a_delivery_that_fails_after_the_run_ended_is_still_the_runs_failure(db_session, world, desk):
-    """The delivery of an event a workflow sent can run later than the run (a background task): the failure joins
-    the delivered event's chain — same correlation id, depth above zero — and the workflow with a run there sits out."""
+    """The delivery of an event a workflow sent can run later than the run (a background task): the failure names the
+    workflows that sent the event, and those sit it out. It needs no run recorded — nothing is looked up."""
     desk.workflow("repair", [{"kind": "collect", "id": "all", "entity": "entry", "query": {}, "limit": 1}])
-    assert _answer(db_session, world, "webhook_delivery_failed", FAILED, correlation_id="chain-a") == 1
+    bystander = desk.workflow("bystander", [{"kind": "collect", "id": "all", "entity": "entry", "query": {}, "limit": 1}])
 
-    # a workflow sent entry_updated in chain-a (depth 1); its delivery failed afterwards
-    assert _answer(db_session, world, "webhook_delivery_failed", FAILED, correlation_id="chain-a", reaction_depth=1) == 0
-    assert _runs(db_session, world, "repair") == 1
-    # a failure in another chain is nobody's doing here; so is one in the same chain that no workflow caused (depth 0)
-    assert _answer(db_session, world, "webhook_delivery_failed", FAILED, correlation_id="chain-b", reaction_depth=1) == 1
-    assert _answer(db_session, world, "webhook_delivery_failed", FAILED, correlation_id="chain-a") == 1
-    assert _runs(db_session, world, "repair") == 3
+    caused = [str(desk.rows["repair"].id)]
+    assert _answer(db_session, world, "webhook_delivery_failed", FAILED, caused_by_workflows=caused) == 1  # only the bystander
+    assert _runs(db_session, world, "repair") == 0 and _runs(db_session, world, "bystander") == 1
+    # nobody's workflow caused this one: both answer it
+    assert _answer(db_session, world, "webhook_delivery_failed", FAILED) == 2
+    # a run the failure doesn't name (another chain, say) is not held back by having run
+    both = [str(desk.rows["repair"].id), str(bystander.id)]
+    assert _answer(db_session, world, "webhook_delivery_failed", FAILED, caused_by_workflows=both) == 0
 
 
 def test_the_origin_rule_is_for_operational_events_only(db_session, world, desk):
@@ -295,3 +311,38 @@ def test_a_failure_dispatched_through_the_bus_carries_the_delivered_events_chain
     (failure,) = db_session.query(EventLogModel).filter_by(workspace_id=world.gid, event_type="webhook_delivery_failed").all()
     assert failure.correlation_id == "chain-z"
     assert (failure.event_data.get("reactionDepth") or failure.event_data.get("reaction_depth")) == 2
+
+
+def test_an_event_a_run_sends_names_the_workflows_that_sent_it_for_a_late_failure(db_session, world, desk):
+    """The workflows running when an event is dispatched are read then and carried by the event; the failed delivery
+    of it — announced by the publisher, possibly after the run ended — carries them on."""
+    from marvin.db.models.platform.event_log import EventLogModel
+    from marvin.services.event_bus_service.correlation import workflows_running
+
+    bus = EventBusService(bg_tasks=None)
+    entry = {
+        "integration_id": "automation",
+        "group_id": world.gid,
+        "event_type": EventTypes.entry_updated,
+        "document_data": et.EventEntryData(
+            operation=et.EventOperation.update, entry_id=desk.anchor.id, entry_title="Anchor", workspace_id=world.gid, workspace_name=None
+        ),
+        "entity_id": desk.anchor.id,
+        "entity_type": "entry",
+    }
+    token = workflows_running.set(frozenset({"wf-a", "wf-b"}))
+    try:
+        bus.dispatch(**entry)  # sent by a run
+    finally:
+        workflows_running.reset(token)
+    bus.dispatch(**entry)  # sent by no one: its failure names no workflow
+
+    db_session.expire_all()
+    failures = (
+        db_session.query(EventLogModel)
+        .filter_by(workspace_id=world.gid, event_type="webhook_delivery_failed")
+        .order_by(EventLogModel.occurred_at)
+        .all()
+    )
+    named = [row.event_data.get("causedByWorkflows", row.event_data.get("caused_by_workflows")) for row in failures]
+    assert named == [["wf-a", "wf-b"], []]

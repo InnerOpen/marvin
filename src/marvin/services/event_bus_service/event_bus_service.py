@@ -215,6 +215,7 @@ class EventBusService(BaseService):
         reaction_depth: int = 0,  # Automation/reaction hop count (loop-guard); 0 for user/system actions
         correlation_id: str | None = None,  # Causal-chain id; inherits the ambient scope when omitted
         title: str | None = None,  # The message title when the catalog has none (a workspace's own custom event)
+        caused_by_workflows: list[str] | None = None,  # Workflows to name as the cause besides the runs on the stack
     ) -> None:
         """
         Dispatches an event to the event bus.
@@ -241,9 +242,11 @@ class EventBusService(BaseService):
         # Resolve the causal-chain id: an explicit arg wins, else inherit the ambient correlation
         # scope (a reaction cascade / an EntryService emit batch), else mint one (a fresh root). Read
         # synchronously here so it's baked into the Event even if publishing is deferred.
-        from marvin.services.event_bus_service.correlation import current_correlation_id, new_correlation_id
+        from marvin.services.event_bus_service.correlation import current_correlation_id, new_correlation_id, workflows_running
 
         resolved_correlation_id = correlation_id or current_correlation_id.get() or new_correlation_id()
+        # Likewise the workflows running now: whatever they send says so, however late it is delivered.
+        causes = sorted(workflows_running.get() | set(caused_by_workflows or ()))
 
         # Construct the full Event object
         standard_message = EventBusMessage.from_type(event_type, body=message)  # Standardized message structure
@@ -260,6 +263,7 @@ class EventBusService(BaseService):
             entity_type=entity_type,
             reaction_depth=reaction_depth,
             correlation_id=resolved_correlation_id,
+            caused_by_workflows=causes,
         )
 
         event_name = event_type.name if hasattr(event_type, "name") else str(event_type)
