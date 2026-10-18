@@ -4,10 +4,13 @@
 outright, or ask for the day / week / month the run falls in (or a date it points at: `at`) — read in the workspace's time
 zone (Settings → Site), so a run at 11:30 pm New York time on the 31st is still that month's, whatever UTC says.
 
-**Idempotency.** One observation per (metric, variant, subject, window). Recording that key again **replaces the value**
-(a run repeated, a retry, a scheduled check that reads the same number twice never double-counts) and says whether it
-changed; an unchanged value saves nothing. So record what you read — "clicks so far", "followers today" — not an
-increment. There is no add mode on purpose: an add can't tell a retry from a second reading.
+**Idempotency.** One observation per (metric, variant, subject, window). Two ways to write it. **record** replaces the
+value (a run repeated, a retry, a scheduled check that reads the same number twice never double-counts) and says whether
+it changed: record what you read — "clicks so far", "followers today". **add** increments it — counting things as they
+happen, one signup at a time — so it can't tell a retry from a second event by the number alone: it keys each add on the
+run's event (the correlation id, the workflow and the step) and claims that key in `metric_contributions` in the same
+transaction that raises the number. The same event handled twice adds once; a write that fails takes its claim with it.
+A run with no event identity (nothing to tell two deliveries apart by) adds every time it runs.
 
 **Not conclusions.** These are observations. Nothing here compares variants, tests significance or claims a cause; the
 report lists the numbers and leaves the reading to a person.
@@ -25,6 +28,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from marvin.db.models.groups.metric_contributions import MetricContributionModel
 from marvin.db.models.groups.metric_observations import MetricObservationModel
 
 GRANULARITIES = ("day", "week", "month")
@@ -193,6 +197,87 @@ def record(
             session, group_id, metric=metric, value=value, variant=variant, subject=subject, window=window, automation_id=automation_id, _retry=True
         )
     return row, None, True
+
+
+@dataclass(frozen=True)
+class Added:
+    value: float  # the window's total now
+    previous: float  # what it was before this add (0 for a window that is new)
+    counted: bool  # False when this event had already been added: nothing changed
+    created: bool
+
+
+def contribution(session: Session, group_id, key: str) -> MetricContributionModel | None:
+    return (
+        session.query(MetricContributionModel)
+        .filter(MetricContributionModel.group_id == group_id, MetricContributionModel.contribution_key == key)
+        .first()
+        if key
+        else None
+    )
+
+
+def add(
+    session: Session, group_id, *, metric: str, amount: float, variant: str, subject: str, window: Window, key: str = "", automation_id=None
+) -> Added:
+    """Raise the window's number by `amount`, once per `key` (the run's event, workflow and step; "" = every time).
+
+    The claim on `key` and the new number are one transaction: two sessions delivering the same event serialize on the
+    claim's unique index (the second finds it taken and adds nothing), and a failure anywhere rolls the claim back so a
+    retry can still count."""
+    claim = None
+    try:
+        if key:
+            claim = MetricContributionModel(session=session, group_id=group_id, contribution_key=key, amount=amount)
+            try:
+                with session.begin_nested():
+                    session.add(claim)
+                    session.flush()
+            except IntegrityError:
+                row = existing(session, group_id, metric=metric, variant=variant, subject=subject, window=window)
+                total = row.value if row is not None else 0.0
+                return Added(total, total, False, False)
+        locked = _key(session, group_id, metric, variant, subject, window).with_for_update()
+        row = locked.first()
+        created = row is None
+        if row is None:
+            if session.query(func.count(MetricObservationModel.id)).filter(MetricObservationModel.group_id == group_id).scalar() >= MAX_PER_WORKSPACE:
+                raise MetricError(f"this workspace holds {MAX_PER_WORKSPACE:,} observations, the most it keeps: remove some on the Metrics page")
+            row = MetricObservationModel(
+                session=session,
+                group_id=group_id,
+                metric=metric,
+                variant=variant,
+                subject=subject,
+                window_label=window.label,
+                granularity=window.granularity,
+                window_start=window.start,
+                value=amount,
+                automation_id=automation_id,
+            )
+            try:
+                with session.begin_nested():
+                    session.add(row)
+                    session.flush()
+                previous = 0.0
+            except IntegrityError:  # another run made the window first: add onto what it wrote
+                created = False
+                row = locked.one()
+                previous = row.value
+                row.value = previous + amount
+        else:
+            previous = row.value
+            row.value = previous + amount
+        if automation_id is not None:
+            row.automation_id = automation_id
+        if claim is not None:
+            claim.observation_id = row.id
+        total = row.value
+        session.commit()
+        return Added(total, previous, True, created)
+    except Exception:
+        session.rollback()
+        raise
 
 
 def query(

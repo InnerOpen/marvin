@@ -2,8 +2,9 @@
 
 One row per (workspace, metric, variant, subject, window): the window is a day (``2026-10-18``), an ISO week
 (``2026-W42``) or a month (``2026-10``), worked out in the workspace's time zone; ``variant`` and ``subject`` are free
-labels ("" when the step names none). Recording the same key again replaces the value, so a run repeated for the same
-window doesn't double-count (services/metrics.py). These are observations — numbers someone noted down — never a
+labels ("" when the step names none). A ``record`` step replaces the value, so a run repeated for the same window
+doesn't double-count; an ``add`` step raises it, once for each event (``metric_contributions``; services/metrics.py).
+These are observations — numbers someone noted down — never a
 statement of what caused them.
 """
 

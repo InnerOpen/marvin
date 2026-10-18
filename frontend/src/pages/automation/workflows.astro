@@ -756,7 +756,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       case "metric":
         return (row.querySelector(".a-mt-op") as HTMLSelectElement | null)?.value === "read"
           ? ["text", "count", "rows", "total"]
-          : ["value", "previous_value", "changed", "created", "window"];
+          : ["value", "previous_value", "added", "changed", "created", "window"];
       case "media": {
         const mediaOp = (row.querySelector(".a-media-op") as HTMLSelectElement | null)?.value;
         if (mediaOp === "inspect") return ["width", "height", "sharpness", "orientation"];
@@ -1182,16 +1182,16 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
           <input class="input a-e-once" value="${esc(a.once_per ?? "")}" placeholder="welcome:\${member.id}" /></label>
         <span class="hint small">Needs an SMTP profile (Settings → Email). The same event handled twice sends nothing more; a dry run shows the email and sends nothing. Give a role its own link with “Only run this step when…” on <code>member.role</code>. Later steps read <code>\${steps.&lt;step id&gt;.output.sent}</code>.</span>`;
     } else if (kind === "metric") {
-      const reading = a.op === "read";
+      const opNow = a.op === "read" || a.op === "add" ? a.op : "record";
       const windowSpec = String(a.window ?? "day");
       const windowKind = ["day", "week", "month"].includes(windowSpec) ? windowSpec : "explicit";
       wrap.innerHTML = `
         <label class="tf"><span>What to do</span>
-          <select class="input a-mt-op"><option value="record" ${reading ? "" : "selected"}>Record an observation</option><option value="read" ${reading ? "selected" : ""}>Read observations back</option></select></label>
+          <select class="input a-mt-op"><option value="record" ${opNow === "record" ? "selected" : ""}>Record an observation</option><option value="add" ${opNow === "add" ? "selected" : ""}>Add to the count</option><option value="read" ${opNow === "read" ? "selected" : ""}>Read observations back</option></select></label>
         <label class="tf"><span>Metric <span class="muted">(a name: lowercase letters, digits, - and _)</span></span>
           <input class="input a-mt-metric" value="${esc(a.metric ?? "")}" placeholder="clicks" spellcheck="false" /></label>
         <div class="a-mt-record">
-          <label class="tf"><span>Value <span class="muted">(a number, or a template — e.g. \${input.clicks})</span></span>
+          <label class="tf"><span class="a-mt-value-label">Value</span>
             <input class="input a-mt-value" value="${esc(a.value ?? "")}" placeholder="\${input.clicks}" /></label>
           <label class="tf"><span>Window</span>
             <select class="input a-mt-window">${[["day", "The day of the run"], ["week", "The week of the run (Monday to Sunday)"], ["month", "The month of the run"], ["explicit", "A window I name…"]].map(([v, l]) => `<option value="${v}" ${windowKind === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
@@ -1214,11 +1214,20 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
           <label class="tf"><span>At most</span>
             <input class="input a-mt-limit" type="number" min="1" max="250" value="${esc(String(a.limit ?? 50))}" /></label>
         </div>
-        <span class="hint small">These are observations, not conclusions: nothing here compares variants or says what caused a number. One number is kept per metric, variant, subject and window — recording again <strong>replaces</strong> it, so a rerun doesn't double-count (record what you read, not an increment). A dry run writes nothing. The <strong>Metrics</strong> page (Settings → Automation) lists them. Give this step an id to read <code>\${steps.&lt;step id&gt;.output.text}</code> from a read.</span>`;
+        <span class="hint small a-mt-hint-record">Record is for a total you already have (clicks so far, followers today): recording again <strong>replaces</strong> the number, so a rerun doesn't double-count.</span>
+        <span class="hint small a-mt-hint-add">Add is for counting things as they happen (one per signup): it raises the window's number by the value, <strong>once for each event</strong> — the same event handled twice adds once, a different event adds again. A run with no event behind it (a manual run) adds every time.</span>
+        <span class="hint small">These are observations, not conclusions: nothing here compares variants or says what caused a number. One number is kept per metric, variant, subject and window. A dry run writes nothing. The <strong>Metrics</strong> page (Settings → Automation) lists them. Give this step an id to read <code>\${steps.&lt;step id&gt;.output.text}</code> from a read.</span>`;
       const opSel = wrap.querySelector(".a-mt-op") as HTMLSelectElement;
       const winSel = wrap.querySelector(".a-mt-window") as HTMLSelectElement;
       const syncMetric = () => {
         const read = opSel.value === "read";
+        const adding = opSel.value === "add";
+        (wrap.querySelector(".a-mt-value-label") as HTMLElement).innerHTML = adding
+          ? `How much to add <span class="muted">(optional — 1 if left empty; a number, negative to count down, or a template)</span>`
+          : `Value <span class="muted">(a number, or a template — e.g. \${input.clicks})</span>`;
+        (wrap.querySelector(".a-mt-value") as HTMLInputElement).placeholder = adding ? "1" : "\${input.clicks}";
+        (wrap.querySelector(".a-mt-hint-record") as HTMLElement).hidden = adding || read;
+        (wrap.querySelector(".a-mt-hint-add") as HTMLElement).hidden = !adding;
         (wrap.querySelector(".a-mt-record") as HTMLElement).hidden = read;
         (wrap.querySelector(".a-mt-read") as HTMLElement).hidden = !read;
         (wrap.querySelector(".a-mt-explicit-wrap") as HTMLElement).hidden = winSel.value !== "explicit";
@@ -1510,7 +1519,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       return step;
     }
     if (kind === "metric") {
-      const reading = field(".a-mt-op")?.value === "read";
+      const opChosen = field(".a-mt-op")?.value;
+      const reading = opChosen === "read";
       const metric = field(".a-mt-metric")?.value.trim() ?? "";
       if (!metric) throw new Error(`Step ${i + 1}: name the metric (e.g. clicks).`);
       step.metric = metric;
@@ -1525,9 +1535,11 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         setOrDrop("limit", Number.isInteger(limit) && limit >= 1 && limit !== 50 ? Math.min(limit, 250) : null);
         return step;
       }
+      const adding = opChosen === "add";
+      if (adding) step.op = "add";
       const value = field(".a-mt-value")?.value.trim() ?? "";
-      if (!value) throw new Error(`Step ${i + 1}: give the value to record (a number or a template).`);
-      step.value = value !== "" && !Number.isNaN(Number(value)) ? Number(value) : value;
+      if (!value && !adding) throw new Error(`Step ${i + 1}: give the value to record (a number or a template).`);
+      if (value) step.value = !Number.isNaN(Number(value)) ? Number(value) : value;
       const windowKind = field(".a-mt-window")?.value || "day";
       if (windowKind === "explicit") {
         const named = field(".a-mt-explicit")?.value.trim() ?? "";

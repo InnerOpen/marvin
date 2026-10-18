@@ -16,6 +16,7 @@ from .integration_event_subscriptions import *
 from .integrations import *
 from .invite_tokens import *
 from .mcp_servers import *
+from .metric_contributions import *
 from .metric_observations import *
 from .preferences import *
 from .reports import *

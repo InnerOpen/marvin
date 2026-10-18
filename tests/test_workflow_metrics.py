@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from marvin.db.models.groups.metric_contributions import MetricContributionModel
 from marvin.db.models.groups.metric_observations import MetricObservationModel
 from marvin.db.models.users.roles import WorkspaceRole
 from marvin.schemas.group.automation_definition import MetricAction
@@ -28,6 +29,7 @@ P = gates.P
 def observations_cleared(ws):
     yield
     ws.session.rollback()
+    ws.session.query(MetricContributionModel).delete(synchronize_session=False)
     ws.session.query(MetricObservationModel).delete(synchronize_session=False)
     ws.session.commit()
 
@@ -259,6 +261,231 @@ def test_a_dry_run_with_no_number_yet_previews_instead_of_failing(ws):
         assert out["dry_run"] and out["value"] is None and out["window"] == "2026-10-18", value
     with pytest.raises(AutomationActionError):
         _step(ws, dry_run=True, metric="clicks", value="lots")  # a number that is wrong is still wrong
+
+
+# ── The step: add ─────────────────────────────────────────────────────────────
+def _event(correlation="evt-1", index=0, step_id=None):
+    return {
+        "event": {"event_type": "member_added", "correlation_id": correlation},
+        "steps": {},
+        "previous": {},
+        "_step": {"workflow": "wf-1", "index": index, "target": 0, "on_failure": False, "step_id": step_id},
+    }
+
+
+def _add(ws, correlation="evt-1", **fields):
+    fields.setdefault("metric", "signups")
+    fields.setdefault("window", "2026-10-18")
+    return _step(ws, op="add", context=_event(correlation), **fields)
+
+
+def _claims(ws):
+    ws.session.expire_all()
+    return ws.session.query(MetricContributionModel).filter_by(group_id=ws.gid).all()
+
+
+def test_add_raises_the_windows_number_and_says_what_it_did(ws):
+    first = _add(ws, "e1", value=5)
+    assert first["recorded"] and first["counted"] and first["created"] and first["changed"]
+    assert (first["value"], first["previous_value"], first["added"], first["window"]) == (5.0, 0.0, 5.0, "2026-10-18")
+    second = _add(ws, "e2", value=2.5)
+    assert not second["created"] and (second["value"], second["previous_value"], second["added"]) == (7.5, 5.0, 2.5)
+    assert [r.value for r in _rows(ws)] == [7.5]
+
+
+def test_add_counts_one_when_no_value_is_given(ws):
+    assert _add(ws, "e1")["value"] == 1.0
+    assert _add(ws, "e2", value="")["value"] == 2.0
+    assert _add(ws, "e3", value=None)["added"] == 1.0
+    assert [r.value for r in _rows(ws)] == [3.0]
+
+
+def test_add_takes_a_negative_value_to_count_down_and_zero_changes_nothing(ws):
+    _add(ws, "e1", value=3)
+    down = _add(ws, "e2", value=-1)
+    assert (down["value"], down["previous_value"], down["added"], down["changed"]) == (2.0, 3.0, -1.0, True)
+    assert _add(ws, "e3", value="-0.5")["value"] == 1.5  # a number as text works, as it does for record
+    zero = _add(ws, "e4", value=0)
+    assert zero["value"] == 1.5 and zero["changed"] is False
+    assert _add(ws, "e5", value=-4, window="2026-10-19")["value"] == -4.0  # a count can start below nothing
+
+
+@pytest.mark.parametrize("bad", ["many", True, "${input.n}", "inf"])
+def test_add_refuses_a_value_that_isnt_a_number_and_claims_nothing(ws, bad):
+    with pytest.raises(AutomationActionError, match="number|finite"):
+        _add(ws, "e1", value=bad)
+    assert _rows(ws) == [] and _claims(ws) == []
+
+
+def test_the_same_event_delivered_twice_adds_once_and_another_event_adds_again(ws):
+    first = _add(ws, "evt-1", value=1)
+    again = _add(ws, "evt-1", value=1)  # re-delivery, a retry, the same trigger run again
+    assert first["counted"] and not again["counted"] and again["skipped"] and again["added"] == 0.0 and again["changed"] is False
+    assert (again["value"], again["previous_value"]) == (1.0, 1.0)
+    assert [r.value for r in _rows(ws)] == [1.0]
+    assert _add(ws, "evt-2", value=1)["value"] == 2.0  # a distinct event counts
+    assert _add(ws, "evt-1", value=1)["counted"] is False  # and the first is still counted
+    assert [c.contribution_key for c in _claims(ws)].count("wf-1:0:evt-1:0:0") == 1
+
+
+def test_a_claim_is_per_step_and_per_workflow_not_just_per_event(ws):
+    assert _step(ws, op="add", metric="m", window="2026-10-18", context=_event("e", index=0))["counted"]
+    assert _step(ws, op="add", metric="m", window="2026-10-18", context=_event("e", index=1))["counted"]  # another step
+    other = _event("e")
+    other["_step"]["workflow"] = "wf-2"
+    assert _step(ws, op="add", metric="m", window="2026-10-18", context=other)["counted"]  # another workflow
+    assert [r.value for r in _rows(ws)] == [3.0]
+
+
+def test_a_run_with_no_event_identity_adds_every_time(ws):
+    for _ in range(2):
+        out = _step(ws, op="add", metric="m", window="2026-10-18", context={"steps": {}, "previous": {}, "event": {}})
+        assert out["counted"]
+    assert [r.value for r in _rows(ws)] == [2.0] and _claims(ws) == []
+
+
+def _deliver_together(ws, keys, *, metric):
+    """One session per key, all adding 1 to the same window at the same moment: their results (and any errors)."""
+    import threading
+
+    from sqlalchemy.orm import Session
+
+    window, engine = metrics.parse_window("2026-10-18"), ws.session.get_bind()
+    barrier, results, errors = threading.Barrier(len(keys)), [], []
+
+    def deliver(key):
+        with Session(engine) as session:
+            try:
+                barrier.wait(timeout=10)
+                results.append(metrics.add(session, ws.gid, metric=metric, amount=1.0, variant="", subject="", window=window, key=key))
+            except Exception as e:  # noqa: BLE001 — reported by the caller
+                errors.append(e)
+
+    threads = [threading.Thread(target=deliver, args=(key,)) for key in keys]
+    [t.start() for t in threads]
+    [t.join(timeout=30) for t in threads]
+    assert errors == []
+    return results
+
+
+def test_two_sessions_delivering_the_same_event_at_once_add_it_once(ws):
+    for round_ in range(5):
+        results = _deliver_together(ws, [f"wf:0:race-{round_}:0:0"] * 2, metric="race")
+        assert sorted(r.counted for r in results) == [False, True], round_
+    (row,) = _rows(ws, metric="race")
+    assert row.value == 5.0 and len(_claims(ws)) == 5  # five events, each once
+
+
+def test_sessions_adding_different_events_to_one_new_window_lose_nothing(ws):
+    _deliver_together(ws, [f"wf:0:busy-{n}:0:0" for n in range(4)], metric="busy")
+    (row,) = _rows(ws, metric="busy")
+    assert row.value == 4.0
+
+
+def test_a_failed_write_releases_the_claim_so_a_retry_still_counts(ws, monkeypatch):
+    monkeypatch.setattr(metrics, "MAX_PER_WORKSPACE", 0)
+    with pytest.raises(AutomationActionError, match="the most it keeps"):
+        _add(ws, "evt-1", value=1)
+    assert _claims(ws) == [] and _rows(ws) == []  # no claim left behind
+    monkeypatch.undo()
+    assert _add(ws, "evt-1", value=1)["counted"]  # the retry of the same event counts
+    assert [r.value for r in _rows(ws)] == [1.0] and len(_claims(ws)) == 1
+
+
+def test_a_failure_after_the_claim_is_taken_leaves_neither_claim_nor_number(ws, monkeypatch):
+    real = ws.session.commit
+
+    def boom():
+        raise RuntimeError("database went away")
+
+    monkeypatch.setattr(ws.session, "commit", boom)
+    with pytest.raises(RuntimeError):
+        _add(ws, "evt-1", value=1)
+    monkeypatch.setattr(ws.session, "commit", real)
+    assert _claims(ws) == [] and _rows(ws) == []
+    assert _add(ws, "evt-1", value=1)["counted"]
+
+
+def test_a_workspace_at_the_cap_still_adds_to_a_window_it_has(ws, monkeypatch):
+    _add(ws, "e1", value=1)
+    monkeypatch.setattr(metrics, "MAX_PER_WORKSPACE", 1)
+    assert _add(ws, "e2", value=1)["value"] == 2.0
+    with pytest.raises(AutomationActionError, match="the most it keeps"):
+        _add(ws, "e3", value=1, window="2026-10-19")
+
+
+def test_add_buckets_into_windows_like_record_does(ws):
+    _add(ws, "e1", window="week", at="2026-10-14")  # a Wednesday
+    _add(ws, "e2", window="week", at="2026-10-18")  # the Sunday of the same week
+    _add(ws, "e3", window="week", at="2026-10-19")  # the next Monday
+    _add(ws, "e4", window="month", at="2026-10-31")
+    _add(ws, "e5", window="2026-W42", variant="b", subject="spring")
+    got = {(r.window_label, r.variant, r.subject): r.value for r in _rows(ws)}
+    assert got == {("2026-W42", "", ""): 2.0, ("2026-W43", "", ""): 1.0, ("2026-10", "", ""): 1.0, ("2026-W42", "b", "spring"): 1.0}
+    _zone(ws, "America/New_York")
+    out = _add(ws, "e6", window="day", at="2026-11-02T04:30:00Z")  # 23:30 on the 1st in New York
+    assert out["window"] == "2026-11-01"
+
+
+def test_add_and_record_share_a_window_record_replaces_what_add_counted(ws):
+    _add(ws, "e1", value=4)
+    assert _step(ws, metric="signups", value=10, window="2026-10-18")["previous_value"] == 4.0
+    assert _add(ws, "e2", value=1)["value"] == 11.0
+
+
+def test_add_in_a_dry_run_previews_and_writes_and_claims_nothing(ws):
+    new = _step(ws, dry_run=True, op="add", metric="signups", window="2026-10-18", context=_event("e1"))
+    assert new["dry_run"] and new["would"] == "add"
+    assert (new["previous_value"], new["added"], new["value"]) == (0.0, 1.0, 1.0)
+    assert _rows(ws) == [] and _claims(ws) == []
+    _add(ws, "e1", value=5)
+    more = _step(ws, dry_run=True, op="add", metric="signups", value=-2, window="2026-10-18", context=_event("e2"))
+    assert more["would"] == "add" and (more["previous_value"], more["added"], more["value"]) == (5.0, -2.0, 3.0)
+    again = _step(ws, dry_run=True, op="add", metric="signups", value=-2, window="2026-10-18", context=_event("e1"))
+    assert again["would"] == "leave" and again["already_counted"] and again["value"] == 5.0  # this event is already in
+    assert [r.value for r in _rows(ws)] == [5.0] and len(_claims(ws)) == 1
+
+
+def test_add_in_a_dry_run_with_no_number_yet_previews_but_a_wrong_one_still_fails(ws):
+    for value in ("‹AI answer: n›", "${input.n}"):
+        out = _step(ws, dry_run=True, op="add", metric="signups", value=value, window="2026-10-18", context={**_event(), "input": {}})
+        assert out["would"] == "add" and out["value"] is None, value
+    with pytest.raises(AutomationActionError):
+        _step(ws, dry_run=True, op="add", metric="signups", value="lots")
+
+
+def test_clearing_a_window_starts_its_count_over(ws):
+    _add(ws, "e1", value=3)
+    (row,) = _rows(ws)
+    assert metrics.remove(ws.session, ws.gid, row.id)
+    assert _claims(ws) == []
+    assert _add(ws, "e1", value=1)["value"] == 1.0
+
+
+def test_the_model_reads_an_add_step_with_or_without_a_value():
+    assert MetricAction.model_validate({"kind": "metric", "op": "add", "metric": "signups"}).op == "add"
+    step = MetricAction.model_validate({"kind": "metric", "op": "add", "metric": "signups", "value": -2, "window": "week", "variant": "a"})
+    assert step.value == -2
+
+
+def test_the_editor_and_validator_refuse_an_add_step_that_cant_work(ws):
+    steps = [
+        {"kind": "metric", "op": "add", "metric": "Not A Slug"},
+        {"kind": "metric", "op": "add", "metric": "signups", "value": "lots"},
+        {"kind": "metric", "op": "add", "metric": "signups", "window": "yesterday"},
+        {"kind": "metric", "op": "add", "metric": "signups", "limit": 5},
+        {"kind": "metric", "op": "add", "metric": "signups", "window_from": "2026-W40"},
+        {"kind": "metric", "op": "read", "metric": "signups", "value": 1},  # a read has no value
+        {"kind": "metric", "op": "add", "metric": "signups"},  # fine: counts 1
+        {"kind": "metric", "op": "add", "metric": "signups", "value": -1, "window": "week", "at": "${entry.published_at}"},  # fine
+        {"kind": "metric", "op": "add", "metric": "signups", "value": "${input.n}", "variant": "${input.v}"},  # fine: templates
+        {"kind": "metric", "op": "record", "metric": "signups", "value": ""},  # a record still needs its value
+    ]
+    issues = draft_issues(ws.session, ws.gid, {"trigger": {"type": "manual"}, "actions": steps})
+    paths = [str(i.get("path", "")) for i in issues]
+    for index in (0, 1, 2, 3, 4, 5, 9):
+        assert any(p.startswith(f"actions[{index}]") for p in paths), (index, issues)
+    assert not any(p.startswith(("actions[6]", "actions[7]", "actions[8]")) for p in paths), issues
 
 
 # ── The step: read ────────────────────────────────────────────────────────────

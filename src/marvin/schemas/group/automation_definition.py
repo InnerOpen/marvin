@@ -589,12 +589,14 @@ class EmailAction(_StepBase):
 class MetricAction(_StepBase):
     """Records a number as an observation (never a conclusion): `metric` (slug), `value`, optional `variant` / `subject`
     labels, `window` day | week | month (the run's own, in the workspace zone; `at` = another date) or 2026-10-18 /
-    2026-W42 / 2026-10. One per metric+variant+subject+window: recording again REPLACES it (a rerun can't double-count).
-    A dry run writes nothing. `op` read: `metric` (+ `variant`, `subject`, `window_from`, `window_to`, `limit`) → output
+    2026-W42 / 2026-10. One per metric+variant+subject+window. `op` record (the default) REPLACES it (a total you
+    already have; a rerun can't double-count); `op` add raises it by `value` (default 1, negative counts down) — counting
+    things as they happen — once per event delivery, so the same event handled twice adds once. A dry run writes
+    nothing. `op` read: `metric` (+ `variant`, `subject`, `window_from`, `window_to`, `limit`) → output
     `rows`, `count`, `total`, `text`."""
 
     kind: Literal["metric"]
-    op: Literal["record", "read"] = "record"
+    op: Literal["record", "add", "read"] = "record"
     metric: str
     value: float | str | None = None
     variant: str | None = None
@@ -618,10 +620,11 @@ class MetricAction(_StepBase):
                 metrics.clean_metric(self.metric)
             except metrics.MetricError as e:
                 raise ValueError(str(e)) from e
-        if self.op == "record":
-            if self.value is None or (isinstance(self.value, str) and not self.value.strip()):
+        if self.op in ("record", "add"):
+            blank = self.value is None or (isinstance(self.value, str) and not self.value.strip())
+            if blank and self.op == "record":
                 raise ValueError("a metric step that records needs a `value` (a number, or a template that gives one)")
-            if isinstance(self.value, str) and literal(self.value):
+            if not blank and isinstance(self.value, str) and literal(self.value):
                 try:
                     metrics.clean_value(self.value)
                 except metrics.MetricError as e:
@@ -635,7 +638,7 @@ class MetricAction(_StepBase):
                     raise ValueError(str(e)) from e
         else:
             if self.value is not None or self.at is not None or "window" in self.model_fields_set:
-                raise ValueError("value, window and at go with op record; a read takes window_from and window_to")
+                raise ValueError("value, window and at go with op record or add; a read takes window_from and window_to")
             for bound in (self.window_from, self.window_to):
                 if bound and literal(bound):
                     try:

@@ -32,7 +32,7 @@ const data = JSON.stringify({ metrics, observations, canRemove }).replace(/</g, 
         <p>
           Numbers a workflow's <strong>Record a metric</strong> step noted down, by variant and window.{" "}
           <strong>Observations, not conclusions:</strong> this page lists what was recorded and says nothing about what caused it.
-          Recording the same metric, variant, subject and window again replaces the number, so a repeated run never counts twice.
+          A <em>record</em> step replaces the number for its metric, variant, subject and window, so a repeated run never counts twice; an <em>add</em> step raises it, once for each event.
         </p>
       </div>
     </div>
