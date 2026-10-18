@@ -49,6 +49,7 @@ TABLES: dict[str, tuple[str, Kept | None]] = {
     "oauth_tokens": ("Remote MCP access and refresh tokens", Kept("purge_oauth_records", rule="once expired")),
     "oauth_authorization_requests": ("Remote MCP sign-ins in progress", Kept("purge_oauth_records", rule="once expired")),
     "oauth_grants": ("Remote MCP connections", Kept("purge_oauth_records", rule="revoked or unusable over 90 days ago")),
+    "mcp_upload_links": ("Photo upload links from MCP assistants", Kept("purge_oauth_records", rule="a day after they expire")),
     "oauth_clients": ("Remote MCP clients", Kept("purge_oauth_records", rule="unused for 7 days with no connection")),
     "api_clients": ("Site clients", Kept("prune_revoked_tokens", rule="revoked over 30 days ago")),
     "ai_embeddings": ("Search embeddings (RAG)", None),

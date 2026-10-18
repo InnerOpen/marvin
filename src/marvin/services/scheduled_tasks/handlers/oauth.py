@@ -17,8 +17,8 @@ logger = get_logger(__name__)
 class PurgeOAuthRecordsHandler(ScheduledTaskHandler):
     """
     Delete what can never be used again: expired sign-in requests (and their codes), expired access and refresh
-    tokens, connections revoked or dead (no token left) for `grant_days`, and registered clients with no connection
-    that nobody has used for `client_days`.
+    tokens, upload links a day past expiry, connections revoked or dead (no token left) for `grant_days`, and
+    registered clients with no connection that nobody has used for `client_days`.
 
     Admin-only. A connection that still has a live refresh token is never touched, however old.
     """
@@ -75,8 +75,17 @@ def purge_oauth_records(now: datetime, *, grant_days: int = 90, client_days: int
         has_grant = sa.exists().where(OAuthGrantModel.client_fk == OAuthClientModel.id)
         client_seen = sa.func.coalesce(OAuthClientModel.last_used_at, OAuthClientModel.created_at)
         clients = session.query(OAuthClientModel).filter(~has_grant, client_seen < client_cutoff).delete(synchronize_session=False)
+        from marvin.services.mcp_remote import uploads
+
+        links = uploads.purge(session, now)
         session.commit()
-    return {"expired token(s)": tokens, "expired sign-in request(s)": requests, "connection(s)": grants, "unused client(s)": clients}
+    return {
+        "expired token(s)": tokens,
+        "expired sign-in request(s)": requests,
+        "connection(s)": grants,
+        "unused client(s)": clients,
+        "upload link(s)": links,
+    }
 
 
 TaskHandlerRegistry.register("purge_oauth_records", PurgeOAuthRecordsHandler)

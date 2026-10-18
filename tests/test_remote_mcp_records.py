@@ -161,7 +161,7 @@ def test_the_purge_deletes_only_what_can_never_be_used_again(db_session, workspa
 
     counts = purge_oauth_records(datetime.now(UTC))
 
-    assert counts == {"expired token(s)": 1, "expired sign-in request(s)": 1, "connection(s)": 2, "unused client(s)": 1}
+    assert counts == {"expired token(s)": 1, "expired sign-in request(s)": 1, "connection(s)": 2, "unused client(s)": 1, "upload link(s)": 0}
     db_session.expire_all()
     gone = {name for name, (model, id_) in ids.items() if db_session.get(model, id_) is None}
     assert gone == {"expired_token", "revoked", "dead", "unused_client", "spent"}
@@ -175,5 +175,5 @@ def test_the_purge_is_a_daily_system_task():
     task = next(d for d in SYSTEM_SCHEDULED_TASKS if d.slug == "purge_oauth_records")
     assert TaskHandlerRegistry.is_registered(task.task_type)
     assert task.schedule_config == {"interval_seconds": 24 * 60 * 60}
-    for table in ("oauth_clients", "oauth_authorization_requests", "oauth_grants", "oauth_tokens"):
+    for table in ("oauth_clients", "oauth_authorization_requests", "oauth_grants", "oauth_tokens", "mcp_upload_links"):
         assert TABLES[table][1].task == "purge_oauth_records"

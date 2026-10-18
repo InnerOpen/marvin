@@ -6,8 +6,9 @@ protocol endpoints for MCP clients, not part of Marvin's API.
 
 from fastapi import APIRouter
 
-from . import authorization, well_known
+from . import authorization, upload, well_known
 
 router = APIRouter(include_in_schema=False)
 router.include_router(well_known.router)
 router.include_router(authorization.router)
+router.include_router(upload.router)

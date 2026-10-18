@@ -574,8 +574,12 @@ Built as planned, with these differences, so later slices start from the code ra
   drops it; an MCP Apps viewer would show it in the conversation (not built).
 - Tool calls are logged by name with their outcome and content types.
 - Test connection (AI providers) also asks the workspace's model for a structured answer.
-- Not done: the upload link for chat photos, the MCP Apps image viewer, per-workspace URLs, AI operations as tools,
-  CIMD, the Access JWT check.
+- Built 2026-10-18: per-workspace URLs (`/mcp/w/<slug>`: own resource and metadata, consent offers that workspace
+  only, `oauth.serves_resource` binds the token to the workspace so renames keep working and `/mcp` stays separate);
+  the MCP Apps viewer (`ui://marvin/image-viewer`, `services/mcp_remote/viewer.py`; rendering in claude.ai/ChatGPT
+  unverified, `tools/list` logs whether the client advertised the extension); the photo upload link (`upload_link` /
+  `check_upload`, `/mcp/upload`, table `mcp_upload_links`, `services/mcp_remote/uploads.py`).
+- Not done: AI operations as tools, CIMD, the Access JWT check.
 
 ## Decisions (Jared, 2026-10-14: "your recommendations for mcp")
 

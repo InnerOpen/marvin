@@ -18,6 +18,7 @@ unknown session id and clients start a new one (MCP spec). One log line per requ
 
 from __future__ import annotations
 
+import logging
 import time
 from contextlib import asynccontextmanager
 from uuid import UUID
@@ -30,6 +31,10 @@ from marvin.core.root_logger import get_logger
 from marvin.services.mcp_remote.policy import SCOPE_WRITE, SLUG_RE, issuer, resource_url, workspace_resource_url
 
 logger = get_logger(__name__)
+
+# The SSE library logs every chunk it streams at DEBUG, tool results included. A result can hold a one-time upload link, and
+# a workspace's content besides, so that stream is not logged whatever the app's level.
+logging.getLogger("sse_starlette.sse").setLevel(logging.INFO)
 
 SESSION_HEADER = "mcp-session-id"
 SESSION_IDLE_SECONDS = 3600

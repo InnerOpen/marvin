@@ -2,7 +2,8 @@
 
 The limits are in memory, per process: the backend runs one process (a sliding window per key is enough, and a restart
 forgetting it is harmless). Registration 10/h per IP, authorize 30/h per IP, token failures 20 per 10 minutes per IP,
-and 120 MCP requests a minute per connection (a runaway client can't hammer Marvin; an assistant at work makes a few).
+120 MCP requests a minute per connection (a runaway client can't hammer Marvin; an assistant at work makes a few),
+20 upload links an hour per connection and 30 upload-page attempts per 10 minutes per IP.
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ LIMITS = {
     "authorize": (30, 3600),
     "token_failure": (20, 600),
     "mcp_request": (120, 60),
+    "upload_link": (20, 3600),  # per connection: links asked for
+    "upload_try": (30, 600),  # per IP: attempts at the upload page
 }
 _hits: dict[tuple[str, str], deque] = {}
 _lock = threading.Lock()

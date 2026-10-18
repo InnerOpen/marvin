@@ -107,6 +107,8 @@ def revoke_copied_mcp_grants(conn) -> int:
         "UPDATE oauth_grants SET revoked_at = now() AT TIME ZONE 'utc', revoked_reason = 'dev_refresh' WHERE revoked_at IS NULL"
     ).rowcount
     conn.exec_driver_sql("DELETE FROM oauth_tokens")
+    if inspector.has_table("mcp_upload_links"):
+        conn.exec_driver_sql("DELETE FROM mcp_upload_links")
     conn.exec_driver_sql("DELETE FROM oauth_authorization_requests")
     log.info("mcp: revoked %d copied connected app(s)", revoked)
     return revoked

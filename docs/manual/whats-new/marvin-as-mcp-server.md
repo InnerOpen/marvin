@@ -21,6 +21,7 @@ The assistant opens Marvin's consent page (behind Cloudflare Access): you sign i
 |---|---|
 | `create_draft`, `update_draft` | Read & write: the assistant writes the entry itself and Marvin saves it, so no AI provider of Marvin's is needed. `create_draft` takes the type's own fields (refusing unknown keys and wrong types, with the reason) and lands an inbox draft with a review link. `update_draft` changes only the fields given on an inbox, draft or needs-review entry, applied or staged for review per the workspace's approval policy. Both are shared registry tools, so Marvin's own assistant can use them too. |
 | `compose_entry` | Read & write: Marvin's own AI writes a new draft from a brief, with the workspace's voice and related content. It lands in the inbox with a review link; nothing is published. |
+| `upload_link`, `check_upload` | Read & write (Editor or above, and `import_asset` not blocked by Marvin's matrix): how a photo in the chat reaches Marvin. `upload_link` returns a one-time link; the user opens it, chooses one photo and uploads; `check_upload` (with the returned `linkId`) then says waiting, uploaded (with the new asset's id, slug and link), expired or failed. Details below. |
 | `search`, `fetch` | ChatGPT's connector pair: search entries, assets and resources; fetch one in full by the id search returns. |
 | `show_image` | the picture itself (at most 1024 px), with its name, alt text and link, and an MCP Apps viewer (below). Without a viewer, claude.ai shows the image inside the tool step, not in the reply; ChatGPT drops image results (reported, unverified). |
 
@@ -28,8 +29,13 @@ The assistant opens Marvin's consent page (behind Cloudflare Access): you sign i
 
 Plus the seven prompts below and resources (`marvin://workspace`, `marvin://collections`, `marvin://entry-types`, `marvin://entries/{slug}`, …).
 
+**Photo upload links:** the assistant calls `upload_link` (optionally with a `name` and `alt_text` for the asset) and gives you the link, `https://api.iwobble.com/mcp/upload#<secret>`. Open it on your phone or computer (no sign-in: a chat's in-app browser has none), check the workspace it names, choose one photo and Upload. The photo becomes an ordinary library asset in that connection's workspace, through the same service as the Assets page (the workspace's own bucket when it keeps one, the platform's size and type limits, an `asset_uploaded` event), uploaded by the connection's user. Tell the assistant it's done; `check_upload` gives it the asset to show, attach or write about.
+- **Narrow by design:** the secret sits in the link's `#fragment`, which a browser never sends, so no server, proxy or access log holds it; Marvin stores only its hash. It works once, for 15 minutes, for the connection that asked, its user and its workspace; the page ignores cookies and sessions, so there is nothing for another site to ride on. Each use re-checks that the connection is not disconnected, is Read & write, the user is still an Editor or above in the workspace, the workspace still allows external MCP hosts, and Marvin's permissions allow `import_asset`.
+- **Photos only:** JPEG, PNG, WebP or GIF, judged by the file's bytes (a page named `holiday.jpg` is refused, a PNG named `notes.txt` is stored as a PNG), up to 25 MB (or the platform's `ASSET_MAX_FILE_SIZE` if lower, and its allowed types). A refused file gives the link back; three refusals spend it. A connection can hold five unused links, and ask for 20 an hour; the page's endpoints allow 30 attempts per 10 minutes per address. There is no per-workspace asset quota in Marvin today, so none applies.
+- **Housekeeping:** links are deleted a day after they expire (the daily Purge OAuth Records task), with their connection, and a dev refresh from production removes them.
+
 **Limits:**
-- **Photos in the chat can't reach Marvin as files.** claude.ai and ChatGPT don't pass a chat's attachments to tools. Upload them in Marvin and ask the assistant to attach them, or let it send a small copy as base64 `data` to `import_asset`.
+- **Photos in the chat can't reach Marvin as files**: claude.ai and ChatGPT don't pass a chat's attachments to tools. That is what `upload_link` is for (next section). A small copy as base64 `data` to `import_asset` still works too.
 - 120 requests a minute per connection (429 with `Retry-After` beyond that).
 - Sessions live in the backend's memory: a deploy ends them and the assistant starts a new one on its own.
 

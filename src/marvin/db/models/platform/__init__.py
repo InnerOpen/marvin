@@ -18,7 +18,7 @@ from .entry_tags import EntryTags
 from .entry_types import EntryTypes
 from .event_log import EventLogModel
 from .media_embed_cache import MediaEmbedCacheModel
-from .oauth import OAuthAuthorizationRequestModel, OAuthClientModel, OAuthGrantModel, OAuthTokenModel
+from .oauth import McpUploadLinkModel, OAuthAuthorizationRequestModel, OAuthClientModel, OAuthGrantModel, OAuthTokenModel
 from .platform_settings import PlatformSettingsModel
 from .resource_tags import ResourceTags
 from .resources import Resources
@@ -50,6 +50,7 @@ __all__ = [
     "EntryTags",
     "EntryTypes",
     "EventLogModel",
+    "McpUploadLinkModel",
     "MediaEmbedCacheModel",
     "OAuthAuthorizationRequestModel",
     "OAuthClientModel",

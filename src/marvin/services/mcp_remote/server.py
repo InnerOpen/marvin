@@ -25,7 +25,7 @@ from mcp.server.lowlevel import Server
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 
 from marvin.core.root_logger import get_logger
-from marvin.services.mcp_remote import viewer
+from marvin.services.mcp_remote import uploads, viewer
 
 logger = get_logger(__name__)
 
@@ -37,8 +37,9 @@ INSTRUCTIONS = (
     "the user can open it. To show the user an image asset, call show_image: it returns the picture itself "
     "(view_image only describes one in words). To create or change an entry, write it yourself and save it "
     "with create_draft / update_draft (get_entry_type first, for the fields); compose_entry and revise_entry "
-    "have Marvin's own AI do the writing instead. Write tools make drafts and links; they never publish, and "
-    "trashing or archiving a published entry is refused."
+    "have Marvin's own AI do the writing instead. A photo in the chat can't be passed to a tool: call upload_link, "
+    "give the user the link to open, then call check_upload with its linkId to get the new asset. Write tools make "
+    "drafts and links; they never publish, and trashing or archiving a published entry is refused."
 )
 
 # Registry tools the remote server offers although they withhold the `mcp` source: compose_entry stays off the
@@ -142,7 +143,9 @@ def list_tools_for(conn: Connection) -> list[types.Tool]:
         listed = visible_tools(session, conn.group_id, user, allow_writes=conn.can_write, extra=EXTRA_TOOLS)
         if not _has_semantic_search(session, conn.group_id):  # it would only answer "unavailable"; `search` falls back
             listed = [t for t in listed if t.name != "search_content"]
-        return [*(project_tool(t) for t in listed), SHOW_IMAGE, SEARCH, FETCH]
+        # An upload link follows import_asset's rules (write scope, Editor, Marvin's matrix): shown when that tool is.
+        uploading = [UPLOAD_LINK, CHECK_UPLOAD] if any(t.name == uploads.TOOL for t in listed) else []
+        return [*(project_tool(t) for t in listed), *uploading, SHOW_IMAGE, SEARCH, FETCH]
 
     return _with_user(conn, run)
 
@@ -226,6 +229,91 @@ def show_image_for(conn: Connection, args: dict | None) -> tuple[dict, str | Non
             img.convert("RGB").save(out, format="JPEG", quality=85, optimize=True)
             mime = "image/jpeg"
         return {**info, "width": img.width, "height": img.height}, base64.b64encode(out.getvalue()).decode("ascii"), mime
+
+    return _with_user(conn, run)
+
+
+# ── upload_link / check_upload: how a photo in the chat reaches Marvin (uploads.py) ──
+
+UPLOAD_LINK = types.Tool(
+    name="upload_link",
+    title="Upload link",
+    description=(
+        "Get a one-time link where the user can upload a photo from their phone or computer into this workspace's asset "
+        f"library, for when a photo in the chat can't be passed to you. Give the user the link as is (open it, choose one "
+        f"photo, Upload); it works once, for {uploads.LINK_MINUTES} minutes, for one file. Then call check_upload with the "
+        "returned linkId to get the new asset. Optionally name the asset and give its alt text."
+    ),
+    inputSchema={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "display name for the new asset (default: the file's name)"},
+            "alt_text": {"type": "string", "description": "alt text for the new asset"},
+        },
+    },
+    annotations=types.ToolAnnotations(title="Upload link", readOnlyHint=False, destructiveHint=False, openWorldHint=False),
+)
+CHECK_UPLOAD = types.Tool(
+    name="check_upload",
+    title="Check upload",
+    description=(
+        "Whether the user has uploaded the photo for an upload_link yet: waiting, uploaded (with the new asset: id, slug, "
+        "name, link), expired or failed. Ask the user to finish the upload first, then call this; it is safe to repeat."
+    ),
+    inputSchema={
+        "type": "object",
+        "properties": {"link_id": {"type": "string", "description": "the linkId upload_link returned"}},
+        "required": ["link_id"],
+    },
+    annotations=types.ToolAnnotations(title="Check upload", readOnlyHint=True, destructiveHint=False, openWorldHint=False),
+)
+UPLOAD_TOOLS = {UPLOAD_LINK.name, CHECK_UPLOAD.name}
+
+
+def upload_link_for(conn: Connection, args: dict | None, base_url: str, ip: str | None) -> dict:
+    from marvin.services.mcp_remote import limits
+
+    args = args or {}
+
+    def run(session, user):
+        try:
+            limits.check("upload_link", str(conn.grant_id))
+        except limits.RateLimited as e:
+            return {"error": f"too many upload links; try again in {e.retry_after} seconds"}
+        try:
+            row, secret = uploads.create_link(session, conn, user, name=str(args.get("name") or ""), alt_text=str(args.get("alt_text") or ""), ip=ip)
+        except uploads.UploadError as e:
+            return {"error": e.message}
+        limits.hit("upload_link", str(conn.grant_id))
+        return {
+            "url": uploads.page_url(base_url, secret),
+            "linkId": str(row.id),
+            "expiresInMinutes": uploads.LINK_MINUTES,
+            "next": "Give the user this link to open and upload one photo. Then call check_upload with the linkId.",
+        }
+
+    return _with_user(conn, run)
+
+
+def check_upload_for(conn: Connection, args: dict | None) -> dict:
+    from marvin.services.ai.tools.builtins import _asset_public_url
+
+    def run(session, _user):
+        out = uploads.status_of(session, conn, str((args or {}).get("link_id") or ""))
+        asset = out.pop("asset", None)
+        if asset is not None:
+            out["asset"] = {
+                "id": str(asset.id),
+                "slug": asset.slug,
+                "name": asset.name,
+                "mimeType": asset.mime_type,
+                "width": asset.width,
+                "height": asset.height,
+                "url": _admin_url("asset", str(asset.id)),
+                "publicUrl": _asset_public_url(asset),
+            }
+            out["next"] = "show_image looks at it; attach_asset puts it on an entry."
+        return out
 
     return _with_user(conn, run)
 
@@ -467,6 +555,14 @@ async def _call_tool(name: str, arguments: dict | None) -> types.CallToolResult:
     # validate_input=False: the handlers are lenient about arguments, as /api/ai/tools/{name}/invoke is.
     if name == SHOW_IMAGE.name:
         result = _image_result(*await _in_thread(show_image_for, _connection(), arguments))
+    elif name == UPLOAD_LINK.name:
+        request = server.request_context.request
+        from marvin.services.mcp_remote.policy import issuer
+        from marvin.services.security.login_throttle import login_client_ip
+
+        result = _tool_result(await _in_thread(upload_link_for, _connection(), arguments, issuer(request), login_client_ip(request)))
+    elif name == CHECK_UPLOAD.name:
+        result = _tool_result(await _in_thread(check_upload_for, _connection(), arguments))
     elif name in CONNECTOR_TOOLS:
         result = _connector_result(await _in_thread(CONNECTOR_TOOLS[name], _connection(), arguments))
     else:

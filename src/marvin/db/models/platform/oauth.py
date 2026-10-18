@@ -156,3 +156,44 @@ class OAuthTokenModel(SqlAlchemyBase, BaseMixins):
     def __init__(self, session: Session, **kwargs) -> None:
         """Initialize via Marvin's auto-init model helper."""
         pass
+
+
+class McpUploadLinkModel(SqlAlchemyBase, BaseMixins):
+    """A one-use, short-lived link a chat assistant hands the user to send a photo to Marvin (the `upload_link` tool).
+
+    A chat client can't pass an attachment's bytes through an MCP tool, so the connection asks for a link and the user
+    uploads the file in a browser. The link is bound to the connection (grant), its user and its workspace; the secret in
+    the URL is stored as its SHA-256 only. It is claimed with one conditional UPDATE (`used_at`), so two uploads can't
+    both win. Revoking the grant, or the user losing the workspace, ends it (checked when it is used).
+    """
+
+    __tablename__ = "mcp_upload_links"
+
+    id: Mapped[GUID] = mapped_column(GUID, primary_key=True, default=GUID.generate)
+    """Public: the assistant polls with it (`check_upload`), scoped to the connection that asked."""
+    token_lookup: Mapped[str] = mapped_column(sa.String(64), nullable=False)
+    """SHA-256 of the secret in the link's `#fragment` (never in a URL path or query, so never in a log)."""
+    grant_id: Mapped[GUID] = mapped_column(GUID, sa.ForeignKey("oauth_grants.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[GUID] = mapped_column(GUID, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    group_id: Mapped[GUID] = mapped_column(GUID, sa.ForeignKey("groups.id", ondelete="CASCADE"), nullable=False)
+    name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+    """The display name the assistant suggested for the asset."""
+    alt_text: Mapped[str | None] = mapped_column(sa.String(1000), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(NaiveDateTime, nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(NaiveDateTime, nullable=True)
+    """Set when an upload claims the link; cleared again if that upload was refused (a wrong type, too big)."""
+    attempts: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0, server_default="0")
+    """Refused uploads so far; the link is spent after a few."""
+    asset_id: Mapped[GUID | None] = mapped_column(GUID, sa.ForeignKey("assets.id", ondelete="SET NULL"), nullable=True)
+    created_ip: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
+
+    __table_args__ = (
+        sa.UniqueConstraint("token_lookup", name="uq_mcp_upload_links_token_lookup"),
+        sa.Index("ix_mcp_upload_links_expires_at", "expires_at"),
+        sa.Index("ix_mcp_upload_links_grant_id", "grant_id"),
+    )
+
+    @auto_init()
+    def __init__(self, session: Session, **kwargs) -> None:
+        """Initialize via Marvin's auto-init model helper."""
+        pass
