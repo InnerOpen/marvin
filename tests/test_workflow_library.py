@@ -2014,7 +2014,8 @@ class TestExecution:
 
         ws.session.expire_all()
         rows = ws.session.query(Entries).filter_by(group_id=ws.gid, entry_type_id=ws.types["article"]).all()
-        return sorted((e for e in rows if key in (e.metadata_json or {})), key=lambda e: e.title)
+        # Title, then creation time: a closed task and its reopened successor share a title.
+        return sorted((e for e in rows if key in (e.metadata_json or {})), key=lambda e: (e.title, e.created_at, str(e.id)))
 
     def test_integration_health_companion(self, ws):
         _install(ws, "integration-health-companion")
