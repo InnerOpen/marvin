@@ -102,7 +102,7 @@ def test_a_super_admin_gets_platform_events(db_session, world):
 
 def test_an_entry_update_names_its_diff_fields_for_workflows(db_session, world):
     out = _ask(db_session, world, "entry_updated")
-    trigger = out["workflowTrigger"]
+    trigger = out["updateDiff"]
     assert set(trigger["fields"]) == {"changed_fields", "before", "after"}
     assert "data.price" in trigger["note"] and "data.<field>" in trigger["fields"]["changed_fields"]["description"]
-    assert "workflowTrigger" not in _ask(db_session, world, "asset_uploaded")  # events without a diff say nothing
+    assert "updateDiff" not in _ask(db_session, world, "asset_uploaded")  # events without a diff say nothing

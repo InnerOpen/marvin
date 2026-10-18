@@ -334,10 +334,9 @@ def describe_event(ctx: ToolContext, args: dict) -> str:
             "note": "A workflow starting on this reads these as ${event.<field>}. It never runs for a failure its own run caused.",
         }
     elif fields := diff_fields(entry.event_type):  # an entry update's diff: `changed data.price` / ${event.before.data.price}
-        out["workflowTrigger"] = {
-            "triggerable": True,
+        out["updateDiff"] = {
             "fields": fields,
-            "note": "A workflow reads these as ${event.<field>}, or with the changed / changed_from / changed_to operators "
+            "note": "A workflow starting on this reads these as ${event.<field>}, or with the changed / changed_from / changed_to operators "
             "(entry.data.price changed; event.changed_fields contains data.price).",
         }
     if entry.scope == "workspace":
