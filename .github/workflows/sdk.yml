@@ -39,12 +39,12 @@ jobs:
           path: marvin-sdk
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      # uv.lock, like the image (docker/Dockerfile `uv sync --frozen`): pip resolved newer pydantic/fastapi than prod
+      # runs and generated a different spec (e.g. CharacterPackPersona without its -Input/-Output split).
+      - name: Setup uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           python-version: '3.12'
-          cache: pip
-          cache-dependency-path: marvin/pyproject.toml
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -58,11 +58,10 @@ jobs:
 
       # The /api/groups/integrations routes only mount when marvin-integration-sdk is importable,
       # and the published SDK's types include them. It is a pinned core dependency (pyproject.toml),
-      # so the editable install brings the same version the image ships.
+      # so `uv sync --frozen` brings the same version the image ships.
       - name: Install Python dependencies
         working-directory: marvin
-        run: |
-          pip install -e ".[dev]"
+        run: uv sync --frozen
 
       - name: Generate OpenAPI spec from Marvin
         working-directory: marvin
@@ -75,7 +74,7 @@ jobs:
           POSTGRES_PASSWORD: docs
           POSTGRES_DB: docs
         run: |
-          python -c "
+          uv run python -c "
           from marvin.app import app
           import json
           spec = app.openapi()
