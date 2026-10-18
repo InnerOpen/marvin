@@ -245,8 +245,9 @@ def test_the_step_is_validated_guided_and_listed_as_a_sender(ws):
     for bad in ({"op": "capture", "snapshot": "abc"}, {"op": "restore", "parts": []}, {"op": "restore", "parts": ["tags"]}, {"label": "x" * 101}):
         with pytest.raises(ValueError):
             SnapshotAction(kind="snapshot", **bad)
-    guide = authoring_guide(ws.session, ws.gid, "actions")["actions"]
-    assert "snapshot" in guide["kinds"] and "snapshot_id" in guide["snapshot"]
+    actions = authoring_guide(ws.session, ws.gid, "actions")["actions"]
+    assert "section=records" in actions["kinds"]["snapshot"]["description"]  # one line in actions; the rest in records
+    assert "snapshot_id" in authoring_guide(ws.session, ws.gid, "records")["records"]["snapshot"]["note"]
     assert "entry_updated" in workflow_sends(ok) and "asset_detached_from_entry" in workflow_sends(ok)
     assert "entry_updated" not in workflow_sends({"actions": [{"kind": "snapshot"}]})
 

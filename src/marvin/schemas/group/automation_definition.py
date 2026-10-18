@@ -596,7 +596,7 @@ class EmailAction(_StepBase):
 
 
 class SnapshotAction(_StepBase):
-    """Keeps a version of an entry and puts it back (`op` capture | restore) — the triggering entry, or `entity_id` / `entity_slug`."""
+    """Keeps a version of an entry and puts it back (`op` capture | restore). It acts on the triggering entry, or `entity_id` / `entity_slug`."""
 
     kind: Literal["snapshot"]
     op: Literal["capture", "restore"] = "capture"

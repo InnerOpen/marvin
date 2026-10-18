@@ -30,7 +30,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 # What the guide offers (`section=`, one or several); without one it gives the index.
-SECTIONS = ("shape", "triggers", "events", "target", "conditions", "actions", "media", "email", "templates", "workspace", "examples", "editor")
+SECTIONS = (
+    "shape", "triggers", "events", "target", "conditions", "actions", "media", "email", "records", "templates", "workspace", "examples", "editor",
+)
 
 # The index: one line per section — what it holds, and when a request needs it. The guide is read like a vault: the
 # index first (small, always), then only the sections the request calls for (several in one call), so a model's
@@ -48,6 +50,7 @@ SECTION_GUIDE: dict[str, str] = {
         "the media step's ops (resize, crop, render, OCR, PDF, zip, watermark…) and the render templates · when images or documents are involved"
     ),
     "email": "the email step in full: who it may write to, sending once, links by role, what a dry run shows · when a step writes to a member",
+    "records": "the metric, snapshot and schema_check steps in full · when counting, keeping versions or checking JSON",
     "templates": (
         "the ${…} names a step can read (event, entry, asset, steps, input, member…) and how they resolve · when a step reads the "
         "entry or an earlier step"
@@ -408,8 +411,8 @@ def _conditions() -> dict:
     return out
 
 
-# Step kinds whose fields and rules live in their own guide section; `actions` names them in one line.
-OWN_SECTION_KINDS = ("media", "email")
+# Step kinds whose fields and rules live in their own guide section (kind → section); `actions` names them in one line.
+OWN_SECTION_KINDS = {"media": "media", "email": "email", "metric": "records", "snapshot": "records", "schema_check": "records"}
 
 
 def _kind_doc(model) -> dict:
@@ -429,7 +432,7 @@ def _actions() -> dict:
     from .engine import MAX_ACTIONS
 
     kinds = {
-        kind: {"description": f"{_first_sentence(_doc(model))} section={kind} has its fields and rules."}
+        kind: {"description": f"{_first_sentence(_doc(model))} section={OWN_SECTION_KINDS[kind]} has its fields and rules."}
         if kind in OWN_SECTION_KINDS
         else _kind_doc(model)
         for kind, model in ACTION_MODELS.items()
@@ -453,8 +456,6 @@ def _actions() -> dict:
         "when": WHEN_NOTE,
         "collect": COLLECT_NOTE,
         "fetch": FETCH_NOTE,
-        "schema_check": SCHEMA_CHECK_NOTE,
-        "snapshot": SNAPSHOT_NOTE,
         "parallel": PARALLEL_NOTE,
     }
 
@@ -684,6 +685,12 @@ def authoring_guide(session, group_id, section: str | None = None, recipe: str |
         out["media"] = {"step": _step_doc("media"), "note": MEDIA_NOTE, "render_templates": _render_templates()}
     if "email" in want:
         out["email"] = {"step": _step_doc("email"), "note": EMAIL_NOTE}
+    if "records" in want:
+        out["records"] = {
+            "metric": _step_doc("metric"),
+            "snapshot": {**_step_doc("snapshot"), "note": SNAPSHOT_NOTE},
+            "schema_check": {**_step_doc("schema_check"), "note": SCHEMA_CHECK_NOTE},
+        }
     if "templates" in want:
         out["templates"] = _templates()
     if "workspace" in want or "examples" in want:
