@@ -492,7 +492,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const COND_OP_LABELS: Record<string, string> = WORKFLOW_LABELS.conditionOps;
   // Most-useful-first (backend returns kinds alphabetically). New steps default to the first
   // available — an AI operation when AI is on, otherwise the first non-AI kind.
-  const KIND_ORDER = ["operation", "entry", "media", "collect", "repeat", "fetch", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
+  const KIND_ORDER = ["operation", "entry", "media", "collect", "repeat", "fetch", "schema_check", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
   // A repeat's inner steps: a run can't park mid-loop, so no wait, approval or repeat inside (backend: NOT_INSIDE).
   const NOT_IN_REPEAT = new Set(["wait", "approval", "repeat"]);
   const orderedKinds = (): string[] => {
@@ -723,6 +723,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         return (row.querySelector(".a-f-links") as HTMLInputElement | null)?.value.trim()
           ? ["broken_count", "text", "checked"]
           : ["ok", "status", "title", "text", "found"];
+      case "schema_check":
+        return ["valid", "errors", "error_count", "text"];
       case "media": {
         const mediaOp = (row.querySelector(".a-media-op") as HTMLSelectElement | null)?.value;
         if (mediaOp === "inspect") return ["width", "height", "sharpness", "orientation"];
@@ -1114,6 +1116,20 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         <label class="tf"><span>— or check the links in <span class="muted">(a text, e.g. \${entry.data.body}; fill this or the address, not both)</span></span>
           <input class="input a-f-links" value="${esc(a.links ?? "")}" placeholder="\${entry.data.body}" /></label>
         <span class="hint small">Public addresses only. A missing page is output, not a failed step: later steps read <code>\${steps.&lt;step id&gt;.output.ok}</code>, <code>.status</code> and <code>.text</code> — or, for links, <code>.broken_count</code> and <code>.text</code> (the broken ones). A dry run doesn't fetch. Give this step an id.</span>`;
+    } else if (kind === "schema_check") {
+      const docText = typeof a.document === "string" ? a.document : a.document == null ? "" : JSON.stringify(a.document);
+      const schemaText = typeof a.schema === "string" ? a.schema : a.schema == null ? "" : JSON.stringify(a.schema, null, 2);
+      wrap.innerHTML = `
+        <label class="tf"><span>Check this document <span class="muted">(usually an earlier step's JSON — e.g. \${steps.page.output.json} — or any template)</span></span>
+          <input class="input a-sc-document" value="${esc(docText)}" placeholder="\${steps.page.output.json}" /></label>
+        <label class="tf"><span>Against this JSON Schema</span>
+          <textarea class="input mono a-sc-schema" rows="7" spellcheck="false" placeholder='{"type": "object", "required": ["name", "url"], "properties": {"name": {"type": "string"}}}'>${esc(schemaText)}</textarea></label>
+        <label class="tf"><span>— or take the schema from a resource <span class="muted">(its id or slug; the schema sits in its metadata under <code>schema</code>)</span></span>
+          <input class="input a-sc-resource" value="${esc(a.schema_resource ?? "")}" /></label>
+        <label class="tf"><span>Report at most <span class="muted">(problems; up to 50)</span></span>
+          <input class="input a-sc-max" type="number" min="1" max="50" value="${esc(a.max_errors ?? 20)}" /></label>
+        <label class="check"><input type="checkbox" class="a-sc-fail" ${a.fail_on_invalid ? "checked" : ""} /> Stop the run when the document doesn't fit</label>
+        <span class="hint small">A document that doesn't fit is output, not a failed step: later steps read <code>\${steps.&lt;step id&gt;.output.valid}</code>, <code>.errors</code> (path and message) and <code>.text</code>. A malformed schema is refused as you write it. Give this step an id.</span>`;
     } else if (kind === "wait") {
       const untilMode = Boolean(a.until);
       wrap.innerHTML = `
@@ -1341,6 +1357,20 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       setOrDrop("method", !links && field(".a-f-method")?.value === "HEAD" ? "HEAD" : null);
       const find = (field(".a-f-find")?.value ?? "").split(",").map((w) => w.trim()).filter(Boolean);
       setOrDrop("find", !links && find.length ? find : null);
+      return step;
+    }
+    if (kind === "schema_check") {
+      const target = field(".a-sc-document")?.value.trim() ?? "";
+      if (!target) throw new Error(`Step ${i + 1}: say what to check (e.g. \${steps.page.output.json}).`);
+      step.document = /^[{[]/.test(target) ? (() => { try { return JSON.parse(target); } catch { return target; } })() : target;
+      const schemaText = field(".a-sc-schema")?.value.trim() ?? "";
+      const resource = field(".a-sc-resource")?.value.trim() ?? "";
+      if (!schemaText && !resource) throw new Error(`Step ${i + 1}: give the JSON Schema, or the resource that holds it.`);
+      setOrDrop("schema_resource", schemaText ? null : resource);
+      setOrDrop("schema", !schemaText ? null : schemaText.startsWith("${") ? schemaText : parseJsonObject(schemaText, `Step ${i + 1} schema`));
+      const max = Number(field(".a-sc-max")?.value);
+      setOrDrop("max_errors", Number.isInteger(max) && max >= 1 && max !== 20 ? Math.min(max, 50) : null);
+      setOrDrop("fail_on_invalid", (field(".a-sc-fail") as HTMLInputElement | null)?.checked ? true : null);
       return step;
     }
     if (kind === "wait") {

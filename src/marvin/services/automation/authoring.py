@@ -408,6 +408,7 @@ def _actions() -> dict:
         "media": "section=media has the media step in full: each op's rules and the render templates.",
         "collect": COLLECT_NOTE,
         "fetch": FETCH_NOTE,
+        "schema_check": SCHEMA_CHECK_NOTE,
     }
 
 
@@ -435,6 +436,15 @@ FETCH_NOTE = (
     "it unpublishes a live entry). Broken = "
     "no answer, 404, 410 or 5xx (401/403/429 are a server refusing robots). url: a resource's page "
     '(${resource.url}) → `when` on output.ok; find: "sold out" (any case) → output.found lists what is there. Public addresses only.'
+)
+SCHEMA_CHECK_NOTE = (
+    "schema_check holds a JSON document against a JSON Schema: document: ${steps.page.output.json} (a fetch step's parsed "
+    "body; a string holding JSON is read as JSON text) and schema: {…} inline, or schema_resource: <resource id or slug> "
+    "whose metadata.schema holds it. Output valid, errors [{path, message}] (max_errors, default 20, at most 50), "
+    "error_count, truncated, text. A document that doesn't fit is output — a `when` on valid (eq false) sends it to "
+    "review with ${steps.<id>.output.text} — and fails the run only with fail_on_invalid: true. A malformed inline schema "
+    "is refused when the workflow is saved. Formats aren't asserted; $ref reaches only into the schema; documents over "
+    "100 KB are reported, not checked."
 )
 MEDIA_NOTE = (
     "A media step works on one image (jpeg, png, webp): source is an asset id or slug (default ${asset.id}), "
@@ -952,8 +962,7 @@ def _entry_step_issues(step: dict, refs: WorkspaceRefs, bad) -> None:
     if op == "attach_asset" and not step.get("asset"):
         bad(
             "asset",
-            "attach_asset needs `asset`: the asset's id or slug — a template to a step's picture works "
-            "(${steps.<id>.output.images.0.asset.id}).",
+            "attach_asset needs `asset`: the asset's id or slug — a template to a step's picture works (${steps.<id>.output.images.0.asset.id}).",
         )
     if op == "set_metadata" and not step.get("metadata"):
         bad("metadata", "set_metadata needs `metadata`: the keys to merge into the entry's metadata.")

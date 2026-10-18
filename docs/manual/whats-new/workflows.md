@@ -111,6 +111,7 @@ An asset or resource query takes only these keys: no `where`, `sort`, `status`, 
 | `wait` (Wait) | `for` (a span) or `until` (a date) with `offset` and `at` | Keeps the run and goes on later — see [Wait](#wait). |
 | `repeat` (Repeat for each) | `for_each` (a list), `as` (the item's name), `steps` (1–5), `limit`, `on_item_error` | Runs its steps once for each item — see [Repeat for each](#repeat-for-each). |
 | `fetch` (Check a web address) | `url` (+ `method` `GET`/`HEAD`, `find`) or `links` (a text, + `base`) | Reads a public web address, or checks the links in a text. A dead link is output, not a failure — see [Check a web address](#check-a-web-address). |
+| `schema_check` (Check against a schema) | `document`, `schema` or `schema_resource`; `fail_on_invalid`, `max_errors` | Holds a JSON document up against a JSON Schema and reports what doesn't fit. An invalid document is output, not a failure, unless `fail_on_invalid` — see [Check against a schema](#check-against-a-schema). |
 | `media` (Process an image) | `op` (`resize`, `crop`, `convert`, `grade`, `inspect`, `palette`), `source`, the op's own fields, `attach_as` | Makes a new image from an image, or reads one — no AI or provider needed. See [Process an image](#process-an-image). |
 | `operation` (AI operation) | `op` (AI operation slug), `input`, `entity_type`, `entity_id`/`entity_slug`, `write_back` | Offered only when AI is enabled and the **Workflows** invocation source is on. **Write the result back to the entry** (`write_back: true`) follows the workspace approval mode: the result is applied or staged as a suggestion, and the output's `_write_back` says which (`applied` or `staged`). On an asset or resource the step sees the item (an image asset's picture, for an operation that looks at images) and `write_back` is a map of output keys to the item's fields, for example `{"alt_text": "alt_text"}`: an asset takes `alt_text`, `description`, `name`, `tags` or `metadata.<key>`, a resource `description`, `name`, `tags` or `metadata.<key>`. It follows the same approval mode, and needs a workflow author who is an EDITOR or above (else `_write_back` is `not_permitted`). The workspace's AI limits apply: over the daily request or monthly cost limit the step fails, and the per-request token cap bounds the call (see [Agents and Ask → Usage and limits](agents-and-ask.md#usage-and-limits)). |
 | `handler` (Run task) | `task`, `config` | Allowlist: `request_site_rebuild`, `publish_scheduled_entries`, `unpublish_expired_entries`, `ai_reindex_embeddings`, `resync_smart_collections`, `media_enrich`. `request_site_rebuild` queues a coalesced rebuild (see [Operations → Site rebuilds](../operations.md#site-rebuilds)). |
@@ -257,6 +258,40 @@ public addresses only (a private or local one is refused, also after a redirect)
  "args": {"title": "Broken links in ${entry.title}", "body": "${steps.links.output.text}"},
  "when": {"field": "steps.links.output.broken_count", "op": "gt", "value": 0}}
 ```
+
+### Check against a schema
+
+A **Check against a schema** step (`schema_check`) holds a JSON document up against a [JSON Schema](https://json-schema.org)
+and reports what doesn't fit — an agent's capability document, an API's answer, a story an AI wrote.
+
+- **`document`** — what to check: usually a Check a web address step's parsed answer (`${steps.page.output.json}`), or
+  any template (an entry's field, a run input). Text holding a JSON object or array is read as JSON; any other text is
+  checked as the text itself. Documents over 100 KB are reported, not checked.
+- **`schema`** — the schema, written inline (Draft 2020-12 unless it says otherwise; `format` isn't asserted, so use a
+  `pattern`; a `$ref` can point only inside the schema, nothing is fetched) — or **`schema_resource`**: a resource (id or
+  slug) whose metadata holds the schema under `schema` (an object or its JSON text), so several workflows share one. A
+  malformed inline schema is refused when you write the workflow, in the editor and in the validator; a schema that
+  arrives by template or resource and can't be used fails the step.
+- Output: `valid`, `errors` (`[{path, message}]`, in path order; `$.agents[0].name` names the place), `error_count`,
+  `truncated` and `text` (one line per problem, for a note or an AI prompt). `max_errors` (default 20, at most 50) bounds
+  how many are listed; a long message is cut at 300 characters.
+- A document that doesn't fit — or that never arrived — is output, never a failed step, so a `when` on `valid` decides
+  what happens. Set **Stop the run when the document doesn't fit** (`fail_on_invalid`) to fail the run instead.
+- A dry run checks a document it has; when an earlier step didn't really run (a fetch, an AI answer) there is nothing to
+  judge and `valid` is empty.
+
+```json
+{"kind": "fetch", "id": "page", "url": "${entry.data.capabilities_url}"},
+{"kind": "schema_check", "id": "check", "document": "${steps.page.output.json}",
+ "schema": {"type": "object", "required": ["name", "url"], "properties": {"name": {"type": "string"}}}},
+{"kind": "entry", "op": "request_review", "reason": "Doesn't fit the schema:\n${steps.check.output.text}",
+ "when": {"field": "steps.check.output.valid", "op": "eq", "value": false}}
+```
+
+It checks the shape of a document, not what the document says: it can't run an agent or follow links between passages.
+Two Library recipes use it: **Agent directory intake** (a submitted capability document is fetched and checked) and
+**Choose your own adventure** (an AI writes a branching story as nested passages; the schema holds every branch to a
+choice or an ending before it is drafted).
 
 ### Process an image
 
@@ -611,6 +646,8 @@ A workflow is `enabled: false` when created. A disabled workflow does not run fr
 ## Since
 
 Custom events (`custom.<name>`: registered fields, Emit event `payload`, trigger and subscriptions, Achievement cabinet recipe): 2026-10-18.
+
+Check against a schema (`schema_check`; Agent directory intake and Choose your own adventure recipes): 2026-10-18.
 
 `form_submission_received` as a trigger: v1.0.0-rc.51 (`8f1443d1`). `auth_scheme`: rc.50 (`a65ba7d0`). `entry.summary` and `entry.data.*`: rc.52 (`433e949e`). Response `body`, `set_metadata` and metadata targeting: rc.59 (`1380e92e`). `entity_query`: rc.60 (`65ffb648`). Raw-URL `method` and templated stored URLs: rc.61 (`b88e4035`). Builder fixes: rc.63 (`57956e71`). `set_data`, the integration step, `entry.metadata` and list indexes in paths: rc.111. `entry.image`: rc.119. Full entry context per query row and **Fields equal**: rc.129. Typed values for checkbox and number fields: rc.131. The shared entry query (`where`, `sort`, date filters): rc.138. Unknown `where` ops match nothing, and `run_workflow` runs appear under **Runs**: rc.139. Site build and deploy events from `emit_event`: rc.144. `{{SLUG}}` in integration step args: rc.145. AI limits on operation steps: rc.146. Site events as notification subscriptions: rc.151; as workflow triggers: rc.152. `automation_started` and the shared `execution_id`: rc.165. Dry run against a sample event, with the condition checklist and `GET …/samples`: rc.173. A refused publish fails the entry step with the reason: rc.175. `${site.url}`: rc.177. Each event's subject, a run's trigger (`trigger_entity_*`) and step summaries in `automation_ran` / `automation_failed`, `$event.entity_type` / `$event.entity_id`: rc.178. `if_none: skip` and `${entry.url}`: rc.179. `on_failure`, `request_review` and an integration error's `${error.code}`: rc.193. Integration error policies (`integration_errors`, `handled` / `handling` / `retry_attempt` on run events), a workflow never re-triggering itself, and option pickers in the **Run integration** step: rc.197. A step's `when` (if/else), an operation step's `write_back` field map, custom AI steps (`op: "custom"`), **Create an entry** (`create`) and **Wait for approval** (`approval`, migration `5c2e8a91d4f7`): unreleased (2026-10-11). **Process an image** (`media`), generated images kept as assets, `attach_as`, `asset.derived_from`, the `role` on `asset_attached_to_entry`, and `gt` / `gte` / `lt` / `lte`: unreleased (2026-10-12). **Render a template** (`render`): unreleased (2026-10-12). **Gather items** (`collect`), relative query dates, lists of pictures in a render, and local times across the admin: unreleased (2026-10-12). Linked items in queries (`entries`, `asset`, `resource`, `entry`, `role`, `exclude`, `checksum`, sort `position`), `only_invalid`, `asset.checksum` and **Check a web address** (`fetch`): unreleased (2026-10-12). Step ids and the result key in the editor, dry-run stand-ins for AI answers, and unchanged Set metadata / Set fields saving nothing: unreleased (2026-10-12). Run inputs (`trigger.inputs`, `${input.*}`) and cron in the editor's schedule: unreleased (2026-10-12). `extract_text`, `pages`, `find_sensitive`, `redact` (pypdfium2), `zip` and printed renders (`format: pdf`, the guide template): unreleased (2026-10-12). An integration step's `source` (image edits): unreleased (2026-10-12). `watermark`: unreleased (2026-10-12). **Wait** (`wait`, migration `b7e2c4f9a1d3`): unreleased (2026-10-13). Entry dates in `${entry.*}` and the recipe date picker: unreleased (2026-10-13). `${path|url}`, `attach_to`, comma-separated `entries`, and the One-tap share links, On this day, Audience milestone and Collaborator shout-out recipes (with the entry page's **Share** box): unreleased (2026-10-13). **Repeat for each** (`repeat`, `${each.*}`) with its guided form, an Entry action's **By id** target, and **Edit** opening as JSON when the guided builder can't show a workflow in full: unreleased (2026-10-13). Approvals with `choices` (migration `c9d4e7a2b1f8`), `longer_than` / `shorter_than`, **Cancel** on a waiting run, and the Thumbnail audition, Platform preview checker, Time capsule and Intake triage recipes: unreleased (2026-10-13).
 

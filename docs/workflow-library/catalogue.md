@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-115 recipes: **96** verified-current, **11** supported-after-configuration, **3** needs-adapter, **5** needs-engine-capability.
+115 recipes: **98** verified-current, **11** supported-after-configuration, **3** needs-adapter, **3** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -71,6 +71,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [trading-card-collection](../../src/marvin/services/automation/recipes/trading-card-collection.json) — Trading card collection | verified-current | `entry_updated` | — | content mutation, paid call |
 | [achievement-cabinet](../../src/marvin/services/automation/recipes/achievement-cabinet.json) — Achievement cabinet | verified-current | `custom.milestone` | custom event | content mutation |
 | [meme-workshop](../../src/marvin/services/automation/recipes/meme-workshop.json) — Meme workshop | verified-current | `manual` | — | content mutation, paid call |
+| [choose-your-own-adventure](../../src/marvin/services/automation/recipes/choose-your-own-adventure.json) — Choose your own adventure | verified-current | `manual` | — | content mutation, paid call |
 | [future-newspaper](../../src/marvin/services/automation/recipes/future-newspaper.json) — Future newspaper | verified-current | `manual` | — | content mutation, paid call |
 | [workshop-field-guide](../../src/marvin/services/automation/recipes/workshop-field-guide.json) — Workshop field guide | verified-current | `manual` | — | content mutation, paid call |
 | [color-moodboard](../../src/marvin/services/automation/recipes/color-moodboard.json) — Color moodboard | verified-current | `manual` | — | content mutation, paid call |
@@ -80,6 +81,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [surprise-remix-button](../../src/marvin/services/automation/recipes/surprise-remix-button.json) — Surprise remix button | verified-current | `manual` | — | content mutation, paid call |
 | [fictional-debate-club](../../src/marvin/services/automation/recipes/fictional-debate-club.json) — Fictional debate club | verified-current | `manual` | — | content mutation, paid call |
 | [client-handoff](../../src/marvin/services/automation/recipes/client-handoff.json) — Client handoff | verified-current | `entry_updated` | outgoing webhook | content mutation, external post |
+| [agent-directory-intake](../../src/marvin/services/automation/recipes/agent-directory-intake.json) — Agent directory intake | verified-current | `form_submission_received` | an integration that can notify (Slack or Apprise); entry type | content mutation, external post, external read |
 | [resource-availability-watch](../../src/marvin/services/automation/recipes/resource-availability-watch.json) — Resource availability watch | verified-current | `schedule` | an integration that can notify (Slack or Apprise) | external post, external read |
 | [project-milestone-report](../../src/marvin/services/automation/recipes/project-milestone-report.json) — Project milestone report | verified-current | `entry_updated` | — | content mutation, paid call |
 | [knowledge-gap-finder](../../src/marvin/services/automation/recipes/knowledge-gap-finder.json) — Knowledge gap finder | verified-current | `manual` | — | content mutation, paid call |
@@ -128,8 +130,6 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `reply-drafting-desk` — Reply drafting desk | needs-engine-capability | `comment_added` | comments |
 | `campaign-scoreboard` — Campaign scoreboard | needs-adapter | `schedule` | social-adapters, metrics |
 | `social-experiment-log` — Social experiment log | needs-engine-capability | `manual` | metrics |
-| `choose-your-own-adventure` — Choose your own adventure | needs-engine-capability | `manual` | sandbox |
-| `agent-directory-intake` — Agent directory intake | needs-engine-capability | `form_submission_received` | sandbox |
 
 ## By category
 
@@ -387,9 +387,12 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - [meme-workshop](../../src/marvin/services/automation/recipes/meme-workshop.json) — **Meme workshop** · verified-current · `manual`  
   Run by hand: for each published entry with a picture, the AI proposes a kind two-line caption; once an editor approves it, the meme is rendered and attached.
   - One approval per entry — run it on a small set.
-- `choose-your-own-adventure` — **Choose your own adventure** · needs-engine-capability · `manual`  
-  Story entry → generate branching draft and check reachable endings
-  - Blocked by: `sandbox` (graph reachability check)
+- [choose-your-own-adventure](../../src/marvin/services/automation/recipes/choose-your-own-adventure.json) — **Choose your own adventure** · verified-current · `manual`  
+  Run it on a premise entry: an AI writes a branching adventure as a tree of passages, a schema check confirms every branch offers choices or ends, and only then is it drafted (as JSON in the entry's text field); a story with a branch that goes nowhere stops the run and names the branch.
+  - Reachability: the story is a tree (each passage is an ending or offers 2–3 choices that lead on), so every passage is reachable from the start by construction and the schema check holds every branch to an ending. A story whose choices loop back to an earlier passage (a graph) can't be written this way, and checking one would need a graph step the engine doesn't have.
+  - The draft holds the story as JSON text (passages nested under choices) in the entry type's text field, for a person or a front end to turn into pages.
+  - Run inputs: the Run button asks for the premise entry; the agent's run_workflow passes it as `inputs`.
+  - Each run drafts a new adventure.
 - [future-newspaper](../../src/marvin/services/automation/recipes/future-newspaper.json) — **Future newspaper** · verified-current · `manual`  
   Run by hand: each published project gets an imagined front page from ten years on — headline, deck and story written from the entry, under a banner that says it isn't real news.
   - The newspaper template always prints a banner saying the page is imagined.
@@ -425,10 +428,12 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - `ready_status` must be one of Marvin's statuses (needs_review, approved, published); `changed_to` fires once on the transition.
   - The whole `entry.data` object is sent — review what the type's fields contain before enabling.
   - Blocked by: `idempotency` (to never hand off the same version twice)
-- `agent-directory-intake` — **Agent directory intake** · needs-engine-capability · `form_submission_received`  
-  Agent submission → validate capability document → sandbox checks → review
-  - Possible today (partial): form-intake-desk covers the intake half (record, review, notify).
-  - Blocked by: `sandbox` (schema validation)
+- [agent-directory-intake](../../src/marvin/services/automation/recipes/agent-directory-intake.json) — **Agent directory intake** · verified-current · `form_submission_received`  
+  A form submission naming an agent's capability document: the page is fetched, its JSON is checked against your schema, the problems (or a clean bill) are recorded on the submission, it goes to review and a notification says which.
+  - Possible today (partial): form-intake-desk covers the intake half (record, review, notify) when no document needs checking.
+  - The “sandbox checks” of the idea (running the agent) are not part of this: the check is the document's shape — required fields, types, patterns — never a call to the agent itself.
+  - The schema is a setup variable (a JSON Schema object, Draft 2020-12). To keep it in one place for several workflows, put it in a resource's metadata under `schema` and use schema_resource in the step instead.
+  - Formats (email, uri…) are not asserted; use a `pattern`. A page's JSON is read up to 20 000 characters; a larger document is reported as not read.
 - [resource-availability-watch](../../src/marvin/services/automation/recipes/resource-availability-watch.json) — **Resource availability watch** · verified-current · `schedule`  
   Every morning, each resource of a type with a URL has its page checked; one that doesn't answer or says it's sold out sends a notification.
   - `find` looks for the phrase on the page ignoring case (Sold Out, SOLD OUT).
@@ -582,7 +587,6 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `idempotency` | Per-step idempotency keys | P0 | 2 | A webhook/integration step with `idempotency_key` (templated) that already succeeded for that key within the window is skipped and its recorded output reused; two concurrent duplicate events deliver once. |
 | `metrics` | Metrics windows and experiments | P2 | 2 | A step records a metric observation against a variant id and window; a report lists observations without causal claims. |
 | `ops-triggers` | Operational events as workflow triggers | P2 | 2 | ai_budget_*, integration_attention_*, webhook_delivery_failed and scheduled_task_failed become triggerable with origin filtering (a workflow never reacts to a failure its own run caused) and an independent fallback channel. |
-| `sandbox` | Schema validation / sandbox handler | P2 | 2 | A step validates a fetched JSON document against a JSON schema and reports violations as output. |
 | `social-adapters` | Social publishing adapters | P1 | 2 | Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry). |
 | `collection-scope` | Collection-scoped steps | P1 | 1 | A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup). Partly delivered 2026-10-12: a `collect` step reads a collection's entries in its own order (`collection` + sort `position`) for one step to use; with an AI or `repeat` step over its rows, that is the roundup (2026-10-12/13); left only: `${collection.entries}` bound directly on collection events (a `collect` step reads the same set today). |
 | `comments` | Comment events | P2 | 1 | comment_added/updated/deleted have an emitter that carries entry_id and the comment text, are triggerable, and hydrate `entry.*`. |
@@ -598,6 +602,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `iterate-aggregate` | Iterate / aggregate over a target set | P1 | 0 | Delivered 2026-10-12: a `collect` step ("Gather items") runs an entry/asset/resource query (a target's keys) and returns rows (each as ${entry.*}/${asset.*}/${resource.*}), count, total and text (a plain list for an AI prompt), up to the target cap; a render step's list images take the rows whole (grid, moodboard). Linked items (2026-10-12): `entries` (the entry a field names), `asset` / `resource` (the entries using one), an asset/resource query's `entry` (what an entry holds, in its order) and `role`, and sort by `position` (a collection's own order). Delivered 2026-10-13 (0e7c993b): a `repeat` step runs 1–5 inner steps (an AI step included) once per item of a list or a collect step's rows, keyed per item so a re-delivered event repeats nothing; at most 25 items, no wait/approval/repeat inside. Nothing left. |
 | `manual-params` | Manual / MCP run parameters | P1 | 0 | Delivered 2026-10-12: a manual trigger's `inputs` (name, label, type text | number | choice | entry, options, required, default) — asked by the Run button's form, passed in the run API's body or run_workflow's `inputs`, checked against the declarations, read as ${input.<name>}; an entry input is the entry the run acts on. |
 | `relative-dates` | Relative dates and cron schedules | P1 | 0 | Delivered 2026-10-12: every date key of a query (created/updated/published_after|before) takes a relative date (-7d, -12h, -2w, +3d, now, today), read when the run starts; an unreadable date fails the query instead of widening it. Cron schedules compute next_run_at in their time zone and fire (services/cron.py). |
+| `sandbox` | Schema validation / sandbox handler | P2 | 0 | Delivered 2026-10-18: a `schema_check` step ("Check against a schema") — `document` (usually a fetch step's `${steps.<id>.output.json}`, or any template; text holding a JSON object or array is read as JSON) against `schema` (inline, or a template giving one) or `schema_resource` (a resource whose metadata.schema holds it), Draft 2020-12 → valid, errors [{path, message}] (max_errors, default 20, at most 50), error_count, truncated, text. A document that doesn't fit is output, never a failed step, unless `fail_on_invalid`; a malformed inline schema is refused when the workflow is saved; documents over 100 KB are reported, not checked; a dry run checks when it has a document. Left: running anything (a sandbox proper) and graph checks beyond a schema (reachability over cycles). |
 | `snapshots` | Entity snapshots and restore | P2 | 0 | A step captures an entry version; a later step (or person) restores it; external publications are listed as not restorable. |
 | `waits` | Durable waits and delays | P1 | 0 | Delivered 2026-10-13: a `wait` step — `for` (30m, 12h, 3d, 2w) or `until` a date/datetime with `offset` and `at`, in the workspace's time zone, calendar arithmetic across clock changes — parks the run (workflow_waits, the run's snapshot incl. its inputs); a minutely sweep resumes it with the entry as it is then; the entry in the Trash or the workflow switched off/changed cancels it; a moment already past goes on at once (late); a year at most. |
 | `workflow-approvals` | Approval step inside a workflow | P1 | 0 | Delivered 2026-10-11: an `approval` step parks the run (snapshot in workflow_approvals), asks members at its role (push, Automation → Approvals, app badge), resumes from the next step with ${steps.<id>.output.decision} (approved | denied | expired | stale — the entry changed after it was asked), expires hourly, and lets integration actions marked requires_approval run in an approved run. Also delivered: one-tap Approve/Deny on the push when every later step can be undone in Marvin (2026-10-11, befe2ef0); `choices` (the approver picks one: `choice`, `choice_index`), length conditions, cancelling a waiting run (2026-10-13, f12b80c1); `image` shown with the question, and a picture's decision stamped on its asset (2026-10-13, 68d8392a / 6c99c7f4); the wait limit is a workspace setting (2026-10-14, 70ac6143). |

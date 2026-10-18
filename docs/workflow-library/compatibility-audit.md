@@ -11,7 +11,7 @@ remain are in [`roadmap.md`](roadmap.md).
 | Feature | Status | Where |
 |---|---|---|
 | Discriminated definition model (triggers on `type`, actions on `kind`, recursive conditions, target) | exists | `schemas/group/automation_definition.py` |
-| Kind tags: operation, entry, emit_event, handler, webhook, integration, approval, media, collect, fetch, wait, repeat *(2026-10-17)* | exists | `automation_definition.py:194-201`; `ai` / `http` do not exist |
+| Kind tags: operation, entry, emit_event, handler, webhook, integration, approval, media, collect, fetch, schema_check, wait, repeat *(2026-10-18)* | exists | `automation_definition.py:194-201`; `ai` / `http` do not exist |
 | Structural gate on save (422 with paths) | exists | `services/automation/validation.py:276` `structural_issues`; `workflows.py:44` |
 | Unknown-key and workspace-reference checks (agent drafts) | exists | `validation.py:304` `unknown_key_issues`; `authoring.py` `reference_issues` / `draft_issues` |
 | Advisory coherence warnings (`entry.*` under a trigger without an entry…) | exists | `validation.py:100` `validate_definition`, `POST /api/automations/validate` |

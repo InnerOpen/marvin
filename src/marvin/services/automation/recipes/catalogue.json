@@ -15,9 +15,9 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 96,
+    "verified-current": 98,
     "needs-adapter": 3,
-    "needs-engine-capability": 5,
+    "needs-engine-capability": 3,
     "supported-after-configuration": 11
   },
   "capabilities": {
@@ -139,7 +139,7 @@
       "name": "Schema validation / sandbox handler",
       "priority": "P2",
       "capabilities_md": "—",
-      "acceptance": "A step validates a fetched JSON document against a JSON schema and reports violations as output."
+      "acceptance": "Delivered 2026-10-18: a `schema_check` step (\"Check against a schema\") — `document` (usually a fetch step's `${steps.<id>.output.json}`, or any template; text holding a JSON object or array is read as JSON) against `schema` (inline, or a template giving one) or `schema_resource` (a resource whose metadata.schema holds it), Draft 2020-12 → valid, errors [{path, message}] (max_errors, default 20, at most 50), error_count, truncated, text. A document that doesn't fit is output, never a failed step, unless `fail_on_invalid`; a malformed inline schema is refused when the workflow is saved; documents over 100 KB are reported, not checked; a dry run checks when it has a document. Left: running anything (a sandbox proper) and graph checks beyond a schema (reachability over cycles)."
     },
     "form-classification": {
       "name": "Form-submission classification from workflows",
@@ -6793,7 +6793,7 @@
     {
       "id": "choose-your-own-adventure",
       "title": "Choose your own adventure",
-      "outcome": "Story entry → generate branching draft and check reachable endings",
+      "outcome": "Run it on a premise entry: an AI writes a branching adventure as a tree of passages, a schema check confirms every branch offers choices or ends, and only then is it drafted (as JSON in the entry's text field); a story with a branch that goes nowhere stops the run and names the branch.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
@@ -6807,32 +6807,69 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "choose-your-own-adventure.json",
+      "vars": "choose-your-own-adventure.vars.json",
+      "setup_variables": [
         {
-          "capability": "sandbox",
-          "name": "Schema validation / sandbox handler",
-          "priority": "P2",
-          "acceptance": "A step validates a fetched JSON document against a JSON schema and reports violations as output.",
-          "why": "graph reachability check"
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the adventure is drafted as.",
+          "example": "article"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field; the story is saved in it as JSON.",
+          "example": "body"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "operation",
+          "schema_check",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": []
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per run (two if the answer misses its fields)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry (once per run), marked metadata.adventure_of, only when the story checks out."
+        }
+      ],
+      "cost_notes": "One AI call per run, from the workspace's monthly AI budget.",
+      "failure_behaviour": "A story that doesn't hold together fails the run at the check (the message names the first broken branch, e.g. $.choices[1].next) and nothing is drafted; run it again for another try.",
+      "dependencies": [],
+      "notes": [
+        "Reachability: the story is a tree (each passage is an ending or offers 2–3 choices that lead on), so every passage is reachable from the start by construction and the schema check holds every branch to an ending. A story whose choices loop back to an earlier passage (a graph) can't be written this way, and checking one would need a graph step the engine doesn't have.",
+        "The draft holds the story as JSON text (passages nested under choices) in the entry type's text field, for a person or a front end to turn into pages.",
+        "Run inputs: the Run button asks for the premise entry; the agent's run_workflow passes it as `inputs`.",
+        "Each run drafts a new adventure."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_choose_your_own_adventure"
       },
       "brief": {
         "flow": "Story entry → generate branching draft and check reachable endings",
@@ -7784,7 +7821,7 @@
     {
       "id": "agent-directory-intake",
       "title": "Agent directory intake",
-      "outcome": "Agent submission → validate capability document → sandbox checks → review",
+      "outcome": "A form submission naming an agent's capability document: the page is fetched, its JSON is checked against your schema, the problems (or a clean bill) are recorded on the submission, it goes to review and a notification says which.",
       "category": "Operations and knowledge",
       "category_slug": "operations",
       "tags": [
@@ -7799,34 +7836,139 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "agent-directory-intake.json",
+      "vars": "agent-directory-intake.vars.json",
+      "setup_variables": [
         {
-          "capability": "sandbox",
-          "name": "Schema validation / sandbox handler",
-          "priority": "P2",
-          "acceptance": "A step validates a fetched JSON document against a JSON schema and reports violations as output.",
-          "why": "schema validation"
+          "name": "form_entry_type",
+          "type": "entry_type_slug",
+          "description": "The submittable entry type the agent form saves submissions as.",
+          "example": "agent-submission"
+        },
+        {
+          "name": "document_url_field",
+          "type": "field_key",
+          "description": "Its field holding the address of the agent's capability document (JSON).",
+          "example": "capabilities_url"
+        },
+        {
+          "name": "capability_schema",
+          "type": "object",
+          "description": "The JSON Schema a capability document must fit — what your directory requires of an agent (an object with `required` and `properties`).",
+          "example": {
+            "type": "object",
+            "required": [
+              "name",
+              "url",
+              "capabilities"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "url": {
+                "type": "string",
+                "pattern": "^https://"
+              },
+              "capabilities": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "notify_integration",
+          "type": "integration_slug",
+          "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
+          "example": "alerts"
         }
       ],
+      "requires": {
+        "trigger": "event",
+        "action_kinds": [
+          "fetch",
+          "schema_check",
+          "entry",
+          "integration"
+        ],
+        "entry_ops": [
+          "set_metadata",
+          "request_review"
+        ],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {
+        "integrations": [
+          {
+            "capability": "notify",
+            "examples": "Slack or Apprise"
+          }
+        ],
+        "entry_types": [
+          "A submittable entry type (a form) with a field for the capability document's address"
+        ]
+      },
+      "supporting_objects": [
+        {
+          "kind": "entry_type",
+          "required": true,
+          "name": "The agent form's entry type",
+          "purpose": "Where submissions land, with a field holding the address of the capability document.",
+          "referenced_by": "conditions[0] and actions[0].url",
+          "create": "Settings → Entry types (submittable, with a form)"
+        },
+        {
+          "kind": "integration_connection",
+          "required": true,
+          "name": "Slack or Apprise",
+          "purpose": "Where the result goes.",
+          "referenced_by": "actions[5].integration",
+          "create": "Settings → Integrations"
+        }
+      ],
+      "side_effects": [
+        {
+          "kind": "external_read",
+          "description": "One GET of the submitted address (a public address only, 2 MB, 10 s)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Sets metadata.capability_check (valid, the problems with their paths, the page's status) and sends the submission to review."
+        },
+        {
+          "kind": "external_post",
+          "description": "Sends one notification per submission."
+        }
+      ],
+      "cost_notes": "Free: no AI. One web request per submission.",
+      "failure_behaviour": "A page that doesn't answer, isn't JSON or is over 20 000 characters is a document that doesn't fit (the problem is recorded and the submission still goes to review), never a failed run; a malformed schema is refused when the workflow is saved; a notifier error fails the run after the review is recorded.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): form-intake-desk covers the intake half (record, review, notify)."
+        "Possible today (partial): form-intake-desk covers the intake half (record, review, notify) when no document needs checking.",
+        "The “sandbox checks” of the idea (running the agent) are not part of this: the check is the document's shape — required fields, types, patterns — never a call to the agent itself.",
+        "The schema is a setup variable (a JSON Schema object, Draft 2020-12). To keep it in one place for several workflows, put it in a resource's metadata under `schema` and use schema_resource in the step instead.",
+        "Formats (email, uri…) are not asserted; use a `pattern`. A page's JSON is read up to 20 000 characters; a larger document is reported as not read."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "http:guarded-client",
+          "integration:notify"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_agent_directory_intake"
       },
       "brief": {
         "flow": "Agent submission → validate capability document → sandbox checks → review",

@@ -1,0 +1,126 @@
+{
+  "name": "Choose your own adventure",
+  "definition": {
+    "trigger": {
+      "type": "manual",
+      "inputs": [
+        {
+          "name": "premise",
+          "label": "Which entry is the premise",
+          "type": "entry"
+        }
+      ]
+    },
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "story",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "Write a short choose-your-own-adventure from the premise “${entry.title}”. Answer with a title and `story_json`: the story as JSON text — a passage is {\"text\": \"what happens\", ...} and has EITHER \"ending\": \"a few words naming how it ends\" OR \"choices\": 2 or 3 of {\"label\": \"what the reader does\", \"next\": <the passage it leads to>}, nested to at most 3 levels of choices. Every branch must finish at an ending.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "story_json": {
+              "type": "string",
+              "minLength": 20
+            }
+          },
+          "required": [
+            "title",
+            "story_json"
+          ]
+        }
+      },
+      {
+        "kind": "schema_check",
+        "id": "check",
+        "document": "${steps.story.output.story_json}",
+        "fail_on_invalid": true,
+        "schema": {
+          "$defs": {
+            "passage": {
+              "type": "object",
+              "required": [
+                "text"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "minLength": 10
+                },
+                "ending": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "choices": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 3,
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "label",
+                      "next"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "next": {
+                        "$ref": "#/$defs/passage"
+                      }
+                    }
+                  }
+                }
+              },
+              "if": {
+                "required": [
+                  "ending"
+                ]
+              },
+              "then": {
+                "not": {
+                  "required": [
+                    "choices"
+                  ]
+                }
+              },
+              "else": {
+                "required": [
+                  "choices"
+                ]
+              }
+            }
+          },
+          "$ref": "#/$defs/passage"
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{draft_entry_type}}",
+        "title": "${steps.story.output.title}",
+        "data": {
+          "{{draft_body_field}}": "${steps.story.output.story_json}"
+        },
+        "metadata": {
+          "adventure_of": "${entry.slug}",
+          "story_check": {
+            "valid": "${steps.check.output.valid}"
+          }
+        },
+        "status": "draft"
+      }
+    ]
+  }
+}

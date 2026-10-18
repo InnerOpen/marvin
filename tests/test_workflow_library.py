@@ -435,6 +435,16 @@ def ws(db_session, monkeypatch):
         "product_type": "article",
         "open_after": "26w",
         "queues": "commissions, orders, press, other",
+        "document_url_field": "message",
+        "capability_schema": {
+            "type": "object",
+            "required": ["name", "url", "capabilities"],
+            "properties": {
+                "name": {"type": "string", "minLength": 1},
+                "url": {"type": "string", "pattern": "^https://"},
+                "capabilities": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+            },
+        },
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -2547,6 +2557,94 @@ class TestExecution:
         ws.session.query(Resources).filter(Resources.group_id == ws.gid).delete(synchronize_session=False)
         ws.session.commit()
 
+    # ── checking a document against a schema (a schema_check step) ──
+    def test_agent_directory_intake(self, ws, monkeypatch):
+        _install(ws, "agent-directory-intake")
+        good_url, bad_url = "https://agents.example/scribe.json", "https://agents.example/broken.json"
+        _web(
+            monkeypatch,
+            {
+                good_url: (200, "application/json", json.dumps({"name": "Scribe", "url": "https://scribe.example", "capabilities": ["summarise"]})),
+                bad_url: (200, "application/json", json.dumps({"name": "Broken", "url": "http://insecure.example"})),
+            },
+        )
+        good = _entry(ws, "contact-request", "Scribe", status="inbox", data={"message": good_url})
+        bad = _entry(ws, "contact-request", "Broken", status="inbox", data={"message": bad_url})
+        gone = _entry(ws, "contact-request", "Gone", status="inbox", data={"message": "https://nowhere.example/agent.json"})
+        for n, request in enumerate((good, bad, gone)):
+            doc = _entry_doc(request, form_name="Agents", flagged=False, duplicate=False, submission_data=request.data_json)
+            _fire(ws, "form_submission_received", doc, entity=request.id, entity_type="entry", correlation_id=f"corr-agent-{n}")
+
+        fits, misses, unread = (_reload(ws, e) for e in (good, bad, gone))
+        assert (fits.status, misses.status, unread.status) == ("needs_review",) * 3
+        assert fits.metadata_json["capability_check"]["valid"] is True
+        assert fits.metadata_json["review_reasons"] == ["Capability document fits the schema — ready for a look"]
+        check = misses.metadata_json["capability_check"]
+        assert check["valid"] is False and check["fetched_status"] == 200 and check["error_count"] == 2
+        assert {e["path"] for e in check["errors"]} == {"$", "$.url"}  # a missing field, an address that isn't https
+        assert misses.metadata_json["review_reasons"][0].startswith("Capability document doesn't fit the schema (2 problems):\n- $")
+        assert unread.metadata_json["capability_check"]["valid"] is False and unread.metadata_json["capability_check"]["fetched_status"] == 0
+        sent = {c["title"]: c["body"] for c in ws.providers["apprise"].calls}
+        assert sorted(sent) == ["Agent submission: Broken", "Agent submission: Gone", "Agent submission: Scribe"]
+        assert "fits the schema: True" in sent["Agent submission: Scribe"] and "fits the schema: False" in sent["Agent submission: Broken"]
+
+        # A second delivery of the same submission (a retried event) reads the same answer and leaves the review as it was.
+        doc = _entry_doc(good, form_name="Agents", flagged=False, duplicate=False, submission_data=good.data_json)
+        _fire(ws, "form_submission_received", doc, entity=good.id, entity_type="entry", correlation_id="corr-agent-0")
+        assert _reload(ws, good).metadata_json["review_reasons"] == ["Capability document fits the schema — ready for a look"]
+        assert _reload(ws, good).metadata_json["capability_check"]["valid"] is True
+
+    def test_choose_your_own_adventure(self, ws):
+        from marvin.db.models.platform import Entries
+
+        row = _install(ws, "choose-your-own-adventure")
+        premise = _entry(ws, "article", "A lighthouse at the edge of the map", status="published", data={"body": "Who keeps the light?"})
+        story = {
+            "text": "You wake in the lamp room; the lens is dark and a storm is coming.",
+            "choices": [
+                {"label": "Relight the lamp", "next": {"text": "The beam sweeps out and a ship answers.", "ending": "A ship is saved"}},
+                {
+                    "label": "Climb down to the cellar",
+                    "next": {
+                        "text": "The cellar door hangs open; something knocks below.",
+                        "choices": [
+                            {"label": "Answer the knock", "next": {"text": "A drowned keeper hands you a key.", "ending": "You inherit the light"}},
+                            {"label": "Bolt the door", "next": {"text": "Dawn finds you alive and very alone.", "ending": "A quiet morning"}},
+                        ],
+                    },
+                },
+            ],
+        }
+        dead_end = {
+            **story,
+            "choices": [story["choices"][0], {"label": "Walk into the sea", "next": {"text": "The water is cold and the story stops."}}],
+        }
+
+        def adventures():
+            ws.session.expire_all()
+            return (
+                ws.session.query(Entries).filter(Entries.group_id == ws.gid, Entries.metadata_json["adventure_of"].as_string() == premise.slug).all()
+            )
+
+        def run(answer):
+            ws.ai.reply_text(json.dumps({"title": "The Lamp Room", "story_json": json.dumps(answer)}))
+            recorder = ExecutionRecorder(ws.session, ws.gid)
+            return run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, recorder=recorder, inputs={"premise": premise.slug})
+
+        assert run(story)["ok"]
+        (draft,) = adventures()
+        assert (draft.title, draft.status, draft.metadata_json["story_check"]) == ("The Lamp Room", "draft", {"valid": True})
+        assert json.loads(draft.data_json["body"]) == story  # saved as written
+
+        # A story with a branch that never ends stops the run at the check: nothing is drafted, and the message names the branch.
+        assert not run(dead_end)["ok"]
+        failed = [a.error for r in _runs(ws, row.slug) for a in r.actions if a.error]
+        assert any("$.choices[1].next" in e and "'choices' is a required property" in e for e in failed), failed
+        assert len(adventures()) == 1
+
+        assert run(story)["ok"]  # run again: another draft, the premise is untouched
+        assert len(adventures()) == 2 and "adventure_of" not in (_reload(ws, premise).metadata_json or {})
+
     @needs_browser
     def test_best_of_month(self, ws, store):
         row = _install(ws, "best-of-month")
@@ -2668,6 +2766,27 @@ def test_a_dry_run_of_the_achievement_cabinet_previews_the_badge_and_the_event_t
     assert result["plan"][0]["resolved"]["payload"] == {"badge": "B", "milestone": "M"}
 
 
+def test_a_dry_run_of_the_schema_recipes_checks_nothing_it_cant_have(ws, monkeypatch):
+    from marvin.services.automation.engine import dry_run_for_event
+
+    calls = _web(monkeypatch, {})
+    request = _entry(ws, "contact-request", "Scribe", status="inbox", data={"message": "https://agents.example/scribe.json"})
+    row = _install(ws, "agent-directory-intake")
+    ctx = event_context(
+        "form_submission_received", _entry_doc(request, form_name="Agents"), entity_id=request.id, entity_type="entry", correlation_id="dry"
+    )
+    preview = dry_run_for_event(ws.session, ws.gid, row, ctx)
+    assert preview["would_fire"] and _step_errors(preview["plan"]) == [] and calls == []  # the page wasn't fetched, so nothing was judged
+    assert preview["plan"][1]["resolved"]["valid"] is None
+
+    premise = _entry(ws, "article", "A lighthouse", status="published", data={"body": "x"})
+    adventure = _install(ws, "choose-your-own-adventure")
+    result = run_automation_now(ws.session, ws.gid, adventure, user_id=ws.uid, dry_run=True, inputs={"premise": premise.slug})
+    assert result["ok"], _step_errors(result["plan"])  # the AI wasn't asked: its stand-in isn't a story to fail on
+    assert ws.ai.requests == [] and result["plan"][1]["resolved"]["valid"] is None
+    assert result["plan"][-1]["resolved"]["title"] == "‹AI answer: title›"
+
+
 def test_a_dry_run_fills_a_render_from_an_ai_step_without_a_browser(ws, monkeypatch):
     monkeypatch.setattr(render, "screenshot", lambda *a, **k: pytest.fail("a dry run took a screenshot"))
     _entry(ws, "project", "Chore coat", status="published", data={"stage": "complete"})
@@ -2717,7 +2836,7 @@ def test_guide_offers_the_recipes_this_workspace_can_run(ws):
     assert "buttondown" in asked["error"] and "publication-ledger" in asked["available"]
     assert "no such recipe" in authoring_guide(ws.session, ws.gid, "examples", "nope")["examples"]["error"]
     # An idea is never offered, however the workspace is set up.
-    assert "status is needs-engine-capability" in authoring_guide(ws.session, ws.gid, "examples", "agent-directory-intake")["examples"]["error"]
+    assert "status is needs-engine-capability" in authoring_guide(ws.session, ws.gid, "examples", "reply-drafting-desk")["examples"]["error"]
 
 
 def test_draft_workflow_instantiates_a_recipe_with_typed_vars(ws):
@@ -2736,7 +2855,7 @@ def test_draft_workflow_instantiates_a_recipe_with_typed_vars(ws):
     assert "must be a integer" in out["error"] and "interval_seconds" in out["setup_variables"]
     out = _tool(ws, "draft_workflow", {"recipe": "newsletter-delivery", "vars": {}})
     assert "missing setup value" in out["error"]
-    out = _tool(ws, "draft_workflow", {"recipe": "agent-directory-intake", "vars": {}})
+    out = _tool(ws, "draft_workflow", {"recipe": "reply-drafting-desk", "vars": {}})
     assert "not runnable" in out["error"] and "publication-ledger" in out["available"]
     out = _tool(ws, "draft_workflow", {"name": "x"})
     assert "Pass a definition, or a recipe" in out["error"]

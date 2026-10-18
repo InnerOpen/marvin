@@ -534,6 +534,36 @@ class FetchAction(_StepBase):
         return self
 
 
+class SchemaCheckAction(_StepBase):
+    """Checks a JSON document against a JSON Schema and reports what doesn't fit. `document`: usually an earlier step's
+    parsed answer (${steps.<id>.output.json} of a fetch step) or any template; a string holding a JSON object or array is
+    read as JSON text. The schema: `schema` inline (an object, or a template giving one) or `schema_resource` (a resource,
+    id or slug, whose metadata.schema holds it). Output `valid`, `errors` [{path, message}] (at most `max_errors`, default
+    20, up to 50), `error_count`, `truncated` and `text`. An invalid document is output for a `when`, never a failed step,
+    unless `fail_on_invalid`. A malformed inline schema is refused when the workflow is saved; documents over 100 KB are
+    reported, not checked."""
+
+    kind: Literal["schema_check"]
+    document: Any
+    schema_: dict[str, Any] | bool | str | None = Field(default=None, alias="schema")
+    schema_resource: str | None = None
+    fail_on_invalid: bool = False
+    max_errors: int = Field(default=20, ge=1, le=50)
+    id: str | None = None
+
+    @model_validator(mode="after")
+    def _one_schema(self):
+        if (self.schema_ is not None) == bool(self.schema_resource):
+            raise ValueError("a schema_check step takes `schema` (the JSON Schema) or `schema_resource` (a resource that holds it), one of them")
+        # An inline schema is checked as it is written; a template's (a string) when the step runs.
+        if isinstance(self.schema_, dict | bool):
+            from marvin.services.automation.actions.schema_check import schema_problem
+
+            if problem := schema_problem(self.schema_):
+                raise ValueError(f"not a valid JSON Schema: {problem}")
+        return self
+
+
 class WaitAction(_StepBase):
     """Waits, then goes on — the run is kept and resumed later. `for`: a span (30m, 12h, 3d, 2w); or `until`: a date
     or a date and time (e.g. ${entry.data.event_date}, or one every entry has: ${entry.publish_at}, ${entry.expire_at},
@@ -560,7 +590,16 @@ class WaitAction(_StepBase):
 
 # A repeat's inner steps: any step but a wait, an approval or another repeat (a run can't park mid-loop).
 RepeatStep = Annotated[
-    OperationAction | EntryAction | EmitEventAction | HandlerAction | WebhookAction | IntegrationAction | MediaAction | CollectAction | FetchAction,
+    OperationAction
+    | EntryAction
+    | EmitEventAction
+    | HandlerAction
+    | WebhookAction
+    | IntegrationAction
+    | MediaAction
+    | CollectAction
+    | FetchAction
+    | SchemaCheckAction,
     Field(discriminator="kind"),
 ]
 MAX_REPEAT_ITEMS = 25
@@ -602,6 +641,7 @@ ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "media": MediaAction,
     "collect": CollectAction,
     "fetch": FetchAction,
+    "schema_check": SchemaCheckAction,
     "wait": WaitAction,
     "repeat": RepeatAction,
 }
@@ -617,6 +657,7 @@ Action = Annotated[
     | MediaAction
     | CollectAction
     | FetchAction
+    | SchemaCheckAction
     | WaitAction
     | RepeatAction,
     Field(discriminator="kind"),

@@ -1,0 +1,71 @@
+{
+  "name": "Agent directory intake",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "form_submission_received"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{form_entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "fetch",
+        "id": "doc",
+        "url": "${entry.data.{{document_url_field}}}"
+      },
+      {
+        "kind": "schema_check",
+        "id": "check",
+        "document": "${steps.doc.output.json}",
+        "schema": "{{capability_schema}}"
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "capability_check": {
+            "valid": "${steps.check.output.valid}",
+            "error_count": "${steps.check.output.error_count}",
+            "errors": "${steps.check.output.errors}",
+            "fetched_status": "${steps.doc.output.status}",
+            "run": "${event.correlation_id}"
+          }
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "request_review",
+        "reason": "Capability document doesn't fit the schema (${steps.check.output.error_count} problems):\n${steps.check.output.text}",
+        "when": {
+          "field": "steps.check.output.valid",
+          "op": "eq",
+          "value": false
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "request_review",
+        "reason": "Capability document fits the schema — ready for a look",
+        "when": {
+          "field": "steps.check.output.valid",
+          "op": "eq",
+          "value": true
+        }
+      },
+      {
+        "kind": "integration",
+        "integration": "{{notify_integration}}",
+        "capability": "notify",
+        "args": {
+          "title": "Agent submission: ${entry.title}",
+          "body": "Capability document ${entry.data.{{document_url_field}}} — fits the schema: ${steps.check.output.valid} (page answered ${steps.doc.output.status}).\n${steps.check.output.text}"
+        }
+      }
+    ]
+  }
+}

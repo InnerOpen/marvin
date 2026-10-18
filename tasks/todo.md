@@ -21,8 +21,11 @@ Every slice: dry run + second run tested for any recipe it unblocks; catalogue c
       served item, archive/unpublish need a published entry, custom_events & other unrendered settings skipped; added
       entry_created (born published), entry_type_updated/deleted, workspace_updated, collection_created, tag delete/attach
       (no event: request_content_rebuild). Tag rename skipped (API serves the immutable slug).
-- [ ] S2 Schema check step: validate a JSON document (e.g. a fetch step's body) against a JSON schema,
-      violations as output → choose-your-own-adventure, agent-directory-intake run
+- [x] S2 Schema check step (2026-10-18; 98 verified-current, 3 needs-engine-capability): `schema_check` ("Check against a schema")
+      holds a document (a fetch step's `json`, any template, JSON text) to an inline `schema` or a resource's `metadata.schema`
+      → valid, errors [{path, message}] (max 50), error_count, text; invalid is output unless `fail_on_invalid`; malformed inline
+      schema refused on save; 100 KB document cap → agent-directory-intake, choose-your-own-adventure (a tree, so reachability
+      is structural; loops back = a graph check the engine lacks); jsonschema now an explicit dependency
 - [ ] S3 Ops events as triggers: ai_budget_*, integration_attention_*, webhook_delivery_failed,
       scheduled_task_failed, with origin filtering (never react to a failure the run itself caused)
       → integration-health-companion, webhook-repair-desk become workflows

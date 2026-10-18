@@ -8,6 +8,8 @@ The provider call and its execution record are the shared runner's (``services/a
 also behind the interactive route); this module keeps the step's own gates, context, dry run and write-back.
 """
 
+import re
+
 from marvin.schemas.group.automation_definition import writeback_field_ok
 from marvin.services.ai.operations import get_operation
 from marvin.services.ai.operations.custom import CUSTOM_OP, CustomOperation, workspace_voice
@@ -148,6 +150,14 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
         budget.emit_crossing(group_id, crossing, user_id=user_id, source=AUTOMATION_SOURCE)
 
     return _apply_write_back(session, group_id, action, operation, parsed, entity_type, entity_id, context, user_id, authorizer_role, execution.id)
+
+
+STAND_IN = re.compile(r"‹AI answer: [^›]*›")
+
+
+def is_stand_in(value) -> bool:
+    """Whether `value` is, whole, a dry run's stand-in for an AI answer (there is nothing real to check in it)."""
+    return isinstance(value, str) and STAND_IN.fullmatch(value.strip()) is not None
 
 
 def _stand_ins(output_schema) -> dict:
