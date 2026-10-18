@@ -44,6 +44,11 @@ describe("unlistedGrantedKeys", () => {
     assert.deepEqual(keys, ["read:draft_entries"]);
   });
 
+  test("test_unlisted_granted_keys_keeps_a_retired_read_resources_grant_visible", () => {
+    assert.ok(!API_CLIENT_PERMISSIONS.some((p) => p.key === "read:resources"));
+    assert.deepEqual(unlistedGrantedKeys({ "read:resources": true }), ["read:resources"]);
+  });
+
   test("test_unlisted_granted_keys_with_no_permissions_returns_empty", () => {
     assert.deepEqual(unlistedGrantedKeys(null), []);
   });

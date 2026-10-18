@@ -1,7 +1,7 @@
 """The site block of the publishing API (``GET /api/publish/{workspace}/site``), shared with the admin's
 "preview what a site receives" so both answer the same. A site gets URLs for its images, never asset slugs:
-the publishing API has no asset endpoints to resolve one with. That covers ``metadata.brand`` too: each
-string value there is a site image, resolved the same way."""
+the publishing API has no asset endpoints to resolve one with. ``metadata.brand`` holds named images too, but
+also colours and text: a value there changes only when it names an asset."""
 
 from uuid import UUID
 
@@ -16,6 +16,22 @@ from marvin.services.media_embeds.publish import site_embeds
 from marvin.services.storage.provider_factory import asset_public_url
 
 
+def _library_asset(session: Session, group_id, value: str) -> Assets | None:
+    """The library asset (Trash or not; never an Ask file) a site setting names by slug or id."""
+    named = [Assets.slug == value]
+    try:
+        named.append(Assets.id == UUID(value))
+    except ValueError:
+        pass
+    return session.query(Assets).filter(Assets.group_id == group_id, Assets.scope == "library", or_(*named)).first()
+
+
+def _names_trashed_file(session: Session, group_id, value: str) -> bool:
+    """Whether a URL (or other string) carries the storage key of an asset in the Trash."""
+    trashed = session.query(Assets.storage_key).filter(Assets.group_id == group_id, Assets.trashed_at.isnot(None)).all()
+    return any(key and key in value for (key,) in trashed)
+
+
 def site_image_url(session: Session, group_id, value: str | None) -> str | None:
     """A site-settings image (logo, favicon, share image) as the URL a site loads it from.
 
@@ -25,18 +41,24 @@ def site_image_url(session: Session, group_id, value: str | None) -> str | None:
     value = (value or "").strip()
     if not value:
         return None
-    named = [Assets.slug == value]
-    try:
-        named.append(Assets.id == UUID(value))
-    except ValueError:
-        pass
-    asset = session.query(Assets).filter(Assets.group_id == group_id, Assets.scope == "library", or_(*named)).first()
+    asset = _library_asset(session, group_id, value)
     if asset is not None:
         return None if asset.trashed_at is not None else asset_public_url(asset)
     if "/" not in value and ":" not in value:
         return None  # not a URL, and no such asset
-    trashed = session.query(Assets.storage_key).filter(Assets.group_id == group_id, Assets.trashed_at.isnot(None)).all()
-    return None if any(key and key in value for (key,) in trashed) else value
+    return None if _names_trashed_file(session, group_id, value) else value
+
+
+def brand_value(session: Session, group_id, value):
+    """A ``metadata.brand`` value as a site receives it. Brand holds more than images (a colour, a line of
+    text), so unlike ``site_image_url`` only what names an asset changes: a library asset (slug or id) is its
+    public URL; one in the Trash, or a URL to its file, is None; anything else passes through as stored."""
+    if not isinstance(value, str) or not value.strip():
+        return value
+    asset = _library_asset(session, group_id, value.strip())
+    if asset is not None:
+        return None if asset.trashed_at is not None else asset_public_url(asset)
+    return None if _names_trashed_file(session, group_id, value) else value
 
 
 def _site_privacy(site_metadata: dict | None) -> SitePrivacy | None:
@@ -66,7 +88,7 @@ def build_site_info(session: Session, group: Groups) -> WorkspaceSiteInfo:
             metadata = {**site_metadata, "seo": {**seo_raw, "image": seo.image}}
     brand = (site_metadata or {}).get("brand")
     if isinstance(brand, dict) and brand:  # brand.<name>: a site's named brand images (seal, portrait…)
-        resolved = {k: site_image_url(session, group.id, v) if isinstance(v, str) else v for k, v in brand.items()}
+        resolved = {k: brand_value(session, group.id, v) for k, v in brand.items()}
         metadata = {**(metadata or {}), "brand": resolved}
 
     site_config = SiteConfiguration(

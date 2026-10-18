@@ -2,6 +2,7 @@
 
 ``/site`` therefore never hands a site an asset slug (there is no assets endpoint to resolve one with):
 the logo, favicon and share image come back as public URLs, or null when the asset is in the Trash or gone.
+``metadata.brand`` also holds colours and text, so there only a value that names an asset changes.
 """
 
 from datetime import UTC, datetime
@@ -67,19 +68,47 @@ def test_a_trashed_or_missing_asset_is_null_never_a_slug(db_session, workspace, 
     assert info["seo"]["image"] is None and info["metadataJson"]["seo"]["image"] is None
 
 
-def test_brand_images_resolve_like_the_logo(db_session, workspace, site):  # noqa: F811
+def test_brand_images_resolve_but_colours_and_text_pass_through(db_session, workspace, site):  # noqa: F811
     hero, gallery = _asset(db_session, workspace, "hero-0"), _asset(db_session, workspace, "gallery-0")
+    gallery_url = asset_public_url(gallery)
     gallery.trashed_at = datetime.now(UTC)
     db_session.commit()
     metadata = {
-        "brand": {"seal": "hero-0", "portrait": str(gallery.id), "mark": "https://cdn.example.test/m.svg", "gone": "nope", "n": 3},
+        "brand": {
+            "seal": "hero-0",
+            "portrait": str(gallery.id),
+            "portraitUrl": gallery_url,
+            "mark": "https://cdn.example.test/m.svg",
+            "colour": "#aa3322",
+            "tagline": "Tagline text",
+            "unknown": "nope",
+            "n": 3,
+        },
         "other": "kept",
     }
     db_session.add(GroupPreferencesModel(session=db_session, group_id=workspace.group.id, site_metadata_json=metadata))
     db_session.commit()
     brand = _site(site, workspace)["metadataJson"]["brand"]
-    assert brand == {"seal": asset_public_url(hero), "portrait": None, "mark": "https://cdn.example.test/m.svg", "gone": None, "n": 3}
+    assert brand == {
+        "seal": asset_public_url(hero),  # an asset by slug: its URL
+        "portrait": None,  # a trashed asset by id, and a URL to its file
+        "portraitUrl": None,
+        "mark": "https://cdn.example.test/m.svg",
+        "colour": "#aa3322",  # not an asset: as stored
+        "tagline": "Tagline text",
+        "unknown": "nope",
+        "n": 3,
+    }
     assert _site(site, workspace)["metadataJson"]["other"] == "kept"
+
+
+def test_a_brand_value_naming_an_ask_file_is_not_resolved(db_session, workspace, site):  # noqa: F811
+    hero = _asset(db_session, workspace, "hero-0")
+    hero.scope = "ask"
+    db_session.commit()
+    db_session.add(GroupPreferencesModel(session=db_session, group_id=workspace.group.id, site_metadata_json={"brand": {"seal": "hero-0"}}))
+    db_session.commit()
+    assert _site(site, workspace)["metadataJson"]["brand"]["seal"] != asset_public_url(hero)
 
 
 def test_a_url_to_a_trashed_asset_is_null(db_session, workspace, site):  # noqa: F811
@@ -104,7 +133,9 @@ def test_the_site_without_images_is_unchanged(db_session, workspace, site):  # n
     assert info["logo"] is None and info["favicon"] is None and info["seo"] is None
 
 
-@pytest.mark.parametrize("path", ["assets", "assets/hero-0", "assets/hero-0/file", "resources", "resources/waxed-canvas"])
+@pytest.mark.parametrize(
+    "path", ["assets", "assets/hero-0", "assets/hero-0/file", "resources", "resources/waxed-canvas", "resources/waxed-canvas/entries"]
+)
 def test_the_asset_and_resource_endpoints_are_gone(workspace, site, path):  # noqa: F811
     assert site(workspace).get(f"/api/publish/{workspace.group.slug}/{path}").status_code == 404
 
@@ -115,4 +146,3 @@ def test_entries_still_carry_their_assets_and_resources(workspace, site):  # noq
     assert entry["assets"] and entry["assets"][0]["asset"]["publicUrl"] and entry["resources"]
     item = client.get(f"/api/publish/{slug}/entries").json()["data"][0]
     assert item["assetSlugs"] and item["featuredAsset"]["publicUrl"]
-    assert client.get(f"/api/publish/{slug}/resources/waxed-canvas/entries").status_code == 200

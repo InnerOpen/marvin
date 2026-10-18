@@ -30,6 +30,7 @@ Every slice: dry run + second run tested for any recipe it unblocks; catalogue c
       about breaking changes"): remove GET …/assets, …/assets/{slug}, …/resources, …/resources/{slug} (entries carry
       their assets/resources inline); /site returns logo, favicon, SEO image and metadata.brand values as resolved URLs (never a bare slug).
       SDK + MarvinAstro dropped their helpers on branch feat/drop-publish-assets
+- [x] V1b: resources/{slug}/entries + read:resources gone; brand non-asset values pass through; entry data asset/resource fields resolved
 - [ ] S3 Ops events as triggers: ai_budget_*, integration_attention_*, webhook_delivery_failed,
       scheduled_task_failed, with origin filtering (never react to a failure the run itself caused)
       → integration-health-companion, webhook-repair-desk become workflows

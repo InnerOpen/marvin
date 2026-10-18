@@ -548,7 +548,6 @@ def test_publishing_api_never_serves_a_trashed_asset_or_resource(db_session, mak
         item = client.get(f"/api/publish/{slug}/entries").json()["data"][0]
         assert item["assetSlugs"] == ["gallery-0"] and item["resourceSlugs"] == []
         assert item["featuredAsset"]["slug"] == "gallery-0"  # the trashed hero isn't featured
-        assert client.get(f"/api/publish/{slug}/resources/waxed-canvas/entries").status_code == 404
         site_info = client.get(f"/api/publish/{slug}/site").json()["site"]
         assert site_info["logo"] is None  # the trashed logo
         assert site_info["favicon"] == item["featuredAsset"]["publicUrl"]  # a URL, not the slug it is stored as
