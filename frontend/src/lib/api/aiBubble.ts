@@ -30,6 +30,8 @@ export interface BubbleRunRef {
   clientRunId: string;
   /** Asset ids of the files attached to the conversation (@/lib/marvin/attachments); omitted when none. */
   attachments?: string[];
+  /** The greeting the bubble showed, on the first message of a new conversation (@/lib/marvin/greeting). */
+  greeting?: string;
 }
 
 /**

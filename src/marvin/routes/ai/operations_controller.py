@@ -1612,13 +1612,24 @@ class AIOperationsController(BaseUserController):
             return None
         return self._thread_or_404(body.thread_id, agent_slug=agent_slug)
 
-    def _run_history(self, body: AIAgentRequest, thread) -> list:
-        """History for the model: the thread's stored turns when there is one, else the client's replay."""
+    def _run_history(self, body: AIAgentRequest, thread, agent_slug: str) -> list:
+        """History for the model: the thread's stored turns when there is one, else the client's replay.
+
+        A conversation with no turns yet opens with the greeting the bubble showed, as the assistant's turn, when
+        the client names one that is really among that agent's greetings — so a "yes" to it means something. It is
+        the model's context for this run only; the thread stores the user's message and the answer, nothing more.
+        """
+        from marvin.services.ai.base import Message
+        from marvin.services.ai.bubble_lines import shown_greeting
         from marvin.services.ai.budget import agent_limit
         from marvin.services.ai.threads import history_rows
 
         turns = agent_limit(self.session, self.group_id, "history_turns")
-        return self._bounded_history(history_rows(thread, limit=turns) if thread is not None else body.history)
+        history = self._bounded_history(history_rows(thread, limit=turns) if thread is not None else body.history)
+        if history or not body.greeting:
+            return history
+        greeting = shown_greeting(self.session, self.group_id, agent_slug, body.greeting)
+        return [Message(role="assistant", content=greeting)] if greeting else history
 
     def _record_thread_turns(
         self,
@@ -1960,7 +1971,7 @@ class AIOperationsController(BaseUserController):
             system += self._attachments_block(attached, names)
         messages = [
             Message(role="system", content=system),
-            *self._run_history(body, thread),
+            *self._run_history(body, thread, agent_slug),
             Message(role="user", content=user_msg),
         ]
 
@@ -2510,7 +2521,7 @@ class AIOperationsController(BaseUserController):
         thread = self._thread_for_run(body, spec.slug)
         messages = [
             Message(role="system", content=system),
-            *self._run_history(body, thread),
+            *self._run_history(body, thread, spec.slug),
             Message(role="user", content=body.message),
         ]
         # Opened before the completion for the same reason as in _run_agent_core: the id is known mid-run.

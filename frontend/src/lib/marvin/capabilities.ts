@@ -28,6 +28,7 @@ import { type ApprovalCard, approvalCardHtml, type Decisions } from "@/lib/appro
 import { ATTACHMENTS_KEY, attachmentIds, loadAttachments } from "@/lib/marvin/attachments";
 import { referralsHtml } from "@/lib/marvin/referrals";
 import { getActiveContext } from "@/lib/marvin/context";
+import { takeGreeting } from "@/lib/marvin/greeting";
 import {
   askThreadHref,
   clearPending,
@@ -215,9 +216,12 @@ async function runBubbleAgent(
   savePending(run);
   const stopLearning = learnWhileInFlight(run, pendingDeps(run));
   const attachments = attachmentIds(loadAttachments(sessionStorage, scoped(ATTACHMENTS_KEY), slug));
+  // The line the bubble greeted with, on the first message of a new conversation (@/lib/marvin/greeting).
+  const greeting = takeGreeting(slug, Boolean(run.threadId));
   const ref = {
     threadId: run.threadId ?? NEW_THREAD,
     clientRunId: run.clientRunId,
+    ...(greeting ? { greeting } : {}),
     ...(attachments.length ? { attachments } : {}),
   };
   let res: any;

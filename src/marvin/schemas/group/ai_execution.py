@@ -150,6 +150,10 @@ class AIAgentRequest(_MarvinModel):
     # Live progress: a UUID the CLIENT mints so it can poll `GET /agents/runs/{id}/progress` while
     # this POST is still in flight. Omitted = no progress is recorded.
     client_run_id: str | None = None
+    # The chat bubble's greeting, when this is the first message after it showed one. Display text from the
+    # browser: used only as the assistant's opening turn, and only if it is one of the greetings the bubble
+    # could have picked for this agent (see bubble_lines.shown_greeting); anything else is ignored.
+    greeting: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -5,8 +5,11 @@ own persona — Ada, the warm Southern helper, or Mash & Burn's own long Marvin 
 Now one model call writes lines in the persona's voice. The model is always stubbed here.
 """
 
+import json
+import re
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -495,3 +498,49 @@ def test_lines_written_for_a_persona_that_changed_meanwhile_are_discarded(db_ses
     assert bl.generate(db_session, workspace) is None
     row = _row(db_session, workspace)
     assert (row.bubble_lines, row.bubble_lines_source) == (OLD, bl.SOURCE_CHARACTER)
+
+
+# ── The greeting the bubble showed (shown_greeting) ──────────────────────────────────────────────────────
+
+PERSONA_TS = Path(__file__).resolve().parents[1] / "frontend" / "src" / "lib" / "marvin" / "persona.ts"
+
+
+def test_the_built_in_greetings_match_the_bubbles_persona_file():
+    if not PERSONA_TS.exists():  # a backend-only checkout
+        pytest.skip("frontend/ not present")
+    source = PERSONA_TS.read_text(encoding="utf-8")
+    marvin = re.search(r"export const GREETINGS: string\[\] = \[(.*?)\n\];", source, re.S).group(1)
+    assert tuple(json.loads(f'"{line}"') for line in re.findall(r'"((?:[^"\\]|\\.)*)"', marvin)) == bl.MARVIN_GREETINGS
+    neutral = re.search(r"greetings: \[(.*?)\],\n\s+taglines", source, re.S).group(1)
+    templates = re.findall(r"`([^`]*)`|\"([^\"]*)\"", neutral)
+    assert tuple(a or b for a, b in templates) == tuple(line.replace("Ada", "${name}") for line in bl.neutral_greetings("Ada"))
+
+
+def test_shown_greeting_accepts_the_workspaces_own_lines_and_nothing_else(db_session, workspace):
+    from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+
+    row = db_session.query(WorkspaceAISettingsModel).filter_by(group_id=workspace).one()
+    bl.store(row, _reply(), bl.SOURCE_GENERATED)
+    db_session.flush()
+
+    assert bl.shown_greeting(db_session, workspace, "marvin", "Come on in. What are we working on?") == "Come on in. What are we working on?"
+    assert bl.shown_greeting(db_session, workspace, "marvin", "Oh. It's you. I suppose you want something.") is None  # Marvin's, not Ada's
+    assert bl.shown_greeting(db_session, workspace, "marvin", None) is None
+    assert bl.shown_greeting(db_session, workspace, "marvin", "x" * (bl.MAX_GREETING_CHARS + 1)) is None
+
+
+def test_shown_greeting_for_a_renamed_assistant_without_lines_is_the_neutral_set(db_session, workspace):
+    assert bl.shown_greeting(db_session, workspace, "marvin", "Ada here. What are we working on?") == "Ada here. What are we working on?"
+    assert bl.shown_greeting(db_session, workspace, "marvin", "Oh. It's you. I suppose you want something.") is None
+
+
+def test_shown_greeting_for_an_agent_with_lines_of_its_own_uses_them(db_session, workspace):
+    from marvin.db.models.groups.agents import WorkspaceAgentModel
+
+    own = {"greetings": ["Quack. Ask."]}
+    db_session.add(WorkspaceAgentModel(session=db_session, group_id=workspace, slug="duck", name="Duck", kind="persona", bubble_lines=own))
+    db_session.flush()
+
+    assert bl.shown_greeting(db_session, workspace, "duck", "Quack. Ask.") == "Quack. Ask."
+    assert bl.shown_greeting(db_session, workspace, "marvin", "Quack. Ask.") is None  # the workspace's voice, not the duck's
+    assert bl.shown_greeting(db_session, workspace, "duck", "Ada here. What are we working on?") is None

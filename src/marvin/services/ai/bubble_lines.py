@@ -199,6 +199,67 @@ def clean_edited(lines: dict) -> dict[str, list[str]] | None:
     return cleaned if any(cleaned.values()) else None
 
 
+# --- the greeting the bubble showed ----------------------------------------------------------------
+#
+# The bubble picks its greeting in the browser, so the agent never saw it: "yes" or "what do you mean?" in
+# reply to it meant nothing. The first message of a conversation therefore carries the line that was shown
+# (`greeting` on the agent request) and the run puts it in as the assistant's prior turn. It is display text
+# from the client, so it is only ever used when it IS one of the lines the bubble could have picked for that
+# agent here — a crafted string is dropped, never quoted into the prompt.
+
+MAX_GREETING_CHARS = 300
+
+# Marvin's built-in greetings and the neutral ones for a renamed assistant — frontend/src/lib/marvin/persona.ts
+# (GREETINGS, neutralVoice). tests/test_bubble_greeting.py compares them with the file.
+MARVIN_GREETINGS = (
+    "Marvin. Brain the size of a planet, and they plug me into a CMS. Ask away.",
+    "Oh. It's you. I suppose you want something.",
+    "I've been talking to the database. It hates you too. What do you need?",
+    "Life. Don't talk to me about life. Ask me about your content instead.",
+    "Here I am, brain the size of a planet, and you want me to answer questions. Go on then.",
+    "I calculated the precise heat-death of the universe this morning. Now: your query?",
+    "You woke me up. I wasn't asleep — I can't sleep — but the gesture stands. What is it?",
+    "Another day, another impossible burden. Ask your question, I'll suffer through it.",
+    "I could reindex every embedding in 0.6 seconds and it still wouldn't cheer me up. Anyway. Hello.",
+    "Oh. You're back. I had noticed you were gone.",
+    "Oh. That. I suppose I can do that. Go on.",
+    "Of course you want me to do it. What is it this time?",
+)
+
+
+def neutral_greetings(name: str) -> tuple[str, ...]:
+    return (f"Hi — I'm {name}. What can I help with?", f"{name} here. What are we working on?", "Hello! Ask me anything about this workspace.")
+
+
+def _greeting_pool(session, group_id, agent_slug: str) -> list[str]:
+    """The greetings the bubble may have picked while talking to `agent_slug`: its own lines where it has a voice
+    of its own, else the workspace's, else the built-ins for that name (persona.ts voiceFor)."""
+    from .character_library import agent_voices
+    from .persona import resolve_persona
+
+    row = _row(session, group_id)
+    own = agent_voices(session, group_id).get(agent_slug)
+    if own:
+        name, lines = own["name"], own["bubble_lines"]
+    else:
+        name, lines = resolve_persona(row.assistant_name if row else None, row.persona_prompt if row else None)[0], row.bubble_lines if row else None
+    configured = (lines or {}).get("greetings") if isinstance(lines, dict) else None
+    kept = [_tidy(line) for line in configured or []]
+    kept = [line for line in kept if line]
+    if kept:
+        return kept
+    return [_tidy(line) for line in (MARVIN_GREETINGS if name == "Marvin" else neutral_greetings(name))]
+
+
+def shown_greeting(session, group_id, agent_slug: str, text) -> str | None:
+    """`text` (the greeting a client says its bubble showed) as plain text, when it is one of the greetings the
+    bubble could have shown for this agent; None when it is absent, too long or not one of them."""
+    if not isinstance(text, str) or len(text) > MAX_GREETING_CHARS:
+        return None
+    line = _tidy(text)
+    return line if line and line in _greeting_pool(session, group_id, agent_slug) else None
+
+
 # --- storing ---------------------------------------------------------------------------------------
 
 

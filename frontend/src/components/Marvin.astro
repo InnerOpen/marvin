@@ -64,6 +64,7 @@ try {
   import { MARVIN_VOICE, voiceFor, pick } from '@/lib/marvin/persona';
   import { askPageAllowed, bubbleAllowed } from '@/lib/marvin/gate';
   import { getPageContext, contextLabel, setContextSuppressed } from '@/lib/marvin/context';
+  import { dropGreeting, noteGreeting } from '@/lib/marvin/greeting';
   import { forgetConversation, loadPending, rememberThread, scoped, setStorageScope, threadFor } from '@/lib/marvin/pending';
   import { type BubbleSpot, clampSpot, DEFAULT_SPOT, hiddenAfterScroll, parseSpot, parseTuck, type Inset, PEEK_OUT_MS, peekEveryMs, SCROLL_IDLE_MS, spotFromRect, type Tuck, tuckAt, tuckedPosition, tuckEdge } from '@/lib/marvin/position';
   import { ATTACH_ACCEPT, ATTACHMENTS_KEY, attachmentIcon, forgetAttachments, loadAttachments, MAX_ATTACHMENTS, roomFor, saveAttachments, withAttachment, withoutAttachment } from '@/lib/marvin/attachments';
@@ -339,8 +340,17 @@ try {
       return `<span class="mv-error">${esc(pick(voice.errors))} (${esc(err?.message || 'error')})</span>`;
     }
 
+    // Greet the user. A flavor line, not part of the saved transcript — but the agent is told which line it was
+    // (with the first message of this conversation), so a reply to it makes sense.
+    function greet() {
+      const line = pick(voice.greetings);
+      addMsg('marvin', esc(line), false);
+      noteGreeting(line, getActiveAgent());
+    }
+
     function clearTranscript() {
       transcript = [];
+      dropGreeting();
       generation += 1;
       busy = false; // a run still in flight no longer holds the input; its reply is dropped
       // "Clear" must also drop the model's memory, not just the visible log: the next message opens
@@ -353,7 +363,7 @@ try {
       log.innerHTML = '';
       clear.setAttribute('hidden', '');
       greeted = false;
-      if (panel.classList.contains('open')) { greeted = true; addMsg('marvin', esc(pick(voice.greetings)), false); }
+      if (panel.classList.contains('open')) { greeted = true; greet(); }
     }
 
     // Rehydrate a stored conversation on page load (before any greeting).
@@ -452,7 +462,7 @@ try {
       taglineTimer = window.setInterval(rotateTagline, 7000); // cycle like a login fortune
       if (!greeted) {
         greeted = true;
-        addMsg('marvin', esc(pick(voice.greetings)), false); // flavor line, not part of the saved transcript
+        greet();
       }
       cue('open');
       void checkUploadAccess();
