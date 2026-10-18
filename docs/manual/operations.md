@@ -98,7 +98,14 @@ LDAP or OpenID sign-in is recorded on the account (sign-ins before this release 
 lists each plugin installed from a GitHub release whose repository has a newer version tag, with the installed and
 newest versions. The check asks GitHub at most every 12 hours, in the background, so the page never waits on it and
 the first look after a restart shows the previous answer. Taking an update is a Marvin release: bump the plugin's pin
-in the `plugins` dependency group.
+in the `plugins` dependency group. The same cached answer puts an "update available → vX.Y" note on that plugin's row
+in **Admin → Plugins** (`latestVersion` on `GET /api/admin/plugins`); it is a notice only, and never waits on GitHub.
+
+**Admin → System** has an **Embeddings** card (`embeddings` on `GET /api/admin/about`) for the built-in search model:
+whether it is on (`EMBEDDINGS_BUILTIN_ENABLED`) and usable, the model and its vector size, the fastembed and ONNX
+Runtime versions, and every embedding model that has chunks stored, platform-wide, with how many. A model other than
+the one in use is a stale index: its chunks are not searched until the workspace is reindexed (Settings → AI). The card
+reads settings, package metadata and one count, so opening the page never loads the model.
 
 **Admin → Site Settings** lists every setting the API runs with, warns at the top when the public UI address
 (`BASE_URL` / `FRONTEND_URL`, the chart's `config.publicUiUrl`) is still localhost, and has a **Security** card: the

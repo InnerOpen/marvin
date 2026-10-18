@@ -27,6 +27,8 @@ export interface PluginRead {
   name: string;
   package: string | null;
   version: string | null;
+  /** A newer release, from the cached update check; null when up to date or not yet checked. */
+  latestVersion?: string | null;
   kind: PluginKind;
   ok: boolean;
   error: string | null;

@@ -109,6 +109,7 @@ def test_list_plugins_reports_providers_and_workspace_usage(as_user, workspaces,
             "name": "rss",
             "package": "marvin-integration-rss",
             "version": "1.2.0",
+            "latestVersion": None,
             "kind": "integration",
             "ok": True,
             "error": None,
@@ -190,3 +191,52 @@ def test_list_plugins_reports_storage_plugins_and_what_they_are_used_for(as_user
     assert s3["kind"] == "storage" and s3["version"] == "0.1.0"
     assert [(p["slug"], p["provides"], p["inUse"]) for p in s3["providers"]] == [("s3", ["assets", "backups"], ["assets"])]
     assert [(p["slug"], p["provides"], p["inUse"]) for p in body["marvin-storage-nas"]["providers"]] == [("nas", ["backups"], [])]
+
+
+def test_list_plugins_shows_a_newer_release_from_the_cached_check_only(as_user, db_session, monkeypatch):
+    """`latestVersion` comes from the cached update check: set for a plugin behind its newest tag, None for one on it,
+    and no request goes to GitHub while listing."""
+    import marvin.services.plugin_updates as pu
+    import marvin.services.plugins as plugins
+    from marvin.services.platform_settings import PlatformSettingsService
+
+    sources = [
+        (_report("behind", distribution="marvin-integration-behind", version="0.1.0"), []),
+        (_report("current", distribution="Marvin_Integration_Current", version="0.2.0"), []),  # name case/underscores differ
+        (_report("untracked", distribution="marvin-integration-untracked", version="1.0.0"), []),
+    ]
+    monkeypatch.setattr(plugins, "_integration_sources", lambda: sources)
+    monkeypatch.setattr(
+        pu,
+        "installed_from_github",
+        lambda: {
+            "marvin-integration-behind": ("0.1.0", "o/behind"),
+            "marvin-integration-current": ("0.2.0", "o/current"),
+        },
+    )
+    monkeypatch.setattr(pu, "latest_tag", lambda *a, **k: pytest.fail("listing plugins must not ask GitHub"))
+    svc = PlatformSettingsService(db_session)
+    svc.set(
+        pu.CACHE_KEY,
+        {"checked_at": "2999-01-01T00:00:00+00:00", "latest": {"marvin-integration-behind": "v0.3.0", "marvin-integration-current": "v0.2.0"}},
+    )
+    try:
+        rows = {r["name"]: r for r in as_user(PlatformRole.SUPER_ADMIN).get(PLUGINS_URL).json()}
+    finally:
+        svc.set(pu.CACHE_KEY, {})
+
+    assert {name: row["latestVersion"] for name, row in rows.items()} == {"behind": "0.3.0", "current": None, "untracked": None}
+
+
+def test_list_plugins_survives_a_failing_update_lookup(as_user, monkeypatch):
+    import marvin.services.plugin_updates as pu
+    import marvin.services.plugins as plugins
+
+    monkeypatch.setattr(plugins, "_integration_sources", lambda: [(_report("one", distribution="marvin-integration-one", version="1.0.0"), [])])
+
+    def boom(*_a, **_k):
+        raise RuntimeError("settings table unreadable")
+
+    monkeypatch.setattr(pu, "available_updates", boom)
+    body = as_user(PlatformRole.SUPER_ADMIN).get(PLUGINS_URL).json()
+    assert [(r["name"], r["latestVersion"]) for r in body] == [("one", None)]

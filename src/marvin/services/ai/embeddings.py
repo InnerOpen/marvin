@@ -88,6 +88,56 @@ def builtin_embeddings_available() -> bool:
     return bool(getattr(get_app_settings(), "EMBEDDINGS_BUILTIN_ENABLED", True)) and importlib.util.find_spec("fastembed") is not None
 
 
+def builtin_embedding_dimensions() -> int | None:
+    """Vector size of the built-in model, from fastembed's model catalogue (a static list: no weights are loaded);
+    None when fastembed isn't installed."""
+    try:
+        from fastembed import TextEmbedding
+
+        return next((int(m["dim"]) for m in TextEmbedding.list_supported_models() if m["model"] == BUILTIN_EMBEDDING_MODEL), None)
+    except Exception:  # noqa: BLE001 — a status readout never breaks on a library quirk
+        return None
+
+
+def _package_version(name: str) -> str | None:
+    import importlib.metadata as md
+
+    try:
+        return md.version(name)
+    except md.PackageNotFoundError:
+        return None
+
+
+def indexed_models(session: Session) -> list[tuple[str, int]]:
+    """(model id, chunk count) for every embedding model that has vectors stored, platform-wide, most chunks first.
+    A model that isn't the one in use is a stale index waiting for a reindex."""
+    import sqlalchemy as sa
+
+    from marvin.db.models.groups.ai_embeddings import AIEmbeddingModel
+
+    count = sa.func.count(AIEmbeddingModel.id)
+    rows = session.query(AIEmbeddingModel.model_id, count).group_by(AIEmbeddingModel.model_id).order_by(count.desc(), AIEmbeddingModel.model_id).all()
+    return [(model_id, int(n)) for model_id, n in rows]
+
+
+def embeddings_status(session: Session) -> dict:
+    """What Admin → System shows about embeddings. Reads settings, package metadata and one grouped count; never
+    loads the model."""
+    from marvin.core.config import get_app_settings
+
+    available = builtin_embeddings_available()
+    return {
+        "builtin_enabled": bool(getattr(get_app_settings(), "EMBEDDINGS_BUILTIN_ENABLED", True)),
+        "builtin_available": available,
+        "model": BUILTIN_EMBEDDING_MODEL if available else None,
+        "dimensions": builtin_embedding_dimensions() if available else None,
+        "engine": "fastembed",
+        "engine_version": _package_version("fastembed"),
+        "onnxruntime_version": _package_version("onnxruntime"),
+        "indexed_models": [{"model_id": m, "chunks": n} for m, n in indexed_models(session)],
+    }
+
+
 def embedder_for(provider) -> tuple[object, str] | tuple[None, None]:
     """(embedder, model id) a workspace embeds with: Marvin's built-in model; with it switched off, the AI provider's
     own embedding model if it has one; else (None, None). The embedder has `embed(texts, model)`; the model id is

@@ -1,5 +1,6 @@
 ---
 import AdminLayout from "@/layouts/AdminLayout.astro";
+import { getAdminAbout, type EmbeddingsInfo } from "@/lib/api/admin/about";
 import { getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
 import { createSdkClient } from "@/lib/sdk";
@@ -19,6 +20,16 @@ try {
   console.error("[admin/system] Failed to fetch stats:", e);
   error = "Failed to load platform statistics";
 }
+
+// The embedding engine's status: a failure here only leaves its card out, the statistics still show
+let embeddings: EmbeddingsInfo | null = null;
+try {
+  embeddings = (await getAdminAbout(authToken)).embeddings ?? null;
+} catch (e) {
+  console.error("[admin/system] Failed to fetch embeddings status:", e);
+}
+const staleModels = embeddings?.indexedModels.filter((m) => m.modelId !== embeddings?.model) ?? [];
+const formatCount = (n: number) => n.toLocaleString();
 ---
 
 <AdminLayout crumb="admin.system">
@@ -123,6 +134,64 @@ try {
           </div>
         </div>
       </section>
+
+      <!-- Embeddings (semantic search) -->
+      {embeddings && (
+        <section class="card embeddings">
+          <h3>Embeddings</h3>
+          <dl class="facts">
+            <div class="fact">
+              <dt>Built-in model</dt>
+              <dd>
+                {embeddings.builtinAvailable
+                  ? "On"
+                  : embeddings.builtinEnabled
+                    ? "Off: fastembed is not installed"
+                    : "Off: workspaces use their AI provider's model"}
+              </dd>
+            </div>
+            {embeddings.model && (
+              <div class="fact">
+                <dt>Model</dt>
+                <dd><code>{embeddings.model}</code></dd>
+              </div>
+            )}
+            {embeddings.dimensions != null && (
+              <div class="fact">
+                <dt>Dimensions</dt>
+                <dd>{embeddings.dimensions}</dd>
+              </div>
+            )}
+            <div class="fact">
+              <dt>Engine</dt>
+              <dd>{embeddings.engine}{embeddings.engineVersion ? ` ${embeddings.engineVersion}` : " (not installed)"}</dd>
+            </div>
+            <div class="fact">
+              <dt>ONNX Runtime</dt>
+              <dd>{embeddings.onnxruntimeVersion ?? "not installed"}</dd>
+            </div>
+          </dl>
+
+          <h4>Indexed with</h4>
+          {embeddings.indexedModels.length === 0 ? (
+            <p class="muted">Nothing is indexed yet.</p>
+          ) : (
+            <ul class="indexed">
+              {embeddings.indexedModels.map((m) => (
+                <li class:list={{ stale: m.modelId !== embeddings.model }}>
+                  <code>{m.modelId}</code>
+                  <span class="chunks">{formatCount(m.chunks)} {m.chunks === 1 ? "chunk" : "chunks"}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {staleModels.length > 0 && embeddings.model && (
+            <p class="muted">
+              Chunks from a model other than <code>{embeddings.model}</code> are not searched. Reindex the workspace (Settings → AI) to rebuild them.
+            </p>
+          )}
+        </section>
+      )}
     </div>
   </div>
 </AdminLayout>
@@ -213,4 +282,31 @@ try {
     font-weight: 600;
     color: var(--accent);
   }
+
+  .facts { margin: 0; }
+  .fact {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 14px;
+  }
+  .fact dt { color: var(--text-muted); flex: none; }
+  .fact dd { margin: 0; text-align: right; min-width: 0; overflow-wrap: anywhere; }
+  .embeddings h4 { margin: 20px 0 8px; font-size: 14px; font-weight: 600; color: var(--muted); }
+  .embeddings code { font-size: 13px; overflow-wrap: anywhere; }
+  .indexed { list-style: none; margin: 0; padding: 0; }
+  .indexed li {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    padding: 6px 0;
+    font-size: 14px;
+  }
+  .indexed .chunks { flex: none; color: var(--muted); }
+  .indexed .stale .chunks { color: var(--color-error); }
+  .muted { margin: 12px 0 0; font-size: 13px; color: var(--muted); }
 </style>

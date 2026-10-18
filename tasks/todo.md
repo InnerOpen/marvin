@@ -20,7 +20,7 @@ Every slice: dry run + second run tested for any recipe it unblocks; catalogue c
 - [ ] S5 Parallel branches + join (all/any, deterministic merge, partial-failure semantics) → publication-release-gate
 - [ ] S6 Metrics windows: a step records an observation per variant/window; a report lists them (no causal claims)
       → social-experiment-log (campaign-scoreboard still needs social adapters)
-- [ ] A1 Admin (Jared 2026-10-17 "Ok"): Embeddings card on admin/system.astro — model (`BUILTIN_EMBEDDING_MODEL`),
+- [x] A1 Admin (Jared 2026-10-17 "Ok"): Embeddings card on admin/system.astro — model (`BUILTIN_EMBEDDING_MODEL`),
       enabled/available, fastembed + onnxruntime versions (importlib.metadata), dimensions, indexed model ids + chunk
       counts — via `embeddings` on GET /api/admin/about (no model load); Admin → Plugins rows show
       "update available → vX.Y" from `plugin_updates.available_updates` (today only Overview lists them)

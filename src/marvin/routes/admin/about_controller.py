@@ -15,6 +15,7 @@ from marvin.schemas.admin.about import (  # Pydantic schemas for response models
     AdminAboutInfo,
     AppStatistics,
     CheckAppConfig,
+    EmbeddingsInfo,
 )
 from marvin.services.email.email_senders import email_ready
 
@@ -45,6 +46,7 @@ class AdminAboutController(BaseAdminController):
         Returns:
             AdminAboutInfo: A Pydantic model containing various application details.
         """
+        from marvin.services.ai.embeddings import embeddings_status
         from marvin.services.group.platform_workspace import PlatformWorkspaceMissing, platform_workspace
 
         settings = self.settings  # Access application settings via base controller property
@@ -72,6 +74,7 @@ class AdminAboutController(BaseAdminController):
             oidc_provider_name=settings.OIDC_PROVIDER_NAME,
             enable_openai=settings.OPENAI_ENABLED,
             enable_openai_image_services=settings.OPENAI_ENABLED,
+            embeddings=EmbeddingsInfo(**embeddings_status(self.session)),  # no model load
         )
 
     @router.get("/statistics", response_model=AppStatistics, summary="Get Application Statistics")

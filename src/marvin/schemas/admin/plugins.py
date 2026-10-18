@@ -37,6 +37,9 @@ class PluginRead(_MarvinModel):
     """The entry-point name the package registers under."""
     package: str | None = None
     version: str | None = None
+    latest_version: str | None = None
+    """A newer release of this package, from the cached update check (never a live GitHub call); None when it is up to date
+    or the check hasn't run. Taking it is a Marvin release (a bump of the pin), not an action here."""
     kind: PluginKind
     ok: bool
     error: str | None = None
