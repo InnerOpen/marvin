@@ -15,9 +15,9 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 95,
+    "verified-current": 96,
     "needs-adapter": 3,
-    "needs-engine-capability": 6,
+    "needs-engine-capability": 5,
     "supported-after-configuration": 11
   },
   "capabilities": {
@@ -115,7 +115,7 @@
       "name": "Custom emit_event names",
       "priority": "P2",
       "capabilities_md": "Event provenance",
-      "acceptance": "A workspace can register `custom.<name>` events (catalog entry with payload fields); emit_event sends them with a templated payload; they are triggerable and subscribable; depth bounding applies."
+      "acceptance": "Delivered 2026-10-18: a workspace registers `custom.<name>` events (Settings → Automation → Custom events, PUT /api/groups/custom-events/{name}) with typed payload fields (string, number, boolean, date); an Emit event step sends one with a templated `payload` held to those fields; a workflow can start on it, webhook/email/integration subscriptions can name it, the editor, Events pages, describe_event and the authoring guide list it; each hop carries reaction_depth + 1, so a chain stops at MAX_REACTION_DEPTH."
     },
     "ops-triggers": {
       "name": "Operational events as workflow triggers",
@@ -398,7 +398,7 @@
       "failure_behaviour": "The webhook step makes one attempt; a non-2xx or a timeout fails the run (recorded in the run history, `workflow_failed` alert if enabled) and the metadata step after it does not run. Re-publishing re-sends: there is no per-step idempotency key.",
       "dependencies": [],
       "notes": [
-        "The brief's completion event (`newsletter_issue_processed`) is not possible: emit_event only sends entry_* and site_deployment_* events. The run's own `automation_ran` event, with the run id, is the completion signal — a `chained` workflow can react to it.",
+        "The brief's completion event (`newsletter_issue_processed`) is not a built-in event. Register your own (Settings → Automation → Custom events) and send it with an Emit event step, or use the run's own `automation_ran` event, with the run id, as the completion signal — a `chained` workflow can react to it.",
         "`announcement.run` is the event's correlation id, shared with the run history row."
       ],
       "verification": {
@@ -6567,48 +6567,120 @@
     {
       "id": "achievement-cabinet",
       "title": "Achievement cabinet",
-      "outcome": "Milestone event → award configured badge → update project collection",
+      "outcome": "When a project reaches a milestone (a workflow sends your `custom.milestone` event for it), a badge is drafted for it and added to your cabinet collection — once per project and badge.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
         "rules",
-        "collections"
+        "collections",
+        "custom events"
       ],
       "target_entity": "entry",
       "trigger": {
         "type": "event",
-        "event": "entry_updated",
-        "builtin_event": true,
-        "custom_event": false
+        "event": "custom.milestone",
+        "builtin_event": false,
+        "custom_event": true
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "achievement-cabinet.json",
+      "vars": "achievement-cabinet.vars.json",
+      "setup_variables": [
         {
-          "capability": "custom-events",
-          "name": "Custom emit_event names",
-          "priority": "P2",
-          "acceptance": "A workspace can register `custom.<name>` events (catalog entry with payload fields); emit_event sends them with a templated payload; they are triggerable and subscribable; depth bounding applies.",
-          "why": "a `milestone` event"
+          "name": "badge_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type a badge is made as (its title is the badge's name).",
+          "example": "badge"
+        },
+        {
+          "name": "badge_body_field",
+          "type": "field_key",
+          "description": "That type's text field, where the line saying who earned it goes.",
+          "example": "body"
+        },
+        {
+          "name": "cabinet_collection",
+          "type": "collection_slug",
+          "description": "The collection every new badge is added to: the cabinet.",
+          "example": "achievements"
         }
       ],
+      "requires": {
+        "trigger": "event:custom.milestone",
+        "action_kinds": [
+          "collect",
+          "entry"
+        ],
+        "entry_ops": [
+          "create",
+          "add_to_collection"
+        ],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "exists",
+          "eq"
+        ]
+      },
+      "prerequisites": {
+        "custom_events": [
+          {
+            "event_type": "custom.milestone",
+            "fields": [
+              "milestone",
+              "badge"
+            ],
+            "note": "A string field `milestone` (what was reached) and `badge` (the badge's name). The event is about the project entry it is sent for."
+          }
+        ]
+      },
+      "supporting_objects": [
+        {
+          "kind": "custom_event",
+          "required": true,
+          "name": "custom.milestone",
+          "purpose": "The event this workflow starts on. Any workflow sends it with an Emit event step (event `custom.milestone`, `entity_id` the project, payload `milestone` and `badge`).",
+          "referenced_by": "trigger.event",
+          "create": "Settings → Automation → Custom events (PUT /api/groups/custom-events/milestone)",
+          "configuration": {
+            "name": "milestone",
+            "title": "Milestone reached",
+            "description": "A project reached a milestone worth a badge.",
+            "fields": [
+              {
+                "key": "milestone",
+                "type": "string",
+                "description": "What was reached, e.g. First release."
+              },
+              {
+                "key": "badge",
+                "type": "string",
+                "description": "The badge to award."
+              }
+            ]
+          }
+        }
+      ],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft badge entry (metadata.achievement: project:badge) and adds it to the cabinet collection (entry_created, collection updated)."
+        }
+      ],
+      "cost_notes": "Free: no AI.",
+      "failure_behaviour": "The same badge for the same project is awarded once: a repeated event finds it and does nothing. An event sent without a project or without a badge name is ignored. A badge type or collection that doesn't exist fails the run (recorded).",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): `add_to_collection` on a condition (`entry.data.milestone eq shipped`) works today — the badge itself can't be created."
+        "Badges are drafts: publish the ones you want shown. The cabinet is a collection, so the site lists it in the collection's order.",
+        "Send the event from any workflow, e.g. one on entry_updated whose condition is `entry.data.stage` changed to `shipped`: an Emit event step with event custom.milestone and payload {\"milestone\": \"Shipped\", \"badge\": \"First release\"}. A workflow that sends an event is never woken by it, but another workflow is: that is how one workflow hands work to another."
       ],
       "verification": {
-        "level": "none",
+        "level": "fixture-executed",
         "mocked": [],
-        "test": null
+        "test": "tests/test_workflow_library.py::TestExecution::test_achievement_cabinet"
       },
       "brief": {
         "flow": "Milestone event → award configured badge → update project collection",

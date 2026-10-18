@@ -29,7 +29,7 @@ configuration recipes that would become workflows). The acceptance criteria are 
 | 19 | Metrics windows (`metrics`) | 2 | P2 | observations per variant/window, no causal claims. **Open** | social-experiment-log, campaign-scoreboard | Experimental comparisons |
 | 20 | Schema validation / sandbox handler (`sandbox`) | 2 | P2 | validate fetched JSON against a schema. **Open** (a `fetch` step already returns the parsed `json`) | choose-your-own-adventure, agent-directory-intake | — |
 | 21 | Comment events (`comments`) | 1 | P2 | emitter + triggerable, carries entry_id. **Open**: `comment_added/updated/deleted` are in `_NO_EMITTER`; Marvin has no comments feature | reply-drafting-desk | — |
-| 22 | Custom emit_event names (`custom-events`) | 1 | P2 | registered `custom.<name>` events, payload, depth-bounded. **Open**: `emit_event` sends only `EMITTABLE_EVENT_TYPES` | achievement-cabinet | Event provenance |
+| 22 | Custom emit_event names (`custom-events`) | 1 | P2 | ~~registered `custom.<name>` events, payload, depth-bounded~~ done 2026-10-18 (`SHA`): Settings → Automation → Custom events, typed payload fields, Emit event `payload`, triggerable and subscribable | — | Event provenance |
 | 23 | Entity snapshots (`snapshots`) | 1 | P2 | capture/restore a version. **Open** (nothing waits on it) | — | Snapshots and restoration |
 | 24 | Manual run parameters (`manual-params`) | 1 | P1 | ~~typed inputs on manual/mcp triggers, `${input.*}`~~ done 2026-10-12 (`5c42d5cc`) | — | Manual invocation |
 

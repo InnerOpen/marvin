@@ -1076,9 +1076,17 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
           <input class="input a-site-error" placeholder="Failure reason (failed events), e.g. \${event.payload.data.reason}" value="${esc(a.error ?? "")}" />
           <input class="input a-site-url" placeholder="Site URL (optional)" value="${esc(a.site_url ?? "")}" />
         </div>
-        <span class="hint small">Entry events re-emit so other workflows can react; site events show as activity toasts (failures stay until dismissed).</span>`;
+        <div class="a-custom-wrap" ${String(a.event ?? emittable[0]).startsWith("custom.") ? "" : "hidden"}>
+          <textarea class="input mono a-custom-payload" rows="4" spellcheck="false" placeholder='{"milestone": "Shipped", "badge": "First \${entry.title}"}'>${esc(a.payload && Object.keys(a.payload).length ? JSON.stringify(a.payload, null, 2) : "")}</textarea>
+          <input class="input a-custom-message" placeholder="Message (optional), e.g. \${entry.title} shipped" value="${esc(a.message ?? "")}" />
+          <input class="input a-custom-entity" placeholder="Entry it is about (default: the run's entry), e.g. \${event.entry_id}" value="${esc(a.entity_id ?? "")}" />
+          <span class="hint small">Payload: the event's fields (Settings → Automation → Custom events), values may be templates. Workflows that start on it read <code>\${event.payload.&lt;field&gt;}</code>.</span>
+        </div>
+        <span class="hint small">Entry events re-emit so other workflows can react; site events show as activity toasts (failures stay until dismissed); your own custom events carry the fields you registered.</span>`;
       wrap.querySelector(".a-event")!.addEventListener("change", (ev) => {
-        wrap.querySelector(".a-site-wrap")!.toggleAttribute("hidden", !(ev.target as HTMLSelectElement).value.startsWith("site_"));
+        const picked = (ev.target as HTMLSelectElement).value;
+        wrap.querySelector(".a-site-wrap")!.toggleAttribute("hidden", !picked.startsWith("site_"));
+        wrap.querySelector(".a-custom-wrap")!.toggleAttribute("hidden", !picked.startsWith("custom."));
       });
     } else if (kind === "integration") {
       integrationFields(wrap, a);
@@ -1262,10 +1270,28 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     }
     if (kind === "emit_event") {
       step.event = field(".a-event")!.value;
-      if (step.event.startsWith("site_")) {
-        for (const [key, cls] of [["message", ".a-site-message"], ["error", ".a-site-error"], ["site_url", ".a-site-url"]]) {
-          const value = field(cls)?.value.trim();
-          if (value) step[key] = value;
+      const siteEvent = step.event.startsWith("site_");
+      const customEvent = step.event.startsWith("custom.");
+      for (const key of ["message", "error", "site_url", "payload"]) delete step[key];
+      if (customEvent) delete step.entity_id; // read from the box below; an entry event keeps what the JSON view gave it
+      const extras = siteEvent
+        ? [["message", ".a-site-message"], ["error", ".a-site-error"], ["site_url", ".a-site-url"]]
+        : customEvent
+          ? [["message", ".a-custom-message"], ["entity_id", ".a-custom-entity"]]
+          : [];
+      for (const [key, cls] of extras) {
+        const value = field(cls)?.value.trim();
+        if (value) step[key] = value;
+      }
+      const rawPayload = customEvent ? field(".a-custom-payload")?.value.trim() : "";
+      if (rawPayload) {
+        try {
+          step.payload = JSON.parse(rawPayload);
+        } catch (e: any) {
+          throw new Error(`Step ${i + 1}: the payload must be a JSON object (${e.message})`);
+        }
+        if (typeof step.payload !== "object" || step.payload === null || Array.isArray(step.payload)) {
+          throw new Error(`Step ${i + 1}: the payload must be a JSON object`);
         }
       }
       return step;

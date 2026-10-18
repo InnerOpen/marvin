@@ -313,6 +313,15 @@ def ws(db_session, monkeypatch):
         webhooks[name] = str(row.id)
     db_session.add(WorkspaceAISettingsModel(session=db_session, group_id=gid, enabled=True, model="fake-model", approval_mode="allow-draft-update"))
     db_session.commit()
+    # The workspace's own `custom.milestone` event (Achievement cabinet starts on it).
+    from marvin.schemas.group.custom_events import CustomEventDefinition
+    from marvin.services.events import custom_events
+
+    custom_events.save(
+        db_session,
+        gid,
+        CustomEventDefinition(name="milestone", title="Milestone reached", fields=[{"key": "milestone"}, {"key": "badge"}]),
+    )
 
     values = {
         "newsletter_entry_type": "newsletter-issue",
@@ -412,6 +421,9 @@ def ws(db_session, monkeypatch):
         "rsvp_event_field": "event",
         "send_at": "10:00",
         "start_here_collection": "featured",
+        "badge_entry_type": "article",
+        "badge_body_field": "body",
+        "cabinet_collection": "featured",
         "network": "Bluesky",
         "post_type": "article",
         "max_length": 300,
@@ -462,6 +474,23 @@ def _install(ws, rid: str, *, enabled: bool = True):
     definition = _configured(ws, rid)
     assert draft_issues(ws.session, ws.gid, definition) == [], rid
     row = WorkspaceAutomationModel(session=ws.session, group_id=ws.gid, name=BY_ID[rid]["title"], slug=rid, enabled=enabled, definition=definition)
+    ws.session.add(row)
+    ws.session.commit()
+    return row
+
+
+def _install_workflow(ws, slug: str, trigger: str, actions: list[dict], when: list[dict] | None = None):
+    """A hand-written workflow in the fixture workspace (a sender for a recipe's event)."""
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+
+    row = WorkspaceAutomationModel(
+        session=ws.session,
+        group_id=ws.gid,
+        name=slug,
+        slug=slug,
+        enabled=True,
+        definition={"trigger": {"type": "event", "event": trigger}, "conditions": when or [], "actions": actions},
+    )
     ws.session.add(row)
     ws.session.commit()
     return row
@@ -1853,6 +1882,70 @@ class TestExecution:
         assert written == {"Ada", "Grace"} and all(_reload(ws, g).metadata_json["thank_you"]["for"] == fair.slug for g in guests)
         assert len(ws.ai.requests) == 3  # the recap, and one message per guest who came — none for another event's RSVP
 
+    def test_achievement_cabinet(self, ws, monkeypatch):
+        from fastapi.encoders import jsonable_encoder
+
+        from marvin.db.models.platform import Collections, Entries, EntryCollections
+        from marvin.services.event_bus_service.event_bus_service import EventBusService
+
+        _install(ws, "achievement-cabinet")
+        # The event comes from another workflow, as it would in practice: a project's stage becomes "shipped".
+        _install_workflow(
+            ws,
+            "award-shipping",
+            "entry_updated",
+            [{"kind": "emit_event", "event": "custom.milestone", "payload": {"milestone": "Shipped", "badge": "First ${entry.title}"}}],
+            when=[{"field": "entry.data.stage", "op": "eq", "value": "shipped"}],
+        )
+        sent: list[dict] = []
+        monkeypatch.setattr(EventBusService, "dispatch", lambda self, **kw: sent.append(kw))
+        lantern = _entry(ws, "project", "Brass lantern", status="published", data={"stage": "shipped"})
+
+        def hand_on(chain: str):
+            """The custom event the sender workflow put on the bus, delivered to the workflows that start on it (each real
+            event has its own correlation id: a create is made once per id, so the badge check here is what counts)."""
+            event = [e for e in sent if e["event_type"].name.startswith("custom.")][-1]
+            document = jsonable_encoder(event["document_data"], by_alias=False)
+            return _fire(ws, event["event_type"].name, document, entity=event["entity_id"], entity_type=event["entity_type"], correlation_id=chain)
+
+        def badges():
+            return [
+                e
+                for e in ws.session.query(Entries).filter_by(group_id=ws.gid, entry_type_id=ws.types["article"]).all()
+                if e.metadata_json.get("achievement")
+            ]
+
+        def cabinet():
+            featured = ws.session.query(Collections).filter_by(group_id=ws.gid, slug="featured").one()
+            return {m.entry_id for m in ws.session.query(EntryCollections).filter_by(collection_id=featured.id)}
+
+        for n in range(2):  # the stage change, and the same event sent again: the badge is awarded once
+            _fire(ws, "entry_updated", _entry_doc(lantern), entity=lantern.id, entity_type="entry", user_id=ws.uid, correlation_id=f"cab-1-{n}")
+            assert hand_on(f"cab-1-{n}") == 1
+            assert [(e["event_type"].name, e["reaction_depth"]) for e in sent if e["event_type"].name.startswith("custom.")][-1] == (
+                "custom.milestone",
+                1,
+            )
+            (badge,) = badges()
+            assert (badge.title, badge.status, badge.data_json["body"]) == ("First Brass lantern", "draft", "Brass lantern reached “Shipped”.")
+            assert {k: v for k, v in badge.metadata_json.items() if k != "automation_created"} == {
+                "achievement": f"{lantern.slug}:First Brass lantern",
+                "project": lantern.slug,
+                "milestone": "Shipped",
+            }
+            assert cabinet() == {badge.id}
+
+        # …another badge for the same project is another award; the same badge for another project is too
+        for n, (badge_name, project) in enumerate((("Tinkerer", lantern), ("Tinkerer", _entry(ws, "project", "Copper kettle", status="published")))):
+            doc = {"event_name": "milestone", "payload": {"milestone": "Tinkered", "badge": badge_name}, "workspace_id": str(ws.gid)}
+            _fire(ws, "custom.milestone", doc, entity=project.id, entity_type="entry", correlation_id=f"cab-2-{n}")
+        assert sorted(b.title for b in badges()) == ["First Brass lantern", "Tinkerer", "Tinkerer"] and len(cabinet()) == 3
+
+        # an event about no project, or naming no badge, is ignored
+        _fire(ws, "custom.milestone", {"event_name": "milestone", "payload": {"badge": "Orphan"}}, correlation_id="cab-3")
+        _fire(ws, "custom.milestone", {"event_name": "milestone", "payload": {"milestone": "x"}}, entity=lantern.id, entity_type="entry")
+        assert len(badges()) == 3
+
     def test_community_welcome_pack(self, ws):
         from marvin.db.models.platform import Collections, EntryCollections
 
@@ -2547,6 +2640,32 @@ def test_a_dry_run_of_a_scheduled_digest_and_an_event_recipe_passes(ws):
     preview = dry_run_for_event(ws.session, ws.gid, row, ctx)
     assert preview["would_fire"] and _step_errors(preview["plan"]) == []
     assert preview["plan"][-1]["resolved"]["title"] == "‹AI answer: title›"
+
+
+def test_a_dry_run_of_the_achievement_cabinet_previews_the_badge_and_the_event_that_sends_it(ws, monkeypatch):
+    from marvin.db.models.platform import Entries
+    from marvin.services.automation.engine import dry_run_for_event
+    from marvin.services.event_bus_service.event_bus_service import EventBusService
+
+    monkeypatch.setattr(EventBusService, "dispatch", lambda self, **kw: pytest.fail("a dry run sent an event"))
+    lantern = _entry(ws, "project", "Brass lantern", status="published")
+    row = _install(ws, "achievement-cabinet")
+    doc = {"event_name": "milestone", "payload": {"milestone": "Shipped", "badge": "First release"}, "workspace_id": str(ws.gid)}
+    ctx = event_context("custom.milestone", doc, entity_id=lantern.id, entity_type="entry", correlation_id="dry")
+
+    preview = dry_run_for_event(ws.session, ws.gid, row, ctx)
+
+    assert preview["would_fire"] and _step_errors(preview["plan"]) == []
+    create = next(p for p in preview["plan"] if p.get("kind") == "entry" and p["resolved"].get("title"))["resolved"]
+    assert create["title"] == "First release" and create["data"] == {"body": "Brass lantern reached “Shipped”."}
+    assert ws.session.query(Entries).filter_by(group_id=ws.gid, title="First release").count() == 0  # previewed, not made
+
+    sender = _install_workflow(
+        ws, "sender", "entry_updated", [{"kind": "emit_event", "event": "custom.milestone", "payload": {"badge": "B", "milestone": "M"}}]
+    )
+    result = run_automation_now(ws.session, ws.gid, sender, user_id=ws.uid, dry_run=True)
+    assert result["ok"], _step_errors(result["plan"])
+    assert result["plan"][0]["resolved"]["payload"] == {"badge": "B", "milestone": "M"}
 
 
 def test_a_dry_run_fills_a_render_from_an_ai_step_without_a_browser(ws, monkeypatch):

@@ -1365,6 +1365,23 @@ class EventIncomingWebhookData(EventDocumentDataBase):
     """The workspace the webhook belongs to."""
 
 
+class EventCustomData(EventDocumentDataBase):
+    """Data payload for a workspace's own `custom.<name>` event (services/events/custom_events.py).
+
+    `payload` holds the fields the event was registered with, typed (string, number, boolean, date); a workflow
+    reads it as `$event.payload.*`, a subscription receives it in `documentData.payload`.
+    """
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    operation: EventOperationBase = EventOperation.info
+    event_name: str
+    """The event's name without the prefix (`milestone` for `custom.milestone`)."""
+    payload: dict = {}
+    """The registered fields' values; a field the sender left empty is left out."""
+    workspace_id: UUID4
+    """The workspace that registered the event."""
+
+
 class EventEntryTypeData(EventDocumentDataBase):
     """Data payload for entry type events."""
 

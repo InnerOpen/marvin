@@ -214,6 +214,7 @@ class EventBusService(BaseService):
         entity_type: str | None = None,  # Type of the primary entity
         reaction_depth: int = 0,  # Automation/reaction hop count (loop-guard); 0 for user/system actions
         correlation_id: str | None = None,  # Causal-chain id; inherits the ambient scope when omitted
+        title: str | None = None,  # The message title when the catalog has none (a workspace's own custom event)
     ) -> None:
         """
         Dispatches an event to the event bus.
@@ -245,8 +246,11 @@ class EventBusService(BaseService):
         resolved_correlation_id = correlation_id or current_correlation_id.get() or new_correlation_id()
 
         # Construct the full Event object
+        standard_message = EventBusMessage.from_type(event_type, body=message)  # Standardized message structure
+        if title:
+            standard_message.title = title
         event_payload = Event(
-            message=EventBusMessage.from_type(event_type, body=message),  # Standardized message structure
+            message=standard_message,
             event_type=event_type,
             integration_id=integration_id,
             document_data=document_data,  # The actual data payload of the event

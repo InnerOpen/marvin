@@ -949,7 +949,7 @@ def test_summary_takes_a_fixed_number_of_queries(db_session, world):
     db_session.expire_all()
     with _count_queries() as seeded:
         connections.summary(db_session, world.a)
-    assert len(empty) == len(seeded) <= 6, (len(empty), len(seeded))
+    assert len(empty) == len(seeded) <= 7, (len(empty), len(seeded))  # 6, and the workspace's custom events (one read)
 
 
 # ── API ──────────────────────────────────────────────────────────────────────

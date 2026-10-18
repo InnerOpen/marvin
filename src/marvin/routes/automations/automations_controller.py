@@ -221,6 +221,11 @@ class AutomationsController(BaseUserController):
         from marvin.services.events.event_catalog import offered_emittable, trigger_groups
 
         groups = trigger_groups()  # the catalog's triggerable events, under the builder's headings
+        from marvin.services.events import custom_events
+
+        own = custom_events.registered_types(self.session, self.group_id)  # the workspace's own events: one more heading
+        if own:
+            groups = {**groups, custom_events.TRIGGER_GROUP: own}
 
         # AI operations are available only when AI is enabled AND the automation source isn't disabled.
         operations = [
@@ -273,7 +278,7 @@ class AutomationsController(BaseUserController):
             trigger_types=list(TRIGGER_MODELS),
             triggers=[name for names in groups.values() for name in names],
             trigger_groups=groups,
-            emittable=offered_emittable(),
+            emittable=[*offered_emittable(), *own],
             condition_ops=list(_OPS),
             condition_fields=condition_fields,
             action_kinds=available_kinds(),
@@ -384,7 +389,24 @@ class AutomationsController(BaseUserController):
         issues = structural + validate_definition(data.definition, workflow_max_steps(self.session, self.group_id))
         if not structural:
             issues += self._missing_chain_warnings(data.definition)
+            issues += self._custom_event_warnings(data.definition)
         return AutomationValidateResult(issues=issues)
+
+    def _custom_event_warnings(self, definition: dict) -> list[dict]:
+        """A trigger or Emit event step naming a `custom.*` event this workspace hasn't registered (or sending a field it
+        doesn't have) — a pasted copy whose event hasn't been registered here yet. A warning: it saves, but won't run until
+        the event is registered (Settings → Automation → Custom events)."""
+        import json
+
+        from marvin.services.automation.authoring import reference_issues
+        from marvin.services.events.custom_events import PREFIX
+
+        named = {w for w in json.dumps(definition).split('"') if w.startswith(PREFIX)}
+        return [
+            {**issue, "level": "warning"}
+            for issue in reference_issues(self.session, self.group_id, definition)
+            if any(f"“{name}”" in issue["message"] or f"{name} has no field" in issue["message"] for name in named)
+        ]
 
     def _missing_chain_warnings(self, definition: dict) -> list[dict]:
         """An "after workflow X" trigger naming a workflow this workspace doesn't have — a pasted copy whose other half

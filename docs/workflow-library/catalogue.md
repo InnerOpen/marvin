@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-115 recipes: **95** verified-current, **11** supported-after-configuration, **3** needs-adapter, **6** needs-engine-capability.
+115 recipes: **96** verified-current, **11** supported-after-configuration, **3** needs-adapter, **5** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -69,6 +69,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [ada-explains-it](../../src/marvin/services/automation/recipes/ada-explains-it.json) — Ada explains it | verified-current | `entry_published` | — | content mutation, paid call |
 | [retro-poster-machine](../../src/marvin/services/automation/recipes/retro-poster-machine.json) — Retro poster machine | verified-current | `manual` | — | content mutation |
 | [trading-card-collection](../../src/marvin/services/automation/recipes/trading-card-collection.json) — Trading card collection | verified-current | `entry_updated` | — | content mutation, paid call |
+| [achievement-cabinet](../../src/marvin/services/automation/recipes/achievement-cabinet.json) — Achievement cabinet | verified-current | `custom.milestone` | custom event | content mutation |
 | [meme-workshop](../../src/marvin/services/automation/recipes/meme-workshop.json) — Meme workshop | verified-current | `manual` | — | content mutation, paid call |
 | [future-newspaper](../../src/marvin/services/automation/recipes/future-newspaper.json) — Future newspaper | verified-current | `manual` | — | content mutation, paid call |
 | [workshop-field-guide](../../src/marvin/services/automation/recipes/workshop-field-guide.json) — Workshop field guide | verified-current | `manual` | — | content mutation, paid call |
@@ -127,7 +128,6 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `reply-drafting-desk` — Reply drafting desk | needs-engine-capability | `comment_added` | comments |
 | `campaign-scoreboard` — Campaign scoreboard | needs-adapter | `schedule` | social-adapters, metrics |
 | `social-experiment-log` — Social experiment log | needs-engine-capability | `manual` | metrics |
-| `achievement-cabinet` — Achievement cabinet | needs-engine-capability | `entry_updated` | custom-events |
 | `choose-your-own-adventure` — Choose your own adventure | needs-engine-capability | `manual` | sandbox |
 | `agent-directory-intake` — Agent directory intake | needs-engine-capability | `form_submission_received` | sandbox |
 
@@ -142,7 +142,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - `${site.url}` is the workspace's Canonical URL (None when unset): the provider uses it to absolutise relative links.
 - [publication-announcement](../../src/marvin/services/automation/recipes/publication-announcement.json) — **Publication announcement** · verified-current · `entry_published`  
   A published entry is announced to a community channel through an outgoing webhook; the response code is recorded on the entry.
-  - The brief's completion event (`newsletter_issue_processed`) is not possible: emit_event only sends entry_* and site_deployment_* events. The run's own `automation_ran` event, with the run id, is the completion signal — a `chained` workflow can react to it.
+  - The brief's completion event (`newsletter_issue_processed`) is not a built-in event. Register your own (Settings → Automation → Custom events) and send it with an Emit event step, or use the run's own `automation_ran` event, with the run id, as the completion signal — a `chained` workflow can react to it.
   - `announcement.run` is the event's correlation id, shared with the run history row.
 - [editorial-approval-gate](../../src/marvin/services/automation/recipes/editorial-approval-gate.json) — **Editorial approval gate** · verified-current · `entry_updated`  
   When an entry's status changes to approved it is published; if the publish gate refuses (missing required fields, expiry passed) the entry goes back to Needs review with the exact reasons.
@@ -380,10 +380,10 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - [trading-card-collection](../../src/marvin/services/automation/recipes/trading-card-collection.json) — **Trading card collection** · verified-current · `entry_updated`  
   When a project's status field reaches its done value, the AI writes three or four stats from the entry's own facts and a line of flavour text, and a trading card is rendered and attached.
   - The prompt allows only facts the entry states; check a card before sharing it.
-- `achievement-cabinet` — **Achievement cabinet** · needs-engine-capability · `entry_updated`  
-  Milestone event → award configured badge → update project collection
-  - Possible today (partial): `add_to_collection` on a condition (`entry.data.milestone eq shipped`) works today — the badge itself can't be created.
-  - Blocked by: `custom-events` (a `milestone` event)
+- [achievement-cabinet](../../src/marvin/services/automation/recipes/achievement-cabinet.json) — **Achievement cabinet** · verified-current · `custom.milestone`  
+  When a project reaches a milestone (a workflow sends your `custom.milestone` event for it), a badge is drafted for it and added to your cabinet collection — once per project and badge.
+  - Badges are drafts: publish the ones you want shown. The cabinet is a collection, so the site lists it in the collection's order.
+  - Send the event from any workflow, e.g. one on entry_updated whose condition is `entry.data.stage` changed to `shipped`: an Emit event step with event custom.milestone and payload {"milestone": "Shipped", "badge": "First release"}. A workflow that sends an event is never woken by it, but another workflow is: that is how one workflow hands work to another.
 - [meme-workshop](../../src/marvin/services/automation/recipes/meme-workshop.json) — **Meme workshop** · verified-current · `manual`  
   Run by hand: for each published entry with a picture, the AI proposes a kind two-line caption; once an editor approves it, the meme is rendered and attached.
   - One approval per entry — run it on a small set.
@@ -586,7 +586,6 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `social-adapters` | Social publishing adapters | P1 | 2 | Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry). |
 | `collection-scope` | Collection-scoped steps | P1 | 1 | A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup). Partly delivered 2026-10-12: a `collect` step reads a collection's entries in its own order (`collection` + sort `position`) for one step to use; with an AI or `repeat` step over its rows, that is the roundup (2026-10-12/13); left only: `${collection.entries}` bound directly on collection events (a `collect` step reads the same set today). |
 | `comments` | Comment events | P2 | 1 | comment_added/updated/deleted have an emitter that carries entry_id and the comment text, are triggerable, and hydrate `entry.*`. |
-| `custom-events` | Custom emit_event names | P2 | 1 | A workspace can register `custom.<name>` events (catalog entry with payload fields); emit_event sends them with a templated payload; they are triggerable and subscribable; depth bounding applies. |
 | `custom-operation` | Free-form AI operation | P0 | 1 | Delivered 2026-10-11: an operation step `op: "custom"` carries its own prompt (${…} templates) and output_schema (a JSON Schema object); `see` adds the item, its attachments, images, the workspace persona; the answer is checked (one retry) and is the step output; write_back maps it onto the entry (summary, tags, metadata.<key>), asset or resource; budget, approval mode and min_role apply as for built-in operations. Named, reusable workspace operations are a later phase. |
 | `form-classification` | Form-submission classification from workflows | P0 | 1 | The workflow runner loads an entry-backed submission into `ctx.form_submission` so classify-form-submission classifies the real data; its output (`is_spam`, `category`) is usable by branches. |
 | `joins` | Parallel branches and joins | P1 | 1 | Fan-out steps run independently and a join step waits for all (or any), with deterministic merge of outputs and partial-failure semantics. |
@@ -594,6 +593,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `member-email` | Member-addressed email | P2 | 1 | Partly delivered 2026-10-13 (382c2750): member_added and member_role_changed are triggerable, and a member event's run reads the person it is about as `${member.*}` (id, username, name, email, role), distinct from the acting admin. Left: sending an email addressed to that person — member_added still carries no email for email subscriptions (recipient_type `member`), and no workflow step sends an email (Community welcome pack drafts the welcome with the address in metadata.to; nothing is sent). |
 | `asset-resource-targets` | Assets and resources as workflow subjects | P1 | 0 | Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Delivered 2026-10-12: the entries linked to a given asset or resource (`asset` / `resource` query keys). Delivered 2026-10-12: `checksum` (and `exclude`) in an asset query; `asset.checksum` in a run. Derived-asset lineage is part of media-adapters. |
 | `branches` | Conditional steps (if/else) | P0 | 0 | Delivered 2026-10-11: any step takes `when` conditions evaluated against steps.* / previous.* (same operators); false records it as skipped (not failed), later references read None, and the dry run shows the verdicts. |
+| `custom-events` | Custom emit_event names | P2 | 0 | Delivered 2026-10-18: a workspace registers `custom.<name>` events (Settings → Automation → Custom events, PUT /api/groups/custom-events/{name}) with typed payload fields (string, number, boolean, date); an Emit event step sends one with a templated `payload` held to those fields; a workflow can start on it, webhook/email/integration subscriptions can name it, the editor, Events pages, describe_event and the authoring guide list it; each hop carries reaction_depth + 1, so a chain stops at MAX_REACTION_DEPTH. |
 | `fetch` | HTTP fetch step | P1 | 0 | Delivered 2026-10-12: a `fetch` step ("Check a web address") — `url`: GET/HEAD through the guarded client (public hosts, re-checked on redirects, 2 MB cap) → status, ok, content_type, title, text, json, and `find` phrases (any case) → found; `links`: the links in a text checked a few at a time → checked, broken, broken_count, text. A dead link is output, never a failed step; a dry run doesn't fetch. |
 | `iterate-aggregate` | Iterate / aggregate over a target set | P1 | 0 | Delivered 2026-10-12: a `collect` step ("Gather items") runs an entry/asset/resource query (a target's keys) and returns rows (each as ${entry.*}/${asset.*}/${resource.*}), count, total and text (a plain list for an AI prompt), up to the target cap; a render step's list images take the rows whole (grid, moodboard). Linked items (2026-10-12): `entries` (the entry a field names), `asset` / `resource` (the entries using one), an asset/resource query's `entry` (what an entry holds, in its order) and `role`, and sort by `position` (a collection's own order). Delivered 2026-10-13 (0e7c993b): a `repeat` step runs 1–5 inner steps (an AI step included) once per item of a list or a collect step's rows, keyed per item so a re-delivered event repeats nothing; at most 25 items, no wait/approval/repeat inside. Nothing left. |
 | `manual-params` | Manual / MCP run parameters | P1 | 0 | Delivered 2026-10-12: a manual trigger's `inputs` (name, label, type text | number | choice | entry, options, required, default) — asked by the Run button's form, passed in the run API's body or run_workflow's `inputs`, checked against the declarations, read as ${input.<name>}; an entry input is the entry the run acts on. |

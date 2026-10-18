@@ -1153,6 +1153,7 @@ class AutomationReactionListener(EventListenerBase):
         super().__init__(group_id, ConsolePublisher())
 
     def get_subscribers(self, event: Event) -> list[str]:
+        from marvin.schemas.group.custom_events import PREFIX as CUSTOM_PREFIX
         from marvin.services.automation.engine import MAX_REACTION_DEPTH
         from marvin.services.events.event_catalog import TRIGGERABLE_EVENT_TYPES
 
@@ -1161,7 +1162,8 @@ class AutomationReactionListener(EventListenerBase):
         if _platform_event(event):
             return []  # none is triggerable today; a workflow is a workspace's, so it never may be
         name = event.event_type.name
-        if name in TRIGGERABLE_EVENT_TYPES or name == "incoming_webhook" or name in self._AUTOMATION_EVENT_NAMES:
+        # a custom event is the workspace's own: only a registered one is ever sent (the Emit event step looks it up)
+        if name in TRIGGERABLE_EVENT_TYPES or name.startswith(CUSTOM_PREFIX) or name == "incoming_webhook" or name in self._AUTOMATION_EVENT_NAMES:
             return ["automation"]
         return []
 

@@ -174,6 +174,15 @@ def _json_ready(value):
 IF_NONE_SKIP = "skip"
 
 
+def _previewed_target(action: dict, context: dict) -> str | None:
+    """In a dry run, the entry a step names through an earlier step's output (`entity_id: ${steps.badge.output.entry_id}`)
+    when that step only previewed (a create makes nothing): where it comes from, instead of failing on an empty id."""
+    raw = action.get("entity_id")
+    if action.get("entity_query") or action.get("entity_slug") or not isinstance(raw, str) or not _STEP_REF.search(raw):
+        return None
+    return None if interpolate(raw, context) else f"‹{raw.strip()}›"
+
+
 def _resolve_target(session, group_id, action: dict, context: dict):
     """Resolve which entry to act on: by query, by slug, or an id (default: the triggering entry).
     None only when an entity_query with `if_none: skip` matched nothing."""
@@ -238,6 +247,8 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
     if entity_type != "entry":
         return _run_item_op(session, group_id, entity_type, op, action, context, user_id=user_id, dry_run=dry_run)
 
+    if dry_run and op in COLLECTION_OPS and (stand_in := _previewed_target(action, context)):
+        return {"dry_run": True, "kind": "entry", "op": op, "entity_id": stand_in, "collection": _resolve_collection_ref(action, context)}
     entity_id = _resolve_target(session, group_id, action, context)
     if entity_id is None:
         # A successful no-op: the run is green and the step's output says why nothing happened.

@@ -39,7 +39,7 @@ SECTION_GUIDE: dict[str, str] = {
     "triggers": (
         "each trigger type's fields (event, manual with inputs, schedule, chained, on_error, incoming_webhook, mcp) · once the trigger type is chosen"
     ),
-    "events": "the events a workflow can start on, by heading, and what each carries · when the trigger is an event",
+    "events": "the events a workflow can start on or send, by heading (custom ones too), and what each carries · when the trigger is an event",
     "target": ("running on a query of entries, assets or resources instead of the trigger's item: the query keys · when it acts on many items"),
     "conditions": "condition operators and the fields they read · when the run should be filtered, or a step has a `when`",
     "actions": "every step kind with its fields, the entry ops, and reading a step's result · always, for the kinds used",
@@ -118,6 +118,7 @@ class WorkspaceRefs:
     operations: list[dict] | None = None
     handlers: list[dict] = field(default_factory=list)
     grade_presets: list[str] = field(default_factory=list)  # a media step's `grade` presets: built-in + the workspace's
+    custom_events: list[dict] = field(default_factory=list)  # the workspace's own events: {event_type, description, fields}
 
 
 def automation_operations(session, group_id) -> list | None:
@@ -271,6 +272,16 @@ def workspace_refs(session, group_id) -> WorkspaceRefs:
     from marvin.services.ai.media.enrichment import grade_presets
 
     refs.grade_presets = sorted(grade_presets(session, group_id))
+    from marvin.services.events import custom_events
+
+    refs.custom_events = [
+        {
+            "event_type": custom_events.event_type_of(e.name),
+            "description": custom_events.catalog_entry(e).description,
+            "fields": {f.key: f.type for f in e.fields},
+        }
+        for e in custom_events.read(session, group_id)
+    ]
     return refs
 
 
@@ -305,15 +316,29 @@ def _triggers() -> dict:
     return out
 
 
-def _events() -> dict:
+def _events(refs: WorkspaceRefs) -> dict:
     from marvin.services.events.event_catalog import CATALOG_BY_TYPE, offered_emittable, trigger_groups
 
     groups: dict[str, Any] = {g: {e: CATALOG_BY_TYPE[e].description for e in names} for g, names in trigger_groups().items()}
-    return {
+    out: dict[str, Any] = {
         "triggerable": groups,
         "emittable": offered_emittable(),
         "note": "An event trigger names one triggerable event. describe_event gives an event's `event.*` fields.",
     }
+    if refs.custom_events:
+        # The workspace's own events: triggerable and emittable like the rest, their fields typed.
+        types = [e["event_type"] for e in refs.custom_events]
+        groups["Custom"] = {e["event_type"]: e["description"] for e in refs.custom_events}
+        out["emittable"] = [*out["emittable"], *types]
+        out["custom"] = {
+            "events": {e["event_type"]: e["fields"] for e in refs.custom_events},
+            "note": (
+                "A custom event is this workspace's own (Settings → Automation → Custom events). An Emit event step sends one with "
+                "`payload`: {field: value, …}, values may be templates (${entry.title}); a field is string, number, boolean or date, "
+                "and a step may name only the fields listed. Workflows that start on it read `${event.payload.<field>}`."
+            ),
+        }
+    return out
 
 
 def _target() -> dict:
@@ -573,7 +598,7 @@ def authoring_guide(session, group_id, section: str | None = None, recipe: str |
     if "triggers" in want:
         out["triggers"] = _triggers()
     if "events" in want:
-        out["events"] = _events()
+        out["events"] = _events(workspace_refs(session, group_id))
     if "target" in want:
         out["target"] = _target()
     if "conditions" in want:
@@ -738,11 +763,12 @@ def _trigger_issues(trig: dict, refs: WorkspaceRefs, issues: _Issues) -> None:
 
     ttype = trig.get("type", "event")
     event = trig.get("event")
-    if ttype == "event" and isinstance(event, str) and canonical_event_type(event) not in TRIGGERABLE_EVENT_TYPES:
+    custom = [e["event_type"] for e in refs.custom_events]
+    if ttype == "event" and isinstance(event, str) and canonical_event_type(event) not in {*TRIGGERABLE_EVENT_TYPES, *custom}:
         issues.add(
             "trigger.event",
             "trigger",
-            f"“{event}” is not an event a workflow can trigger on. Events: {_close(event, sorted(TRIGGERABLE_EVENT_TYPES))}.",
+            f"“{event}” is not an event a workflow can trigger on. Events: {_close(event, sorted({*TRIGGERABLE_EVENT_TYPES, *custom}))}.",
         )
     ref = trig.get("automation")
     if ttype in ("chained", "on_error") and ref and ref != "any" and not any(ref in (w["slug"], w["id"]) for w in refs.workflows):
@@ -831,11 +857,7 @@ def _step_issues(
     elif kind == "entry":
         _entry_step_issues(step, refs, bad)
     elif kind == "emit_event":
-        from marvin.services.events.event_catalog import EMITTABLE_EVENT_TYPES, canonical_event_type
-
-        event = step.get("event")
-        if isinstance(event, str) and canonical_event_type(event) not in EMITTABLE_EVENT_TYPES:
-            bad("event", f"“{event}” can't be sent by a workflow. Emittable: {_close(event, sorted(EMITTABLE_EVENT_TYPES))}.")
+        _emit_event_issues(step, refs, bad)
     elif kind == "handler":
         if step.get("task") not in {h["task"] for h in refs.handlers}:
             bad("task", f"“{step.get('task')}” is not a job a workflow may run. Jobs: {', '.join(h['task'] for h in refs.handlers)}.")
@@ -875,6 +897,22 @@ def _fetch_step_issues(step: dict, bad) -> None:
     url = step.get("url")
     if isinstance(url, str) and not _templated(url) and urlparse(url.strip()).scheme not in ("http", "https"):
         bad("url", f"“{url}” isn't a web address: it needs http:// or https://.")
+
+
+def _emit_event_issues(step: dict, refs: WorkspaceRefs, bad) -> None:
+    """An Emit event step names an event a workflow may send; a workspace's own event takes only its registered fields."""
+    from marvin.services.events.event_catalog import EMITTABLE_EVENT_TYPES, canonical_event_type
+
+    event = step.get("event")
+    if not isinstance(event, str):
+        return
+    own = {e["event_type"]: e["fields"] for e in refs.custom_events}
+    sendable = {*EMITTABLE_EVENT_TYPES, *own}
+    if canonical_event_type(event) not in sendable:
+        bad("event", f"“{event}” can't be sent by a workflow. Emittable: {_close(event, sorted(sendable))}.")
+    elif event in own and isinstance(step.get("payload"), dict):
+        if unknown := sorted(k for k in step["payload"] if k not in own[event]):
+            bad("payload", f"{event} has no field {', '.join(unknown)}. Fields: {', '.join(own[event]) or 'none'}.")
 
 
 def _media_step_issues(step: dict, refs: WorkspaceRefs, bad) -> None:

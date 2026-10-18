@@ -9,8 +9,9 @@ Every slice: dry run + second run tested for any recipe it unblocks; catalogue c
 
 - [x] S0 Audit + refresh (2026-10-18; 10 done, 3 partly, 11 open; counts unchanged): each of the 24 roadmap gaps vs code → roadmap.md / catalogue.json status
       (e.g. agent-directory-intake still lists `fetch`, done 2026-10-12)
-- [ ] S1 Custom events `custom.<name>`: registered per workspace (payload fields), emit_event templated payload,
-      triggerable + subscribable, depth-bounded → achievement-cabinet runs
+- [x] S1 Custom events `custom.<name>` (2026-10-18; 96 verified-current, 5 needs-engine-capability): registered per workspace
+      in `group_preferences.custom_events_json` (migration c32c63c7a131; Settings → Automation → Custom events), emit_event
+      templated `payload` held to typed fields, triggerable + subscribable, depth-bounded → achievement-cabinet runs
 - [ ] S2 Schema check step: validate a JSON document (e.g. a fetch step's body) against a JSON schema,
       violations as output → choose-your-own-adventure, agent-directory-intake run
 - [ ] S3 Ops events as triggers: ai_budget_*, integration_attention_*, webhook_delivery_failed,

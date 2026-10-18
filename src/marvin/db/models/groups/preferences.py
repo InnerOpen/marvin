@@ -125,6 +125,13 @@ class GroupPreferencesModel(SqlAlchemyBase, BaseMixins):
         "Read and written through services/events/audit_settings.py (locked types ignore it).",
     )
 
+    custom_events_json: Mapped[list | None] = mapped_column(
+        sa.JSON,
+        nullable=True,
+        doc="The workspace's own events (`custom.<name>`): [{name, title, description, fields: [{key, type, description}]}]. "
+        "Read and written through services/events/custom_events.py.",
+    )
+
     notifications_json: Mapped[dict | None] = mapped_column(
         sa.JSON,
         nullable=True,

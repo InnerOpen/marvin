@@ -2396,6 +2396,7 @@ CATEGORIES = [
     "Security",
     "Secrets",
     "Variables",
+    "Custom",
     "System",
 ]
 

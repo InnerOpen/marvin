@@ -300,11 +300,14 @@ class EntryAction(_StepBase):
 
 
 class EmitEventAction(_StepBase):
-    """Sends a Marvin event (`event`: an emittable event name) for other workflows and subscribers."""
+    """Sends a Marvin event (`event`: an emittable event name) for other workflows and subscribers. A workspace's own
+    `custom.<name>` event carries `payload` (its registered fields, values may be templates) and an optional `message`."""
 
     kind: Literal["emit_event"]
     event: str  # internal event name to re-emit
     entity_id: str | None = None
+    payload: dict[str, Any] | None = None  # custom.<name> events: {field: value}, held to the event's registered fields
+    message: str | None = None  # custom.<name> and site events: the event's text (may be a template)
     id: str | None = None
 
 
