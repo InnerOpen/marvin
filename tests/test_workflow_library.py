@@ -67,6 +67,8 @@ def test_catalogue_covers_every_recipe_file_and_every_status_is_honest():
     assert len({r["id"] for r in CATALOGUE["recipes"]}) == len(CATALOGUE["recipes"])
     files = {p.name.removesuffix(".json") for p in RECIPES_DIR.glob("*.json") if not p.name.endswith(".vars.json") and p.name != "catalogue.json"}
     assert files == set(WORKFLOW_RECIPES), "every recipe file is catalogued as a workflow, and every workflow recipe has a file"
+    tally = {s: sum(1 for r in CATALOGUE["recipes"] if r["status"] == s) for s in CATALOGUE["counts"]}
+    assert CATALOGUE["counts"] == tally and sum(tally.values()) == len(CATALOGUE["recipes"]), "counts follow the recipes' statuses"
     for r in CATALOGUE["recipes"]:
         assert r["status"] in STATUSES, r["id"]
         assert r["shape"] in ("workflow", "configuration", "idea"), r["id"]

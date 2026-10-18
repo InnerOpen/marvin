@@ -3,12 +3,15 @@
 Facts derived from the code (paths under `src/marvin/`), against what the starter brief assumed. Status key:
 **exists** · **exists-with-caveat** · **needs-adapter** · **needs-engine-capability**.
 
+Written 2026-10-08 and refreshed 2026-10-17: rows marked *(2026-10-17)* were re-checked against the code then; the gaps that
+remain are in [`roadmap.md`](roadmap.md).
+
 ## Definition and validation
 
 | Feature | Status | Where |
 |---|---|---|
 | Discriminated definition model (triggers on `type`, actions on `kind`, recursive conditions, target) | exists | `schemas/group/automation_definition.py` |
-| Kind tags: operation, entry, emit_event, handler, webhook, integration | exists | `automation_definition.py:194-201`; `ai` / `http` do not exist |
+| Kind tags: operation, entry, emit_event, handler, webhook, integration, approval, media, collect, fetch, wait, repeat *(2026-10-17)* | exists | `automation_definition.py:194-201`; `ai` / `http` do not exist |
 | Structural gate on save (422 with paths) | exists | `services/automation/validation.py:276` `structural_issues`; `workflows.py:44` |
 | Unknown-key and workspace-reference checks (agent drafts) | exists | `validation.py:304` `unknown_key_issues`; `authoring.py` `reference_issues` / `draft_issues` |
 | Advisory coherence warnings (`entry.*` under a trigger without an entry…) | exists | `validation.py:100` `validate_definition`, `POST /api/automations/validate` |
@@ -19,13 +22,13 @@ Facts derived from the code (paths under `src/marvin/`), against what the starte
 
 | Trigger | Status | Notes |
 |---|---|---|
-| `event` (43 triggerable events) | exists | `services/events/event_catalog.py` `triggerable=True`; listener gate `event_bus_listener.py:1139-1146` |
+| `event` (52 triggerable events, 2026-10-17) | exists | `services/events/event_catalog.py` `triggerable=True`; listener gate `event_bus_listener.py:1139-1146` |
 | `manual`, `mcp` | exists | `engine.py:697` `run_automation_now` (skips trigger/condition gates unless a `target`) |
 | `schedule` | exists-with-caveat | creates its own backing `run_automation` scheduled task (`workflows.py:101` `sync_schedule`, slug `wf-<id>`); interval, once and cron all fire (cron since 2026-10-08: `services/cron.py`, five numeric fields in an IANA timezone; an expression that can't run is refused on save — before, cron computed no next run and never fired) |
 | `chained` / `on_error` | exists | match `automation_ran` / `automation_failed` (`engine.py:391-394`); the failed run's entry is `event.trigger_entity_type/id` (`summary.py:153`) |
 | `incoming_webhook` | exists | body → `${event.payload.*}` (`routes/hooks/hooks_controller.py:77-148`); headers/query not carried; no dedup store; signature presets incl. HMAC |
 | Custom emitted events | needs-engine-capability | `emit_event` sends only `entry_*` and `site_deployment_*` (`EMITTABLE_EVENT_TYPES`); no registration of new names |
-| Operational events as triggers (`webhook_triggered`, `integration_attention_*`, `webhook_delivery_failed`, `scheduled_task_*`, `ai_budget_*`, `approval_*`, `member_added`, `api_client_*`) | needs-engine-capability (by design) | not triggerable; reach subscriptions (email / integration / outgoing webhook) and Automation → Notifications instead. 46 of the brief's 85 events are **not** workflow triggers |
+| Operational events as triggers (`webhook_triggered`, `integration_attention_*`, `webhook_delivery_failed`, `scheduled_task_*`, `ai_budget_*`, `approval_*`, `api_client_*`; `member_added` / `member_role_changed` became triggers 2026-10-13) | needs-engine-capability (by design) | not triggerable; reach subscriptions (email / integration / outgoing webhook) and Automation → Notifications instead. 46 of the brief's 85 events are **not** workflow triggers |
 
 **Scheduled dispatch path**: tick → `scheduled_task_triggered` → `ScheduledTaskListener` → `run_automation`
 handler → `run_automation_now(trigger_kind="schedule")` with `event = {event_type: "manual"}` (no `$event.*`
@@ -37,11 +40,11 @@ overlap (serial in the leader tick).
 
 | Question | Answer |
 |---|---|
-| Target scope vs triggering entry | Without `target`, steps act on the trigger's entry (`$event.entry_id`). With `target`, the query **replaces** it: each row is bound as `entry` and `event.entry_id` (`engine.py:248-252`); conditions become the WHERE over the set, always applied, even on manual runs. Entity: `entry` only (`selector.py:34`), cap 250 |
+| Target scope vs triggering entry | Without `target`, steps act on the trigger's entry (`$event.entry_id`). With `target`, the query **replaces** it: each row is bound as `entry` and `event.entry_id` (`engine.py:248-252`); conditions become the WHERE over the set, always applied, even on manual runs. Entity: `entry`, `asset` or `resource` (2026-10-17; was entry only), cap 250 |
 | Condition operand typing | `_like` (`matcher.py:45`) reads typed-in text as the actual's type (bool/number); `in` accepts a list or CSV; `exists` checks `is not None` (`""` exists); `contains` is substring or membership; unknown op fails closed |
 | before/after paths | `event.before.<f>` / `event.after.<f>` hold **only changed fields** among `status`, `title`, `slug` (`entry_service.py:40` `_TRACKED_FIELDS`); `changed`, `changed_from`, `changed_to` key on the field's last segment. **Data-field changes are not detectable** |
 | Event payload propagation | `document_data` is flattened into `event.*` (`context.py:11-57`); curated keys override; `entry.*` loads only when the subject is an entry; `user_id` is the actor (a UUID object) |
-| Action ordering | strictly sequential, max 10 (`engine.py:30` `MAX_ACTIONS`); a failure stops the rest and runs `on_failure` once |
+| Action ordering | strictly sequential, default 10 (`engine.py` `MAX_ACTIONS`), a workspace may raise it to 25 (Settings → General → Workflows, 2026-10-14); a failure stops the rest and runs `on_failure` once |
 | Step output availability | `${previous.*}`, `${steps.<id|index>.output.*}` in later **steps only**; never in conditions (evaluated before any step) |
 | Update conflict behaviour | `set_metadata`/`set_data` are read-merge-write with no version check (`actions/entry.py:223`, `:246`); `set_data` is schema-validated; empty/None template values are dropped, an all-empty patch fails |
 | Recursion protection | `_running` ContextVar: a workflow sits out events its own run caused (`engine.py:33-51`); other workflows react at depth+1 up to `MAX_REACTION_DEPTH = 3`; one correlation id per cascade |
@@ -52,21 +55,22 @@ overlap (serial in the leader tick).
 | Action | Status | Notes |
 |---|---|---|
 | `entry`: publish / unpublish / archive / trash / restore / add_to_collection / remove_from_collection / set_metadata / set_data / request_review | exists | `actions/entry.py`; publish honours the completeness gate (`entry_service.py:205-236`) — the brief's "validate required content" |
-| `entry` on assets/resources | exists-with-caveat | only `trash` / `restore` with `entity_type` |
-| Create entry | needs-engine-capability | no op creates an entry |
-| `operation` (AI) | exists-with-caveat | 8 ops, all allow the `automation` source (`services/ai/operations/system.py`); **context is built only for entries** (`runner.py:133-136`): asset/resource/form_submission targets run blind; write-back only for `generate-summary` → summary and `generate-tags` → tags, gated by approval mode (default suggest-only → staged in `suggestion_json`); budget-gated |
+| `entry` on assets/resources | exists-with-caveat | only `trash` / `restore` with `entity_type` (an asset or resource target does bind `asset.*` / `resource.*`) |
+| Create entry | exists *(2026-10-11)* | `op: "create"` makes a schema-validated draft/inbox entry once per event (`actions/entry.py`) |
+| `operation` (AI) | exists-with-caveat | built-in ops all allow the `automation` source (`services/ai/operations/system.py`), plus `op: "custom"` (own prompt and answer schema, 2026-10-11); context for entries, and for assets (the image is seen) and resources *(2026-10-17)*, but **form_submission targets still run blind**; write-back is a `write_back` field map, gated by approval mode (default suggest-only → staged in `suggestion_json`); budget-gated |
 | `handler` | exists-with-caveat | allowlist of 6 (`actions/handler.py:24`); `resync_smart_collections` is admin-only and **no-ops from a workflow** (`handlers/maintenance.py:409`) |
 | `webhook` | exists | configured webhook (`webhook_id`, type `workflow`) or raw `url`; one attempt, 15 s, no retry; response JSON → `${steps.<id>.output.body}`; delivery logged |
-| `integration` | exists | provider action with `args`; `requires_approval` actions refused (`actions/integration.py:58`) → `openai_images.generate`, `instagram.send_private_reply`, `instagram.auto_reply` can never run from a workflow; error policy (review/retry/notify/succeed) from SDK ≥0.5 providers; retries resume at the failed step with idempotency seed |
-| `emit_event` | exists-with-caveat | entry_* (from the context entry) and site_deployment_* only |
-| Branches / waits / approvals / iterate / parallel | needs-engine-capability | none exist; `request_review` is the fire-and-forget substitute for an approval |
+| `integration` | exists | provider action with `args`; `requires_approval` actions refused (`actions/integration.py`) unless an earlier `approval` step approved the run (2026-10-11); `instagram.send_private_reply` / `instagram.auto_reply` stay out of reach; error policy (review/retry/notify/succeed) from SDK ≥0.5 providers; retries resume at the failed step with idempotency seed |
+| `emit_event` | exists-with-caveat | entry_* (from the context entry) and site_deployment_* only (`EMITTABLE_EVENT_TYPES`) |
+| Branches, approvals, waits, collect, repeat *(2026-10-17)* | exists | `when` on any step (skipped ≠ failed); `approval` parks the run (`approvals.py`); `wait` parks it until a date or span (`waits.py`); `collect` gathers a query into rows; `repeat` runs 1–5 steps per item (≤ 25; no wait/approval inside) |
+| Parallel branches / joins | needs-engine-capability | steps are strictly sequential |
 
 Installed-plugin actions (origin/main of each MarvinIntegration* repo): Buttondown `subscribe`,
 `lookup_subscriber`, `create_issue_email`, `connect_webhooks`; Apprise `notify`; Slack `send_message`; n8n
 `trigger_workflow`, `list_workflows`, `list_webhooks`, `get_execution`; Cloudflare Pages `list_deployments`,
 `build_log`, `connect_notifications`, `deploy`; Square `list_locations`, `create_listing`, `close_listing`;
 Instagram `list_recent_comments`, `refresh_token` (+2 approval-only); OpenAI Images `generate` (approval-only).
-No image-processing, TTS, OCR, social-publishing or HTTP-fetch adapters exist. (2026-10-12: image processing exists as the `media` step — resize, crop, convert, grade, inspect, palette — and `image.*` integration output is kept as assets; TTS, OCR, rendering and social publishing still don't.)
+No TTS or social-publishing adapters exist. (2026-10-12→14: image processing, OCR/PDF, zip, rendering and watermarks are the `media` step, background removal and picture edits go through an `image.edit` integration action, `image.*` output is kept as assets, and a `fetch` step checks web addresses; TTS and social publishing still don't exist.)
 
 ## Supporting objects
 
@@ -117,4 +121,4 @@ recipes avoid `{{field}}` templating so an installer can't confuse them.
 - Image generation is `requires_approval` and therefore unreachable from workflows; every image recipe waits on
   approvals-in-workflows plus asset targets/adapters. (Resolved: approval steps 2026-10-11, generated images kept as
   assets 2026-10-12.)
-- `member_added` carries no email address; the member cannot be addressed.
+- `member_added` carries no email address, so a subscription cannot address the member. (Partly resolved 2026-10-13: a workflow on a member event reads `${member.email}`; no workflow step sends an email.)

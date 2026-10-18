@@ -1,3 +1,32 @@
+# Workflow Library — finish phases 1+2 (2026-10-17)
+
+Jared: "Finish Workflow Library" → phases 1+2 (Recommended); one local commit per slice, Jared pushes.
+State at start: 95 verified-current, 11 supported-after-configuration, 6 needs-engine-capability, 3 needs-adapter
+(`recipes/catalogue.json`); `docs/workflow-library/roadmap.md` is stale (approvals, waits, repeat, run inputs,
+member triggers shipped 2026-10-11→14 but aren't struck). Slices run one at a time (one pytest at a time).
+Every slice: dry run + second run tested for any recipe it unblocks; catalogue counts + roadmap row updated;
+`task docs:openapi` if the automation definition changes; full suite green (grep FAILED lines) before commit.
+
+- [x] S0 Audit + refresh (2026-10-18; 10 done, 3 partly, 11 open; counts unchanged): each of the 24 roadmap gaps vs code → roadmap.md / catalogue.json status
+      (e.g. agent-directory-intake still lists `fetch`, done 2026-10-12)
+- [ ] S1 Custom events `custom.<name>`: registered per workspace (payload fields), emit_event templated payload,
+      triggerable + subscribable, depth-bounded → achievement-cabinet runs
+- [ ] S2 Schema check step: validate a JSON document (e.g. a fetch step's body) against a JSON schema,
+      violations as output → choose-your-own-adventure, agent-directory-intake run
+- [ ] S3 Ops events as triggers: ai_budget_*, integration_attention_*, webhook_delivery_failed,
+      scheduled_task_failed, with origin filtering (never react to a failure the run itself caused)
+      → integration-health-companion, webhook-repair-desk become workflows
+- [ ] S4 Member-addressed email: member_added carries the member's email / recipient `member` → new-member-welcome
+- [ ] S5 Parallel branches + join (all/any, deterministic merge, partial-failure semantics) → publication-release-gate
+- [ ] S6 Metrics windows: a step records an observation per variant/window; a report lists them (no causal claims)
+      → social-experiment-log (campaign-scoreboard still needs social adapters)
+- [ ] A1 Admin (Jared 2026-10-17 "Ok"): Embeddings card on admin/system.astro — model (`BUILTIN_EMBEDDING_MODEL`),
+      enabled/available, fastembed + onnxruntime versions (importlib.metadata), dimensions, indexed model ids + chunk
+      counts — via `embeddings` on GET /api/admin/about (no model load); Admin → Plugins rows show
+      "update available → vX.Y" from `plugin_updates.available_updates` (today only Overview lists them)
+- Out of scope (phase 3 / later): TTS adapter (audio-edition), social adapters (poll-companion, campaign-scoreboard),
+  comments (reply-drafting-desk — Marvin has no comments feature)
+
 # Bring your own storage — slice 5 (2026-10-14)
 
 Jared: "Stage 5". The workspace's own backups, in its own private bucket (never its file bucket).
