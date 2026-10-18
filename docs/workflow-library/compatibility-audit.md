@@ -11,7 +11,7 @@ remain are in [`roadmap.md`](roadmap.md).
 | Feature | Status | Where |
 |---|---|---|
 | Discriminated definition model (triggers on `type`, actions on `kind`, recursive conditions, target) | exists | `schemas/group/automation_definition.py` |
-| Kind tags: operation, entry, emit_event, handler, webhook, integration, approval, media, collect, fetch, schema_check, wait, repeat, parallel *(2026-10-18)* | exists | `automation_definition.py:194-201`; `ai` / `http` do not exist |
+| Kind tags: operation, entry, emit_event, handler, webhook, integration, approval, media, collect, fetch, schema_check, email, wait, repeat, parallel *(2026-10-18)* | exists | `automation_definition.py:194-201`; `ai` / `http` do not exist |
 | Structural gate on save (422 with paths) | exists | `services/automation/validation.py:276` `structural_issues`; `workflows.py:44` |
 | Unknown-key and workspace-reference checks (agent drafts) | exists | `validation.py:304` `unknown_key_issues`; `authoring.py` `reference_issues` / `draft_issues` |
 | Advisory coherence warnings (`entry.*` under a trigger without an entry…) | exists | `validation.py:100` `validate_definition`, `POST /api/automations/validate` |
@@ -124,4 +124,4 @@ recipes avoid `{{field}}` templating so an installer can't confuse them.
 - Image generation is `requires_approval` and therefore unreachable from workflows; every image recipe waits on
   approvals-in-workflows plus asset targets/adapters. (Resolved: approval steps 2026-10-11, generated images kept as
   assets 2026-10-12.)
-- `member_added` carries no email address, so a subscription cannot address the member. (Partly resolved 2026-10-13: a workflow on a member event reads `${member.email}`; no workflow step sends an email.)
+- `member_added` carries no email address, so a subscription cannot address the member. (Partly resolved 2026-10-13: a workflow on a member event reads `${member.email}`; an `email` step now writes to a workspace member, 2026-10-18; subscriptions still can't address one.)

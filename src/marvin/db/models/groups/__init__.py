@@ -27,5 +27,6 @@ from .webhook_event_subscriptions import *
 from .webhook_execution_logs import *
 from .webhooks import *
 from .workflow_approvals import *
+from .workflow_email_sends import *
 from .workflow_entry_locks import *
 from .workflow_waits import *

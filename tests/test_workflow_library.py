@@ -31,6 +31,10 @@ pytest.importorskip("marvin_integration_sdk", reason="integrations SDK not insta
 from marvin_integration_sdk import INTEGRATION_REGISTRY, IntegrationProvider, ProviderAction  # noqa: E402
 from marvin_integration_sdk.ai.fake import FakeAIProvider, ScriptedTransport  # noqa: E402
 
+from marvin.db.models.groups.workflow_email_sends import WorkflowEmailSendModel  # noqa: E402
+from marvin.db.models.users.roles import WorkspaceRole  # noqa: E402
+from marvin.db.models.users.users import Users  # noqa: E402
+from marvin.db.models.users.workspace_members import WorkspaceMembers  # noqa: E402
 from marvin.services.ai.media import render  # noqa: E402
 from marvin.services.ai.tools import get_tool  # noqa: E402
 from marvin.services.automation import recipes  # noqa: E402
@@ -39,6 +43,7 @@ from marvin.services.automation.context import event_context  # noqa: E402
 from marvin.services.automation.engine import run_automation_now, run_automations_for_event  # noqa: E402
 from marvin.services.automation.library import RecipeConfigError, configure, placeholders, unresolved  # noqa: E402
 from marvin.services.automation.recorder import ExecutionRecorder  # noqa: E402
+from marvin.services.email import email_senders  # noqa: E402
 from tests.test_workflow_fetch import _web  # noqa: E402
 from tests.test_workflow_item_targets import _asset, _resource  # noqa: E402
 from tests.test_workflow_media_documents import _Vision, pdf  # noqa: E402
@@ -430,6 +435,8 @@ def ws(db_session, monkeypatch):
         "orientation": "landscape",
         "post_length": 300,
         "launch_entry_type": "event",
+        "workspace_name": "the Studio",
+        "welcome_note": "Glad you're here. Start with **Start here**.",
         "launch_date": "data.date",
         "post_at": "09:00",
         "product_type": "article",
@@ -448,7 +455,20 @@ def ws(db_session, monkeypatch):
             },
         },
     }
-    yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
+    people: list = []  # more users a test adds (tests/test_workflow_email.py `_person`) — removed with the workspace
+    groups: list = []  # …and the other workspaces it makes for them
+    yield SimpleNamespace(
+        gid=gid,
+        uid=uid,
+        session=db_session,
+        types=types,
+        webhooks=webhooks,
+        values=values,
+        providers=providers,
+        ai=transport,
+        people=people,
+        groups=groups,
+    )
 
     from marvin.db.models.groups.automation_executions import AutomationActionExecutionModel, AutomationExecutionModel
     from marvin.db.models.groups.automations import WorkspaceAutomationModel
@@ -461,9 +481,39 @@ def ws(db_session, monkeypatch):
     db_session.query(IntegrationModel).filter(IntegrationModel.group_id == gid).delete()
     db_session.query(WorkspaceAISettingsModel).filter(WorkspaceAISettingsModel.group_id == gid).delete()
     purge_group_dependents(db_session, gid)
-    db_session.query(Users).filter(Users.id == uid).delete()
-    db_session.query(Groups).filter(Groups.id == gid).delete()
+    from marvin.db.models.groups.workflow_email_sends import WorkflowEmailSendModel
+    from marvin.db.models.users.workspace_members import WorkspaceMembers
+
+    db_session.query(WorkflowEmailSendModel).filter(WorkflowEmailSendModel.group_id == gid).delete()
+    db_session.query(WorkspaceMembers).filter(WorkspaceMembers.user_id.in_([uid, *people])).delete()
+    db_session.query(Users).filter(Users.id.in_([uid, *people])).delete()
+    db_session.query(Groups).filter(Groups.id.in_([gid, *groups])).delete()
     db_session.commit()
+
+
+def _person(ws, username: str, *, email: str | None = None, group_id=None, member: bool = True, role=WorkspaceRole.EDITOR) -> Users:
+    gid = group_id or ws.gid
+    uid = uuid.uuid4()
+    ws.session.execute(
+        Users.__table__.insert().values(
+            id=uid, group_id=gid, username=f"{username}-{uid.hex[:6]}", email=email or f"{username}-{uid.hex[:6]}@t.test", full_name=username.title(),
+            password="x", is_superuser=False, platform_role="NONE", auth_method="MARVIN",
+        )
+    )  # fmt: skip
+    ws.people.append(uid)
+    if member:
+        ws.session.add(WorkspaceMembers(session=ws.session, user_id=uid, group_id=gid, workspace_role=role))
+    ws.session.commit()
+    return ws.session.get(Users, uid)
+
+
+@pytest.fixture
+def outbox(monkeypatch):
+    """Mail goes nowhere: what the workspace's sender was asked to send, as [(to, subject, html)]."""
+    sent: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(email_senders, "email_ready", lambda *a, **k: True)
+    monkeypatch.setattr(email_senders.WorkspaceEmailSender, "send", lambda self, to, subject, html: sent.append((to, subject, html)) or True)
+    return sent
 
 
 def _configured(ws, rid: str) -> dict:
@@ -2061,6 +2111,30 @@ class TestExecution:
         asked = json.dumps(ws.ai.requests[0])
         assert "joined as EDITOR" in asked and "Start here" in asked and "/articles/" in asked  # the pieces, with their addresses
 
+    def test_new_member_welcome(self, ws, outbox, monkeypatch):
+        monkeypatch.setattr("marvin.services.ui_links.ui_base_url", lambda: "https://app.example")
+        monkeypatch.setattr("marvin.services.entry_urls.site_base_url", lambda *a, **k: "https://site.example")
+        _install(ws, "new-member-welcome")
+        ada, vee = _person(ws, "ada"), _person(ws, "vee", role=WorkspaceRole.VIEWER)
+
+        def joined(person, role, correlation):
+            doc = {"operation": "create", "workspace_id": str(ws.gid), "user_id": str(ws.uid), "username": person.username, "role": role}
+            _fire(ws, "member_added", doc, entity=person.id, entity_type="member", correlation_id=correlation)
+
+        joined(ada, "EDITOR", "join-ada")
+        joined(vee, "VIEWER", "join-vee")
+        assert [(to, subject) for to, subject, _ in outbox] == [(ada.email, "Welcome to the Studio"), (vee.email, "Welcome to the Studio")]
+        writer, reader = outbox[0][2], outbox[1][2]
+        assert "Hi Ada" in writer and "<strong>EDITOR</strong>" in writer and "Glad you're here" in writer and "<strong>Start here</strong>" in writer
+        assert 'href="https://app.example"' in writer and "Open the workspace" in writer and "Visit the site" not in writer  # a writer's way in
+        assert "Hi Vee" in reader and "as a reader" in reader and 'href="https://site.example"' in reader and "Open the workspace" not in reader
+
+        # The same event handled again — and the same people joining again — are not welcomed twice.
+        joined(ada, "EDITOR", "join-ada")
+        joined(vee, "VIEWER", "join-vee-again")
+        assert len(outbox) == 2
+        assert [r.status for r in _runs(ws, "new-member-welcome")] == ["success"] * 4
+
     # ── waits ──
     def test_event_countdown(self, ws):
         from marvin.services.automation import waits
@@ -2883,6 +2957,26 @@ def test_a_dry_run_of_a_scheduled_digest_and_an_event_recipe_passes(ws):
     preview = dry_run_for_event(ws.session, ws.gid, row, ctx)
     assert preview["would_fire"] and _step_errors(preview["plan"]) == []
     assert preview["plan"][-1]["resolved"]["title"] == "‹AI answer: title›"
+
+
+def test_a_dry_run_of_the_new_member_welcome_shows_the_email_and_sends_nothing(ws, outbox, monkeypatch):
+    from marvin.services.automation.engine import dry_run_for_event
+
+    monkeypatch.setattr("marvin.services.ui_links.ui_base_url", lambda: "https://app.example")
+    row = _install(ws, "new-member-welcome")
+    ada = _person(ws, "ada")
+    ctx = event_context(
+        "member_added", {"operation": "create", "role": "EDITOR"}, entity_id=ada.id, entity_type="member", user_id=ws.uid, correlation_id="dry-join"
+    )
+    for _ in range(2):  # a dry run changes nothing, so the second shows the same
+        preview = dry_run_for_event(ws.session, ws.gid, row, ctx)
+        assert preview["would_fire"] and _step_errors(preview["plan"]) == []
+        team, reader = preview["plan"]
+        assert reader["status"] == "skipped"  # the reader's step: she is no reader
+        mail = team["resolved"]
+        assert (mail["to"], mail["subject"], mail["would_send"], mail["already_sent"]) == (ada.email, "Welcome to the Studio", True, False)
+        assert "Hi Ada" in mail["body_html"] and "https://app.example" in mail["body_html"]
+        assert outbox == [] and ws.session.query(WorkflowEmailSendModel).filter_by(group_id=ws.gid).count() == 0
 
 
 def test_a_dry_run_of_the_achievement_cabinet_previews_the_badge_and_the_event_that_sends_it(ws, monkeypatch):

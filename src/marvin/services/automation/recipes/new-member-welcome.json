@@ -1,0 +1,43 @@
+{
+  "name": "New member welcome",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "member_added"
+    },
+    "actions": [
+      {
+        "kind": "email",
+        "id": "welcome-team",
+        "to": "${member.id}",
+        "subject": "Welcome to {{workspace_name}}",
+        "heading": "Welcome, ${member.name}",
+        "body": "Hi ${member.name},\n\nYou've been added to {{workspace_name}} as **${member.role}**.\n\n{{welcome_note}}",
+        "button_text": "Open the workspace",
+        "button_link": "${site.app_url}",
+        "once_per": "welcome:${member.id}",
+        "when": {
+          "field": "member.role",
+          "op": "neq",
+          "value": "VIEWER"
+        }
+      },
+      {
+        "kind": "email",
+        "id": "welcome-reader",
+        "to": "${member.id}",
+        "subject": "Welcome to {{workspace_name}}",
+        "heading": "Welcome, ${member.name}",
+        "body": "Hi ${member.name},\n\nYou've been added to {{workspace_name}} as a reader.\n\n{{welcome_note}}",
+        "button_text": "Visit the site",
+        "button_link": "${site.url}",
+        "once_per": "welcome:${member.id}",
+        "when": {
+          "field": "member.role",
+          "op": "eq",
+          "value": "VIEWER"
+        }
+      }
+    ]
+  }
+}

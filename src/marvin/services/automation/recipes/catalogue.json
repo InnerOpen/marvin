@@ -15,10 +15,10 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 101,
+    "verified-current": 102,
     "needs-adapter": 3,
     "needs-engine-capability": 2,
-    "supported-after-configuration": 9
+    "supported-after-configuration": 8
   },
   "capabilities": {
     "create-entry": {
@@ -109,7 +109,7 @@
       "name": "Member-addressed email",
       "priority": "P2",
       "capabilities_md": "—",
-      "acceptance": "Partly delivered 2026-10-13 (382c2750): member_added and member_role_changed are triggerable, and a member event's run reads the person it is about as `${member.*}` (id, username, name, email, role), distinct from the acting admin. Left: sending an email addressed to that person — member_added still carries no email for email subscriptions (recipient_type `member`), and no workflow step sends an email (Community welcome pack drafts the welcome with the address in metadata.to; nothing is sent)."
+      "acceptance": "Delivered 2026-10-18: an `email` step (\"Email a member\") — `to` a member's user id or email (${member.id}, ${member.email}, an entry field), `subject` and `body` (templates; markdown, set in the workspace's email layout and sent through its SMTP profile), optional `heading`, `button_text` + `button_link`, `once_per`. The recipient must be a member of the workspace — an outside address, a member of another workspace only, or a word fails the step, nothing is mailed. Sent once: the same event handled twice, a retry or a re-run sends nothing more (a ledger, `workflow_email_sends`; a failed send gives its claim back); `once_per: welcome:${member.id}` sends that person the step's email once, ever. The step needs an admin author, and fails with no SMTP; a dry run renders the email (would_send) and sends nothing. Role-appropriate links: a `when` on ${member.role}, `${site.url}` (the site) and `${site.app_url}` (the admin app). Left: writing to an address that isn't a member's (a fixed outside recipient stays an email subscription's `specific` recipient), and member_added still carries no email for subscriptions."
     },
     "custom-events": {
       "name": "Custom emit_event names",
@@ -10868,7 +10868,7 @@
     {
       "id": "new-member-welcome",
       "title": "New member welcome",
-      "outcome": "Admins (or a fixed address) are emailed when a member joins, with the member's name and role; the token-free payload is all the template sees.",
+      "outcome": "When someone joins the workspace they get a welcome email addressed to them — hello by name, the role they joined as, your note on where to start, and a button for their role (the workspace for anyone who can write, the site for a reader). Sent once per person.",
       "category": "Event-driven extensions",
       "category_slug": "events",
       "tags": [
@@ -10877,33 +10877,35 @@
       ],
       "target_entity": "member",
       "trigger": {
-        "type": "subscription",
+        "type": "event",
         "event": "member_added",
         "builtin_event": true,
-        "custom_event": false,
-        "note": "A subscription, not a workflow: member_added is also a workflow trigger now (${member.*}, 2026-10-13), but no workflow step sends an email, so a welcome addressed to the member stays out of reach. Admins' notification is what this recipe configures."
+        "custom_event": false
       },
-      "status": "supported-after-configuration",
-      "shape": "configuration",
+      "status": "verified-current",
+      "shape": "workflow",
       "runnable": true,
-      "recipe": null,
-      "vars": null,
+      "recipe": "new-member-welcome.json",
+      "vars": "new-member-welcome.vars.json",
       "setup_variables": [
         {
-          "name": "template_id",
-          "type": "email_template_id",
-          "description": "Id of the email template for the welcome / new-member notice (Settings → Email templates; variables come from the event's catalog entry)."
+          "name": "workspace_name",
+          "type": "text",
+          "description": "What the new member's email calls the workspace (it goes in the subject and the first line).",
+          "example": "the Studio"
         },
         {
-          "name": "recipient_type",
+          "name": "welcome_note",
           "type": "text",
-          "description": "`admins`, or `specific` with `recipient_email`.",
-          "example": "admins"
+          "description": "The note they get under the greeting — a line or two on what the place is for and where to start (markdown).",
+          "example": "Glad you're here. Start with the pieces in Start here, and ask in the team thread if you get stuck."
         }
       ],
       "requires": {
-        "trigger": "subscription:member_added",
-        "action_kinds": [],
+        "trigger": "event:member_added",
+        "action_kinds": [
+          "email"
+        ],
         "entry_ops": [],
         "operations": [],
         "handlers": [],
@@ -10915,48 +10917,29 @@
           "SMTP"
         ]
       },
-      "supporting_objects": [
-        {
-          "kind": "email_event_subscription",
-          "required": true,
-          "name": "Member added email",
-          "purpose": "Delivers member_added by email.",
-          "referenced_by": "subscription",
-          "create": "POST /api/groups/email-event-subscriptions",
-          "configuration": {
-            "template_id": "{{template_id}}",
-            "event_type": "member_added",
-            "recipient_type": "{{recipient_type}}",
-            "enabled": true
-          },
-          "notes": "Template variables: username, first_name, role, workspace_name."
-        }
-      ],
+      "supporting_objects": [],
       "side_effects": [
         {
           "kind": "email",
-          "description": "One email per member added."
+          "description": "One email to each new member, once."
         }
       ],
       "cost_notes": "None.",
-      "failure_behaviour": "Email delivery failures are logged; no retry.",
-      "dependencies": [
-        {
-          "capability": "member-email",
-          "name": "Member-addressed email",
-          "priority": "P2",
-          "acceptance": "Partly delivered 2026-10-13 (382c2750): member_added and member_role_changed are triggerable, and a member event's run reads the person it is about as `${member.*}` (id, username, name, email, role), distinct from the acting admin. Left: sending an email addressed to that person — member_added still carries no email for email subscriptions (recipient_type `member`), and no workflow step sends an email (Community welcome pack drafts the welcome with the address in metadata.to; nothing is sent).",
-          "why": "to welcome the member directly with role-appropriate links"
-        }
-      ],
+      "failure_behaviour": "A workspace with no SMTP profile (and no platform SMTP) fails the step and nothing is sent; once mail is set up the next member is welcomed (a member added before isn't welcomed late). A send the mail server refuses fails the step and gives its claim back, so a retry of the run sends it.",
+      "dependencies": [],
       "notes": [
-        "The member cannot be addressed by a subscription: member_added carries no email (recipient_type `event_field` has nothing to resolve). A workflow on member_added reads `${member.email}` (see community-welcome-pack, which drafts the welcome; nothing is sent). Invited members already receive Marvin's system invitation email."
+        "The member is addressed by their user id (${member.id}); the email goes to the address on their account, never to one typed into the workflow. A recipient who is no member of the workspace fails the step.",
+        "Two steps, one for each kind of member: anyone above a reader gets a button to the admin app (`${site.app_url}`, the configured FRONTEND_URL), a reader gets one to the public site (`${site.url}`). A button is left out when its address isn't set.",
+        "`once_per: welcome:${member.id}` makes the welcome once per person, ever — a member removed and added again isn't welcomed twice. Drop it for a welcome per join (the same event handled twice still sends once).",
+        "The email is the markdown body set in the workspace's email layout (its own, else Marvin's default); invited members already get Marvin's own invitation email, which this doesn't replace.",
+        "Community welcome pack drafts a welcome from the start-here collection with an AI; this one sends a fixed note."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null,
-        "note": "Configuration objects are validated by their own API models on save; the fixture does not provision them."
+        "level": "fixture-executed",
+        "mocked": [
+          "smtp:workspace-sender"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_new_member_welcome"
       },
       "brief": {
         "flow": "Draft or send explicitly configured welcome notification with role-appropriate links",

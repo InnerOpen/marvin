@@ -23,13 +23,14 @@ from __future__ import annotations
 import json
 import types
 import typing
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 # What the guide offers (`section=`, one or several); without one it gives the index.
-SECTIONS = ("shape", "triggers", "events", "target", "conditions", "actions", "media", "templates", "workspace", "examples", "editor")
+SECTIONS = ("shape", "triggers", "events", "target", "conditions", "actions", "media", "email", "templates", "workspace", "examples", "editor")
 
 # The index: one line per section — what it holds, and when a request needs it. The guide is read like a vault: the
 # index first (small, always), then only the sections the request calls for (several in one call), so a model's
@@ -46,6 +47,7 @@ SECTION_GUIDE: dict[str, str] = {
     "media": (
         "the media step's ops (resize, crop, render, OCR, PDF, zip, watermark…) and the render templates · when images or documents are involved"
     ),
+    "email": "the email step in full: who it may write to, sending once, links by role, what a dry run shows · when a step writes to a member",
     "templates": (
         "the ${…} names a step can read (event, entry, asset, steps, input, member…) and how they resolve · when a step reads the "
         "entry or an earlier step"
@@ -421,6 +423,7 @@ def _actions() -> dict:
         "fetch": FETCH_NOTE,
         "schema_check": SCHEMA_CHECK_NOTE,
         "parallel": PARALLEL_NOTE,
+        "email": "section=email has the email step in full: recipients, sending once, links by role.",
     }
 
 
@@ -462,6 +465,14 @@ PARALLEL_NOTE = (
     "parallel: ${steps.<id>.output.branches.<name>.output.<key>} is a branch's last step. A "
     "check that should block must fail its step (schema_check fail_on_invalid). Gate: on_branch_failure continue, then "
     "`when` failed eq 0 goes ahead, failed gt 0 sends ${steps.<id>.output.text}."
+)
+EMAIL_NOTE = (
+    "email writes to a member of this workspace — never an outside address: to: ${member.id} or ${member.email} (a member's id "
+    "or the email they signed up with; a non-member fails the step), subject, body (markdown in the workspace's email layout), "
+    "optional heading, button_text + button_link. It sends through the workspace's SMTP profile (no SMTP → the step fails) and "
+    "once: the same event handled twice sends nothing more; once_per: welcome:${member.id} sends that person this step's email "
+    "once, ever. Links by role: a `when` on ${member.role} (eq/in) per email step; ${site.url} is the public site, "
+    "${site.app_url} the admin app. A dry run shows the rendered email (would_send) and sends nothing."
 )
 MEDIA_NOTE = (
     "A media step works on one image (jpeg, png, webp): source is an asset id or slug (default ${asset.id}), "
@@ -634,6 +645,8 @@ def authoring_guide(session, group_id, section: str | None = None, recipe: str |
         out["actions"] = _actions()
     if "media" in want:
         out["media"] = {"note": MEDIA_NOTE, "render_templates": _render_templates()}
+    if "email" in want:
+        out["email"] = {"note": EMAIL_NOTE}
     if "templates" in want:
         out["templates"] = _templates()
     if "workspace" in want or "examples" in want:
@@ -917,6 +930,21 @@ def _step_issues(
         _media_step_issues(step, refs, bad)
     elif kind == "fetch":
         _fetch_step_issues(step, bad)
+    elif kind == "email":
+        _email_step_issues(step, bad)
+
+
+def _email_step_issues(step: dict, bad) -> None:
+    """An Email step writes to a member, named by id or email — a typed-in word is neither (a member is checked when it runs)."""
+    to = step.get("to")
+    if isinstance(to, str) and to.strip() and not _templated(to) and "@" not in to:
+        try:
+            uuid.UUID(to.strip())
+        except ValueError:
+            bad("to", f"“{to}” is not a member's id or email address. Use ${{member.id}}, ${{member.email}} or a member's email.")
+    link = step.get("button_link")
+    if isinstance(link, str) and link.strip() and not _templated(link) and urlparse(link.strip()).scheme not in ("http", "https"):
+        bad("button_link", f"“{link}” isn't a web address: it needs http:// or https://.")
 
 
 def _fetch_step_issues(step: dict, bad) -> None:

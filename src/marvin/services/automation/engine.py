@@ -347,10 +347,13 @@ def _featured_image_url(entry) -> str | None:
 
 def _site_context(session, group_id) -> dict:
     """The workspace's site, so a step can hand it on: `${site.url}` is the Canonical URL (None when unset)
-    — e.g. the base a newsletter integration makes an issue's relative links absolute against."""
+    — e.g. the base a newsletter integration makes an issue's relative links absolute against. `${site.app_url}` is
+    where the admin app lives (the configured FRONTEND_URL; None while it is the development default), for an email's
+    "open the workspace" link."""
     from marvin.services.entry_urls import site_base_url
+    from marvin.services.ui_links import ui_base_url
 
-    return {"url": site_base_url(session, group_id)}
+    return {"url": site_base_url(session, group_id), "app_url": ui_base_url()}
 
 
 # What a template (`${…}`) can read in a run, by namespace — the workflow authoring guide lists these
@@ -374,7 +377,7 @@ TEMPLATE_NAMESPACES: dict[str, str] = {
     "description, url, external_id, tags, metadata.<key>, trashed",
     "previous": "the previous step's output",
     "steps": "steps.<id>.output.<key>: an earlier step's output, by its `id` (or its position, from 0)",
-    "site": "site.url: the workspace's Canonical URL",
+    "site": "site.url: the workspace's Canonical URL; site.app_url: where the admin app is (for a link in an email)",
     "error": "on_failure steps only: error.message, error.code, error.step, error.kind, error.at",
 }
 

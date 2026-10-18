@@ -130,6 +130,7 @@ An asset or resource query takes only these keys: no `where`, `sort`, `status`, 
 | `parallel` (Parallel branches) | `branches` (2–5, each a `name` and `steps` 1–5), `join` (`all`, the default, or `any`), `on_branch_failure` (`fail`, the default, or `continue`) | Runs independent branches of steps and joins them — see [Parallel branches](#parallel-branches). |
 | `fetch` (Check a web address) | `url` (+ `method` `GET`/`HEAD`, `find`) or `links` (a text, + `base`) | Reads a public web address, or checks the links in a text. A dead link is output, not a failure — see [Check a web address](#check-a-web-address). |
 | `schema_check` (Check against a schema) | `document`, `schema` or `schema_resource`; `fail_on_invalid`, `max_errors` | Holds a JSON document up against a JSON Schema and reports what doesn't fit. An invalid document is output, not a failure, unless `fail_on_invalid` — see [Check against a schema](#check-against-a-schema). |
+| `email` (Email a member) | `to` (a member's id or email), `subject`, `body` (markdown), `heading`, `button_text` + `button_link`, `once_per` | Writes to a member of the workspace — never an outside address — in the workspace's email layout; sent once per event. See [Email a member](#email-a-member). |
 | `media` (Process an image) | `op` (`resize`, `crop`, `convert`, `grade`, `inspect`, `palette`), `source`, the op's own fields, `attach_as` | Makes a new image from an image, or reads one — no AI or provider needed. See [Process an image](#process-an-image). |
 | `operation` (AI operation) | `op` (AI operation slug), `input`, `entity_type`, `entity_id`/`entity_slug`, `write_back` | Offered only when AI is enabled and the **Workflows** invocation source is on. **Write the result back to the entry** (`write_back: true`) follows the workspace approval mode: the result is applied or staged as a suggestion, and the output's `_write_back` says which (`applied` or `staged`). On an asset or resource the step sees the item (an image asset's picture, for an operation that looks at images) and `write_back` is a map of output keys to the item's fields, for example `{"alt_text": "alt_text"}`: an asset takes `alt_text`, `description`, `name`, `tags` or `metadata.<key>`, a resource `description`, `name`, `tags` or `metadata.<key>`. It follows the same approval mode, and needs a workflow author who is an EDITOR or above (else `_write_back` is `not_permitted`). The workspace's AI limits apply: over the daily request or monthly cost limit the step fails, and the per-request token cap bounds the call (see [Agents and Ask → Usage and limits](agents-and-ask.md#usage-and-limits)). |
 | `handler` (Run task) | `task`, `config` | Allowlist: `request_site_rebuild`, `publish_scheduled_entries`, `unpublish_expired_entries`, `ai_reindex_embeddings`, `resync_smart_collections`, `media_enrich`. `request_site_rebuild` queues a coalesced rebuild (see [Operations → Site rebuilds](../operations.md#site-rebuilds)). |
@@ -310,6 +311,45 @@ It checks the shape of a document, not what the document says: it can't run an a
 Two Library recipes use it: **Agent directory intake** (a submitted capability document is fetched and checked) and
 **Choose your own adventure** (an AI writes a branching story as nested passages; the schema holds every branch to a
 choice or an ending before it is drafted).
+
+### Email a member {#email-a-member}
+
+An **Email a member** step (`email`) writes to one person in the workspace: a welcome, a heads-up that something of theirs
+was published, a note to the owner an entry names. It needs an SMTP profile (Settings → Email), the platform's or the
+workspace's; with none the step fails and says so.
+
+- **`to`** — the person, by user id or by the email address on their account: `${member.id}` or `${member.email}` on a
+  member event, an entry field that holds an address, a Gather items row. They must be a **member of this workspace**: an
+  outside address, someone who is only in another workspace, or a typed-in word fails the step and nothing is sent (the
+  message is the same for "no such person" and "elsewhere", so a workflow can't be used to learn who has an account). The
+  email goes to the address on their account. A fixed outside recipient is still an email subscription's `specific`
+  recipient (Settings → Email).
+- **`subject`** and **`body`** — templates; the body is markdown (headings, bold, italic, links, bare addresses) and any
+  HTML in it is shown as text. It is set in the workspace's email layout (its own template file, else Marvin's), which
+  names the workspace; **`heading`** (default the subject) titles the layout, and **`button_text`** + **`button_link`** (an
+  `http(s)` address; left out when the link resolves to nothing) add its button. `${site.url}` is the public site and
+  `${site.app_url}` where the admin app lives (the configured `FRONTEND_URL`).
+- **Links for a role** — give each kind of member its own step with *Only run this step when…* on `member.role` (the New
+  member welcome recipe sends writers a button to the workspace and readers one to the site).
+- **Sent once.** The step records each send (by event, step and person) before it sends: the same event handled twice, a
+  retry of the run or a re-run sends nothing the second time (the output says `sent: false, skipped: true`). **`once_per`**
+  (a template such as `welcome:${member.id}`) widens that — this step writes to that person once, whatever the event. A
+  send the mail server refuses fails the step and gives the record back, so a retry sends it. A manual run has no event, so
+  without `once_per` it sends every time.
+- Needs an admin author, like a webhook or integration step; a demoted author's step fails closed. Put an
+  [approval](#wait-for-approval) step before it to have a person agree to each send.
+- A **dry run** resolves the person, renders the email (`body_html`) and says whether it would go (`would_send`: false when it
+  was already sent, or the workspace can't send mail) — it sends nothing and records nothing. Output: `sent`, `to`, `name`,
+  `role`, `subject`.
+
+```json
+{"kind": "email", "id": "welcome", "to": "${member.id}", "subject": "Welcome to the Studio",
+ "body": "Hi ${member.name},\n\nYou joined as **${member.role}**.",
+ "button_text": "Open the workspace", "button_link": "${site.app_url}",
+ "once_per": "welcome:${member.id}", "when": {"field": "member.role", "op": "neq", "value": "VIEWER"}}
+```
+
+The **New member welcome** Library recipe is this step on `member_added`.
 
 ### Process an image
 
@@ -714,6 +754,8 @@ Parallel branches (`parallel`; the Publication release gate recipe): 2026-10-18.
 Custom events (`custom.<name>`: registered fields, Emit event `payload`, trigger and subscriptions, Achievement cabinet recipe): 2026-10-18.
 
 Check against a schema (`schema_check`; Agent directory intake and Choose your own adventure recipes): 2026-10-18.
+
+Email a member (`email`, `site.app_url`; New member welcome recipe): 2026-10-18.
 
 `form_submission_received` as a trigger: v1.0.0-rc.51 (`8f1443d1`). `auth_scheme`: rc.50 (`a65ba7d0`). `entry.summary` and `entry.data.*`: rc.52 (`433e949e`). Response `body`, `set_metadata` and metadata targeting: rc.59 (`1380e92e`). `entity_query`: rc.60 (`65ffb648`). Raw-URL `method` and templated stored URLs: rc.61 (`b88e4035`). Builder fixes: rc.63 (`57956e71`). `set_data`, the integration step, `entry.metadata` and list indexes in paths: rc.111. `entry.image`: rc.119. Full entry context per query row and **Fields equal**: rc.129. Typed values for checkbox and number fields: rc.131. The shared entry query (`where`, `sort`, date filters): rc.138. Unknown `where` ops match nothing, and `run_workflow` runs appear under **Runs**: rc.139. Site build and deploy events from `emit_event`: rc.144. `{{SLUG}}` in integration step args: rc.145. AI limits on operation steps: rc.146. Site events as notification subscriptions: rc.151; as workflow triggers: rc.152. `automation_started` and the shared `execution_id`: rc.165. Dry run against a sample event, with the condition checklist and `GET …/samples`: rc.173. A refused publish fails the entry step with the reason: rc.175. `${site.url}`: rc.177. Each event's subject, a run's trigger (`trigger_entity_*`) and step summaries in `automation_ran` / `automation_failed`, `$event.entity_type` / `$event.entity_id`: rc.178. `if_none: skip` and `${entry.url}`: rc.179. `on_failure`, `request_review` and an integration error's `${error.code}`: rc.193. Integration error policies (`integration_errors`, `handled` / `handling` / `retry_attempt` on run events), a workflow never re-triggering itself, and option pickers in the **Run integration** step: rc.197. A step's `when` (if/else), an operation step's `write_back` field map, custom AI steps (`op: "custom"`), **Create an entry** (`create`) and **Wait for approval** (`approval`, migration `5c2e8a91d4f7`): unreleased (2026-10-11). **Process an image** (`media`), generated images kept as assets, `attach_as`, `asset.derived_from`, the `role` on `asset_attached_to_entry`, and `gt` / `gte` / `lt` / `lte`: unreleased (2026-10-12). **Render a template** (`render`): unreleased (2026-10-12). **Gather items** (`collect`), relative query dates, lists of pictures in a render, and local times across the admin: unreleased (2026-10-12). Linked items in queries (`entries`, `asset`, `resource`, `entry`, `role`, `exclude`, `checksum`, sort `position`), `only_invalid`, `asset.checksum` and **Check a web address** (`fetch`): unreleased (2026-10-12). Step ids and the result key in the editor, dry-run stand-ins for AI answers, and unchanged Set metadata / Set fields saving nothing: unreleased (2026-10-12). Run inputs (`trigger.inputs`, `${input.*}`) and cron in the editor's schedule: unreleased (2026-10-12). `extract_text`, `pages`, `find_sensitive`, `redact` (pypdfium2), `zip` and printed renders (`format: pdf`, the guide template): unreleased (2026-10-12). An integration step's `source` (image edits): unreleased (2026-10-12). `watermark`: unreleased (2026-10-12). **Wait** (`wait`, migration `b7e2c4f9a1d3`): unreleased (2026-10-13). Entry dates in `${entry.*}` and the recipe date picker: unreleased (2026-10-13). `${path|url}`, `attach_to`, comma-separated `entries`, and the One-tap share links, On this day, Audience milestone and Collaborator shout-out recipes (with the entry page's **Share** box): unreleased (2026-10-13). **Repeat for each** (`repeat`, `${each.*}`) with its guided form, an Entry action's **By id** target, and **Edit** opening as JSON when the guided builder can't show a workflow in full: unreleased (2026-10-13). Approvals with `choices` (migration `c9d4e7a2b1f8`), `longer_than` / `shorter_than`, **Cancel** on a waiting run, and the Thumbnail audition, Platform preview checker, Time capsule and Intake triage recipes: unreleased (2026-10-13).
 

@@ -8,6 +8,7 @@ Importing this package registers every executor (side-effect imports below). The
 from . import (  # noqa: E402,F401
     approval,
     collect,
+    email,
     emit_event,
     entry,
     fetch,

@@ -564,6 +564,28 @@ class SchemaCheckAction(_StepBase):
         return self
 
 
+class EmailAction(_StepBase):
+    """Emails a member of the workspace — never an outside address: `to` (a user id or email: ${member.id}), `subject`,
+    `body` (markdown), optional `heading`, `button_text` + `button_link`, `once_per`. Sent once per event; the workflow
+    guide's `email` section has the rules. Output `sent`, `to`, `name`, `role`, `subject`."""
+
+    kind: Literal["email"]
+    to: str
+    subject: str = Field(min_length=1, max_length=400)
+    body: str = Field(min_length=1, max_length=40_000)
+    heading: str | None = Field(default=None, max_length=400)
+    button_text: str | None = Field(default=None, max_length=120)
+    button_link: str | None = Field(default=None, max_length=2000)
+    once_per: str | None = Field(default=None, max_length=300)
+    id: str | None = None
+
+    @model_validator(mode="after")
+    def _button_pair(self):
+        if bool(self.button_text) != bool(self.button_link):
+            raise ValueError("a button needs both `button_text` and `button_link`")
+        return self
+
+
 class WaitAction(_StepBase):
     """Waits, then goes on — the run is kept and resumed later. `for`: a span (30m, 12h, 3d, 2w); or `until`: a date
     or a date and time (e.g. ${entry.data.event_date}, or one every entry has: ${entry.publish_at}, ${entry.expire_at},
@@ -599,7 +621,8 @@ RepeatStep = Annotated[
     | MediaAction
     | CollectAction
     | FetchAction
-    | SchemaCheckAction,
+    | SchemaCheckAction
+    | EmailAction,
     Field(discriminator="kind"),
 ]
 MAX_REPEAT_ITEMS = 25
@@ -689,6 +712,7 @@ ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "collect": CollectAction,
     "fetch": FetchAction,
     "schema_check": SchemaCheckAction,
+    "email": EmailAction,
     "wait": WaitAction,
     "repeat": RepeatAction,
     "parallel": ParallelAction,
@@ -706,6 +730,7 @@ Action = Annotated[
     | CollectAction
     | FetchAction
     | SchemaCheckAction
+    | EmailAction
     | WaitAction
     | RepeatAction
     | ParallelAction,

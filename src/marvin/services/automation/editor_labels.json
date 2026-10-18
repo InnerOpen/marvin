@@ -29,6 +29,7 @@
     "collect": "Gather items",
     "fetch": "Check a web address",
     "schema_check": "Check against a schema",
+    "email": "Email a member",
     "wait": "Wait",
     "repeat": "Repeat for each",
     "parallel": "Parallel branches"
