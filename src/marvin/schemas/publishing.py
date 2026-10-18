@@ -459,10 +459,7 @@ class PublishedEntryCollection(_MarvinModel):
 
 class PublishedResourceSummary(_MarvinModel):
     """
-    Schema for published resources in standalone context.
-
-    Provides resource metadata without entry-specific placement info.
-    Used for listing resources and getting individual resource details.
+    A published resource: its metadata without entry-specific placement info.
     """
 
     slug: str
@@ -485,9 +482,6 @@ class PublishedResourceSummary(_MarvinModel):
 
     metadata: dict | None = Field(default=None, serialization_alias="metadataJson")
     """Custom metadata as JSON object."""
-
-    entries: list[str] = []
-    """List of entry slugs that reference this resource."""
 
     tags: list[str] = []
     """Tag slugs applied to this resource."""
@@ -554,7 +548,8 @@ class SiteSeo(_MarvinModel):
 
     # Social sharing (Open Graph + Twitter/X)
     image: str | None = None
-    """Default share image URL (Open Graph + Twitter). Recommended 1200×630."""
+    """Default share image URL (Open Graph + Twitter), recommended 1200×630. Always a URL: a setting that
+    names an asset is resolved to its public URL, and null when that asset is in the Trash."""
     image_alt: str | None = None
     """Alt text for the share image (og:image:alt)."""
     og_type: str = "website"
@@ -763,10 +758,10 @@ class SiteConfiguration(_MarvinModel):
     """The canonical URL where this site is published."""
 
     logo: str | None = None
-    """Asset slug for the site logo. Resolve via the assets API."""
+    """Public URL of the site logo; null when none is set or its asset is in the Trash."""
 
     favicon: str | None = None
-    """Asset slug for the site favicon. Resolve via the assets API."""
+    """Public URL of the site favicon; null when none is set or its asset is in the Trash."""
 
     locale: str = "en-US"
     """Site locale (e.g., en-US, en-GB)."""
@@ -818,34 +813,6 @@ class PublishedCollectionsResponse(_MarvinModel):
 
     data: list[PublishedCollectionSummary]
     """List of published collections."""
-
-    meta: PaginationMeta
-    """Pagination metadata."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class PublishedResourcesResponse(_MarvinModel):
-    """
-    Paginated response for listing published resources.
-    """
-
-    data: list[PublishedResourceSummary]
-    """List of published resources."""
-
-    meta: PaginationMeta
-    """Pagination metadata."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class PublishedAssetsResponse(_MarvinModel):
-    """
-    Paginated response for listing published assets.
-    """
-
-    data: list[PublishedAssetRead]
-    """List of published assets."""
 
     meta: PaginationMeta
     """Pagination metadata."""

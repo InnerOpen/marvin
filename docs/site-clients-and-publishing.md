@@ -56,7 +56,7 @@ Initial read-only routes:
 GET /api/publish/{group_slug}/collections
 GET /api/publish/{group_slug}/entries
 GET /api/publish/{group_slug}/entries/{slug}
-GET /api/publish/{group_slug}/assets
+GET /api/publish/{group_slug}/site
 ```
 
 ## Request Pattern

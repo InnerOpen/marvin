@@ -26,6 +26,10 @@ Every slice: dry run + second run tested for any recipe it unblocks; catalogue c
       → valid, errors [{path, message}] (max 50), error_count, text; invalid is output unless `fail_on_invalid`; malformed inline
       schema refused on save; 100 KB document cap → agent-directory-intake, choose-your-own-adventure (a tree, so reachability
       is structural; loops back = a graph check the engine lacks); jsonschema now an explicit dependency
+- [x] V1 Publishing API serves entries + site only (Jared 2026-10-18: "for publishing, we don't need either… don't worry
+      about breaking changes"): remove GET …/assets, …/assets/{slug}, …/resources, …/resources/{slug} (entries carry
+      their assets/resources inline); /site returns logo, favicon, SEO image and metadata.brand values as resolved URLs (never a bare slug).
+      SDK + MarvinAstro dropped their helpers on branch feat/drop-publish-assets
 - [ ] S3 Ops events as triggers: ai_budget_*, integration_attention_*, webhook_delivery_failed,
       scheduled_task_failed, with origin filtering (never react to a failure the run itself caused)
       → integration-health-companion, webhook-repair-desk become workflows

@@ -102,7 +102,7 @@ Returns all published entries, optionally filtered by collection.
         {
           "id": "uuid",
           "slug": "napkin-flat-lay",
-          "url": "/api/publish/group/assets/napkin-flat-lay",
+          "publicUrl": "https://cdn.example.com/napkin-flat-lay.jpg",
           "alt_text": "Folded napkins on a table",
           "role": "featured",
           "usage": "detail",
@@ -159,7 +159,7 @@ resolved under `embeds` (see [Media embeds](#media-embeds)); list items carry th
       "id": "uuid",
       "slug": "napkin-flat-lay",
       "name": "Flat lay of napkins",
-      "url": "/api/publish/group/assets/napkin-flat-lay",
+      "publicUrl": "https://cdn.example.com/napkin-flat-lay.jpg",
       "alt_text": "Folded napkins on a table",
       "mime_type": "image/jpeg",
       "role": "featured",
@@ -222,59 +222,16 @@ Returns all entry types in the workspace with their rendering and capability met
 
 Used by the SDK `renderers.list()` method and the CLI `publish renderers` command. The `is_rendered` flag allows frontends to filter to only entry types that have a corresponding renderer component.
 
-### List Assets
+### Assets and resources
 
-```http
-GET /api/publish/{group_slug}/assets?limit=20&mime_type=image/jpeg
-Authorization: Bearer <site_client_token>
-```
+There are no asset or resource endpoints (`/assets`, `/assets/{slug}`, `/resources`, `/resources/{slug}`
+were removed). An entry carries what it uses: `GET /entries/{slug}` returns `assets[]` (each with
+`publicUrl`, dimensions, alt text) and `resources[]` in full, and a list item returns `assetSlugs`,
+`resourceSlugs` and a resolved `featuredAsset`. Entries that use a resource are still at
+`GET /resources/{slug}/entries`.
 
-Returns all published assets available in the workspace.
-
-**Query Parameters:**
-- `page`: Page number (default: 1)
-- `limit`: Assets per page (default: 20, max: 100)
-- `mime_type`: Filter by MIME type (optional)
-
-**Response:**
-
-```json
-{
-  "data": [
-    {
-      "id": "uuid",
-      "slug": "napkin-flat-lay",
-      "name": "Flat lay of napkins",
-      "url": "/api/publish/group/assets/napkin-flat-lay",
-      "alt_text": "Folded napkins on a table",
-      "mime_type": "image/jpeg",
-      "width": 1200,
-      "height": 800,
-      "metadata": {
-        "tone": "linen"
-      }
-    }
-  ],
-  "meta": {
-    "total": 45,
-    "page": 1,
-    "page_size": 20
-  }
-}
-```
-
-### Get Asset
-
-```http
-GET /api/publish/{group_slug}/assets/{asset_slug}
-Authorization: Bearer <site_client_token>
-```
-
-Downloads or redirects to the asset file.
-
-May return:
-- `200 OK` with file content and appropriate `Content-Type` header
-- `302 Found` redirect to cloud storage (S3, etc)
+The site settings (`GET /site`) name images by URL too: `logo`, `favicon`, `seo.image` and each string in `metadataJson.brand` are public
+URLs, or `null` when the asset is in the Trash or gone, never an asset slug.
 
 ## Expanded lists (`expand=full`)
 

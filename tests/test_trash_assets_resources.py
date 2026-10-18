@@ -538,24 +538,20 @@ def test_publishing_api_never_serves_a_trashed_asset_or_resource(db_session, mak
     hero.trashed_at = material.trashed_at = datetime.now(UTC)
     db_session.commit()
     try:
-        from marvin.core.permissions import Permissions
         from tests.test_publishing_expand import SITE_TOKEN
 
         ws.group.name = "Pub"  # the site endpoint reads it
-        client = site(ws, {**SITE_TOKEN, Permissions.READ_ASSETS: True})
+        client = site(ws, SITE_TOKEN)
         entry = client.get(f"/api/publish/{slug}/entries/{ws.slugs[0]}").json()
         assert [a["asset"]["slug"] for a in entry["assets"]] == ["gallery-0"]
         assert entry["resources"] == []
         item = client.get(f"/api/publish/{slug}/entries").json()["data"][0]
         assert item["assetSlugs"] == ["gallery-0"] and item["resourceSlugs"] == []
         assert item["featuredAsset"]["slug"] == "gallery-0"  # the trashed hero isn't featured
-        assert "hero-0" not in {a["slug"] for a in client.get(f"/api/publish/{slug}/assets").json()["data"]}
-        assert client.get(f"/api/publish/{slug}/assets/hero-0").status_code == 404
-        assert client.get(f"/api/publish/{slug}/resources").json()["data"] == []
-        assert client.get(f"/api/publish/{slug}/resources/waxed-canvas").status_code == 404
         assert client.get(f"/api/publish/{slug}/resources/waxed-canvas/entries").status_code == 404
         site_info = client.get(f"/api/publish/{slug}/site").json()["site"]
-        assert site_info["logo"] is None and site_info["favicon"] == "gallery-0"
+        assert site_info["logo"] is None  # the trashed logo
+        assert site_info["favicon"] == item["featuredAsset"]["publicUrl"]  # a URL, not the slug it is stored as
     finally:
         db_session.query(GroupPreferencesModel).filter_by(group_id=gid).delete()
         db_session.commit()

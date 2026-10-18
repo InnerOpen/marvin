@@ -57,10 +57,9 @@ Permissions are a JSON map of key to boolean checked by `PermissionChecker` (`sr
 |---|---|---|
 | `read:published_entries` | published entries | `true` |
 | `read:collections` | collections | `true` |
-| `read:assets` | assets and asset files | `true` |
 | `read:draft_entries` | nothing: no publishing route checks it; `read:all_entries` grants drafts. No longer offered in the admin form | `false` |
 | `read:all_entries` | every entry regardless of status | `false` |
-| `read:resources` | resources | `false` |
+| `read:resources` | a resource's entries (`/resources/{slug}/entries`) | `false` |
 | `write:public_entries` | public submit to a submittable entry type (**Submit Public Entries** in the form) | `false` |
 | `read:forms`, `write:forms` | legacy forms | `false` |
 | `read:form_submissions`, `write:form_submissions` | legacy form submissions; submit also accepts `write:form_submissions` (**Submit Forms** in the form) | `false` |

@@ -10,17 +10,18 @@ Only entries with status `published` are served, and only from entry types whose
 
 What is new in this release:
 
+- **The API serves entries and the site; assets and resources come with their entries** (breaking). `GET …/assets`, `…/assets/{slug}`, `…/assets/{slug}/file`, `…/resources` and `…/resources/{slug}` are gone (404). A single entry carries full `assets[]` (with `publicUrl`) and `resources[]`; a list item carries `assetSlugs`, `resourceSlugs` and a resolved `featuredAsset`. `/resources/{slug}/entries` stays. `GET /site` returns `logo`, `favicon` and `site.seo.image` (and the same block under `metadataJson.seo`) and every string in `metadataJson.brand` as public URLs, never asset slugs, and `null` for an asset in the Trash or one that doesn't exist; a value that is already a URL passes through. The `read:assets` key no longer gates anything and is gone from the admin form and the default grant (a client that holds it keeps the key harmlessly; it shows under **Other**). `PublishedResourceSummary.entries` was dropped.
 - **`expand=full` on the list endpoints.** `/collections/{slug}`, `/entries` and `/resources/{slug}/entries` return each entry in the single-read shape, so a site gets asset roles and resources for a whole collection in one request instead of one per entry. See [Full entries in one request](#full-entries-in-one-request-expandfull).
 - **List items carry `data` and `description`** (fadb3f52). `PublishedEntryListItem` now includes the entry's schema fields (`data`, never null) and its `description`, so a whole collection or entries page renders from one request. `marvin-astro` skips its per-entry hydrate fetch when `data` is present, which removes an N+1 on large collections.
 - **Entries of non-publishable types are never served** (0e676a23). An entry of a submittable type (a contact message, a newsletter signup) with status `published` used to be returned with its data to any site token. Types whose capabilities say `publishable: false` are now excluded from the entries list, entry detail, collection entries and resource entries, whatever the status. Absent capabilities count as publishable.
-- **Nothing in the [Trash](trash.md) is served.** A trashed entry, asset or resource is left out of every list and read (a read by slug is a 404), an entry's `assets[]` / `resources[]`, a list item's `assetSlugs` / `resourceSlugs` and `featuredAsset`, a resource's entries, and the site settings' `logo`, `favicon` and `seo.image` when they name a trashed asset (`null`). A trashed asset's file stays in storage, so a URL to it already in a built site or pasted into an entry keeps loading until the asset is deleted forever. Trashing or restoring an asset or resource a site shows queues a rebuild (unreleased).
+- **Nothing in the [Trash](trash.md) is served.** A trashed entry is left out of every list and read (a read by slug is a 404), and a trashed asset or resource is left out of an entry's `assets[]` / `resources[]`, a list item's `assetSlugs` / `resourceSlugs` and `featuredAsset`, a resource's entries (404), and the site settings' `logo`, `favicon` and `seo.image` when they name a trashed asset (`null`). A trashed asset's file stays in storage, so a URL to it already in a built site or pasted into an entry keeps loading until the asset is deleted forever. Trashing or restoring an asset or resource a site shows queues a rebuild (unreleased).
 - **`site.privacy`: privacy & cookie disclosures** (unreleased). See [Privacy & cookies](#privacy-cookies).
 
 ## Where
 
 - Base URL: `/api/publish/{workspace_slug}`.
 - Tokens: **Settings → Publishing → Site Clients** (`/publishing/clients`). The plaintext token is shown once, in a dialog, when you create the client or rotate its token (see [Auth and tokens → API clients](../auth-and-tokens.md#api-clients-marvin_sk_)).
-- Consumers: `@inneropen/marvin-sdk` ([SDK docs](https://inneropen.github.io/marvin/sdk/)), `marvin-astro`, and the Marvin CLI ([CLI docs](https://inneropen.github.io/marvin/cli/)), whose `marvin publish` command group (site, entries, collections, resources, assets, renderers — shown once you `marvin login --site-token …`) calls this API directly.
+- Consumers: `@inneropen/marvin-sdk` ([SDK docs](https://inneropen.github.io/marvin/sdk/)), `marvin-astro`, and the Marvin CLI ([CLI docs](https://inneropen.github.io/marvin/cli/)), whose `marvin publish` command group (site, entries, collections, renderers — shown once you `marvin login --site-token …`) calls this API directly.
 
 ## How to use
 
@@ -30,7 +31,7 @@ curl -H "Authorization: Bearer $MARVIN_SITE_TOKEN" \
   "https://marvin.example/api/publish/my-site/entries?entry_type=post&limit=20"
 ```
 
-Paginate with `limit` (default `PUBLISHING_DEFAULT_PAGE_SIZE` = 20, capped at `PUBLISHING_MAX_PAGE_SIZE` = 100) and `offset`. Entries list newest-published first; assets and resources list by name.
+Paginate with `limit` (default `PUBLISHING_DEFAULT_PAGE_SIZE` = 20, capped at `PUBLISHING_MAX_PAGE_SIZE` = 100) and `offset`. Entries list newest-published first.
 
 Sample `GET /entries` response (fields abbreviated):
 
@@ -64,7 +65,7 @@ Field names are camelCase on the wire; the `PublishedEntriesResponse` schema is 
 
 ### Full entries in one request: `expand=full`
 
-A list item has asset and resource *slugs* only. A site that needs asset roles (the hero image), resources or every collection membership used to read each item again through `/entries/{slug}`, one request per entry. Add `expand=full` to `/collections/{slug}`, `/entries` or `/resources/{slug}/entries` and each entry comes back in the single-read shape (`PublishedEntryRead`: `assets[]` and `resources[]` placements, full `collections`, `data`, `embeds`), the same JSON `/entries/{slug}` returns for it. A collection's entries also keep their `order`.
+A list item has asset and resource *slugs* (plus a resolved `featuredAsset`) only. A site that needs asset roles (the hero image), resources or every collection membership used to read each item again through `/entries/{slug}`, one request per entry. Add `expand=full` to `/collections/{slug}`, `/entries` or `/resources/{slug}/entries` and each entry comes back in the single-read shape (`PublishedEntryRead`: `assets[]` and `resources[]` placements, full `collections`, `data`, `embeds`), the same JSON `/entries/{slug}` returns for it. A collection's entries also keep their `order`.
 
 - Filters and pagination are unchanged. `/entries` keeps its `limit` cap (`PUBLISHING_MAX_PAGE_SIZE`, 100). The two unpaginated endpoints expand up to `PUBLISHING_MAX_EXPANDED_ENTRIES` entries (default 500); past that they return plain list items, as a server without `expand` does, and a client falls back to per-entry reads.
 - Expanding never shows more than the single read: published entries only (a `read:all_entries` token's drafts drop out of an expanded collection), and the token needs `read:published_entries` or `read:all_entries` on top of the endpoint's own key, else 403.
@@ -76,17 +77,12 @@ A list item has asset and resource *slugs* only. A site that needs asset roles (
 | Method | Path | Query | Permission |
 | --- | --- | --- | --- |
 | GET | `/` | — | `read:published_entries` or `read:all_entries` |
-| GET | `/site` | — | same; returns site configuration (SEO, verification tags, `privacy`, `embeds`: media privacy mode, consent text, player origins) |
+| GET | `/site` | — | same; returns site configuration (`logo`, `favicon` and `seo.image` as URLs, SEO, verification tags, `privacy`, `embeds`: media privacy mode, consent text, player origins) |
 | GET | `/entry-types` | — | same; ordered by `sort_order`, name |
 | GET | `/entries` | `entry_type`, `collection`, `tag` (comma, any), `slug` (comma), `updated_since` (ISO), `limit`, `offset`, `expand` | same |
 | GET | `/entries/{slug}` | — | same; full `PublishedEntryRead` with collections, resources, assets and media `embeds` (list items carry `embeds` too; see [Media embeds](media-embeds.md)) |
 | GET | `/collections` | `limit`, `offset` | `read:collections`; public collections only |
 | GET | `/collections/{slug}` | `expand` | `read:collections`; entries ordered by junction `sort_order` then `published_at` desc. With `read:all_entries` the token also sees non-published members (not with `expand=full`) |
-| GET | `/assets` | `type` (MIME prefix: image, video, audio, application), `limit`, `offset` | `read:assets` |
-| GET | `/assets/{slug}` | — | `read:assets` |
-| GET | `/assets/{slug}/file` | — | `read:assets`; streams the file |
-| GET | `/resources` | `resource_type`, `limit`, `offset` | `read:resources` |
-| GET | `/resources/{slug}` | — | `read:resources` |
 | GET | `/resources/{slug}/entries` | `expand` | `read:resources`; published entries linked to the resource |
 | GET | `/forms/{slug}` | — | `read:published_entries`; form definition, success message, honeypot field name when enabled |
 | POST | `/forms/{slug}/submit` | body: submission dict | `write:public_entries` or `write:form_submissions` |
@@ -102,14 +98,13 @@ Defined in `src/marvin/core/permissions.py`:
 | `read:published_entries` | yes | default on a new client |
 | `read:all_entries` | yes | substitutes for `read:published_entries` and widens `/collections/{slug}` |
 | `read:collections` | yes | default on a new client |
-| `read:assets` | yes | default on a new client |
-| `read:resources` | yes | |
+| `read:resources` | yes | gates `/resources/{slug}/entries` |
 | `write:public_entries` | yes | form submit, entry-type path |
 | `write:form_submissions` | yes | form submit, legacy key existing site tokens hold |
 | `read:draft_entries` | no | defined, but no publishing route checks it; the client form stopped offering it in rc.181 (`read:all_entries` is what grants drafts) |
 | `read:forms`, `write:forms`, `read:form_submissions` | no | defined; no route references them |
 
-The create and edit forms (`/publishing/clients/new`, `/publishing/clients/{id}/edit`) offer exactly the keys the routes check, in two groups: **Content** (Read Published Entries, Read All Entries, Read Collections, Read Assets, Read Resources) and **Forms** (**Submit Forms** for `write:form_submissions`, **Submit Public Entries** for `write:public_entries`). A key a client holds that the form doesn't list appears under **Other**, so it can be removed. Full reference: [`../api/`](../api/index.md).
+The create and edit forms (`/publishing/clients/new`, `/publishing/clients/{id}/edit`) offer exactly the keys the routes check, in two groups: **Content** (Read Published Entries, Read All Entries, Read Collections, Read Resources) and **Forms** (**Submit Forms** for `write:form_submissions`, **Submit Public Entries** for `write:public_entries`). A key a client holds that the form doesn't list (such as the retired `read:assets`) appears under **Other**, so it can be removed. Full reference: [`../api/`](../api/index.md).
 
 ### Privacy & cookies
 

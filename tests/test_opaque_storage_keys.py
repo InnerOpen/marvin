@@ -481,6 +481,7 @@ def test_the_download_redirect_and_publishing_api_use_the_workspace_domain(db_se
     from marvin.app import app
     from marvin.core.dependencies import get_publishing_context
     from marvin.db.db_setup import session_context
+    from marvin.db.models.groups.preferences import GroupPreferencesModel
     from marvin.services.storage.admin import set_workspace_public_base_url
 
     _choose("cloud")
@@ -492,20 +493,24 @@ def test_the_download_redirect_and_publishing_api_use_the_workspace_domain(db_se
     res = member.get(f"/api/platform/assets/{asset.id}/file", follow_redirects=False)
     assert res.status_code in (302, 307) and res.headers["location"] == f"https://assets.client.test/{asset.storage_key}"
 
-    perms = SimpleNamespace(require_permission=lambda *a, **k: None)
+    perms = SimpleNamespace(require_permission=lambda *a, **k: None, require_any_permission=lambda *a, **k: None)
     app.dependency_overrides[get_publishing_context] = lambda: (
         SimpleNamespace(id=uuid.uuid4()),
-        SimpleNamespace(id=workspace.gid, slug=workspace.slug),
+        SimpleNamespace(id=workspace.gid, slug=workspace.slug, name="Pub"),
         perms,
     )
     try:
         client = TestClient(app)
-        meta = client.get(f"/api/publish/{workspace.slug}/assets/{asset.slug}")
-        assert meta.status_code == 200, meta.text
-        assert meta.json()["publicUrl"] == f"https://assets.client.test/{asset.storage_key}"
-        file = client.get(f"/api/publish/{workspace.slug}/assets/{asset.slug}/file", follow_redirects=False)
-        assert file.headers["location"] == f"https://assets.client.test/{asset.storage_key}"
+        with session_context() as session:
+            session.add(GroupPreferencesModel(session=session, group_id=workspace.gid, site_logo=asset.slug))
+            session.commit()
+        site = client.get(f"/api/publish/{workspace.slug}/site")
+        assert site.status_code == 200, site.text
+        assert site.json()["site"]["logo"] == f"https://assets.client.test/{asset.storage_key}"
     finally:
+        with session_context() as session:
+            session.query(GroupPreferencesModel).filter_by(group_id=workspace.gid).delete()
+            session.commit()
         app.dependency_overrides.pop(get_publishing_context, None)
 
 

@@ -45,19 +45,10 @@ class TestPublishingAPI:
         # Should return 401 or 403 (unauthorized/forbidden) without API key
         assert response.status_code in [401, 403]
 
-    def test_assets_list_requires_authentication(self, client: TestClient):
-        """Test that assets list endpoint requires authentication."""
-        response = client.get("/api/publish/test-workspace/assets")
-
-        # Should return 401 or 403 (unauthorized/forbidden) without API key
-        assert response.status_code in [401, 403]
-
-    def test_resources_list_requires_authentication(self, client: TestClient):
-        """Test that resources list endpoint requires authentication."""
-        response = client.get("/api/publish/test-workspace/resources")
-
-        # Should return 401 or 403 (unauthorized/forbidden) without API key
-        assert response.status_code in [401, 403]
+    def test_assets_and_resources_lists_are_gone(self, client: TestClient):
+        """Entries carry their assets and resources, so the publishing API has no list endpoints for them."""
+        assert client.get("/api/publish/test-workspace/assets").status_code == 404
+        assert client.get("/api/publish/test-workspace/resources").status_code == 404
 
     def test_invalid_workspace_slug_returns_error(self, client: TestClient):
         """Test that invalid workspace slugs return appropriate errors."""

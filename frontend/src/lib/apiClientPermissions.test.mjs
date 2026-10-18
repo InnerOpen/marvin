@@ -29,18 +29,18 @@ describe("API_CLIENT_PERMISSIONS", () => {
 
 describe("initiallyGranted", () => {
   test("test_initially_granted_for_new_client_returns_backend_defaults", () => {
-    assert.deepEqual([...initiallyGranted()].sort(), ["read:assets", "read:collections", "read:published_entries"]);
+    assert.deepEqual([...initiallyGranted()].sort(), ["read:collections", "read:published_entries"]);
   });
 
   test("test_initially_granted_for_existing_client_returns_only_true_keys", () => {
-    const granted = initiallyGranted({ "read:assets": true, "write:form_submissions": false });
-    assert.deepEqual([...granted], ["read:assets"]);
+    const granted = initiallyGranted({ "read:collections": true, "write:form_submissions": false });
+    assert.deepEqual([...granted], ["read:collections"]);
   });
 });
 
 describe("unlistedGrantedKeys", () => {
   test("test_unlisted_granted_keys_returns_legacy_grants_only", () => {
-    const keys = unlistedGrantedKeys({ "read:assets": true, "read:draft_entries": true, "read:forms": false });
+    const keys = unlistedGrantedKeys({ "read:collections": true, "read:draft_entries": true, "read:forms": false });
     assert.deepEqual(keys, ["read:draft_entries"]);
   });
 
@@ -51,8 +51,8 @@ describe("unlistedGrantedKeys", () => {
 
 describe("permissionsFromChecked", () => {
   test("test_permissions_from_checked_maps_each_key_to_true", () => {
-    assert.deepEqual(permissionsFromChecked(["read:assets", "write:form_submissions", ""]), {
-      "read:assets": true,
+    assert.deepEqual(permissionsFromChecked(["read:collections", "write:form_submissions", ""]), {
+      "read:collections": true,
       "write:form_submissions": true,
     });
   });

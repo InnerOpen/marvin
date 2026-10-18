@@ -36,13 +36,6 @@ export const API_CLIENT_PERMISSIONS: readonly APIClientPermission[] = [
     isDefault: true,
   },
   {
-    key: "read:assets",
-    label: "Read Assets",
-    description: "Access uploaded media files",
-    group: "Content",
-    isDefault: true,
-  },
-  {
     key: "read:resources",
     label: "Read Resources",
     description: "Access resource metadata",
