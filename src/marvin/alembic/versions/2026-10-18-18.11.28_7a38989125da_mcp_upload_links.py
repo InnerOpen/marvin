@@ -1,7 +1,7 @@
 """mcp upload links
 
 Revision ID: 7a38989125da
-Revises: 86af6abd02c3
+Revises: c5b1eb095038
 Create Date: 2026-10-18 18:11:28.280423
 
 """
@@ -14,7 +14,7 @@ import marvin.db.migration_types
 
 # revision identifiers, used by Alembic.
 revision: str = "7a38989125da"
-down_revision: str | None = "86af6abd02c3"
+down_revision: str | None = "c5b1eb095038"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
