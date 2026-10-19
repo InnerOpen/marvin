@@ -122,6 +122,18 @@ def _no_plugin_update_check(monkeypatch) -> None:
     monkeypatch.setattr(plugin_updates, "_refresh_in_background", lambda: None)
 
 
+@fixture(autouse=True)
+def _no_ambient_smtp(monkeypatch) -> None:
+    """A developer's .env often points SMTP_* at a local Mailpit. With nothing listening on it (or a port that drops
+    packets, as WSL's forwarding does) every test that sends mail waits out the 10 s SMTP timeout: a 56-minute suite.
+    Tests that need SMTP set the settings they want (and fake the send); none should reach a socket by accident."""
+    from marvin.core.config import get_app_settings
+
+    settings = get_app_settings()
+    for name in ("SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM_EMAIL"):
+        monkeypatch.setattr(settings, name, None)
+
+
 @fixture
 def client() -> TestClient:
     """FastAPI test client for making API requests."""

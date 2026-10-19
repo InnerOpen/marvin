@@ -93,7 +93,8 @@ def world(db_session, monkeypatch):
             lambda self, to, subject, html: sent.append(SimpleNamespace(to=to, subject=subject, html=html, by=type(self).__name__)) or True,
         )
     monkeypatch.setattr(EmailService, "_can_send", lambda self: True)
-    monkeypatch.setattr(type(get_app_settings()), "SMTP_ENABLED", property(lambda self: True))
+    for name, value in {"SMTP_HOST": "smtp.test", "SMTP_PORT": "587", "SMTP_FROM_EMAIL": "marvin@test", "SMTP_AUTH_STRATEGY": "NONE"}.items():
+        monkeypatch.setattr(get_app_settings(), name, value)  # platform SMTP ready (the send itself is faked above)
 
     posted: list = []  # every outgoing webhook request
     from marvin.services.event_bus_service import publisher
