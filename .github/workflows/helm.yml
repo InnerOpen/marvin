@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - 'marvin-chart/**'
+      - 'scripts/helm-check.sh'
       - '.github/workflows/helm.yml'
   push:
     branches:
@@ -14,6 +15,7 @@ on:
       - develop
     paths:
       - 'marvin-chart/**'
+      - 'scripts/helm-check.sh'
       - '.github/workflows/helm.yml'   # a change to this file tests itself (2026-10-13: a Kind fix shipped unrun)
   workflow_dispatch:
 
@@ -37,68 +39,9 @@ jobs:
         with:
           version: 'v3.14.0'
 
-      - name: Lint Helm chart
-        run: |
-          helm lint marvin-chart/ --strict
-
-      - name: Template Helm chart (default values)
-        run: |
-          helm template marvin marvin-chart/ \
-            --debug \
-            --output-dir /tmp/marvin-templates
-
-      # `--api-versions route.openshift.io/v1` makes the OpenShift Route render: the template is
-      # capability-gated so it silently vanishes from a plain `helm template`, leaving it untested.
-      - name: Template Helm chart (production values)
-        run: |
-          helm template marvin marvin-chart/ \
-            --values marvin-chart/values-production.yaml \
-            --set image.tag=latest \
-            --api-versions route.openshift.io/v1 \
-            --debug \
-            --output-dir /tmp/marvin-templates-prod
-
-      # The Postgres path: POSTGRES_* wiring, the CNPG Cluster, the hourly pg_dump CronJob.
-      - name: Template Helm chart (dev values, Postgres)
-        run: |
-          helm template marvin marvin-chart/ \
-            --namespace marvin-dev \
-            --values marvin-chart/values-dev.yaml \
-            --api-versions route.openshift.io/v1 \
-            --debug \
-            --output-dir /tmp/marvin-templates-dev
-
-      - name: Template Helm chart (iwobble values, Postgres)
-        run: |
-          helm template marvin marvin-chart/ \
-            --values marvin-chart/values-iwobble.yaml \
-            --api-versions route.openshift.io/v1 \
-            --debug \
-            --output-dir /tmp/marvin-templates-iwobble
-
-      # The chart's default is SQLite (a plain install needs no operator); every environment's values file
-      # pins Postgres and a CloudNativePG Cluster. A values file that loses its pin would deploy that environment
-      # onto an empty SQLite file, so each one is rendered and checked: engine in the ConfigMap, and the Cluster.
-      - name: Assert the database engine each values file renders
-        run: |
-          set -euo pipefail
-          render() { helm template marvin marvin-chart/ --api-versions route.openshift.io/v1 "$@"; }
-
-          render > /tmp/engine-default.yaml
-          grep -q 'dbEngine: "sqlite"' /tmp/engine-default.yaml
-          if grep -q 'apiVersion: postgresql.cnpg.io' /tmp/engine-default.yaml; then
-            echo "default values must not render a CloudNativePG Cluster"; exit 1
-          fi
-          echo "default: sqlite, no Cluster"
-
-          for env in iwobble dev production k8s; do
-            render --values "marvin-chart/values-$env.yaml" --set image.tag=latest > "/tmp/engine-$env.yaml"
-            grep -q 'dbEngine: "postgres"' "/tmp/engine-$env.yaml" \
-              || { echo "values-$env.yaml does not render dbEngine: \"postgres\""; exit 1; }
-            grep -q 'apiVersion: postgresql.cnpg.io' "/tmp/engine-$env.yaml" \
-              || { echo "values-$env.yaml does not render a CloudNativePG Cluster"; exit 1; }
-            echo "$env: postgres + CloudNativePG Cluster"
-          done
+      # Lint, render with every values file, and check the engine each renders (also `task helm:lint`).
+      - name: Lint, template and check the database engine per values file
+        run: scripts/helm-check.sh
 
       - name: Upload rendered templates
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

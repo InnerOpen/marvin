@@ -30,6 +30,18 @@ tasks:
       - task --list
     silent: true
 
+  # What gates a push (test.yml's lint job and both backend suites) plus the frontend tests. Advisory, as in CI: mypy
+  # stays out (`task py:mypy`), and `astro check` runs but its existing type errors don't fail the task.
+  ci:
+    desc: run the CI gates locally — ruff lint + format check, the backend suite on SQLite and Postgres, frontend tests (+ advisory astro check)
+    cmds:
+      - task: py:lint
+      - uv run ruff format --check src tests
+      - task: py:test:all
+      - task: frontend:test
+      - cmd: cd frontend && npm run check
+        ignore_error: true
+
   audit:dead:
     desc: print dead-code findings (backend vulture at 80%, frontend knip); never fails
     cmds:
@@ -43,15 +55,25 @@ tasks:
       - rm -rf src/dev/data/marvin.log
       - rm -rf src/dev/data/.secret
 
-  dev:generate:
-    desc: regenerate the schema package re-exports (src/marvin/schemas/*/__init__.py)
-    cmds:
-      - uv run python src/dev/code_generation/gen_py_schema_exports.py
-
   dev:refresh:
     desc: refresh marvin-dev from production's newest backup (database, outbound paused, missing assets)
     cmds:
       - scripts/dev-refresh.sh {{.CLI_ARGS}}
+
+  deploy:promote:
+    desc: 'promote a CI-built commit by hand, e.g. task deploy:promote -- <commit> marvin-dev values-dev.yaml [--dry-run]'
+    cmds:
+      - scripts/deploy/promote.sh {{.CLI_ARGS}}
+
+  deploy:rollback:
+    desc: 'return a release to a helm revision, e.g. task deploy:rollback -- marvin-dev 41'
+    cmds:
+      - scripts/deploy/rollback.sh {{.CLI_ARGS}}
+
+  deploy:smoke:
+    desc: 'smoke-check a namespace (optionally that it runs a commit), e.g. task deploy:smoke -- marvin-dev f0e7846'
+    cmds:
+      - scripts/deploy/smoke.sh {{.CLI_ARGS}}
 
   dev:services:start:
     desc: start dev support services (postgres, mailpit, …)
@@ -122,42 +144,38 @@ tasks:
     cmds:
       - npm run format
 
-  # NOTE: Astro is configured output:"server" (node adapter), so this emits a server
-  # build into frontend/dist — not a purely static site. Same output as frontend:build
-  # without the preceding `astro check`.
-  frontend:generate:
-    desc: generate the built frontend in frontend/dist
-    dir: frontend
-    cmds:
-      - npx astro build
-
-  # NOTE: the frontend has no linter or test runner yet (no eslint/prettier, no vitest/jest,
-  # and no `lint`/`test` scripts in package.json). These two tasks won't run until that
-  # tooling and the matching npm scripts are added.
+  # Biome; advisory in CI (it flags false unused-vars in .astro templates).
   frontend:lint:
-    desc: run the frontend linter
+    desc: run the frontend linter (Biome)
     dir: frontend
     cmds:
       - npm run lint
 
   frontend:test:
-    desc: run the frontend tests
+    desc: run the frontend tests (node --test)
     dir: frontend
     cmds:
       - npm run test
+
+  helm:lint:
+    desc: lint the chart, render every values file and check each one's database engine (as helm.yml does)
+    cmds:
+      - scripts/helm-check.sh
 
   py:
     desc: run the backend server
     cmds:
       - uv run src/marvin/app.py
 
+  # In order, not as parallel deps: lint must read what format has finished writing.
   py:check:
-    desc: run all python formatters, linters, type checks and tests
-    deps:
-      - py:format
-      - py:lint
-      - py:mypy
-      - py:test
+    desc: format, lint, type-check (advisory) and test the backend
+    cmds:
+      - task: py:format
+      - task: py:lint
+      - cmd: uv run mypy src/marvin
+        ignore_error: true
+      - task: py:test
 
   py:coverage:
     desc: run tests with coverage and open the HTML report
@@ -174,17 +192,18 @@ tasks:
       - uv run coverage report -m
       - uv run coverage lcov
       - uv run coverage html
-      - open htmlcov/index.html
+      - uv run python -m webbrowser -t htmlcov/index.html
 
+  # src and tests, as CI checks; ruff is the uv.lock version, as in CI and the pre-commit hook.
   py:format:
     desc: format python code
     cmds:
-      - uv run ruff format src/marvin
+      - uv run ruff format src tests
 
   py:lint:
     desc: lint python code
     cmds:
-      - uv run ruff check src/marvin
+      - uv run ruff check src tests
 
   py:migrate:
     desc: 'generate a new migration, e.g. task py:migrate -- "add new column"'
@@ -203,7 +222,7 @@ tasks:
       - uv run alembic --config src/marvin/alembic.ini history -r current:head
 
   py:mypy:
-    desc: type-check python code
+    desc: type-check python code (advisory — existing errors)
     cmds:
       - uv run mypy src/marvin
 
@@ -221,9 +240,9 @@ tasks:
       - uv run src/marvin/app.py
 
   py:server:
-    desc: run a standalone server on :8000 for webhook tests
+    desc: run a standalone server on :8000 for webhook tests (Ctrl-C stops it)
     cmds:
-      - uv run scripts/server.py 8000 &
+      - uv run scripts/server.py 8000
 
   py:test:
     desc: run python tests (args after '--')
@@ -234,6 +253,29 @@ tasks:
       DB_ENGINE: sqlite
     cmds:
       - uv run pytest {{ .CLI_ARGS }}
+
+  # The dev container's Postgres (`task dev:services:start`). tests/conftest.py forces a database whose name contains
+  # "test" (made if missing), so this can't drop the dev database.
+  py:test:pg:
+    desc: run python tests on Postgres (args after '--')
+    env:
+      DB_ENGINE: postgres
+      POSTGRES_USER: default
+      POSTGRES_PASSWORD: default
+      POSTGRES_SERVER: 127.0.0.1
+      POSTGRES_PORT: 5434
+      POSTGRES_DB: marvin_test
+    cmds:
+      - uv run pytest {{ .CLI_ARGS }}
+
+  py:test:all:
+    desc: run python tests on both engines at once (SQLite and Postgres)
+    deps: [py:test, py:test:pg]
+
+  release:dry-run:
+    desc: print the version semantic-release would cut from this branch (changes nothing)
+    cmds:
+      - uv run semantic-release --noop version --print
 
   setup:
     desc: install all backend + frontend dependencies
@@ -252,10 +294,10 @@ tasks:
       - package-lock.json
 
   setup:py:
-    desc: install python dependencies and git hooks
+    desc: install python dependencies (exactly uv.lock) and git hooks
     run: once
     cmds:
-      - uv sync --group dev
+      - uv sync --frozen --group dev
       - uv run pre-commit install
     sources:
       - uv.lock
