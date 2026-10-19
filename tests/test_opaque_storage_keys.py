@@ -122,7 +122,8 @@ def _drop_workspace(db_session, w):
     ids = [a for (a,) in db_session.query(Assets.id).filter(Assets.group_id == w.gid)]
     if ids:
         db_session.query(StorageKeyAliasModel).filter(StorageKeyAliasModel.asset_id.in_(ids)).delete()
-    db_session.query(EventLogModel).filter(EventLogModel.workspace_id == w.gid).delete()
+    # a platform event (a storage setting changed) has no workspace: it is the admin's
+    db_session.query(EventLogModel).filter(sa.or_(EventLogModel.workspace_id == w.gid, EventLogModel.user_id == w.uid)).delete()
     db_session.query(Assets).filter(Assets.group_id == w.gid).delete()
     db_session.query(Users).filter(Users.group_id == w.gid).delete()
     db_session.query(Groups).filter(Groups.id == w.gid).delete()

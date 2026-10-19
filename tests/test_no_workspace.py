@@ -17,7 +17,6 @@ from alembic.operations import Operations
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-import marvin.db.migration_types as mt
 from marvin.app import app
 from marvin.core.security import create_access_token
 from marvin.db.models.groups import Groups
@@ -265,9 +264,11 @@ def test_platform_events_have_no_workspace(world, db_session):
     assert res.status_code == 200, res.text
     world.client.put("/api/admin/storage/workspace-policy", json={"allowed": policy["allowed"], "endpointPolicy": policy["endpointPolicy"]})
     db_session.expire_all()
-    rows = db_session.execute(
-        select(EventLogModel).where(EventLogModel.user_id == world.admin.id, EventLogModel.integration_id == "storage_settings")
-    ).scalars().all()
+    rows = (
+        db_session.execute(select(EventLogModel).where(EventLogModel.user_id == world.admin.id, EventLogModel.integration_id == "storage_settings"))
+        .scalars()
+        .all()
+    )
     assert rows, "the storage policy change wasn't audited"
     assert all(r.workspace_id is None for r in rows)
     assert db_session.execute(select(sa.func.count()).select_from(EventLogModel)).scalar() > before
@@ -280,7 +281,11 @@ def test_an_api_token_event_has_no_workspace_even_with_one(world, db_session):
     res = _client(member).post("/api/self/api-tokens", json={"name": f"nw-{world.marker}"})
     assert res.status_code in (200, 201), res.text
     db_session.expire_all()
-    rows = db_session.execute(select(EventLogModel).where(EventLogModel.user_id == member.id, EventLogModel.integration_id == "api_token_management")).scalars().all()
+    rows = (
+        db_session.execute(select(EventLogModel).where(EventLogModel.user_id == member.id, EventLogModel.integration_id == "api_token_management"))
+        .scalars()
+        .all()
+    )
     assert rows and all(r.workspace_id is None for r in rows)
 
 
@@ -300,9 +305,7 @@ def old_schema(tmp_path):
     engine = sa.create_engine(f"sqlite:///{tmp_path / 'm.db'}")
     with engine.begin() as conn:
         conn.exec_driver_sql("CREATE TABLE groups (id CHAR(32) PRIMARY KEY, name VARCHAR NOT NULL, is_platform BOOLEAN NOT NULL DEFAULT 0)")
-        conn.exec_driver_sql(
-            "CREATE TABLE users (id CHAR(32) PRIMARY KEY, group_id CHAR(32) NOT NULL, FOREIGN KEY(group_id) REFERENCES groups (id))"
-        )
+        conn.exec_driver_sql("CREATE TABLE users (id CHAR(32) PRIMARY KEY, group_id CHAR(32) NOT NULL, FOREIGN KEY(group_id) REFERENCES groups (id))")
         conn.exec_driver_sql("INSERT INTO groups VALUES (?, 'Zed', 1), (?, 'Alpha', 0)", (PLAT, OTHER))
         conn.exec_driver_sql("INSERT INTO users VALUES (?, ?)", (HOUSED, OTHER))
     yield engine
