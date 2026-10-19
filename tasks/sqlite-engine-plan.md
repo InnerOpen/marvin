@@ -115,7 +115,10 @@ Before merging Stage 1: diff `helm template` with `values-iwobble.yaml` and `val
 ## 9. Decisions
 - **Jared 2026-10-18:** SQLite returns as a supported engine and is the default for a fresh install; Postgres when
   configured; prod/dev stay on Postgres.
-- *(answers to §10 go here)*
+- **Jared 2026-10-18: all §10 questions as recommended** — (1) auto engine when unset, (2) chart default SQLite + every
+  environment values file pins Postgres, (3) SQLite suite on every push in parallel, (4) no Postgres → SQLite conversion
+  now, (5) `DATA_DIR/marvin.db`, (6) enforce `String(N)` at flush on SQLite, (7) tokenized LIKE for fuzzy search,
+  (8) local `uv run pytest` defaults to SQLite with a file per run.
 
 ## 10. Questions for Jared (recommended first)
 1. `DB_ENGINE` unset: auto — Postgres if `POSTGRES_*` set, else SQLite (rec.) — or plain SQLite?
