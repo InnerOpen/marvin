@@ -43,21 +43,6 @@ tasks:
       - uv run src/dev/code_generation/main.py
       - task: py:format
 
-  # dev:reset-and-seed:
-  #   desc: reset the dev environment and seed Mash & Burn Co. demo data
-  #   cmds:
-  #     - echo "Stopping Marvin service..."
-  #     - pkill -f "marvin-server|uvicorn.*marvin" || echo "No service running"
-  #     - sleep 2
-  #     - echo "Cleaning development environment..."
-  #     - task: dev:clean
-  #     - echo "Starting Marvin backend..."
-  #     - task py &
-  #     - sleep 5
-  #     - echo "Seeding demo data..."
-  #     - uv run scripts/seed_mashandburnco.py
-  #     - echo "✅ Reset complete! Marvin running with fresh data."
-
   dev:refresh:
     desc: refresh marvin-dev from production's newest backup (database, outbound paused, missing assets)
     cmds:
