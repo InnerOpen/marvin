@@ -6,6 +6,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.1-rc.2 (2026-10-19)
+
+### Bug Fixes
+
+- **frontend**: Entry types on a phone are compact rows again — tap a row to edit
+  ([`5346cee`](https://github.com/InnerOpen/marvin/commit/5346cee86751c26a163c5a920d90e74116f2ac35))
+
+### Continuous Integration
+
+- **release**: Don't attach the Helm chart to a prerelease — develop's rc tags have no GitHub
+  Release
+  ([`eda7805`](https://github.com/InnerOpen/marvin/commit/eda78058da4c64ce8916e7d9cfc4ae8c075218bf))
+
+### Documentation
+
+- **tasks**: Plan — cookie consent banner and privacy policy components (decisions recorded)
+  ([`cec335c`](https://github.com/InnerOpen/marvin/commit/cec335c2c56f95f2395e9e752291101c7beaef12))
+
+
 ## v1.0.1-rc.1 (2026-10-19)
 
 ### Bug Fixes
