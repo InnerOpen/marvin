@@ -113,6 +113,17 @@ workspace.
 `/admin/workspaces`). `AppLayout`, `/`, `/workspace/*` with none → super admins to `/admin`, others to new
 `pages/no-workspace.astro`. `admin/users.astro:73-87`, `admin/users/[id].astro:146-245` show "No home workspace".
 
+**Stage 2 status (2026-10-18, branch `wl/stage2`):**
+
+- [x] Migration C `9d7cd212484e` (down_revision `7a38989125da`): `users.group_id` nullable, FK recreated `ON DELETE SET NULL` (SQLite + Postgres, up and down verified).
+- [x] `services/workspace/current.py::current_workspace_id(user, session)` (session only for the by-name fallback) replaces every `active_group_id or group_id` site; `BaseUserController.group_id` answers 409 `{"detail": {"code": "no_workspace"}}`; `GET /self/workspaces/current` is `GroupRead | null` (the `/self/workspaces` routes run unscoped, so they work with none).
+- [x] Platform events with `group_id=None`: `storage_controller` (both), `api_token_controller`, `auth_controller` (token refresh); always audited.
+- [x] Users with no home: `Users(group=None)` = none (Admin create, OIDC, LDAP); `UserRead`/`UserSummary` Optional. The seeders (`init_users.py`) name the platform workspace explicitly until Stage 3.
+- [x] Character-pack line writing takes `workspaceId` or the current workspace, else 409; `routes/groups/invitation_controller` already goes through `self.group_id` (409). `routes/admin/platform/` and `admin/invitation_controller.py` no longer exist (dead-code cleanup).
+- [x] Workspace delete clears homes (SET NULL), the home guard is gone; Admin create sets the creator's `active_group_id` when they have no current workspace.
+- [x] Frontend: middleware sends workspace pages to `/admin` (super admin) or `pages/no-workspace.astro`; `WorkspaceSwitcher` "No workspace" + "Create workspace"; Admin users pages "No home workspace"; character library picks a workspace to bill.
+- [ ] Not Stage 2 (Stage 3): `is_platform`, `/admin/groups/platform`, the badge, `init_db`'s platform workspace.
+
 **Tests:** `test_no_workspace.py` — a super admin with no home and no memberships gets 200 on every GET of the admin
 router (iterate them); `/workspace` APIs 409 `no_workspace`; `current` null; `current_workspace_id` fallback order;
 deleting someone's home clears it; platform events carry no `workspace_id`.

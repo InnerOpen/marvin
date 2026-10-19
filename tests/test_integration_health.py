@@ -590,7 +590,8 @@ ROUTES = [
 @pytest.mark.parametrize("role", [WorkspaceRole.EDITOR, WorkspaceRole.AUTHOR, WorkspaceRole.VIEWER, None])
 @pytest.mark.parametrize("route", ROUTES, ids=[f"{m} {p}" for m, p in ROUTES])
 def test_api_is_admin_only(ws, role, route):
-    assert _sign_in(ws, role).request(*route).status_code == 403
+    # A non-member (role None) is in no workspace at all: 409 no_workspace, before the gate.
+    assert _sign_in(ws, role).request(*route).status_code == (409 if role is None else 403)
 
 
 @NEEDS_SDK

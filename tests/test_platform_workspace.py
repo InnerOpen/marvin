@@ -189,13 +189,13 @@ def test_resolver_follows_the_marker_through_a_rename(db_session, platform):
     assert is_platform_workspace(db_session, platform.id)
 
 
-def test_new_user_without_a_group_lands_in_the_renamed_platform_workspace(db_session, platform):
+def test_new_user_without_a_group_has_no_home_even_with_a_platform_workspace(db_session, platform):
     rename_workspace(db_session, platform, name=f"Not Default {uuid.uuid4().hex[:6]}")
     db_session.commit()
     user = Users(
-        session=db_session, full_name="Lands Here", password="x", username=f"pw-{uuid.uuid4().hex[:8]}", email=f"pw-{uuid.uuid4().hex[:8]}@t.test"
+        session=db_session, full_name="Lands Nowhere", password="x", username=f"pw-{uuid.uuid4().hex[:8]}", email=f"pw-{uuid.uuid4().hex[:8]}@t.test"
     )
-    assert user.group.id == platform.id
+    assert user.group is None
     db_session.rollback()  # never saved
 
 

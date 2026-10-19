@@ -23,6 +23,7 @@ import marvin.db.migration_types as mt
 from marvin.app import app
 from marvin.core.dependencies import get_current_user
 from marvin.db.models.groups.automations import WorkspaceAutomationModel, assemble_trigger, split_trigger
+from tests._users import member_of
 
 _VERSIONS = Path(__file__).resolve().parents[1] / "src" / "marvin" / "alembic" / "versions"
 
@@ -158,7 +159,9 @@ def workspace(db_session):
         )
     )
     db_session.commit()
-    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=uid, group_id=gid, active_group_id=gid, admin=True, is_superuser=False)
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
+        id=uid, group_id=gid, active_group_id=gid, admin=True, is_superuser=False, **member_of(gid)
+    )
     yield gid
     app.dependency_overrides.pop(get_current_user, None)
     _drop_workspace(db_session, gid)

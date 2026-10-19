@@ -282,7 +282,9 @@ def awaiting_count(session: Session, user_id) -> int:
 def badge_counts(session: Session, user) -> dict:
     """The installed app's icon count: the current workspace's inbox, plus the person's approvals waiting anywhere and
     the current workspace's workflow runs waiting for an approval they may give."""
-    group_id = getattr(user, "active_group_id", None) or getattr(user, "group_id", None)
+    from marvin.services.workspace.current import current_workspace_id
+
+    group_id = current_workspace_id(user, session)
     inbox = (inbox_count(session, group_id) or 0) if group_id else 0
     approvals = awaiting_count(session, user.id) + (_workflow_approvals(session, group_id, user) if group_id else 0)
     return {"inbox": inbox, "approvals": approvals, "count": inbox + approvals}

@@ -12,6 +12,7 @@ from pytest import fixture
 from marvin.app import app
 from marvin.core.dependencies import get_current_user
 from marvin.services.automation.matcher import explain, matches
+from tests._users import member_of
 
 HOOK_URL = "https://hooks.example.test/buttondown"
 NEWSLETTER_CONDITION = {"field": "entry.entry_type", "op": "eq", "value": "newsletter-issue"}
@@ -131,7 +132,7 @@ def workspaces(db_session):
     """Two workspaces; the caller is a workspace admin signed in to the first."""
     mine, theirs = _workspace(db_session, "dry"), _workspace(db_session, "dry-other")
     app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
-        id=uuid.uuid4(), group_id=mine.id, active_group_id=mine.id, admin=True, is_superuser=False
+        id=uuid.uuid4(), group_id=mine.id, active_group_id=mine.id, admin=True, is_superuser=False, **member_of(mine.id)
     )
     yield mine, theirs
     app.dependency_overrides.pop(get_current_user, None)

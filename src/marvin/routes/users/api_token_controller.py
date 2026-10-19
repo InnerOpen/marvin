@@ -45,14 +45,11 @@ class UserApiTokensController(BaseUserController):
 
     def _announce(self, event_type: EventTypes, operation: EventOperation, token, verb: str) -> None:
         """api_token_created / _rotated / _revoked (platform scope, always audited): the token's name and owner —
-        never its value or hash."""
-        workspace_id = self.user.active_group_id or self.user.group_id  # stored with it, shown only to super admins
-        if not workspace_id:
-            return
+        never its value or hash. No workspace: the token is the person's, not a workspace's."""
         owner = getattr(self.user, "full_name", None) or self.user.username
         self.event_bus.dispatch(
             integration_id="api_token_management",
-            group_id=workspace_id,
+            group_id=None,
             event_type=event_type,
             document_data=EventAPITokenData(
                 operation=operation,

@@ -324,9 +324,10 @@ def test_a_change_is_recorded_as_a_workspace_settings_change(db_session, workspa
 @pytest.mark.parametrize("role", [None, WorkspaceRole.VIEWER, WorkspaceRole.AUTHOR, WorkspaceRole.EDITOR])
 def test_only_an_admin_manages_them(db_session, workspace, role):
     client = _sign_in(workspace, role)
-    assert client.get(URL).status_code in (401, 403)
-    assert client.put(f"{URL}/milestone", json=MILESTONE).status_code in (401, 403)
-    assert client.delete(f"{URL}/milestone").status_code in (401, 403)
+    refused = (409,) if role is None else (401, 403)  # a non-member is in no workspace at all: 409 no_workspace
+    assert client.get(URL).status_code in refused
+    assert client.put(f"{URL}/milestone", json=MILESTONE).status_code in refused
+    assert client.delete(f"{URL}/milestone").status_code in refused
     assert custom_events.read(db_session, workspace.gid) == []
 
 

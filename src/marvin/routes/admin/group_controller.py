@@ -132,9 +132,12 @@ class AdminGroupManagementRoutes(BaseAdminController):
             EventTypes,
             EventWorkspaceCreatedData,
         )
+        from marvin.services.workspace.current import current_workspace_id
         from marvin.services.workspace.workspace_bootstrap_service import (
             WorkspaceBootstrapService,
         )
+
+        had_no_workspace = current_workspace_id(self.user, self.session) is None  # before bootstrap makes them a member
 
         # Create the workspace
         group = GroupService.create_group(self.repos, data)
@@ -143,6 +146,7 @@ class AdminGroupManagementRoutes(BaseAdminController):
         from sqlalchemy import select
 
         from marvin.db.models.groups import Groups
+        from marvin.db.models.users.users import Users
 
         group_model = self.repos.session.execute(select(Groups).where(Groups.id == group.id)).scalar_one()
 
@@ -152,6 +156,12 @@ class AdminGroupManagementRoutes(BaseAdminController):
             workspace=group_model,
             creator_id=self.user.id,
         )
+
+        # A creator with no current workspace (a fresh install's first super admin) starts in the one they made.
+        if had_no_workspace:
+            creator = self.session.get(Users, self.user.id)
+            if creator is not None:
+                creator.active_group_id = group.id
 
         # Dispatch workspace.created event
         self.event_bus.dispatch(
@@ -298,7 +308,6 @@ class AdminGroupManagementRoutes(BaseAdminController):
 
         Safety checks:
         - Never the platform (admin's) workspace (409), force or not
-        - Cannot delete if workspace has users with it as their primary group_id
         - Cannot delete if workspace has workspace members (unless force=True)
         - Cannot delete if workspace has entries, collections, or assets (unless force=True)
 
@@ -324,16 +333,6 @@ class AdminGroupManagementRoutes(BaseAdminController):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=ErrorResponse.respond(message="The platform workspace can't be deleted. You can rename it."),
-            )
-
-        # Check for users with this as their primary group (always block this)
-        user_count_in_group = self.repos.users.count_all(match_key="group_id", match_value=item_id)
-        if user_count_in_group > 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=ErrorResponse.respond(
-                    message=f"Cannot delete workspace: {user_count_in_group} users still have this as their primary workspace. Reassign them first."
-                ),
             )
 
         # Check for workspace content (if not force mode)
@@ -369,7 +368,8 @@ class AdminGroupManagementRoutes(BaseAdminController):
 
         # `force` previously only skipped the checks above; the delete then hit a foreign key from
         # the workspace-scoped tables that don't cascade on their own, so it could never succeed.
-        # Clear those first. Users are untouched — the primary-group check above still guards them.
+        # Clear those first. Users are untouched: the ones with this as their home workspace lose it (users.group_id
+        # is ON DELETE SET NULL), memberships cascade.
         purge_group_dependents(self.repos.session, item_id)
 
         # Proceed with deletion

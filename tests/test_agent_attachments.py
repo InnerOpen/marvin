@@ -22,6 +22,7 @@ from marvin.services.ai.agent import AgentResult
 from marvin.services.ai.operations.base import ROLE_AUTHOR, ROLE_VIEWER
 from marvin.services.ai.tools import builtins_attachments as ba
 from marvin.services.ai.tools.categories import category_of
+from tests._users import member_of
 
 
 class _Bus:
@@ -85,7 +86,7 @@ def ctl(ws, monkeypatch):
     monkeypatch.setattr(ws.session, "commit", ws.session.flush)
     c = oc.AIOperationsController.__new__(oc.AIOperationsController)
     c.session = ws.session
-    c.user = SimpleNamespace(id=ws.uid, admin=False, active_group_id=ws.gid, group_id=ws.gid, workspace_memberships=[])
+    c.user = SimpleNamespace(id=ws.uid, admin=False, active_group_id=ws.gid, group_id=ws.gid, **member_of(ws.gid))
     c._logger = None
     c.event_bus = _Bus()
     c.loop = _Loop()

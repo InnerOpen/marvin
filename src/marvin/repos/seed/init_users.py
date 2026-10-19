@@ -94,6 +94,10 @@ def default_user_init(db: AllRepositories) -> None:
                               to the users repository for creating users.
     """
     from marvin.db.models.users.workspace_members import WorkspaceMembers
+    from marvin.services.group.platform_workspace import platform_workspace
+
+    # A user made with no group has no home workspace; these seeded ones live in the platform workspace.
+    home = platform_workspace(db.session).name
 
     # Define the default administrative user's data
     default_user = {
@@ -104,6 +108,7 @@ def default_user_init(db: AllRepositories) -> None:
         "platform_role": PlatformRole.SUPER_ADMIN,  # Platform administrator with unrestricted access
         "admin": True,  # DEPRECATED: Use platform_role instead
         "is_superuser": True,  # DEPRECATED: Use platform_role instead
+        "group": home,
     }
 
     logger.info("Generating Default User (Platform Admin with SUPER_ADMIN role)")
@@ -132,7 +137,7 @@ def default_user_init(db: AllRepositories) -> None:
             workspace_role = user_data.pop("workspace_role", WorkspaceRole.VIEWER)
 
             # Create the development user
-            dev_user = db.users.create(user_data)
+            dev_user = db.users.create({**user_data, "group": home})
             logger.info(f"Development user created: {dev_user.email} / {settings.DEFAULT_PASSWORD} (platform_role={dev_user.platform_role.value})")
 
             # Create workspace membership for the dev user

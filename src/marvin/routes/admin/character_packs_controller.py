@@ -7,6 +7,7 @@ A platform admin installs packs here once; workspaces only choose one (AI settin
 import uuid
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
+from pydantic import UUID4
 
 from marvin.db.models.platform.character_packs import CharacterPackModel
 from marvin.routes._base import BaseAdminController, controller
@@ -39,6 +40,7 @@ from marvin.services.ai.character_library import (
     unlink_pack,
     with_current_urls,
 )
+from marvin.services.workspace.current import NO_WORKSPACE, current_workspace_id
 
 router = APIRouter(prefix="/character-packs")
 
@@ -57,6 +59,18 @@ def _pack_json(character: dict) -> dict:
 
 @controller(router)
 class AdminCharacterPacksController(BaseAdminController):
+    def _billed_workspace(self, requested: UUID4 | None) -> UUID4:
+        """The workspace an AI call here is billed to: the one asked for, else the caller's current one, else 409."""
+        if requested is not None:
+            if self.repos.groups.get_one(requested) is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="That workspace doesn't exist.")
+            return requested
+        if (current := current_workspace_id(self.user, self.session)) is not None:
+            return current
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail={"code": NO_WORKSPACE, "message": "Pick a workspace to bill the AI call to."}
+        )
+
     def _pack_or_404(self, ref: str) -> CharacterPackModel:
         pack = get_pack(self.session, ref)
         if pack is None:
@@ -153,9 +167,10 @@ class AdminCharacterPacksController(BaseAdminController):
 
     @router.post("/{pack_ref}/bubble-lines/generate", response_model=BubbleLines, summary="Admin: Write a Character Pack's Bubble Lines")
     def generate_pack_lines(self, pack_ref: str, data: CharacterPackLinesRequest | None = None) -> BubbleLines:
-        """Write the pack's bubble lines from its Character with one model call, billed to your current workspace,
-        and return them unsaved — the character sheet fills them in for you to edit and save. `personaPrompt` /
-        `assistantName` stand in for the stored ones (the sheet's unsaved fields)."""
+        """Write the pack's bubble lines from its Character with one model call, billed to `workspaceId` (else your
+        current workspace; with neither, 409 `no_workspace`: pick one to bill), and return them unsaved — the character
+        sheet fills them in for you to edit and save. `personaPrompt` / `assistantName` stand in for the stored ones
+        (the sheet's unsaved fields)."""
         from marvin.services.ai.bubble_lines import NO_CHARACTER, BubbleLinesError, ready_to_write, write_lines
 
         pack = self._pack_or_404(pack_ref)
@@ -165,11 +180,12 @@ class AdminCharacterPacksController(BaseAdminController):
         name = (data.assistant_name if "assistant_name" in sent else stored.get("assistant_name")) or pack.name
         if not persona.strip():
             raise _unprocessable(ValueError(NO_CHARACTER))
-        if reason := ready_to_write(self.session, self.group_id):
+        workspace_id = self._billed_workspace(data.workspace_id if data else None)
+        if reason := ready_to_write(self.session, workspace_id):
             code = status.HTTP_429_TOO_MANY_REQUESTS if reason.startswith("AI budget") else status.HTTP_422_UNPROCESSABLE_ENTITY
             raise HTTPException(status_code=code, detail=reason)
         try:
-            lines = write_lines(self.session, self.group_id, name.strip(), persona, self.user.id, source="character_library")
+            lines = write_lines(self.session, workspace_id, name.strip(), persona, self.user.id, source="character_library")
         except BubbleLinesError as e:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from None
         return BubbleLines(**lines)

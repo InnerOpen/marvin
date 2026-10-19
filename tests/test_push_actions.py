@@ -27,6 +27,7 @@ from marvin.services import push_actions, push_notifications, web_push
 from marvin.services.ai import agent as loop_mod
 from marvin.services.ai.agent import AgentStep, AgentTool, PendingCall
 from marvin.services.event_bus_service.event_types import EventAIApprovalData, EventTypes
+from tests._users import member_of
 from tests.test_agent_approval import _awaiting, _Bus, _done, _Loop
 
 TRASH_MATCH = PendingCall(
@@ -93,7 +94,7 @@ def env(db_session, monkeypatch):
         admin=False,
         active_group_id=gid,
         group_id=gid,
-        workspace_memberships=[SimpleNamespace(group_id=gid, workspace_role=WorkspaceRole.EDITOR)],
+        **member_of(gid, WorkspaceRole.EDITOR),
     )
     ctl = C(session=db_session, user=me, event_bus=_Bus())
     ctl._logger = None

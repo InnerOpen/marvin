@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import Field
+from pydantic import UUID4, Field
 
 from marvin.schemas._marvin import _MarvinModel
 from marvin.schemas.group.ai_settings import AssistantCharacter, AssistantCharacterUpload, CharacterPackPersona
@@ -50,3 +50,5 @@ class CharacterPackLinesRequest(_MarvinModel):
 
     assistant_name: str | None = Field(default=None, max_length=120)
     persona_prompt: str | None = Field(default=None, max_length=8000)
+    workspace_id: UUID4 | None = None
+    """The workspace to bill the AI call to. Left out: the caller's current workspace; none of those: 409 no_workspace."""

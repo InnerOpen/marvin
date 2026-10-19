@@ -979,8 +979,9 @@ def test_workspace_admins_read_both(db_session, world, role):
 @pytest.mark.parametrize("role", [WorkspaceRole.EDITOR, WorkspaceRole.AUTHOR, WorkspaceRole.VIEWER, None])
 def test_members_below_admin_are_refused(world, role):
     client = _client(world, role)
-    assert client.get(f"{WS}/connections").status_code == 403
-    assert client.get(f"{WS}/entry_published/connections").status_code == 403
+    refused = 409 if role is None else 403  # a non-member is in no workspace at all: 409 no_workspace
+    assert client.get(f"{WS}/connections").status_code == refused
+    assert client.get(f"{WS}/entry_published/connections").status_code == refused
 
 
 def test_another_workspace_never_shows(db_session, world):

@@ -64,6 +64,7 @@ def _sign_in(workspace, role: WorkspaceRole | None, platform_role: PlatformRole 
         is_superuser=False,
         full_name="SEC",
         platform_role=platform_role,
+        workspace_memberships=[],
         get_workspace_role=lambda group_id: role if str(group_id) == str(workspace.gid) else None,
     )
     return TestClient(app)
@@ -137,7 +138,8 @@ def test_reveal_secret_as_member_below_admin_returns_403(workspace, role):
     assert _reveal(_sign_in(workspace, role), secret["id"]).status_code == 403
 
 
-def test_reveal_secret_as_non_member_returns_403(workspace):
+def test_reveal_secret_as_non_member_is_refused(workspace):
     secret = _create(_sign_in(workspace, WorkspaceRole.OWNER))
 
-    assert _reveal(_sign_in(workspace, None), secret["id"]).status_code == 403
+    # a member of nothing is in no workspace at all: 409 no_workspace, before the gate
+    assert _reveal(_sign_in(workspace, None), secret["id"]).status_code == 409

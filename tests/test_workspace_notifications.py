@@ -579,9 +579,10 @@ def _sign_in(world, role: str | None, platform_role=PlatformRole.NONE) -> TestCl
 @pytest.mark.parametrize("role", ["editor", "author", "viewer", None])
 def test_only_owners_and_admins_may_read_change_or_test(world, role):
     client = _sign_in(world, role)
-    assert client.get(API).status_code == 403
-    assert client.put(API, json={"types": {"ai_operation_failed": True}}).status_code == 403
-    assert client.post(f"{API}/test", json={"channel": "email"}).status_code == 403
+    refused = 409 if role is None else 403  # a non-member is in no workspace at all: 409 no_workspace
+    assert client.get(API).status_code == refused
+    assert client.put(API, json={"types": {"ai_operation_failed": True}}).status_code == refused
+    assert client.post(f"{API}/test", json={"channel": "email"}).status_code == refused
     assert world.sent == []
 
 

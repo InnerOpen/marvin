@@ -23,6 +23,7 @@ from marvin.services.ai.agents import AgentSpec
 from marvin.services.ai.base import Message, ToolCall
 from marvin.services.ai.operations.base import ROLE_ADMIN, ROLE_EDITOR
 from marvin.services.event_bus_service.event_types import EventTypes
+from tests._users import member_of
 
 WRITER = AgentSpec(slug="w", name="W", allow_writes=True)
 
@@ -95,7 +96,7 @@ def ctl(db_session, monkeypatch):
 
     c = oc.AIOperationsController.__new__(oc.AIOperationsController)
     c.session = db_session
-    c.user = SimpleNamespace(id=uuid.uuid4(), admin=False, active_group_id=gid, group_id=gid, workspace_memberships=[])
+    c.user = SimpleNamespace(id=uuid.uuid4(), admin=False, active_group_id=gid, group_id=gid, **member_of(gid))
     c._logger = None
     c.event_bus = _Bus()
     c.loop = _Loop()
@@ -330,11 +331,11 @@ def test_resume_can_park_again(ctl):
 def test_resume_409_when_nothing_is_pending_and_403_for_a_non_owner(ctl):
     _, thread = _park(ctl)
     other = ctl.user.id
-    ctl.user = SimpleNamespace(id=uuid.uuid4(), admin=True, active_group_id=ctl.group_id, group_id=ctl.group_id, workspace_memberships=[])
+    ctl.user = SimpleNamespace(id=uuid.uuid4(), admin=True, active_group_id=ctl.group_id, group_id=ctl.group_id, **member_of(ctl.group_id))
     with pytest.raises(HTTPException) as e:
         ctl.resume_thread(str(thread.id), AIThreadResumeRequest(decisions={"c2": "approve"}))
     assert e.value.status_code == 403  # an admin sees the thread but cannot decide for its owner
-    ctl.user = SimpleNamespace(id=other, admin=False, active_group_id=ctl.group_id, group_id=ctl.group_id, workspace_memberships=[])
+    ctl.user = SimpleNamespace(id=other, admin=False, active_group_id=ctl.group_id, group_id=ctl.group_id, **member_of(ctl.group_id))
     _resume(ctl, thread, {"c2": "approve"})
     with pytest.raises(HTTPException) as e:
         ctl.resume_thread(str(thread.id), AIThreadResumeRequest(decisions={"c2": "approve"}))

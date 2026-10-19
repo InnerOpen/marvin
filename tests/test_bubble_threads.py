@@ -24,6 +24,7 @@ from marvin.services.ai import threads as svc
 from marvin.services.ai.agent import AgentResult
 from marvin.services.ai.agents import AgentSpec
 from marvin.services.ai.operations.base import ROLE_AUTHOR
+from tests._users import member_of
 
 
 class _Bus:
@@ -55,7 +56,7 @@ def ctl(db_session, monkeypatch):
 
     c = oc.AIOperationsController.__new__(oc.AIOperationsController)
     c.session = db_session
-    c.user = SimpleNamespace(id=uuid.uuid4(), admin=False, active_group_id=gid, group_id=gid, workspace_memberships=[])
+    c.user = SimpleNamespace(id=uuid.uuid4(), admin=False, active_group_id=gid, group_id=gid, **member_of(gid))
     c._logger = None
     c.event_bus = _Bus()
     monkeypatch.setattr(oc.AIOperationsController, "group", property(lambda self: SimpleNamespace(name="ws")))

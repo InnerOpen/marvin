@@ -343,7 +343,7 @@ class UserAuthenticationController(BaseUserController):
         self.event_bus.dispatch(
             integration_id="internal_token_refresh",  # Identifier for the source of the event
             event_type=EventTypes.token_refreshed,  # Specific event type
-            group_id=current_user.group_id,  # Associate with user's group
+            group_id=None,  # platform scope: signing in isn't a workspace's event
             document_data=EventTokenRefreshData(username=current_user.username),
             message=f"Access token refreshed for user {current_user.username}",
         )

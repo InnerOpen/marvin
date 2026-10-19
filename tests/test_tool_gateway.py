@@ -24,7 +24,9 @@ from tests import test_content_role_gates as gates
 
 workspace = gates.workspace  # fixture: a workspace with a signed-in user
 
-ROLES = [None, WorkspaceRole.VIEWER, WorkspaceRole.AUTHOR, WorkspaceRole.EDITOR, WorkspaceRole.ADMIN, WorkspaceRole.OWNER, "admin"]
+ROLES = [WorkspaceRole.VIEWER, WorkspaceRole.AUTHOR, WorkspaceRole.EDITOR, WorkspaceRole.ADMIN, WorkspaceRole.OWNER]
+# Not a member of any workspace — the legacy `admin` flag alone doesn't make one — so there is no workspace to run in.
+NO_WORKSPACE_ROLES = [None, "admin"]
 
 
 def _user(ws, role):
@@ -162,6 +164,13 @@ def _got(res) -> list:
 
 
 # ── Parity ───────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("role", NO_WORKSPACE_ROLES, ids=str)
+def test_tools_answer_409_without_a_workspace(workspace, role):
+    client = _client(_user(workspace, role))
+    assert client.get("/api/ai/tools").status_code == 409
+    assert client.post("/api/ai/tools/find_entries/invoke", json={"args": {}, "source": "mcp"}).status_code == 409
 
 
 @pytest.mark.parametrize("role", ROLES, ids=str)

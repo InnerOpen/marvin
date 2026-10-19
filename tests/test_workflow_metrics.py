@@ -705,8 +705,9 @@ def test_the_api_names_the_workflow_that_recorded_an_observation(ws):
 def test_below_editor_cannot_read_observations(ws, role):
     _api_seed(ws)
     client = _client(ws, role)
-    assert client.get("/api/groups/metrics").status_code == 403
-    assert client.get("/api/groups/metrics/observations").status_code == 403
+    refused = 409 if role is None else 403  # a non-member is in no workspace at all: 409 no_workspace
+    assert client.get("/api/groups/metrics").status_code == refused
+    assert client.get("/api/groups/metrics/observations").status_code == refused
 
 
 def test_only_an_admin_removes_an_observation(ws):

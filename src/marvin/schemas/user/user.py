@@ -361,14 +361,14 @@ class UserRead(_UserBase):
     """The unique identifier of the user."""
     platform_role: PlatformRole
     """Platform-level role (NONE or SUPER_ADMIN)."""
-    group: str  # In UserCreate this was `str | None`. Here it's `str`. Might imply group is always resolved.
-    """The name of the group the user belongs to."""
-    group_id: UUID4
-    """The unique identifier of the group the user belongs to."""
-    group_slug: str  # Added based on original properties, likely from ORM.
-    """The slug of the group the user belongs to."""
+    group: str | None = None
+    """The name of the user's home workspace; None when they have none."""
+    group_id: UUID4 | None = None
+    """The unique identifier of the user's home workspace; None when they have none."""
+    group_slug: str | None = None
+    """The slug of the user's home workspace; None when they have none."""
     active_group_id: UUID4 | None = None
-    """The workspace currently active for this user (or None to use group_id)."""
+    """The workspace the user last switched to (None: the current workspace is resolved, see services.workspace.current)."""
     workspace_memberships: list[WorkspaceMembershipSummary] = []
     """List of workspaces this user is a member of with their roles."""
     # tokens: list[LongLiveTokenRead] | None = None # Commented out in original, might be populated conditionally.
@@ -445,8 +445,8 @@ class UserSummary(_MarvinModel):
 
     id: UUID4
     """The unique identifier of the user."""
-    group_id: UUID4
-    """The unique identifier of the group the user belongs to."""
+    group_id: UUID4 | None = None
+    """The unique identifier of the user's home workspace; None when they have none."""
     username: str | None = None  # Nullable to match UserSQLModel.username
     """
     The user's username.
@@ -519,11 +519,6 @@ class PrivateUser(UserRead):
 
         # Compare with current UTC time
         return lockout_expires_at > datetime.now(UTC)
-
-    @property
-    def effective_workspace_id(self) -> UUID4:
-        """Returns active workspace if set, otherwise falls back to group_id."""
-        return self.active_group_id or self.group_id
 
     def directory(self) -> Path:  # This method seems to imply a static method was intended or user-specific dir logic
         """

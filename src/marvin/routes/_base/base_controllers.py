@@ -32,6 +32,7 @@ from marvin.services.event_bus_service.event_types import (
     EventDocumentDataBase,  # Base for event data
     EventTypes,  # Enum for event types
 )
+from marvin.services.workspace.current import NO_WORKSPACE, current_workspace_id
 
 
 class BaseController(ABC):  # noqa: B024
@@ -169,17 +170,21 @@ class BaseUserController(BaseController):
     @property
     def group_id(self) -> UUID4:
         """
-        The active workspace ID for the current user.
-        Uses active_group_id if set, otherwise falls back to group_id.
-        This will scope repository operations within `self.repos` to the user's active workspace.
+        The current workspace ID for the user (``services.workspace.current``).
+        This will scope repository operations within `self.repos` to the user's current workspace.
+
+        Raises:
+            HTTPException (409 Conflict, ``{"code": "no_workspace"}``): The user has no workspace — no home and no
+                membership. The frontend sends them to Admin (super admins) or the "waiting for an invite" page.
         """
         if self.user:
-            workspace_id = self.user.active_group_id or self.user.group_id
+            workspace_id = current_workspace_id(self.user, self.session)
             if workspace_id:
                 return workspace_id
-        # This case should ideally not be reached if get_current_user ensures user has a group.
-        # Handling it defensively:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is not associated with a workspace.")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": NO_WORKSPACE, "message": "You aren't in a workspace yet."},
+        )
 
     @property
     def group(self) -> GroupRead:

@@ -120,12 +120,11 @@ class AdminStorageController(BaseAdminController):
             stored, changes = save_policy(self.session, allowed=data.allowed, endpoint_policy=data.endpoint_policy)
         except WorkspaceStorageError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
-        workspace_id = self.user.active_group_id or self.user.group_id
-        if changes and workspace_id:
+        if changes:
             name = getattr(self.user, "full_name", None) or self.user.username
             self.event_bus.dispatch(
                 integration_id="storage_settings",
-                group_id=workspace_id,
+                group_id=None,  # a platform setting: no workspace
                 event_type=EventTypes.platform_settings_changed,
                 document_data=EventPlatformSettingsChangedData(
                     operation=EventOperation.update, setting="workspace_storage", changes=changes, changed_by_name=name
@@ -174,15 +173,12 @@ class AdminStorageController(BaseAdminController):
         )
 
     def _announce(self, previous: str | None, chosen: str | None, effective: str) -> None:
-        """storage_provider_changed (platform scope, always audited)."""
-        workspace_id = self.user.active_group_id or self.user.group_id  # stored with it, shown only to super admins
+        """storage_provider_changed (platform scope, always audited). No workspace: a platform setting."""
         name = getattr(self.user, "full_name", None) or self.user.username
         self.logger.info(f"Storage: new uploads now go to {effective!r} (choice {previous!r} -> {chosen!r}, by {name})")
-        if not workspace_id:
-            return
         self.event_bus.dispatch(
             integration_id="storage_settings",
-            group_id=workspace_id,
+            group_id=None,
             event_type=EventTypes.storage_provider_changed,
             document_data=EventStorageProviderChangedData(
                 operation=EventOperation.update,

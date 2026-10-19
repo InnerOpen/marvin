@@ -16,6 +16,7 @@ from PIL import Image
 
 from marvin.services.storage.keys import LIBRARY_CODE, is_opaque
 from tests import character_images as images
+from tests._users import member_of
 
 
 def _gif() -> bytes:
@@ -99,8 +100,10 @@ def admin(db_session, workspace, storage):
 
     from marvin.routes.admin.character_packs_controller import AdminCharacterPacksController as C
 
-    c = SimpleNamespace(session=db_session, user=SimpleNamespace(id=workspace[1]), logger=logging.getLogger("test"))
-    _bind(C, c, "_pack_or_404", "_read", "_uploads")
+    # the admin's current workspace pays for writing a pack's lines
+    user = SimpleNamespace(id=workspace[1], active_group_id=workspace[0], group_id=workspace[0], **member_of(workspace[0]))
+    c = SimpleNamespace(session=db_session, user=user, logger=logging.getLogger("test"))
+    _bind(C, c, "_pack_or_404", "_read", "_uploads", "_billed_workspace")
     c.create = lambda *names, name="": C.create_pack(c, name=name, files=_files(*names))
     c.replace = lambda ref, *names: C.replace_pack_files(c, ref, _files(*names))
     c.rename = lambda ref, name: C.update_pack(c, ref, _update(name))
@@ -108,7 +111,6 @@ def admin(db_session, workspace, storage):
     c.create_from = lambda filename, data, name="": C.create_pack(c, name=name, files=[UploadFile(io.BytesIO(data), filename=filename)])
     c.replace_from = lambda ref, filename, data: C.replace_pack_files(c, ref, [UploadFile(io.BytesIO(data), filename=filename)])
     c.download = lambda ref: C.download_pack(c, ref)
-    c.group_id = workspace[0]  # the admin's current workspace, which pays for writing a pack's lines
     c.generate = lambda ref, **kw: C.generate_pack_lines(c, ref, _pack_lines(**kw) if kw else None)
     c.assign = lambda ref, state, file: C.assign_pack_state(c, ref, _assign(state, file))
     c.delete = lambda ref, force=False: C.delete_pack(c, ref, force=force)
