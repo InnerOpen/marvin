@@ -1,5 +1,4 @@
 ---
-import PlatformBadge from "@/components/PlatformBadge.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
@@ -9,11 +8,13 @@ const currentUser = await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.
 const authToken = getAuthToken(Astro.cookies);
 let groups: any[] = [];
 let error: string | null = null;
+// Set by the delete flow on its way back here.
+const deletedName = Astro.url.searchParams.get("deleted");
+const keptDays = Astro.url.searchParams.get("kept");
 
 try {
   const response = await fetchApi<any>("/api/admin/groups", {}, authToken);
-  // The platform (admin's) workspace first, whatever it is called.
-  groups = (response.items || []).sort((a: any, b: any) => Number(!!b.isPlatform) - Number(!!a.isPlatform));
+  groups = response.items || [];
 } catch (e) {
   console.error("[platform/workspaces] Error loading:", e);
   error = e instanceof Error ? e.message : String(e);
@@ -30,6 +31,12 @@ try {
   </div>
 
   <div class="page-container">
+    {deletedName && (
+      <div class="alert alert-ok" role="status" data-testid="workspace-deleted">
+        Workspace <strong>{deletedName}</strong> was deleted.
+        {keptDays && <> Its stored files are kept for {keptDays} days, then purged — see <a href="/admin/storage#deleted-workspaces">Admin → Storage</a>.</>}
+      </div>
+    )}
     {error ? (
       <div class="alert alert-error">
         <strong>Error:</strong> {error}
@@ -37,8 +44,11 @@ try {
     ) : groups.length === 0 ? (
       <div class="empty-state">
         <div class="empty-icon">◫</div>
-        <p class="empty-title">No groups found</p>
-        <p class="empty-description">Create a workspace to get started</p>
+        <p class="empty-title">No workspaces yet</p>
+        <p class="empty-description">
+          A new installation starts with none. Create the first one to start writing content, or invite people into one.
+        </p>
+        <a href="/admin/workspaces/new" class="button">Create the first workspace</a>
       </div>
     ) : (
       <div class="groups-list">
@@ -47,7 +57,6 @@ try {
             <div class="group-info">
               <div class="group-title">
                 <strong>{group.name}</strong>
-                {group.isPlatform && <PlatformBadge />}
               </div>
               {group.slug && <code class="group-slug">{group.slug}</code>}
               <div class="group-meta">
@@ -95,6 +104,11 @@ try {
     padding: 16px;
     margin-bottom: 24px;
     border-radius: var(--radius);
+  }
+
+  .alert-ok {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
   }
 
   .alert-error {

@@ -281,7 +281,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
     <div class="app-shell">
       <aside class="sidebar" id="app-sidebar" aria-label="Navigation">
         <div class="sidebar-header">
-          <WorkspaceSwitcher showPlatformBadge={isSuperAdmin} />
+          <WorkspaceSwitcher isSuperAdmin={isSuperAdmin} />
         </div>
         {canAuthor && (
           <details class="nav-new">

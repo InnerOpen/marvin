@@ -352,23 +352,15 @@ const success = urlParams.get("success") === "1";
         <h3>Danger Zone</h3>
         <p>Irreversible and destructive actions.</p>
 
-        {workspace.isPlatform ? (
-          <p class="muted">
-            This is the platform (admin's) workspace — platform alerts and shared services run from it — so it
-            can't be deleted.{isPlatformAdmin && <> Rename it in <a href={`/admin/groups/${workspace.id}`}>Admin → Workspaces</a>.</>}
-          </p>
-        ) : isPlatformAdmin ? (
+        {isPlatformAdmin ? (
           <div class="danger-actions">
-            <button
-              type="button"
-              id="delete-workspace-btn"
-              class="button danger"
-              data-workspace-id={workspace.id}
-              data-workspace-name={workspace.name}
-            >
-              Delete Workspace
-            </button>
-            <small>⚠️ Platform admin only - This will permanently delete the workspace and all its data</small>
+            <a href={`/admin/groups/${workspace.id}#delete`} id="delete-workspace-link" class="button danger">
+              Delete Workspace…
+            </a>
+            <small>
+              Platform admin only. You will see what goes with it, back it up, and type its name before anything is
+              deleted. Its stored files are kept for 30 days first.
+            </small>
           </div>
         ) : (
           <p class="muted">Only platform administrators can delete workspaces.</p>
@@ -388,7 +380,6 @@ const success = urlParams.get("success") === "1";
   const sdk = createSdkClient();
   const siteForm = document.getElementById('site-settings-form') as HTMLFormElement;
   const submitSiteBtn = document.getElementById('submit-site-btn') as HTMLButtonElement;
-  const deleteBtn = document.getElementById('delete-workspace-btn') as HTMLButtonElement;
 
   // Trash settings: "" = inherit the platform default (null), else 0 (never) / 7 / 30 / 90 days.
   const trashForm = document.getElementById('trash-settings-form') as HTMLFormElement | null;
@@ -488,57 +479,6 @@ const success = urlParams.get("success") === "1";
         alert('Error: ' + (err instanceof Error ? err.message : 'Failed to update site settings'));
         submitSiteBtn.disabled = false;
         submitSiteBtn.textContent = 'Save Site Settings';
-      }
-    });
-  }
-
-  // Delete workspace
-  if (deleteBtn) {
-    deleteBtn.addEventListener('click', async () => {
-      const workspaceId = deleteBtn.dataset.workspaceId;
-      const workspaceName = deleteBtn.dataset.workspaceName;
-
-      if (!workspaceId) {
-        alert('Workspace ID not found');
-        return;
-      }
-
-      // Double confirmation for destructive action
-      const confirmation = confirm(
-        `⚠️ DELETE WORKSPACE: "${workspaceName}"\n\n` +
-        `This will permanently delete:\n` +
-        `• The workspace and all settings\n` +
-        `• All workspace members\n` +
-        `• All entries and collections\n` +
-        `• All assets and media\n\n` +
-        `This action CANNOT be undone.\n\n` +
-        `Are you absolutely sure you want to proceed?`
-      );
-
-      if (!confirmation) return;
-
-      // Second confirmation
-      const secondConfirmation = confirm(
-        `FINAL WARNING\n\n` +
-        `You are about to permanently delete workspace "${workspaceName}".\n\n` +
-        `Type the workspace name to confirm, or click Cancel.`
-      );
-
-      if (!secondConfirmation) return;
-
-      deleteBtn.disabled = true;
-      deleteBtn.textContent = 'Deleting...';
-
-      try {
-        await sdk.workspaces.delete(workspaceId, true);
-
-        alert('Workspace deleted successfully. Redirecting...');
-        window.location.href = '/';
-      } catch (err) {
-        console.error('Delete error:', err);
-        alert('Error: ' + (err instanceof Error ? err.message : 'Failed to delete workspace'));
-        deleteBtn.disabled = false;
-        deleteBtn.textContent = 'Delete Workspace';
       }
     });
   }

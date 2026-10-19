@@ -1,7 +1,8 @@
 ---
 import type { PlatformWorkspaceMember, Workspace } from "@inneropen/marvin-sdk/platform";
-import PlatformBadge from "@/components/PlatformBadge.astro";
+import LocalTime from "@/components/LocalTime.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
+import { getWorkspaceDeletePreview, type WorkspaceDeletePreview } from "@/lib/api/admin/workspaces";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -9,6 +10,7 @@ const { id } = Astro.params;
 
 let group: Workspace | null = null;
 let members: PlatformWorkspaceMember[] = [];
+let preview: WorkspaceDeletePreview | null = null;
 let error: string | null = null;
 
 if (!id) {
@@ -18,18 +20,19 @@ if (!id) {
 } else {
   try {
     // The admin endpoints: they work for a super admin who is in no workspace themselves.
-    [group, members] = await Promise.all([
+    [group, members, preview] = await Promise.all([
       fetchApi<Workspace>(`/api/admin/groups/${encodeURIComponent(id)}`, {}, authToken),
       fetchApi<PlatformWorkspaceMember[]>(`/api/admin/workspaces/${encodeURIComponent(id)}/members`, {}, authToken),
+      getWorkspaceDeletePreview(id, authToken),
     ]);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
     console.error("[admin/groups] Failed to load:", error);
   }
 }
-// The platform (admin's) workspace: platform alerts and shared services run from it. It can be renamed
-// (name and slug) but never deleted. (`isPlatform` is newer than the SDK's Workspace type.)
-const isPlatform = Boolean((group as (Workspace & { isPlatform?: boolean }) | null)?.isPlatform);
+const bytes = (n: number) =>
+  n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(2)} GB` : n >= 1024 ** 2 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
 ---
 
 <AdminLayout crumb="admin.workspaces.workspace" title={group ? `Manage ${group.name}` : "Manage Workspace"}>
@@ -43,20 +46,15 @@ const isPlatform = Boolean((group as (Workspace & { isPlatform?: boolean }) | nu
         <div>
           <div class="title-row">
             <h2>{group.name}</h2>
-            {isPlatform && <PlatformBadge size="md" />}
           </div>
-          <p>
-            {isPlatform
-              ? "The admin's workspace: platform alerts and shared services run from here."
-              : "Manage workspace settings and members"}
-          </p>
+          <p>Manage workspace settings and members</p>
         </div>
       </div>
 
       <div class="layout-grid">
         <section class="main-section">
           <div class="panel">
-            <h3>{isPlatform ? "Rename the platform workspace" : "Workspace Details"}</h3>
+            <h3>Workspace Details</h3>
             <form id="workspace-rename-form" class="form" data-workspace-id={group.id}>
               <div class="form-group">
                 <label for="name">Name *</label>
@@ -118,6 +116,69 @@ const isPlatform = Boolean((group as (Workspace & { isPlatform?: boolean }) | nu
               </table>
             )}
           </div>
+
+          {preview && (
+            <div class="panel danger-panel" id="delete" data-testid="delete-panel">
+              <h3>Delete workspace</h3>
+              <p class="form-help">
+                Deleting a workspace is permanent. This is what goes with <strong>{group.name}</strong>:
+              </p>
+              <ul class="stakes" data-testid="delete-preview">
+                <li>{plural(preview.members, "member")}</li>
+                <li>{plural(preview.entries, "entry", "entries")}</li>
+                <li>{plural(preview.assets, "file")} ({bytes(preview.assetBytes)})</li>
+                <li>{plural(preview.integrations, "integration")}</li>
+                <li>{plural(preview.scheduledTasks, "scheduled task")}</li>
+                <li>{plural(preview.smtpProfiles, "SMTP profile")}</li>
+                <li>{plural(preview.homeUsers, "user")} lose{preview.homeUsers === 1 ? "s" : ""} this as their home workspace (they stay, in no workspace)</li>
+              </ul>
+              <p class="form-help">
+                Its stored files are kept for {preview.storageGraceDays} days and then purged
+                (<a href="/admin/storage#deleted-workspaces">Admin → Storage</a> lists them: purge now, or keep).
+                Platform events about it stay in the Event Log.
+              </p>
+
+              <div
+                class="backup-state"
+                id="backup-state"
+                data-recent={String(preview.backupIsRecent)}
+                data-hours={preview.backupMaxAgeHours}
+              >
+                <p id="backup-line" role="status">
+                  {preview.backupIsRecent ? (
+                    <>Last backup: <LocalTime iso={preview.lastBackupAt} />. That is recent enough.</>
+                  ) : preview.lastBackupAt ? (
+                    <>Last backup: <LocalTime iso={preview.lastBackupAt} /> — older than {preview.backupMaxAgeHours} hours.</>
+                  ) : (
+                    <>No backup of this workspace yet.</>
+                  )}
+                </p>
+                <button type="button" id="backup-now" class="button secondary small" data-workspace-id={group.id}>Back up now</button>
+              </div>
+
+              <label class="checkbox-row" id="skip-backup-row" hidden={preview.backupIsRecent}>
+                <input type="checkbox" id="skip-backup" />
+                <span>Delete without a backup (a bundle from the last {preview.backupMaxAgeHours} hours is required otherwise)</span>
+              </label>
+
+              <div class="form-group">
+                <label for="confirm-name">Type the workspace name to confirm: <code>{group.name}</code></label>
+                <input
+                  type="text"
+                  id="confirm-name"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  data-name={group.name}
+                  data-workspace-id={group.id}
+                />
+              </div>
+              <div class="form-actions">
+                <button type="button" id="delete-workspace" class="button danger" disabled>Delete workspace</button>
+                <span id="delete-status" class="status-text" role="status" aria-live="polite"></span>
+              </div>
+            </div>
+          )}
         </section>
 
         <aside class="sidebar">
@@ -155,7 +216,13 @@ const isPlatform = Boolean((group as (Workspace & { isPlatform?: boolean }) | nu
 </AdminLayout>
 
 <script>
-  import { adminErrorMessage, removeWorkspaceMember, renameWorkspace } from "@/lib/api/admin/workspaces";
+  import {
+    adminErrorMessage,
+    backUpWorkspace,
+    deleteWorkspace,
+    removeWorkspaceMember,
+    renameWorkspace,
+  } from "@/lib/api/admin/workspaces";
 
   const form = document.getElementById("workspace-rename-form") as HTMLFormElement | null;
   const status = document.getElementById("rename-status");
@@ -192,9 +259,115 @@ const isPlatform = Boolean((group as (Workspace & { isPlatform?: boolean }) | nu
       }
     });
   });
+
+  // Delete: the typed name, plus a bundle from the last day ("Back up now") or an explicit skip.
+  const nameInput = document.getElementById("confirm-name") as HTMLInputElement | null;
+  const deleteButton = document.getElementById("delete-workspace") as HTMLButtonElement | null;
+  const deleteStatus = document.getElementById("delete-status");
+  const backupState = document.getElementById("backup-state");
+  const skipBox = document.getElementById("skip-backup") as HTMLInputElement | null;
+  const skipRow = document.getElementById("skip-backup-row");
+  const backupLine = document.getElementById("backup-line");
+  const backupButton = document.getElementById("backup-now") as HTMLButtonElement | null;
+
+  const recent = () => backupState?.dataset.recent === "true";
+  const refreshDelete = () => {
+    if (!nameInput || !deleteButton) return;
+    deleteButton.disabled = !(nameInput.value === nameInput.dataset.name && (recent() || skipBox?.checked));
+  };
+  nameInput?.addEventListener("input", refreshDelete);
+  skipBox?.addEventListener("change", refreshDelete);
+
+  backupButton?.addEventListener("click", async () => {
+    const id = backupButton.dataset.workspaceId;
+    if (!id) return;
+    backupButton.disabled = true;
+    if (backupLine) backupLine.textContent = "Backing up…";
+    try {
+      const made = await backUpWorkspace(id);
+      if (backupState) backupState.dataset.recent = "true";
+      if (backupLine) {
+        backupLine.textContent = `Backed up just now (${made.filename}). `;
+        const link = document.createElement("a");
+        link.href = made.download_url;
+        link.textContent = "Download it";
+        backupLine.append(link, ".");
+      }
+      if (skipRow) skipRow.hidden = true;
+      if (skipBox) skipBox.checked = false;
+      refreshDelete();
+    } catch (err) {
+      if (backupLine) backupLine.textContent = `The backup failed: ${adminErrorMessage(err)}`;
+    } finally {
+      backupButton.disabled = false;
+    }
+  });
+
+  deleteButton?.addEventListener("click", async () => {
+    const id = nameInput?.dataset.workspaceId;
+    if (!id || !nameInput) return;
+    deleteButton.disabled = true;
+    if (deleteStatus) deleteStatus.textContent = "Deleting…";
+    try {
+      const result = await deleteWorkspace(id, { confirmName: nameInput.value, skipBackup: !recent() && Boolean(skipBox?.checked) });
+      const next = new URLSearchParams({ deleted: nameInput.dataset.name ?? "" });
+      if (result.storageLocations > 0) next.set("kept", "30");
+      window.location.href = `/admin/workspaces?${next}`;
+    } catch (err) {
+      if (deleteStatus) deleteStatus.textContent = `Couldn't delete it: ${adminErrorMessage(err)}`;
+      refreshDelete();
+    }
+  });
 </script>
 
 <style>
+  .danger-panel {
+    border-color: var(--color-error);
+  }
+
+  .stakes {
+    margin: 0 0 1rem;
+    padding-left: 1.25rem;
+    display: grid;
+    gap: 4px;
+    font-size: 14px;
+  }
+
+  .backup-state {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 1rem 0;
+    font-size: 14px;
+  }
+
+  .backup-state p {
+    margin: 0;
+  }
+
+  .checkbox-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 1rem;
+    font-weight: 400;
+    font-size: 14px;
+  }
+
+  .checkbox-row[hidden] {
+    display: none;
+  }
+
+  .checkbox-row input {
+    margin-top: 3px;
+  }
+
+  .button.danger:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   .title-row {
     display: flex;
     align-items: center;
