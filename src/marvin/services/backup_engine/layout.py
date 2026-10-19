@@ -1,15 +1,10 @@
 """Backup key naming and retention — the layout the old ``scripts/offsite_backup.py`` wrote, so a target carries on
 the history it left.
 
+    sqlite/marvin-<UTC YYYYmmddTHHMMSSZ>.db.gz          consistent SQLite snapshot (gzip), on a SQLite install
     postgres/marvin-<UTC YYYYmmddTHHMMSSZ>.dump         pg_dump --format=custom
     config/marvin-config-<UTC YYYYmmddTHHMMSSZ>.tar.gz  .secret, scheduler_state.json, templates/
     assets/<storage key>                                incremental mirror, never deleted
-    sqlite/marvin-<UTC YYYYmmddTHHMMSSZ>.db.gz          LEGACY: consistent SQLite snapshot (gzip)
-
-The ``sqlite/`` family is not written or restored by the engine yet, but
-backups that sit on NAS and R2 targets must keep listing, parsing a timestamp and aging out under the
-retention, so the key shape is known here (``DB_PREFIX``, ``db_key``, ``key_timestamp``). To bring one over,
-see ``marvin.scripts.sqlite_to_postgres`` and docs/manual/postgres.md.
 
 Keeping the layout means a target can read and prune the history the old script left behind.
 """
@@ -22,7 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-DB_PREFIX = "sqlite/"  # legacy family: listed and pruned, never written
+DB_PREFIX = "sqlite/"
 PG_PREFIX = "postgres/"
 CONFIG_PREFIX = "config/"
 ASSETS_PREFIX = "assets/"
@@ -50,7 +45,6 @@ def stamp(ts: datetime) -> str:
 
 
 def db_key(ts: datetime) -> str:
-    """A legacy `sqlite/` key. The engine no longer writes these; kept to name the family (tests, tooling)."""
     return f"{DB_PREFIX}marvin-{stamp(ts)}.db.gz"
 
 
@@ -87,6 +81,10 @@ def expired_bundles(keys: Iterable[str], keep: int) -> list[str]:
     for bundles in by_workspace.values():
         expired += [key for _, key in sorted(bundles, reverse=True)[keep:]]
     return sorted(expired)
+
+
+def db_prefix(engine: str) -> str:
+    return PG_PREFIX if engine == "postgres" else DB_PREFIX
 
 
 def key_timestamp(key: str) -> datetime | None:

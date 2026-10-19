@@ -73,7 +73,7 @@ up → down → up on a SQLite file.
 - [x] Acceptance: race tests `test_workflow_metrics.py:349`, `test_remote_mcp_uploads.py:206`, `test_scheduler_leader.py:160`
   (unskipped) pass 20× in a row on SQLite.
 
-## 5. Stage 4 — backups and restore per engine
+## 5. Stage 4 — backups and restore per engine (DONE)
 - Left by Stages 1-3: `check_engine` / `BackupSettings.from_env` raise "does not back up SQLite yet" for a sqlite engine; the 8
   `tests/test_backup_health.py` tests that run the Postgres job skip on a SQLite suite (`_pg_env()`), to be given a SQLite twin here.
 - Full-platform backup: restore from `694bd7be^` — `snapshot_sqlite` (online backup API, read-only source,

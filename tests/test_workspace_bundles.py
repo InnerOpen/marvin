@@ -44,7 +44,7 @@ def target(tmp_path: Path) -> LocalBackupTarget:
 
 
 def _settings(data_dir: Path, bundles: int = 14) -> eng.BackupSettings:
-    return eng.BackupSettings(data_dir=data_dir, retention=Retention(bundles=bundles))
+    return eng.BackupSettings(data_dir=data_dir, engine="sqlite", retention=Retention(bundles=bundles))
 
 
 def _bundle_keys(target) -> list[str]:

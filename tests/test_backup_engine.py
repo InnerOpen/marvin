@@ -1,14 +1,17 @@
 """The backup engine (services/backup_engine, scripts/backup): key layout and per-target retention, the built-in
 local target (conformance kit, atomic writes, sidecar digests, the same-volume guardrail), and backup /
-restore round trips through it, assets read via the storage provider. The database is Postgres only (pg_dump
-and pg_restore are faked); the old `sqlite/` key family is legacy: listed and pruned, never written or restored."""
+restore round trips through it, assets read via the storage provider. Ported from the old test_offsite_backup,
+which keeps testing the old script until the cutover."""
 
+import gzip
 import hashlib
 import io
 import json
 import os
+import sqlite3
 import subprocess
 import sys
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -28,30 +31,20 @@ NOW = datetime(2026, 10, 6, 7, 15, 0, tzinfo=UTC)
 REPO_SRC = Path(__file__).resolve().parents[1] / "src"
 
 
-PG_ENV = {"PGHOST": "marvin-dev-pg-rw", "PGPORT": "5432", "PGUSER": "marvin", "PGPASSWORD": "pg-pass-do-not-print", "PGDATABASE": "marvin"}
-
-
-class FakePg:
-    """Stands in for subprocess.run of pg_dump / pg_restore --list."""
-
-    def __init__(self, returncode: int = 0, tables: int = 3) -> None:
-        self.calls: list[tuple[list[str], dict[str, str]]] = []
-        self.returncode, self.tables = returncode, tables
-
-    def __call__(self, args, env, capture_output, text, timeout, check):
-        self.calls.append((list(args), dict(env)))
-        if args[0] == "pg_dump":
-            if self.returncode == 0:
-                Path(next(a.split("=", 1)[1] for a in args if a.startswith("--file="))).write_bytes(b"PGDMP" + b"x" * 64)
-            return subprocess.CompletedProcess(args, self.returncode, "", "pg_dump: error: connection refused")
-        listing = "\n".join(f"{i}; 0 0 TABLE DATA public t{i} marvin" for i in range(self.tables))
-        return subprocess.CompletedProcess(args, 0, listing, "")
+def _make_db(path: Path, rows: int = 50) -> None:
+    conn = sqlite3.connect(path)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)")
+    conn.executemany("INSERT INTO users (email) VALUES (?)", [(f"u{i}@example.com",) for i in range(rows)])
+    conn.commit()
+    conn.close()
 
 
 @pytest.fixture
 def data_dir(tmp_path: Path) -> Path:
     d = tmp_path / "data"
     (d / "assets" / "ws1").mkdir(parents=True)
+    _make_db(d / "marvin.db")
     (d / ".secret").write_text("s3cr3t-installation-key")
     (d / "scheduler_state.json").write_text('{"last": 1}')
     (d / "assets" / "ws1" / "a.png").write_bytes(b"\x89PNG" + b"a" * 100)
@@ -64,9 +57,8 @@ def data_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def settings(data_dir: Path, monkeypatch) -> eng.BackupSettings:
-    monkeypatch.setattr(eng.subprocess, "run", FakePg())  # a test that wants another pg_dump patches over this
-    return eng.BackupSettings(data_dir=data_dir, assets_root=data_dir / "assets", pg_env=PG_ENV)
+def settings(data_dir: Path) -> eng.BackupSettings:
+    return eng.BackupSettings(data_dir=data_dir, engine="sqlite", assets_root=data_dir / "assets")
 
 
 @pytest.fixture
@@ -90,8 +82,7 @@ def _keys(target) -> set[str]:
 
 def test_key_layout_is_the_old_scripts():
     """The names the old offsite_backup.py wrote (removed in slice 7), so a target reads and prunes that history."""
-    assert keys.db_key(NOW) == "sqlite/marvin-20261006T071500Z.db.gz"  # legacy family: still named, never written
-    assert keys.key_timestamp(keys.db_key(NOW)) == NOW
+    assert keys.db_key(NOW) == "sqlite/marvin-20261006T071500Z.db.gz"
     assert keys.pg_key(NOW) == "postgres/marvin-20261006T071500Z.dump"
     assert keys.config_key(NOW) == "config/marvin-config-20261006T071500Z.tar.gz"
     assert keys.asset_key("ws1/a.png") == "assets/ws1/a.png"
@@ -259,11 +250,12 @@ def test_a_file_without_a_sidecar_has_no_digest(target):
 def test_backup_writes_db_config_and_assets(settings, target, source):
     report = eng.run_backup(settings, target, source, now=NOW)
     assert report.failures == []
-    assert _keys(target) == {keys.pg_key(NOW), keys.config_key(NOW), "assets/ws1/a.png", "assets/b.txt"}
-    meta = target.head(keys.pg_key(NOW)).metadata
-    out = target.root / "dump.out"
-    target.get(keys.pg_key(NOW), out)
+    assert _keys(target) == {keys.db_key(NOW), keys.config_key(NOW), "assets/ws1/a.png", "assets/b.txt"}
+    meta = target.head(keys.db_key(NOW)).metadata
+    out = target.root / "db.gz.out"
+    target.get(keys.db_key(NOW), out)
     assert meta[eng.META_SHA256] == hashlib.sha256(out.read_bytes()).hexdigest()
+    assert meta[eng.META_DB_SHA256] == hashlib.sha256(gzip.decompress(out.read_bytes())).hexdigest()
     assert (report.assets_uploaded, report.assets_unchanged) == (2, 0)
 
 
@@ -295,7 +287,7 @@ def test_an_asset_deleted_after_the_listing_is_skipped_not_a_failure(settings, t
 
 
 def test_dry_run_writes_and_deletes_nothing(settings, target, source):
-    old = keys.pg_key(NOW - timedelta(days=400))
+    old = keys.db_key(NOW - timedelta(days=400))
     src = target.root.parent / "old"
     src.write_bytes(b"x")
     target.put_file(old, src)
@@ -308,27 +300,60 @@ def test_backup_prunes_old_snapshots_by_the_targets_retention(settings, target, 
     src = target.root.parent / "old"
     src.write_bytes(b"x")
     for d in range(1, 40):
-        target.put_file(keys.pg_key(NOW - timedelta(days=d)), src)
+        target.put_file(keys.db_key(NOW - timedelta(days=d)), src)
     settings.retention = Retention(hourly=0, daily=7)
     report = eng.run_backup(settings, target, source, now=NOW)
-    remaining = set(target.list("postgres/"))
-    assert keys.pg_key(NOW) in remaining and len(remaining) == 7
+    remaining = set(target.list("sqlite/"))
+    assert keys.db_key(NOW) in remaining and len(remaining) == 7
     assert report.pruned == 33
 
 
-def test_a_failed_dump_aborts_db_upload_and_its_pruning_but_not_the_rest(settings, target, source, monkeypatch):
+def test_integrity_failure_aborts_db_upload_and_its_pruning_but_not_the_rest(settings, target, source, monkeypatch):
     src = target.root.parent / "old"
     src.write_bytes(b"x")
-    stale = [keys.pg_key(NOW - timedelta(days=d)) for d in range(1, 60)]
+    stale = [keys.db_key(NOW - timedelta(days=d)) for d in range(1, 60)]
     for k in stale:
         target.put_file(k, src)
 
-    monkeypatch.setattr(eng.subprocess, "run", FakePg(tables=0))  # a dump with no table data fails its check
+    def broken(path):
+        raise keys.BackupError(f"integrity_check failed on {path.name}: ['row 3 missing from index']")
+
+    monkeypatch.setattr(eng, "check_integrity", broken)
     report = eng.run_backup(settings, target, source, now=NOW)
-    assert keys.pg_key(NOW) not in _keys(target)
+    assert keys.db_key(NOW) not in _keys(target)
     assert set(stale) <= _keys(target)
     assert keys.config_key(NOW) in _keys(target) and "assets/b.txt" in _keys(target)
-    assert any("no table data" in f for f in report.failures)
+    assert any(f.startswith("database: integrity_check failed") for f in report.failures)
+
+
+def test_snapshot_under_a_live_writer_is_consistent(data_dir, tmp_path):
+    stop = threading.Event()
+
+    def writer():
+        conn = sqlite3.connect(data_dir / "marvin.db", timeout=30)
+        i = 0
+        while not stop.is_set():
+            conn.execute("INSERT INTO users (email) VALUES (?)", (f"w{i}@example.com",))
+            conn.commit()
+            i += 1
+        conn.close()
+
+    t = threading.Thread(target=writer)
+    t.start()
+    try:
+        snaps = []
+        for n in range(5):
+            dest = tmp_path / f"snap{n}.db"
+            eng.snapshot_sqlite(data_dir / "marvin.db", dest)  # integrity_check runs inside
+            conn = sqlite3.connect(dest)
+            snaps.append(conn.execute("SELECT count(*), max(id) FROM users").fetchone())
+            conn.close()
+    finally:
+        stop.set()
+        t.join()
+    for count, max_id in snaps:
+        assert count == max_id  # no torn page: every committed row up to the snapshot, nothing after
+    assert snaps[-1][0] >= snaps[0][0] >= 50
 
 
 def test_assets_are_read_through_any_storage_provider(settings, target):
@@ -361,7 +386,7 @@ def test_no_assets_directory_is_not_an_error(settings, target, data_dir):
     shutil.rmtree(data_dir / "assets")
     assert eng.open_asset_source(settings) is None
     report = eng.run_backup(settings, target, None, now=NOW)
-    assert report.failures == [] and keys.pg_key(NOW) in _keys(target)
+    assert report.failures == [] and keys.db_key(NOW) in _keys(target)
     assert not (data_dir / "assets").exists()  # never created
 
 
@@ -378,15 +403,35 @@ def test_prefix_keeps_an_environment_to_itself(settings, source, tmp_path):
 
 # --- postgres -------------------------------------------------------------------------------------
 
+PG_ENV = {"PGHOST": "marvin-dev-pg-rw", "PGPORT": "5432", "PGUSER": "marvin", "PGPASSWORD": "pg-pass-do-not-print", "PGDATABASE": "marvin"}
+
+
+class FakePg:
+    """Stands in for subprocess.run of pg_dump / pg_restore --list."""
+
+    def __init__(self, returncode: int = 0, tables: int = 3) -> None:
+        self.calls: list[tuple[list[str], dict[str, str]]] = []
+        self.returncode, self.tables = returncode, tables
+
+    def __call__(self, args, env, capture_output, text, timeout, check):
+        self.calls.append((list(args), dict(env)))
+        if args[0] == "pg_dump":
+            if self.returncode == 0:
+                Path(next(a.split("=", 1)[1] for a in args if a.startswith("--file="))).write_bytes(b"PGDMP" + b"x" * 64)
+            return subprocess.CompletedProcess(args, self.returncode, "", "pg_dump: error: connection refused")
+        listing = "\n".join(f"{i}; 0 0 TABLE DATA public t{i} marvin" for i in range(self.tables))
+        return subprocess.CompletedProcess(args, 0, listing, "")
+
 
 def test_postgres_dump_is_written_verified_and_pruned(settings, target, source, monkeypatch):
+    settings.engine, settings.pg_env = "postgres", PG_ENV
     fake = FakePg()
     monkeypatch.setattr(eng.subprocess, "run", fake)
     src = target.root.parent / "old"
     src.write_bytes(b"old")
     for d in range(1, 120):
         target.put_file(keys.pg_key(NOW - timedelta(days=d)), src)
-    keep_sqlite = keys.db_key(NOW - timedelta(days=400))  # the legacy sqlite/ family is not this run's to prune
+    keep_sqlite = keys.db_key(NOW - timedelta(days=400))  # the other engine's family is not this run's to prune
     target.put_file(keep_sqlite, src)
 
     report = eng.run_backup(settings, target, source, now=NOW)
@@ -404,6 +449,7 @@ def test_postgres_dump_is_written_verified_and_pruned(settings, target, source, 
 
 @pytest.mark.parametrize("fake, message", [(FakePg(returncode=1), "connection refused"), (FakePg(tables=0), "no table data")])
 def test_a_bad_postgres_dump_writes_nothing(settings, target, source, monkeypatch, fake, message):
+    settings.engine, settings.pg_env = "postgres", PG_ENV
     monkeypatch.setattr(eng.subprocess, "run", fake)
     report = eng.run_backup(settings, target, source, now=NOW)
     assert not target.list("postgres/")
@@ -411,28 +457,20 @@ def test_a_bad_postgres_dump_writes_nothing(settings, target, source, monkeypatc
 
 
 def test_postgres_without_a_connection_is_a_reported_failure(settings, target, source):
-    settings.pg_env = {}
+    settings.engine = "postgres"
     report = eng.run_backup(settings, target, source, now=NOW)
     assert any("POSTGRES_SERVER" in f for f in report.failures)
     assert keys.config_key(NOW) in _keys(target)
 
 
 def test_missing_pg_dump_binary_says_what_to_install(settings, target, source, monkeypatch):
+    settings.engine, settings.pg_env = "postgres", PG_ENV
+
     def missing(*a, **kw):
         raise FileNotFoundError("pg_dump")
 
     monkeypatch.setattr(eng.subprocess, "run", missing)
     assert any("postgresql-client" in f for f in eng.run_backup(settings, target, source, now=NOW).failures)
-
-
-def test_only_postgres_is_a_backup_engine(data_dir):
-    assert eng.BackupSettings(data_dir=data_dir).engine == "postgres"
-    with pytest.raises(ValueError, match="unknown DB engine 'oracle'"):
-        eng.BackupSettings(data_dir=data_dir, engine="oracle")
-    with pytest.raises(ValueError, match="sqlite_to_postgres"):
-        eng.BackupSettings(data_dir=data_dir, engine="sqlite")
-    with pytest.raises(ValueError, match="sqlite_to_postgres"):
-        eng.BackupSettings.from_env({"DB_ENGINE": "sqlite"})
 
 
 # --- restore --------------------------------------------------------------------------------------
@@ -441,8 +479,10 @@ def test_only_postgres_is_a_backup_engine(data_dir):
 def test_restore_round_trip(settings, target, source, data_dir, tmp_path):
     eng.run_backup(settings, target, source, now=NOW)
     into = tmp_path / "restore"
-    eng.run_restore(target, into)
-    assert (into / "marvin.dump").read_bytes().startswith(b"PGDMP")  # fetched and verified, never loaded
+    eng.run_restore(target, into, engine="sqlite")
+    conn = sqlite3.connect(into / "marvin.db")
+    assert conn.execute("SELECT count(*) FROM users").fetchone() == (50,)
+    conn.close()
     assert (into / ".secret").read_text() == "s3cr3t-installation-key"
     assert oct((into / ".secret").stat().st_mode & 0o777) == "0o600"
     assert (into / "assets" / "ws1" / "a.png").read_bytes() == (data_dir / "assets" / "ws1" / "a.png").read_bytes()
@@ -452,57 +492,44 @@ def test_restore_round_trip(settings, target, source, data_dir, tmp_path):
 
 def test_restore_refuses_an_occupied_directory_without_force(settings, target, source, data_dir):
     eng.run_backup(settings, target, source, now=NOW)
-    (data_dir / "marvin.dump").write_bytes(b"older")
-    with pytest.raises(keys.BackupError, match="already has marvin.dump, .secret"):
-        eng.run_restore(target, data_dir)
+    with pytest.raises(keys.BackupError, match="already has marvin.db, .secret"):
+        eng.run_restore(target, data_dir, engine="sqlite")
 
 
-def test_forced_restore_moves_the_existing_dump_aside(settings, target, source, data_dir):
+def test_forced_restore_moves_existing_db_and_wal_aside(settings, target, source, data_dir):
     eng.run_backup(settings, target, source, now=NOW)
-    (data_dir / "marvin.dump").write_bytes(b"older")
-    eng.run_restore(target, data_dir, force=True)
-    assert (data_dir / "marvin.dump").read_bytes().startswith(b"PGDMP")
-    assert any(p.name.startswith("marvin.dump.pre-restore-") and p.read_bytes() == b"older" for p in data_dir.iterdir())
+    (data_dir / "marvin.db-wal").write_bytes(b"stale wal")
+    eng.run_restore(target, data_dir, force=True, engine="sqlite")
+    names = {p.name for p in data_dir.iterdir()}
+    assert any(n.startswith("marvin.db-wal.pre-restore-") for n in names)
+    assert any(n.startswith("marvin.db.pre-restore-") for n in names)
 
 
 def test_restore_rejects_a_tampered_object_and_leaves_the_directory_alone(settings, target, source, tmp_path):
     eng.run_backup(settings, target, source, now=NOW)
-    (target.root / keys.pg_key(NOW)).write_bytes(b"not the dump")
+    (target.root / keys.db_key(NOW)).write_bytes(gzip.compress(b"not the database"))
     into = tmp_path / "restore"
     with pytest.raises(keys.BackupError, match="sha256 mismatch"):
-        eng.run_restore(target, into, skip_config=True, assets=False)
-    assert not (into / "marvin.dump").exists()
+        eng.run_restore(target, into, skip_config=True, assets=False, engine="sqlite")
+    assert not (into / "marvin.db").exists()
 
 
-def test_restore_picks_the_newest_postgres_dump_and_ignores_the_legacy_family(settings, target, source, tmp_path):
-    src = tmp_path / "legacy"
-    src.write_bytes(b"x")
-    target.put_file(keys.db_key(NOW + timedelta(days=1)), src)  # a legacy key newer than any dump
+def test_restore_picks_the_newest_backup_and_fetches_a_postgres_dump_unloaded(settings, target, source, monkeypatch, tmp_path):
     eng.run_backup(settings, target, source, now=NOW - timedelta(days=1))
     eng.run_backup(settings, target, source, now=NOW)
-    assert eng.latest_key(target, keys.PG_PREFIX) == keys.pg_key(NOW)
-    into = tmp_path / "pg"
-    eng.run_restore(target, into, assets=False)
-    assert (into / "marvin.dump").read_bytes().startswith(b"PGDMP")
-
-
-@pytest.mark.parametrize("kwargs", [{"engine": "sqlite"}, {"db": "sqlite/marvin-20261006T071500Z.db.gz"}])
-def test_restoring_a_sqlite_backup_is_refused_with_the_way_forward(target, tmp_path, kwargs):
-    into = tmp_path / "restore"
-    with pytest.raises(ValueError, match="marvin.scripts.sqlite_to_postgres") as exc:
-        eng.run_restore(target, into, **kwargs)
-    assert "docs/manual/postgres.md" in str(exc.value)
-    assert not into.exists()  # refused before touching anything
-
-
-def test_list_backups_shows_named_database_and_config_keys_including_the_legacy_family(settings, target, source, tmp_path):
-    src = tmp_path / "legacy"
-    src.write_bytes(b"x")
-    legacy = keys.db_key(NOW - timedelta(days=400))
-    target.put_file(legacy, src)
-    target.put_file("postgres/manual-copy.dump", src)  # not a key the engine named
+    assert eng.latest_key(target, keys.DB_PREFIX) == keys.db_key(NOW)
+    settings.engine, settings.pg_env = "postgres", PG_ENV
+    monkeypatch.setattr(eng.subprocess, "run", FakePg())
     eng.run_backup(settings, target, source, now=NOW)
-    assert [o.key for o in eng.list_backups(target)] == [legacy, keys.pg_key(NOW), keys.config_key(NOW)]
+    into = tmp_path / "pg"
+    eng.run_restore(target, into, engine="postgres", assets=False)
+    assert (into / "marvin.dump").read_bytes().startswith(b"PGDMP")
+    assert not (into / "marvin.db").exists()
+
+
+def test_list_backups_shows_only_named_database_and_config_keys(settings, target, source):
+    eng.run_backup(settings, target, source, now=NOW)
+    assert [o.key for o in eng.list_backups(target)] == [keys.db_key(NOW), keys.config_key(NOW)]
 
 
 # --- the command line -----------------------------------------------------------------------------
@@ -512,37 +539,14 @@ def _cli(args, env, cwd):
     return subprocess.run([sys.executable, "-m", "marvin.scripts.backup", *args], env=env, cwd=cwd, capture_output=True, text=True, timeout=120)
 
 
-FAKE_PG_DUMP = """#!/bin/sh
-for a in "$@"; do case "$a" in --file=*) printf 'PGDMP-fake-dump' > "${a#--file=}" ;; esac; done
-"""
-FAKE_PG_RESTORE = """#!/bin/sh
-echo '1; 0 0 TABLE DATA public users marvin'
-"""
-
-
 @pytest.fixture
 def cli_env(tmp_path, data_dir):
     base = tmp_path / "base"  # BASE_DIR: Marvin would create dev/ or tests/.temp here if it built its settings
     base.mkdir()
-    bin_dir = tmp_path / "bin"  # pg_dump / pg_restore stand-ins, so the CLI runs where no postgresql-client is installed
-    bin_dir.mkdir()
-    for name, body in (("pg_dump", FAKE_PG_DUMP), ("pg_restore", FAKE_PG_RESTORE)):
-        (bin_dir / name).write_text(body)
-        (bin_dir / name).chmod(0o755)
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("BACKUP_", "STORAGE_", "POSTGRES_", "DB_ENGINE", "TESTING", "DATA_DIR", "PG"))}
-    env.update(
-        {
-            "PYTHONPATH": str(REPO_SRC),
-            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-            "BASE_DIR": str(base),
-            "BACKUP_DATA_DIR": str(data_dir),
-            # Nothing listens on port 1: recording the run fails fast ("NOT recorded") and the exit code is unaffected.
-            "POSTGRES_SERVER": "127.0.0.1",
-            "POSTGRES_PORT": "1",
-            "POSTGRES_USER": "marvin",
-            "POSTGRES_DB": "marvin",
-        }
-    )
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("BACKUP_", "STORAGE_", "POSTGRES_", "DB_ENGINE", "TESTING", "DATA_DIR"))}
+    # These CLI runs exercise the SQLite backup path (the suite's POSTGRES_* and DB_ENGINE are stripped above, so the
+    # engine would be sqlite by the auto rule anyway; say so).
+    env.update({"PYTHONPATH": str(REPO_SRC), "BASE_DIR": str(base), "BACKUP_DATA_DIR": str(data_dir), "BACKUP_DB_ENGINE": "sqlite"})
     return env
 
 
@@ -571,17 +575,11 @@ def test_cli_backs_up_and_restores_without_building_marvins_settings(cli_env, tm
         assert run.returncode == 0, run.stdout + run.stderr
         assert "backup[nas] ok" in run.stdout
         listed = _cli(["list", "--target", "local"], env, tmp_path)
-        assert listed.returncode == 0 and "postgres/marvin-" in listed.stdout and "config/marvin-config-" in listed.stdout
+        assert listed.returncode == 0 and "sqlite/marvin-" in listed.stdout and "config/marvin-config-" in listed.stdout
         into = tmp_path / "restored"
         restored = _cli(["restore", "--target", "local", "--into", str(into)], env, tmp_path)
         assert restored.returncode == 0, restored.stdout + restored.stderr
-        assert (into / "marvin.dump").read_bytes() == b"PGDMP-fake-dump" and (into / "assets" / "b.txt").read_text() == "hello"
+        assert (into / "marvin.db").is_file() and (into / "assets" / "b.txt").read_text() == "hello"
         assert list((tmp_path / "base").iterdir()) == []  # no dev/data, no tests/.temp: settings never built
     finally:
         shutil.rmtree(nas, ignore_errors=True)
-
-
-def test_cli_refuses_the_retired_sqlite_engine_naming_the_way_forward(cli_env, tmp_path):
-    for command in (["list", "--target", "local"], ["run", "--target", "local"]):
-        result = _cli(command, {**cli_env, "BACKUP_DB_ENGINE": "sqlite", "BACKUP_LOCAL_ROOT": str(tmp_path)}, tmp_path)
-        assert result.returncode == 2 and "sqlite_to_postgres" in result.stdout + result.stderr
