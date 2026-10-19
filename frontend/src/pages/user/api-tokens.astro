@@ -240,6 +240,7 @@ function relativeDate(date: string | null | undefined): string | null {
 
   .tokens-list {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 12px;
   }
 
@@ -257,6 +258,7 @@ function relativeDate(date: string | null | undefined): string | null {
   .token-info {
     flex: 1;
     min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .token-info strong {

@@ -41,17 +41,17 @@ try {
     <p class="muted">No connected apps.</p>
   ) : (
     <div class="table-scroll">
-      <table class="table">
+      <table class="table stacks apps">
         <thead><tr><th>App</th><th>User</th><th>Workspace</th><th>Access</th><th>Last used</th><th></th></tr></thead>
         <tbody>
           {apps.map((a) => (
             <tr>
-              <td><strong>{a.clientName}</strong><br /><span class="muted">{a.redirectHost}</span></td>
-              <td><a href={`/admin/users/${a.userId}`}>{a.user}</a></td>
-              <td><a href={`/admin/groups/${a.workspaceId}`}>{a.workspace}</a>{a.pinned && <><br /><span class="muted">pinned address</span></>}</td>
-              <td>{a.access === "write" ? "Read & write" : "Read-only"}</td>
-              <td>{a.lastUsedAt ? <LocalTime iso={a.lastUsedAt} /> : "never"}</td>
-              <td>
+              <td class="app"><strong>{a.clientName}</strong><br /><span class="muted">{a.redirectHost}</span></td>
+              <td data-label="User"><a href={`/admin/users/${a.userId}`}>{a.user}</a></td>
+              <td data-label="Workspace"><a href={`/admin/groups/${a.workspaceId}`}>{a.workspace}</a>{a.pinned && <><br /><span class="muted">pinned address</span></>}</td>
+              <td data-label="Access">{a.access === "write" ? "Read & write" : "Read-only"}</td>
+              <td data-label="Last used">{a.lastUsedAt ? <LocalTime iso={a.lastUsedAt} /> : "never"}</td>
+              <td class="action">
                 {a.revokedAt ? (
                   <span class="muted">Disconnected ({a.revokedReason})</span>
                 ) : (
@@ -89,5 +89,15 @@ try {
   .toolbar h2 { margin: 0; }
   .toolbar p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
   .muted { color: var(--muted); font-size: 13px; }
+  /* A long client name (a hostname, say) wraps rather than stretching the table past the screen. */
+  .apps td { overflow-wrap: anywhere; }
+  /* Phones: each app is a small card (the shared .table.stacks layout, one column) instead of a six-column table
+     that scrolled sideways with Disconnect off-screen to the right. Cells name themselves, the header being gone. */
+  @media (max-width: 640px) {
+    .apps tr { grid-template-columns: minmax(0, 1fr); }
+    .apps td { grid-column: 1; }
+    .apps td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); font-size: 13px; }
+    .apps td.action .button { width: 100%; min-height: 44px; }
+  }
   .alert { padding: 14px; border: 1px solid var(--color-error, #dc2626); border-radius: var(--radius); color: var(--color-error, #dc2626); }
 </style>
