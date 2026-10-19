@@ -178,17 +178,12 @@ tasks:
       - task: py:test
 
   py:coverage:
-    desc: run tests with coverage and open the HTML report
-    env:
-      # SQLite, a file per run (tests/conftest.py), so the .env loaded above can't aim a schema-dropping test run at a
-      # real Postgres database. An explicit `DB_ENGINE=postgres task py:test` still wins (the OS environment takes
-      # precedence over a task's env) and runs on the dev container's own `marvin_test` database.
-      DB_ENGINE: sqlite
+    desc: run tests (SQLite) with coverage and open the HTML report
     cmds:
       # --cov is what records the data; a bare `pytest` leaves the reporters below with nothing to
       # read. `--cov-report=` silences pytest-cov's own terminal report so the explicit reporters
-      # that follow are the only output.
-      - uv run pytest --cov=src/marvin --cov-report=
+      # that follow are the only output. DB_ENGINE inline: see py:test.
+      - DB_ENGINE=sqlite uv run pytest --cov=src/marvin --cov-report=
       - uv run coverage report -m
       - uv run coverage lcov
       - uv run coverage html
@@ -244,29 +239,26 @@ tasks:
     cmds:
       - uv run scripts/server.py 8000
 
+  # SQLite, a file per run (tests/conftest.py). The engine is set on the command line, not in `env:`: go-task lets a
+  # variable already exported in the shell beat a task's env, and a terminal that loaded .env (VS Code does) exports
+  # DB_ENGINE=postgres — which sent this suite onto Postgres alongside py:test:pg, both creating tables in marvin_test.
   py:test:
-    desc: run python tests (args after '--')
-    env:
-      # SQLite, a file per run (tests/conftest.py), so the .env loaded above can't aim a schema-dropping test run at a
-      # real Postgres database. An explicit `DB_ENGINE=postgres task py:test` still wins (the OS environment takes
-      # precedence over a task's env) and runs on the dev container's own `marvin_test` database.
-      DB_ENGINE: sqlite
+    desc: run python tests on SQLite (args after '--')
     cmds:
-      - uv run pytest {{ .CLI_ARGS }}
+      - DB_ENGINE=sqlite uv run pytest {{ .CLI_ARGS }}
 
-  # The dev container's Postgres (`task dev:services:start`). tests/conftest.py forces a database whose name contains
-  # "test" (made if missing), so this can't drop the dev database.
+  # The dev container's Postgres (`task dev:services:start`); the connection below is its default, and an exported one
+  # (e.g. from .env) wins. Engine and database are pinned on the command line (see py:test), and tests/conftest.py
+  # refuses a database whose name lacks "test", so this can't drop the dev database.
   py:test:pg:
     desc: run python tests on Postgres (args after '--')
     env:
-      DB_ENGINE: postgres
       POSTGRES_USER: default
       POSTGRES_PASSWORD: default
       POSTGRES_SERVER: 127.0.0.1
       POSTGRES_PORT: 5434
-      POSTGRES_DB: marvin_test
     cmds:
-      - uv run pytest {{ .CLI_ARGS }}
+      - DB_ENGINE=postgres POSTGRES_DB=marvin_test uv run pytest {{ .CLI_ARGS }}
 
   py:test:all:
     desc: run python tests on both engines at once (SQLite and Postgres)
