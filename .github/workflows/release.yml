@@ -107,9 +107,7 @@ jobs:
       matrix:
         include:
           # Same three images as docker.yml — combined + the two split halves — under version tags.
-          # suffix names the image; expect is the entrypoint the guard asserts. `target:` is REQUIRED:
-          # with none, the build defaults to the last Dockerfile stage (lambda), which resets the
-          # entrypoint to the Mangum handler and crash-loops under a normal docker run / Helm deploy.
+          # suffix names the image; expect is the entrypoint the guard asserts. `target:` selects the image.
           - target: production
             suffix: ""
             expect: start.sh

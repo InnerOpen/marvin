@@ -244,17 +244,3 @@ ENTRYPOINT ["/app/start.sh"]
 # ENV PATH="/app/.venv/bin:$PATH"
 
 # CMD ["marvin"]
-
-
-# ##################################
-# Lambda Image
-# ##################################
-FROM production AS lambda
-
-ARG FUNCTION_DIR="/function"
-
-RUN pip install boto3
-# Lambda is single-process and invokes the handler directly — it must not inherit the dual-process
-# supervisor entrypoint from `production`. Reset it so the CMD handler is used as before.
-ENTRYPOINT []
-CMD ["marvin.app.handler"]

@@ -102,10 +102,7 @@ jobs:
             --namespace cnpg-system --create-namespace \
             --wait --timeout 5m
 
-      # --target production is required: the last stage in the Dockerfile is `lambda`, which resets
-      # ENTRYPOINT and runs the Mangum handler, so an untargeted build produces an image that exits
-      # with `"marvin.app.handler": executable file not found`. docker.yml and the Taskfile already
-      # target production; this build was the odd one out.
+      # Build the same `production` target that docker.yml and the Taskfile build.
       - name: Build Docker image for testing
         run: |
           docker build -t marvin:test -f docker/Dockerfile --target production .

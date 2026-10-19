@@ -5,11 +5,9 @@ It includes functions to:
 - Connect to the database.
 - Run Alembic migrations for the main application.
 - Initialize default data (e.g., default group and user).
-- Apply any necessary data fixes after migrations.
 """
 
 import os
-from collections.abc import Callable
 from pathlib import Path
 from time import sleep
 from typing import Any
@@ -22,7 +20,6 @@ from sqlalchemy import engine, orm, text, update
 from marvin.core import root_logger
 from marvin.core.config import get_app_settings
 from marvin.db.db_setup import session_context
-from marvin.db.fixes.fix_migration_data import fix_migration_data
 from marvin.db.models.groups import Groups
 from marvin.repos.all_repositories import get_repositories
 from marvin.repos.repository_factory import AllRepositories
@@ -113,19 +110,6 @@ def platform_workspace_init(repos: AllRepositories, name: str) -> GroupRead:
     repos.session.execute(update(Groups).where(Groups.id == group.id).values(is_platform=True))
     repos.session.commit()
     return GroupRead.model_validate(platform_workspace(repos.session))
-
-
-def safe_try(func: Callable) -> None:
-    """
-    Executes a function and logs any exceptions without raising them.
-
-    Args:
-        func (Callable): The function to execute.
-    """
-    try:
-        func()
-    except Exception as e:
-        logger.error(f"Error calling '{func.__name__}': {e}")
 
 
 def connect(session: orm.Session) -> bool:
@@ -236,8 +220,7 @@ def main() -> None:
         - Checks if the database is at the latest revision.
         - If not, runs `alembic upgrade head`.
     4. Creates PostgreSQL extensions if using PostgreSQL.
-    5. Applies any data fixes using `fix_migration_data`.
-    6. If the database is new (no users), initializes it with `init_db`.
+    5. If the database is new (no users), initializes it with `init_db`.
 
     Raises:
         ConnectionError: If the database connection cannot be established after multiple retries.
@@ -293,7 +276,6 @@ def main() -> None:
 
         db = get_repositories(session, group_id=None)
 
-        safe_try(lambda: fix_migration_data(session))
         if db.users.get_all():
             logger.debug("Main Databse exists")
         else:

@@ -497,33 +497,6 @@ def test_entry_payload_and_tag_counts_leave_trashed_items_out(http):
     assert usage() == 0
 
 
-def test_admin_delete_trashes_and_permanent_removes_the_file(http):
-    """routes/admin/platform isn't mounted in the app today; mounted on its own, its delete takes the Trash's path."""
-    from fastapi import FastAPI
-
-    from marvin.routes.admin.platform import router as admin_platform
-
-    http.sign_in(WorkspaceRole.OWNER, admin=True)
-    mini = FastAPI()
-    mini.include_router(admin_platform, prefix="/api/admin")
-    mini.dependency_overrides[get_current_user] = app.dependency_overrides[get_current_user]
-    client, platform = TestClient(mini), TestClient(app)
-    aid, rid = http.asset("admin"), http.resource("admin")
-    key = http.key_of(aid)
-    trashed = client.delete(f"/api/admin/platform/assets/{aid}")
-    assert trashed.status_code == 200 and trashed.json()["trashedAt"] and http.store.exists(key)
-    assert str(aid) not in {a["id"] for a in client.get("/api/admin/platform/assets").json()}
-    assert client.post(f"/api/admin/platform/assets/{aid}/restore").json()["trashedAt"] is None
-    assert client.delete(f"/api/admin/platform/assets/{aid}?permanent=true").status_code == 409  # restored: not in the Trash
-    client.delete(f"/api/admin/platform/assets/{aid}")
-    assert client.delete(f"/api/admin/platform/assets/{aid}?permanent=true").status_code == 200
-    assert not http.store.exists(key)  # it used to drop the row and orphan the file
-    assert platform.get(f"/api/platform/assets/{aid}").status_code == 404
-    client.delete(f"/api/admin/platform/resources/{rid}")
-    assert client.delete(f"/api/admin/platform/resources/{rid}?permanent=true").status_code == 200
-    assert platform.get(f"/api/platform/resources/{rid}").status_code == 404
-
-
 # ── Publishing API ────────────────────────────────────────────────────────────
 
 

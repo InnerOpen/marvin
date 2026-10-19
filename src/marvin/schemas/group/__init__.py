@@ -10,7 +10,6 @@ from .invite_token import (
     InviteTokenSummary,
     InviteTokenUpdate,
 )
-from .permissions import SetPermissions
 from .preferences import GroupPreferencesCreate, GroupPreferencesRead, GroupPreferencesUpdate
 from .report import (
     ReportCategory,
@@ -25,7 +24,6 @@ from .report import (
 from .webhook import WebhookCreate, WebhookMethod, WebhookPagination, WebhookRead, WebhookSave, WebhookUpdate
 
 __all__ = [
-    "SetPermissions",
     "WebhookCreate",
     "WebhookMethod",
     "WebhookPagination",
