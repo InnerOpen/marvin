@@ -722,6 +722,9 @@ class AppSettings(BaseSettings):
     DB_SQLITE_BUSY_TIMEOUT_MS: int = 30000
     """How long (ms) SQLite waits for another connection's write lock before failing with "database is locked"."""
 
+    DB_SQLITE_WRITE_WARN_SECONDS: float = 5.0
+    """Warn when a SQLite write transaction stays open this long (it blocks every other writer); 0 turns it off."""
+
     DB_POOL_SIZE: int = 5
     """SQLAlchemy connection pool size (number of persistent connections)."""
 

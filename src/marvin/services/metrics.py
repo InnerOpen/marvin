@@ -24,10 +24,11 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func
+from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from marvin.db.locking import begin_write
 from marvin.db.models.groups.metric_contributions import MetricContributionModel
 from marvin.db.models.groups.metric_observations import MetricObservationModel
 
@@ -217,6 +218,26 @@ def contribution(session: Session, group_id, key: str) -> MetricContributionMode
     )
 
 
+def _bump(session: Session, group_id, metric: str, variant: str, subject: str, window: Window, amount: float, automation_id) -> tuple | None:
+    """Add `amount` to the window's number with one UPDATE and return (its id, the new number), or None when the window
+    has no row yet. The database does the arithmetic (`value = value + :amount`), so concurrent adds cannot lose one:
+    reading the value into Python and writing it back (as a SELECT ... FOR UPDATE did, which SQLite ignores) can."""
+    M = MetricObservationModel
+    values = {"value": M.value + amount}
+    if automation_id is not None:
+        values["automation_id"] = automation_id
+    row = session.execute(
+        update(M)
+        .where(M.group_id == group_id, M.metric == metric, M.variant == variant, M.subject == subject, M.window_label == window.label)
+        .values(**values)
+        .returning(M.id, M.value)
+        .execution_options(synchronize_session=False)
+    ).first()
+    if row is not None:
+        session.expire_all()  # any cached copy of the row holds the old number
+    return None if row is None else (row.id, float(row.value))
+
+
 def add(
     session: Session, group_id, *, metric: str, amount: float, variant: str, subject: str, window: Window, key: str = "", automation_id=None
 ) -> Added:
@@ -227,6 +248,7 @@ def add(
     retry can still count."""
     claim = None
     try:
+        begin_write(session)  # SQLite: the write lock before the first read; a concurrent add waits instead of failing
         if key:
             claim = MetricContributionModel(session=session, group_id=group_id, contribution_key=key, amount=amount)
             try:
@@ -236,11 +258,11 @@ def add(
             except IntegrityError:
                 row = existing(session, group_id, metric=metric, variant=variant, subject=subject, window=window)
                 total = row.value if row is not None else 0.0
+                session.rollback()  # nothing to keep, and on SQLite this ends the write transaction begin_write opened
                 return Added(total, total, False, False)
-        locked = _key(session, group_id, metric, variant, subject, window).with_for_update()
-        row = locked.first()
-        created = row is None
-        if row is None:
+        bumped = _bump(session, group_id, metric, variant, subject, window, amount, automation_id)
+        created = bumped is None
+        if bumped is None:
             if session.query(func.count(MetricObservationModel.id)).filter(MetricObservationModel.group_id == group_id).scalar() >= MAX_PER_WORKSPACE:
                 raise MetricError(f"this workspace holds {MAX_PER_WORKSPACE:,} observations, the most it keeps: remove some on the Metrics page")
             row = MetricObservationModel(
@@ -259,20 +281,15 @@ def add(
                 with session.begin_nested():
                     session.add(row)
                     session.flush()
-                previous = 0.0
+                observation_id, total = row.id, amount
             except IntegrityError:  # another run made the window first: add onto what it wrote
                 created = False
-                row = locked.one()
-                previous = row.value
-                row.value = previous + amount
+                observation_id, total = _bump(session, group_id, metric, variant, subject, window, amount, automation_id)  # type: ignore[misc]
         else:
-            previous = row.value
-            row.value = previous + amount
-        if automation_id is not None:
-            row.automation_id = automation_id
+            observation_id, total = bumped
+        previous = 0.0 if created else round(total - amount, 9)  # the number before this add (the UPDATE returned the one after)
         if claim is not None:
-            claim.observation_id = row.id
-        total = row.value
+            claim.observation_id = observation_id
         session.commit()
         return Added(total, previous, True, created)
     except Exception:

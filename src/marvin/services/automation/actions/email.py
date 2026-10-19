@@ -26,6 +26,8 @@ import uuid
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
+from marvin.db.locking import begin_write
+
 from ..matcher import interpolate
 from .base import AutomationActionError, register_action
 
@@ -99,6 +101,7 @@ def _claim(session, group_id, key: str, user_id, context: dict, subject: str):
     """Take the send for this key — the row, or None when someone already has it."""
     from marvin.db.models.groups.workflow_email_sends import WorkflowEmailSendModel as Sent
 
+    begin_write(session)  # SQLite: the claim is a write; take the lock first so a rival waits for it rather than failing
     row = Sent(
         session=session,
         group_id=group_id,
@@ -112,6 +115,7 @@ def _claim(session, group_id, key: str, user_id, context: dict, subject: str):
             session.add(row)
             session.flush()
     except IntegrityError:
+        session.rollback()  # ends the transaction begin_write opened
         return None
     session.commit()  # held before it is sent: a crash after the send never sends it again
     return row

@@ -382,6 +382,28 @@ def test_sessions_adding_different_events_to_one_new_window_lose_nothing(ws):
     assert row.value == 4.0
 
 
+def test_an_add_never_overwrites_a_number_another_session_just_raised(ws):
+    """The new number is computed by the database (`value = value + :amount`), not read into Python and written back:
+    a session holding a stale copy of the row still adds onto what is there. (SELECT ... FOR UPDATE, which SQLite ignores,
+    was what protected this before.)"""
+    from sqlalchemy.orm import Session
+
+    window, engine = metrics.parse_window("2026-10-18"), ws.session.get_bind()
+
+    def add(session, key):
+        return metrics.add(session, ws.gid, metric="stale", amount=1.0, variant="", subject="", window=window, key=key)
+
+    with Session(engine) as first, Session(engine) as second:
+        add(first, "wf:0:stale-1:0:0")
+        seen = metrics.existing(first, ws.gid, metric="stale", variant="", subject="", window=window)
+        assert seen.value == 1.0  # `first` now holds the row at 1.0
+        add(second, "wf:0:stale-2:0:0")  # another session takes it to 2.0
+        out = add(first, "wf:0:stale-3:0:0")  # ...which `first` must add onto, not onto its copy
+    assert (out.value, out.previous) == (3.0, 2.0)
+    (row,) = _rows(ws, metric="stale")
+    assert row.value == 3.0
+
+
 def test_a_failed_write_releases_the_claim_so_a_retry_still_counts(ws, monkeypatch):
     monkeypatch.setattr(metrics, "MAX_PER_WORKSPACE", 0)
     with pytest.raises(AutomationActionError, match="the most it keeps"):

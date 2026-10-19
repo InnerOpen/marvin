@@ -18,7 +18,7 @@ from sqlalchemy.orm.session import Session
 
 from marvin.core.config import get_app_settings
 from marvin.db import length_check
-from marvin.db.locking import SQLITE_BEGIN_OPTION
+from marvin.db.locking import SQLITE_BEGIN_OPTION, watch_writes
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +82,8 @@ def _configure_sqlite(engine: sa.engine.Engine) -> None:
         raw = conn.connection.dbapi_connection
         if not raw.in_transaction and statement.lstrip()[:9].upper().startswith(_DML):
             raw.execute("BEGIN")
+
+    watch_writes(engine, settings.DB_SQLITE_WRITE_WARN_SECONDS)
 
 
 def sql_global_init(db_url: str) -> tuple[sessionmaker[Session], sa.engine.Engine]:

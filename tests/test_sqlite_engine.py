@@ -4,10 +4,15 @@ These build their own engines on files in tmp_path and run Alembic in a subproce
 engine the suite itself runs on.
 """
 
+import logging
+import sqlite3
 import subprocess
 import sys
 import textwrap
+import threading
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import sqlalchemy as sa
@@ -254,3 +259,112 @@ def test_alembic_migrates_with_foreign_keys_off(tmp_path):
     done = subprocess.run([sys.executable, "-c", script, str(ALEMBIC_INI)], env=env, capture_output=True, text=True, timeout=300)
     assert done.returncode == 0, done.stderr[-2000:]
     assert "FOREIGN_KEYS [0]" in done.stdout, done.stdout[-500:]
+
+
+# ── Stage 3: the write lock and the watchdog ────────────────────────────────────────────────────────────────────
+
+
+def test_begin_write_holds_the_write_lock_until_the_session_ends_its_transaction(lite):
+    from marvin.db.locking import begin_write
+
+    with Session(lite) as session:
+        begin_write(session)
+        rival = lite.raw_connection()
+        try:
+            rival.driver_connection.execute("PRAGMA busy_timeout=50")
+            with pytest.raises(sqlite3.OperationalError, match="locked"):
+                rival.driver_connection.execute("BEGIN IMMEDIATE")  # the lock is taken from the first statement on
+            session.rollback()
+            rival.driver_connection.execute("BEGIN IMMEDIATE")  # released
+            rival.driver_connection.execute("ROLLBACK")
+        finally:
+            rival.close()
+
+
+def test_begin_write_commits_what_the_session_holds_and_then_takes_the_lock(lite):
+    from marvin.db.locking import begin_write
+
+    with Session(lite) as session:
+        session.execute(sa.text("INSERT INTO claims (name) VALUES ('before')"))
+        begin_write(session)
+        with lite.connect() as other:  # committed: another connection sees it
+            assert other.exec_driver_sql("SELECT count(*) FROM claims").scalar() == 1
+        session.execute(sa.text("INSERT INTO claims (name) VALUES ('after')"))
+        session.commit()
+
+
+def test_a_competing_writer_waits_for_begin_write_instead_of_failing(lite):
+    from marvin.db.locking import begin_write
+
+    finished = []
+
+    def rival():
+        with Session(lite) as other:
+            begin_write(other)  # waits on busy_timeout for the holder, not SQLITE_BUSY
+            other.execute(sa.text("INSERT INTO claims (name) VALUES ('rival')"))
+            other.commit()
+            finished.append(time.monotonic())
+
+    with Session(lite) as holder:
+        begin_write(holder)
+        thread = threading.Thread(target=rival)
+        thread.start()
+        time.sleep(0.3)
+        assert not finished  # still waiting on the holder's lock
+        holder.execute(sa.text("INSERT INTO claims (name) VALUES ('holder')"))
+        holder.commit()
+        released = time.monotonic()
+    thread.join(timeout=10)
+    assert finished and finished[0] >= released
+    with lite.connect() as conn:
+        assert conn.exec_driver_sql("SELECT name FROM claims ORDER BY id").scalars().all() == ["holder", "rival"]
+
+
+def test_begin_write_does_nothing_on_postgres():
+    from marvin.db.locking import begin_write
+
+    class Session_:
+        def get_bind(self):
+            return SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+        def __getattr__(self, name):  # any other call would be a bug
+            raise AssertionError(f"begin_write touched the session: {name}")
+
+    begin_write(Session_())  # type: ignore[arg-type]
+
+
+def test_a_write_transaction_held_open_too_long_is_reported_with_where_it_is_stuck(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(db_setup.settings, "DB_SQLITE_WRITE_WARN_SECONDS", 0.2)
+    _factory, engine = db_setup.sql_global_init(f"sqlite:///{tmp_path / 'slow.db'}")
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+        caplog.set_level(logging.WARNING, logger="marvin.db.locking")
+
+        with engine.begin() as conn:  # quick: nothing to say
+            conn.exec_driver_sql("INSERT INTO t DEFAULT VALUES")
+        time.sleep(0.5)
+        assert "write transaction open" not in caplog.text
+
+        with engine.begin() as conn:
+            conn.exec_driver_sql("INSERT INTO t DEFAULT VALUES")
+            slow_call = time.sleep  # stands in for the LLM / HTTP call a session must not be held across
+            slow_call(0.8)
+        assert caplog.text.count("write transaction open") == 1  # once per transaction
+        assert "INSERT INTO t DEFAULT VALUES" in caplog.text and "slow_call" in caplog.text
+        assert "test_a_write_transaction_held_open_too_long" in caplog.text  # where the thread was
+    finally:
+        engine.dispose()
+
+
+def test_a_read_only_transaction_is_never_reported(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(db_setup.settings, "DB_SQLITE_WRITE_WARN_SECONDS", 0.1)
+    _factory, engine = db_setup.sql_global_init(f"sqlite:///{tmp_path / 'read.db'}")
+    try:
+        caplog.set_level(logging.WARNING, logger="marvin.db.locking")
+        with engine.connect() as conn:
+            conn.exec_driver_sql("SELECT 1")
+            time.sleep(0.4)
+        assert "write transaction open" not in caplog.text
+    finally:
+        engine.dispose()

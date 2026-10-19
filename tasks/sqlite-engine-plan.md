@@ -36,42 +36,46 @@ advisory locks / `jsonb_*` in app code; `automation/engine.py:118-126` picks the
 `entries/query.py:165` branch on dialect. No pgvector (embeddings JSON + numpy). JSON NULL same. Search uses `ilike`.
 Collation differs (accept).
 
-## 2. Stage 1 — engine back, default, chart pin, pragmas
-- Provider + settings (#1, resolver, guard); restore `DB_SQLITE_WAL_MODE`; add `DB_SQLITE_BUSY_TIMEOUT_MS=30000`.
-- `db_setup.py` (SQLite only): `check_same_thread=False`; on connect `foreign_keys=ON`, `journal_mode=WAL`,
+## 2. Stage 1 — engine back, default, chart pin, pragmas (DONE, `99751304`)
+- [x] Provider + settings (#1, resolver, guard); restore `DB_SQLITE_WAL_MODE`; add `DB_SQLITE_BUSY_TIMEOUT_MS=30000`.
+- [x] (built: BEGIN is issued lazily before the first write or SAVEPOINT, not in the `begin` event — an eager BEGIN held every
+  session's first read as a snapshot and made read-then-write fail at once with SQLITE_BUSY_SNAPSHOT, 168 test failures;
+  `sqlite_begin=IMMEDIATE` is the execution option `begin_write` uses.) `db_setup.py` (SQLite only): `check_same_thread=False`; on connect `foreign_keys=ON`, `journal_mode=WAL`,
   `synchronous=NORMAL`, `busy_timeout`; SQLAlchemy pysqlite recipe (`isolation_level=None` + `begin` listener emitting
   `BEGIN`, or `BEGIN IMMEDIATE` with execution option `sqlite_begin="IMMEDIATE"`); log the SQLite version, refuse < 3.35.
   `alembic/env.py:115` keeps its own engine **without** the FK pragma (batch rebuilds with FKs on would cascade-delete
   children) — comment + test.
-- Chart: `_helpers.tpl:248-257` accepts `sqlite|postgres`; default `config.dbEngine: sqlite`,
+- [x] Chart: `_helpers.tpl:248-257` accepts `sqlite|postgres`; default `config.dbEngine: sqlite`,
   `postgres.cluster.enabled: false` (Q2); explicit pins `dbEngine: postgres` + `postgres.cluster.enabled: true` in
   `values-iwobble.yaml:35,177`, `values-dev.yaml:30,44`, `values-k8s.yaml:25` and **`values-production.yaml` (no pin
   today, `replicaCount: 2` at :5)**. SQLite guards: fail on `replicaCount>1`, `split.backend.replicaCount>1` or
   persistence off; force `strategy: Recreate`.
-- Compose: `docker-compose.yml:37` → `${DB_ENGINE:-sqlite}`; Postgres back behind `profiles: [postgres]`.
-- Taskfile: `dev:clean` removes `marvin*.db`; `py:test`/`py:coverage` per Q8.
-- Drop "retired" wording (`sqlite_to_postgres` :821, `backup_engine/engine.py:72-87`); converter stays as the
+- [x] Compose: `docker-compose.yml:37` → `${DB_ENGINE:-sqlite}`; Postgres back behind `profiles: [postgres]`.
+- [x] Taskfile: `dev:clean` removes `marvin*.db`; `py:test`/`py:coverage` per Q8.
+- [x] Drop "retired" wording (`sqlite_to_postgres` :821, `backup_engine/engine.py:72-87`); converter stays as the
   sqlite → Postgres upgrade path.
 
-## 3. Stage 2 — dialect-neutral code
+## 3. Stage 2 — dialect-neutral code (DONE, `bc57be33`)
 Fix #3–7, #10–12. `tests/test_dialect_neutral.py` runs every dashboard/overview widget with seeded data and asserts
 non-empty results (the swallow-and-return-empty pattern at `dashboard.py:299-302,342` hid #3/#4). Migrations
 up → down → up on a SQLite file.
 
-## 4. Stage 3 — concurrency-sensitive features
-- `db/locking.py::begin_write(session)`: ends the current txn; on SQLite the next starts `BEGIN IMMEDIATE` (write lock up
+## 4. Stage 3 — concurrency-sensitive features (DONE)
+- [x] `db/locking.py::begin_write(session)`: ends the current txn; on SQLite the next starts `BEGIN IMMEDIATE` (write lock up
   front; busy_timeout waits instead of SQLITE_BUSY_SNAPSHOT); no-op on Postgres.
-- Metric add (`metrics.py:220-275`): atomic `UPDATE … SET value = value + :amount` (correct on both; no FOR UPDATE);
+- [x] Metric add (`metrics.py:220-275`): atomic `UPDATE … SET value = value + :amount` (correct on both; no FOR UPDATE);
   insert keeps unique constraint + IntegrityError → update; `begin_write` first; #9 makes "failure rolls the claim back"
   hold on SQLite.
-- Idempotency claims (`idempotency.py:76-117`), email once-per (`actions/email.py:100-117`), upload link one-use
+- [x] Idempotency claims (`idempotency.py:76-117`), email once-per (`actions/email.py:100-117`), upload link one-use
   (`mcp_remote/uploads.py:192-203`): already portable (unique + compare-and-set) — add `begin_write`.
-- Workflow entry turn (`engine.py:105-127`), scheduler lease (`leader.py:96-104`), login throttle: portable.
-- Watchdog: on SQLite warn when a write txn stays open > 5 s (a session held across an LLM/HTTP call blocks all writers).
-- Acceptance: race tests `test_workflow_metrics.py:349`, `test_remote_mcp_uploads.py:206`, `test_scheduler_leader.py:160`
+- [x] Workflow entry turn (`engine.py:105-127`), scheduler lease (`leader.py:96-104`), login throttle: portable.
+- [x] Watchdog: on SQLite warn when a write txn stays open > 5 s (a session held across an LLM/HTTP call blocks all writers).
+- [x] Acceptance: race tests `test_workflow_metrics.py:349`, `test_remote_mcp_uploads.py:206`, `test_scheduler_leader.py:160`
   (unskipped) pass 20× in a row on SQLite.
 
 ## 5. Stage 4 — backups and restore per engine
+- Left by Stages 1-3: `check_engine` / `BackupSettings.from_env` raise "does not back up SQLite yet" for a sqlite engine; the 8
+  `tests/test_backup_health.py` tests that run the Postgres job skip on a SQLite suite (`_pg_env()`), to be given a SQLite twin here.
 - Full-platform backup: restore from `694bd7be^` — `snapshot_sqlite` (online backup API, read-only source,
   `integrity_check`), `backup_sqlite`, `restore_database` (moves `-wal`/`-shm` aside), gzip; `layout.db_prefix(engine)`;
   `recorder._write_sqlite`; `check_engine` accepting both. `sqlite/` is a live key family again. Backup job keeps its

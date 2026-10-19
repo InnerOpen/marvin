@@ -33,6 +33,7 @@ from types import SimpleNamespace
 import sqlalchemy as sa
 
 from marvin.core.root_logger import get_logger
+from marvin.db.locking import begin_write
 
 logger = get_logger(__name__)
 
@@ -194,6 +195,7 @@ def _claim(session, link) -> bool:
     from marvin.db.models.platform.oauth import McpUploadLinkModel
 
     now = _now()
+    begin_write(session)  # SQLite: the one use is a compare-and-set write; take the lock first so a rival waits for it
     taken = session.execute(
         sa.update(McpUploadLinkModel)
         .where(McpUploadLinkModel.id == link.id, McpUploadLinkModel.used_at.is_(None), McpUploadLinkModel.expires_at > now)

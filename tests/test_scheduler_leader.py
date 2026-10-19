@@ -161,20 +161,14 @@ def test_concurrent_contenders_yield_exactly_one_leader(db_session):
     """The sequential tests above simulate processes in turn; this races them for real.
 
     Threads each carry their own instance id — the module global is shared inside one interpreter,
-    so mutating it would have every thread claim whatever the last writer set. SQLite serialises
-    writers with a database-level lock and reports spurious "database is locked" under this
-    pattern, so the race only runs where production runs.
+    so mutating it would have every thread claim whatever the last writer set. On SQLite the writers
+    queue on the database's write lock (busy_timeout), and the compare-and-set still crowns one.
     """
     import threading
 
     from sqlalchemy.orm import sessionmaker
 
     bind = db_session.get_bind()
-    if bind.dialect.name != "postgresql":
-        import pytest
-
-        pytest.skip("contention test needs a server that supports concurrent writers")
-
     db_session.execute(delete(SchedulerLockModel))
     db_session.commit()
 

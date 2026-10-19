@@ -18,6 +18,8 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 
+from marvin.db.locking import begin_write
+
 from .actions.base import AutomationActionError
 from .matcher import interpolate
 
@@ -82,6 +84,7 @@ class Gate:
         if self.dry_run:
             return
         Model = _model()
+        begin_write(self.session)  # SQLite: the claim is a write; take the lock now so a rival waits for it rather than failing
         lease = now + timedelta(seconds=CLAIM_LEASE_SECONDS)
         if row is not None:  # a window that ran out, or a claim left behind: take it over — one taker wins
             took = self.session.execute(
@@ -111,7 +114,7 @@ class Gate:
                 self.session.commit()  # held before the call is made: a crash after it never makes it twice
                 self.row_id = fresh.id
                 return
-        self.session.expire_all()
+        self.session.rollback()  # ends the transaction begin_write opened (and drops what the lost insert left)
         current = self._row()  # lost the race: the winner's claim (or its finished call) is what this one meets
         if current is not None:
             self._seen(current)
