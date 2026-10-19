@@ -29,7 +29,6 @@ MAX_SCHEMA_BYTES = 8192
 MAX_SCHEMA_PROPERTIES = 20
 MAX_FIELDS_CHARS = 12_000  # an entry's fields as sent; longer is cut, not refused
 MAX_IMAGES = 4
-SEE_OPTIONS = ("item", "attachments", "images", "persona")
 DEFAULT_SEE = ("item",)
 
 

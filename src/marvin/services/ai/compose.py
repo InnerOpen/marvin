@@ -32,40 +32,6 @@ _EMBED_GUIDANCE = "a media link (YouTube, Vimeo, Spotify, SoundCloud, Apple Musi
 _SKIP_TYPES = {"json"}
 
 
-def generate_recipe(schema_json: dict | None, slug: str, capabilities: dict | None = None) -> dict:
-    """Heuristic, structure-only authoring recipe for an entry type based on its fields.
-
-    Reads the raw schema_json (leniently — some types carry non-schema field types like
-    'asset'). Content types (with a long-form text field) get a hero + gallery asset contract
-    and supplier/tool extraction from that field; the `hero` type requires one image; forms and
-    pure nav/meta types get no media recipe. Voice/prompt is intentionally NOT set here — that
-    is a separate, overridable cascade layer, not baked into the type's recipe.
-    """
-    caps = capabilities or {}
-    fields = (schema_json or {}).get("fields", []) or []
-    long_text = [f.get("key") for f in fields if f.get("type") in ("markdown", "textarea")]
-
-    # Forms and pure nav/meta types don't gather media.
-    if caps.get("submittable") is True or slug in ("navigation-item", "faq", "value-bane", "bespoke-inquiry"):
-        return {}
-
-    roles: list[dict] = [{"role": "hero", "max": 1, "derive": ["thumbnail", "palette"]}]
-    if long_text:
-        roles.append({"role": "gallery", "max": 4})
-    recipe: dict = {"assets": {"min": 1 if slug == "hero" else 0, "max": 5, "roles": roles}}
-    if slug == "hero":
-        recipe["assets"]["roles"][0]["required"] = True
-
-    if long_text:
-        recipe["resources"] = {
-            "extract": [
-                {"type": "supplier", "source": long_text[0], "capture": ["name", "url"]},
-                {"type": "tool", "source": long_text[0], "capture": ["name"]},
-            ]
-        }
-    return recipe
-
-
 def entry_type_to_output_schema(schema_def: EntryTypeSchemaDefinition, type_name: str) -> dict:
     """Turn an entry type's fields into a JSON output schema: title + summary + content fields.
 

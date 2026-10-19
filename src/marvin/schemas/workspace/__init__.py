@@ -7,7 +7,6 @@ from .workspace_activation import (
 from .workspace_members import (
     WorkspaceMemberCreate,
     WorkspaceMemberUpdate,
-    WorkspaceMemberWithUser,
 )
 
 __all__ = [
@@ -15,5 +14,4 @@ __all__ = [
     "WorkspaceWithMembership",
     "WorkspaceMemberCreate",
     "WorkspaceMemberUpdate",
-    "WorkspaceMemberWithUser",
 ]

@@ -22,7 +22,6 @@ FORMATS: dict[str, tuple[str, str, str]] = {
 _BY_PIL = {pil: name for name, (pil, _mime, _ext) in FORMATS.items()} | {"MPO": "jpeg"}  # MPO: a camera's multi-picture JPEG
 
 DEFAULT_QUALITY = 90
-MAX_DIMENSION = 10_000  # a resize target larger than this is a typo, not a size
 SHARPNESS_SIDE = 512  # sharpness is measured on a copy this big, so a 6000 px photo and its 1200 px copy score alike
 PALETTE_SIDE = 128
 MAX_PALETTE_COLORS = 16

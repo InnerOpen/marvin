@@ -7,14 +7,6 @@ from pydantic import UUID4, ConfigDict, Field
 from marvin.schemas._marvin import _MarvinModel
 
 
-class FormSubmissionCreate(_MarvinModel):
-    """Schema for creating a form submission."""
-
-    data_json: dict = Field(serialization_alias="dataJson")
-
-    model_config = ConfigDict(from_attributes=True)
-
-
 class FormSubmissionRead(_MarvinModel):
     """Schema for reading a form submission."""
 

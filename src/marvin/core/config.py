@@ -4,9 +4,9 @@ from pathlib import Path
 
 import dotenv
 
-from marvin.core.settings import app_plugin_settings_constructor, app_settings_constructor
+from marvin.core.settings import app_settings_constructor
 
-from .settings import AppDirectories, AppSettings, PluginSettings
+from .settings import AppDirectories, AppSettings
 
 CWD = Path(__file__).parent
 BASE_DIR = Path(os.getenv("BASE_DIR", CWD.parent.parent))
@@ -62,32 +62,4 @@ def get_app_settings(name: str | None = None) -> AppSettings:
         secrets_dir=SECRETS_DIR,
         production=PRODUCTION,
         data_dir=determine_data_dir(),
-    )
-
-
-@lru_cache
-def get_app_plugin_settings(
-    name: str,
-    version: str,
-    description: str | None = None,
-    author: str | None = None,
-    author_email: str | None = None,
-    env_file: Path | None = ENV,
-    env_secrets: Path | None = ENV_SECRETS,
-    secrets_dir: Path | None = SECRETS_DIR,
-    settings_class: type[PluginSettings] = PluginSettings,
-) -> PluginSettings:
-    """Get the application plugin settings."""
-    return app_plugin_settings_constructor(
-        name=name,
-        version=version,
-        description=description,
-        author=author,
-        author_email=author_email,
-        env_file=env_file,
-        env_secrets=env_secrets,
-        secrets_dir=secrets_dir,
-        production=PRODUCTION,
-        data_dir=determine_data_dir(),
-        settings_class=settings_class,
     )

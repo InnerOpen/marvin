@@ -1,9 +1,8 @@
 """
 This module defines the main application settings for Marvin.
 
-It includes Pydantic models for application settings (`AppSettings`) and plugin
-settings (`PluginSettings`). It also provides helper classes and functions for
-managing features, schedules, and sensitive data.
+It includes the Pydantic model for application settings (`AppSettings`), plus helper
+classes and functions for managing features, schedules, and sensitive data.
 
 Settings are loaded from environment variables and .env files.
 """
@@ -1065,37 +1064,6 @@ class AppSettings(BaseSettings):
     """Path where the TLS private key resides."""
 
 
-class PluginSettings(BaseSettings):
-    """
-    Base settings class for Marvin plugins.
-
-    Plugins can inherit from this class to define their own specific settings,
-    which will be loaded with a prefix based on the plugin's name.
-    """
-
-    # Plugin Name
-    PLUGIN_NAME: str
-    """The name of the plugin."""
-
-    # Plugin Version
-    PLUGIN_VERSION: str
-    """The version of the plugin."""
-
-    # Plugin Description
-    PLUGIN_DESCRIPTION: str | None = None
-    """An optional description of the plugin."""
-
-    # Plugin Author
-    PLUGIN_AUTHOR: str | None = None
-    """The author of the plugin."""
-
-    # Plugin Author Email
-    PLUGIN_AUTHOR_EMAIL: str | None = None
-    """The email address of the plugin author."""
-
-    model_config = SettingsConfigDict(arbitrary_types_allowed=True, extra="allow")
-
-
 def app_settings_constructor(
     data_dir: Path,
     production: bool,
@@ -1138,62 +1106,4 @@ def app_settings_constructor(
         env_file=env_file,
         env_encoding=env_encoding,
     )
-    return app_settings
-
-
-def app_plugin_settings_constructor(
-    name: str,
-    version: str,
-    env_file: Path | None,
-    data_dir: Path,
-    production: bool,
-    env_secrets: Path | None,
-    secrets_dir: Path | None,
-    env_encoding: str = "utf-8",
-    description: str | None = None,
-    author: str | None = None,
-    author_email: str | None = None,
-    env_nested_delimiter: str = "__",
-    settings_class: type[PluginSettings] = PluginSettings,  # Changed default to PluginSettings
-) -> PluginSettings:
-    """
-    Factory function to create and configure `PluginSettings` objects.
-
-    This function handles the initialization of plugin-specific settings,
-    loading from .env files with a plugin-specific prefix.
-
-    Args:
-        name (str): The name of the plugin.
-        version (str): The version of the plugin.
-        env_file (Path): Path to the main .env file.
-        data_dir (Path): The application's data directory.
-        production (bool): Flag indicating if in production mode.
-        env_secrets (Path): Path to the .env.secrets file.
-        secrets_dir (Path): Directory for storing secrets.
-        env_encoding (str): Encoding for .env files.
-        description (str | None): Optional description of the plugin.
-        author (str | None): Optional author of the plugin.
-        author_email (str | None): Optional author email of the plugin.
-        env_nested_delimiter (str): Delimiter for nested environment variables.
-        settings_class (type[PluginSettings]): The specific PluginSettings subclass
-                                               to instantiate. Defaults to `PluginSettings`.
-
-    Returns:
-        PluginSettings: The configured plugin settings object.
-    """
-    app_settings = settings_class(
-        PLUGIN_NAME=name,
-        PLUGIN_VERSION=version,
-        PLUGIN_DESCRIPTION=description,
-        PLUGIN_AUTHOR=author,
-        PLUGIN_AUTHOR_EMAIL=author_email,
-        _env_prefix=name.upper() + "_",
-        _env_file=env_file,  # type: ignore
-        _env_file_encoding=env_encoding,  # type: ignore
-        _secrets_dir=secrets_dir,  # type: ignore
-        _env_nested_delimiter=env_nested_delimiter,
-        **{"SECRET": determine_secrets(data_dir, production)},
-        **{"ENV_SECRETS": dotenv_values(env_secrets)},
-    )
-
     return app_settings

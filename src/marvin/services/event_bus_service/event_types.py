@@ -28,24 +28,7 @@ if TYPE_CHECKING:
 INTERNAL_INTEGRATION_ID = "marvin_generic_user"
 
 
-class EventNameSpaceBase(Enum):
-    """
-    Abstract base class for event namespaces.
-    Subclasses should define actual namespace values.
-    """
-
-    ...  # Ellipsis indicates this is an abstract base intended for subclassing.
-
-
-class EventNameSpace(EventNameSpaceBase):
-    """
-    Enumeration defining namespaces for categorizing events.
-    Namespaces help in organizing and filtering events.
-    """
-
-    namespace = "core"
-    """The 'core' namespace, likely for fundamental application events."""
-    # Example: USER = "user_events", TASK = "task_events"
+# Example: USER = "user_events", TASK = "task_events"
 
 
 class EventTypeBase(Enum):

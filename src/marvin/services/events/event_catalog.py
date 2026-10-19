@@ -2511,12 +2511,6 @@ def aliases_of(event_type: str) -> list[str]:
     return [alias for alias, target in ALIASES.items() if target == event_type]
 
 
-def get_event_variables(event_type: str) -> list[EventVariable]:
-    """Return variables available for a given event type."""
-    entry = CATALOG_BY_TYPE.get(event_type)
-    return entry.variables if entry else []
-
-
 def get_catalog_entry(event_type: str) -> CatalogEntry | None:
     return CATALOG_BY_TYPE.get(event_type)
 

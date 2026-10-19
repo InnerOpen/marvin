@@ -328,12 +328,6 @@ class EntryRead(_MarvinModel):
         return super().model_validate(data, **kwargs)
 
 
-class EntrySummary(EntryRead):
-    """Summary schema for an entry."""
-
-    pass
-
-
 class EntryQueryRequest(_MarvinModel):
     """A structured search: `spec` takes the keys the assistants' find_entries takes (entry_types, status, tags,
     collection, where [{field, op, value}], query, has_images, created_/updated_/published_ after|before, sort…),

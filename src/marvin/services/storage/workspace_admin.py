@@ -26,7 +26,6 @@ from marvin_integration_sdk.storage import StorageConfigError
 from . import registry
 from . import workspace as ws
 
-IMMUTABLE_KINDS = ("bucket", "endpoint", "prefix")
 MAX_LABEL = 80
 PROBE_TIMEOUT_SECONDS = 10
 

@@ -267,7 +267,6 @@ CHECK_UPLOAD = types.Tool(
     },
     annotations=types.ToolAnnotations(title="Check upload", readOnlyHint=True, destructiveHint=False, openWorldHint=False),
 )
-UPLOAD_TOOLS = {UPLOAD_LINK.name, CHECK_UPLOAD.name}
 
 
 def upload_link_for(conn: Connection, args: dict | None, base_url: str, ip: str | None) -> dict:

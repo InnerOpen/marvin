@@ -11,7 +11,6 @@ the answers that follow sound like the same character.
 """
 
 DEFAULT_ASSISTANT_NAME = "Marvin"
-DEFAULT_ASSISTANT_ICON = "🤖"
 # An icon is an emoji/short symbol, or an image URL (absolute, or a site path such as an asset's).
 MAX_ICON_TEXT = 16
 MAX_ICON_URL = 2048

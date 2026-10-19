@@ -21,13 +21,6 @@ def get_utc_now():
     return datetime.now(UTC)
 
 
-def get_utc_today():
-    """
-    Returns the current date in UTC.
-    """
-    return datetime.now(UTC).date()
-
-
 class NaiveDateTime(TypeDecorator):
     """
     Mealie uses naive date times since the app handles timezones explicitly.

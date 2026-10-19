@@ -247,11 +247,6 @@ def purge_embeddings(session: Session, group_id: UUID4, entity_type: str, entity
     return n
 
 
-def index_entry(session: Session, group_id: UUID4, entry, provider, model: str) -> int:
-    """(Re)index a single entry. Convenience wrapper for auto-embed-on-publish. Returns chunk count."""
-    return index_entity(session, group_id, "entry", entry.id, _entry_text(entry), provider, model)
-
-
 EMBED_BATCH_CHUNKS = 64
 """Chunks sent per embedding call. One call per item made a workspace reindex take minutes (one round
 trip each); batching makes it a handful of calls. Kept well under providers' per-request input limits."""

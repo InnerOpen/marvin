@@ -110,26 +110,6 @@ def validate_file_path(file_path: Path, allowed_base: Path) -> Path:
     return abs_path
 
 
-def create_file_token(file_path: Path, allowed_base: Path) -> str:
-    """
-    Creates a short-lived JWT access token specifically for accessing a file.
-
-    Args:
-        file_path (Path): The path to the file.
-        allowed_base (Path): The base directory that file_path must be within.
-
-    Returns:
-        str: The encoded JWT file access token.
-
-    Raises:
-        ValueError: If file_path is invalid or outside allowed_base.
-    """
-    file_path = validate_file_path(file_path, allowed_base)
-
-    token_data = {"file": str(file_path)}
-    return create_access_token(token_data, expires_delta=timedelta(minutes=30))
-
-
 def hash_password(password: str) -> str:
     """Takes in a raw password and hashes it. Used prior to saving a new password to the database."""
     return get_hasher().hash(password)

@@ -201,20 +201,3 @@ def _parse_aspect(arg: str) -> tuple[int, int] | None:
             if a.strip().isdigit() and b.strip().isdigit():
                 return int(a), int(b)
     return None
-
-
-def apply_token(token: str, data: bytes) -> bytes | None:
-    """Execute one media token against image bytes. Returns transformed bytes, or None if the
-    token isn't a (valid) media token or the transform produced nothing."""
-    if not is_media_token(token):
-        return None
-    op, _, arg = token.partition(":")
-    try:
-        if op == "grade":
-            return color_grade(data, arg)
-        if op == "crop":
-            aspect = _parse_aspect(arg)
-            return crop_to_aspect(data, aspect) if aspect else None
-    except Exception as e:  # noqa: BLE001 — a bad image must not break enrichment
-        logger.warning("media: token %r failed: %s", token, e)
-    return None

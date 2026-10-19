@@ -72,11 +72,6 @@ def entry(recipe_id: str) -> dict:
     raise UnknownRecipe(recipe_id)
 
 
-def workflow_recipe_ids() -> list[str]:
-    """The recipes that are workflows with a definition file (not configuration-only, not ideas)."""
-    return [r["id"] for r in catalogue()["recipes"] if r["shape"] == "workflow"]
-
-
 def load_recipe(recipe_id: str) -> dict:
     """The recipe's whole workflow document ``{name, definition}``, placeholders included."""
     if recipe_id in (plugins := plugin_recipes()):

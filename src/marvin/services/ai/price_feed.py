@@ -209,7 +209,3 @@ def clear_cache() -> None:
 
 def feed_price_for(provider_type: str, model_id: str) -> ModelPrice | None:
     return price_for(_table().get(provider_type, {}), model_id)
-
-
-def feed_models() -> dict[str, dict[str, ModelPrice]]:
-    return _table()

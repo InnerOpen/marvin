@@ -10,7 +10,7 @@ from .query_filter import (
     RelationalOperator,
 )
 from .query_search import SearchFilter
-from .responses import ErrorResponse, FileTokenResponse, SuccessResponse
+from .responses import ErrorResponse, SuccessResponse
 
 __all__ = [
     "LogicalOperator",
@@ -27,6 +27,5 @@ __all__ = [
     "PaginationQuery",
     "RequestQuery",
     "ErrorResponse",
-    "FileTokenResponse",
     "SuccessResponse",
 ]

@@ -235,9 +235,3 @@ class EntryTypeRead(_MarvinModel):
     warnings: list[str] | None = None
 
     model_config = ConfigDict(from_attributes=True)
-
-
-class EntryTypeSummary(EntryTypeRead):
-    """Summary schema for an entry type."""
-
-    pass

@@ -11,8 +11,6 @@ The `EventSource` class is also defined here, potentially for structuring
 event metadata, though it's not directly used by `EventBusService` in this file.
 """
 
-from typing import Any  # For EventSource.kwargs and EventSource.dict() return
-
 from fastapi import BackgroundTasks, Depends  # For background tasks and dependency injection
 from pydantic import UUID4  # For UUID type hinting
 from sqlalchemy.orm.session import Session  # SQLAlchemy session type
@@ -46,56 +44,6 @@ from .event_types import Event, EventBusMessage, EventDocumentDataBase, EventTyp
 
 # settings = get_app_settings() # Instance not used directly in this file
 # ALGORITHM = "HS256" # Constant not used in this file
-
-
-class EventSource:
-    """
-    A data class for representing the source or context of an event.
-
-    This class can be used to encapsulate details about what triggered an event,
-    such as the type of event, the type of item related to the event, and the
-    specific item's ID, along with any other relevant keyword arguments.
-
-    Note: This class is defined here but not directly instantiated or used by
-    `EventBusService` within this file. It might be intended for use by
-    event producers before they call `EventBusService.dispatch`.
-    """
-
-    event_type: str
-    """A string identifying the type of event (e.g., "item_created", "user_login")."""
-    item_type: str
-    """A string identifying the type of item related to the event (e.g., "user_profile")."""
-    item_id: UUID4 | int  # Assuming item_id can also be an integer
-    """The unique identifier of the item related to the event."""
-    kwargs: dict[str, Any]
-    """A dictionary for any additional context-specific data related to the event source."""
-
-    def __init__(self, event_type: str, item_type: str, item_id: UUID4 | int, **kwargs: Any) -> None:
-        """
-        Initializes an EventSource instance.
-
-        Args:
-            event_type (str): The type of event.
-            item_type (str): The type of item related to the event.
-            item_id (UUID4 | int): The ID of the item.
-            **kwargs (Any): Additional keyword arguments to store as context.
-        """
-        self.event_type = event_type
-        self.item_type = item_type
-        self.item_id = item_id
-        self.kwargs = kwargs
-
-    def dict(self) -> dict[str, Any]:
-        """
-        Returns a dictionary representation of the EventSource instance.
-        The `item_id` is converted to a string.
-        """
-        return {
-            "event_type": self.event_type,
-            "item_type": self.item_type,
-            "item_id": str(self.item_id),  # Ensure item_id is string for consistent serialization
-            **self.kwargs,
-        }
 
 
 class EventBusService(BaseService):

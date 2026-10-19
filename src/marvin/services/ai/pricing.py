@@ -11,9 +11,6 @@ A model none of these price has no estimate — stored as unknown, shown as "—
 Per 1M tokens, input and output separately; used only for the estimates stored on executions.
 """
 
-from marvin_integration_sdk.ai import ModelPrice
-
-ModelPricing = ModelPrice
 """The SDK's ModelPrice (input_per_1m, output_per_1m), under its old name."""
 
 # Providers whose runs cost nothing even when their plugin isn't installed any more (a stored run's provider).

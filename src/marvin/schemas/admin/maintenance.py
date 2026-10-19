@@ -33,15 +33,6 @@ class MaintenanceStorageDetails(_MarvinModel):
     plugin_dir_size: str  # Size of the plugins directory.
 
 
-class MaintenanceLogs(_MarvinModel):
-    """
-    Schema for returning a list of log entries.
-    This might be used if an endpoint provides access to recent log lines.
-    """
-
-    logs: list[str]  # A list of strings, where each string is a log entry.
-
-
 class CleanupTaskRead(_MarvinModel):
     """A system scheduled task that cleans something up, as Database & cleanup shows it."""
 

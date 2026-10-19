@@ -58,23 +58,6 @@ class AppInfo(_MarvinModel):
     enable_openai_image_services: bool  # Indicates if OpenAI image-related services are specifically enabled.
 
 
-class AppStartupInfo(_MarvinModel):
-    """
-    Schema for information relevant to the application's startup state,
-    particularly concerning initial setup or first login.
-    """
-
-    is_first_login: bool
-    """
-    Indicates the application's best guess that this might be the first time
-    any user (or specifically an admin) is logging in. Currently, its logic
-    relies on the presence of the default 'changeme@example.com' admin user.
-    Once that default user's email is changed or the user is removed, this flag
-    will consistently return False.
-    """
-    is_demo: bool  # Indicates if the application is currently running in demo mode.
-
-
 class IndexedEmbeddingModel(_MarvinModel):
     """One embedding model that has vectors stored, and how many chunks."""
 

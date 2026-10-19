@@ -16,8 +16,6 @@ from typing import Any  # For generic type hints
 
 from pydantic import BaseModel  # Using Pydantic's BaseModel directly for simple responses
 
-from marvin.schemas._marvin import _MarvinModel  # Base Marvin model for more complex responses if needed
-
 
 class ErrorResponse(BaseModel):  # Can use BaseModel if no _MarvinModel specific features needed
     """
@@ -76,26 +74,3 @@ class SuccessResponse(BaseModel):  # Can use BaseModel if no _MarvinModel specif
             dict[str, Any]: A dictionary representing the success response.
         """
         return cls(message=message).model_dump()
-
-
-class FileTokenResponse(_MarvinModel):  # Using _MarvinModel if it has specific shared configs
-    """
-    Schema for API responses that include a file access token.
-    """
-
-    file_token: str
-    """The generated file access token string."""
-
-    @classmethod
-    def respond(cls, token: str) -> dict[str, str]:  # Value is specifically str here
-        """
-        Helper method to create a `FileTokenResponse` instance and return its
-        dictionary representation.
-
-        Args:
-            token (str): The file access token string.
-
-        Returns:
-            dict[str, str]: A dictionary representing the file token response.
-        """
-        return cls(file_token=token).model_dump()

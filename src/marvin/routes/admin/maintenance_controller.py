@@ -9,8 +9,6 @@ share its execution log, config and retention (services/scheduled_tasks/handlers
 It also includes a utility function for tailing log files (not exposed via HTTP).
 """
 
-from pathlib import Path  # For path manipulation
-
 import sqlalchemy as sa
 from fastapi import APIRouter
 from pydantic import BaseModel  # For stats response model
@@ -43,30 +41,6 @@ class SystemStats(BaseModel):
     backups_path: str
     total_size: str
     data_dir_path: str
-
-
-def tail_log(log_file: Path, n: int) -> list[str]:
-    """
-    Reads the last N lines from a log file.
-
-    Args:
-        log_file (Path): The Path object pointing to the log file.
-        n (int): The number of lines to read from the end of the file.
-
-    Returns:
-        list[str]: A list of the last N lines from the file, or a list
-                   containing a "no log file found" message if the file
-                   does not exist.
-    """
-    try:
-        with open(log_file, encoding="utf-8") as f:  # Added encoding for robustness
-            lines = f.readlines()
-    except FileNotFoundError:
-        return [f"Log file not found: {log_file}"]  # More informative message
-    except Exception as e:  # Catch other potential read errors
-        return [f"Error reading log file {log_file}: {e}"]
-
-    return lines[-n:]  # Return the last n lines
 
 
 @controller(router)
