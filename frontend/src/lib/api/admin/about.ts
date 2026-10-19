@@ -6,7 +6,7 @@
 
 import { fetchApi } from "../client";
 
-export interface IndexedEmbeddingModel {
+interface IndexedEmbeddingModel {
   modelId: string;
   chunks: number;
 }

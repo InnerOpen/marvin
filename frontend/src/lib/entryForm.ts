@@ -94,7 +94,7 @@ export function withSubmittedValues<E extends Record<string, any>>(
   return out as E;
 }
 
-export const VIEW_ON_SITE_HINT = "Available once published";
+const VIEW_ON_SITE_HINT = "Available once published";
 
 /**
  * The Entry Details "View on site" button: none without a page URL (the type has no pattern), a link once the

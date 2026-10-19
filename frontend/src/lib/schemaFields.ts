@@ -7,7 +7,7 @@
  * type before building `data_json`.
  */
 
-export type SchemaField = { key: string; type: string };
+type SchemaField = { key: string; type: string };
 
 /** Build a `fieldKey → declared type` map from an entry type's `schema_json`. */
 export function fieldTypeMap(schemaJson: unknown): Record<string, string> {

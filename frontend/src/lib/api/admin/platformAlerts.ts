@@ -16,7 +16,7 @@ export type {
   DeliveryOutcome,
 } from "../alerts";
 
-export interface PlatformAlertEmail {
+interface PlatformAlertEmail {
   enabled: boolean;
   /** null: every super admin with an email address. */
   recipients: string[] | null;
@@ -25,7 +25,7 @@ export interface PlatformAlertEmail {
   lastDelivery: AlertDelivery | null;
 }
 
-export interface PlatformAlertPush {
+interface PlatformAlertPush {
   /** The server has Web Push (VAPID); without it push isn't a channel and the page hides it. */
   configured: boolean;
   enabled: boolean;

@@ -11,13 +11,13 @@ const BACKEND_CACHE_MS = 30_000;
 let backendCache: { at: number; value: string } | null = null;
 
 /** The image's git commit (set at build: Dockerfile ARG COMMIT → ENV GIT_COMMIT_HASH), short form. */
-export function getFrontendVersion(): string {
+function getFrontendVersion(): string {
   const sha = typeof process !== "undefined" ? process.env.GIT_COMMIT_HASH : undefined;
   return sha ? sha.slice(0, 12) : "dev";
 }
 
 /** The backend's reported version (public /api/app/about/version), cached briefly so page renders stay cheap. */
-export async function getBackendVersion(): Promise<string> {
+async function getBackendVersion(): Promise<string> {
   const now = Date.now();
   if (backendCache && now - backendCache.at < BACKEND_CACHE_MS) return backendCache.value;
   let value = "unknown";

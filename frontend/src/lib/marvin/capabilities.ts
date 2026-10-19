@@ -13,11 +13,11 @@ import DOMPurify from "dompurify";
 import { marked } from "marked";
 import {
   type AgentRunResult,
-  type Referral,
   getRunProgress,
   getThread,
   NEW_THREAD,
   type PendingCall,
+  type Referral,
   type RunProgress,
   resumeThread,
 } from "@/lib/api/aiAgents";
@@ -26,7 +26,6 @@ import { getTones } from "@/lib/api/aiTones";
 import { listAgentTools } from "@/lib/api/aiTools";
 import { type ApprovalCard, approvalCardHtml, type Decisions } from "@/lib/approvals";
 import { ATTACHMENTS_KEY, attachmentIds, loadAttachments } from "@/lib/marvin/attachments";
-import { referralsHtml } from "@/lib/marvin/referrals";
 import { getActiveContext } from "@/lib/marvin/context";
 import { takeGreeting } from "@/lib/marvin/greeting";
 import {
@@ -45,6 +44,7 @@ import {
   scoped,
   threadFor,
 } from "@/lib/marvin/pending";
+import { referralsHtml } from "@/lib/marvin/referrals";
 import { findTone } from "@/lib/tones";
 
 export interface MarvinResult {
@@ -382,7 +382,10 @@ export async function resumePendingRun(run: PendingRun): Promise<MarvinResult | 
   if (outcome.threadId) rememberThread(run.agent, outcome.threadId);
   if (outcome.kind === "reply") {
     const m = outcome.message;
-    return { html: agentReplyHtml(m.content, m.stepsJson ?? [], (m as any).metaJson?.referrals ?? []), executionId: m.executionId ?? undefined };
+    return {
+      html: agentReplyHtml(m.content, m.stepsJson ?? [], (m as any).metaJson?.referrals ?? []),
+      executionId: m.executionId ?? undefined,
+    };
   }
   if (outcome.kind === "parked") return parkedResult(outcome.threadId, run.agent, outcome.pending);
   const where = `<a href="${esc(askThreadHref(outcome.threadId))}">${outcome.threadId ? "the conversation on the Ask page" : "the Ask page"}</a>`;
@@ -628,7 +631,12 @@ const tone: Capability = {
       const rows = state.tones
         .filter((t) => !t.hidden)
         .map((t) => {
-          const mark = t.slug === current ? " <strong>(active)</strong>" : t.slug === state.defaultTone && !current ? " <strong>(default)</strong>" : "";
+          const mark =
+            t.slug === current
+              ? " <strong>(active)</strong>"
+              : t.slug === state.defaultTone && !current
+                ? " <strong>(default)</strong>"
+                : "";
           const desc = t.description ? `<span class="mv-muted"> — ${esc(t.description)}</span>` : "";
           return `<li><code>${esc(t.slug)}</code>${mark} ${esc(t.name)}${desc}</li>`;
         })
@@ -639,7 +647,9 @@ const tone: Capability = {
     }
     const hit = findTone(state.tones, ref);
     if (!hit) {
-      return { html: `<div class="mv-answer">No tone called <code>${esc(ref)}</code>. <code>/tone</code> lists them.</div>` };
+      return {
+        html: `<div class="mv-answer">No tone called <code>${esc(ref)}</code>. <code>/tone</code> lists them.</div>`,
+      };
     }
     setSessionTone({ slug: hit.slug, name: hit.name });
     return {
@@ -649,12 +659,7 @@ const tone: Capability = {
 };
 
 // ── Registry ─────────────────────────────────────────────────────────────────
-export const CAPABILITIES: Capability[] = [agent, ask, chat, tools, agents, use, tone];
-
-/** Register a new skill at runtime (e.g. from a plugin bundle). */
-export function registerCapability(cap: Capability): void {
-  CAPABILITIES.push(cap);
-}
+const CAPABILITIES: Capability[] = [agent, ask, chat, tools, agents, use, tone];
 
 /**
  * Route raw input to a capability.

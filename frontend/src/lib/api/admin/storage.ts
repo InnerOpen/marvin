@@ -7,7 +7,7 @@
 import { fetchApi } from "../client";
 
 /** One setting as it is in effect (read-only: from the environment). Secrets read `****`, key ids `…ab12`. */
-export interface StorageSettingValue {
+interface StorageSettingValue {
   env: string;
   label: string;
   /** The effective value (the default when unset), masked when secret; null when unset with no default. */
@@ -18,7 +18,7 @@ export interface StorageSettingValue {
   help: string;
 }
 
-export interface StorageProviderOption {
+interface StorageProviderOption {
   slug: string;
   name: string;
   /** "builtin", "core" (core's temporary s3), the plugin that adds it, or "" when not installed. */
@@ -34,7 +34,7 @@ export interface StorageProviderOption {
 }
 
 /** A backup target as its latest run recorded it (the backend has no CronJob env): never a key. */
-export interface StorageBackupTarget {
+interface StorageBackupTarget {
   name: string;
   type: string;
   location: string | null;
@@ -44,7 +44,7 @@ export interface StorageBackupTarget {
   lastRunAt: string | null;
 }
 
-export interface StorageCheckStep {
+interface StorageCheckStep {
   /** list, put, get, delete (or settings, when the provider can't be built). */
   name: string;
   ok: boolean;
@@ -64,7 +64,7 @@ export interface StorageCheckResult {
   steps: StorageCheckStep[];
 }
 
-export interface StorageWorkspaceUsage {
+interface StorageWorkspaceUsage {
   workspaceId: string;
   workspace: string;
   provider: string;
@@ -73,7 +73,7 @@ export interface StorageWorkspaceUsage {
 }
 
 /** A workspace's storage settings: the opaque key prefix its files get, and its own public domain. */
-export interface StorageWorkspaceSettings {
+interface StorageWorkspaceSettings {
   workspaceId: string;
   workspace: string;
   /** The first segment of the workspace's storage keys (and file URLs). */

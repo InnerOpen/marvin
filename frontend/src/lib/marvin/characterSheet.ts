@@ -10,7 +10,7 @@
 
 import type { Voice } from "@/lib/marvin/persona";
 
-export const BUBBLE_LISTS = [
+const BUBBLE_LISTS = [
   { key: "greetings", label: "Greetings", hint: "When the panel opens." },
   { key: "taglines", label: "Taglines", hint: "Rotate under the name; keep them short." },
   { key: "thinking", label: "Thinking", hint: "While it works on a request." },
@@ -18,11 +18,11 @@ export const BUBBLE_LISTS = [
   { key: "emotes", label: "Emotes", hint: "Stage directions, like *smiles*." },
 ] as const;
 
-export type BubbleListKey = (typeof BUBBLE_LISTS)[number]["key"];
+type BubbleListKey = (typeof BUBBLE_LISTS)[number]["key"];
 export type BubbleLines = Partial<Record<BubbleListKey, string[]>>;
 
 /** The Social Battery's settings (schemas/group/ai_settings.py: MoodSettings). Stored, read by nothing yet. */
-export type MoodBand = { greetings?: string[]; taglines?: string[] };
+type MoodBand = { greetings?: string[]; taglines?: string[] };
 export type MoodSettings = {
   drains?: "use" | "treatment" | null;
   meter?: "visible" | "hidden" | null;
@@ -32,7 +32,7 @@ export type MoodSettings = {
   high?: MoodBand | null;
 };
 
-export const MOOD_CHOICES = [
+const MOOD_CHOICES = [
   {
     key: "drains",
     label: "What drains it",
@@ -74,7 +74,7 @@ const MOOD_BANDS = [
 ] as const;
 const BAND_LISTS = ["greetings", "taglines"] as const;
 
-export const esc = (s: unknown): string =>
+const esc = (s: unknown): string =>
   String(s ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

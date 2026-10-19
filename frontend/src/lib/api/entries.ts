@@ -12,12 +12,6 @@ import type {
 import { createSdkClient } from "../sdk";
 import { getApiUrl } from "./config";
 
-// Re-export SDK types with legacy names for backward compatibility
-/** Why the Publish Scheduled Entries task is holding a due entry back (see the entry editor's Scheduled Publish):
- *  `waitingFor` is "requirements" (the publish gate refused it) or "approval" (the workspace publishes only approved
- *  entries on schedule), with the `reason`, the `issues` and `at`, when it was first held back (UTC). */
-export type ScheduledPublishBlock = NonNullable<PlatformEntry["scheduledPublishBlocked"]>;
-
 export type EntryRead = PlatformEntry;
 export type EntryCreate = PlatformEntryCreate;
 export type EntryUpdate = PlatformEntryUpdate;
@@ -29,12 +23,6 @@ export type CollectionRead = PlatformCollection;
 export async function listEntries(authToken: string): Promise<EntryRead[]> {
   const sdk = createSdkClient(authToken);
   return sdk.entries.list();
-}
-
-/** Entry counts by status for the current workspace (`{inbox, draft, …, total}`) — the sidebar badge. */
-export async function getEntryCounts(authToken?: string): Promise<Record<string, number>> {
-  const { fetchApi } = await import("./client");
-  return fetchApi<Record<string, number>>("/api/platform/entries/counts", {}, authToken);
 }
 
 /**
@@ -62,14 +50,6 @@ export async function updateEntry(id: string, data: EntryUpdate, authToken: stri
 }
 
 /**
- * Delete an entry
- */
-export async function deleteEntry(id: string, authToken: string): Promise<void> {
-  const sdk = createSdkClient(authToken);
-  return sdk.entries.delete(id);
-}
-
-/**
  * Apply the entry's staged AI suggestion (suggestion_json) and clear it. Fetches the backend
  * directly (no dedicated SDK method yet).
  */
@@ -90,32 +70,4 @@ export async function rejectEntrySuggestion(id: string, authToken: string): Prom
   });
   if (!res.ok) throw new Error(`reject-suggestion failed: ${res.status}`);
   return res.json();
-}
-
-/**
- * Get collections that contain this entry
- */
-export async function getEntryCollections(entryId: string, authToken: string): Promise<CollectionRead[]> {
-  const sdk = createSdkClient(authToken);
-  return sdk.entries.listCollections(entryId);
-}
-
-/**
- * Add an entry to a collection
- */
-export async function addEntryToCollection(entryId: string, collectionId: string, authToken: string): Promise<void> {
-  const sdk = createSdkClient(authToken);
-  await sdk.entries.addToCollection(entryId, collectionId);
-}
-
-/**
- * Remove an entry from a collection
- */
-export async function removeEntryFromCollection(
-  entryId: string,
-  collectionId: string,
-  authToken: string,
-): Promise<void> {
-  const sdk = createSdkClient(authToken);
-  return sdk.entries.removeFromCollection(entryId, collectionId);
 }

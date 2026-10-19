@@ -49,7 +49,7 @@ export interface ProviderActionInfo {
   errorPolicy?: Record<string, PolicyHandle>;
 }
 
-export interface ProviderEventInfo {
+interface ProviderEventInfo {
   key: string;
   label: string;
   description?: string;
@@ -66,7 +66,7 @@ export type ProviderInfo = Omit<IntegrationProviderInfo, "actions"> & {
 };
 
 /** An open alert on a connection: it needs attention. One per error code, counted. */
-export interface IntegrationAttention {
+interface IntegrationAttention {
   id: string;
   code: string;
   message?: string | null;
@@ -120,28 +120,14 @@ export async function runIntegrationAction(
   return createSdkClient(authToken).integrations.runAction(id, actionKey, args);
 }
 
-export async function listSubscriptions(
-  eventType?: string,
-  authToken?: string,
-): Promise<IntegrationEventSubscription[]> {
-  return createSdkClient(authToken).integrations.listSubscriptions(eventType);
-}
-
-export async function createSubscription(
-  data: IntegrationEventSubscriptionCreate,
-  authToken?: string,
-): Promise<IntegrationEventSubscription> {
-  return createSdkClient(authToken).integrations.createSubscription(data);
-}
-
-export async function deleteSubscription(id: string, authToken?: string): Promise<void> {
-  return createSdkClient(authToken).integrations.deleteSubscription(id);
-}
-
 // Integration error handling — not in the SDK yet, so plain API calls.
 
 /** Mark the connection's open alerts (or just `alertId`) resolved ("I fixed it"); re-arms retries waiting on it. */
-export async function resolveAttention(id: string, alertId?: string, authToken?: string): Promise<{ resolved: number }> {
+export async function resolveAttention(
+  id: string,
+  alertId?: string,
+  authToken?: string,
+): Promise<{ resolved: number }> {
   const query = alertId ? `?alert_id=${encodeURIComponent(alertId)}` : "";
   return fetchApi(`/api/groups/integrations/${encodeURIComponent(id)}/resolve${query}`, { method: "POST" }, authToken);
 }
@@ -305,7 +291,11 @@ export async function listHandledFailures(
 
 /** Make a pending or parked retry due now; the retry sweep runs it within about a minute. */
 export async function retryNow(id: string, authToken?: string): Promise<IntegrationRetry> {
-  return fetchApi(`/api/groups/integrations/retries/${encodeURIComponent(id)}/retry-now`, { method: "POST" }, authToken);
+  return fetchApi(
+    `/api/groups/integrations/retries/${encodeURIComponent(id)}/retry-now`,
+    { method: "POST" },
+    authToken,
+  );
 }
 
 /** Stop retrying a failed step. Nothing else happens (no review, no alert). */

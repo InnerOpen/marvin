@@ -11,7 +11,7 @@
  */
 
 /** The slice of `SpeechRecognition` this uses. */
-export interface RecognitionLike {
+interface RecognitionLike {
   lang: string;
   interimResults: boolean;
   continuous: boolean;

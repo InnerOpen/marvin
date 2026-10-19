@@ -7,7 +7,7 @@
 export const BACKUP_STALE_DAYS = 7;
 
 /** Last-run statuses that mean a scheduled task needs attention (see ScheduledTaskExecutionLogRead). */
-export const FAILED_TASK_STATUSES = ["failed", "timeout"];
+const FAILED_TASK_STATUSES = ["failed", "timeout"];
 
 const MS_PER_MINUTE = 60_000;
 const MINUTES_PER_HOUR = 60;

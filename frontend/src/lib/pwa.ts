@@ -15,10 +15,10 @@ export const COLORS = {
   staging: "#7c3aed",
 } as const;
 
-export const ASK_PATH = "/workspace/settings/ai-ask";
+const ASK_PATH = "/workspace/settings/ai-ask";
 /** Where a share from another app is posted (the service worker keeps it) — src/pwa/sw-logic.js SHARE_TARGET. */
-export const SHARE_TARGET_PATH = "/share-target";
-export const NEW_ENTRY_PATH = "/workspace/entries/new";
+const SHARE_TARGET_PATH = "/share-target";
+const NEW_ENTRY_PATH = "/workspace/entries/new";
 
 /** "Marvin", or "Marvin DEV" on a labelled instance. */
 export function appName(label: string | null | undefined): string {

@@ -3,21 +3,14 @@
  * Migrated to use @inneropen/marvin-sdk
  */
 
-import { fetchApi } from "./client";
-import type {
-  PlatformEntry,
-  PlatformResource,
-  PlatformResourceCreate,
-  PlatformResourceUpdate,
-} from "@inneropen/marvin-sdk/platform";
+import type { PlatformResource, PlatformResourceCreate } from "@inneropen/marvin-sdk/platform";
 import { createSdkClient } from "../sdk";
+import { fetchApi } from "./client";
 import { getApiUrl } from "./config";
 
 // Re-export SDK types with legacy names for backward compatibility
 export type ResourceRead = PlatformResource;
 export type ResourceCreate = PlatformResourceCreate;
-export type ResourceUpdate = PlatformResourceUpdate;
-export type EntryRead = PlatformEntry;
 
 /**
  * List all resources in the current workspace
@@ -41,30 +34,6 @@ export async function getResource(id: string, authToken: string): Promise<Resour
 export async function createResource(data: ResourceCreate, authToken: string): Promise<ResourceRead> {
   const sdk = createSdkClient(authToken);
   return sdk.resources.create(data);
-}
-
-/**
- * Update an existing resource
- */
-export async function updateResource(id: string, data: ResourceUpdate, authToken: string): Promise<ResourceRead> {
-  const sdk = createSdkClient(authToken);
-  return sdk.resources.update(id, data);
-}
-
-/**
- * Delete a resource
- */
-export async function deleteResource(id: string, authToken: string): Promise<void> {
-  const sdk = createSdkClient(authToken);
-  return sdk.resources.delete(id);
-}
-
-/**
- * Get entries that reference this resource
- */
-export async function getResourceEntries(resourceId: string, authToken: string): Promise<EntryRead[]> {
-  const sdk = createSdkClient(authToken);
-  return sdk.resources.getEntries(resourceId);
 }
 
 /** Apply the resource's staged AI suggestion (suggestion_json) and clear it. */

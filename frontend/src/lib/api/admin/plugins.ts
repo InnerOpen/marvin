@@ -7,7 +7,7 @@ import { fetchApi } from "../client";
 /** What a plugin extends: integration providers, storage (asset providers / backup targets); AI providers next. */
 export type PluginKind = "integration" | "storage" | "ai_provider";
 
-export interface PluginProviderRead {
+interface PluginProviderRead {
   slug: string;
   name: string;
   /** Emoji fallback when there is no accepted logo. */

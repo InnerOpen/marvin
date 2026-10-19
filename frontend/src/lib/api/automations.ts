@@ -35,14 +35,6 @@ export async function previewAutomation(
   return createSdkClient(authToken).automations.preview(definition, payload);
 }
 
-export async function listAutomations(authToken?: string): Promise<Automation[]> {
-  return createSdkClient(authToken).automations.list();
-}
-
-export async function getAutomationOptions(authToken?: string): Promise<AutomationOptions> {
-  return createSdkClient(authToken).automations.options();
-}
-
 export async function createAutomation(data: AutomationCreate, authToken?: string): Promise<Automation> {
   return createSdkClient(authToken).automations.create(data);
 }
@@ -55,14 +47,12 @@ export async function deleteAutomation(id: string, authToken?: string): Promise<
   return createSdkClient(authToken).automations.delete(id);
 }
 
-/** Run an automation now (the Manual trigger). */
-export async function runAutomation(id: string, authToken?: string) {
-  return createSdkClient(authToken).automations.run(id);
-}
-
 /** Start an automation now and don't wait for it (the Run button): a run over many entries outlasts a request.
  *  Progress shows in the activity toasts and the workflow's Runs. */
-export async function startAutomation(id: string, inputs?: Record<string, unknown>): Promise<{ status: string; ok: boolean }> {
+export async function startAutomation(
+  id: string,
+  inputs?: Record<string, unknown>,
+): Promise<{ status: string; ok: boolean }> {
   return fetchApi(`/api/automations/${encodeURIComponent(id)}/run?background=true`, {
     method: "POST",
     ...(inputs ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ inputs }) } : {}),
@@ -133,5 +123,7 @@ export async function getAutomationExecution(id: string, executionId: string, au
 
 /** Stop a run parked at a Wait step: it won't go on when its time comes. Hand-rolled until the SDK ships it. */
 export async function cancelAutomationExecution(id: string, executionId: string) {
-  return fetchApi(`/api/automations/${encodeURIComponent(id)}/executions/${encodeURIComponent(executionId)}/cancel`, { method: "POST" });
+  return fetchApi(`/api/automations/${encodeURIComponent(id)}/executions/${encodeURIComponent(executionId)}/cancel`, {
+    method: "POST",
+  });
 }

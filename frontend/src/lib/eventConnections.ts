@@ -39,12 +39,12 @@ export interface EventSender {
   installedBy?: InstalledBy | null;
 }
 
-export interface EventTypeRef {
+interface EventTypeRef {
   eventType: string;
   name: string;
 }
 
-export interface EventLogRow {
+interface EventLogRow {
   id: string;
   eventId: string;
   eventType: string;
@@ -77,7 +77,7 @@ export interface EventConnectionCounts {
   lastOccurredAt?: string | null;
 }
 
-export interface WorkspaceEventReactions {
+interface WorkspaceEventReactions {
   workspaceId: string;
   workspaceName?: string | null;
   workspaceSlug?: string | null;
@@ -137,12 +137,16 @@ export function isSystemEmail(r: EventReaction): boolean {
  * set_automation_enabled (services/automation/toggle.py).
  */
 export function switchable(r: EventReaction): boolean {
-  return (r.kind === "integration_action" || r.kind === "workflow") && Boolean(r.id) && typeof r.switchedOn === "boolean";
+  return (
+    (r.kind === "integration_action" || r.kind === "workflow") && Boolean(r.id) && typeof r.switchedOn === "boolean"
+  );
 }
 
 /** Why a reaction whose own switch is on still won't run, if that's the case. */
 export function switchHint(r: EventReaction): string | null {
-  return r.switchedOn && !r.enabled && r.kind === "integration_action" ? "On, but its integration is switched off, so it won't run." : null;
+  return r.switchedOn && !r.enabled && r.kind === "integration_action"
+    ? "On, but its integration is switched off, so it won't run."
+    : null;
 }
 
 /**

@@ -3,7 +3,7 @@
 // reaches one that can make it in one click. Pure, so `npm test` covers it (referrals.test.mjs).
 
 /** What the referring agent found, for the receiving one to act on without asking again: ids and slugs, a short note. */
-export interface ReferralContext {
+interface ReferralContext {
   entry?: string | null;
   assetIds?: string[] | null;
   summary?: string | null;
@@ -36,7 +36,8 @@ export function referralQuestion(r: BubbleReferral): string {
   return `${question}\n\nHanded over with: ${parts.join("; ")}.${needs} Check each before acting.`;
 }
 
-const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+const esc = (s: string) =>
+  s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 export function referralsHtml(referrals: BubbleReferral[] | null | undefined): string {
   return (referrals ?? [])

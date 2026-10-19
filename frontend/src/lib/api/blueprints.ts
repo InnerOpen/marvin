@@ -16,12 +16,19 @@
 
 import { fetchApi } from "./client";
 
-export type BlueprintKind = "collection" | "entry_type" | "entry_fields" | "scheduled_task" | "event_subscription" | "incoming_webhook" | "workflow";
+type BlueprintKind =
+  | "collection"
+  | "entry_type"
+  | "entry_fields"
+  | "scheduled_task"
+  | "event_subscription"
+  | "incoming_webhook"
+  | "workflow";
 
 /** `entry_type`/`collection` render as a picker fed by the workspace's own content. */
-export type ParameterKind = "entry_type" | "collection" | "integration" | "text" | "number";
+type ParameterKind = "entry_type" | "collection" | "integration" | "text" | "number";
 
-export interface BlueprintParameter {
+interface BlueprintParameter {
   key: string;
   label: string;
   kind: ParameterKind;
@@ -83,30 +90,6 @@ export async function listBlueprints(filters: BlueprintFilters = {}, authToken?:
   return fetchApi<Blueprint[]>(`/api/groups/blueprints${query(filters)}`, {}, authToken);
 }
 
-/** Category names in catalog order — core's first, then each provider's. */
-export async function listBlueprintCategories(authToken?: string): Promise<string[]> {
-  return fetchApi<string[]>("/api/groups/blueprints/categories", {}, authToken);
-}
-
-/** One blueprint including its payload — what a prefilled editor reads. */
-export async function getBlueprint(slug: string, source?: string, authToken?: string): Promise<Blueprint> {
-  return fetchApi<Blueprint>(`/api/groups/blueprints/${encodeURIComponent(slug)}${query({ source })}`, {}, authToken);
-}
-
-/** Create this blueprint's object, unless something already has its slug. */
-export async function applyBlueprint(
-  slug: string,
-  params?: Record<string, string>,
-  source?: string,
-  authToken?: string,
-): Promise<BlueprintApplyResult> {
-  return fetchApi<BlueprintApplyResult>(
-    `/api/groups/blueprints/${encodeURIComponent(slug)}/apply${query({ source })}`,
-    { method: "POST", body: JSON.stringify(params ?? null), headers: { "Content-Type": "application/json" } },
-    authToken,
-  );
-}
-
 /**
  * Apply several — what the "apply this integration's content" button sends. Entry types are
  * created before the collections and tasks that reference them, whatever order they arrive in.
@@ -120,13 +103,21 @@ export async function applyBlueprints(
 ): Promise<BlueprintApplyResult[]> {
   return fetchApi<BlueprintApplyResult[]>(
     `/api/groups/blueprints/apply${query({ source })}`,
-    { method: "POST", body: JSON.stringify({ slugs, params: params ?? null }), headers: { "Content-Type": "application/json" } },
+    {
+      method: "POST",
+      body: JSON.stringify({ slugs, params: params ?? null }),
+      headers: { "Content-Type": "application/json" },
+    },
     authToken,
   );
 }
 
 /** Replace an applied workflow's steps with what its integration declares now (keeps whether it's on). */
-export async function updateBlueprint(slug: string, source?: string, authToken?: string): Promise<BlueprintApplyResult> {
+export async function updateBlueprint(
+  slug: string,
+  source?: string,
+  authToken?: string,
+): Promise<BlueprintApplyResult> {
   return fetchApi<BlueprintApplyResult>(
     `/api/groups/blueprints/${encodeURIComponent(slug)}/update${query({ source })}`,
     { method: "POST", body: JSON.stringify(null), headers: { "Content-Type": "application/json" } },

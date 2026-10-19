@@ -7,7 +7,7 @@ import { fetchApi } from "./client";
 
 export type CustomEventFieldType = "string" | "number" | "boolean" | "date";
 
-export interface CustomEventField {
+interface CustomEventField {
   key: string;
   type: CustomEventFieldType;
   description?: string | null;

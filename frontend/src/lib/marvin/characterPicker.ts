@@ -39,7 +39,7 @@ const SOURCE_OWN = "own";
 const LIBRARY_PREFIX = "library:";
 
 type CharacterFile = { name: string; url: string };
-export type StoredCharacter = {
+type StoredCharacter = {
   library?: string | null;
   name?: string | null;
   states: Partial<Record<CharacterState, string>>;
@@ -113,7 +113,7 @@ function showOwnArt(root: HTMLElement, idle: string | undefined): void {
 }
 
 /** Wire up one picker; its markup comes from CharacterPicker.astro. */
-export function mountCharacterPicker(root: HTMLElement): void {
+function mountCharacterPicker(root: HTMLElement): void {
   const api = root.dataset.api!;
   const removeConfirm = root.dataset.removeConfirm || "Remove this character? Its uploaded files are deleted.";
   const q = <T extends HTMLElement>(cls: string) => root.querySelector<T>(`.${cls}`)!;

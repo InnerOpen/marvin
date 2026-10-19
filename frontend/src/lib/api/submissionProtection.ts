@@ -6,7 +6,7 @@
 
 import { fetchApi } from "./client";
 
-export type SubmissionProtectionMode = "off" | "review" | "reject";
+type SubmissionProtectionMode = "off" | "review" | "reject";
 
 export interface SubmissionProtectionSettings {
   mode: SubmissionProtectionMode;
@@ -21,7 +21,9 @@ export interface SubmissionProtectionSettings {
 }
 
 /** Workspace override: every field optional, null = inherit the platform default. */
-export type SubmissionProtectionOverride = { [K in keyof SubmissionProtectionSettings]: SubmissionProtectionSettings[K] | null };
+export type SubmissionProtectionOverride = {
+  [K in keyof SubmissionProtectionSettings]: SubmissionProtectionSettings[K] | null;
+};
 
 export interface SubmissionProtectionStatus {
   platformDefaults: SubmissionProtectionSettings;

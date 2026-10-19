@@ -9,9 +9,9 @@
  */
 
 import type { AssetRead } from "./assets";
+import { fetchApi } from "./client";
 import type { EntryRead } from "./entries";
 import type { ResourceRead } from "./resources";
-import { fetchApi } from "./client";
 
 const ENTRIES = "/api/platform/entries";
 const TRASH = "/api/platform/trash";
@@ -28,20 +28,12 @@ export interface TrashAutoEmpty {
   effective_days: number;
 }
 
-export interface TrashSummary extends TrashAutoEmpty {
-  count: number;
-}
-
 /** The whole Trash: how many of each kind, and their total. */
 export interface TrashCounts extends TrashAutoEmpty {
   entries: number;
   assets: number;
   resources: number;
   total: number;
-}
-
-export async function getTrashSummary(authToken?: string): Promise<TrashSummary> {
-  return fetchApi<TrashSummary>(`${ENTRIES}/trash`, { method: "GET" }, authToken);
 }
 
 /** Move an entry to the Trash (what Delete does). */
@@ -76,11 +68,6 @@ export async function listTrashedAssets(authToken?: string): Promise<AssetRead[]
 
 export async function listTrashedResources(authToken?: string): Promise<ResourceRead[]> {
   return fetchApi<ResourceRead[]>(`${TRASH}/resources`, { method: "GET" }, authToken);
-}
-
-/** Move an asset or resource to the Trash (what Delete does); its file stays in storage meanwhile. */
-export async function moveItemToTrash(kind: TrashKind, id: string, authToken?: string): Promise<void> {
-  await fetchApi(`${ITEMS[kind]}/${id}`, { method: "DELETE" }, authToken);
 }
 
 /** Take an asset or resource out of the Trash. */

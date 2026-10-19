@@ -109,7 +109,7 @@ export interface Decision {
   note: string | null;
 }
 
-export const DECISION_WORDS: Record<string, string> = {
+const DECISION_WORDS: Record<string, string> = {
   approved: "Approved",
   denied: "Denied",
   expired: "Not decided in time",
@@ -124,5 +124,11 @@ export function decisionOf(metadata: unknown): Decision | null {
   const text = (k: string) => (typeof a[k] === "string" && (a[k] as string).trim() ? (a[k] as string) : null);
   const decision = text("decision");
   if (!decision) return null;
-  return { decision, label: DECISION_WORDS[decision] ?? decision, by: text("decided_by_name"), at: text("decided_at"), note: text("note") };
+  return {
+    decision,
+    label: DECISION_WORDS[decision] ?? decision,
+    by: text("decided_by_name"),
+    at: text("decided_at"),
+    note: text("note"),
+  };
 }

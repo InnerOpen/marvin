@@ -92,7 +92,7 @@ export function buildEmbedElement(embed: PublishedEmbed, frameSources: readonly 
 }
 
 /** Sanitise rendered markdown for the preview (placeholder `data-` attributes survive). */
-export function sanitizePreview(html: string): string {
+function sanitizePreview(html: string): string {
   return DOMPurify.sanitize(html);
 }
 

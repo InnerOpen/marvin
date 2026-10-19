@@ -5,7 +5,7 @@
  */
 
 /** A tone slug: a built-in or one of the workspace's own. */
-export type ToneSlug = string;
+type ToneSlug = string;
 export type PersonaRule = "frame" | "everywhere" | "drop";
 
 export interface Tone {

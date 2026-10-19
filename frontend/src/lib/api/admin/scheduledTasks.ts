@@ -22,26 +22,6 @@ export interface ScheduledTaskRead {
   failureCount: number;
 }
 
-export interface ScheduledTaskCreate {
-  name: string;
-  description?: string | null;
-  task_type: string;
-  task_config?: Record<string, any>;
-  schedule_type: string;
-  schedule_config: Record<string, any>;
-  enabled?: boolean;
-}
-
-export interface ScheduledTaskUpdate {
-  name?: string;
-  description?: string | null;
-  task_type?: string;
-  task_config?: Record<string, any>;
-  schedule_type?: string;
-  schedule_config?: Record<string, any>;
-  enabled?: boolean;
-}
-
 export interface ScheduledTaskExecutionLogRead {
   id: string;
   taskId: string;
@@ -59,44 +39,8 @@ export async function listAllTasks(authToken?: string): Promise<ScheduledTaskRea
   return fetchApi<ScheduledTaskRead[]>("/api/admin/scheduled-tasks", { method: "GET" }, authToken);
 }
 
-export async function createSystemTask(data: ScheduledTaskCreate, authToken?: string): Promise<ScheduledTaskRead> {
-  return fetchApi<ScheduledTaskRead>(
-    "/api/admin/scheduled-tasks",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    },
-    authToken,
-  );
-}
-
 export async function getSystemTask(id: string, authToken?: string): Promise<ScheduledTaskRead> {
   return fetchApi<ScheduledTaskRead>(`/api/admin/scheduled-tasks/${id}`, { method: "GET" }, authToken);
-}
-
-export async function updateSystemTask(
-  id: string,
-  data: ScheduledTaskUpdate,
-  authToken?: string,
-): Promise<ScheduledTaskRead> {
-  return fetchApi<ScheduledTaskRead>(
-    `/api/admin/scheduled-tasks/${id}`,
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    },
-    authToken,
-  );
-}
-
-export async function deleteSystemTask(id: string, authToken?: string): Promise<void> {
-  await fetchApi<void>(`/api/admin/scheduled-tasks/${id}`, { method: "DELETE" }, authToken);
-}
-
-export async function executeSystemTask(id: string, authToken?: string): Promise<{ message: string }> {
-  return fetchApi<{ message: string }>(`/api/admin/scheduled-tasks/${id}/execute`, { method: "POST" }, authToken);
 }
 
 export async function getSystemTaskHistory(

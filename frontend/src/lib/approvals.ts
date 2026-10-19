@@ -11,7 +11,7 @@
 
 import type { PendingCall } from "@/lib/api/aiAgents";
 
-export type Decision = "approve" | "deny";
+type Decision = "approve" | "deny";
 export type Decisions = Record<string, Decision>;
 
 export interface ApprovalGroup {

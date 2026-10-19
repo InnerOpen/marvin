@@ -33,7 +33,7 @@ export function scoped(key: string): string {
   return key + scope;
 }
 
-export const PENDING_POLL_MS = 1500;
+const PENDING_POLL_MS = 1500;
 /** Past this, stop waiting: agent runs are capped at a dozen tool steps, so this is far beyond normal. */
 export const PENDING_RUN_TIMEOUT_MS = 10 * 60_000;
 /**

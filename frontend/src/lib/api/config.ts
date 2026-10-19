@@ -18,7 +18,7 @@
 const DEFAULT_API_BASE_URL = "http://localhost:8080";
 
 /** The shape the SSR server injects onto `window` for browser code to read. */
-export interface MarvinRuntimeConfig {
+interface MarvinRuntimeConfig {
   apiBaseUrl: string;
   /** When true, browser API calls go same-origin through the frontend proxy (see getApiBaseUrl). */
   browserApiProxy?: boolean;

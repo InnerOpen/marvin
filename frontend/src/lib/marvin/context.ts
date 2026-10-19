@@ -30,10 +30,6 @@ export function setContextSuppressed(value: boolean): void {
   suppressed = value;
 }
 
-export function isContextSuppressed(): boolean {
-  return suppressed;
-}
-
 /** Read the context the current page declared. */
 export function getPageContext(): PageContext {
   const data = document.body?.dataset ?? ({} as DOMStringMap);

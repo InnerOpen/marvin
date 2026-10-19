@@ -17,7 +17,7 @@ export interface PushDevice {
   failureCount: number;
 }
 
-export interface PushCategory {
+interface PushCategory {
   key: string;
   label: string;
   description: string;

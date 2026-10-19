@@ -28,7 +28,7 @@ function available(): boolean {
   return typeof caches !== "undefined";
 }
 
-export function cacheStore(): QueueStore {
+function cacheStore(): QueueStore {
   return {
     async readIndex() {
       const hit = await (await caches.open(CACHE)).match(INDEX);

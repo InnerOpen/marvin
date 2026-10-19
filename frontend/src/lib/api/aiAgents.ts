@@ -7,7 +7,7 @@ import type { BubbleLines, MoodSettings } from "@/lib/marvin/characterSheet";
 import type { AgentPromptPreview } from "@/lib/promptPreview";
 import { fetchApi } from "./client";
 
-export type AgentKind = "persona" | "model";
+type AgentKind = "persona" | "model";
 /** `ask` = "ask first": the tool is bound but each call pauses the run for the user's approval (Ask page threads only). */
 export type PolicyValue = "allow" | "ask" | "block";
 /** A tone slug: a built-in (auto | professional | playful) or one of the workspace's own (@/lib/tones). */
@@ -63,13 +63,13 @@ export type AgentUpdate = Partial<
   Omit<Agent, "id" | "slug" | "isSystem" | "character" | "toolPolicyOverridden" | "bubbleLinesSource">
 >;
 
-export interface ToolCategory {
+interface ToolCategory {
   id: string;
   label: string;
   writes: boolean;
   description: string;
 }
-export interface CatalogTool {
+interface CatalogTool {
   name: string;
   category: string;
   description: string;
@@ -82,12 +82,12 @@ export interface Catalog {
   tools: CatalogTool[];
 }
 
-export interface MatrixTool extends CatalogTool {
+interface MatrixTool extends CatalogTool {
   decision: PolicyValue;
   reason: string;
   override: PolicyValue | null;
 }
-export interface MatrixRow {
+interface MatrixRow {
   id: string;
   label: string;
   writes: boolean;
