@@ -182,6 +182,8 @@ Options: `--db-key postgres/marvin-<stamp>.dump` (or `sqlite/…`) and `--config
 
 ### One workspace, from a bundle
 
+Deleting a workspace asks for one of these: **Admin → Workspaces → Manage → Delete workspace** wants a bundle from the last 24 hours (**Back up now** makes it) unless you tick *Delete without a backup*, and the workspace's stored files are kept 30 days before the daily task purges them (see [Operations → Workspaces](operations.md#workspaces-first-boot-deleting-and-what-stays-behind)). A deleted workspace comes back as a new workspace (new id): create one and import the bundle. The bundles stay in `DATA_DIR/backups` and in the off-site copy until their retention (`BACKUP_KEEP_BUNDLES`) removes them.
+
 To put back one workspace rather than the whole installation, list the target's bundles, download one and import it from **Admin → Backups → Import** into that workspace (with its backup key, from **Admin → Backups**, if it has secrets):
 
 ```bash

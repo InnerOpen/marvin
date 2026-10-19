@@ -55,7 +55,7 @@ oc -n marvin-dev get cluster marvin-dev-pg -w          # until "Cluster in healt
 oc -n marvin-dev rollout status deploy/marvin-backend  # restarts until marvin-dev-pg-app exists
 ```
 
-On first start against the empty database the backend migrates and seeds the default group and admin. Then load production (`task dev:refresh`, below), take the first backup and test the restore ([Backups](#backups)). Dev follows `develop`: `oc -n marvin-dev rollout restart deploy/marvin-backend deploy/marvin-frontend` picks up the newest build.
+On first start against the empty database the backend migrates and creates the first admin (no workspace: sign in to Admin and create one). Then load production (`task dev:refresh`, below), take the first backup and test the restore ([Backups](#backups)). Dev follows `develop`: `oc -n marvin-dev rollout restart deploy/marvin-backend deploy/marvin-frontend` picks up the newest build.
 
 !!! warning "Production data in dev"
     A copy of production brings real users, tokens, webhook URLs, workflows and scheduled tasks. Dev holds production's `.secret`, so stored secrets (provider keys, integration credentials) decrypt there too, and plain-text outgoing webhooks — a Cloudflare Pages deploy hook, for one — would fire. Dev therefore runs with the scheduler off **and** the copy is loaded with `--pause-outbound`, which switches off, in dev's database only, webhooks, integrations and their subscriptions, workflows, email subscriptions, SMTP profiles, MCP servers, scheduled tasks and auto site rebuilds. AI providers stay on (they only run when someone asks for an AI action). To test a feature, re-enable just what it needs: `--unpause webhook_urls` (the rows the pause switched off, nothing else), or in the UI.

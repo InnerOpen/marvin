@@ -475,8 +475,8 @@ These fields are deprecated but preserved for backward compatibility:
 ### Admin User (Production)
 - **Username**: admin
 - **Platform Role**: `SUPER_ADMIN`
-- **Workspace Role**: `OWNER` in default workspace
-- Full platform and workspace access
+- **Home / workspace role**: none: a fresh install creates no workspace; the admin signs in to Admin and creates one (and becomes its owner)
+- Full platform access
 
 ### Development Users (Non-Production)
 

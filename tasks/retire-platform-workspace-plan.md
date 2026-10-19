@@ -156,6 +156,17 @@ worth keeping → bundle → delete.
 **Tests:** fresh `init_db` creates no workspace and the admin can log in; demo mode creates "Demo"; delete requires name +
 backup; platform events survive a delete; migration D up/down.
 
+**Stage 3 status (2026-10-19, branch `wl/stage3`):**
+
+- [x] Fresh install creates no workspace (demo and dev too, decision 5): `init_db` drops `platform_workspace_init`; the first admin has no home and no membership; demo users start with none; the legacy entry seeds skip when no workspace exists (else they go into the oldest); `log_name_hint` removed; `DEFAULT_GROUP` retired from settings, chart (`config.platformWorkspaceName`), Taskfile and docs, with one startup warning while set.
+- [x] Migration D `a225a6254088` (down_revision `9d7cd212484e`): records `{id, name}` in `platform_settings.retired_platform_workspace`, drops `uq_groups_is_platform` and `groups.is_platform`; downgrade re-adds both and re-marks the recorded workspace if it still exists. SQLite and Postgres tested.
+- [x] Marker code removed: `services/group/platform_workspace.py`, `GET /admin/groups/platform`, the delete guard, `about default_group`, `is_platform` in schemas, platform-first sort, `PlatformBadge.astro` and its uses; `tests/test_platform_workspace.py` became `tests/test_workspace_rename.py` (the rename/former-slug tests).
+- [x] Safer deletion: `GET /admin/groups/{id}/delete-preview`; `DELETE` needs `confirm_name` (400 `confirm_name_mismatch`) and a bundle from the last 24 h (409 `backup_required`) unless `skip_backup=true`; platform event types keep their rows with `workspace_id` NULL (`group_purge.py`); `workspace_deleted` goes out after the delete with no workspace and the name in its data. (Also fixed: the non-force delete imported `marvin.db.models.entries`, which doesn't exist.)
+- [x] Deferred storage purge: migration E `6d4b5730ec18` (`deleted_workspace_storage`); a delete records each location (prefix = the storage code, stray older keys, count, bytes; a workspace's own bucket is snapshotted and its keys copied to platform secrets `DELETED_WS_*`); system task `purge_deleted_workspace_storage` (daily) purges after 30 days; Admin → Storage lists pending purges with "Purge now" / "Keep".
+- [x] UI: Delete panel on Admin → Workspaces → Manage (preview, Back up now, "delete without a backup" box, typed name); Workspace settings → General links to it; Admin → Storage "Files of deleted workspaces"; the empty Workspaces page speaks to a fresh install.
+- [x] Docs: `operations.md` (Workspaces: first boot, deleting, what stays behind), `offsite-backup.md`, `sqlite.md`, `postgres.md`, `admin-model.md`, glossary, whats-new.
+- [ ] Not done here: SDK regeneration (the `Workspace` type loses `isPlatform`, `AdminAboutInfo` loses `defaultGroup`; new delete-preview / deleted-workspaces endpoints); prod's "Marvin Admin" is deleted later through the normal flow (decision 7).
+
 ## 5. Rollout, verification, rollback
 
 Every push to develop auto-deploys marvin-dev then prod (`promote.yml`, no gate). Before pushing Stages 1 and 3: restore a

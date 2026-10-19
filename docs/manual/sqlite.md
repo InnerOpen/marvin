@@ -1,6 +1,6 @@
 # SQLite
 
-SQLite is the database of a fresh install: with no database settings at all, Marvin creates `marvin.db` in its data directory and runs on it. It needs no server, no operator and no credentials, which makes it the right choice for a laptop, a demo, a single small site or a first look. Postgres is for installs that need more than one API replica or a database server of their own (see [Postgres](postgres.md)); the production and dev environments on the iwobble cluster run on it.
+SQLite is the database of a fresh install: with no database settings at all, Marvin creates `marvin.db` in its data directory and runs on it. It needs no server, no operator and no credentials, which makes it the right choice for a laptop, a demo, a single small site or a first look. A fresh install has no workspace and one super admin: sign in to Admin and create the first workspace there (see [Operations](operations.md#workspaces-first-boot-deleting-and-what-stays-behind)). Postgres is for installs that need more than one API replica or a database server of their own (see [Postgres](postgres.md)); the production and dev environments on the iwobble cluster run on it.
 
 ## Which engine an install uses
 
