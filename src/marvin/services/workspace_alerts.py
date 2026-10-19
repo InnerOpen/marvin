@@ -198,6 +198,23 @@ class WorkspaceScope(alerting.AlertScope):
 
         return session.get(Groups, self.group_id)
 
+    def connections(self, session: Session) -> list[alerting.ConnectionView]:
+        from marvin.db.models.groups.integrations import IntegrationModel
+
+        rows = session.query(IntegrationModel).filter(IntegrationModel.group_id == self.group_id).order_by(IntegrationModel.name).all()
+        return [
+            alerting.ConnectionView(
+                id=str(r.id),
+                name=r.name,
+                provider=r.provider,
+                config=r.config or {},
+                enabled=bool(r.enabled),
+                secret_ref=r.secret_ref,
+                group_id=self.group_id,
+            )
+            for r in rows
+        ]
+
     def default_recipients(self, session: Session) -> list[str]:
         return admin_emails(session, self.group_id)
 

@@ -3,7 +3,8 @@ services/platform_alerts.py) and each workspace's (Settings → Automation → N
 services/workspace_alerts.py).
 
 A scope (:class:`AlertScope`) says what differs: its kinds of alert, where its settings and each channel's
-last delivery are stored, whose integration connections its routes use, who "everyone" is for email and
+last delivery are stored, which integration connections its routes use (:class:`ConnectionView`: a workspace's own
+integrations, or the platform's — Admin → Alerts → Platform channels), who "everyone" is for email and
 which SMTP settings send it, and how its messages are worded. Everything else lives here, once:
 
   * **email** — built in and on by default: to everyone the scope names (every super admin; a workspace's
@@ -14,7 +15,8 @@ which SMTP settings send it, and how its messages are worded. Everything else li
     (Profile → Notifications; services/web_push.py). Without VAPID it isn't a channel at all;
   * **integration routes** — any action that can carry a message (``alert_routing.message_actions``: Slack's
     ``send_message``, Apprise's ``notify``, whatever a plugin declares — never a list of names) on a
-    connection in the scope's workspace, with the action's own arguments (a channel…).
+    connection of the scope (a workspace's own; the platform's for platform alerts), with the action's own
+    arguments (a channel…).
 
 A channel may take only some kinds (``kinds``; None takes every kind that is on). One alert is one attempt
 per channel, no retries: a channel that fails is logged and its "last delivery" shows why; it never stops
@@ -147,7 +149,7 @@ class AlertScope:
     email_setup: str
     """What sends email, for "Not sent: …": "email isn't set up (Settings → Email → SMTP, …)"."""
     where: str
-    """Whose connections routes use: "the platform workspace"."""
+    """Whose connections routes use, for messages: "the platform channels", "this workspace"."""
     per_channel_kinds: bool = False
     """Whether a channel may take only some kinds."""
     push_category: str
@@ -175,8 +177,8 @@ class AlertScope:
     def store_status(self, session: Session, status: dict) -> None:
         raise NotImplementedError
 
-    def workspace(self, session: Session):
-        """The workspace whose connections routes use, or None."""
+    def connections(self, session: Session) -> list[ConnectionView]:
+        """The connections routes may use: this scope's own, whatever stores them."""
         raise NotImplementedError
 
     def default_recipients(self, session: Session) -> list[str]:
@@ -260,13 +262,35 @@ def _record(scope: AlertScope, session: Session, results: dict[str, dict]) -> No
 
 
 # --------------------------------------------------------------------------------------------------
-# Where routes go: the scope's workspace's message-capable connections
+# Where routes go: the scope's message-capable connections
 # --------------------------------------------------------------------------------------------------
 
 
 @dataclass
+class ConnectionView:
+    """One connection a scope's routes can use, whatever stores it: a workspace's integration row, or one of the
+    platform's (services/platform_connections.py)."""
+
+    id: str
+    name: str
+    provider: str
+    config: dict
+    enabled: bool
+    secret_ref: str | None = None
+    group_id: Any = None
+    """Whose secrets ``secret_ref`` (and a ``{{SLUG}}`` in a route's arguments) resolve in: a workspace id, or None for
+    the platform scope."""
+
+    def secret(self) -> str | None:
+        """The credential, resolved in the connection's own scope."""
+        from marvin.services.secrets.resolver import resolve_secret
+
+        return resolve_secret(self.secret_ref, self.group_id) if self.secret_ref else None
+
+
+@dataclass
 class Target:
-    """A message-capable action on one connection in the scope's workspace."""
+    """A message-capable action on one connection of the scope."""
 
     integration_id: str
     integration_name: str
@@ -280,42 +304,44 @@ class Target:
         return (self.integration_id, self.action.key)
 
 
-def targets(session: Session, workspace) -> list[Target]:
-    """Every message-capable action on the workspace's connections whose provider is installed."""
-    if workspace is None:
-        return []
+def targets(scope: AlertScope, session: Session) -> list[Target]:
+    """Every message-capable action on the scope's connections whose provider is installed."""
     from marvin.services.integrations import INTEGRATIONS_AVAILABLE
 
     if not INTEGRATIONS_AVAILABLE:
         return []
-    from marvin.db.models.groups.integrations import IntegrationModel
     from marvin.services.integrations import get_provider
     from marvin.services.integrations.alert_routing import message_actions
 
     found: list[Target] = []
-    for row in session.query(IntegrationModel).filter(IntegrationModel.group_id == workspace.id).order_by(IntegrationModel.name).all():
+    for conn in scope.connections(session):
         try:
-            provider = get_provider(row.provider)
+            provider = get_provider(conn.provider)
         except KeyError:
             continue  # not installed: nothing to run
         for action in message_actions(provider):
             found.append(
                 Target(
-                    integration_id=str(row.id),
-                    integration_name=row.name,
-                    provider=row.provider,
-                    provider_name=getattr(provider, "name", row.provider),
-                    connection_enabled=bool(row.enabled),
+                    integration_id=conn.id,
+                    integration_name=conn.name,
+                    provider=conn.provider,
+                    provider_name=getattr(provider, "name", conn.provider),
+                    connection_enabled=bool(conn.enabled),
                     action=action,
                 )
             )
     return found
 
 
-def route_problem(scope: AlertScope, workspace, target: Target | None) -> str | None:
+def message_actions_of(provider) -> list:
+    """A provider's message-capable actions (alert_routing.message_actions)."""
+    from marvin.services.integrations.alert_routing import message_actions
+
+    return message_actions(provider)
+
+
+def route_problem(scope: AlertScope, target: Target | None) -> str | None:
     """Why a route can't send right now, or None."""
-    if workspace is None:
-        return f"There's no {scope.where.removeprefix('the ')} to send through."
     if target is None:
         return f"The connection is gone from {scope.where}, its plugin isn't installed, or the action no longer sends messages."
     if not target.connection_enabled:
@@ -398,7 +424,7 @@ def validate(
     push: dict | None = None,
 ) -> AlertSettings:
     """What the admin asked for as settings, or InvalidAlertSettings. Routes must name a message-capable
-    action on a connection in the scope's workspace. ``push`` ({enabled, kinds}) left out keeps the current
+    action on one of the scope's connections. ``push`` ({enabled, kinds}) left out keeps the current
     push settings."""
     unknown = sorted(set(types) - set(scope.kinds_by_key))
     if unknown:
@@ -406,10 +432,7 @@ def validate(
     current = load(scope, session)
     cleaned_types = {k.key: bool(types.get(k.key, current.types[k.key])) for k in scope.kinds}
 
-    workspace = scope.workspace(session)
-    if routes and workspace is None:
-        raise InvalidAlertSettings(f"There's no {scope.where.removeprefix('the ')}, so alerts can't go through an integration.")
-    available = {t.key: t for t in targets(session, workspace)}
+    available = {t.key: t for t in targets(scope, session)}
     existing_ids = {r.id for r in current.routes}
     cleaned: list[Route] = []
     seen: set[tuple] = set()
@@ -464,7 +487,7 @@ def describe_changes(scope: AlertScope, session: Session, old: AlertSettings, ne
         changes.append(f"Push: {'on' if new.push_enabled else 'off'}")
     if old.push_kinds != new.push_kinds:
         changes.append(f"Push takes: {_kinds_text(scope, new.push_kinds)}")
-    names = {t.key: f"{t.integration_name} → {t.action.label}" for t in targets(session, scope.workspace(session))}
+    names = {t.key: f"{t.integration_name} → {t.action.label}" for t in targets(scope, session)}
 
     def name(route: Route) -> str:
         return names.get((route.integration_id, route.action), f"{route.integration_id} → {route.action}")
@@ -623,29 +646,26 @@ def send_push(scope: AlertScope, session: Session, message: AlertMessage, *, tes
     return Delivery(SENT, f"Sent to {result.sent} device(s) of {len(result.people)} person(s){failed}{gone}.")
 
 
-def send_route(scope: AlertScope, session: Session, route: Route, message: AlertMessage, workspace=None) -> Delivery:
-    """Run the route's action on its connection in the scope's workspace with the message filled in."""
-    workspace = workspace if workspace is not None else scope.workspace(session)
-    target = next((t for t in targets(session, workspace) if t.key == (route.integration_id, route.action)), None)
-    problem = route_problem(scope, workspace, target)
+def send_route(scope: AlertScope, session: Session, route: Route, message: AlertMessage) -> Delivery:
+    """Run the route's action on its connection with the message filled in."""
+    target = next((t for t in targets(scope, session) if t.key == (route.integration_id, route.action)), None)
+    problem = route_problem(scope, target)
     if problem:
         return Delivery(FAILED, problem)
 
-    from marvin.db.models.groups.integrations import IntegrationModel
     from marvin.services.integrations import IntegrationContext, build_http, get_provider
     from marvin.services.integrations.arg_secrets import MissingSecretError, resolve_arg_secrets
     from marvin.services.integrations.errors import redact, secret_values
-    from marvin.services.secrets.resolver import resolve_secret
 
-    row = session.get(IntegrationModel, uuid.UUID(route.integration_id))
-    provider = get_provider(row.provider)
+    conn = next(c for c in scope.connections(session) if c.id == route.integration_id)
+    provider = get_provider(conn.provider)
     secret = None
     resolved: dict = {}
     try:
-        secret = resolve_secret(row.secret_ref, workspace.id) if row.secret_ref else None
-        resolved = resolve_arg_secrets(route.args, workspace.id)
+        secret = conn.secret()
+        resolved = resolve_arg_secrets(route.args, conn.group_id)
         args = {**resolved, **target.action.args(message.title, message.body)}
-        ctx = IntegrationContext(config=row.config or {}, secret=secret, logger=logger, http=build_http())
+        ctx = IntegrationContext(config=conn.config or {}, secret=secret, logger=logger, http=build_http())
         provider.run_action(target.action.key, args, ctx)
     except MissingSecretError as e:
         return Delivery(FAILED, str(e))
@@ -677,13 +697,11 @@ def send(
             logger.exception(f"{scope.name}: push channel failed")
             delivery = Delivery(FAILED, f"Push failed: {scrub(str(e))}")
         results[PUSH_CHANNEL] = delivery.status(event_type, test)
-    workspace = None
     for route in settings.routes:
         if route.id not in channels:
             continue
-        workspace = workspace if workspace is not None else scope.workspace(session)
         try:
-            delivery = send_route(scope, session, route, message, workspace)
+            delivery = send_route(scope, session, route, message)
         except Exception as e:  # noqa: BLE001
             logger.exception(f"{scope.name}: route {route.id} failed")
             delivery = Delivery(FAILED, f"Failed: {scrub(str(e))}")
@@ -703,7 +721,7 @@ def send_test(scope: AlertScope, session: Session, channel: str, by: str | None 
         route = next((r for r in settings.routes if r.id == channel), None)
         if route is None:
             raise LookupError("No such route; save it first.")
-        target = next((t for t in targets(session, scope.workspace(session)) if t.key == (route.integration_id, route.action)), None)
+        target = next((t for t in targets(scope, session) if t.key == (route.integration_id, route.action)), None)
         label = f"{target.integration_name} → {target.action.label}" if target else "integration"
     results = send(scope, session, settings, trial_message(scope, session, label, by), [channel], event_type=None, test=True)
     return results.get(channel) or Delivery(FAILED, "Nothing was sent.").status(None, True)

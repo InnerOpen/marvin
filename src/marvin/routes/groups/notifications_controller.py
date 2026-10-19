@@ -42,8 +42,7 @@ class WorkspaceNotificationsController(BaseUserController):
         scope = self._scope
         settings = alerting.load(scope, self.session)
         last = alerting.statuses(scope, self.session)
-        workspace = scope.workspace(self.session)
-        available = alerting.targets(self.session, workspace)
+        available = alerting.targets(scope, self.session)
         by_key = {t.key: t for t in available}
         routes = []
         for route in settings.routes:
@@ -57,7 +56,7 @@ class WorkspaceNotificationsController(BaseUserController):
                     enabled=route.enabled,
                     kinds=route.kinds,
                     label=alerting.route_label(target, route),
-                    problem=alerting.route_problem(scope, workspace, target),
+                    problem=alerting.route_problem(scope, target),
                     last_delivery=AlertDelivery.from_status(last.get(route.id)),
                 )
             )
