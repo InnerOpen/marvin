@@ -8,7 +8,7 @@ Downgrade restores NOT NULL: a user left without a home is given the platform wo
 by name) first. With no workspace at all it can't, and says so.
 
 Revision ID: 9d7cd212484e
-Revises: 7a38989125da
+Revises: 3442416ae2bd
 Create Date: 2026-10-18 23:46:31.114872
 
 """
@@ -22,7 +22,7 @@ import marvin.db.migration_types
 
 # revision identifiers, used by Alembic.
 revision: str = "9d7cd212484e"
-down_revision: str | None = "7a38989125da"
+down_revision: str | None = "3442416ae2bd"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
