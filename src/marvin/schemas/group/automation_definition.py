@@ -230,8 +230,8 @@ class OperationAction(_StepBase):
 
 
 class EntryAction(_StepBase):
-    """Changes an entry without AI — a status op, collection membership, a metadata/data write or a review
-    request — or creates one. `create` takes (`entry_type` slug, `title`, `data`, `metadata`, `status` inbox|draft; output
+    """Changes an entry without AI — status, collections, metadata/data, a review request — or creates one.
+    `create` takes (`entry_type` slug, `title`, `data`, `metadata`, `status` inbox|draft; output
     entry_id/slug). `trash` / `restore` also act on an asset or a resource (`entity_type`; unset, the kind of the
     target's or the triggering item): `entity_slug` / `entity_id`, else the current one — never `entity_query`."""
 
@@ -352,7 +352,7 @@ class HandlerAction(_StepBase):
 
 
 class WebhookAction(_StepBase):
-    """Calls one of the workspace's outgoing webhooks (`webhook_id`), or a raw `url`, with a JSON `body`.
+    """Calls a saved outgoing webhook (`webhook_id`) or a raw `url` with a JSON `body`.
     `idempotency_key` (a template, e.g. handoff-${entry.id}) makes the call once: the same key again at this webhook
     within `idempotency_window_hours` (default 24) calls nothing and reuses the first call's output."""
 
@@ -543,6 +543,40 @@ class FetchAction(_StepBase):
         return self
 
 
+class RequestAction(_StepBase):
+    """Calls any web API. Later steps read its answer. `url`, `method` (GET default; POST, PUT, PATCH, DELETE,
+    HEAD), `query` (added to the address), `headers` ({{SLUG}} secrets resolve) and `body` (JSON by default; `body_type`
+    form or text). `secret_ref` sends
+    `Authorization: <auth_scheme> <secret>` (Bearer default; Basic encodes a "user:password" secret). Public addresses
+    only. `retries` (0–3) repeats a network blip, 429 or 5xx. A non-2xx fails the step unless `fail_on_error: false`.
+    Output `status`, `ok`, `content_type`, `headers`, `json`, `text`, `url`. `idempotency_key` calls once per window, as
+    on a webhook step. A dry run shows the request without sending it. Needs an admin's role, like a webhook step."""
+
+    kind: Literal["request"]
+    url: str = Field(min_length=1)
+    method: Literal["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] = "GET"
+    query: dict[str, Any] | None = None  # added to the address, URL-encoded (templates allowed)
+    headers: dict[str, str] | None = None  # templates and {{SLUG}} secret references allowed
+    body: Any = None  # an object/list (sent as JSON), a form's fields, or text — see body_type
+    body_type: Literal["json", "form", "text"] = "json"
+    secret_ref: str | None = None  # a workspace secret, sent as `Authorization: <auth_scheme> <secret>`
+    auth_scheme: str | None = None  # Bearer (default) | Token | Basic (a "user:password" secret) | …
+    retries: int = Field(default=0, ge=0, le=3)  # repeat a network blip, a 429 or a 5xx, after 1s, 2s, 4s
+    timeout_seconds: int = Field(default=15, ge=1, le=60)
+    fail_on_error: bool = True  # false: a non-2xx answer is output (ok false) instead of a failed step
+    idempotency_key: str | None = None  # a template: the same key to this address within the window is not called again
+    idempotency_window_hours: int | None = Field(default=None, ge=1, le=720)  # how long a key counts (default 24)
+    id: str | None = None
+
+    @model_validator(mode="after")
+    def _body_fits(self):
+        if self.body is not None and self.method in ("GET", "HEAD"):
+            raise ValueError(f"a {self.method} request sends no body: use `query` for its parameters, or another method")
+        if self.body_type == "form" and self.body is not None and not isinstance(self.body, dict):
+            raise ValueError("a form body is an object of field → value")
+        return self
+
+
 class SchemaCheckAction(_StepBase):
     """Checks a JSON document against a JSON Schema and reports what doesn't fit. `document`: usually an earlier step's
     parsed answer (${steps.<id>.output.json} of a fetch step) or any template; a string holding a JSON object or array is
@@ -713,6 +747,7 @@ RepeatStep = Annotated[
     | MediaAction
     | CollectAction
     | FetchAction
+    | RequestAction
     | SchemaCheckAction
     | EmailAction
     | MetricAction
@@ -805,6 +840,7 @@ ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "media": MediaAction,
     "collect": CollectAction,
     "fetch": FetchAction,
+    "request": RequestAction,
     "schema_check": SchemaCheckAction,
     "email": EmailAction,
     "metric": MetricAction,

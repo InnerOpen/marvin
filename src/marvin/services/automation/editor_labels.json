@@ -28,6 +28,7 @@
     "media": "Process an image",
     "collect": "Gather items",
     "fetch": "Check a web address",
+    "request": "Call a web API",
     "schema_check": "Check against a schema",
     "email": "Email a member",
     "metric": "Record a metric",

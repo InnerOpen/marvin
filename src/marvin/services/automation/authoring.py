@@ -468,6 +468,7 @@ def _actions() -> dict:
         "when": WHEN_NOTE,
         "collect": COLLECT_NOTE,
         "fetch": FETCH_NOTE,
+        "request": REQUEST_NOTE,
         "parallel": PARALLEL_NOTE,
     }
 
@@ -496,6 +497,16 @@ FETCH_NOTE = (
     "it unpublishes a live entry). Broken = "
     "no answer, 404, 410 or 5xx (401/403/429 are a server refusing robots). url: a resource's page "
     '(${resource.url}) → `when` on output.ok; find: "sold out" (any case) → output.found lists what is there. Public addresses only.'
+)
+REQUEST_NOTE = (
+    "request calls any web API (fetch only reads public pages): an Airtable row, a Mailchimp or MailerLite subscribe, a "
+    "link shortener — an API with a long-lived key (not one whose tokens expire within the hour, like Google's OAuth). "
+    "Put the key in a workspace secret and name it — secret_ref: AIRTABLE_TOKEN (Bearer), or a "
+    'header value "{{AIRTABLE_TOKEN}}" — never the key itself. body is JSON unless body_type is form or text; GET/HEAD take '
+    "`query` instead. Later steps read ${steps.<id>.output.json.<field>} (an id the API returned) and .status. A non-2xx "
+    "fails the run unless fail_on_error: false (then `when` on output.ok). Add retries: 2 for a flaky API, and an "
+    "idempotency_key (e.g. airtable-${entry.id}) when a re-run must not add the row twice. {{SLUG}} resolves in headers "
+    "and secret_ref, not the url. Needs an admin's role."
 )
 SCHEMA_CHECK_NOTE = (
     "schema_check holds a JSON document against a JSON Schema: document: ${steps.page.output.json} (a fetch step's parsed "
@@ -579,13 +590,17 @@ def _item_ops() -> dict:
 
 def _templates() -> dict:
     from .engine import TEMPLATE_NAMESPACES
+    from .filters import guide as filters_guide
 
     return {
         "syntax": [
             '"${path}" as a whole value keeps the value\'s type; inside text ("Hi ${entry.title}") it is stringified.',
             '"$path" (whole value, no braces) also works. {{...}}, steps[...] and other forms are NOT templates.',
-            '"${path|url}" URL-encodes the value: for a share link\'s text or a query string.',
+            '"${path|filter}" turns the value first; filters chain left to right and take arguments after a colon, '
+            "comma-separated (quote one holding a comma or a bar): \"${entry.published_at|date:'%d %b %Y',Europe/Madrid}\", "
+            '"${entry.title|truncate:60|default:\'Untitled\'}", "${entry.tags|join:\' · \'}", "${entry.url|url}".',
         ],
+        "filters": filters_guide(),
         "namespaces": TEMPLATE_NAMESPACES,
         "where": "step fields (input, args, body, metadata, data, entity_slug, collection_slug, reason…), target.query values, condition values",
     }
@@ -952,6 +967,7 @@ def _step_issues(
     def bad(key: str, message: str) -> None:
         issues.add(f"{path}.{key}" if key else path, where, message)
 
+    _filter_issues(step, bad)
     kind = step.get("kind")
     if kind == "operation":
         _operation_step_issues(step, refs, subject, bad)
@@ -992,8 +1008,34 @@ def _step_issues(
         _media_step_issues(step, refs, bad)
     elif kind == "fetch":
         _fetch_step_issues(step, bad)
+    elif kind == "request":
+        _request_step_issues(step, bad)
     elif kind == "email":
         _email_step_issues(step, bad)
+
+
+def _filter_issues(step: dict, bad) -> None:
+    """A template filter that won't work (``${entry.title|tuncate:40}``) is refused at save: at run time it would quietly
+    give nothing. A nested step (a parallel branch's, a repeat's) is checked as its own step."""
+    from .filters import filter_problem, split_expression
+    from .matcher import _BRACED
+
+    def walk(value: Any, key: str) -> None:
+        if isinstance(value, str) and "|" in value:
+            for expr in _BRACED.findall(value):
+                for text in split_expression(expr)[1:]:
+                    if problem := filter_problem(text):
+                        bad(key, f"In ${{{expr}}}: {problem}")
+        elif isinstance(value, dict):
+            for v in value.values():
+                walk(v, key)
+        elif isinstance(value, list):
+            for v in value:
+                walk(v, key)
+
+    for key, value in step.items():
+        if key not in ("steps", "branches", "actions"):
+            walk(value, key)
 
 
 def _email_step_issues(step: dict, bad) -> None:
@@ -1013,6 +1055,17 @@ def _fetch_step_issues(step: dict, bad) -> None:
     url = step.get("url")
     if isinstance(url, str) and not _templated(url) and urlparse(url.strip()).scheme not in ("http", "https"):
         bad("url", f"“{url}” isn't a web address: it needs http:// or https://.")
+
+
+def _request_step_issues(step: dict, bad) -> None:
+    """The address, and no key typed into a header: a credential belongs in a workspace secret, named by {{SLUG}}."""
+    _fetch_step_issues(step, bad)
+    from .actions.webhook import _CREDENTIAL_HEADER
+
+    for name, value in (step.get("headers") or {}).items() if isinstance(step.get("headers"), dict) else ():
+        text = str(value or "").strip()
+        if _CREDENTIAL_HEADER.search(str(name)) and text and "{{" not in text and not _templated(text):
+            bad("headers", f"Header {name} holds a credential typed in: keep it in a workspace secret and write {{{{SLUG}}}} instead.")
 
 
 def _emit_event_issues(step: dict, refs: WorkspaceRefs, bad) -> None:

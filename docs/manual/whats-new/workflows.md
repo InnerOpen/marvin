@@ -68,7 +68,7 @@ The builder sends every value as text. `eq` and `neq` convert it to the type of 
 
 A numeric path segment indexes a list: `event.payload.items.0.id`.
 
-Templates in step inputs: `$event.entry_id` or `${event.count}` alone keeps the value's type; `Summary: ${previous.summary}` embeds as text, so `${entry.image}` or `${entry.data.<field>}` can be handed to a webhook or integration. `${entry.url}` is the entry's page on the site (absolute when the Canonical URL is set, otherwise the site path; empty when its type has no page URL pattern). `${site.url}` is the workspace's Canonical URL (Settings → General), or empty when it isn't set — e.g. the base a newsletter integration makes an issue's relative links absolute against. `${path|url}` URL-encodes the value, for a share link's text or a query string (`https://bsky.app/intent/compose?text=${steps.post.output.text|url}`). A member event's run reads the person as `${member.name}`, `${member.email}` and so on. An entry also carries the dates every entry has, whatever its type's fields: `${entry.published_at}`, `${entry.publish_at}` (scheduled), `${entry.expire_at}`, `${entry.created_at}` and `${entry.updated_at}` (UTC). `{{SLUG}}` secret refs resolve only in a configured webhook's headers, in a webhook step's `secret_ref`, and in a Run integration step's `args` (see below).
+Templates in step inputs: `$event.entry_id` or `${event.count}` alone keeps the value's type; `Summary: ${previous.summary}` embeds as text, so `${entry.image}` or `${entry.data.<field>}` can be handed to a webhook or integration. `${entry.url}` is the entry's page on the site (absolute when the Canonical URL is set, otherwise the site path; empty when its type has no page URL pattern). `${site.url}` is the workspace's Canonical URL (Settings → General), or empty when it isn't set — e.g. the base a newsletter integration makes an issue's relative links absolute against. A template can turn its value first with filters — `${path|url}` URL-encodes it for a share link's text or a query string (`https://bsky.app/intent/compose?text=${steps.post.output.text|url}`), `${entry.published_at|date:'%d %b %Y'}` formats a date — see [Filters](#filters). A member event's run reads the person as `${member.name}`, `${member.email}` and so on. An entry also carries the dates every entry has, whatever its type's fields: `${entry.published_at}`, `${entry.publish_at}` (scheduled), `${entry.expire_at}`, `${entry.created_at}` and `${entry.updated_at}` (UTC). `{{SLUG}}` secret refs resolve only in a configured webhook's headers, in a webhook step's `secret_ref`, in a **Call a web API** step's `headers` and `secret_ref`, and in a Run integration step's `args` (see below).
 
 ### Run on a query {#run-on-a-query-of-entries}
 
@@ -143,6 +143,7 @@ A **webhook** or **integration** step can carry an `idempotency_key`, a template
 | `repeat` (Repeat for each) | `for_each` (a list), `as` (the item's name), `steps` (1–5), `limit`, `on_item_error` | Runs its steps once for each item — see [Repeat for each](#repeat-for-each). |
 | `parallel` (Parallel branches) | `branches` (2–5, each a `name` and `steps` 1–5), `join` (`all`, the default, or `any`), `on_branch_failure` (`fail`, the default, or `continue`) | Runs independent branches of steps and joins them — see [Parallel branches](#parallel-branches). |
 | `fetch` (Check a web address) | `url` (+ `method` `GET`/`HEAD`, `find`) or `links` (a text, + `base`) | Reads a public web address, or checks the links in a text. A dead link is output, not a failure — see [Check a web address](#check-a-web-address). |
+| `request` (Call a web API) | `url`, `method`, `query`, `headers`, `body` (+ `body_type`), `secret_ref` / `auth_scheme`, `retries`, `timeout_seconds`, `fail_on_error`, `idempotency_key` | Calls any web API and hands its answer to later steps; needs an admin's role — see [Call a web API](#call-a-web-api). |
 | `schema_check` (Check against a schema) | `document`, `schema` or `schema_resource`; `fail_on_invalid`, `max_errors` | Holds a JSON document up against a JSON Schema and reports what doesn't fit. An invalid document is output, not a failure, unless `fail_on_invalid` — see [Check against a schema](#check-against-a-schema). |
 | `email` (Email a member) | `to` (a member's id or email), `subject`, `body` (markdown), `heading`, `button_text` + `button_link`, `once_per` | Writes to a member of the workspace — never an outside address — in the workspace's email layout; sent once per event. See [Email a member](#email-a-member). |
 | `metric` (Record a metric) | `op` (`record`, the default, `add` or `read`), `metric`, `value`, `variant`, `subject`, `window` (`day`/`week`/`month` or `2026-10-18` / `2026-W42` / `2026-10`), `at`; for a read `window_from`, `window_to`, `limit` | Records a number as an observation for a metric, variant and window — or adds to a count, or reads observations back. Recording again replaces the number; adding raises it, once for each event; a dry run writes nothing. Observations, not conclusions — see [Record a metric](#record-a-metric). |
@@ -292,6 +293,36 @@ that only previewed (an image not yet made) shows where it comes from — the st
 **Set metadata** and **Set fields** save nothing when the values are already there: no "last updated" change and no
 `entry_updated`, so a weekly check that finds the same answer leaves the entry alone.
 
+### Filters {#filters}
+
+A template can turn its value before it's used: `${path|filter}`. Filters chain left to right, and some take arguments
+after a colon, separated by commas; quote an argument that holds a comma, a colon or a bar. Saving a workflow with a
+filter that doesn't exist (or the wrong number of arguments) is refused.
+
+| Filter | Gives |
+|---|---|
+| `default:x` | `x` when the value is missing or empty |
+| `upper`, `lower`, `capitalize`, `title`, `trim` | the text in that case, or without the spaces at its ends |
+| `truncate:n` (+ an ending) | at most `n` characters, ending on a whole word with … |
+| `replace:old,new` | every `old` replaced by `new` |
+| `slug` | a-url-slug |
+| `strip_html`, `escape`, `markdown` | plain text from HTML; text safe inside HTML; markdown made into HTML (as emails do) |
+| `url` | URL-encoded, for a link's text or a query string |
+| `join` (+ a separator), `split` (+ a separator), `first`, `last`, `length` | a list as text (`, ` by default), text as a list (at `,`), a list's first or last item, how many |
+| `date` (+ a format, + a timezone) | a date (ISO text, a date or epoch seconds) formatted with strftime codes, `%Y-%m-%d` by default, or `iso` |
+| `round` (+ decimals) | a number rounded (to a whole number by default) |
+| `json`, `base64`, `sha256`, `md5` | the value as JSON text, base64-encoded, or hashed (hex) |
+
+```text
+${entry.published_at|date:'%d %b %Y, %H:%M',Europe/Madrid}   → 19 Oct 2026, 23:30
+${entry.title|truncate:60|default:'Untitled'}
+${entry.tags|join:' · '}                                    → leather · repair
+${member.email|lower|trim|md5}                              → a Gravatar id
+```
+
+A filter never fails a run: a `date` given something that isn't a date, or a `round` given a word, passes the value
+through unchanged.
+
 ### Gather items (many → one)
 
 A workflow runs once per item — the trigger's, or each row of a query run. A **Gather items** step (`collect`) is the
@@ -349,6 +380,43 @@ public addresses only (a private or local one is refused, also after a redirect)
  "args": {"title": "Broken links in ${entry.title}", "body": "${steps.links.output.text}"},
  "when": {"field": "steps.links.output.broken_count", "op": "gt", "value": 0}}
 ```
+
+### Call a web API
+
+A **Call a web API** step (`request`) sends a request to any public web API and gives its answer to the steps after it:
+a record added in Airtable, a subscriber added to Mailchimp or MailerLite, a short link made. **Check a
+web address** only reads; this one sends, so it needs an admin's role, like a webhook step.
+
+- **`url`** and **`method`** — `GET` (default), `POST`, `PUT`, `PATCH`, `DELETE` or `HEAD`. **`query`** — fields added
+  to the address, URL-encoded (`{"q": "${entry.title}"}`).
+- **`headers`** — templates allowed, and `{{SLUG}}` resolves to a workspace secret or variable, so a key is never typed
+  into the workflow (saving one that holds a credential typed in is refused). **`secret_ref`** — a secret sent as
+  `Authorization: <auth_scheme> <secret>`: `Bearer` by default, `Token` for APIs that want it, `Basic` for a
+  `user:password` secret (encoded for you).
+- **`body`** — sent as JSON by default; `body_type: form` sends a form's fields, `body_type: text` sends it as it is. A
+  `GET` or `HEAD` takes no body: use `query`.
+- Output: `status`, `ok` (2xx), `content_type`, `headers` (names in lower case), `json` (when the answer is JSON), `text`
+  (the first 20,000 characters) and `url`. A later step reads `${steps.<id>.output.json.id}`.
+- An answer that isn't 2xx fails the step with what the server said, unless `fail_on_error: false`: then it is output,
+  and a `when` on `steps.<id>.output.ok` decides. `retries` (0–3) repeats a call that met a network blip, a 429 or a 5xx,
+  after 1, 2 and 4 seconds; `timeout_seconds` (default 15, at most 60).
+- Public addresses only, through the same guarded client integrations use (a private or local one is refused, also
+  after a redirect); answers over 2 MB are refused. An `idempotency_key` makes the call once, as on a webhook step (see
+  [Make a call once](#idempotency)). A dry run shows the request, credentials masked, and sends nothing.
+
+An Airtable row for each published entry (an Airtable personal access token kept as the secret `AIRTABLE_TOKEN`; the
+base and table ids are part of the address):
+
+```json
+{"kind": "request", "id": "row", "method": "POST",
+ "url": "https://api.airtable.com/v0/appXXXXXXXXXXXXXX/Published",
+ "secret_ref": "AIRTABLE_TOKEN",
+ "body": {"fields": {"Title": "${entry.title}", "Date": "${entry.published_at|date:'%Y-%m-%d'}", "Link": "${entry.url}"}},
+ "retries": 2, "idempotency_key": "airtable-${entry.id}"}
+```
+
+`{{SLUG}}` resolves in `headers` and `secret_ref` only, not in the address. An API whose tokens expire within the hour
+(Google's OAuth tokens) needs an integration instead.
 
 ### Check against a schema
 
@@ -862,7 +930,7 @@ Check against a schema (`schema_check`; Agent directory intake and Choose your o
 Email a member (`email`, `site.app_url`; New member welcome recipe): 2026-10-18.
 Record a metric (`metric`, migration `c4139a718fc6`, the Metrics page and `/api/groups/metrics`; Social experiment log recipe): 2026-10-18. `op: add` (counts each event once; migration `4d8eabca4995`): 2026-10-18.
 
-`form_submission_received` as a trigger: v1.0.0-rc.51 (`8f1443d1`). `auth_scheme`: rc.50 (`a65ba7d0`). `entry.summary` and `entry.data.*`: rc.52 (`433e949e`). Response `body`, `set_metadata` and metadata targeting: rc.59 (`1380e92e`). `entity_query`: rc.60 (`65ffb648`). Raw-URL `method` and templated stored URLs: rc.61 (`b88e4035`). Builder fixes: rc.63 (`57956e71`). `set_data`, the integration step, `entry.metadata` and list indexes in paths: rc.111. `entry.image`: rc.119. Full entry context per query row and **Fields equal**: rc.129. Typed values for checkbox and number fields: rc.131. The shared entry query (`where`, `sort`, date filters): rc.138. Unknown `where` ops match nothing, and `run_workflow` runs appear under **Runs**: rc.139. Site build and deploy events from `emit_event`: rc.144. `{{SLUG}}` in integration step args: rc.145. AI limits on operation steps: rc.146. Site events as notification subscriptions: rc.151; as workflow triggers: rc.152. `automation_started` and the shared `execution_id`: rc.165. Dry run against a sample event, with the condition checklist and `GET …/samples`: rc.173. A refused publish fails the entry step with the reason: rc.175. `${site.url}`: rc.177. Each event's subject, a run's trigger (`trigger_entity_*`) and step summaries in `automation_ran` / `automation_failed`, `$event.entity_type` / `$event.entity_id`: rc.178. `if_none: skip` and `${entry.url}`: rc.179. `on_failure`, `request_review` and an integration error's `${error.code}`: rc.193. Integration error policies (`integration_errors`, `handled` / `handling` / `retry_attempt` on run events), a workflow never re-triggering itself, and option pickers in the **Run integration** step: rc.197. A step's `when` (if/else), an operation step's `write_back` field map, custom AI steps (`op: "custom"`), **Create an entry** (`create`) and **Wait for approval** (`approval`, migration `5c2e8a91d4f7`): unreleased (2026-10-11). **Process an image** (`media`), generated images kept as assets, `attach_as`, `asset.derived_from`, the `role` on `asset_attached_to_entry`, and `gt` / `gte` / `lt` / `lte`: unreleased (2026-10-12). **Render a template** (`render`): unreleased (2026-10-12). **Gather items** (`collect`), relative query dates, lists of pictures in a render, and local times across the admin: unreleased (2026-10-12). Linked items in queries (`entries`, `asset`, `resource`, `entry`, `role`, `exclude`, `checksum`, sort `position`), `only_invalid`, `asset.checksum` and **Check a web address** (`fetch`): unreleased (2026-10-12). Step ids and the result key in the editor, dry-run stand-ins for AI answers, and unchanged Set metadata / Set fields saving nothing: unreleased (2026-10-12). Run inputs (`trigger.inputs`, `${input.*}`) and cron in the editor's schedule: unreleased (2026-10-12). `extract_text`, `pages`, `find_sensitive`, `redact` (pypdfium2), `zip` and printed renders (`format: pdf`, the guide template): unreleased (2026-10-12). An integration step's `source` (image edits): unreleased (2026-10-12). `watermark`: unreleased (2026-10-12). **Wait** (`wait`, migration `b7e2c4f9a1d3`): unreleased (2026-10-13). Entry dates in `${entry.*}` and the recipe date picker: unreleased (2026-10-13). `${path|url}`, `attach_to`, comma-separated `entries`, and the One-tap share links, On this day, Audience milestone and Collaborator shout-out recipes (with the entry page's **Share** box): unreleased (2026-10-13). **Repeat for each** (`repeat`, `${each.*}`) with its guided form, an Entry action's **By id** target, and **Edit** opening as JSON when the guided builder can't show a workflow in full: unreleased (2026-10-13). Approvals with `choices` (migration `c9d4e7a2b1f8`), `longer_than` / `shorter_than`, **Cancel** on a waiting run, and the Thumbnail audition, Platform preview checker, Time capsule and Intake triage recipes: unreleased (2026-10-13).
+`form_submission_received` as a trigger: v1.0.0-rc.51 (`8f1443d1`). `auth_scheme`: rc.50 (`a65ba7d0`). `entry.summary` and `entry.data.*`: rc.52 (`433e949e`). Response `body`, `set_metadata` and metadata targeting: rc.59 (`1380e92e`). `entity_query`: rc.60 (`65ffb648`). Raw-URL `method` and templated stored URLs: rc.61 (`b88e4035`). Builder fixes: rc.63 (`57956e71`). `set_data`, the integration step, `entry.metadata` and list indexes in paths: rc.111. `entry.image`: rc.119. Full entry context per query row and **Fields equal**: rc.129. Typed values for checkbox and number fields: rc.131. The shared entry query (`where`, `sort`, date filters): rc.138. Unknown `where` ops match nothing, and `run_workflow` runs appear under **Runs**: rc.139. Site build and deploy events from `emit_event`: rc.144. `{{SLUG}}` in integration step args: rc.145. AI limits on operation steps: rc.146. Site events as notification subscriptions: rc.151; as workflow triggers: rc.152. `automation_started` and the shared `execution_id`: rc.165. Dry run against a sample event, with the condition checklist and `GET …/samples`: rc.173. A refused publish fails the entry step with the reason: rc.175. `${site.url}`: rc.177. Each event's subject, a run's trigger (`trigger_entity_*`) and step summaries in `automation_ran` / `automation_failed`, `$event.entity_type` / `$event.entity_id`: rc.178. `if_none: skip` and `${entry.url}`: rc.179. `on_failure`, `request_review` and an integration error's `${error.code}`: rc.193. Integration error policies (`integration_errors`, `handled` / `handling` / `retry_attempt` on run events), a workflow never re-triggering itself, and option pickers in the **Run integration** step: rc.197. A step's `when` (if/else), an operation step's `write_back` field map, custom AI steps (`op: "custom"`), **Create an entry** (`create`) and **Wait for approval** (`approval`, migration `5c2e8a91d4f7`): unreleased (2026-10-11). **Process an image** (`media`), generated images kept as assets, `attach_as`, `asset.derived_from`, the `role` on `asset_attached_to_entry`, and `gt` / `gte` / `lt` / `lte`: unreleased (2026-10-12). **Render a template** (`render`): unreleased (2026-10-12). **Gather items** (`collect`), relative query dates, lists of pictures in a render, and local times across the admin: unreleased (2026-10-12). Linked items in queries (`entries`, `asset`, `resource`, `entry`, `role`, `exclude`, `checksum`, sort `position`), `only_invalid`, `asset.checksum` and **Check a web address** (`fetch`): unreleased (2026-10-12). Step ids and the result key in the editor, dry-run stand-ins for AI answers, and unchanged Set metadata / Set fields saving nothing: unreleased (2026-10-12). Run inputs (`trigger.inputs`, `${input.*}`) and cron in the editor's schedule: unreleased (2026-10-12). `extract_text`, `pages`, `find_sensitive`, `redact` (pypdfium2), `zip` and printed renders (`format: pdf`, the guide template): unreleased (2026-10-12). An integration step's `source` (image edits): unreleased (2026-10-12). `watermark`: unreleased (2026-10-12). **Wait** (`wait`, migration `b7e2c4f9a1d3`): unreleased (2026-10-13). Entry dates in `${entry.*}` and the recipe date picker: unreleased (2026-10-13). `${path|url}`, `attach_to`, comma-separated `entries`, and the One-tap share links, On this day, Audience milestone and Collaborator shout-out recipes (with the entry page's **Share** box): unreleased (2026-10-13). **Repeat for each** (`repeat`, `${each.*}`) with its guided form, an Entry action's **By id** target, and **Edit** opening as JSON when the guided builder can't show a workflow in full: unreleased (2026-10-13). Approvals with `choices` (migration `c9d4e7a2b1f8`), `longer_than` / `shorter_than`, **Cancel** on a waiting run, and the Thumbnail audition, Platform preview checker, Time capsule and Intake triage recipes: unreleased (2026-10-13). **Call a web API** (`request`) and template [filters](#filters) beyond `url`: v1.1.0 (2026-10-19).
 
 ## Related
 

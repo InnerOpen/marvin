@@ -237,6 +237,13 @@ class MarvinHttpHelper:
         req = urllib.request.Request(url, method="DELETE", headers=headers or {})
         return self._send(req, timeout)
 
+    def request(self, method: str, url: str, *, data: bytes | None = None, headers: dict[str, str] | None = None, timeout: float = 15) -> Response:
+        """Any method with a ready body — a workflow's request step (services/automation/actions/request.py), which does
+        its own retrying. A GET or HEAD sends no body."""
+        method = method.upper()
+        body = None if method in ("GET", "HEAD") else (data or b"")
+        return self._send(urllib.request.Request(url, data=body, method=method, headers=headers or {}), timeout)
+
 
 def build_http() -> MarvinHttpHelper:
     """Factory for the per-call http helper handed to providers."""

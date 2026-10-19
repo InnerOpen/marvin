@@ -358,6 +358,7 @@ class TestActionRegistry:
             "media",
             "collect",
             "fetch",
+            "request",
             "schema_check",
             "email",
             "metric",

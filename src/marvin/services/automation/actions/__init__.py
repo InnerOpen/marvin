@@ -19,6 +19,7 @@ from . import (  # noqa: E402,F401
     operation,
     parallel,
     repeat,
+    request,
     schema_check,
     snapshot,
     wait,

@@ -492,7 +492,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const COND_OP_LABELS: Record<string, string> = WORKFLOW_LABELS.conditionOps;
   // Most-useful-first (backend returns kinds alphabetically). New steps default to the first
   // available — an AI operation when AI is on, otherwise the first non-AI kind.
-  const KIND_ORDER = ["operation", "entry", "media", "collect", "repeat", "parallel", "fetch", "schema_check", "email", "metric", "snapshot", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
+  const KIND_ORDER = ["operation", "entry", "media", "collect", "repeat", "parallel", "fetch", "request", "schema_check", "email", "metric", "snapshot", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
   // A repeat's or a parallel branch's inner steps: a run can't park mid-loop or mid-branch, so no wait, approval, repeat or
   // parallel inside (backend: NOT_INSIDE, NOT_IN_A_BRANCH).
   const NOT_IN_REPEAT = new Set(["wait", "approval", "repeat", "parallel"]);
@@ -749,6 +749,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         return (row.querySelector(".a-f-links") as HTMLInputElement | null)?.value.trim()
           ? ["broken_count", "text", "checked"]
           : ["ok", "status", "title", "text", "found"];
+      case "request":
+        return ["ok", "status", "json", "text", "headers"];
       case "schema_check":
         return ["valid", "errors", "error_count", "text"];
       case "email":
@@ -1164,6 +1166,30 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         <label class="tf"><span>— or check the links in <span class="muted">(a text, e.g. \${entry.data.body}; fill this or the address, not both)</span></span>
           <input class="input a-f-links" value="${esc(a.links ?? "")}" placeholder="\${entry.data.body}" /></label>
         <span class="hint small">Public addresses only. A missing page is output, not a failed step: later steps read <code>\${steps.&lt;step id&gt;.output.ok}</code>, <code>.status</code> and <code>.text</code> — or, for links, <code>.broken_count</code> and <code>.text</code> (the broken ones). A dry run doesn't fetch. Give this step an id.</span>`;
+    } else if (kind === "request") {
+      const asJson = (v: unknown) => (v == null || (typeof v === "object" && !Object.keys(v as object).length) ? "" : JSON.stringify(v, null, 2));
+      const bodyText = typeof a.body === "string" ? a.body : asJson(a.body);
+      wrap.innerHTML = `
+        <label class="tf"><span>Address <span class="muted">(templates allowed)</span></span>
+          <input class="input a-rq-url" value="${esc(a.url ?? "")}" placeholder="https://api.example.com/v1/items" /></label>
+        <label class="tf"><span>Method</span>
+          <select class="input a-rq-method">${["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"].map((m) => `<option ${(a.method ?? "GET") === m ? "selected" : ""}>${m}</option>`).join("")}</select></label>
+        <label class="tf"><span>Query <span class="muted">(JSON, added to the address — e.g. {"q": "\${entry.title}"})</span></span>
+          <textarea class="input mono a-rq-query" rows="2" spellcheck="false">${esc(asJson(a.query))}</textarea></label>
+        <label class="tf"><span>Headers <span class="muted">(JSON; a key goes in a workspace secret: {"X-Api-Key": "{{MY_KEY}}"})</span></span>
+          <textarea class="input mono a-rq-headers" rows="2" spellcheck="false">${esc(asJson(a.headers))}</textarea></label>
+        <label class="tf"><span>Body <span class="muted">(not for GET or HEAD; templates allowed)</span></span>
+          <textarea class="input mono a-rq-body" rows="4" spellcheck="false" placeholder='{"fields": {"Title": "\${entry.title}"}}'>${esc(bodyText)}</textarea></label>
+        <label class="tf"><span>Send the body as</span>
+          <select class="input a-rq-body-type">${[["json", "JSON"], ["form", "A form's fields"], ["text", "Text, as it is"]].map(([v, l]) => `<option value="${v}" ${(a.body_type ?? "json") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label class="tf"><span>Sign in with secret <span class="muted">(a workspace secret's name, sent as Authorization)</span></span>
+          <input class="input a-rq-secret" value="${esc(a.secret_ref ?? "")}" placeholder="AIRTABLE_TOKEN" /></label>
+        <label class="tf"><span>As <span class="muted">(Bearer, Token, or Basic for a user:password secret)</span></span>
+          <input class="input a-rq-scheme" value="${esc(a.auth_scheme ?? "")}" placeholder="Bearer" /></label>
+        <label class="tf"><span>Retries <span class="muted">(after a network blip, a 429 or a 5xx)</span></span>
+          <input class="input a-rq-retries" type="number" min="0" max="3" value="${esc(a.retries ?? 0)}" /></label>
+        <label class="check"><input type="checkbox" class="a-rq-keep-going" ${a.fail_on_error === false ? "checked" : ""} /> <span>Carry on when the answer isn't a success <span class="muted">(later steps read <code>.ok</code>)</span></span></label>
+        <span class="hint small">Needs an admin's role. Public addresses only. Later steps read <code>\${steps.&lt;step id&gt;.output.json.&lt;field&gt;}</code>, <code>.status</code> and <code>.ok</code>. A dry run shows the request without sending it. Give this step an id.</span>`;
     } else if (kind === "schema_check") {
       const docText = typeof a.document === "string" ? a.document : a.document == null ? "" : JSON.stringify(a.document);
       const schemaText = typeof a.schema === "string" ? a.schema : a.schema == null ? "" : JSON.stringify(a.schema, null, 2);
@@ -1518,6 +1544,31 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       setOrDrop("method", !links && field(".a-f-method")?.value === "HEAD" ? "HEAD" : null);
       const find = (field(".a-f-find")?.value ?? "").split(",").map((w) => w.trim()).filter(Boolean);
       setOrDrop("find", !links && find.length ? find : null);
+      return step;
+    }
+    if (kind === "request") {
+      const url = field(".a-rq-url")?.value.trim() ?? "";
+      if (!url) return null;
+      const method = field(".a-rq-method")?.value || "GET";
+      const jsonOrNull = (sel: string, label: string) => {
+        const raw = field(sel)?.value.trim() ?? "";
+        if (!raw) return null;
+        try { return JSON.parse(raw); } catch (e: any) { throw new Error(`Step ${i + 1} ${label}: ${e.message}`); }
+      };
+      step.url = url;
+      setOrDrop("method", method === "GET" ? null : method);
+      setOrDrop("query", jsonOrNull(".a-rq-query", "query"));
+      setOrDrop("headers", jsonOrNull(".a-rq-headers", "headers"));
+      const bodyType = field(".a-rq-body-type")?.value || "json";
+      setOrDrop("body_type", bodyType === "json" ? null : bodyType);
+      const rawBody = field(".a-rq-body")?.value ?? "";
+      if (method === "GET" || method === "HEAD" || !rawBody.trim()) delete step.body;
+      else step.body = bodyType === "text" ? rawBody : jsonOrNull(".a-rq-body", "body");
+      setOrDrop("secret_ref", field(".a-rq-secret")?.value.trim().replace(/^\{\{\s*|\s*\}\}$/g, ""));
+      setOrDrop("auth_scheme", field(".a-rq-scheme")?.value.trim());
+      const retries = Math.max(0, Math.min(3, Number(field(".a-rq-retries")?.value) || 0));
+      setOrDrop("retries", retries || null);
+      if ((field(".a-rq-keep-going") as HTMLInputElement | null)?.checked) step.fail_on_error = false; else delete step.fail_on_error;
       return step;
     }
     if (kind === "schema_check") {
