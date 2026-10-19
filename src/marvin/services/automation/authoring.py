@@ -31,7 +31,19 @@ from urllib.parse import urlparse
 
 # What the guide offers (`section=`, one or several); without one it gives the index.
 SECTIONS = (
-    "shape", "triggers", "events", "target", "conditions", "actions", "media", "email", "records", "templates", "workspace", "examples", "editor",
+    "shape",
+    "triggers",
+    "events",
+    "target",
+    "conditions",
+    "actions",
+    "media",
+    "email",
+    "records",
+    "templates",
+    "workspace",
+    "examples",
+    "editor",
 )
 
 # The index: one line per section — what it holds, and when a request needs it. The guide is read like a vault: the

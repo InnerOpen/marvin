@@ -9,6 +9,7 @@ Revises: a79fa1345639
 Create Date: 2026-07-25 17:29:58.957446
 
 """
+
 import uuid
 from collections.abc import Sequence
 
@@ -55,9 +56,7 @@ def upgrade() -> None:
     bind = op.get_bind()
     profiles, secrets = _profiles_table(), _secrets_table()
     rows = bind.execute(
-        sa.select(profiles.c.id, profiles.c.group_id, profiles.c.name, profiles.c.password_encrypted).where(
-            profiles.c.password_encrypted.isnot(None)
-        )
+        sa.select(profiles.c.id, profiles.c.group_id, profiles.c.name, profiles.c.password_encrypted).where(profiles.c.password_encrypted.isnot(None))
     ).fetchall()
     for row in rows:
         ref = smtp_secret_ref(row.id)

@@ -348,6 +348,7 @@ def test_a_tiled_watermark_covers_the_picture_and_a_logo_can_be_laid_with_it(med
     _, with_logo = _run(media, {"kind": "media", "op": "watermark", "source": photo.slug, "logo": logo.slug, "position": "top-left"})
 
     marked = Image.open(io.BytesIO(_bytes_of(media, media.session.get(type(photo), tiled.output_snapshot["asset"]["id"]))))
+
     def mark_share(box) -> float:  # the share of a region's pixels that are the mark's light text (the picture is dark)
         region = marked.convert("L").crop(box)
         return sum(1 for v in region.getdata() if v > 120) / (region.width * region.height)
