@@ -30,23 +30,24 @@ tasks:
       - task --list
     silent: true
 
-  # What gates a push (test.yml's lint job and both backend suites) plus the frontend tests. Advisory, as in CI: mypy
-  # stays out (`task py:mypy`), and `astro check` runs but its existing type errors don't fail the task.
+  # The quick pre-push check: the lint and format gates test.yml enforces, the backend suite on SQLite spread over every
+  # core (pytest-xdist; tests/conftest.py gives each worker its own database), and the frontend tests. `ci:full` adds
+  # Postgres for changes that touch the database. mypy and astro check stay out: both report existing errors
+  # (`task py:mypy`, `task frontend:check`). The engine is pinned on the command line (see py:test).
   ci:
-    desc: run the CI gates locally — ruff lint + format check, the backend suite on SQLite and Postgres, frontend tests (+ advisory astro check)
+    desc: quick pre-push check — ruff lint + format check, backend tests on SQLite (parallel), frontend tests
     cmds:
       - task: py:lint
       - uv run ruff format --check src tests
-      - task: py:test:all
+      - DB_ENGINE=sqlite uv run pytest -n auto
       - task: frontend:test
-      - cmd: cd frontend && npm run check
-        ignore_error: true
 
-  audit:dead:
-    desc: print dead-code findings (backend vulture at 80%, frontend knip); never fails
+  ci:full:
+    desc: everything test.yml gates — `task ci` plus the backend suite on Postgres (parallel; `task dev:services:start` first)
     cmds:
-      - uvx vulture src/marvin --min-confidence 80 || true
-      - cd frontend && npx --yes knip --no-exit-code
+      - task: ci
+      - task: py:test:pg
+        vars: { CLI_ARGS: "-n auto" }
 
   dev:clean:
     desc: remove local dev data (sqlite db, log, secret)
@@ -259,10 +260,6 @@ tasks:
       POSTGRES_PORT: 5434
     cmds:
       - DB_ENGINE=postgres POSTGRES_DB=marvin_test uv run pytest {{ .CLI_ARGS }}
-
-  py:test:all:
-    desc: run python tests on both engines at once (SQLite and Postgres)
-    deps: [py:test, py:test:pg]
 
   release:dry-run:
     desc: print the version semantic-release would cut from this branch (changes nothing)
