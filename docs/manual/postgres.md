@@ -193,7 +193,7 @@ Planned downtime of a few minutes; the SQLite file is never modified, so it is t
 **Days before**
 
 - [ ] The restore test passes on dev (above).
-- [ ] Enable the cluster while still on SQLite: in `values-iwobble.yaml` set `postgres.cluster.enabled: true`, `name: marvin-pg`, `storage.storageClass: managed-nfs-storage`; keep `config.dbEngine: sqlite`. Promote (`scripts/deploy/promote-iwobble.sh <sha>`). Check the cluster is healthy.
+- [ ] Enable the cluster while still on SQLite: in `values-iwobble.yaml` set `postgres.cluster.enabled: true`, `name: marvin-pg`, `storage.storageClass: managed-nfs-storage`; keep `config.dbEngine: sqlite`. Promote (`git fetch origin && scripts/deploy/promote.sh <sha> marvin values-iwobble.yaml`). Check the cluster is healthy.
 - [ ] Rehearse: copy a fresh production snapshot into `marvin-pg` with `--truncate` (the Job below with `--source` pointing at a snapshot, or locally through a port-forward). All tables `ok`. Note how long it took.
 - [ ] Pick the window; tell Grace.
 
@@ -240,7 +240,7 @@ Planned downtime of a few minutes; the SQLite file is never modified, so it is t
     ```
 
 - [ ] Verify: the summary line says `COPIED`, every table `ok`, `0 problem(s)`; counts match the rehearsal's order of magnitude. Anything else → stop here and roll back (below).
-- [ ] Switch: in `values-iwobble.yaml` set `config.dbEngine: postgres` and the backup hourly (`backup.schedule: "0 * * * *"`, `activeDeadlineSeconds: 2700`, `startingDeadlineSeconds: 900` as in `values-dev.yaml`; bucket stays `marvin-backups`). Keep `split.backend.strategy: Recreate` for this first deploy. Commit, and promote the **same** commit's image: `scripts/deploy/promote-iwobble.sh <sha>` (scales the backend back to 1). No `--pause-outbound` here: this is production.
+- [ ] Switch: in `values-iwobble.yaml` set `config.dbEngine: postgres` and the backup hourly (`backup.schedule: "0 * * * *"`, `activeDeadlineSeconds: 2700`, `startingDeadlineSeconds: 900` as in `values-dev.yaml`; bucket stays `marvin-backups`). Keep `split.backend.strategy: Recreate` for this first deploy. Commit, and promote the **same** commit's image: `scripts/deploy/promote.sh <sha> marvin values-iwobble.yaml` (scales the backend back to 1). No `--pause-outbound` here: this is production.
 - [ ] Smoke: log in; entries list; open an entry and save it; a workflow dry run; the site builds; an asset loads; backend log clean; `oc -n marvin create job --from=cronjob/marvin-offsite-backup marvin-postcutover` uploads a `postgres/` dump; run the restore test against it (bucket `marvin-backups`, live side `marvin-pg-1` in `marvin`).
 - [ ] Afterwards: drop the backend's `Recreate` (Postgres has no single-writer limit), delete the copy Job.
 

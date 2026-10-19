@@ -53,7 +53,9 @@ Each environment runs `scripts/deploy/promote.sh` (helm upgrade, described `prom
 
 **Rollback by hand.** `helm history marvin -n <ns>` lists the revisions; `scripts/deploy/rollback.sh <ns> <revision>` returns to one. The database is not rolled back: the backend migrates at startup, so older code runs on the newer schema. That works for added tables and columns, not after a migration that drops or renames something the older code reads. A run killed mid-upgrade leaves the release `pending-upgrade`, and helm refuses the next upgrade until `rollback.sh` returns it to the last deployed revision.
 
-**Without the pipeline.** `scripts/deploy/promote-iwobble.sh <commit> [--dry-run]` promotes to production from a workstation logged in to the cluster. `scripts/deploy/promote.sh <commit> marvin-dev values-dev.yaml` does the same for dev. `scripts/deploy/wait-for-ci.sh <sha>` waits for a commit's CI.
+**Without the pipeline.** `git fetch origin && scripts/deploy/promote.sh <commit> marvin values-iwobble.yaml [--dry-run]` promotes to production from a workstation logged in to the cluster. `scripts/deploy/promote.sh <commit> marvin-dev values-dev.yaml` does the same for dev. `scripts/deploy/wait-for-ci.sh <sha>` waits for a commit's CI.
+
+**Cloudflare Tunnel connector.** `.github/deploy/cloudflared.yaml` is the `cloudflared` Deployment (two replicas) that connects the production namespace `marvin` to Cloudflare. CI does not apply it and the Helm chart does not manage it: apply it by hand with `oc apply -f .github/deploy/cloudflared.yaml`. The tunnel token comes from the Secret `cloudflared-token` in `marvin`, created out of band (`oc create secret generic cloudflared-token -n marvin --from-literal=token=<token from the Zero Trust dashboard>`); it is not in the repo. Which hostname goes to which service is configured in the Cloudflare Zero Trust dashboard (Public Hostnames), not in this file.
 
 ## Platform workspace
 
