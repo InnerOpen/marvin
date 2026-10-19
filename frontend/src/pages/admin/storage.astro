@@ -304,7 +304,7 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
                 </div>
                 {item.state === "pending" && (
                   <div class="purge-actions">
-                    {item.canPurge && <button type="button" class="button danger small js-purge-now" data-id={item.id} data-name={item.workspaceName}>Purge now</button>}
+                    {item.canPurge && <button type="button" class="button secondary danger small js-purge-now" data-id={item.id} data-name={item.workspaceName}>Purge now</button>}
                     <button type="button" class="button secondary small js-purge-keep" data-id={item.id}>Keep</button>
                   </div>
                 )}

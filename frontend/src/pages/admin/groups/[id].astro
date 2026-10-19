@@ -83,6 +83,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
             {members.length === 0 ? (
               <p class="empty-message">No members in this workspace.</p>
             ) : (
+              <div class="table-scroll">
               <table class="table">
                 <thead>
                   <tr>
@@ -114,6 +115,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
 
@@ -174,7 +176,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
                 />
               </div>
               <div class="form-actions">
-                <button type="button" id="delete-workspace" class="button danger" disabled>Delete workspace</button>
+                <button type="button" id="delete-workspace" class="button secondary danger" disabled>Delete workspace</button>
                 <span id="delete-status" class="status-text" role="status" aria-live="polite"></span>
               </div>
             </div>
@@ -424,6 +426,10 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
     gap: 0.75rem;
   }
 
+  .table-scroll {
+    overflow-x: auto;
+  }
+
   .layout-grid {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 320px;
@@ -432,6 +438,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
 
   .main-section {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 2rem;
   }
 
@@ -527,6 +534,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
 
   .sidebar {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 1.5rem;
     align-content: start;
   }
@@ -547,17 +555,42 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
 
   .info-list dd {
     margin: 0;
+    overflow-wrap: anywhere;
     font-size: 14px;
     color: var(--ink);
   }
 
   @media (max-width: 1024px) {
     .layout-grid {
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr);
     }
 
     .sidebar {
       order: -1;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .panel {
+      padding: 1.25rem;
+    }
+
+    .toolbar {
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .form-actions {
+      flex-wrap: wrap;
+    }
+
+    .form-actions .button,
+    .backup-state .button {
+      min-height: 40px;
+    }
+
+    .form-actions .button {
+      flex: 1 1 100%;
     }
   }
 </style>
