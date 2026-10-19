@@ -92,22 +92,8 @@ def world(db_session):
 # ── Admin works with no workspace ────────────────────────────────────────────
 
 
-def test_a_super_admin_with_no_workspace_gets_200_on_every_admin_get(world, db_session):
-    from marvin.services.group.platform_workspace import PlatformWorkspaceMissing, platform_workspace
-
-    made = None
-    try:  # GET /admin/groups/platform answers 404 on a database init_db hasn't run against
-        platform_workspace(db_session)
-    except PlatformWorkspaceMissing:
-        made = _group(db_session, f"Platform-{world.marker}")
-        made.is_platform = True
-        db_session.commit()
-    try:
-        _every_admin_get_answers_200(world)
-    finally:
-        if made is not None:
-            db_session.delete(db_session.get(Groups, made.id))
-            db_session.commit()
+def test_a_super_admin_with_no_workspace_gets_200_on_every_admin_get(world):
+    _every_admin_get_answers_200(world)
 
 
 def _every_admin_get_answers_200(world):
@@ -224,7 +210,7 @@ def test_deleting_a_workspace_clears_the_homes_pointing_at_it(world, db_session)
     resident = _user(db_session, f"{world.marker}-res", home=doomed.id, active=doomed.id)
     _join(db_session, resident, doomed)
     db_session.commit()
-    res = world.client.delete(f"/api/admin/groups/{doomed.id}?force=true")
+    res = world.client.delete(f"/api/admin/groups/{doomed.id}", params={"force": "true", "skip_backup": "true", "confirm_name": doomed.name})
     assert res.status_code == 200, res.text
     db_session.expire_all()
     resident = db_session.get(Users, resident.id)

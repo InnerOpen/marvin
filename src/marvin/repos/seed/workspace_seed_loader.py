@@ -1611,7 +1611,7 @@ class WorkspaceSeedLoader:
 
         settings = get_app_settings()
 
-        # Sent by the platform's sender (SMTP settings, else the platform workspace's profile)
+        # Sent by the platform's sender (the platform's SMTP settings)
         if not email_ready():
             self.logger.warning(f"SMTP not enabled - cannot send owner invitation to {owner_email}")
             self.logger.info(f"Owner invitation token should be created manually for: {owner_email}")

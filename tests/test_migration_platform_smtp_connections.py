@@ -1,8 +1,8 @@
 """The 3442416ae2bd data migration: the platform workspace's active SMTP profile and alert integrations become
 platform settings, so retiring that workspace changes nothing about how mail and alerts go out.
 
-Run on PostgreSQL (the test database) and on a scratch SQLite, inside a transaction that is rolled back: seed an
-`is_platform` workspace with a profile, its password secret, two integrations and the alert routes that use them; run
+Run on PostgreSQL (the test database) and on a scratch SQLite, inside a transaction that is rolled back: seed a
+marked workspace with a profile, its password secret, two integrations and the alert routes that use them; run
 the migration's own `upgrade()`/`downgrade()` through an Alembic Operations context; check what was copied, that the
 merged platform SMTP is exactly what the profile used to be, and that the workspace's rows are untouched.
 """
@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from marvin.core.config import get_app_settings
+from marvin.db.migration_types import GUID
 from marvin.db.models import SqlAlchemyBase
 from marvin.db.models.groups import Groups
 from marvin.db.models.groups.integrations import IntegrationModel
@@ -32,6 +33,8 @@ _PATH = next((Path(__file__).resolve().parents[1] / "src" / "marvin" / "alembic"
 _spec = importlib.util.spec_from_file_location("platform_smtp_and_alert_connections", _PATH)
 mig = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(mig)
+
+MARKER = sa.table("groups", sa.column("id", GUID()), sa.column("is_platform", sa.Boolean()))
 
 ENV_KEYS = ("SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "SMTP_AUTH_STRATEGY", "SMTP_FROM_NAME", "SMTP_FROM_EMAIL")
 COMPLETE_ENV = {
@@ -105,12 +108,16 @@ class World:
         # Whatever the database already holds of ours must not leak into the check.
         s.query(WorkspaceSecret).filter(WorkspaceSecret.group_id.is_(None)).delete()
         s.query(PlatformSettingsModel).filter(PlatformSettingsModel.key.in_(["smtp", "platform_connections", "platform_alerts"])).delete()
-        s.execute(sa.update(Groups.__table__).values(is_platform=False))
+        # The marker column is gone from the models (migration a225a6254088); the migration under test still reads it.
+        if "is_platform" not in {c["name"] for c in sa.inspect(conn).get_columns("groups")}:
+            s.execute(sa.text("ALTER TABLE groups ADD COLUMN is_platform BOOLEAN NOT NULL DEFAULT false"))
+        s.execute(sa.update(MARKER).values(is_platform=False))
         marker = uuid.uuid4().hex[:8]
-        self.group = Groups(session=s, name=f"Admin {marker}", slug=f"admin-{marker}", is_platform=True)
+        self.group = Groups(session=s, name=f"Admin {marker}", slug=f"admin-{marker}")
         s.add(self.group)
         s.flush()
         self.gid = self.group.id
+        s.execute(sa.update(MARKER).where(MARKER.c.id == self.gid).values(is_platform=True))
 
     def profile(self, **fields):
         values = {
@@ -277,12 +284,12 @@ def test_another_secret_backend_logs_instead_of_copying(conn, world, env, monkey
 
 def test_nothing_to_copy_without_a_platform_workspace_or_routes(conn, world, env):
     env(SMTP_HOST="env.test")
-    world.session.execute(sa.update(Groups.__table__).values(is_platform=False))
+    world.session.execute(sa.update(MARKER).values(is_platform=False))
     world.profile()
     _run(conn, mig.upgrade)
     assert _setting(world.session, "smtp") is None and _setting(world.session, "platform_connections") is None
 
-    world.session.execute(sa.update(Groups.__table__).where(Groups.__table__.c.id == world.gid).values(is_platform=True))
+    world.session.execute(sa.update(MARKER).where(MARKER.c.id == world.gid).values(is_platform=True))
     _run(conn, mig.upgrade)  # a profile but no routes: SMTP only
     assert _setting(world.session, "smtp")["host"] == "smtp.profile.test" and _setting(world.session, "platform_connections") is None
 

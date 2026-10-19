@@ -4,7 +4,7 @@ This module handles the initialization and migration of the Marvin database.
 It includes functions to:
 - Connect to the database.
 - Run Alembic migrations for the main application.
-- Initialize default data (e.g., default group and user).
+- Initialize default data (the first super admin and the system entry types; no workspace).
 """
 
 import os
@@ -15,20 +15,16 @@ from typing import Any
 from alembic import command, config, script
 from alembic.config import Config
 from alembic.runtime import migration
-from sqlalchemy import engine, orm, text, update
+from sqlalchemy import engine, orm, select, text
 
 from marvin.core import root_logger
 from marvin.core.config import get_app_settings
 from marvin.db.db_setup import session_context
 from marvin.db.models.groups import Groups
 from marvin.repos.all_repositories import get_repositories
-from marvin.repos.repository_factory import AllRepositories
 from marvin.repos.seed.init_users import default_user_init
 from marvin.repos.seed.workspace_data_seeder import WorkspaceDataSeeder
 from marvin.repos.seed.workspace_seed_loader import WorkspaceSeedLoader
-from marvin.schemas.group.group import GroupCreate, GroupRead
-from marvin.services.group.group_service import GroupService
-from marvin.services.group.platform_workspace import PlatformWorkspaceMissing, log_name_hint, platform_workspace
 from marvin.services.seeders.seeder_service import SeederService
 
 PROJECT_DIR = Path(__file__).parent.parent
@@ -40,19 +36,17 @@ def init_db(session: orm.Session) -> None:
     """
     Initializes the main application database with default data.
 
-    This includes creating a default group, a default admin user, and seeding
-    system entry types.
+    This includes creating the first super admin (no workspace: they log into Admin and create
+    workspaces there) and seeding system entry types.
 
     Args:
         session (orm.Session): The active SQLAlchemy session.
     """
     settings = get_app_settings()
 
-    instance_repos = get_repositories(session)
+    instance_repos = get_repositories(session, group_id=None)
 
-    platform_group = platform_workspace_init(instance_repos, settings.DEFAULT_GROUP)
-    group_repos = get_repositories(session, group_id=platform_group.id)
-    default_user_init(group_repos)
+    default_user_init(instance_repos)
 
     # Seed system-level entry types (globally available to all workspaces)
     system_seeder_service = SeederService(instance_repos)  # Use instance_repos (no group_id) for system types
@@ -83,33 +77,26 @@ def init_db(session: orm.Session) -> None:
                 workspace_loader.load_seed_zip(zip_file)
 
             # Also process legacy entry-only seeds
-            workspace_seeder = WorkspaceDataSeeder(group_repos, logger)
-            workspace_seeder.seed_from_directory(seed_dir)
+            # They name no workspace, so they go into the oldest one (made by the bundles above);
+            # a fresh install has none, and then there is nothing to seed them into.
+            first_workspace = session.execute(select(Groups.id).order_by(Groups.created_at).limit(1)).scalar()
+            if first_workspace is None:
+                logger.info("No workspace exists: skipping the legacy entry-only seeds.")
+            else:
+                WorkspaceDataSeeder(get_repositories(session, group_id=first_workspace), logger).seed_from_directory(seed_dir)
 
 
-def platform_workspace_init(repos: AllRepositories, name: str) -> GroupRead:
+def warn_if_retired_default_group() -> None:
+    """One startup warning while the retired ``DEFAULT_GROUP`` is still set (env or ``.env``).
+
+    A fresh install no longer creates a workspace, so the setting names nothing. It is not an error:
+    ``extra="allow"`` keeps old environments booting, and this tells whoever owns them to drop it.
     """
-    The platform (admin's) workspace, created and marked if the database has none.
-
-    ``name`` (``settings.DEFAULT_GROUP``) is used only here, when a fresh install creates it; an
-    existing platform workspace keeps whatever name it has.
-
-    Args:
-        repos (AllRepositories): The repository accessor for database operations.
-        name (str): The name to give a newly created platform workspace.
-
-    Returns:
-        GroupRead: The existing or newly created platform workspace.
-    """
-    try:
-        return GroupRead.model_validate(platform_workspace(repos.session))
-    except PlatformWorkspaceMissing:
-        pass
-    logger.info(f"Creating the platform workspace '{name}'")
-    group = GroupService.create_group(repos, GroupCreate(name=name))
-    repos.session.execute(update(Groups).where(Groups.id == group.id).values(is_platform=True))
-    repos.session.commit()
-    return GroupRead.model_validate(platform_workspace(repos.session))
+    if os.environ.get("DEFAULT_GROUP") is not None or "DEFAULT_GROUP" in (get_app_settings().model_extra or {}):
+        logger.warning(
+            "DEFAULT_GROUP is set but no longer used: a fresh install creates no workspace (sign in to Admin and "
+            "create one). Remove DEFAULT_GROUP (chart value config.platformWorkspaceName) from the environment."
+        )
 
 
 def connect(session: orm.Session) -> bool:
@@ -229,8 +216,6 @@ def main() -> None:
     max_retry = 10
     wait_second = 1
 
-    settings = get_app_settings()
-
     with session_context() as session:
         while True:
             if connect(session):
@@ -283,4 +268,4 @@ def main() -> None:
         else:
             logger.info("Main Database contains no users initializing...")
             init_db(session)
-        log_name_hint(session, settings.DEFAULT_GROUP)
+        warn_if_retired_default_group()

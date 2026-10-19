@@ -89,7 +89,6 @@ class AdminAboutInfo(AppInfo):
     api_docs: bool  # Indicates if API documentation (e.g., Swagger UI) is enabled.
     db_type: str  # The type of database being used (e.g., "sqlite", "postgres").
     db_url: str | None = None  # The database connection URL (potentially masked for security).
-    default_group: str  # The platform (admin's) workspace's current name.
     build_id: str  # The Git commit hash or build identifier for the current application build.
     embeddings: EmbeddingsInfo | None = None  # The built-in embedding engine and the models the indexes were built with.
 

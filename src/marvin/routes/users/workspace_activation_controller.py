@@ -129,7 +129,6 @@ class WorkspaceActivationController(BaseUserController):
         Returns:
             List of workspaces with membership details.
         """
-        # The platform workspace comes first whatever it is named, then the rest by name (_platform_first).
         current_id = current_workspace_id(self.user, self.session)
 
         # SUPER_ADMIN sees all workspaces
@@ -137,7 +136,7 @@ class WorkspaceActivationController(BaseUserController):
             from marvin.db.models.users.roles import WorkspaceRole
 
             all_workspaces = self.repos.groups.get_all_models()
-            return _platform_first(
+            return _by_name(
                 [
                     WorkspaceWithMembership(
                         workspace=GroupRead.model_validate(ws),
@@ -163,9 +162,9 @@ class WorkspaceActivationController(BaseUserController):
                     )
                 )
 
-        return _platform_first(result)
+        return _by_name(result)
 
 
-def _platform_first(workspaces: list[WorkspaceWithMembership]) -> list[WorkspaceWithMembership]:
-    """The switcher's order: the platform workspace on top (it can be renamed, so not by name), then by name."""
-    return sorted(workspaces, key=lambda w: (not w.workspace.is_platform, w.workspace.name.casefold()))
+def _by_name(workspaces: list[WorkspaceWithMembership]) -> list[WorkspaceWithMembership]:
+    """The switcher's order: by name."""
+    return sorted(workspaces, key=lambda w: w.workspace.name.casefold())

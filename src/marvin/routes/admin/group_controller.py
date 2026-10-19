@@ -19,7 +19,6 @@ from marvin.schemas.response.pagination import PaginationQuery  # For handling p
 from marvin.schemas.response.responses import ErrorResponse  # Standardized error response
 from marvin.services.group.group_purge import purge_group_dependents  # Clears non-cascading workspace rows
 from marvin.services.group.group_service import GroupService  # Service layer for group operations
-from marvin.services.group.platform_workspace import PlatformWorkspaceMissing, is_platform_workspace, platform_workspace
 from marvin.services.group.workspace_rename import WorkspaceRenameError, rename_workspace
 
 # Base controller and mixin for CRUD helpers
@@ -182,21 +181,6 @@ class AdminGroupManagementRoutes(BaseAdminController):
 
         return group
 
-    @router.get("/platform", response_model=GroupRead, summary="Get the Platform Workspace")
-    def get_platform(self) -> GroupRead:
-        """
-        The platform (admin's) workspace — platform alerts and shared services run from it.
-
-        Found by its marker, whatever it is called. Rename it with ``PUT /api/admin/groups/{id}``.
-
-        Raises:
-            HTTPException (404 Not Found): The database has no platform workspace yet.
-        """
-        try:
-            return self.repo.schema.model_validate(platform_workspace(self.session))
-        except PlatformWorkspaceMissing as e:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-
     @router.get("/{item_id}", response_model=GroupRead, summary="Get a Specific Group by ID")
     def get_one(self, item_id: UUID4) -> GroupRead:
         """
@@ -263,8 +247,7 @@ class AdminGroupManagementRoutes(BaseAdminController):
 
         # Rename: a new name, a new slug, or both. Without an explicit slug a name change derives it
         # from the new name. A changed slug stays resolvable as an alias (services.group.workspace_rename),
-        # so Publishing API URLs, CLI arguments and backup names using the old one keep working. The
-        # platform workspace is renamed the same way; its marker isn't part of this schema.
+        # so Publishing API URLs, CLI arguments and backup names using the old one keep working.
         new_name = data.name.strip() if data.name and data.name.strip() else group_model_instance.name
         if new_name != group_model_instance.name or (data.slug and data.slug.strip() and data.slug != group_model_instance.slug):
             try:
@@ -307,7 +290,6 @@ class AdminGroupManagementRoutes(BaseAdminController):
         Deletes a workspace by its unique ID.
 
         Safety checks:
-        - Never the platform (admin's) workspace (409), force or not
         - Cannot delete if workspace has workspace members (unless force=True)
         - Cannot delete if workspace has entries, collections, or assets (unless force=True)
 
@@ -328,13 +310,6 @@ class AdminGroupManagementRoutes(BaseAdminController):
         if not group_to_delete:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
 
-        # The platform (admin's) workspace runs platform alerts and shared services: never deletable.
-        if is_platform_workspace(self.session, item_id):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=ErrorResponse.respond(message="The platform workspace can't be deleted. You can rename it."),
-            )
-
         # Check for workspace content (if not force mode)
         if not force:
             # Check for workspace members
@@ -348,7 +323,7 @@ class AdminGroupManagementRoutes(BaseAdminController):
             # Check for entries
             from sqlalchemy import func, select
 
-            from marvin.db.models.entries import Entries
+            from marvin.db.models.platform import Entries
 
             entry_count = self.repos.session.execute(select(func.count(Entries.id)).where(Entries.group_id == item_id)).scalar()
             if entry_count and entry_count > 0:

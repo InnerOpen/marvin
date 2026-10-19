@@ -82,8 +82,6 @@ class GroupRead(GroupUpdate):  # Extends GroupUpdate, which might be unusual if 
     """The unique identifier of the group."""
     slug: str | None = None
     """The URL-friendly slug of the group."""
-    is_platform: bool = False
-    """True on the platform (admin's) workspace — platform alerts and shared services run from it."""
     users: list[UserSummary] | None = None
     """
     DEPRECATED: Legacy users with group_id = this workspace.

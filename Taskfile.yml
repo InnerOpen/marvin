@@ -2,7 +2,6 @@ version: "3"
 
 # Environment shared by every task. `.env` and `.dev.env` (when present) layer on top.
 env:
-  DEFAULT_GROUP: Default
   PRODUCTION: false
   API_PORT: 8080
   API_DOCS: True

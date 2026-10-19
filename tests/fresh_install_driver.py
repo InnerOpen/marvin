@@ -3,6 +3,7 @@ its environment names, so the journey never touches the test suite's database.
 
     python -m tests.fresh_install_driver journey <bundle.zip> <backup key>   # first start, then the admin's steps
     python -m tests.fresh_install_driver inspect                             # start on an existing DATA_DIR, report
+    python -m tests.fresh_install_driver first_boot                          # first start only: what a bare install holds
 
 Both print one JSON object (the facts) as the last line of stdout.
 """
@@ -115,7 +116,52 @@ def inspect() -> dict:
     return _facts("Journey Co")
 
 
+def first_boot() -> dict:
+    """Start on an empty database and report what exists: no workspace, an admin who can sign in and use Admin."""
+    from fastapi.testclient import TestClient
+    from sqlalchemy import func, select
+
+    from marvin.app import app
+    from marvin.db.db_setup import engine, session_context
+    from marvin.db.models.groups import Groups
+    from marvin.db.models.users import Users
+    from marvin.db.models.users.workspace_members import WorkspaceMembers
+
+    _start()
+    client = TestClient(app)
+    headers = _login(client)
+    current = client.get("/api/self/workspaces/current", headers=headers)
+    admin_groups = client.get("/api/admin/groups", headers=headers)
+    with session_context() as session:
+        admin = session.execute(select(Users).where(Users.email == EMAIL)).scalar_one()
+        facts = {
+            "engine": engine.dialect.name,
+            "groups": session.scalar(select(func.count()).select_from(Groups)),
+            "users": session.scalar(select(func.count()).select_from(Users)),
+            "memberships": session.scalar(select(func.count()).select_from(WorkspaceMembers)),
+            "admin_home": admin.group_id,
+            "admin_role": str(admin.platform_role),
+            "homes": [u.group_id for u in session.execute(select(Users)).scalars()],
+        }
+    _start()  # a second start changes nothing
+    with session_context() as session:
+        facts["groups_after_restart"] = session.scalar(select(func.count()).select_from(Groups))
+        facts["users_after_restart"] = session.scalar(select(func.count()).select_from(Users))
+    facts.update(
+        current_status=current.status_code,
+        current=current.json(),
+        admin_groups_status=admin_groups.status_code,
+        admin_groups_total=admin_groups.json().get("total"),
+        about_status=client.get("/api/admin/about", headers=headers).status_code,
+        workspace_page_status=client.get("/api/platform/entries", headers=headers).status_code,
+    )
+    return facts
+
+
 if __name__ == "__main__":
     command = sys.argv[1]
-    result = journey(Path(sys.argv[2]), sys.argv[3]) if command == "journey" else inspect()
+    if command == "first_boot":
+        result = first_boot()
+    else:
+        result = journey(Path(sys.argv[2]), sys.argv[3]) if command == "journey" else inspect()
     sys.stdout.write("\n" + json.dumps(result, default=str) + "\n")
