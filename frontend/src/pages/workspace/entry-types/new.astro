@@ -291,6 +291,17 @@ const adminOnly = !!authToken && !(await canManageCurrentWorkspace(authToken).ca
     padding-top: 1rem;
     border-top: 1px solid var(--line);
   }
+
+  /* Phones: less padding round the form (the schema cards inside need the width), 16px inputs so iOS does not zoom
+     the page on focus, and tap-sized Save / Cancel. */
+  @media (max-width: 640px) {
+    .form { padding: 1rem; }
+    input[type="text"],
+    input[type="number"],
+    textarea,
+    select { font-size: 16px; }
+    .form-actions .button { flex: 1; min-height: 44px; }
+  }
 </style>
 
 <script>

@@ -491,6 +491,10 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
     display: grid;
     gap: 0.75rem;
   }
+  /* `display: grid` above beats the browser's [hidden] rule: without this the box showed even with Submittable off. */
+  .submission-settings[hidden] {
+    display: none;
+  }
   .submission-settings legend {
     font-weight: 600;
     padding: 0 0.4rem;
@@ -504,6 +508,7 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
 
   .checkbox-label {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem;
     font-weight: 400;
@@ -521,6 +526,17 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
     gap: 0.75rem;
     padding-top: 1rem;
     border-top: 1px solid var(--line);
+  }
+
+  /* Phones: less padding round the form (the schema cards inside need the width), 16px inputs so iOS does not zoom
+     the page on focus, and tap-sized Save / Cancel. */
+  @media (max-width: 640px) {
+    .form { padding: 1rem; }
+    input[type="text"],
+    input[type="number"],
+    textarea,
+    select { font-size: 16px; }
+    .form-actions .button { flex: 1; min-height: 44px; }
   }
 </style>
 

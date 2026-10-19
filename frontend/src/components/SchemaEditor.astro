@@ -181,6 +181,60 @@ try {
     border-radius: 6px;
   }
 
+  /* A long label, key or help text wraps inside its card instead of widening it (the card clips what overflows, so
+     whatever ran past its edge, the Remove button first, was unreachable). */
+  .schema-editor .field-editor-title,
+  .schema-editor .field-editor-body > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .schema-editor .field-editor-body input,
+  .schema-editor .field-editor-body select,
+  .schema-editor .field-editor-body textarea {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .schema-editor .field-editor-header {
+    gap: 0.75rem;
+  }
+
+  /* Phones: the header puts the title above its Move up / Move down / Remove buttons, and the body is one column
+     (two 130px inputs cannot hold a label or a key). Inputs are 16px so iOS does not zoom the page on focus, and
+     the buttons are tap-sized. */
+  @media (max-width: 640px) {
+    .schema-editor .field-editor-header {
+      flex-direction: column;
+      align-items: stretch;
+      padding: 0.875rem 1rem;
+    }
+    .schema-editor .field-editor-actions {
+      flex-wrap: wrap;
+    }
+    .schema-editor .field-editor-actions button {
+      min-height: 44px;
+      min-width: 44px;
+      font-size: 0.875rem;
+    }
+    .schema-editor .field-editor-actions .btn-remove {
+      margin-left: auto;
+    }
+    .schema-editor .field-editor-body {
+      grid-template-columns: minmax(0, 1fr);
+      padding: 1rem;
+    }
+    .schema-editor .field-editor-body input:not([type="checkbox"]),
+    .schema-editor .field-editor-body select,
+    .schema-editor .field-editor-body textarea,
+    .schema-editor .json-preview {
+      font-size: 16px;
+    }
+    #add-field-btn,
+    #apply-json-btn {
+      min-height: 44px;
+    }
+  }
+
   .schema-editor .field-editor-body {
     display: grid;
     gap: 1rem;
@@ -425,6 +479,9 @@ try {
           'select',
           { className: 'field-type', required: true },
           ...fieldTypes.map(t => new Option(t.label, t.value, t.value === field.type, t.value === field.type)),
+          // A type the picker does not offer (an asset-list or resource field a schema already has) stays selected
+          // as itself; without this option the select fell back to Text and the next edit saved the field as text.
+          ...(typeInfo.value ? [] : [new Option(field.type, field.type, true, true)]),
         ),
       ),
       checkboxGroup('', checkbox('field-required', !!field.required), 'Required field'),

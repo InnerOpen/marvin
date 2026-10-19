@@ -70,7 +70,7 @@ function getRendering(type: EntryTypeRead) {
       {systemTypes.length > 0 && (
         <section>
           <h3 style="margin:0 0 1rem;font-size:1rem;color:var(--muted);">System Types</h3>
-          <table class="table">
+          <table class="table stacks types">
             <thead>
               <tr>
                 <th>Icon</th>
@@ -95,7 +95,7 @@ function getRendering(type: EntryTypeRead) {
                     data-name={type.name.toLowerCase()}
                     data-slug={type.slug.toLowerCase()}
                     data-description={(type.description || '').toLowerCase()}>
-                    <td>
+                    <td class="stack-lead">
                       {type.icon && (
                         <span style={`font-size:1.5rem;${type.color ? `color:${type.color}` : ''}`}>
                           {type.icon}
@@ -104,11 +104,11 @@ function getRendering(type: EntryTypeRead) {
                     </td>
                     <td class="type-name"><strong>{type.name}</strong></td>
                     <td><span class="system-badge">System</span></td>
-                    <td><code>{type.slug}</code></td>
-                    <td>{type.isRendered ? <span class="rendered-badge">Yes</span> : '—'}</td>
-                    <td>{renderer ? <code>{renderer}</code> : '—'}</td>
-                    <td>{pkg ? <code>{pkg}</code> : '—'}</td>
-                    <td>{version || '—'}</td>
+                    <td class="slug"><code>{type.slug}</code></td>
+                    <td class="stack-hide">{type.isRendered ? <span class="rendered-badge">Yes</span> : '—'}</td>
+                    <td class="stack-hide">{renderer ? <code>{renderer}</code> : '—'}</td>
+                    <td class="stack-hide">{pkg ? <code>{pkg}</code> : '—'}</td>
+                    <td class="stack-hide">{version || '—'}</td>
                     <td>
                       {count === 0 ? (
                         <span class="empty-badge">Empty</span>
@@ -116,7 +116,7 @@ function getRendering(type: EntryTypeRead) {
                         <span class="count-badge">{count}</span>
                       )}
                     </td>
-                    <td>{type.sortOrder}</td>
+                    <td class="stack-hide">{type.sortOrder}</td>
                   </tr>
                 );
               })}
@@ -136,7 +136,7 @@ function getRendering(type: EntryTypeRead) {
       ) : (
         <section>
           <h3 style="margin:2rem 0 1rem;font-size:1rem;color:var(--muted);">Custom Types</h3>
-          <table class="table">
+          <table class="table stacks types">
             <thead>
               <tr>
                 <th>Icon</th>
@@ -162,7 +162,7 @@ function getRendering(type: EntryTypeRead) {
                     data-name={type.name.toLowerCase()}
                     data-slug={type.slug.toLowerCase()}
                     data-description={(type.description || '').toLowerCase()}>
-                    <td>
+                    <td class="stack-lead">
                       {type.icon && (
                         <span style={`font-size:1.5rem;${type.color ? `color:${type.color}` : ''}`}>
                           {type.icon}
@@ -171,11 +171,11 @@ function getRendering(type: EntryTypeRead) {
                     </td>
                     <td class="type-name"><strong>{type.name}</strong></td>
                     <td><span class="custom-badge">Custom</span></td>
-                    <td><code>{type.slug}</code></td>
-                    <td>{type.isRendered ? <span class="rendered-badge">Yes</span> : '—'}</td>
-                    <td>{renderer ? <code>{renderer}</code> : '—'}</td>
-                    <td>{pkg ? <code>{pkg}</code> : '—'}</td>
-                    <td>{version || '—'}</td>
+                    <td class="slug"><code>{type.slug}</code></td>
+                    <td class="stack-hide">{type.isRendered ? <span class="rendered-badge">Yes</span> : '—'}</td>
+                    <td class="stack-hide">{renderer ? <code>{renderer}</code> : '—'}</td>
+                    <td class="stack-hide">{pkg ? <code>{pkg}</code> : '—'}</td>
+                    <td class="stack-hide">{version || '—'}</td>
                     <td>
                       {count === 0 ? (
                         <span class="empty-badge">Empty</span>
@@ -183,8 +183,8 @@ function getRendering(type: EntryTypeRead) {
                         <span class="count-badge">{count}</span>
                       )}
                     </td>
-                    <td>{type.sortOrder}</td>
-                    <td>
+                    <td class="stack-hide">{type.sortOrder}</td>
+                    <td class="action">
                       <div class="actions">
                         <a href={`/workspace/entry-types/${type.id}`} class="button secondary small">{canManage ? "Edit" : "View"}</a>
                         {canManage && (
@@ -271,6 +271,29 @@ function getRendering(type: EntryTypeRead) {
   .actions {
     display: flex;
     gap: 0.5rem;
+  }
+
+  /* A long name or slug wraps rather than stretching its cell. */
+  .types td {
+    overflow-wrap: anywhere;
+  }
+
+  /* Phones: each entry type is a small card (the shared .table.stacks layout: icon down the left, then name, kind,
+     slug, entry count, actions) instead of an eleven-column table that scrolled sideways with Edit and Delete a
+     thousand pixels off-screen to the right. The rendering columns (renderer, package, version…) are dropped here;
+     they are on the edit page. */
+  @media (max-width: 640px) {
+    .types .actions .button,
+    .types .actions form {
+      flex: 1;
+    }
+    .types .actions .button {
+      width: 100%;
+      min-height: 44px;
+    }
+    .types td.action {
+      margin-top: 4px;
+    }
   }
 
   .button.small {
