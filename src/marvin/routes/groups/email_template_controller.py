@@ -5,6 +5,7 @@ from functools import cached_property
 from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4, BaseModel, EmailStr
 
+from marvin.db.models.groups import Groups
 from marvin.db.models.users.roles import WORKSPACE_ROLE_HIERARCHY
 from marvin.routes._base import MarvinCrudRoute
 from marvin.routes._base.base_controllers import BaseUserController
@@ -436,11 +437,14 @@ class EmailTemplateController(BaseUserController):
         # Send test email
         from marvin.services.email.email_service import EmailService
 
-        email_service = EmailService()
+        # Through this workspace, as its real emails go: its SMTP profile (else the platform's) and its brand — also for
+        # a system template it hasn't replaced, which is what its recipients get.
+        email_service = EmailService(group_id=str(group_id))
+        workspace = self.session.get(Groups, group_id)
 
         # Build test variables covering all system template types
         test_variables = {
-            "workspace_name": "Test Workspace",
+            "workspace_name": workspace.name if workspace else "Test Workspace",
             "inviter_name": "A Teammate",
             "invitee_email": data.recipient_email,
             "invitation_url": f"{self.settings.BASE_URL}/register?token=test",

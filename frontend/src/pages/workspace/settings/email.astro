@@ -16,6 +16,10 @@ let error: string | null = null;
 
 let allSubscriptions: any[] = [];
 
+// The name, footer and colour on this workspace's emails; blank values fall back (services/email/branding.py).
+type BrandValues = { productName: string; footerText: string; accentColor: string };
+let branding: (BrandValues & { effective: BrandValues }) | null = null;
+
 try {
   workspace = await getCurrentWorkspace(authToken);
   const wsId = (workspace as any)?.id ?? (workspace as any)?.groupId;
@@ -34,6 +38,11 @@ try {
         .then((r) => (r.ok ? r.json() : []))
         .catch(() => []),
     ]);
+    if (canManage) {
+      branding = await fetch(`${base}/api/groups/email-branding`, { headers: hdrs, credentials: "include" })
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+    }
   }
 } catch (e) {
   console.error("[email-settings] Error:", e);
@@ -117,6 +126,30 @@ function isSuperseded(template: any): boolean {
     <div class="alert alert-error"><strong>Error:</strong> {error}</div>
   ) : (
     <div class="email-settings">
+      {branding && (
+        <section class="settings-section" id="branding">
+          <h3>Branding</h3>
+          <p class="section-description">What this workspace's emails show: the name in the header, the line in the footer, and the colour of accents and buttons. Leave a field blank to use the fallback shown.</p>
+          <form id="branding-form" class="branding-form">
+            <label class="branding-field"><span>Name</span>
+              <input class="input" name="product_name" maxlength="40" value={branding.productName} placeholder={branding.productName ? "Site title or workspace name" : branding.effective.productName} /></label>
+            <label class="branding-field"><span>Footer line</span>
+              <input class="input" name="footer_text" maxlength="120" value={branding.footerText} placeholder={branding.footerText ? "Sent by <name>" : branding.effective.footerText} /></label>
+            <div class="branding-field"><span>Accent colour</span>
+              <span class="branding-color">
+                <input type="color" name="accent_color" aria-label="Accent colour" value={branding.effective.accentColor} />
+                <code>{branding.effective.accentColor}</code>
+              </span>
+              <label class="branding-inherit"><input type="checkbox" name="inherit_color" checked={!branding.accentColor} /> Use the platform's colour</label>
+            </div>
+            <div class="branding-actions">
+              <button type="submit" class="button">Save branding</button>
+              <span class="branding-status" role="status">Send a test email to see it.</span>
+            </div>
+          </form>
+        </section>
+      )}
+
       <section class="settings-section">
         <h3>Email Templates</h3>
         <p class="section-description">Customize the emails sent from your workspace</p>
@@ -890,6 +923,46 @@ function isSuperseded(template: any): boolean {
   </script>
 
   <script define:vars={{ apiUrl }}>
+    // Branding: blank fields fall back; "Use the platform's colour" sends no colour so it follows Admin's.
+    (() => {
+      const form = document.getElementById("branding-form");
+      if (!form) return;
+      const color = form.querySelector('input[type="color"]');
+      const inherit = form.querySelector('input[name="inherit_color"]');
+      const code = form.querySelector(".branding-color code");
+      color.addEventListener("input", () => {
+        code.textContent = color.value;
+        inherit.checked = false;
+      });
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const status = form.querySelector(".branding-status");
+        const fd = new FormData(form);
+        status.textContent = "Saving…";
+        status.classList.remove("error");
+        try {
+          const res = await fetch(`${apiUrl}/api/groups/email-branding`, {
+            method: "PUT",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              product_name: String(fd.get("product_name") ?? ""),
+              footer_text: String(fd.get("footer_text") ?? ""),
+              accent_color: inherit.checked ? "" : String(fd.get("accent_color") ?? ""),
+            }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(typeof body.detail === "string" ? body.detail : `Save failed (${res.status})`);
+          color.value = body.effective.accentColor;
+          code.textContent = body.effective.accentColor;
+          status.textContent = `Saved: emails now show "${body.effective.productName}". Send a test email to see it.`;
+        } catch (err) {
+          status.textContent = err instanceof Error ? err.message : String(err);
+          status.classList.add("error");
+        }
+      });
+    })();
+
     // Auto-open template editor when arriving from event connect flow
     // URL params: ?template=<id>&connect_event=<type>&recipient_type=<type>&recipient_field=<field>&recipient_email=<emails>
     const params = new URLSearchParams(window.location.search);
@@ -999,6 +1072,13 @@ function isSuperseded(template: any): boolean {
 </AppLayout>
 
 <style>
+  .branding-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px 20px; }
+  .branding-field { display: grid; gap: 4px; font-size: 13px; font-weight: 600; align-content: start; }
+  .branding-color { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+  .branding-inherit { display: flex; align-items: center; gap: 6px; font-weight: 400; color: var(--muted); }
+  .branding-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+  .branding-status { font-size: 13px; color: var(--muted); }
+  .branding-status.error { color: var(--color-error); }
   .connect-flow-banner {
     padding: 12px 16px;
     background: rgba(79, 156, 132, 0.08);

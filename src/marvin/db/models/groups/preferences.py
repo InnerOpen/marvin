@@ -112,6 +112,13 @@ class GroupPreferencesModel(SqlAlchemyBase, BaseMixins):
         sa.JSON, nullable=True, doc="Flexible metadata for framework-specific or custom site settings."
     )
 
+    email_branding_json: Mapped[dict | None] = mapped_column(
+        sa.JSON,
+        nullable=True,
+        doc="The name, footer line and accent colour on the workspace's emails: {product_name, footer_text, accent_color}; "
+        "a missing one falls back (services/email/branding.py).",
+    )
+
     submission_protection_json: Mapped[dict | None] = mapped_column(
         sa.JSON,
         nullable=True,

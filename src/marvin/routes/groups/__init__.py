@@ -7,6 +7,7 @@ from . import (
     audit_settings_controller,
     blueprints_controller,
     custom_events_controller,
+    email_branding_controller,
     email_event_subscriptions_controller,
     email_template_controller,
     invitation_controller,
@@ -35,6 +36,7 @@ if INTEGRATIONS_AVAILABLE:
     router.include_router(integrations_controller.public_router, tags=["Groups: Integrations"])
 router.include_router(preferences_controller.router, tags=["Groups: Preferences"])
 router.include_router(email_template_controller.router, tags=["Groups: Email Templates"])
+router.include_router(email_branding_controller.router, tags=["Groups: Email Branding"])
 router.include_router(email_event_subscriptions_controller.router, tags=["Groups: Email Event Subscriptions"])
 router.include_router(ai_settings_controller.router, tags=["Groups: AI Workflow Settings"])
 router.include_router(storage_settings_controller.router, tags=["Groups: Storage"])

@@ -45,7 +45,7 @@ class EmailTemplate(BaseModel):
     button_text: str = ""
     workspace_name: str = ""
 
-    def render_html(self, template_file: Path) -> str:  # Renamed `template` to `template_file`
+    def render_html(self, template_file: Path, brand: dict | None = None) -> str:
         """
         Renders the email content into an HTML string using a Jinja2 template.
 
@@ -55,6 +55,8 @@ class EmailTemplate(BaseModel):
 
         Args:
             template_file (Path): The path to the Jinja2 HTML template file.
+            brand (dict | None): product_name, footer_text and accent_color (services/email/branding.py); None is
+                the platform's. `EmailService.render` passes its workspace's.
 
         Returns:
             str: The rendered HTML content as a string.
@@ -63,11 +65,11 @@ class EmailTemplate(BaseModel):
         tmpl_str = template_file.read_text(encoding="utf-8")  # Added encoding
         jinja_template = Template(tmpl_str)  # Create a Jinja2 Template object
 
-        # The template sees this email's fields plus the platform's branding (Admin → Email → Branding):
-        # brand_name, brand_footer, brand_color.
-        from marvin.services.platform_policy import email_branding
+        # The template sees this email's fields plus the brand: brand_name, brand_footer, brand_color.
+        if brand is None:
+            from marvin.services.platform_policy import email_branding
 
-        brand = email_branding()
+            brand = email_branding()
         data = {
             **self.model_dump(),
             "brand_name": brand["product_name"],
@@ -109,11 +111,8 @@ class EmailService(BaseService):
             self.templates_dir = self.directories.TEMPLATE_DIR
             self.default_template = self.templates_dir / self.settings.EMAIL_TEMPLATE
 
-        # Workspace-level override — highest priority
-        if group_id:
-            workspace_template = self.directories.TEMPLATE_DIR / str(group_id) / self.settings.EMAIL_TEMPLATE
-            if workspace_template.is_file():
-                self.default_template = workspace_template
+        # One layout for every email; what differs per workspace is its brand (render) and its sender (below).
+        self.group_id = group_id
 
         self.logger.debug(f"Loading {self.templates_dir} in {self.default_template}")
 
@@ -136,6 +135,12 @@ class EmailService(BaseService):
         # self.translator: Translator = local_provider(locale)
         # For now, string keys in EmailTemplate will be used as-is if no translation occurs.
         self.logger.info(f"EmailService initialized. Sender: {type(self.sender).__name__}. Locale: {locale or 'default'}.")
+
+    def render(self, email_data: EmailTemplate) -> str:
+        """The email as HTML: the layout with this service's workspace's brand (or the platform's, without one)."""
+        from marvin.services.email.branding import effective_branding
+
+        return email_data.render_html(self.default_template, effective_branding(self.group_id))
 
     def _can_send(self) -> bool:
         """Whether email can be dispatched: the platform SMTP server is configured, OR this service's workspace
@@ -166,8 +171,7 @@ class EmailService(BaseService):
             # Let's change to False for clarity that no email dispatch occurred.
             return False
 
-        # Render the HTML content using the default template and email_data
-        html_content = email_data.render_html(self.default_template)
+        html_content = self.render(email_data)
 
         # Send the email via the configured sender
         success = self.sender.send(email_to, email_data.subject, html_content)
@@ -364,8 +368,8 @@ class EmailService(BaseService):
         """Send email using database template.
 
         Supports two modes (custom_html takes priority):
-        1. custom_html: Full HTML rendered with Jinja2 and injected into default.html
-        2. body_markdown: Markdown converted to HTML and injected into default.html
+        1. custom_html: Full HTML rendered with Jinja2 and sent as-is (no layout, no brand)
+        2. body_markdown: Markdown converted to HTML and placed in the email layout (`render`)
 
         {{SLUG}} workspace secrets/variables are resolved before Jinja2 rendering.
 
@@ -402,7 +406,7 @@ class EmailService(BaseService):
 
         Supports two modes (custom_html takes priority):
         1. custom_html: Full HTML rendered with Jinja2 and sent as-is (no chrome wrapper).
-        2. body_markdown: Markdown → HTML, injected into the default.html chrome.
+        2. body_markdown: Markdown → HTML, placed in the email layout with the workspace's brand (`render`).
 
         {{SLUG}} workspace secrets/variables are resolved before Jinja2 rendering.
         Raises ValueError if the template is missing required variables.
@@ -455,10 +459,10 @@ class EmailService(BaseService):
         # Determine rendering mode
         raw_custom = db_template.custom_html or ""
         if raw_custom.strip():
-            # Mode 1: custom_html — render Jinja2 variables and send as-is (no chrome wrapper)
+            # Mode 1: custom_html — render Jinja2 variables and send as-is (no layout, so no brand either)
             return subject, _render_safe(raw_custom)
 
-        # Mode 2: body_markdown — render Jinja2 variables, convert to HTML, inject into default.html chrome
+        # Mode 2: body_markdown — render Jinja2 variables, convert to HTML, place in the layout
         raw_markdown = db_template.body_markdown or ""
         rendered_markdown = _render_safe(raw_markdown)
         body_html = self._markdown_to_html(rendered_markdown)
@@ -471,4 +475,4 @@ class EmailService(BaseService):
             button_text="",
             workspace_name=variables.get("workspace_name", ""),
         )
-        return subject, template_data.render_html(self.default_template)
+        return subject, self.render(template_data)

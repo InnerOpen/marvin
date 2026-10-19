@@ -132,7 +132,12 @@ reads settings, package metadata and one count, so opening the page never loads 
 (`BASE_URL` / `FRONTEND_URL`, the chart's `config.publicUiUrl`) is still localhost, and has a **Security** card: the
 minimum password length, reset-link lifetime, sign-in session length and the sign-in throttling limits. A value set
 there replaces the environment variable of the same name for the whole platform; a cleared box goes back to it.
-**Admin → Email → Branding** sets the product name, footer line and accent colour every email shows.
+**Email branding.** An email's layout (`EMAIL_TEMPLATE`, `branded.html` by default; a file of that name in the data
+`templates/` folder replaces it) shows a name, a footer line and an accent colour. **Admin → Email → Branding** sets
+them for emails with no workspace: password resets and platform alerts. A workspace's emails (invitations, its
+workflows' sends, its alerts) carry the workspace's own, from **Settings → Email → Branding**; each one left blank falls
+back on its own: the name to the site title, then the workspace's name; the footer to "Sent by <name>"; the colour to
+the Admin one. A template written as custom HTML is sent as written, without the layout or a brand.
 
 ## Retention
 

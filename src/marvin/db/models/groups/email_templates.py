@@ -15,7 +15,7 @@ class EmailTemplateModel(SqlAlchemyBase, BaseMixins):
     templates (group_id set). Templates support Jinja2 variable substitution.
 
     Rendering modes (mutually exclusive, custom_html takes priority):
-    - body_markdown: Markdown body rendered to HTML and injected into default.html
+    - body_markdown: Markdown body rendered to HTML and placed in the email layout (with the workspace's brand)
     - custom_html: Full HTML template that overrides the default layout entirely
 
     Template types:
@@ -59,7 +59,7 @@ class EmailTemplateModel(SqlAlchemyBase, BaseMixins):
     )
 
     # Email content - supports two modes (custom_html takes priority):
-    # 1. body_markdown: Markdown body rendered to HTML and injected into default.html
+    # 1. body_markdown: Markdown body rendered to HTML and placed in the email layout
     # 2. custom_html: Full HTML template that overrides the default layout entirely
     subject: Mapped[str] = mapped_column(
         sa.String,
@@ -69,7 +69,7 @@ class EmailTemplateModel(SqlAlchemyBase, BaseMixins):
     body_markdown: Mapped[str | None] = mapped_column(
         sa.Text,
         nullable=True,
-        doc="Markdown body rendered via default.html template. Supports Jinja2 variables.",
+        doc="Markdown body, placed in the email layout with the workspace's brand. Supports Jinja2 variables.",
     )
     custom_html: Mapped[str | None] = mapped_column(
         sa.Text,

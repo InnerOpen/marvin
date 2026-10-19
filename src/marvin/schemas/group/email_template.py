@@ -15,7 +15,7 @@ class EmailTemplateCreate(_MarvinModel):
     name: str = Field(..., description="Human-readable template name")
     description: str | None = Field(None, description="Description of when this template is used")
     subject: str = Field(..., description="Email subject line - supports Jinja2 variables")
-    body_markdown: str | None = Field(None, description="Markdown body rendered via default.html template")
+    body_markdown: str | None = Field(None, description="Markdown body, placed in the email layout with the workspace's brand")
     custom_html: str | None = Field(None, description="Full custom HTML - if set, overrides body_markdown")
     available_variables: dict | None = Field(None, description="Documentation of available variables")
     enabled: bool = Field(True, description="Whether this template is active")

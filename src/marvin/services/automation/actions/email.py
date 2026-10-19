@@ -155,7 +155,7 @@ def render_email(session, group_id, action: dict, context: dict, dry_run: bool):
         button_link=button_link,
         workspace_name=getattr(group, "name", "") or "",
     )
-    return service, subject, template.render_html(service.default_template)
+    return service, subject, service.render(template)
 
 
 @register_action("email")

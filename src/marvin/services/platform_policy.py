@@ -160,6 +160,14 @@ def email_branding() -> dict:
 def save_email_branding(session, values: dict) -> dict:
     from marvin.services.platform_settings import PlatformSettingsService
 
+    PlatformSettingsService(session).set(EMAIL_BRANDING_KEY, clean_email_branding(values))
+    clear_cache()
+    return email_branding()
+
+
+def clean_email_branding(values: dict | None) -> dict:
+    """The set values of a branding form, checked and tidied; a blank one is left out so it falls back. Shared with the
+    workspace's branding (services/email/branding.py). Raises PolicyError."""
     clean: dict = {}
     for key in DEFAULT_BRANDING:
         raw = (values or {}).get(key)
@@ -173,9 +181,7 @@ def save_email_branding(session, values: dict) -> dict:
         elif len(text) > (40 if key == "product_name" else 120):
             raise PolicyError(f"{'The product name' if key == 'product_name' else 'The footer'} is too long")
         clean[key] = text
-    PlatformSettingsService(session).set(EMAIL_BRANDING_KEY, clean)
-    clear_cache()
-    return email_branding()
+    return clean
 
 
 # ── remote MCP ───────────────────────────────────────────────────────────────

@@ -769,8 +769,9 @@ class AppSettings(BaseSettings):
     # Email Configuration
 
     EMAIL_TEMPLATE: str = "branded.html"
-    """HTML wrapper template filename. Options bundled: branded.html, workspace.html, default.html.
-    Set via EMAIL_TEMPLATE env var. Drop a custom file in the data templates dir to override."""
+    """HTML wrapper template filename. Options bundled: branded.html, default.html. Its name, footer and colour come from
+    the email branding (services/email/branding.py). Set via EMAIL_TEMPLATE env var; a file of that name in the data
+    templates dir replaces the bundled one, for every email."""
     SMTP_HOST: str | None = None
     """SMTP server hostname or IP address."""
     SMTP_PORT: str | None = "587"
