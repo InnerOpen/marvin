@@ -616,7 +616,10 @@ def _event_rows(db_session):
 def test_the_page_offers_apprise_first_and_only_message_plugins(db_session, world):
     providers = _admin(world).get(API).json()["providers"]
     assert [p["slug"] for p in providers][0] == "apprise"
-    assert {p["slug"] for p in providers} == {"apprise", "test_chat", "test_pager"}  # the deploy hook can't carry a message
+    slugs = {p["slug"] for p in providers}
+    # Real message plugins installed in this environment (e.g. slack) may be offered too; ours must be, and the
+    # deploy hook (no message action) must not.
+    assert {"apprise", "test_chat", "test_pager"} <= slugs and "test_deploy" not in slugs
     apprise = providers[0]
     assert apprise["credentialLabel"] == "Apprise URL(s)" and apprise["credentialRequired"] is True
 
