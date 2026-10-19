@@ -6,6 +6,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.1 (2026-10-19)
+
+### Continuous Integration
+
+- Run both backend suites in parallel with pytest-xdist
+  ([`becc3a7`](https://github.com/InnerOpen/marvin/commit/becc3a716534f6348bc90d6d6d6315f21c0c3eb9))
+
+### Features
+
+- **email**: Workspace email branding
+  ([`c58714e`](https://github.com/InnerOpen/marvin/commit/c58714e2dce77933aa7c310504093c0db68b7fcd))
+
+### Testing
+
+- Start each Postgres run on a freshly created database
+  ([`3b4cf0b`](https://github.com/InnerOpen/marvin/commit/3b4cf0be91c16542e3c77b68ee8427528b0770a5))
+
+
 ## v1.0.1-rc.3 (2026-10-19)
 
 ### Bug Fixes
