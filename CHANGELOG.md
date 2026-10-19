@@ -6,6 +6,71 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.1-rc.3 (2026-10-19)
+
+### Bug Fixes
+
+- **dev**: Task dev:generate runs and matches the committed schema exports
+  ([`2cc1f37`](https://github.com/InnerOpen/marvin/commit/2cc1f3782e75d78b0e817474f599f5d5766e7eb8))
+
+- **frontend**: The custom entry types table fits a desktop — actions stay on one line
+  ([`c1e1939`](https://github.com/InnerOpen/marvin/commit/c1e1939d7bc23f53ff2ff99d7b4559245b648bc5))
+
+- **taskfile**: Pin the test engine on the command line, not in env
+  ([`dd27cc0`](https://github.com/InnerOpen/marvin/commit/dd27cc0647b85464165e10529b7a94dfcf0d3d88))
+
+### Chores
+
+- **dev**: Remove the schema export generator
+  ([`eee08cf`](https://github.com/InnerOpen/marvin/commit/eee08cfaff6f24d4e4884f022b635e4fb525eb09))
+
+- **dev**: Remove the stale code generators and module templates
+  ([`a676a7b`](https://github.com/InnerOpen/marvin/commit/a676a7b3932af629881acde5a5075104de0a505e))
+
+- **taskfile**: Split task ci into a quick ci and ci:full
+  ([`064a2a3`](https://github.com/InnerOpen/marvin/commit/064a2a3a1ab1f893be35a003130d02189dcd2848))
+
+- **taskfile**: Task ci, both-engine tests, helm and deploy wrappers
+  ([`2508e43`](https://github.com/InnerOpen/marvin/commit/2508e431f7bb93df15ab54c77794177b8f4b6184))
+
+### Code Style
+
+- Clear the ruff lint findings in src and tests
+  ([`1c6c072`](https://github.com/InnerOpen/marvin/commit/1c6c072f3775c26c149d624ccbe9c912619f6a49))
+
+- Format src and tests with the uv.lock ruff
+  ([`9aff59e`](https://github.com/InnerOpen/marvin/commit/9aff59ed33b0ddee29071f1d80688a61bfe561e7))
+
+### Continuous Integration
+
+- Install from uv.lock, one ruff version, lint gates pushes and PRs
+  ([`13567d1`](https://github.com/InnerOpen/marvin/commit/13567d14513288a93849d55c9c4de0bf2a9c96d9))
+
+- Lint, format check, the SQLite suite in parallel, frontend tests (~3 min). ci:full adds the
+  Postgres suite in
+  ([`064a2a3`](https://github.com/InnerOpen/marvin/commit/064a2a3a1ab1f893be35a003130d02189dcd2848))
+
+- The push gates locally (ruff lint + format check, the suite on SQLite and Postgres, frontend
+  tests) plus an
+  ([`2508e43`](https://github.com/InnerOpen/marvin/commit/2508e431f7bb93df15ab54c77794177b8f4b6184))
+
+### Documentation
+
+- Archive the July build-era status reports and old plans
+  ([`25815a6`](https://github.com/InnerOpen/marvin/commit/25815a68344f60539348e8d1ece2c1696a7521f5))
+
+- Delete OPENSHIFT_DEPLOYMENT and verify_configuration.py
+  ([`336ba3d`](https://github.com/InnerOpen/marvin/commit/336ba3d3b128026fc69c04b580c85311cca439e0))
+
+- Fold still-true reference into the manual
+  ([`737e1e0`](https://github.com/InnerOpen/marvin/commit/737e1e01e32306faa71e8b0e0684ccbb635d2618))
+
+### Testing
+
+- Run the suite in parallel with pytest-xdist
+  ([`7491111`](https://github.com/InnerOpen/marvin/commit/7491111a82f924bc9e130be36116da7b19c727a6))
+
+
 ## v1.0.1-rc.2 (2026-10-19)
 
 ### Bug Fixes
