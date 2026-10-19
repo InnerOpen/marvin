@@ -19,7 +19,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from .. import BaseMixins, SqlAlchemyBase
 from .._model_utils.auto_init import auto_init
-from .._model_utils.datetime import DateTime
+from .._model_utils.datetime import AwareDateTime
 from .._model_utils.guid import GUID
 from .._model_utils.installed_by import InstalledByMixin
 
@@ -63,7 +63,7 @@ class WorkspaceIncomingWebhookModel(SqlAlchemyBase, BaseMixins, InstalledByMixin
 
     # Observability — surfaced in the management UI so an admin can confirm deliveries land.
     received_count: Mapped[int] = mapped_column(sa.Integer, default=0, nullable=False)
-    last_received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_received_at: Mapped[datetime | None] = mapped_column(AwareDateTime, nullable=True)
 
     __table_args__ = (sa.UniqueConstraint("group_id", "slug", name="uq_incoming_webhooks_group_slug"),)
 

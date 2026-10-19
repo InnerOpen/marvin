@@ -35,7 +35,7 @@ export function shareKeys(id: string, origin: string) {
 const str = (value: unknown, max: number) => (typeof value === "string" ? value.slice(0, max) : "");
 
 /** An http(s) URL, or null. */
-export function httpUrl(value: unknown): string | null {
+function httpUrl(value: unknown): string | null {
   if (typeof value !== "string" || !value.trim()) return null;
   try {
     const url = new URL(value.trim());
@@ -77,7 +77,7 @@ function stem(filename: string): string {
   return (dot > 0 ? base.slice(0, dot) : base).trim();
 }
 
-export function slugify(value: string): string {
+function slugify(value: string): string {
   return value
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "")

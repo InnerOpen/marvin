@@ -1,7 +1,8 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import { getStorageSettings, type StorageSettings } from "@/lib/api/admin/storage";
-import { getAuthToken } from "@/lib/api/client";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
 
 await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
@@ -9,8 +10,22 @@ const authToken = getAuthToken(Astro.cookies);
 
 let storage: StorageSettings | null = null;
 let error: string | null = null;
+let workspacePolicy: { allowed: boolean; endpointPolicy: string } | null = null;
+type WorkspaceBucket = {
+  id: string; workspace: string; workspaceId: string; label: string | null; status: string; inUse: boolean; files: number;
+  inBundles: boolean; lastCheckedAt: string | null; lastError: string | null; settings: Record<string, string>;
+};
+let workspaceBuckets: WorkspaceBucket[] = [];
+type DeletedStorage = {
+  id: string; workspaceName: string; location: string; label: string | null; objectCount: number; totalBytes: number;
+  deletedAt: string; purgeAfter: string; state: string; canPurge: boolean; lastError: string | null;
+};
+let deletedStorage: { items: DeletedStorage[]; graceDays: number } = { items: [], graceDays: 30 };
 try {
   storage = await getStorageSettings(authToken);
+  workspacePolicy = await fetchApi<{ allowed: boolean; endpointPolicy: string }>("/api/admin/storage/workspace-policy", {}, authToken).catch(() => null);
+  workspaceBuckets = await fetchApi<WorkspaceBucket[]>("/api/admin/storage/workspace-buckets", {}, authToken).catch(() => []);
+  deletedStorage = await fetchApi<typeof deletedStorage>("/api/admin/storage/deleted-workspaces", {}, authToken).catch(() => deletedStorage);
 } catch (e) {
   console.error("[admin/storage] Failed to load:", e);
   error = e instanceof Error ? e.message : String(e);
@@ -176,6 +191,50 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
         )}
       </section>
 
+      {workspacePolicy && (
+        <section class="settings-section" data-testid="workspace-storage-policy">
+          <h3>Workspaces' own storage</h3>
+          <p>
+            Lets a workspace owner keep that workspace's files in their own bucket (Workspace settings → Storage). Turned
+            off later, those workspaces can't upload until it is back on or they switch to the platform's storage; their
+            files keep serving. Their buckets aren't in the platform's asset backups.
+          </p>
+          <form id="workspace-policy" class="policy-form">
+            <label class="policy-row">
+              <input type="checkbox" name="allowed" checked={workspacePolicy.allowed} />
+              <span>Allow workspaces to use their own bucket</span>
+            </label>
+            <label class="policy-row">
+              <span>Endpoints they may use</span>
+              <select name="endpoint_policy" class="input">
+                <option value="known" selected={workspacePolicy.endpointPolicy === "known"}>Known services: Cloudflare R2, AWS S3, Backblaze B2</option>
+                <option value="public" selected={workspacePolicy.endpointPolicy === "public"}>Any public address</option>
+                <option value="any" selected={workspacePolicy.endpointPolicy === "any"}>Any address, including your network</option>
+              </select>
+            </label>
+            <div><button type="submit" class="button">Save</button> <span class="status-text" role="status" data-policy-status></span></div>
+          </form>
+          {workspaceBuckets.length > 0 && (
+            <div class="table-scroll">
+              <table class="table" data-testid="workspace-buckets">
+                <thead><tr><th>Workspace</th><th>Bucket</th><th>Status</th><th>Files</th><th>Last check</th></tr></thead>
+                <tbody>
+                  {workspaceBuckets.map((b) => (
+                    <tr>
+                      <td><a href={`/admin/groups/${b.workspaceId}`}>{b.workspace}</a>{b.inUse && <span class="pill">in use</span>}</td>
+                      <td>{b.label || "—"}<br /><code>{Object.values(b.settings)[0] ?? ""}</code></td>
+                      <td>{b.status}{b.lastError && <><br /><span class="status-text">{b.lastError}</span></>}</td>
+                      <td>{b.files.toLocaleString()}{b.inBundles ? " (in bundles)" : ""}</td>
+                      <td>{b.lastCheckedAt ? <LocalTime iso={b.lastCheckedAt} /> : "never"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
       <section class="settings-section" data-testid="workspace-domains">
         <h3>Workspace keys and public domains</h3>
         <p>
@@ -217,6 +276,45 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
         </div>
       </section>
 
+      <section class="settings-section" id="deleted-workspaces" data-testid="deleted-workspaces">
+        <h3>Files of deleted workspaces</h3>
+        <p>
+          Deleting a workspace keeps its stored files for {deletedStorage.graceDays} days. A daily task then purges them
+          from storage for good, unless you keep them. Purge now doesn't wait; keep means never purged.
+        </p>
+        {deletedStorage.items.length === 0 ? (
+          <p class="muted" data-testid="deleted-empty">No deleted workspace has files waiting.</p>
+        ) : (
+          <ul class="purge-list">
+            {deletedStorage.items.map((item) => (
+              <li class="purge-item" data-id={item.id} data-state={item.state}>
+                <div class="purge-main">
+                  <strong>{item.workspaceName}</strong>
+                  <span class="muted">
+                    {item.objectCount.toLocaleString()} {item.objectCount === 1 ? "file" : "files"} · {size(item.totalBytes)} · on {item.label || item.location}
+                  </span>
+                  <span class="muted">
+                    Deleted <LocalTime iso={item.deletedAt} format="date" /> ·{" "}
+                    {item.state === "kept" ? "kept, never purged" : <>purged after <LocalTime iso={item.purgeAfter} format="date" /></>}
+                  </span>
+                  {item.lastError && <span class="status-text">Last attempt: {item.lastError}</span>}
+                  {item.state === "pending" && !item.canPurge && (
+                    <span class="status-text">This bucket can't be reached from here any more; its files stay where they are. You can mark them kept.</span>
+                  )}
+                </div>
+                {item.state === "pending" && (
+                  <div class="purge-actions">
+                    {item.canPurge && <button type="button" class="button secondary danger small js-purge-now" data-id={item.id} data-name={item.workspaceName}>Purge now</button>}
+                    <button type="button" class="button secondary small js-purge-keep" data-id={item.id}>Keep</button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        <span class="status-text" role="status" data-purge-status></span>
+      </section>
+
       <section class="settings-section">
         <h3>By workspace</h3>
         {storage.workspaces.length === 0 ? (
@@ -247,6 +345,47 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
 
 <script>
   import { testStorageProvider, updateStorageSettings, updateWorkspaceStorage } from "@/lib/api/admin/storage";
+  import { fetchApi } from "@/lib/api/client";
+
+  // Files of deleted workspaces: purge now (after a confirm) or keep.
+  const purgeStatus = document.querySelector<HTMLElement>("[data-purge-status]");
+  const purgeCall = async (id: string, action: "purge" | "keep") => {
+    await fetchApi(`/api/admin/storage/deleted-workspaces/${encodeURIComponent(id)}/${action}`, { method: "POST" });
+    window.location.href = "/admin/storage#deleted-workspaces";
+    window.location.reload();
+  };
+  for (const button of document.querySelectorAll<HTMLButtonElement>(".js-purge-now, .js-purge-keep")) {
+    button.addEventListener("click", async () => {
+      const id = button.dataset.id;
+      if (!id) return;
+      const purge = button.classList.contains("js-purge-now");
+      if (purge && !confirm(`Delete the stored files of "${button.dataset.name}" now? They can't be recovered.`)) return;
+      button.disabled = true;
+      if (purgeStatus) purgeStatus.textContent = purge ? "Purging…" : "Saving…";
+      try {
+        await purgeCall(id, purge ? "purge" : "keep");
+      } catch (e) {
+        if (purgeStatus) purgeStatus.textContent = e instanceof Error ? e.message : String(e);
+        button.disabled = false;
+      }
+    });
+  }
+
+  document.getElementById("workspace-policy")?.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const form = ev.currentTarget as HTMLFormElement;
+    const status = form.querySelector<HTMLElement>("[data-policy-status]");
+    const fd = new FormData(form);
+    try {
+      await fetchApi("/api/admin/storage/workspace-policy", {
+        method: "PUT",
+        body: JSON.stringify({ allowed: fd.get("allowed") === "on", endpointPolicy: fd.get("endpoint_policy") }),
+      });
+      if (status) status.textContent = "Saved";
+    } catch (e) {
+      if (status) status.textContent = e instanceof Error ? e.message : String(e);
+    }
+  });
 
   // Test connection: one line per step (list, put, get, delete), built with textContent only.
   for (const button of document.querySelectorAll<HTMLButtonElement>(".test-btn")) {
@@ -328,6 +467,25 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
 </script>
 
 <style>
+  .purge-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 12px; }
+  .purge-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel-2);
+  }
+  .purge-main { display: grid; gap: 2px; min-width: 0; }
+  .purge-actions { display: flex; gap: 8px; align-items: flex-start; flex-shrink: 0; }
+  .button.danger { color: var(--color-error); border-color: var(--color-error); }
+  @media (max-width: 640px) {
+    .purge-item { flex-direction: column; }
+    .purge-actions .button { flex: 1; min-height: 40px; }
+  }
+  .policy-form { display: grid; gap: 12px; max-width: 640px; }
+  .policy-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .page-container {
     max-width: 900px;
   }

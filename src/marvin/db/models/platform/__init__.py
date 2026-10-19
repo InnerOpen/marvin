@@ -9,14 +9,17 @@ from .character_packs import CharacterPackModel
 from .collection_assets import CollectionAssets
 from .collection_resources import CollectionResources
 from .collections import Collections
+from .deleted_workspace_storage import DeletedWorkspaceStorageModel
 from .entries import Entries
 from .entry_assets import EntryAssets
 from .entry_collections import EntryCollections
 from .entry_resources import EntryResources
+from .entry_snapshots import EntrySnapshotModel
 from .entry_tags import EntryTags
 from .entry_types import EntryTypes
 from .event_log import EventLogModel
 from .media_embed_cache import MediaEmbedCacheModel
+from .oauth import McpUploadLinkModel, OAuthAuthorizationRequestModel, OAuthClientModel, OAuthGrantModel, OAuthTokenModel
 from .platform_settings import PlatformSettingsModel
 from .resource_tags import ResourceTags
 from .resources import Resources
@@ -44,10 +47,16 @@ __all__ = [
     "EntryAssets",
     "EntryCollections",
     "EntryResources",
+    "EntrySnapshotModel",
     "EntryTags",
     "EntryTypes",
     "EventLogModel",
+    "McpUploadLinkModel",
     "MediaEmbedCacheModel",
+    "OAuthAuthorizationRequestModel",
+    "OAuthClientModel",
+    "OAuthGrantModel",
+    "OAuthTokenModel",
     "PlatformSettingsModel",
     "ResourceTags",
     "Resources",
@@ -56,6 +65,7 @@ __all__ = [
     "ScheduledTaskModel",
     "SchedulerLockModel",
     "SiteRebuildRequestModel",
+    "DeletedWorkspaceStorageModel",
     "StorageKeyAliasModel",
     "SubmissionRateLimits",
     "AuthThrottleModel",

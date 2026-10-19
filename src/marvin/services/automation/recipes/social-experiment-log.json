@@ -1,0 +1,186 @@
+{
+  "name": "Social experiment log",
+  "definition": {
+    "trigger": {
+      "type": "manual",
+      "inputs": [
+        {
+          "name": "post",
+          "label": "The post to test",
+          "type": "entry"
+        },
+        {
+          "name": "a_value",
+          "label": "Observed so far for variant A (leave blank on the first run)",
+          "type": "number",
+          "required": false
+        },
+        {
+          "name": "b_value",
+          "label": "Observed so far for variant B",
+          "type": "number",
+          "required": false
+        },
+        {
+          "name": "window",
+          "label": "Count the numbers for the",
+          "type": "choice",
+          "options": [
+            "day",
+            "week",
+            "month"
+          ],
+          "required": false,
+          "default": "week"
+        }
+      ]
+    },
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "variants",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "when": {
+          "field": "entry.metadata.experiment_id",
+          "op": "exists",
+          "value": false
+        },
+        "prompt": "Write two versions of a social post for “${entry.title}”, A and B, that say the same thing and differ in exactly one element — the opening hook — so a comparison is fair. Each at most 280 characters. Answer with variant_a, variant_b and what_differs (a few words naming the one element that differs).",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "variant_a": {
+              "type": "string",
+              "maxLength": 280
+            },
+            "variant_b": {
+              "type": "string",
+              "maxLength": 280
+            },
+            "what_differs": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          "required": [
+            "variant_a",
+            "variant_b",
+            "what_differs"
+          ]
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "id": "draft_a",
+        "when": {
+          "field": "entry.metadata.experiment_id",
+          "op": "exists",
+          "value": false
+        },
+        "entry_type": "{{draft_entry_type}}",
+        "title": "${entry.title} — variant A",
+        "data": {
+          "{{draft_body_field}}": "${steps.variants.output.variant_a}"
+        },
+        "metadata": {
+          "experiment": {
+            "id": "${entry.slug}",
+            "variant": "a",
+            "differs": "${steps.variants.output.what_differs}"
+          }
+        },
+        "status": "draft"
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "id": "draft_b",
+        "when": {
+          "field": "entry.metadata.experiment_id",
+          "op": "exists",
+          "value": false
+        },
+        "entry_type": "{{draft_entry_type}}",
+        "title": "${entry.title} — variant B",
+        "data": {
+          "{{draft_body_field}}": "${steps.variants.output.variant_b}"
+        },
+        "metadata": {
+          "experiment": {
+            "id": "${entry.slug}",
+            "variant": "b",
+            "differs": "${steps.variants.output.what_differs}"
+          }
+        },
+        "status": "draft"
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "id": "mark",
+        "when": {
+          "field": "entry.metadata.experiment_id",
+          "op": "exists",
+          "value": false
+        },
+        "metadata": {
+          "experiment_id": "${entry.slug}",
+          "experiment_variants": {
+            "a": "${steps.draft_a.output.entry_id}",
+            "b": "${steps.draft_b.output.entry_id}"
+          }
+        }
+      },
+      {
+        "kind": "metric",
+        "id": "record_a",
+        "when": {
+          "field": "input.a_value",
+          "op": "exists"
+        },
+        "metric": "{{metric}}",
+        "value": "${input.a_value}",
+        "variant": "a",
+        "subject": "${entry.slug}",
+        "window": "${input.window}"
+      },
+      {
+        "kind": "metric",
+        "id": "record_b",
+        "when": {
+          "field": "input.b_value",
+          "op": "exists"
+        },
+        "metric": "{{metric}}",
+        "value": "${input.b_value}",
+        "variant": "b",
+        "subject": "${entry.slug}",
+        "window": "${input.window}"
+      },
+      {
+        "kind": "metric",
+        "id": "report",
+        "op": "read",
+        "metric": "{{metric}}",
+        "subject": "${entry.slug}"
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "id": "keep_report",
+        "when": {
+          "field": "steps.report.output.count",
+          "op": "gt",
+          "value": 0
+        },
+        "metadata": {
+          "experiment_report": "${steps.report.output.text}"
+        }
+      }
+    ]
+  }
+}

@@ -176,65 +176,67 @@ class ABCEmailSender(ABC):
 
 class DefaultEmailSender(ABCEmailSender, BaseService):
     """
-    Default email sender implementation for Marvin using SMTP.
+    Marvin's own SMTP sender: the platform SMTP server (services/platform_smtp), i.e. the environment's ``SMTP_*``
+    settings with whatever an admin overrode in Admin → Email, merged field by field.
 
-    This class uses SMTP settings from the application's configuration file
-    to send emails via Python's standard `smtplib` library. It supports
-    both TLS and SSL encryption for SMTP connections. It inherits common
-    service functionalities (like settings and logger access) from `BaseService`.
+    Without a ``config`` it reads the one in force at send time, so a saved change applies to the next mail.
     """
+
+    def __init__(self, config=None) -> None:
+        self._config = config
+
+    @property
+    def config(self):
+        from marvin.services import platform_smtp
+
+        return self._config or platform_smtp.effective()
+
+    def deliver(self, email_to: str, subject: str, html_content: str) -> SMTPResponse:
+        """
+        Sends an email through the platform SMTP server and returns the server's answer.
+
+        Raises:
+            ValueError: If essential SMTP settings (From address and name, host, port) are not configured.
+        """
+        config = self.config
+        # Validate that essential sender information is configured
+        if not config.from_email or not config.from_name:
+            self.logger.error("SMTP From address and name must be set for sending emails.")
+            raise ValueError("The SMTP From address and name must be set (Admin → Email, or SMTP_FROM_EMAIL / SMTP_FROM_NAME).")
+
+        email_msg = Message(
+            subject=subject,
+            html=html_content,
+            mail_from_name=config.from_name,
+            mail_from_address=config.from_email,
+        )
+
+        # Validate that essential SMTP server settings are configured
+        if not config.host or not config.port:
+            self.logger.error("SMTP host and port must be set for sending emails.")
+            raise ValueError("The SMTP host and port must be set (Admin → Email, or SMTP_HOST / SMTP_PORT).")
+
+        smtp_options = EmailOptions(
+            host=config.host,
+            port=config.port,
+            username=config.username or None,
+            password=config.password or None,
+            tls=config.tls,
+            ssl=config.ssl,
+        )
+        return email_msg.send(to_address=email_to, smtp_config=smtp_options)
 
     def send(self, email_to: str, subject: str, html_content: str) -> bool:
         """
-        Sends an email using the application's configured SMTP settings.
-
-        Args:
-            email_to (str): The recipient's email address.
-            subject (str): The subject of the email.
-            html_content (str): The HTML content of the email.
+        Sends an email through the platform SMTP server.
 
         Returns:
             bool: True if the email was sent successfully, False otherwise.
 
         Raises:
-            ValueError: If essential SMTP settings (from_email, from_name, host, port)
-                        are not configured in the application settings.
+            ValueError: If essential SMTP settings are not configured (see `deliver`).
         """
-        # Validate that essential sender information is configured
-        if not self.settings.SMTP_FROM_EMAIL or not self.settings.SMTP_FROM_NAME:
-            self.logger.error("SMTP_FROM_EMAIL and SMTP_FROM_NAME must be set for sending emails.")
-            raise ValueError("SMTP_FROM_EMAIL and SMTP_FROM_NAME must be set in the config file.")
-
-        # Create the email message object
-        email_msg = Message(
-            subject=subject,
-            html=html_content,
-            mail_from_name=self.settings.SMTP_FROM_NAME,
-            mail_from_address=self.settings.SMTP_FROM_EMAIL,
-        )
-
-        # Validate that essential SMTP server settings are configured
-        if not self.settings.SMTP_HOST or not self.settings.SMTP_PORT:
-            self.logger.error("SMTP_HOST and SMTP_PORT must be set for sending emails.")
-            raise ValueError("SMTP_HOST and SMTP_PORT must be set in the config file.")
-
-        # Prepare SMTP options from application settings
-        smtp_options = EmailOptions(
-            host=self.settings.SMTP_HOST,
-            port=int(self.settings.SMTP_PORT),  # Ensure port is integer
-            # Determine TLS/SSL usage based on configured strategy (case-insensitive)
-            tls=(self.settings.SMTP_AUTH_STRATEGY.upper() == "TLS" if self.settings.SMTP_AUTH_STRATEGY else False),
-            ssl=(self.settings.SMTP_AUTH_STRATEGY.upper() == "SSL" if self.settings.SMTP_AUTH_STRATEGY else False),
-        )
-
-        # Add SMTP authentication credentials if configured
-        if self.settings.SMTP_USER:
-            smtp_options.username = self.settings.SMTP_USER
-        if self.settings.SMTP_PASSWORD:  # Password should be accessed securely
-            smtp_options.password = self.settings.SMTP_PASSWORD
-
-        # Send the message using the Message object's send method
-        smtp_response = email_msg.send(to_address=email_to, smtp_config=smtp_options)
+        smtp_response = self.deliver(email_to, subject, html_content)
 
         self.logger.debug(
             f"Send email result to {email_to}: {smtp_response.message}, Success: {smtp_response.success}, Errors: {smtp_response.errors}"
@@ -303,10 +305,13 @@ class WorkspaceEmailSender(ABCEmailSender, BaseService):
             # No active profile — behave exactly like the platform's sender.
             return platform_sender().send(email_to, subject, html_content)
 
-        from_email = profile["from_email"] or self.settings.SMTP_FROM_EMAIL
-        from_name = profile["from_name"] or self.settings.SMTP_FROM_NAME or "Marvin"
+        from marvin.services import platform_smtp
+
+        platform = platform_smtp.effective()  # the platform's From, when the profile sets none of its own
+        from_email = profile["from_email"] or platform.from_email
+        from_name = profile["from_name"] or platform.from_name or "Marvin"
         if not from_email:
-            self.logger.error(f"Active SMTP profile '{profile['name']}' has no From address and no global SMTP_FROM_EMAIL fallback.")
+            self.logger.error(f"Active SMTP profile '{profile['name']}' has no From address and the platform SMTP has none to fall back on.")
             return False
 
         password = None
@@ -341,49 +346,33 @@ class WorkspaceEmailSender(ABCEmailSender, BaseService):
         return result.success
 
 
-def _active_profiles(group_id=None, session=None) -> list:
-    """The workspace ids with an active SMTP profile, among ``group_id`` and the platform workspace."""
-    from sqlalchemy import or_, select
+def _has_active_profile(group_id, session=None) -> bool:
+    """Whether the workspace has an active SMTP profile of its own."""
+    from sqlalchemy import select
 
     from marvin.db.db_setup import session_context
-    from marvin.db.models.groups import Groups
     from marvin.db.models.groups.smtp_profiles import WorkspaceSMTPProfileModel
 
-    stmt = (
-        select(WorkspaceSMTPProfileModel.group_id)
-        .join(Groups, Groups.id == WorkspaceSMTPProfileModel.group_id)
-        .where(
-            WorkspaceSMTPProfileModel.is_active.is_(True),
-            or_(Groups.is_platform.is_(True), WorkspaceSMTPProfileModel.group_id == group_id) if group_id else Groups.is_platform.is_(True),
-        )
-    )
+    stmt = select(WorkspaceSMTPProfileModel.id).where(WorkspaceSMTPProfileModel.group_id == group_id, WorkspaceSMTPProfileModel.is_active.is_(True))
     try:
         if session is not None:
-            return list(session.execute(stmt).scalars().all())
+            return session.execute(stmt.limit(1)).first() is not None
         with session_context() as own:
-            return list(own.execute(stmt).scalars().all())
-    except Exception as e:  # a failed lookup must not stop mail the settings could still send
-        logger.warning(f"Could not look up active SMTP profiles: {e}")
-        return []
+            return own.execute(stmt.limit(1)).first() is not None
+    except Exception as e:  # a failed lookup must not stop mail the platform SMTP could still send
+        logger.warning(f"Could not look up the active SMTP profile of {group_id}: {e}")
+        return False
 
 
 def platform_sender() -> ABCEmailSender:
-    """Who sends mail that isn't a workspace's own (password resets, platform alerts, the admin test).
-
-    The platform SMTP settings when they're complete; otherwise the platform workspace's active SMTP
-    profile, so an install can send from a profile set up in the admin's workspace without SMTP
-    credentials in its configuration; otherwise the settings anyway (which then refuse, and say why).
-    """
-    from marvin.core.config import get_app_settings
-
-    if not get_app_settings().SMTP_ENABLED and (profiles := _active_profiles()):
-        return WorkspaceEmailSender(profiles[0])
+    """Who sends mail that isn't a workspace's own (password resets, platform alerts, the admin test, a workspace
+    without an SMTP profile): the platform SMTP server — the environment's settings with Admin → Email's overrides."""
     return DefaultEmailSender()
 
 
 def email_ready(group_id=None, session=None) -> bool:
-    """Whether mail can go out — for ``group_id``, through its own active SMTP profile; for anything,
-    through the platform SMTP settings or the platform workspace's active profile (``platform_sender``)."""
-    from marvin.core.config import get_app_settings
+    """Whether mail can go out — for ``group_id``, through its own active SMTP profile or the platform SMTP server;
+    for anything else, through the platform SMTP server (services/platform_smtp)."""
+    from marvin.services import platform_smtp
 
-    return get_app_settings().SMTP_ENABLED or bool(_active_profiles(group_id, session))
+    return platform_smtp.ready() or bool(group_id and _has_active_profile(group_id, session))

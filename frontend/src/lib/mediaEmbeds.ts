@@ -13,8 +13,8 @@
 import type { Token, Tokens } from "marked";
 import { Marked } from "marked";
 
-export type EmbedKind = "video" | "audio" | "podcast" | "playlist";
-export type EmbedStatus = "ok" | "link" | "unavailable";
+type EmbedKind = "video" | "audio" | "podcast" | "playlist";
+type EmbedStatus = "ok" | "link" | "unavailable";
 export type EmbedMode = "direct" | "click_to_load";
 
 export interface EmbedProvider {
@@ -34,7 +34,7 @@ export interface ProvidersResponse {
   frameSources: string[];
 }
 
-export interface EmbedIframe {
+interface EmbedIframe {
   src: string;
   title: string;
   allow: string;
@@ -72,7 +72,7 @@ export interface ResolveResult {
 export const DEFAULT_CONSENT_TEXT = "Loading this player connects to {provider}, which may set cookies.";
 
 /** The lower-cased hostname of an http(s) URL, or null for anything else. */
-export function httpHost(url: string): string | null {
+function httpHost(url: string): string | null {
   let parsed: URL;
   try {
     parsed = new URL(url.trim());
@@ -102,7 +102,7 @@ export function findProvider(url: string, providers: readonly EmbedProvider[]): 
 }
 
 /** The bare URL a top-level paragraph token consists of, or null when it is anything else. */
-export function bareUrlOfParagraph(token: Token): string | null {
+function bareUrlOfParagraph(token: Token): string | null {
   if (token.type !== "paragraph") return null;
   const inline = (token as Tokens.Paragraph).tokens ?? [];
   if (inline.length !== 1 || inline[0].type !== "link") return null;
@@ -139,7 +139,7 @@ export function safeHref(href: string | null | undefined): string {
   return SAFE_URL.test(compact) ? String(href ?? "").trim() : "";
 }
 
-export interface PreviewSlot {
+interface PreviewSlot {
   /** Matches the `data-marvin-embed-slot` attribute of the placeholder in `html`. */
   id: string;
   /** The URL as written in the markdown. */

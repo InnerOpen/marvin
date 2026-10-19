@@ -43,6 +43,8 @@ class Collections(SqlAlchemyBase, BaseMixins, InstalledByMixin):
     # internal-only (not exposed via the publish API).
     is_system: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False, server_default=sa.false())
     is_public: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=True, server_default=sa.true())
+    # Listed under Collections in the app sidebar; a workspace turns off the ones nobody needs at hand.
+    in_sidebar: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=True, server_default=sa.true())
     metadata_json: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
 
     # Relationships
@@ -78,3 +80,46 @@ class Collections(SqlAlchemyBase, BaseMixins, InstalledByMixin):
     def __init__(self, session: Session, **kwargs) -> None:
         """Initialize via Marvin's auto-init model helper."""
         pass
+
+    def _source_integration(self):
+        """The integration that installed this collection, or None (read here rather than from the integrations list,
+        which only admins may read)."""
+        if not self.source_integration_id:
+            return None
+        from ..groups.integrations import IntegrationModel
+
+        session = orm.object_session(self)
+        return session.get(IntegrationModel, self.source_integration_id) if session is not None else None
+
+    @property
+    def source_integration_name(self) -> str | None:
+        """The name of the integration that installed this collection (the sidebar groups by it), or None."""
+        row = self._source_integration()
+        return row.name if row is not None else None
+
+    @property
+    def source_integration_provider(self) -> str | None:
+        """That integration's provider slug: the sidebar shows the provider's logo (or emoji) on the group."""
+        row = self._source_integration()
+        return row.provider if row is not None else None
+
+    @property
+    def source_integration_icon(self) -> str | None:
+        """The provider's emoji, shown when it ships no logo; None when the provider isn't installed."""
+        provider = self.source_integration_provider
+        if not provider:
+            return None
+        try:
+            from marvin_integration_sdk import INTEGRATION_REGISTRY
+        except ImportError:  # no SDK installed: no providers
+            return None
+        found = INTEGRATION_REGISTRY.get(provider)
+        return (getattr(found, "icon", "") or None) if found is not None else None
+
+    @property
+    def source_integration_has_logo(self) -> bool:
+        """Whether the provider ships a logo Marvin accepted (GET …/integrations/providers/{slug}/logo)."""
+        from marvin.services.integrations import logos
+
+        provider = self.source_integration_provider
+        return bool(provider) and logos.has_logo(provider)

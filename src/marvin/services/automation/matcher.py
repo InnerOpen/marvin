@@ -17,8 +17,13 @@ from typing import Any
 from urllib.parse import quote
 
 # Supported condition operators. `changed*` key on an update's diff (event.changed_fields/before/
-# after); the field's last segment names the field (so `entry.status` → the "status" diff key).
-_OPS = ("eq", "neq", "contains", "in", "starts_with", "exists", "changed", "changed_from", "changed_to", "gt", "gte", "lt", "lte")
+# after); the field's last segment names the field (so `entry.status` → the "status" diff key; a type's own
+# field is `data.<key>`).
+_OPS = (
+    "eq", "neq", "contains", "in", "starts_with", "exists", "changed", "changed_from", "changed_to",
+    "gt", "gte", "lt", "lte", "longer_than", "shorter_than",
+)  # fmt: skip
+# Length comparisons: the text's characters (a list's items) against a number; nothing there is length 0.
 
 # Number comparisons: both sides read as numbers (typed-in text too); anything else fails closed.
 _COMPARE = {"gt": lambda a, b: a > b, "gte": lambda a, b: a >= b, "lt": lambda a, b: a < b, "lte": lambda a, b: a <= b}
@@ -132,6 +137,13 @@ def _stringify(v: Any) -> str:
     return "" if v is None else str(v)
 
 
+def diff_key(field: Any) -> str:
+    """The diff key a `changed*` condition's field names: the last segment (`entry.status` → "status"), or from
+    `data` on for an entry-type field (`entry.data.price` → "data.price", as changed_fields lists it)."""
+    parts = str(field or "").split(".")
+    return ".".join(parts[parts.index("data") :]) if "data" in parts[:-1] else parts[-1]
+
+
 def _operands(cond: dict, context: dict) -> tuple[Any, Any]:
     """The (actual, expected) pair a leaf condition compares — shared by matching and the dry run's
     explanation, so what the checklist shows is what was compared.
@@ -143,11 +155,11 @@ def _operands(cond: dict, context: dict) -> tuple[Any, Any]:
     field = cond.get("field")
     op = cond.get("op", "eq")
     if op in ("changed", "changed_from", "changed_to"):
-        key = str(field or "").rsplit(".", 1)[-1]
+        key = diff_key(field)
         if op == "changed":
             return resolve_path("event.changed_fields", context) or [], key
         side = "after" if op == "changed_to" else "before"
-        return (resolve_path(f"event.{side}", context) or {}).get(key), interpolate(cond.get("value"), context)
+        return resolve_path(f"event.{side}.{key}", context), interpolate(cond.get("value"), context)
     actual = resolve_path(field, context) if field else None
     return actual, interpolate(cond.get("value"), context)
 
@@ -167,6 +179,12 @@ def _match_one(cond: dict, context: dict) -> bool:
             expected if isinstance(expected, bool) else (as_bool(expected) if isinstance(expected, str) and as_bool(expected) is not None else True)
         )
         return (actual is not None) == want
+    if op in ("longer_than", "shorter_than"):
+        limit = _number(expected)
+        if limit is None:
+            return False
+        length = len(actual) if isinstance(actual, list | dict) else len(str(actual)) if actual is not None else 0
+        return length > limit if op == "longer_than" else length < limit
     if op == "eq":
         return actual == _like(actual, expected)
     if op == "neq":

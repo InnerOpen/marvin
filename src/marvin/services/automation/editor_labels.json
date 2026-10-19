@@ -28,8 +28,13 @@
     "media": "Process an image",
     "collect": "Gather items",
     "fetch": "Check a web address",
+    "schema_check": "Check against a schema",
+    "email": "Email a member",
+    "metric": "Record a metric",
+    "snapshot": "Save or restore a version",
     "wait": "Wait",
-    "repeat": "Repeat for each"
+    "repeat": "Repeat for each",
+    "parallel": "Parallel branches"
   },
   "entryOps": {
     "publish": "Publish",
@@ -42,7 +47,8 @@
     "set_metadata": "Set metadata",
     "set_data": "Set fields",
     "request_review": "Send to review",
-    "create": "Create an entry"
+    "create": "Create an entry",
+    "attach_asset": "Attach a picture"
   },
   "conditionOps": {
     "eq": "equals",
@@ -57,6 +63,8 @@
     "gt": "is more than",
     "gte": "is at least",
     "lt": "is less than",
-    "lte": "is at most"
+    "lte": "is at most",
+    "longer_than": "is longer than (characters)",
+    "shorter_than": "is shorter than (characters)"
   }
 }

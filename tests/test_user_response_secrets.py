@@ -24,7 +24,10 @@ SECRET_KEY_PARTS = ("password", "hash", "secret", "token")
 # OpenAPI response schemas legitimately return freshly issued tokens (login, PATs, reset tokens) and
 # `has*` flags, so the schema-wide guard only looks for stored credentials.
 STORED_CREDENTIAL_KEY_PARTS = ("password", "hash")
-ALLOWED_RESPONSE_KEYS = {"haspassword"}
+# Platform SMTP (Admin → Email) reports whether a password is in force, where it comes from, whether the store lost it and
+# whether it can be stored —
+# flags only; the value is write-only (test_platform_smtp_api.py checks it never appears).
+ALLOWED_RESPONSE_KEYS = {"haspassword", "passwordset", "passwordsource", "passwordmissing", "canstorepassword"}
 
 
 def _secret_keys(node, parts=SECRET_KEY_PARTS, path="$") -> list[str]:

@@ -1,7 +1,7 @@
 """Backup key naming and retention — the layout the old ``scripts/offsite_backup.py`` wrote, so a target carries on
 the history it left.
 
-    sqlite/marvin-<UTC YYYYmmddTHHMMSSZ>.db.gz          consistent SQLite snapshot (gzip)
+    sqlite/marvin-<UTC YYYYmmddTHHMMSSZ>.db.gz          consistent SQLite snapshot (gzip), on a SQLite install
     postgres/marvin-<UTC YYYYmmddTHHMMSSZ>.dump         pg_dump --format=custom
     config/marvin-config-<UTC YYYYmmddTHHMMSSZ>.tar.gz  .secret, scheduler_state.json, templates/
     assets/<storage key>                                incremental mirror, never deleted

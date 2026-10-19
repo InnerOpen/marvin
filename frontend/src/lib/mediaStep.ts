@@ -70,9 +70,9 @@ export const WATERMARK_POSITIONS: [string, string][] = [
   ["tiled", "Tiled across the picture (can't be cropped away)"],
 ];
 /** What find_sensitive / redact can look for (capability.SENSITIVE_KINDS). */
-export const SENSITIVE_KINDS = ["face", "plate", "text"];
+const SENSITIVE_KINDS = ["face", "plate", "text"];
 /** The largest side a render may have (services/ai/media/render.py MAX_SIDE). */
-export const MAX_RENDER_SIDE = 4000;
+const MAX_RENDER_SIDE = 4000;
 export const ASPECTS = ["1:1", "4:5", "3:2", "16:9", "9:16"];
 export const GRADE_PRESETS = ["rustic-warm", "warm", "cool", "muted"];
 
@@ -146,10 +146,15 @@ export function mediaFields(op: string, values: Record<string, string | undefine
       try {
         out.boxes = JSON.parse(raw);
       } catch {
-        throw new Error("what to blur is a list of boxes, e.g. [[0.1, 0.2, 0.3, 0.3]], or a ${steps.<id>.output.regions}");
+        throw new Error(
+          "what to blur is a list of boxes, e.g. [[0.1, 0.2, 0.3, 0.3]], or a ${steps.<id>.output.regions}",
+        );
       }
     } else if (key === "find") {
-      const kinds = raw.split(",").map((k) => k.trim().toLowerCase()).filter(Boolean);
+      const kinds = raw
+        .split(",")
+        .map((k) => k.trim().toLowerCase())
+        .filter(Boolean);
       const wrong = kinds.filter((k) => !SENSITIVE_KINDS.includes(k));
       if (wrong.length) throw new Error(`look for ${SENSITIVE_KINDS.join(", ")} — not ${wrong.join(", ")}`);
       if (kinds.length < SENSITIVE_KINDS.length) out.find = kinds; // all of them is the default
@@ -158,7 +163,8 @@ export function mediaFields(op: string, values: Record<string, string | undefine
     }
   }
   if (op === "extract_text" && out.ocr === "auto") delete out.ocr; // the default
-  if (out.format === "pdf" && op !== "render") throw new Error("PDF is for a render (printed); pictures are JPEG, PNG or WebP");
+  if (out.format === "pdf" && op !== "render")
+    throw new Error("PDF is for a render (printed); pictures are JPEG, PNG or WebP");
   if (op === "zip" && !out.files) throw new Error("zip needs files, e.g. ${steps.<id>.output.rows}");
   if (op === "watermark" && !out.text && !out.logo) throw new Error("a watermark needs text or a logo");
   if (op === "resize" && !(out.width || out.height)) throw new Error("resize needs a width or a height");

@@ -12,8 +12,8 @@
 #   Build and run locally instead of pulling:
 #     docker compose -f docker/docker-compose.yml up -d --build
 #
-# Storage defaults to SQLite in a named volume, so it runs with no external services. To test
-# against Postgres instead, set DB_ENGINE=postgres and start with the postgres profile:
+# Storage defaults to SQLite in a named volume, so it runs with no external services. To run on Postgres instead,
+# set DB_ENGINE=postgres and start with the postgres profile:
 #     DB_ENGINE=postgres docker compose -f docker/docker-compose.yml --profile postgres up -d
 
 services:

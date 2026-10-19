@@ -40,6 +40,129 @@ def default_embedding_model(provider_type: str) -> str | None:
     return cls.default_embedding_model if cls else None
 
 
+# Marvin's own embedding model, used by every workspace whatever its chat provider: an index can only be read by the
+# model that built it, so tying search to the chat provider broke it on every switch (and Anthropic offers no
+# embeddings at all). Small (384 numbers per chunk, ~65 MB), fast on CPU; the Docker image carries it
+# (EMBEDDINGS_BUILTIN_CACHE), so nothing is downloaded at run time. EMBEDDINGS_BUILTIN_ENABLED=false goes back to the
+# provider's own embedding model.
+BUILTIN_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
+BUILTIN_PROVIDER_TYPE = "builtin"
+BUILTIN_BATCH = 4
+
+
+class BuiltinEmbedder:
+    """The embed() half of an AI provider, run in this process with fastembed (ONNX). Loaded once, on first use."""
+
+    provider_type = BUILTIN_PROVIDER_TYPE
+    supports_embeddings = True
+    _model = None
+    _lock = None
+
+    @classmethod
+    def _load(cls):
+        import threading
+
+        if cls._lock is None:
+            cls._lock = threading.Lock()
+        with cls._lock:
+            if cls._model is None:
+                import os
+
+                from fastembed import TextEmbedding
+
+                # One thread: it runs inside the API process, beside requests.
+                cls._model = TextEmbedding(BUILTIN_EMBEDDING_MODEL, cache_dir=os.environ.get("EMBEDDINGS_BUILTIN_CACHE") or None, threads=1)
+        return cls._model
+
+    def embed(self, texts: list[str], model: str | None = None) -> list[list[float]]:
+        # Small batches: the model takes ~250 MB loaded, and a batch of long chunks adds to that in proportion (64 at once
+        # added ~770 MB in a measurement, the whole pod; 4 at a time stays near +300 MB at the same speed).
+        return [vector.tolist() for vector in self._load().embed(list(texts), batch_size=BUILTIN_BATCH)]
+
+
+def builtin_embeddings_available() -> bool:
+    import importlib.util
+
+    from marvin.core.config import get_app_settings
+
+    return bool(getattr(get_app_settings(), "EMBEDDINGS_BUILTIN_ENABLED", True)) and importlib.util.find_spec("fastembed") is not None
+
+
+def builtin_embedding_dimensions() -> int | None:
+    """Vector size of the built-in model, from fastembed's model catalogue (a static list: no weights are loaded);
+    None when fastembed isn't installed."""
+    try:
+        from fastembed import TextEmbedding
+
+        return next((int(m["dim"]) for m in TextEmbedding.list_supported_models() if m["model"] == BUILTIN_EMBEDDING_MODEL), None)
+    except Exception:  # noqa: BLE001 — a status readout never breaks on a library quirk
+        return None
+
+
+def _package_version(name: str) -> str | None:
+    import importlib.metadata as md
+
+    try:
+        return md.version(name)
+    except md.PackageNotFoundError:
+        return None
+
+
+def indexed_models(session: Session) -> list[tuple[str, int]]:
+    """(model id, chunk count) for every embedding model that has vectors stored, platform-wide, most chunks first.
+    A model that isn't the one in use is a stale index waiting for a reindex."""
+    import sqlalchemy as sa
+
+    from marvin.db.models.groups.ai_embeddings import AIEmbeddingModel
+
+    count = sa.func.count(AIEmbeddingModel.id)
+    rows = session.query(AIEmbeddingModel.model_id, count).group_by(AIEmbeddingModel.model_id).order_by(count.desc(), AIEmbeddingModel.model_id).all()
+    return [(model_id, int(n)) for model_id, n in rows]
+
+
+def embeddings_status(session: Session) -> dict:
+    """What Admin → System shows about embeddings. Reads settings, package metadata and one grouped count; never
+    loads the model."""
+    from marvin.core.config import get_app_settings
+
+    available = builtin_embeddings_available()
+    return {
+        "builtin_enabled": bool(getattr(get_app_settings(), "EMBEDDINGS_BUILTIN_ENABLED", True)),
+        "builtin_available": available,
+        "model": BUILTIN_EMBEDDING_MODEL if available else None,
+        "dimensions": builtin_embedding_dimensions() if available else None,
+        "engine": "fastembed",
+        "engine_version": _package_version("fastembed"),
+        "onnxruntime_version": _package_version("onnxruntime"),
+        "indexed_models": [{"model_id": m, "chunks": n} for m, n in indexed_models(session)],
+    }
+
+
+def embedder_for(provider) -> tuple[object, str] | tuple[None, None]:
+    """(embedder, model id) a workspace embeds with: Marvin's built-in model; with it switched off, the AI provider's
+    own embedding model if it has one; else (None, None). The embedder has `embed(texts, model)`; the model id is
+    stored with each vector, so an index built by one model is never read with another."""
+    if builtin_embeddings_available():
+        return BuiltinEmbedder(), BUILTIN_EMBEDDING_MODEL
+    if provider is not None and getattr(provider, "supports_embeddings", False):
+        model = default_embedding_model(provider.provider_type)
+        if model:
+            return provider, model
+    return None, None
+
+
+def embedding_model_for_settings(provider_type: str | None) -> str | None:
+    """The embedding model a workspace on `provider_type` ends up with (for "did it change?" and "is there search?")."""
+    from marvin.services.ai.registry import find_class
+
+    if builtin_embeddings_available():
+        return BUILTIN_EMBEDDING_MODEL
+    cls = find_class(provider_type) if provider_type else None
+    if cls is not None and getattr(cls, "supports_embeddings", False):
+        return default_embedding_model(provider_type)
+    return None
+
+
 def chunk_text(text: str, max_chars: int = 1500, overlap: int = 150) -> list[str]:
     """Split text into overlapping character windows. Simple and provider-agnostic."""
     text = (text or "").strip()
@@ -122,11 +245,6 @@ def purge_embeddings(session: Session, group_id: UUID4, entity_type: str, entity
     n = q.delete()
     session.commit()
     return n
-
-
-def index_entry(session: Session, group_id: UUID4, entry, provider, model: str) -> int:
-    """(Re)index a single entry. Convenience wrapper for auto-embed-on-publish. Returns chunk count."""
-    return index_entity(session, group_id, "entry", entry.id, _entry_text(entry), provider, model)
 
 
 EMBED_BATCH_CHUNKS = 64
@@ -295,13 +413,17 @@ def search_embeddings(
     query_vector: list[float],
     limit: int = 5,
     entity_types: list[str] | None = None,
+    model: str | None = None,
 ) -> list[dict]:
-    """Return the top-`limit` chunks by cosine similarity to `query_vector`."""
+    """Return the top-`limit` chunks by cosine similarity to `query_vector`, among those `model` embedded (a vector is
+    only comparable with one from the same model; an older model's stay in the table until a re-index replaces them)."""
     import numpy as np
 
     from marvin.db.models.groups.ai_embeddings import AIEmbeddingModel
 
     q = session.query(AIEmbeddingModel).filter_by(group_id=group_id)
+    if model:
+        q = q.filter_by(model_id=model)
     if entity_types:
         q = q.filter(AIEmbeddingModel.entity_type.in_(entity_types))
     rows = q.all()

@@ -24,6 +24,10 @@ SVG, which is a script vector when served from the app's own origin. Zips are re
 entry-count and size caps checked from the archive's directory before anything is decompressed, and
 enforced again while reading; entry names are only ever used to pick a state, never as paths.
 
+A complete pack — the .zip a library pack downloads as — carries a character.json (MANIFEST_NAME) beside its
+images: its name, which file plays each state, where each drawing sits in its frame, and its persona. Its states
+are taken as written, with no guessing from file names (read_manifest).
+
 An upload that is ONE character sheet — a 16-pose sheet or a ChatGPT pet sheet, loose or alone in a zip — is
 built into the whole pack first (expand_sheet; the building is services/ai/character_sheets.py), so the person
 drops in the image an image model gave them and gets every animation, named for its state.
@@ -37,6 +41,7 @@ does the same for files stored before that.
 from __future__ import annotations
 
 import io
+import json
 import logging
 import re
 import uuid
@@ -110,6 +115,12 @@ MAX_CHARACTER_TOTAL_BYTES = 20 * MEGABYTE
 # A zip of MAX_CHARACTER_TOTAL_BYTES of already-compressed images is about that size again.
 MAX_CHARACTER_UPLOAD_BYTES = MAX_CHARACTER_TOTAL_BYTES
 
+# A complete pack's character sheet, inside its .zip (services/ai/character_library.py: pack_zip).
+MANIFEST_NAME = "character.json"
+MANIFEST_FORMAT = "marvin-character/1"
+MAX_MANIFEST_BYTES = 256 * 1024
+INSET_SIDES = ("top", "right", "bottom", "left")
+
 ASSET_PURPOSE = "assistant-character"
 # The key under which a character points at a library pack instead of holding files of its own.
 LIBRARY_KEY = "library"
@@ -170,6 +181,24 @@ class CharacterPlan:
     # The upload was one character sheet, built into these animations: what it was and the height ("16-pose sheet
     # (height 108)"); None for an ordinary upload.
     built_from: str | None = None
+    # A complete pack: the upload carried a character.json, whose states were taken as written. Its persona
+    # (unvalidated: the library cleans it) and its slug; `name` above is its name.
+    from_manifest: bool = False
+    persona: dict | None = None
+    slug: str | None = None
+    # {image name: inset} the manifest gives, in place of measuring those images.
+    insets: dict[str, dict[str, float]] = field(default_factory=dict)
+
+
+@dataclass
+class _Manifest:
+    """A character.json as read, before it's matched against the upload's images."""
+
+    name: str | None
+    slug: str | None
+    states: dict[str, str]
+    insets: dict[str, dict[str, float]]
+    persona: dict | None
 
 
 # --- naming -------------------------------------------------------------------------------------
@@ -267,12 +296,14 @@ def _zip_members(data: bytes, budget: _Budget) -> Iterator[tuple[str, bytes]]:
             yield _path(info.filename).name, content
 
 
-def read_uploads(uploads: Iterable[tuple[str, bytes]]) -> tuple[list[CharacterImage], list[str]]:
-    """(accepted images, ignored file names) from uploaded files, expanding any zips among them."""
+def read_uploads(uploads: Iterable[tuple[str, bytes]]) -> tuple[list[CharacterImage], list[str], bytes | None]:
+    """(accepted images, ignored file names, the character.json's bytes if there was one) from uploaded files,
+    expanding any zips among them."""
     budget = _Budget()
     images: list[CharacterImage] = []
     ignored: list[str] = []
     seen: set[str] = set()
+    manifest: bytes | None = None
 
     def files() -> Iterator[tuple[str, bytes]]:
         for name, data in uploads:
@@ -283,6 +314,11 @@ def read_uploads(uploads: Iterable[tuple[str, bytes]]) -> tuple[list[CharacterIm
                 yield _path(name).name, data
 
     for name, data in files():
+        if name.lower() == MANIFEST_NAME:
+            if manifest is not None:
+                raise CharacterError(f"a pack has one {MANIFEST_NAME}")
+            manifest = data
+            continue
         kind = sniff_image(data)
         # A second file of the same name couldn't be told apart from the first in the picker.
         if kind is None or name.lower() in seen:
@@ -290,28 +326,107 @@ def read_uploads(uploads: Iterable[tuple[str, bytes]]) -> tuple[list[CharacterIm
             continue
         seen.add(name.lower())
         images.append(CharacterImage(name=name, data=data, mime_type=kind[0], extension=kind[1]))
-    return images, ignored
+    return images, ignored, manifest
 
 
-def plan_character(uploads: list[tuple[str, bytes]]) -> CharacterPlan:
-    """Read an upload and give each state its best-named file. Raises CharacterError when unusable."""
-    images, ignored = read_uploads(uploads)
-    images, built_from = expand_sheet(images)
-    images, cleared = clear_mattes(images)
-    if not images:
-        raise CharacterError("no GIF, WebP or PNG images found — a character needs at least an idle animation")
+def _short_text(value, what: str, limit: int) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value) > limit:
+        raise CharacterError(f"{MANIFEST_NAME}: {what} is text of at most {limit} characters")
+    return value.strip() or None
+
+
+def _manifest_insets(raw) -> dict[str, dict[str, float]]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise CharacterError(f"{MANIFEST_NAME}: insets is {{file: {{top, right, bottom, left}}}}")
+    insets = {}
+    for name, inset in raw.items():
+        valid = isinstance(inset, dict) and all(isinstance(inset.get(side), int | float) and 0 <= inset[side] < 1 for side in INSET_SIDES)
+        if not valid:
+            raise CharacterError(f"{MANIFEST_NAME}: the inset of {name} is four shares of the frame (0 to 1): {', '.join(INSET_SIDES)}")
+        insets[str(name)] = {side: round(float(inset[side]), 4) for side in INSET_SIDES}
+    return insets
+
+
+def read_manifest(data: bytes) -> _Manifest:
+    """A pack's character.json: its format checked, its states' shape and its insets validated; unknown keys
+    ignored. The persona is left for the library to clean. Raises CharacterError."""
+    if len(data) > MAX_MANIFEST_BYTES:
+        raise CharacterError(f"{MANIFEST_NAME} is over {MAX_MANIFEST_BYTES // 1024} KB")
+    try:
+        raw = json.loads(data.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        raise CharacterError(f"{MANIFEST_NAME} isn't valid JSON ({e})") from None
+    if not isinstance(raw, dict):
+        raise CharacterError(f"{MANIFEST_NAME} is a JSON object")
+    if raw.get("format") != MANIFEST_FORMAT:
+        raise CharacterError(f"{MANIFEST_NAME} has format {raw.get('format')!r}; this version of Marvin reads {MANIFEST_FORMAT!r}")
+    states = raw.get("states") or {}
+    if not isinstance(states, dict) or not all(isinstance(f, str) for f in states.values()):
+        raise CharacterError(f"{MANIFEST_NAME}: states is {{state: file name}}")
+    unknown = sorted(set(states) - set(CHARACTER_STATES))
+    if unknown:
+        raise CharacterError(f"{MANIFEST_NAME}: unknown state(s) {', '.join(unknown)} — use {', '.join(CHARACTER_STATES)}")
+    persona = raw.get("persona")
+    if persona is not None and not isinstance(persona, dict):
+        raise CharacterError(f"{MANIFEST_NAME}: persona is an object")
+    return _Manifest(
+        name=_short_text(raw.get("name"), "name", 120),
+        slug=_short_text(raw.get("slug"), "slug", 64),
+        states=dict(states),
+        insets=_manifest_insets(raw.get("insets")),
+        persona=persona or None,
+    )
+
+
+def _manifest_states(manifest: _Manifest, images: list[CharacterImage]) -> dict[str, CharacterImage]:
+    by_name = {image.name.lower(): image for image in images}
+    states = {}
+    for state, name in manifest.states.items():
+        image = by_name.get(_path(name).name.lower())
+        if image is None:
+            raise CharacterError(f"{MANIFEST_NAME}: {state} plays {name}, which isn't in the pack")
+        states[state] = image
+    return states
+
+
+def _guessed_states(images: list[CharacterImage]) -> dict[str, CharacterImage]:
+    """Each state's best-named image."""
     best: dict[str, tuple[int, CharacterImage]] = {}
     for image in images:
         match = state_for(image.name)
         if match and (match[0] not in best or match[1] < best[match[0]][0]):
             best[match[0]] = (match[1], image)
-    states = {state: image for state, (_, image) in best.items()}
+    return {state: image for state, (_, image) in best.items()}
+
+
+def plan_character(uploads: list[tuple[str, bytes]]) -> CharacterPlan:
+    """Read an upload and give each state its best-named file — or, for a complete pack (a character.json
+    among the files), the file its manifest names. Raises CharacterError when unusable."""
+    images, ignored, manifest_bytes = read_uploads(uploads)
+    manifest = read_manifest(manifest_bytes) if manifest_bytes is not None else None
+    built_from = None
+    if manifest is None:  # a complete pack is already built
+        images, built_from = expand_sheet(images)
+    images, cleared = clear_mattes(images)
+    if not images:
+        raise CharacterError("no GIF, WebP or PNG images found — a character needs at least an idle animation")
+    states = _manifest_states(manifest, images) if manifest else _guessed_states(images)
     idle_guessed = IDLE_STATE not in states
     if idle_guessed:
         states[IDLE_STATE] = images[0]
+    # The name: a .zip's ("Hoots.zip"), else a lone PNG's ("Elvira.png", most often a character sheet); loose GIFs
+    # and the rest name nothing. The upload form's Name box overrides either.
     zips = [_path(name).stem for name, data in uploads if is_zip(data)]
-    name = zips[0] if zips else None
-    return CharacterPlan(images=images, states=states, ignored=ignored, idle_guessed=idle_guessed, name=name, cleared=cleared, built_from=built_from)
+    lone_png = len(uploads) == 1 and uploads[0][1].startswith(_PNG_MAGIC)
+    name = zips[0] if zips else ((_path(uploads[0][0]).stem.strip() or None) if lone_png else None)
+    plan = CharacterPlan(images=images, states=states, ignored=ignored, idle_guessed=idle_guessed, name=name, cleared=cleared, built_from=built_from)
+    if manifest:
+        plan = replace(plan, name=manifest.name or name, from_manifest=True, persona=manifest.persona, slug=manifest.slug, insets=manifest.insets)
+    return plan
 
 
 def expand_sheet(images: list[CharacterImage]) -> tuple[list[CharacterImage], str | None]:
@@ -589,7 +704,7 @@ def store_character(store: CharacterFileStore, plan: CharacterPlan) -> dict:
     try:
         for index, image in enumerate(plan.images):
             stored = store.put(image, stored_name(image), f"bubble-character-{batch}-{index:02d}")
-            inset = measure_inset(image)
+            inset = plan.insets.get(image.name) or measure_inset(image)
             files.append({"name": image.name, **stored, **({"inset": inset} if inset else {})})
     except Exception:
         delete_character_files(store, {"files": files})

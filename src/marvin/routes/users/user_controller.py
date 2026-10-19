@@ -40,10 +40,7 @@ from marvin.schemas.user import (  # User Pydantic schemas
     # Schemas related to API tokens, not used in active UserController:
     # LongLiveTokenCreate,
     # LongLiveTokenRead,
-    # LongLiveTokenRead_,
     # TokenResponseDelete,
-    # TokenCreate,
-    # LongLiveTokenCreateResponse,
 )
 
 # from marvin.schemas.user.user import UserPagination # Not used in active UserController

@@ -10,12 +10,16 @@ Supported families:
 - site build / deployment (`site_deployment_*`) — so a workflow on an incoming webhook
   can turn a host's "deploy failed" notification into Marvin's own event (activity toast, event log,
   notifications). Optional templated `message`, `error`, `site_url`, `deployment_id`. The old names
-  `site_build_*` are accepted and emit their `site_deployment_*` counterpart (`canonical_event_type`).
+  `site_build_*` are accepted and emit their `site_deployment_*` counterpart (`canonical_event_type`);
+- the workspace's own `custom.<name>` events (services/events/custom_events.py): a templated `payload` held to the
+  fields the event was registered with, optionally about an entry (`entity_id`, default the run's entry) and with a
+  templated `message`.
 """
 
 import uuid
 
 from marvin.services.event_bus_service.event_types import EventTypes
+from marvin.services.events import custom_events
 from marvin.services.events.event_catalog import EMITTABLE_EVENT_TYPES, canonical_event_type
 
 from .base import AutomationActionError, register_action
@@ -34,6 +38,8 @@ def run_emit_event(session, group_id, action, context, *, user_id=None, authoriz
         raise AutomationActionError("emit_event action is missing 'event'")
     ev_name = canonical_event_type(str(ev_name))  # an old name (site_build_*) emits the event it stands for
     require_role(ROLE_OWNER if authorizer_role is None else authorizer_role, EMIT_EVENT_MIN_ROLE, f"emit_event '{ev_name}'")
+    if custom_events.is_custom(ev_name):
+        return _emit_custom_event(session, group_id, action, context, ev_name, user_id, dry_run)
     try:
         event_type = EventTypes[ev_name]
     except KeyError as e:
@@ -121,3 +127,60 @@ def _emit_site_event(group_id, action: dict, context: dict, event_type, ev_name:
     except Exception as e:
         raise AutomationActionError(f"emit_event '{ev_name}' failed: {e}") from e
     return {"emitted": ev_name, "message": message, "reaction_depth": depth}
+
+
+def _emit_custom_event(session, group_id, action: dict, context: dict, ev_name: str, user_id, dry_run: bool) -> dict:
+    """One of the workspace's registered `custom.<name>` events: the templated payload coerced to its fields, about
+    the entry the step names (default the run's own) when there is one."""
+    from marvin.services.event_bus_service.event_bus_service import EventBusService
+    from marvin.services.event_bus_service.event_types import EventCustomData, EventOperation
+
+    from ..matcher import interpolate
+
+    definition = custom_events.find(session, group_id, ev_name)
+    if definition is None:
+        raise AutomationActionError(f"'{ev_name}' is not a custom event of this workspace; register it first (Settings → Automation → Custom events)")
+    try:
+        payload = custom_events.build_payload(definition, interpolate(action.get("payload"), context))
+    except custom_events.CustomEventError as e:
+        raise AutomationActionError(str(e)) from e
+    raw_message = interpolate(action.get("message"), context) if action.get("message") else None
+    message = str(raw_message)[:500] if raw_message not in (None, "") else ""
+    entry_id = _entry_id(interpolate(action.get("entity_id", "$event.entry_id"), context))
+    depth = int(context.get("depth", 0)) + 1
+    if dry_run:
+        return {
+            "dry_run": True,
+            "kind": "emit_event",
+            "event": ev_name,
+            "payload": payload,
+            "message": message,
+            "entity_id": str(entry_id) if entry_id else None,
+            "reaction_depth": depth,
+        }
+    try:
+        EventBusService(bg_tasks=None).dispatch(
+            integration_id="automation",
+            group_id=group_id,
+            event_type=custom_events.event_type_member(ev_name),
+            document_data=EventCustomData(operation=EventOperation.info, event_name=definition.name, payload=payload, workspace_id=group_id),
+            message=message,
+            title=custom_events.entry_title(definition),
+            user_id=user_id,
+            entity_id=entry_id,
+            entity_type="entry" if entry_id else None,
+            reaction_depth=depth,
+        )
+    except Exception as e:
+        raise AutomationActionError(f"emit_event '{ev_name}' failed: {e}") from e
+    return {"emitted": ev_name, "payload": payload, "reaction_depth": depth}
+
+
+def _entry_id(value) -> uuid.UUID | None:
+    """The entry a custom event is about, or None: an event needn't be about one, so an empty or unreadable id is no entry."""
+    if isinstance(value, uuid.UUID):
+        return value
+    try:
+        return uuid.UUID(str(value)) if value else None
+    except ValueError:
+        return None

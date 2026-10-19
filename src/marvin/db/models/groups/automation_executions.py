@@ -22,7 +22,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from .. import BaseMixins, SqlAlchemyBase
 from .._model_utils.auto_init import auto_init
-from .._model_utils.datetime import DateTime
+from .._model_utils.datetime import AwareDateTime
 from .._model_utils.guid import GUID
 
 if TYPE_CHECKING:
@@ -46,8 +46,8 @@ class AutomationExecutionModel(SqlAlchemyBase, BaseMixins):
     trigger_type: Mapped[str] = mapped_column(sa.String, nullable=False)
     status: Mapped[str] = mapped_column(sa.String, nullable=False, default="running")
 
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(AwareDateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(AwareDateTime, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
 
     # Target selector accounting: matched = full query count; run = passed conditions + executed.

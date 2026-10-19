@@ -25,6 +25,11 @@ from contextvars import ContextVar
 # The correlation id in effect on the current call stack (None when no chain is open).
 current_correlation_id: ContextVar[str | None] = ContextVar("current_correlation_id", default=None)
 
+# The workflows whose runs are on the current call stack (their keys: the automation id). Like the correlation id it is
+# read synchronously by ``dispatch`` and baked into the ``Event`` (``caused_by_workflows``), so an event a run sends
+# still says which workflows caused it after the run has ended — when a deferred webhook delivery of it fails.
+workflows_running: ContextVar[frozenset[str]] = ContextVar("automations_running", default=frozenset())
+
 
 def new_correlation_id() -> str:
     return uuid.uuid4().hex

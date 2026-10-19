@@ -33,4 +33,4 @@ def test_user_collections_are_still_created():
 
 
 def test_the_six_workflow_slugs_are_covered():
-    assert SYSTEM_COLLECTION_SLUGS == frozenset({"inbox", "drafts", "needs-review", "approved", "archive", "trash"})
+    assert SYSTEM_COLLECTION_SLUGS == frozenset({"inbox", "drafts", "needs-review", "approved", "published", "archive", "trash"})

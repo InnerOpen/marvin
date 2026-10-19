@@ -56,3 +56,25 @@ export function handOffNote(t: Thread): string | null {
   if (!t.parentThreadId) return null;
   return t.parentTitle ? `from a hand-off in “${t.parentTitle}”` : "from a hand-off";
 }
+
+
+/** The shortest search the server runs (services/ai/threads.py SEARCH_MIN_CHARS). */
+export const SEARCH_MIN_CHARS = 2;
+
+const escapeHtml = (s: string) =>
+  s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
+
+/** ``text`` as HTML with every case-insensitive occurrence of ``needle`` wrapped in <mark> — the rest escaped. */
+export function highlight(text: string, needle: string): string {
+  const n = needle.trim();
+  if (!n) return escapeHtml(text);
+  const lower = text.toLowerCase();
+  const find = n.toLowerCase();
+  let out = "";
+  let from = 0;
+  for (let at = lower.indexOf(find); at >= 0; at = lower.indexOf(find, from)) {
+    out += escapeHtml(text.slice(from, at)) + "<mark>" + escapeHtml(text.slice(at, at + n.length)) + "</mark>";
+    from = at + n.length;
+  }
+  return out + escapeHtml(text.slice(from));
+}

@@ -86,9 +86,13 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
 </AppLayout>
 
 <script>
+  import { fetchApi } from "@/lib/api/client";
   import { createSdkClient } from "@/lib/sdk";
 
   const sdk = () => createSdkClient();
+  // What each delivery carried: every call is in the event log (event incoming_webhook, entity = the webhook)
+  // with its payload, kept for the event log's retention (90 days by default).
+  const DELIVERIES_SHOWN = 10;
   const $ = (id: string): any => document.getElementById(id);
   const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
@@ -186,12 +190,15 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
         </div>
       </div>
       <div class="iw-meta">
-        <span>${w.receivedCount || 0} received</span>
+        ${w.receivedCount
+          ? `<button type="button" class="link-btn" data-act="deliveries" aria-expanded="false" title="What the last calls carried">${w.receivedCount} received ▾</button>`
+          : `<span>0 received</span>`}
         <span>·</span>
         <span>last: ${esc(fmtWhen(w.lastReceivedAt))}</span>
         ${!w.enabled ? `<span class="pill">disabled</span>` : ""}
         ${w.signingSecretRef ? `<span class="pill" title="Requests are verified (${esc(schemeLabel(w.signatureScheme || "hmac_sha256_hex"))}) with secret ${esc(w.signingSecretRef)}${w.signatureHeader ? ` in header ${esc(w.signatureHeader)}` : ""}">verified</span>` : ""}
       </div>
+      <div class="iw-deliveries" data-deliveries hidden></div>
     </div>`;
   }
 
@@ -241,6 +248,42 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
     if (hint) hint.textContent = signingHint(picked);
     box?.querySelector('[data-act="gen-signing"]')?.toggleAttribute("hidden", senderIssuesKey(picked));
   });
+
+  // ── Deliveries: the last calls, each opening to the JSON it carried ───────────
+  async function loadDeliveries(w: any, box: HTMLElement) {
+    box.innerHTML = `<p class="hint">Loading…</p>`;
+    try {
+      const q = new URLSearchParams({ entity_type: "incoming_webhook", entity_id: w.id, event_type: "incoming_webhook", limit: String(DELIVERIES_SHOWN) });
+      const rows = await fetchApi<any[]>(`/api/platform/events?${q}`);
+      box.innerHTML = rows.length
+        ? rows
+            .map((e) => `<details class="delivery" data-event="${esc(e.eventId ?? e.event_id)}">
+                <summary>${esc(fmtWhen(e.occurredAt ?? e.occurred_at))}</summary>
+                <pre class="delivery-body">Loading…</pre>
+              </details>`)
+            .join("") +
+          (w.receivedCount > rows.length ? `<p class="hint">The last ${rows.length} of ${w.receivedCount}. Older calls are past the event log's retention, or open the <a href="/automation/events">event log</a>.</p>` : "")
+        : `<p class="hint">No calls in the event log — older ones are past its retention.</p>`;
+    } catch (e: any) {
+      box.innerHTML = `<p class="hint error">Couldn't load the deliveries: ${esc(e?.message ?? e)}</p>`;
+    }
+  }
+  // A delivery's payload is fetched when it is opened (the list stays light).
+  $("iw-list").addEventListener("toggle", async (ev: Event) => {
+    const det = ev.target as HTMLDetailsElement;
+    if (!det.matches?.("details.delivery") || !det.open || det.dataset.loaded) return;
+    det.dataset.loaded = "1";
+    const pre = det.querySelector(".delivery-body") as HTMLElement;
+    try {
+      const e = await fetchApi<any>(`/api/platform/events/${encodeURIComponent(det.dataset.event!)}`);
+      const doc = (e.eventData ?? e.event_data ?? {}).documentData ?? {};
+      const from = doc.sourceIp ? `From ${doc.sourceIp}\n\n` : "";
+      pre.textContent = from + JSON.stringify(doc.payload ?? {}, null, 2);
+    } catch (err: any) {
+      pre.textContent = `Couldn't load it: ${err?.message ?? err}`;
+      delete det.dataset.loaded;
+    }
+  }, true);
 
   // ── Per-card actions (event delegation) ─────────────────────────────────────
   $("iw-list").addEventListener("click", async (ev: Event) => {
@@ -322,6 +365,12 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
         setStatus("Saving…");
         upsert(await sdk().incomingWebhooks.update(id, { signingSecretRef, signatureHeader, signatureScheme, signatureUrl, signatureConfig } as any));
         setStatus("");
+      } else if (act === "deliveries") {
+        const box = cardEl.querySelector("[data-deliveries]") as HTMLElement;
+        const open = box.hasAttribute("hidden");
+        box.toggleAttribute("hidden", !open);
+        btn.setAttribute("aria-expanded", String(open));
+        if (open) await loadDeliveries(w, box);
       } else if (act === "copy") {
         await navigator.clipboard.writeText(hookUrl(w.token));
         setStatus("Copied.");
@@ -422,6 +471,10 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
   .iw-list :global(.test-actions) { display: flex; align-items: center; gap: 8px; }
   .iw-list :global(.button.sm.danger) { color: var(--color-error, #c0392b); border-color: var(--color-error, #c0392b); }
   .iw-list :global(.iw-meta) { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+  .iw-list :global(.iw-meta .link-btn) { font-size: 12px; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; }
+  .iw-list :global(.iw-deliveries) { margin-top: 8px; display: grid; gap: 4px; }
+  .iw-list :global(.delivery summary) { cursor: pointer; font-size: 13px; }
+  .iw-list :global(.delivery-body) { margin: 6px 0 4px; padding: 8px 10px; max-height: 320px; overflow: auto; background: var(--panel-2); border-radius: var(--radius); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
   .iw-list :global(.pill) { padding: 1px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); font-size: 11px; }
   .iw-list :global(.switch) { position: relative; display: inline-block; width: 38px; height: 22px; }
   .iw-list :global(.switch input) { opacity: 0; width: 0; height: 0; }

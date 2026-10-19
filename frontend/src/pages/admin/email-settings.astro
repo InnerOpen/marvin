@@ -1,7 +1,8 @@
 ---
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import { listSystemEmailTemplates } from "@/lib/api/admin/emailTemplates";
-import { getAuthToken } from "@/lib/api/client";
+import { getPlatformSmtp, type PlatformSmtp } from "@/lib/api/admin/platformSmtp";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
 import { createSdkClient } from "@/lib/sdk";
 
@@ -9,6 +10,18 @@ import { createSdkClient } from "@/lib/sdk";
 const user = await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
+// The product name, footer line and accent colour every email's wrapper shows (services/platform_policy.py).
+type Branding = { productName: string; footerText: string; accentColor: string };
+const branding = await fetchApi<Branding>("/api/admin/platform-policy/email-branding", {}, authToken).catch(() => null);
+
+// The platform SMTP server: the environment's SMTP_* with an admin's per-field overrides (services/platform_smtp.py).
+let platformSmtp: PlatformSmtp | null = null;
+let platformSmtpError: string | null = null;
+try {
+  platformSmtp = await getPlatformSmtp(authToken);
+} catch (e) {
+  platformSmtpError = e instanceof Error ? e.message : String(e);
+}
 
 let smtpEnabled = false;
 let smtpFeature: any = null;
@@ -45,72 +58,94 @@ try {
     <div class="alert alert-warning">
       <strong>SMTP Not Configured</strong>
       <p>{smtpFeature.description}</p>
-      <p class="config-hint">Configure SMTP by setting environment variables in your .env file</p>
+      <p class="config-hint">Set the Platform SMTP block below, or the SMTP_* environment variables.</p>
     </div>
   )}
 
   <div class="page-container">
     <div class="email-grid">
-      <!-- SMTP Configuration (Read-Only) -->
-      <section class="card">
-        <h3>SMTP Server Settings</h3>
-        <p class="card-description">Current SMTP configuration from environment variables</p>
+      {branding && (
+        <section class="card" id="branding">
+          <h3>Branding</h3>
+          <p class="card-description">What every email from this platform shows: the name in its header, the line in its footer, and the colour of its accents and buttons. Blank goes back to Marvin's own.</p>
+          <form id="branding-form" class="branding-form">
+            <label class="branding-field"><span>Product name</span>
+              <input class="input" name="product_name" maxlength="40" value={branding.productName} placeholder="Marvin" /></label>
+            <label class="branding-field"><span>Footer line</span>
+              <input class="input" name="footer_text" maxlength="120" value={branding.footerText} placeholder="Sent by Marvin CMS" /></label>
+            <label class="branding-field"><span>Accent colour</span>
+              <span class="branding-color">
+                <input type="color" name="accent_color" value={branding.accentColor} />
+                <code>{branding.accentColor}</code>
+              </span></label>
+            <div class="branding-actions">
+              <button type="submit" class="button">Save branding</button>
+              <span class="branding-status" role="status">Send a test email below to see it.</span>
+            </div>
+          </form>
+        </section>
+      )}
 
-        <div class="settings-display">
-          <div class="setting-item">
-            <span class="setting-label">SMTP Host</span>
-            <span class="setting-value">{settings?.smtpHost || '(not configured)'}</span>
+      <!-- Platform SMTP: the environment's settings, each field overridable here -->
+      <section class="card" id="platform-smtp" data-testid="platform-smtp">
+        <div class="smtp-head">
+          <div>
+            <h3>Platform SMTP</h3>
+            <p class="card-description">
+              The server platform mail goes through — password resets, platform alerts, and any workspace without its own SMTP profile.
+              Every field comes from the environment (<code>SMTP_*</code>) unless you set it here; leave a field blank to use the
+              environment's.
+            </p>
           </div>
-
-          <div class="setting-item">
-            <span class="setting-label">SMTP Port</span>
-            <span class="setting-value">{settings?.smtpPort || '587'}</span>
-          </div>
-
-          <div class="setting-item">
-            <span class="setting-label">Auth Strategy</span>
-            <span class="setting-value">{settings?.smtpAuthStrategy || 'TLS'}</span>
-          </div>
-
-          {settings?.smtpAuthStrategy !== 'NONE' && (
-            <>
-              <div class="setting-item">
-                <span class="setting-label">Username</span>
-                <span class="setting-value">{settings?.smtpUser || '(not configured)'}</span>
-              </div>
-
-              <div class="setting-item">
-                <span class="setting-label">Password</span>
-                <span class="setting-value">{settings?.smtpPassword ? '••••••••' : '(not configured)'}</span>
-              </div>
-            </>
-          )}
-
-          <div class="setting-item">
-            <span class="setting-label">From Email</span>
-            <span class="setting-value">{settings?.smtpFromEmail || '(not configured)'}</span>
-          </div>
-
-          <div class="setting-item">
-            <span class="setting-label">From Name</span>
-            <span class="setting-value">{settings?.smtpFromName || 'Marvin'}</span>
-          </div>
+          <span class="pill muted" id="psmtp-source" role="status"></span>
         </div>
-
-        <div class="config-info">
-          <p><strong>To update SMTP settings:</strong></p>
-          <p>Edit your <code>.env</code> file and set the following variables:</p>
-          <ul>
-            <li><code>SMTP_HOST</code> - SMTP server hostname</li>
-            <li><code>SMTP_PORT</code> - SMTP server port (default: 587)</li>
-            <li><code>SMTP_AUTH_STRATEGY</code> - Auth strategy: TLS, SSL, or NONE (default: TLS)</li>
-            <li><code>SMTP_USER</code> - SMTP username (if auth required)</li>
-            <li><code>SMTP_PASSWORD</code> - SMTP password (if auth required)</li>
-            <li><code>SMTP_FROM_EMAIL</code> - From email address</li>
-            <li><code>SMTP_FROM_NAME</code> - From name (default: Marvin)</li>
-          </ul>
-          <p class="restart-note">Restart the application after making changes.</p>
-        </div>
+        {platformSmtpError && <p class="notice warn" role="alert">Could not load the platform SMTP settings: {platformSmtpError}</p>}
+        {platformSmtp && (
+          <>
+            <p class="notice warn" id="psmtp-problem" hidden></p>
+            <form id="psmtp-form" novalidate autocomplete="off">
+              <div class="psmtp-grid">
+                <label class="psmtp-field"><span class="psmtp-label">Host</span>
+                  <input class="input" name="host" inputmode="url" autocapitalize="off" spellcheck="false" />
+                  <span class="psmtp-hint" data-hint="host"></span></label>
+                <label class="psmtp-field"><span class="psmtp-label">Port</span>
+                  <input class="input" name="port" inputmode="numeric" />
+                  <span class="psmtp-hint" data-hint="port"></span></label>
+                <label class="psmtp-field"><span class="psmtp-label">Connection security</span>
+                  <select class="input" name="authStrategy">
+                    <option value="">Use the environment's</option>
+                    <option value="TLS">TLS (STARTTLS)</option>
+                    <option value="SSL">SSL</option>
+                    <option value="NONE">None</option>
+                  </select>
+                  <span class="psmtp-hint" data-hint="authStrategy"></span></label>
+                <label class="psmtp-field"><span class="psmtp-label">Username</span>
+                  <input class="input" name="username" autocapitalize="off" spellcheck="false" autocomplete="off" />
+                  <span class="psmtp-hint" data-hint="username"></span></label>
+                <label class="psmtp-field"><span class="psmtp-label">Password</span>
+                  <input class="input" type="password" name="password" autocomplete="new-password" />
+                  <span class="psmtp-hint" id="psmtp-password-hint"></span>
+                  <span class="psmtp-clear" id="psmtp-clear-wrap" hidden>
+                    <input type="checkbox" id="psmtp-clear" /> Remove the password saved here
+                  </span></label>
+                <label class="psmtp-field"><span class="psmtp-label">From name</span>
+                  <input class="input" name="fromName" />
+                  <span class="psmtp-hint" data-hint="fromName"></span></label>
+                <label class="psmtp-field"><span class="psmtp-label">From address</span>
+                  <input class="input" name="fromEmail" type="email" autocapitalize="off" spellcheck="false" />
+                  <span class="psmtp-hint" data-hint="fromEmail"></span></label>
+              </div>
+              <p class="muted psmtp-env" id="psmtp-env"></p>
+              <div class="psmtp-actions">
+                <button type="submit" class="button" id="psmtp-save">Save</button>
+                <button type="button" class="button secondary" id="psmtp-test">Send test</button>
+                <button type="button" class="button secondary" id="psmtp-reset">Use environment settings</button>
+              </div>
+              <p class="psmtp-status" id="psmtp-status" role="status"></p>
+            </form>
+          </>
+        )}
+        <script is:inline type="application/json" id="psmtp-data" set:html={JSON.stringify(platformSmtp ?? null).replace(/</g, "\\u003c")} />
       </section>
 
       <!-- Test Email -->
@@ -388,6 +423,7 @@ try {
   </div>
 
   <script>
+    import { fetchApi } from "@/lib/api/client";
     import {
       getSystemEmailTemplate,
       createSystemEmailTemplate,
@@ -631,6 +667,159 @@ try {
       console.error('Error sending test email:', error);
     }
   });
+
+    // Branding: saved for every email; blank fields go back to Marvin's own.
+    const brandingForm = document.getElementById("branding-form") as HTMLFormElement | null;
+    brandingForm?.querySelector<HTMLInputElement>('input[type="color"]')?.addEventListener("input", (e) => {
+      const code = brandingForm.querySelector(".branding-color code");
+      if (code) code.textContent = (e.target as HTMLInputElement).value;
+    });
+    brandingForm?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const status = brandingForm.querySelector(".branding-status") as HTMLElement;
+      const fd = new FormData(brandingForm);
+      status.textContent = "Saving…";
+      status.classList.remove("error");
+      try {
+        await fetchApi("/api/admin/platform-policy/email-branding", {
+          method: "PUT",
+          body: JSON.stringify({
+            product_name: String(fd.get("product_name") ?? ""),
+            footer_text: String(fd.get("footer_text") ?? ""),
+            accent_color: String(fd.get("accent_color") ?? ""),
+          }),
+        });
+        status.textContent = "Saved. Send a test email below to see it.";
+      } catch (err) {
+        status.textContent = err instanceof Error ? err.message : String(err);
+        status.classList.add("error");
+      }
+    });
+</script>
+
+<script>
+  import { buildSmtpUpdate, fieldHint, passwordHint, sourcePill } from "@/lib/admin/platformSmtp";
+  import {
+    savePlatformSmtp,
+    testPlatformSmtp,
+    useEnvironmentSmtp,
+    type PlatformSmtp,
+    type PlatformSmtpField,
+  } from "@/lib/api/admin/platformSmtp";
+
+  const raw = document.getElementById("psmtp-data")?.textContent;
+  let state: PlatformSmtp | null = raw ? JSON.parse(raw) : null;
+  const form = document.getElementById("psmtp-form") as HTMLFormElement | null;
+
+  if (state && form) {
+    const input = (name: string) => form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement;
+    const statusEl = document.getElementById("psmtp-status") as HTMLElement;
+    const say = (text: string, error = false) => {
+      statusEl.textContent = text;
+      statusEl.classList.toggle("error", error);
+    };
+    const fields = ["host", "port", "authStrategy", "username", "fromName", "fromEmail"] as const;
+
+    // Each box shows the admin's value, or stays empty with the environment's value as its placeholder.
+    function render(next: PlatformSmtp) {
+      state = next;
+      for (const name of fields) {
+        const f: PlatformSmtpField = next[name];
+        const box = input(name);
+        box.value = f.source === "admin" ? (f.value ?? "") : "";
+        if (box instanceof HTMLInputElement) box.placeholder = f.envValue ?? "(not set)";
+        const hint = form!.querySelector<HTMLElement>(`[data-hint="${name}"]`);
+        if (hint) {
+          hint.textContent = fieldHint(f);
+          hint.dataset.source = f.source ?? "none";
+        }
+      }
+      const envStrategy = next.authStrategy.envValue;
+      ((input("authStrategy") as HTMLSelectElement).options[0] as HTMLOptionElement).textContent = envStrategy ? `Use the environment's (${envStrategy})` : "Use the environment's";
+      const pw = input("password") as HTMLInputElement;
+      pw.value = "";
+      pw.placeholder = next.passwordSource === "admin" ? "Set — leave blank to keep" : next.passwordSource === "env" ? "From the environment" : "Not set";
+      pw.disabled = !next.canStorePassword;
+      const hint = document.getElementById("psmtp-password-hint");
+      if (hint) hint.textContent = passwordHint(next);
+      const clearWrap = document.getElementById("psmtp-clear-wrap") as HTMLElement;
+      clearWrap.hidden = next.passwordSource !== "admin";
+      (document.getElementById("psmtp-clear") as HTMLInputElement).checked = false;
+
+      const pill = sourcePill(next);
+      const sourceEl = document.getElementById("psmtp-source") as HTMLElement;
+      sourceEl.className = `pill ${pill.tone}`;
+      sourceEl.textContent = next.ready ? pill.label : `${pill.label} · not ready`;
+      const problem = document.getElementById("psmtp-problem") as HTMLElement;
+      problem.hidden = next.ready;
+      problem.textContent = next.problem ?? "";
+      const env = document.getElementById("psmtp-env") as HTMLElement;
+      env.textContent = next.envAvailable
+        ? `Environment: ${next.envSummary}`
+        : "The environment has no complete SMTP settings" + (next.envSummary ? ` (${next.envSummary})` : "") + ".";
+      (document.getElementById("psmtp-reset") as HTMLButtonElement).disabled = next.source !== "admin";
+    }
+    render(state);
+
+    const busy = (on: boolean) => {
+      for (const id of ["psmtp-save", "psmtp-test", "psmtp-reset"]) (document.getElementById(id) as HTMLButtonElement).disabled = on;
+      if (!on && state) (document.getElementById("psmtp-reset") as HTMLButtonElement).disabled = state.source !== "admin";
+    };
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      busy(true);
+      say("Saving…");
+      try {
+        render(
+          await savePlatformSmtp(
+            buildSmtpUpdate({
+              host: input("host").value,
+              port: input("port").value,
+              username: input("username").value,
+              authStrategy: input("authStrategy").value,
+              fromName: input("fromName").value,
+              fromEmail: input("fromEmail").value,
+              password: input("password").value,
+              clearPassword: (document.getElementById("psmtp-clear") as HTMLInputElement).checked,
+            }),
+          ),
+        );
+        say("Saved. Send a test to check it.");
+      } catch (err) {
+        say(`Not saved: ${err instanceof Error ? err.message : String(err)}`, true);
+      } finally {
+        busy(false);
+      }
+    });
+
+    document.getElementById("psmtp-test")?.addEventListener("click", async () => {
+      busy(true);
+      say("Sending a test to you…");
+      try {
+        const res = await testPlatformSmtp();
+        say(res.success ? "Test sent to your address. Check your inbox." : `Test failed: ${res.error ?? "unknown error"}`, !res.success);
+      } catch (err) {
+        say(`Test failed: ${err instanceof Error ? err.message : String(err)}`, true);
+      } finally {
+        busy(false);
+      }
+    });
+
+    document.getElementById("psmtp-reset")?.addEventListener("click", async () => {
+      if (!window.confirm("Clear every setting saved here, including the password? Platform mail will use the environment's SMTP settings.")) return;
+      busy(true);
+      say("Clearing…");
+      try {
+        render(await useEnvironmentSmtp());
+        say("Using the environment's settings.");
+      } catch (err) {
+        say(`Not cleared: ${err instanceof Error ? err.message : String(err)}`, true);
+      } finally {
+        busy(false);
+      }
+    });
+  }
 </script>
 
 <style>
@@ -1316,5 +1505,36 @@ try {
       flex-wrap: wrap;
       padding: 16px;
     }
+  }
+  .branding-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px 20px; }
+  .branding-field { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
+  .branding-color { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+  .branding-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; }
+  .branding-status { font-size: 13px; color: var(--muted); }
+  .branding-status.error { color: var(--color-error); }
+
+  /* Platform SMTP: a grid of fields, each with where its value comes from. */
+  .smtp-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .psmtp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px 20px; margin-top: 12px; }
+  .psmtp-field { display: grid; gap: 4px; align-content: start; min-width: 0; }
+  .psmtp-label { font-size: 13px; font-weight: 600; }
+  .psmtp-hint { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .psmtp-hint[data-source="admin"] { color: var(--accent, var(--good)); }
+  .psmtp-clear { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }
+  .psmtp-env { margin: 12px 0 0; font-size: 12px; overflow-wrap: anywhere; }
+  .psmtp-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  .psmtp-status { margin: 10px 0 0; min-height: 1.2em; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .psmtp-status.error { color: var(--color-error); }
+  #platform-smtp .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--panel-2); color: var(--muted); white-space: nowrap; }
+  #platform-smtp .pill.ok { color: var(--good); }
+  #platform-smtp .pill.warn { color: var(--warn); }
+  #platform-smtp .notice { margin: 12px 0 0; padding: 10px 12px; border-radius: var(--radius); background: var(--panel-2); font-size: 14px; border-left: 3px solid var(--warn); }
+  #platform-smtp [hidden] { display: none !important; }
+  @media (max-width: 640px) {
+    .smtp-head { flex-direction: column; }
+    .psmtp-grid { grid-template-columns: 1fr; }
+    .psmtp-actions { flex-direction: column; }
+    .psmtp-actions .button { width: 100%; }
+    .psmtp-field :global(.input) { font-size: 16px; }
   }
 </style>

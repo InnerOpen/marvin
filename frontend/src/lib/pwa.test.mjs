@@ -53,7 +53,6 @@ describe("buildManifest", () => {
     assert.deepEqual(urls, [
       "/workspace/settings/ai-ask",
       "/workspace/entries/new",
-      "/workspace/entries?status=needs_review,approved",
     ]);
   });
 

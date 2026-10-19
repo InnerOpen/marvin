@@ -12,8 +12,6 @@ Two routers are defined:
 - `user_router`: For endpoints that require an authenticated user (e.g., refresh, logout).
 """
 
-from datetime import timedelta
-
 from authlib.integrations.starlette_client import OAuth  # For OIDC integration
 from fastapi import APIRouter, Depends, Request, Response, status  # Core FastAPI components
 from fastapi.exceptions import HTTPException  # Standard HTTP exceptions
@@ -40,6 +38,7 @@ from marvin.services.event_bus_service.event_types import (
     EventTokenRefreshData,  # Data for token refresh event
     EventTypes,  # Enum for event types
 )
+from marvin.services.platform_policy import security as security_policy
 
 # Marvin core components and utilities
 from marvin.services.security.login_throttle import LoginThrottle, Throttled, account_key, login_client_ip
@@ -52,7 +51,6 @@ logger = root_logger.get_logger("auth")  # Logger for authentication events
 
 # Duration for "remember me" functionality, though not explicitly used in cookie setting below for it.
 # Standard token duration is handled by `security.create_access_token`.
-remember_me_duration = timedelta(days=14)
 
 settings = get_app_settings()
 oauth: OAuth | None = None  # Initialize oauth client, will be set if OIDC is ready
@@ -185,9 +183,9 @@ class PublicAuthenticiationController(BasePublicController):
     def _announce_refused(self, username: str, attempts: int, client_ip: str) -> None:
         """A platform event (Admin → Platform alerts routes it): an account is being refused after repeated failures."""
         minutes = (
-            self.settings.SECURITY_LOGIN_LONG_LOCKOUT_MINUTES
-            if attempts > self.settings.SECURITY_MAX_LOGIN_ATTEMPTS
-            else (self.settings.SECURITY_LOGIN_LOCKOUT_MINUTES)
+            security_policy("SECURITY_LOGIN_LONG_LOCKOUT_MINUTES")
+            if attempts > security_policy("SECURITY_MAX_LOGIN_ATTEMPTS")
+            else (security_policy("SECURITY_LOGIN_LOCKOUT_MINUTES"))
         )
         self.event_bus.dispatch(
             integration_id=INTERNAL_INTEGRATION_ID,
@@ -345,7 +343,7 @@ class UserAuthenticationController(BaseUserController):
         self.event_bus.dispatch(
             integration_id="internal_token_refresh",  # Identifier for the source of the event
             event_type=EventTypes.token_refreshed,  # Specific event type
-            group_id=current_user.group_id,  # Associate with user's group
+            group_id=None,  # platform scope: signing in isn't a workspace's event
             document_data=EventTokenRefreshData(username=current_user.username),
             message=f"Access token refreshed for user {current_user.username}",
         )

@@ -53,6 +53,8 @@ def park(session, group_id, automation, context: dict, *, exec_id, step_index: i
     workflow, a run too large to keep)."""
     from marvin.services.integrations.errors import _snapshot
 
+    from .engine import approval_default_hours
+
     automation_id = getattr(automation, "id", None)
     if automation_id is None:
         raise AutomationActionError("an approval step needs a saved workflow to come back to")
@@ -74,7 +76,9 @@ def park(session, group_id, automation, context: dict, *, exec_id, step_index: i
         snapshot=snapshot,
         entry_id=entry_id,
         entry_version=_entry_version(session, entry_id),
-        expires_at=_now() + timedelta(hours=int(spec.get("expires_in_hours") or 72)),
+        expires_at=_now() + timedelta(hours=int(spec.get("expires_in_hours") or approval_default_hours(session, group_id))),
+        choices=spec.get("choices") or None,
+        image_url=spec.get("image") or None,
     )
     session.add(row)
     session.commit()
@@ -93,9 +97,12 @@ def pending(session, group_id, role: int) -> list[WorkflowApprovalModel]:
     )
 
 
-def decide(session, group_id, approval_id, decision: str, *, user_id, role: int, note: str | None = None, logger=None) -> WorkflowApprovalModel:
-    """A person approves or denies; the run goes on. Raises ApprovalError (404 unknown, 403 not theirs to decide, 409
-    already decided or expired)."""
+def decide(
+    session, group_id, approval_id, decision: str, *, user_id, role: int, note: str | None = None, choice=None, logger=None
+) -> WorkflowApprovalModel:
+    """A person approves or denies; the run goes on. An approval with choices is approved with one of them (`choice`:
+    its label, or its index). Raises ApprovalError (404 unknown, 403 not theirs to decide, 409 already decided or
+    expired, 422 no such choice)."""
     row = session.get(WorkflowApprovalModel, approval_id)
     if row is None or str(row.group_id) != str(group_id):
         raise ApprovalError("No such approval.", 404)
@@ -108,30 +115,97 @@ def decide(session, group_id, approval_id, decision: str, *, user_id, role: int,
     if decision not in DECISIONS:
         raise ApprovalError("Decide approve or deny.", 422)
     outcome = DECISIONS[decision]
+    picked = _picked(row, choice) if outcome == "approved" else None
     if outcome == "approved" and row.entry_id and row.entry_version and _entry_version(session, row.entry_id) != row.entry_version:
         outcome = "stale"  # the entry changed after it was asked: nothing approved is applied to other content
-    return settle(session, row, outcome, user_id=user_id, note=note, logger=logger)
+    return settle(session, row, outcome, user_id=user_id, note=note, choice=picked, logger=logger)
 
 
-def settle(session, row: WorkflowApprovalModel, outcome: str, *, user_id=None, note: str | None = None, logger=None) -> WorkflowApprovalModel:
+def _picked(row: WorkflowApprovalModel, choice) -> str | None:
+    """The chosen label of an approval with choices (given as the label, or its index); None for one without."""
+    offered = row.choices or []
+    if not offered:
+        return None
+    if choice in (None, ""):
+        raise ApprovalError("Pick one of the choices to approve.", 422)
+    if isinstance(choice, int) and not isinstance(choice, bool) and 0 <= choice < len(offered):
+        return offered[choice]
+    if isinstance(choice, str) and choice.strip() in offered:
+        return choice.strip()
+    raise ApprovalError(f"No such choice. The choices are: {', '.join(offered)}.", 422)
+
+
+def settle(
+    session, row: WorkflowApprovalModel, outcome: str, *, user_id=None, note: str | None = None, choice: str | None = None, logger=None
+) -> WorkflowApprovalModel:
     """Record the outcome — claimed first, so two deciders can't both resume it — and resume the run."""
     from sqlalchemy import update
 
     claimed = session.execute(
         update(WorkflowApprovalModel)
         .where(WorkflowApprovalModel.id == row.id, WorkflowApprovalModel.status == APPROVAL_PENDING)
-        .values(status=outcome, decided_by=user_id, decided_at=_now(), note=(note or "").strip() or None)
+        .values(status=outcome, decided_by=user_id, decided_at=_now(), note=(note or "").strip() or None, choice=choice)
     ).rowcount
     session.commit()
     if not claimed:
         session.refresh(row)
         raise ApprovalError(f"It was already decided: {row.status}.")
     session.refresh(row)
+    _stamp_picture(session, row, logger=logger)
     from .engine import resume_after_approval
 
     resume_after_approval(session, row, logger=logger)
     _emit(session, row, None, EventTypes.workflow_approval_decided, user_id=user_id)
     return row
+
+
+# Written onto the pictured asset's metadata when an approval that showed it is settled (see _stamp_picture).
+DECISIONS_KEPT = ("approved", "denied", "expired", "stale")
+
+
+def _stamp_picture(session, row: WorkflowApprovalModel, *, logger=None) -> None:
+    """An approval that showed a picture leaves its outcome on that asset: ``metadata.approval`` = the decision, who
+    and when, the note, and the approval's id. A denied generated image is kept in the library like any other, so
+    without this nothing would tell it from one that was kept — the asset page says it, the library filters on it
+    (``decision`` in services/item_query.py), and a housekeeping workflow can trash denied pictures later. The URL
+    must be one of this workspace's assets (its storage key in it); any other picture is left alone. Best-effort: a
+    failure here never undoes the decision."""
+    import logging
+
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from marvin.db.models.platform import Assets
+    from marvin.db.models.users.users import Users
+
+    if not row.image_url or row.status not in DECISIONS_KEPT:
+        return
+    try:
+        asset = next(
+            (
+                a
+                for a in session.query(Assets).filter(Assets.group_id == row.group_id, Assets.storage_key.isnot(None))
+                if a.storage_key in row.image_url
+            ),
+            None,
+        )
+        if asset is None:
+            return
+        decider = session.get(Users, row.decided_by) if row.decided_by else None
+        meta = dict(asset.metadata_json or {})
+        meta["approval"] = {
+            "decision": row.status,
+            "decided_by": str(row.decided_by) if row.decided_by else None,
+            "decided_by_name": getattr(decider, "full_name", None) or getattr(decider, "username", None),
+            "decided_at": row.decided_at.isoformat() if row.decided_at else None,
+            "note": row.note,
+            "approval_id": str(row.id),
+        }
+        asset.metadata_json = meta
+        flag_modified(asset, "metadata_json")
+        session.commit()
+    except Exception:  # noqa: BLE001 — the decision stands either way
+        session.rollback()
+        (logger or logging.getLogger(__name__)).warning("approval %s: could not record the decision on its picture", row.id, exc_info=True)
 
 
 def expire_due(session, *, logger=None, now: datetime | None = None) -> int:
@@ -184,6 +258,7 @@ def _emit(session, row: WorkflowApprovalModel, automation, event_type, *, user_i
             entry_id=row.entry_id,
             expires_at=row.expires_at.isoformat(),
             note=row.note,
+            image_url=row.image_url,
         )
         verb = "is waiting for approval" if event_type == EventTypes.workflow_approval_requested else f"approval: {row.status}"
         EventBusService(bg_tasks=None).dispatch(

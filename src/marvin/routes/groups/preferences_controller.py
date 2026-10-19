@@ -172,23 +172,21 @@ class GroupPreferencesController(BaseUserController):
         # Extract data dict for processing
         data_dict = data.model_dump(exclude_unset=True)
 
-        # Check if name is in the data and update the workspace (Groups model)
-        # Auto-generate slug from name if name is being updated
-        workspace_fields = {}
-        if "name" in data_dict:
-            from slugify import slugify
+        # A new name (or slug) renames the workspace itself, the way the admin route does: the old slug stays
+        # resolvable as an alias. (`workspace` above is a read schema — setting fields on it saved nothing.)
+        workspace_fields: dict[str, str] = {}
+        new_name, new_slug = data_dict.pop("name", None), data_dict.pop("slug", None)
+        if new_name is not None or new_slug is not None:
+            from marvin.db.models.groups.groups import Groups
+            from marvin.services.group.workspace_rename import WorkspaceRenameError, rename_workspace
 
-            workspace_fields["name"] = data_dict.pop("name")
-            workspace_fields["slug"] = slugify(workspace_fields["name"])
-
-        # Remove slug from data_dict if present (we auto-generate it)
-        if "slug" in data_dict:
-            data_dict.pop("slug")
-
-        # Update workspace fields if present
-        if workspace_fields:
-            for field, value in workspace_fields.items():
-                setattr(workspace, field, value)
+            group_model = self.session.get(Groups, group_id)
+            try:
+                renamed = rename_workspace(self.session, group_model, name=new_name or group_model.name, slug=new_slug)
+            except WorkspaceRenameError as e:
+                self.session.rollback()
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+            workspace_fields = {"name": renamed.name, "slug": renamed.slug}
 
         # Update preference fields from remaining data
         for field, value in data_dict.items():

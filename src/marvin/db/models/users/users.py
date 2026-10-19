@@ -160,9 +160,15 @@ class Users(SqlAlchemyBase, BaseMixins):
     )
 
     # Foreign key to the Groups model
-    group_id: Mapped[GUID] = mapped_column(GUID, ForeignKey("groups.id"), nullable=False, index=True, doc="ID of the group this user belongs to.")
+    group_id: Mapped[GUID | None] = mapped_column(
+        GUID,
+        ForeignKey("groups.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="ID of the user's home workspace; NULL when they have none (deleting the workspace clears it).",
+    )
     # Relationship to the Group the user belongs to
-    group: Mapped["Groups"] = orm.relationship("Groups", back_populates="users", foreign_keys=[group_id])
+    group: Mapped["Groups | None"] = orm.relationship("Groups", back_populates="users", foreign_keys=[group_id])
 
     # Active workspace tracking (multi-workspace support)
     active_group_id: Mapped[GUID | None] = mapped_column(
@@ -170,7 +176,7 @@ class Users(SqlAlchemyBase, BaseMixins):
         ForeignKey("groups.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
-        doc="The workspace the user is currently working in. Falls back to group_id if NULL.",
+        doc="The workspace the user is currently working in. NULL: services.workspace.current resolves one.",
     )
     active_workspace: Mapped["Groups | None"] = orm.relationship(
         "Groups",
@@ -187,6 +193,9 @@ class Users(SqlAlchemyBase, BaseMixins):
     # NOTE: Field name 'login_attemps' is intentionally misspelled (missing 't') for
     # backward compatibility with existing database schema. Do not rename without migration.
     # See: https://github.com/yourorg/marvin/issues/XXX for tracking proper migration
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        NaiveDateTime, nullable=True, doc="When the user last signed in (any method); Admin → Overview lists recent ones."
+    )
     login_attemps: Mapped[int | None] = mapped_column(
         Integer, default=0, doc="Number of failed login attempts. Resets on successful login. Defaults to 0."
     )
@@ -268,15 +277,6 @@ class Users(SqlAlchemyBase, BaseMixins):
         """Check if user is a platform administrator (SUPER_ADMIN)."""
         return self.platform_role == PlatformRole.SUPER_ADMIN
 
-    def get_effective_workspace_id(self) -> GUID:
-        """
-        Returns active workspace if set, otherwise falls back to primary group_id.
-
-        Returns:
-            GUID: The workspace ID to use for scoping operations.
-        """
-        return self.active_group_id or self.group_id
-
     def get_workspace_role(self, group_id: str) -> "WorkspaceRole | None":
         """
         Get the user's role in a specific workspace.
@@ -323,8 +323,8 @@ class Users(SqlAlchemyBase, BaseMixins):
             session (Session): The SQLAlchemy session.
             full_name (str): The user's full name.
             password (str): The user's plaintext password (will be hashed by the service layer before saving).
-            group (str | None, optional): The name of the group to assign the user to.
-                                         Defaults to the platform workspace.
+            group (str | None, optional): The name of the group to make the user's home workspace.
+                                         Defaults to none: the user starts without a home workspace.
             **kwargs: Additional attributes for the user, processed by `auto_init`
                       (e.g., `username`, `email`, `admin`).
 
@@ -337,15 +337,8 @@ class Users(SqlAlchemyBase, BaseMixins):
         from marvin.db.models.groups import Groups  # Local import to avoid circularity
 
         # Query for the group. auto_init does not handle this specific lookup logic.
-        if group is None:
-            # No group named: the platform (admin's) workspace — by its marker, whatever it's called.
-            from marvin.services.group.platform_workspace import PlatformWorkspaceMissing, platform_workspace
-
-            try:
-                self.group = platform_workspace(session)
-            except PlatformWorkspaceMissing as e:
-                raise ValueError("No group given and no platform workspace exists; cannot create user.") from e
-        else:
+        # No group named: the user has no home workspace (they wait for an invite, or an admin adds them).
+        if group:
             self.group = session.execute(select(Groups).filter(Groups.name == group)).scalars().one_or_none()
             if self.group is None:
                 raise ValueError(f"Group '{group}' does not exist; cannot create user.")

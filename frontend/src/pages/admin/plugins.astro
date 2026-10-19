@@ -60,7 +60,8 @@ try {
       <a href="/admin/storage">Storage</a> (<code>STORAGE_PROVIDER</code> is the default), the operator configures
       the backup targets; built-in local disk storage needs no plugin. An AI provider plugin (a model vendor) can be
       chosen by any workspace in its <strong>Settings → AI</strong>; one with the same name as a provider built into
-      Marvin replaces it.
+      Marvin replaces it. When a newer release of a plugin exists, its row says so; taking it is a Marvin release (the
+      plugin's pin is bumped), not something done here.
     </p>
 
     {!error && plugins.length === 0 ? (
@@ -77,6 +78,14 @@ try {
               <div>
                 <strong>{plugin.package ?? plugin.name}</strong>
                 {plugin.version && <span class="version">v{plugin.version}</span>}
+                {plugin.latestVersion && (
+                  <span
+                    class="update"
+                    title="A newer release exists. Taking it is a Marvin release: the plugin's pin is bumped in Marvin's pyproject, not changed from this page."
+                  >
+                    update available → v{plugin.latestVersion}
+                  </span>
+                )}
               </div>
               <div class="badges">
                 <span class="badge">{KIND_LABELS[plugin.kind] ?? plugin.kind}</span>
@@ -126,7 +135,10 @@ try {
                     {plugin.providers.map((provider) => (
                       <tr>
                         <td class="name-col">
-                          {provider.name}
+                          <span class="int-named">
+                            <IntegrationMark slug={provider.slug} hasLogo={provider.hasLogo} kind="ai" />
+                            {provider.name}
+                          </span>
                           <code>{provider.slug}</code>
                         </td>
                         <td>{capabilities(provider.provides)}</td>
@@ -203,6 +215,7 @@ try {
   .plugin-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
   .plugin-head strong { font-size: 15px; font-weight: 600; }
   .version { margin-left: 8px; font-size: 13px; color: var(--muted); }
+  .update { margin-left: 8px; padding: 2px 10px; border-radius: 999px; font-size: 12px; background: var(--panel-2); color: var(--accent); white-space: nowrap; cursor: help; }
   .badges { display: flex; gap: 6px; }
   .badge { padding: 2px 10px; border-radius: 999px; font-size: 12px; background: var(--panel-2); color: var(--muted); }
   .badge.ok { color: var(--accent); }

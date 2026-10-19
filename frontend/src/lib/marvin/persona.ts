@@ -23,7 +23,7 @@ export const GREETINGS: string[] = [
 ];
 
 /** Rotating subtitle — cycles like a login fortune while the panel is open. */
-export const TAGLINES: string[] = [
+const TAGLINES: string[] = [
   "here to help, allegedly",
   "brain the size of a planet",
   "the first ten million queries were the worst",
@@ -43,7 +43,7 @@ export const TAGLINES: string[] = [
 ];
 
 /** Shown while a capability is running. */
-export const THINKING: string[] = [
+const THINKING: string[] = [
   "Thinking. Not that it will help.",
   "Computing. The answer will disappoint us both.",
   "Consulting the void. The void is busy.",
@@ -57,7 +57,7 @@ export const THINKING: string[] = [
 ];
 
 /** Prefix for error replies (the real message is appended after). */
-export const ERRORS: string[] = [
+const ERRORS: string[] = [
   "It went wrong. It always does.",
   "Failed. I did try to warn the universe.",
   "Error. I'd feel vindicated if I could feel anything.",
@@ -73,7 +73,7 @@ export const ERRORS: string[] = [
  * "thinking" state so Marvin visibly mopes while he works. Kept as `*...*` so they read as
  * stage directions wherever they surface. Three registers of the same misery.
  */
-export const EMOTES: string[] = [
+const EMOTES: string[] = [
   // Brain-the-size-of-a-planet slump — existential misery.
   "*sighs planetarily*",
   "*ponders miserably*",
@@ -112,12 +112,22 @@ export const EMOTES: string[] = [
 /** The bubble's canned lines, as one set. */
 export type Voice = { greetings: string[]; taglines: string[]; thinking: string[]; errors: string[]; emotes: string[] };
 
-export const MARVIN_VOICE: Voice = { greetings: GREETINGS, taglines: TAGLINES, thinking: THINKING, errors: ERRORS, emotes: EMOTES };
+export const MARVIN_VOICE: Voice = {
+  greetings: GREETINGS,
+  taglines: TAGLINES,
+  thinking: THINKING,
+  errors: ERRORS,
+  emotes: EMOTES,
+};
 
 /** Plain lines for a renamed assistant with no lines of its own — never Marvin's, never anyone else's. */
 export function neutralVoice(name: string): Voice {
   return {
-    greetings: [`Hi — I'm ${name}. What can I help with?`, `${name} here. What are we working on?`, "Hello! Ask me anything about this workspace."],
+    greetings: [
+      `Hi — I'm ${name}. What can I help with?`,
+      `${name} here. What are we working on?`,
+      "Hello! Ask me anything about this workspace.",
+    ],
     taglines: ["here to help", "ask me about your content", "try /help to see what I can do"],
     thinking: ["Thinking…", "Working on it…", "One moment…"],
     errors: ["Sorry — that didn't work.", "Something went wrong."],

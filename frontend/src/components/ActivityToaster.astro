@@ -61,6 +61,7 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
     toastView,
   } from "@/lib/activity/toast";
   import { fetchApi } from "@/lib/api/client";
+  import { isNoWorkspaceError } from "@/lib/workspaceGate";
   import { askThreadHref } from "@/lib/marvin/pending";
   import { entityHref } from "@/lib/eventEntity";
 
@@ -469,12 +470,16 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
 
   async function poll() {
     if (stopped || document.hidden) return;
-    for (const feed of feeds) {
+    for (const feed of [...feeds]) {
       try {
         await pollFeed(feed);
       } catch (err) {
         // Signed out — stop asking. Anything else (a deploy, a blip) is retried on the next tick.
         if ((err as { status?: number })?.status === 401) stopped = true;
+        // In no workspace there is no workspace feed to poll (a super admin still has the platform's).
+        else if ((err as { status?: number })?.status === 409 && isNoWorkspaceError((err as { body?: unknown }).body)) {
+          feeds.splice(feeds.indexOf(feed), 1);
+        }
       }
     }
     if (seen.size > SEEN_CAP) {

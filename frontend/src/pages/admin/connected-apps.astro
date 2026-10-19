@@ -1,0 +1,103 @@
+---
+/**
+ * Admin → People & access → Connected apps: every MCP app (claude.ai, ChatGPT, Claude Code…) a user let use Marvin
+ * through its remote MCP server, and Disconnect. Revoked ones show with why (?revoked=1).
+ */
+import LocalTime from "@/components/LocalTime.astro";
+import AdminLayout from "@/layouts/AdminLayout.astro";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { requireAdmin } from "@/lib/auth";
+
+await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const authToken = getAuthToken(Astro.cookies);
+const showRevoked = Astro.url.searchParams.get("revoked") === "1";
+
+type App = {
+  id: string; pinned?: boolean; clientName: string; redirectHost: string; access: string; workspace: string; workspaceId: string; user: string;
+  userId: string; createdAt: string | null; lastUsedAt: string | null; revokedAt: string | null; revokedReason: string | null;
+};
+let apps: App[] = [];
+let error: string | null = null;
+try {
+  apps = await fetchApi<App[]>(`/api/admin/connected-apps${showRevoked ? "?include_revoked=true" : ""}`, {}, authToken);
+} catch (e) {
+  error = e instanceof Error ? e.message : String(e);
+}
+---
+
+<AdminLayout crumb="admin.connected-apps">
+  <div class="toolbar">
+    <div>
+      <h2>Connected apps</h2>
+      <p>MCP apps users let use Marvin as them, each in one workspace. Disconnecting stops an app at once.</p>
+    </div>
+    <a class="button secondary" href={showRevoked ? "/admin/connected-apps" : "/admin/connected-apps?revoked=1"}>
+      {showRevoked ? "Hide disconnected" : "Show disconnected"}
+    </a>
+  </div>
+  {error ? (
+    <div class="alert">{error}</div>
+  ) : apps.length === 0 ? (
+    <p class="muted">No connected apps.</p>
+  ) : (
+    <div class="table-scroll">
+      <table class="table stacks apps">
+        <thead><tr><th>App</th><th>User</th><th>Workspace</th><th>Access</th><th>Last used</th><th></th></tr></thead>
+        <tbody>
+          {apps.map((a) => (
+            <tr>
+              <td class="app"><strong>{a.clientName}</strong><br /><span class="muted">{a.redirectHost}</span></td>
+              <td data-label="User"><a href={`/admin/users/${a.userId}`}>{a.user}</a></td>
+              <td data-label="Workspace"><a href={`/admin/groups/${a.workspaceId}`}>{a.workspace}</a>{a.pinned && <><br /><span class="muted">pinned address</span></>}</td>
+              <td data-label="Access">{a.access === "write" ? "Read & write" : "Read-only"}</td>
+              <td data-label="Last used">{a.lastUsedAt ? <LocalTime iso={a.lastUsedAt} /> : "never"}</td>
+              <td class="action">
+                {a.revokedAt ? (
+                  <span class="muted">Disconnected ({a.revokedReason})</span>
+                ) : (
+                  <button type="button" class="button secondary small" data-revoke={a.id} data-name={a.clientName}>Disconnect</button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</AdminLayout>
+
+<script>
+  import { fetchApi } from "@/lib/api/client";
+
+  document.querySelectorAll<HTMLButtonElement>("[data-revoke]").forEach((button) =>
+    button.addEventListener("click", async () => {
+      if (!confirm(`Disconnect "${button.dataset.name}"? It stops working until its user approves it again.`)) return;
+      button.disabled = true;
+      try {
+        await fetchApi(`/api/admin/connected-apps/${button.dataset.revoke}/revoke`, { method: "POST" });
+        location.reload();
+      } catch (e) {
+        button.disabled = false;
+        button.textContent = e instanceof Error ? e.message : String(e);
+      }
+    }),
+  );
+</script>
+
+<style>
+  .toolbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
+  .toolbar h2 { margin: 0; }
+  .toolbar p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  /* A long client name (a hostname, say) wraps rather than stretching the table past the screen. */
+  .apps td { overflow-wrap: anywhere; }
+  /* Phones: each app is a small card (the shared .table.stacks layout, one column) instead of a six-column table
+     that scrolled sideways with Disconnect off-screen to the right. Cells name themselves, the header being gone. */
+  @media (max-width: 640px) {
+    .apps tr { grid-template-columns: minmax(0, 1fr); }
+    .apps td { grid-column: 1; }
+    .apps td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); font-size: 13px; }
+    .apps td.action .button { width: 100%; min-height: 44px; }
+  }
+  .alert { padding: 14px; border: 1px solid var(--color-error, #dc2626); border-radius: var(--radius); color: var(--color-error, #dc2626); }
+</style>

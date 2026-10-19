@@ -14,7 +14,7 @@ let agents: Agent[] = [];
 let catalog: Catalog = { categories: [], tools: [] };
 let models: { id: string; label: string; tools: boolean }[] = [];
 // Bubble characters: the platform's library to choose from, and the file names each state picks up.
-let characterLibrary: { id: string; name: string; states?: Record<string, string> }[] = [];
+let characterLibrary: { id: string; name: string; states?: Record<string, string>; persona?: { assistantName?: string | null; personaPrompt?: string | null } | null }[] = [];
 let characterCatalog: { key: string; aliases: string[] }[] = [];
 // The workspace's tones (built-ins + its own) for each agent's default tone (AI settings → Tones).
 let tones: Tone[] = BUILTIN_TONES;
@@ -75,7 +75,7 @@ const builtins = agents.filter((a) => a.isSystem);
 
   {error && <div class="alert"><strong>Couldn't load agents.</strong> {error}</div>}
 
-  <div class="agents-root" data-catalog={JSON.stringify(catalog)} data-agents={JSON.stringify(agents)} data-tones={JSON.stringify(tones)}>
+  <div class="agents-root" data-catalog={JSON.stringify(catalog)} data-agents={JSON.stringify(agents)} data-tones={JSON.stringify(tones)} data-library={JSON.stringify(characterLibrary.map((p) => ({ id: p.id, name: p.name, persona: p.persona ?? null })))}>
     <!-- New agent -->
     <div class="section-card">
       <div class="section-header">
@@ -383,9 +383,12 @@ const builtins = agents.filter((a) => a.isSystem);
   import {
     createAgent,
     deleteAgent,
+    generateAgentLines,
+    getAgent,
     getPermissions,
     previewAgentPrompt,
     previewNewAgentPrompt,
+    resetAgentPersona,
     resetAgentToolPolicy,
     updateAgent,
     type Agent,
@@ -395,12 +398,23 @@ const builtins = agents.filter((a) => a.isSystem);
   import { inheritedDefaults, inheritLabel, matrixCategories, matrixTools, policyFromChoices } from "@/lib/agentMatrix";
   import { agentPreviewView, promptPreviewHtml, promptPreviewMessage } from "@/lib/promptPreview";
   import { type Tone, toneOptions } from "@/lib/tones";
+  import { type BubbleLines, fillLines, fillMood, linesFieldsHtml, moodFieldsHtml, readLines, readMood } from "@/lib/marvin/characterSheet";
+  import { voiceFor } from "@/lib/marvin/persona";
 
   const root = document.querySelector<HTMLElement>(".agents-root");
   if (root) {
     const tones: Tone[] = JSON.parse(root.dataset.tones || "[]");
     const catalog: Catalog = JSON.parse(root.dataset.catalog || '{"categories":[],"tools":[]}');
     const agents: Agent[] = JSON.parse(root.dataset.agents || "[]");
+    type Pack = { id: string; name: string; persona?: { assistantName?: string | null; personaPrompt?: string | null } | null };
+    const library: Pack[] = JSON.parse(root.dataset.library || "[]");
+    const packOf = (id: string | null | undefined) => library.find((p) => p.id === id) ?? null;
+    const packName = (p: Pack) => p.persona?.assistantName || p.name;
+    // Saving the form sends the lines only when they changed, so a library character's stay marked as its own.
+    const sameLines = (a: BubbleLines | null | undefined, b: BubbleLines | null | undefined) =>
+      ["greetings", "taglines", "thinking", "errors", "emotes"].every(
+        (k) => JSON.stringify(a?.[k as keyof BubbleLines] ?? []) === JSON.stringify(b?.[k as keyof BubbleLines] ?? []),
+      );
 
     const esc = (s: unknown) =>
       String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -492,6 +506,9 @@ const builtins = agents.filter((a) => a.isSystem);
         description: str("description") || null,
         handoffHint: str("handoffHint") || null,
         systemPrompt: str("systemPrompt") || null,
+        personaPrompt: str("personaPrompt") || null,
+        bubbleLines: readLines(form),
+        mood: readMood(form),
         suggestions: sugg.length ? sugg : null,
         modelOverride: str("modelOverride") || null,
         kind: (str("kind") || "persona") as "persona" | "model",
@@ -562,6 +579,68 @@ const builtins = agents.filter((a) => a.isSystem);
       });
     }
 
+    // ── A library character's persona (services/ai/character_library.py) ──
+    // Picking a pack makes the agent that character (name, Character, lines, tone, icon); Reset copies it again.
+    function fromNote(a: Agent): string {
+      const pack = packOf(a.character?.library);
+      if (!pack?.persona) return "";
+      const name = esc(packName(pack));
+      return `<p class="persona-from">From ${name} — edit freely. <button type="button" class="e-reset">Reset to ${name}'s</button></p>`;
+    }
+
+    /** Fill the Edit form's persona fields from `a` (after a pick or a reset). */
+    function fillPersona(form: HTMLFormElement, a: Agent) {
+      const set = (name: string, value: string) => {
+        const input = form.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[name="${name}"]`);
+        if (input) input.value = value;
+      };
+      set("name", a.name);
+      set("icon", a.icon ?? "");
+      set("defaultRegister", a.defaultRegister ?? "");
+      set("personaPrompt", a.personaPrompt ?? "");
+      fillLines(form, a.bubbleLines);
+      fillMood(form, a.mood);
+      const note = form.querySelector(".persona-from");
+      const html = fromNote(a);
+      if (note) note.outerHTML = html || "<span hidden></span>";
+      else form.querySelector('[name="personaPrompt"]')?.insertAdjacentHTML("afterend", html);
+      form.querySelector(".e-reset")?.addEventListener("click", () => void resetPersona(form, a));
+    }
+
+    async function resetPersona(form: HTMLFormElement, a: Agent) {
+      const pack = packOf(a.character?.library);
+      if (!pack || !confirm(`Reset ${a.name} to ${packName(pack)}'s persona? Its name, Character, bubble lines, tone and mood edits are replaced.`)) return;
+      const lstatus = form.querySelector('[data-role="lstatus"]');
+      try {
+        Object.assign(a, await resetAgentPersona(a.slug));
+        fillPersona(form, a);
+        status(lstatus, "Reset — saved.", "success");
+      } catch (err) {
+        status(lstatus, "Couldn't reset: " + (err instanceof Error ? err.message : err), "error");
+      }
+    }
+
+    function wirePersona(form: HTMLFormElement, a: Agent) {
+      form.querySelector(".e-reset")?.addEventListener("click", () => void resetPersona(form, a));
+      const lstatus = form.querySelector('[data-role="lstatus"]');
+      form.querySelector(".e-lines")?.addEventListener("click", async (ev) => {
+        const button = ev.currentTarget as HTMLButtonElement;
+        const fd = new FormData(form);
+        const personaPrompt = String(fd.get("personaPrompt") ?? "").trim();
+        if (readLines(form) && !confirm("Replace the lines with new ones written from the Character?")) return;
+        button.disabled = true;
+        status(lstatus, "Writing lines from the Character…");
+        try {
+          fillLines(form, await generateAgentLines(a.slug, { name: String(fd.get("name") ?? "").trim(), personaPrompt }));
+          status(lstatus, "Written — edit them, then Save changes.", "success");
+        } catch (err) {
+          status(lstatus, "Couldn't write lines: " + (err instanceof Error ? err.message : err), "error");
+        } finally {
+          button.disabled = false;
+        }
+      });
+    }
+
     // ── Per-agent cards ──
     document.querySelectorAll<HTMLElement>(".agent").forEach((card) => {
       const slug = card.dataset.slug!;
@@ -583,6 +662,29 @@ const builtins = agents.filter((a) => a.isSystem);
         }
         editBox?.after(characterBox);
         characterBox.hidden = !characterBox.hidden;
+      });
+      // A pick copies the pack's persona onto the agent: ask before it replaces a Character written here, and
+      // refill an open Edit form from the agent as saved (elsewhere, reload so the card shows the new name).
+      characterBox?.addEventListener("character-before-pick", (ev) => {
+        const pack = packOf((ev as CustomEvent).detail?.pack);
+        if (!pack?.persona || !agent) return;
+        const form = editBox && !editBox.hidden ? editBox.querySelector("form") : null;
+        const written = (form?.querySelector<HTMLTextAreaElement>('[name="personaPrompt"]')?.value ?? agent.personaPrompt ?? "").trim();
+        const fromPack = (packOf(agent.character?.library)?.persona?.personaPrompt ?? "").trim();
+        const name = packName(pack);
+        if (written && written !== fromPack && !confirm(`${name} brings its own persona: ${agent.name}'s Character, name and bubble lines are replaced with ${name}'s. Continue?`)) {
+          ev.preventDefault();
+        }
+      });
+      characterBox?.addEventListener("character-picked", async () => {
+        if (!agent) return; // any pick renames the agent after the pack; a sheet brings the rest
+        const form = editBox && !editBox.hidden ? editBox.querySelector("form") : null;
+        if (!form) {
+          location.reload();
+          return;
+        }
+        Object.assign(agent, await getAgent(slug));
+        fillPersona(form, agent);
       });
       // Keep the card's small preview in step with the picker.
       characterBox?.addEventListener("character-change", (ev) => {
@@ -718,6 +820,9 @@ const builtins = agents.filter((a) => a.isSystem);
           <div class="form-field"><label class="label">Description</label><textarea class="input" name="description" rows="2">${esc(agent.description ?? "")}</textarea></div>
           <div class="form-field"><label class="label">Hand off when…</label><input class="input" name="handoffHint" maxlength="300" value="${esc(agent.handoffHint ?? "")}" /></div>
           <div class="form-field"><label class="label">Instructions</label><textarea class="input" name="systemPrompt" rows="6">${esc(agent.systemPrompt ?? "")}</textarea></div>
+          <div class="form-field"><label class="label">Character <span class="muted">(who it is and how it speaks — empty uses the workspace's)</span></label><textarea class="input" name="personaPrompt" rows="4" maxlength="8000">${esc(agent.personaPrompt ?? "")}</textarea>${fromNote(agent)}</div>
+          <div class="form-field"><label class="label">Bubble lines <span class="muted">(while it talks; an empty list uses the workspace's)</span></label>${linesFieldsHtml(agent.bubbleLines, voiceFor(agent.name))}<div><button type="button" class="button secondary small e-lines">Write lines from the Character</button> <span class="save-status" data-role="lstatus"></span></div></div>
+          <div class="form-field">${moodFieldsHtml(agent.mood)}</div>
           <div class="form-field"><label class="label">Suggested prompts (one per line)</label><textarea class="input" name="suggestions" rows="3">${esc((agent.suggestions ?? []).join("\n"))}</textarea></div>
           <div class="form-row four">
             <div class="form-field"><label class="label">Model</label><select class="input" name="modelOverride">${modelOptions}</select></div>
@@ -746,11 +851,14 @@ const builtins = agents.filter((a) => a.isSystem);
         // What this agent would get with the form as it stands — saved or not.
         const ePreview = editBox.querySelector<HTMLElement>('[data-role="epreview"]')!;
         editBox.querySelector(".e-preview")?.addEventListener("click", () => void showPreview(ePreview, () => previewAgentPrompt(slug, readForm(form, matrix))));
+        wirePersona(form, agent);
         form.addEventListener("submit", async (ev) => {
           ev.preventDefault();
           status(estatus, "Saving…");
           try {
-            await updateAgent(slug, readForm(form, matrix));
+            const data = readForm(form, matrix);
+            if (sameLines(data.bubbleLines, agent.bubbleLines)) delete (data as Partial<typeof data>).bubbleLines;
+            await updateAgent(slug, data);
             location.reload();
           } catch (e) {
             status(estatus, "Couldn't save: " + (e instanceof Error ? e.message : e), "error");

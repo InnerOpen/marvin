@@ -56,7 +56,7 @@ try {
 
 <script>
   import { fetchApi } from '@/lib/api/client';
-  import { resolveCapability, helpHtml, esc, setPendingRegister, resumePendingRun, onRunProgress, getActiveAgent, getSessionTone, setSessionTone, TONE_EVENT, setAskPageAllowed, resumeBubbleRun, parkedCardFor, type MarvinResult } from '@/lib/marvin/capabilities';
+  import { resolveCapability, helpHtml, esc, setPendingRegister, resumePendingRun, onRunProgress, getActiveAgent, setActiveAgent, getSessionTone, setSessionTone, TONE_EVENT, setAskPageAllowed, resumeBubbleRun, parkedCardFor, type MarvinResult } from '@/lib/marvin/capabilities';
   import { type ApprovalCard, approvalCardHtml, decisionsFrom } from '@/lib/approvals';
   import { OPEN_BUBBLE_EVENT } from '@/lib/activity/toast';
   import { createCast, sameStates, type Cast } from '@/lib/marvin/cast';
@@ -64,6 +64,7 @@ try {
   import { MARVIN_VOICE, voiceFor, pick } from '@/lib/marvin/persona';
   import { askPageAllowed, bubbleAllowed } from '@/lib/marvin/gate';
   import { getPageContext, contextLabel, setContextSuppressed } from '@/lib/marvin/context';
+  import { dropGreeting, noteGreeting } from '@/lib/marvin/greeting';
   import { forgetConversation, loadPending, rememberThread, scoped, setStorageScope, threadFor } from '@/lib/marvin/pending';
   import { type BubbleSpot, clampSpot, DEFAULT_SPOT, hiddenAfterScroll, parseSpot, parseTuck, type Inset, PEEK_OUT_MS, peekEveryMs, SCROLL_IDLE_MS, spotFromRect, type Tuck, tuckAt, tuckedPosition, tuckEdge } from '@/lib/marvin/position';
   import { ATTACH_ACCEPT, ATTACHMENTS_KEY, attachmentIcon, forgetAttachments, loadAttachments, MAX_ATTACHMENTS, roomFor, saveAttachments, withAttachment, withoutAttachment } from '@/lib/marvin/attachments';
@@ -117,14 +118,9 @@ try {
     // or an image URL. The canned lines are the workspace's own bubble lines where it has them, else
     // Marvin's while it's still named Marvin (see voiceFor).
     function applyIdentity(settings: any) {
-      const name = (settings?.assistantName || '').trim() || 'Marvin';
       const icon = (settings?.assistantIcon || '').trim();
-      voice = voiceFor(name, settings?.bubbleLines);
-      document.querySelector('#marvin-root .marvin-name')!.textContent = name;
-      for (const el of [toggle, panel]) el.setAttribute('aria-label', `Ask ${name}`);
-      toggle.title = `Ask ${name}`;
-      input.placeholder = `Ask ${name}…  (try /help)`;
-      sub.textContent = pick(voice.taglines);
+      readVoices(settings);
+      applyVoice();
       workspaceIcon = icon;
       characterInsets = settings?.characterInsets ?? {};
       cast = createCast(settings?.assistantCharacter?.states, settings?.agentCharacters ?? {}, getActiveAgent());
@@ -137,6 +133,31 @@ try {
         if (progress.status === 'awaiting_approval') cue('parked');
         else if (progress.events.length) cue('progress');
       });
+    }
+
+    // Who the bubble speaks as: the active agent where it has a voice of its own (a library character's name and
+    // lines, or its own — the AI settings' agentVoices), else the workspace's assistant.
+    let workspaceVoice: { name: string; lines: any } = { name: 'Marvin', lines: null };
+    let agentVoices: Record<string, { name: string; bubbleLines?: any }> = {};
+    let speaker = '';
+
+    function readVoices(settings: any) {
+      workspaceVoice = { name: (settings?.assistantName || '').trim() || 'Marvin', lines: settings?.bubbleLines };
+      agentVoices = settings?.agentVoices ?? {};
+    }
+
+    function applyVoice() {
+      const own = agentVoices[getActiveAgent() ?? ''];
+      const name = own?.name || workspaceVoice.name;
+      voice = own ? voiceFor(name, own.bubbleLines) : voiceFor(name, workspaceVoice.lines);
+      const key = `${name}\n${JSON.stringify(own?.bubbleLines ?? workspaceVoice.lines ?? null)}`;
+      if (key === speaker) return;
+      speaker = key;
+      document.querySelector('#marvin-root .marvin-name')!.textContent = name;
+      for (const el of [toggle, panel]) el.setAttribute('aria-label', `Ask ${name}`);
+      toggle.title = `Ask ${name}`;
+      input.placeholder = `Ask ${name}…  (try /help)`;
+      sub.textContent = pick(voice.taglines);
     }
 
     /**
@@ -152,6 +173,8 @@ try {
         characterInsets = settings?.characterInsets ?? {};
         cast = createCast(settings?.assistantCharacter?.states, settings?.agentCharacters ?? {}, getActiveAgent());
         if (!sameStates(before, cast.states)) showCast();
+        readVoices(settings);
+        applyVoice(); // the name and lines change with the character
       } catch {
         /* keep what's showing */
       }
@@ -204,6 +227,7 @@ try {
     /** The active agent is the one talking again (a new message: the delegate that answered the last one steps back). */
     function handBack() {
       if (cast?.use(getActiveAgent())) showCast();
+      applyVoice();
     }
 
     function showIcon() {
@@ -316,8 +340,17 @@ try {
       return `<span class="mv-error">${esc(pick(voice.errors))} (${esc(err?.message || 'error')})</span>`;
     }
 
+    // Greet the user. A flavor line, not part of the saved transcript — but the agent is told which line it was
+    // (with the first message of this conversation), so a reply to it makes sense.
+    function greet() {
+      const line = pick(voice.greetings);
+      addMsg('marvin', esc(line), false);
+      noteGreeting(line, getActiveAgent());
+    }
+
     function clearTranscript() {
       transcript = [];
+      dropGreeting();
       generation += 1;
       busy = false; // a run still in flight no longer holds the input; its reply is dropped
       // "Clear" must also drop the model's memory, not just the visible log: the next message opens
@@ -330,7 +363,7 @@ try {
       log.innerHTML = '';
       clear.setAttribute('hidden', '');
       greeted = false;
-      if (panel.classList.contains('open')) { greeted = true; addMsg('marvin', esc(pick(voice.greetings)), false); }
+      if (panel.classList.contains('open')) { greeted = true; greet(); }
     }
 
     // Rehydrate a stored conversation on page load (before any greeting).
@@ -429,7 +462,7 @@ try {
       taglineTimer = window.setInterval(rotateTagline, 7000); // cycle like a login fortune
       if (!greeted) {
         greeted = true;
-        addMsg('marvin', esc(pick(voice.greetings)), false); // flavor line, not part of the saved transcript
+        greet();
       }
       cue('open');
       void checkUploadAccess();
@@ -653,9 +686,12 @@ try {
     document.addEventListener('marvin:ask', (e) => {
       const detail = (e as CustomEvent).detail ?? {};
       const text = String(detail.text ?? '').trim();
-      if (!text || busy) return;
-      if (detail.register) setPendingRegister(detail.register);
+      if (!text) return;
+      // Bring the bubble in first — out of its edge, back from a scroll-away — even when a run is
+      // under way, so the page's button always shows where the answer will land.
       if (!panel.classList.contains('open')) openPanel();
+      if (busy) return;
+      if (detail.register) setPendingRegister(detail.register);
       input.value = text;
       form.requestSubmit();
     });
@@ -820,6 +856,20 @@ try {
         }
       }
     }
+
+    // A referral's "Continue with <agent> →": that agent becomes the bubble's, and the request goes to it now.
+    log.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-mv-continue-agent]');
+      if (!btn || busy) return;
+      const agent = btn.dataset.mvContinueAgent ?? '';
+      const question = btn.dataset.mvQuestion ?? '';
+      if (!agent || !question) return;
+      btn.disabled = true;
+      setActiveAgent(agent);
+      handBack();
+      input.value = question;
+      form.requestSubmit();
+    });
 
     log.addEventListener('click', async (e) => {
       const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-mv-approve], [data-mv-deny]');
@@ -1131,6 +1181,9 @@ try {
   }
   .marvin-log :global(.mv-sources a), .marvin-log :global(.mv-answer a) { color: var(--accent); text-decoration: none; }
   .marvin-log :global(.mv-sources a:hover) { text-decoration: underline; }
+  .marvin-log :global(.mv-continue) { padding: 4px 10px; border: 1px solid var(--accent); border-radius: 6px; background: transparent; color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; }
+  .marvin-log :global(.mv-continue:disabled) { opacity: 0.5; cursor: default; }
+  .marvin-log :global(.mv-ref-reason) { color: var(--muted); }
   .marvin-log :global(.mv-help ul) { margin: 8px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
   .marvin-log :global(.mv-help code), .marvin-log :global(.mv-marvin code) {
     font-size: 12px; background: var(--panel); border: 1px solid var(--line);

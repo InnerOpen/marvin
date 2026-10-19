@@ -7,6 +7,7 @@ import { getAuthToken } from "@/lib/api/client";
 import { getCollection, getCollectionEntries } from "@/lib/api/collections";
 import type { CollectionRead, EntryRead } from "@/lib/api/entries";
 import { listEntries } from "@/lib/api/entries";
+import { listEntryTypes } from "@/lib/api/entryTypes";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { EDITORS_ONLY } from "@/lib/workspaceRole";
 
@@ -18,6 +19,7 @@ const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCE
 let collection: CollectionRead | null = null;
 let allEntries: EntryRead[] = [];
 let collectionEntries: EntryRead[] = [];
+let typeNames = new Map<string, string>(); // entry type id → name, for the picker's meta line
 let error: string | null = null;
 
 if (!authToken) {
@@ -26,12 +28,15 @@ if (!authToken) {
   error = "Collection ID is required";
 } else {
   try {
-    [collection, allEntries, collectionEntries] = await Promise.all([
+    let types: Awaited<ReturnType<typeof listEntryTypes>> = [];
+    [collection, allEntries, collectionEntries, types] = await Promise.all([
       getCollection(id, authToken),
       listEntries(authToken),
       getCollectionEntries(id, authToken),
+      listEntryTypes(authToken).catch(() => []),
     ]);
 
+    typeNames = new Map(types.map((t) => [t.id, t.name]));
     // Sort collection entries by order field (already sorted by API, but ensure it)
     collectionEntries.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
   } catch (e) {
@@ -131,6 +136,13 @@ if (!authToken) {
 
           <CollectionVisibilityField checked={collection.isPublic !== false} locked={collection.isSystem === true} />
 
+          {collection.isSystem !== true && (
+            <label class="sidebar-field">
+              <input type="checkbox" name="in_sidebar" value="true" checked={(collection as any).inSidebar !== false} />
+              <span><strong>Show in the sidebar</strong> <span class="form-help">Lists this collection under Collections in the sidebar. Off: it is still on the Collections page.</span></span>
+            </label>
+          )}
+
           <SmartCollectionFields checked={collection.isSmart === true} rules={collection.smartRules} targetType={(collection as any).targetType ?? 'entry'} />
 
           <div class="form-group">
@@ -227,7 +239,7 @@ if (!authToken) {
                       <strong>{entry.title}</strong>
                       <span class="picker-meta">
                         <span class={`pill ${entry.status}`}>{entry.status}</span>
-                        {entry.entryType && <span> &bull; {entry.entryType.name}</span>}
+                        {typeNames.get(entry.entryTypeId) && <span> &bull; {typeNames.get(entry.entryTypeId)}</span>}
                       </span>
                     </div>
                     <div class="attachment-actions">
@@ -306,6 +318,7 @@ if (!authToken) {
       const sortOrder = formData.get('sort_order') as string;
       const isSmart = formData.get('is_smart') === 'true';
       const isPublic = isPublicFromForm(formData);
+      const sidebarBox = form.querySelector<HTMLInputElement>('input[name="in_sidebar"]');
       const targetType = (formData.get('target_type') as string) || 'entry';
       const smartRulesStr = formData.get('smartRules') as string;
       const metadataStr = formData.get('metadata') as string;
@@ -343,6 +356,7 @@ if (!authToken) {
           sortOrder: sortOrder ? parseInt(sortOrder) : 0,
           isSmart,
           isPublic,
+          ...(sidebarBox ? { inSidebar: sidebarBox.checked } : {}),
           targetType,
           smartRules: smartRules,
           metadataJson: metadataJson,
@@ -636,6 +650,9 @@ if (!authToken) {
 </script>
 
 <style>
+  .sidebar-field { display: flex; align-items: flex-start; gap: 0.6rem; font-weight: 400; cursor: pointer; margin: 1rem 0 0; }
+  .sidebar-field input { margin: 0.15rem 0 0; flex: 0 0 auto; }
+  .sidebar-field .form-help { display: block; }
   .error-banner {
     padding: 1.5rem;
     background: var(--color-error-bg);

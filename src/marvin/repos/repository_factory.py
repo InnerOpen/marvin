@@ -77,7 +77,6 @@ from .workspace_members import RepositoryWorkspaceMembers  # Workspace member ma
 
 # Constants for primary key / lookup key names used in repositories
 PK_ID = "id"  # Standard primary key
-PK_SLUG = "slug"  # Slug identifier, often used for user-friendly URLs
 PK_TOKEN = "token"  # Token string, used for invite tokens or password reset tokens
 PK_GROUP_ID = "group_id"  # Foreign key for group association
 

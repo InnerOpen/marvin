@@ -3,7 +3,7 @@ import LocalTime from "@/components/LocalTime.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import type { ScheduledTaskRead } from "@/lib/api/admin/scheduledTasks";
 import { listAllTasks } from "@/lib/api/admin/scheduledTasks";
-import { getAuthToken } from "@/lib/api/client";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
 
 await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
@@ -12,12 +12,31 @@ const authToken = getAuthToken(Astro.cookies);
 let tasks: ScheduledTaskRead[] = [];
 let error: string | null = null;
 
+let workspaceNames = new Map<string, string>();
 try {
-  tasks = await listAllTasks(authToken);
+  const [all, groups] = await Promise.all([
+    listAllTasks(authToken),
+    fetchApi<any>("/api/admin/groups?perPage=-1", {}, authToken).catch(() => ({ items: [] })),
+  ]);
+  tasks = all;
+  workspaceNames = new Map((groups.items || []).map((g: any) => [g.id, g.name]));
 } catch (e) {
   console.error("[admin/scheduled-tasks] Error loading:", e);
   error = e instanceof Error ? e.message : String(e);
 }
+
+// The platform's own tasks first, then each workspace's under its name (alphabetical), so a long list reads by owner.
+type Section = { key: string; title: string; href?: string; tasks: ScheduledTaskRead[] };
+const byName = (a: ScheduledTaskRead, b: ScheduledTaskRead) => a.name.localeCompare(b.name);
+const sections: Section[] = [];
+const system = tasks.filter((t) => !t.groupId).sort(byName);
+if (system.length) sections.push({ key: "system", title: "System", tasks: system });
+const perWorkspace = new Map<string, ScheduledTaskRead[]>();
+for (const t of tasks) if (t.groupId) perWorkspace.set(t.groupId, [...(perWorkspace.get(t.groupId) ?? []), t]);
+[...perWorkspace.entries()]
+  .map(([id, list]) => ({ key: id, title: workspaceNames.get(id) ?? `Workspace ${id.slice(0, 8)}`, href: `/admin/groups/${id}`, tasks: list.sort(byName) }))
+  .sort((a, b) => a.title.localeCompare(b.title))
+  .forEach((sec) => sections.push(sec));
 
 function formatSchedule(task: ScheduledTaskRead): string {
   if (!task.scheduleConfig) return "No schedule";
@@ -58,8 +77,15 @@ function formatSchedule(task: ScheduledTaskRead): string {
         <a href="/admin/scheduled-tasks/new" class="button">New System Task</a>
       </div>
     ) : (
+      <div class="task-sections">
+        {sections.map((sec) => (
+      <section class="task-section">
+        <h3 class="section-title">
+          {sec.href ? <a href={sec.href}>{sec.title}</a> : sec.title}
+          <span class="section-count">{sec.tasks.length}</span>
+        </h3>
       <div class="tasks-grid">
-        {tasks.map((task) => (
+        {sec.tasks.map((task) => (
           <article class="task-card">
             <div class="task-header">
               <div>
@@ -117,6 +143,9 @@ function formatSchedule(task: ScheduledTaskRead): string {
               >Delete</button>
             </div>
           </article>
+        ))}
+      </div>
+      </section>
         ))}
       </div>
     )}
@@ -205,6 +234,11 @@ function formatSchedule(task: ScheduledTaskRead): string {
   .empty-title { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
   .empty-desc { margin: 0 0 24px; color: var(--muted); font-size: 14px; }
 
+  .task-sections { display: grid; gap: 28px; }
+  .section-title { display: flex; align-items: baseline; gap: 8px; margin: 0 0 12px; font-size: 16px; }
+  .section-title a { color: inherit; text-decoration: none; }
+  .section-title a:hover { text-decoration: underline; }
+  .section-count { font-size: 12px; font-weight: 500; color: var(--muted); }
   .tasks-grid { display: grid; gap: 16px; }
 
   .task-card {

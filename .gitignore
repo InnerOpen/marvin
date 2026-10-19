@@ -146,9 +146,7 @@ src/dev/data/*
 # Claude Code worktrees (never commit as gitlinks)
 .claude/worktrees/
 
-# Character kit: generated packs (rebuild with character_from_poses.py)
-src/dev/character_kit/characters/*/out/
-# …and its pose sheets: AI output, often over the 500 KB commit limit — keep your own copy (Drive, Downloads)
+# Character kit: pose sheets are AI output, often over the 500 KB commit limit — keep your own copy (Drive, Downloads)
 src/dev/character_kit/characters/*/poses.png
 # …and the layout guides make_prompt.py writes each run
 src/dev/character_kit/characters/*/layout-guide.png

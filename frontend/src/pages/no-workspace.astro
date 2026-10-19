@@ -1,0 +1,132 @@
+---
+import ThemeInit from "@/components/ThemeInit.astro";
+import "../styles/global.css";
+import Pwa from "@/components/Pwa.astro";
+import RuntimeConfig from "@/components/RuntimeConfig.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { requireAuth } from "@/lib/auth";
+import { createSdkClient } from "@/lib/sdk";
+import { noWorkspaceLanding } from "@/lib/workspaceGate";
+
+// The page for a user who is in no workspace yet: an Admin-created, OIDC or LDAP sign-up waiting for an invite.
+export const prerender = false;
+
+const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
+
+// A super admin has Admin; anyone who has since been invited (or added) has a workspace to go to.
+if (user.platformRole === "SUPER_ADMIN") return Astro.redirect(noWorkspaceLanding(user.platformRole));
+try {
+  const current = (await createSdkClient(getAuthToken(Astro.cookies)).workspaces.getCurrent()) as unknown;
+  if (current) return Astro.redirect("/");
+} catch {
+  // The API can't say: keep showing the waiting page.
+}
+const who = user.email || user.username || "this account";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <ThemeInit />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Waiting for an invite | Marvin</title>
+    <RuntimeConfig />
+    <Pwa />
+  </head>
+  <body class="waiting-page">
+    <main class="waiting-card">
+      <div class="brand">
+        <strong>Marvin</strong>
+        <span>Content engine</span>
+      </div>
+      <h1>Waiting for an invite</h1>
+      <p>You're signed in as <strong class="who">{who}</strong>, but you aren't in a workspace yet.</p>
+      <p>Ask a workspace owner or admin to invite you. Once they have, check again and you'll land in it.</p>
+      <div class="actions">
+        <a class="button primary" href="/no-workspace">Check again</a>
+        <form method="POST" action="/api/auth/logout">
+          <button type="submit" class="button secondary">Sign out</button>
+        </form>
+      </div>
+    </main>
+  </body>
+</html>
+
+<style>
+  .waiting-page {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(135deg, #1e2725 0%, #2f4a47 100%);
+    padding: 1rem;
+  }
+
+  .waiting-card {
+    width: 100%;
+    max-width: 26rem;
+    box-sizing: border-box;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 2rem 1.5rem;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    text-align: center;
+  }
+
+  .brand {
+    display: grid;
+    gap: 4px;
+    margin-bottom: 1.5rem;
+  }
+
+  .brand strong {
+    font-size: 28px;
+    color: var(--ink);
+  }
+
+  .brand span {
+    font-size: 14px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+  }
+
+  h1 {
+    margin: 0 0 1rem;
+    font-size: 22px;
+    color: var(--ink);
+  }
+
+  p {
+    margin: 0 0 0.75rem;
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  .who {
+    color: var(--ink);
+    overflow-wrap: anywhere;
+  }
+
+  .actions {
+    display: grid;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+  }
+
+  .actions .button,
+  .actions form,
+  .actions form .button {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    text-align: center;
+  }
+
+  .button.primary {
+    background: var(--accent);
+    color: white;
+    font-weight: 600;
+  }
+</style>

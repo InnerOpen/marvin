@@ -20,7 +20,7 @@ from marvin.services.event_bus_service.event_types import WebhookMode
 
 from .. import BaseMixins, SqlAlchemyBase
 from .._model_utils.auto_init import auto_init
-from .._model_utils.datetime import DateTime
+from .._model_utils.datetime import AwareDateTime
 from .._model_utils.guid import GUID
 from .._model_utils.httpurl import HttpUrlType
 
@@ -72,7 +72,7 @@ class GroupWebhooksModel(SqlAlchemyBase, BaseMixins):
         doc="Type of the webhook — determines trigger conditions and payload shape.",
     )
     scheduled_time: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
+        AwareDateTime,
         nullable=True,
         doc="Scheduled datetime (UTC) for the webhook to run. None for event_driven webhooks.",
     )

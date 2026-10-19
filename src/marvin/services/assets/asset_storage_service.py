@@ -43,18 +43,31 @@ def check_allowed(size: int, mime_type: str) -> None:
 class AssetStorageService(BaseService):
     """Business logic for asset upload and storage."""
 
-    def __init__(self, repos: AllRepositories, storage_provider: BaseStorageProvider):
+    def __init__(self, repos: AllRepositories, storage_provider: BaseStorageProvider, location: str | None = None):
         """
         Initialize asset storage service.
 
         Args:
             repos: Repository instances for database access
             storage_provider: Storage provider for file operations
+            location: What new rows record as their ``storage_provider`` when it isn't the provider's own slug — a
+                workspace's own bucket, ``ws:<connection id>`` (use ``for_workspace``)
         """
         super().__init__()
         self.repos = repos
         self.storage = storage_provider
+        self.location = location
         self.metadata_extractor = AssetMetadataExtractor()
+
+    @classmethod
+    def for_workspace(cls, repos: AllRepositories) -> "AssetStorageService":
+        """The service for ``repos``' workspace: new files go to its own bucket when it keeps one, else the platform's
+        storage. Raises ``WorkspaceStorageUnavailable`` (a 503) when the workspace's own bucket can't take uploads —
+        never a quiet fallback to the platform's (services/storage/workspace.py)."""
+        from marvin.services.storage.workspace import write_target
+
+        target = write_target(repos.session, repos.group_id)
+        return cls(repos, target.provider, location=target.location)
 
     def upload_asset(
         self,
@@ -159,7 +172,6 @@ class AssetStorageService(BaseService):
                 asset_data["group_id"] = group_id
                 asset_data["uploaded_by"] = user_id
                 asset = self.repos.assets.create(asset_data)
-                self._join_smart_collections(asset)
 
                 return AssetRead.model_validate(asset)
 
@@ -193,7 +205,11 @@ class AssetStorageService(BaseService):
         if not group:
             raise ValueError(f"Workspace not found: {group_id}")
 
-        ext = (extension or getattr(source, "extension", None) or "jpg").lstrip(".")
+        from marvin.services.assets.image_type import EXTENSIONS, sniff_image_mime
+
+        # The bytes decide: the media pipeline's output isn't always the source's type (an AI-generated PNG made from a
+        # JPEG), and the stored type is read from the extension.
+        ext = EXTENSIONS.get(sniff_image_mime(data) or "") or (extension or getattr(source, "extension", None) or "jpg").lstrip(".")
         original_filename = f"{slug}.{ext}"
         with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as temp_file:
             temp_path = Path(temp_file.name)
@@ -245,23 +261,9 @@ class AssetStorageService(BaseService):
                 if asset_data["uploaded_by"] is None:
                     raise ValueError("a derivative needs an uploader: pass user_id when there is no source asset")
                 asset = self.repos.assets.create(asset_data)
-                self._join_smart_collections(asset)
                 return AssetRead.model_validate(asset)
             finally:
                 temp_path.unlink(missing_ok=True)
-
-    def _join_smart_collections(self, asset) -> None:
-        """A new library asset joins the asset smart collections whose rules it matches now, not at the nightly
-        resync. Best-effort: a rule that can't be read never fails the upload."""
-        from marvin.services.collections.smart_collections import sync_item
-
-        session = self.repos.session
-        try:
-            if sync_item(session, asset.group_id, asset, "asset"):
-                session.commit()
-        except Exception as e:  # noqa: BLE001
-            session.rollback()
-            self.logger.warning(f"Smart collections: couldn't sync new asset {asset.id}: {e}")
 
     def storage_for(self, asset) -> BaseStorageProvider:
         """The provider an existing asset row lives in: this service's own provider when the row is on
@@ -271,7 +273,7 @@ class AssetStorageService(BaseService):
             return self.storage
         from marvin.services.storage.provider_factory import provider_for
 
-        return provider_for(slug)
+        return provider_for(asset)  # the row itself: a workspace bucket is only read for its own workspace
 
     def read_bytes(self, asset) -> bytes:
         """Read an asset's raw bytes (source for a derivation) from the provider it lives in. A bare
@@ -343,8 +345,15 @@ class AssetStorageService(BaseService):
 
         return public_url_for(self._get_provider_name(), storage_key, group_id, provider=self.storage)
 
+    @property
+    def stored_as(self) -> str:
+        """What a row for a file this service stores records as its ``storage_provider``."""
+        return self._get_provider_name()
+
     def _get_provider_name(self) -> str:
-        """The slug new rows record as their ``storage_provider``."""
+        """The slug new rows record as their ``storage_provider``: the workspace location, else the provider's slug."""
+        if self.location:
+            return self.location
         from marvin.services.storage.provider_factory import provider_slug
 
         return provider_slug(self.storage)

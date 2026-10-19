@@ -508,5 +508,5 @@ def test_the_agents_sweep_drafted_manual_saves_off_without_a_warning(ws):
     out = _tool(ws, "draft_workflow", {"name": "Trash unattached images", "definition": {**AGENT_SWEEPS[1], "trigger": MANUAL}})
     assert out["workflow"]["enabled"] is False and "warnings" not in out
     assert "every warning" in out["next"]
-    notes = authoring_guide(ws.session, ws.gid)["shape"]["notes"]
+    notes = authoring_guide(ws.session, ws.gid, "shape")["shape"]["notes"]
     assert any("always drafted `manual`" in n for n in notes)

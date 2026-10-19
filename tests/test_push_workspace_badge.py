@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 from marvin.services import push_actions, push_notifications, web_push
 from tests import test_content_role_gates as gates
+from tests._users import member_of
 from tests.test_workflow_authoring import AD, P, workspace, ws  # noqa: F401 — fixtures
 
 
@@ -52,7 +53,7 @@ def test_the_icon_counts_the_inbox_here_and_approvals_anywhere(ws):
     root = _awaiting_thread(ws)
     _awaiting_thread(ws, group_id=other.id)  # waits in another workspace: still counts
     _awaiting_thread(ws, child_of=root.id)  # a hand-off's specialist parks with its parent: counted once
-    user = SimpleNamespace(id=ws.uid, active_group_id=ws.gid, group_id=ws.gid)
+    user = SimpleNamespace(id=ws.uid, active_group_id=ws.gid, group_id=ws.gid, **member_of(ws.gid))
 
     assert push_actions.badge_counts(ws.session, user) == {"inbox": 1, "approvals": 2, "count": 3}
     assert admin.get("/api/self/push/badge").json() == {"inbox": 1, "approvals": 2, "count": 3}

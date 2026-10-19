@@ -21,7 +21,6 @@ from .matcher import interpolate
 # cost/rate hazard, and the preview shows the true count so an author sees when it's clipped.
 MAX_TARGET_ENTITIES = 250
 
-ENTITIES = ("entry", "asset", "resource")
 ITEM_ENTITIES = ("asset", "resource")
 
 

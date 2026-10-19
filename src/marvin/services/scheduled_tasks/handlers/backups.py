@@ -108,7 +108,9 @@ class CreateWorkspaceBundlesHandler(ScheduledTaskHandler):
         keep = max(int((task.task_config or {}).get("keep", 2)), 1)
         backup_dir = get_app_dirs().BACKUP_DIR
         backup_dir.mkdir(parents=True, exist_ok=True)
-        written, total_bytes, removed, failed = 0, 0, 0, []
+        from marvin.services.storage.workspace_backups import announce, has_own_backups, save_backup
+
+        written, total_bytes, removed, failed, own_saved = 0, 0, 0, [], 0
         with session_context() as session:
             workspaces = [(g.id, g.slug) for g in session.query(Groups).order_by(Groups.slug).all()]
             for group_id, slug in workspaces:
@@ -123,9 +125,20 @@ class CreateWorkspaceBundlesHandler(ScheduledTaskHandler):
                     continue
                 written += 1
                 total_bytes += zip_path.stat().st_size
+                if has_own_backups(session, group_id):  # its own private backup bucket too (BYO storage)
+                    try:
+                        announce(event_bus, group_id, saved=save_backup(session, group_id, zip_path))
+                        own_saved += 1
+                    except Exception as e:  # noqa: BLE001 — reported for this workspace; the others go on
+                        session.rollback()
+                        logger.warning("Workspace %s: own backup bucket failed: %s", slug, e)
+                        announce(event_bus, group_id, error=str(e))
+                        failed.append(f"{slug} (own bucket)")
                 removed += _prune_scheduled(backup_dir, slug, keep)
 
         summary = f"Bundled {written} workspace(s), {total_bytes / 1024**2:.1f} MB; removed {removed} older scheduled bundle(s)"
+        if own_saved:
+            summary += f"; {own_saved} saved to the workspace's own backup bucket"
         if failed:
             # Raise so the run is recorded as failed (and alerts), after the others were written.
             raise RuntimeError(f"{summary}; failed: {', '.join(failed)}")

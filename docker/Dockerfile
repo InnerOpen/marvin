@@ -76,21 +76,20 @@ ENV UV_LINK_MODE=copy
 RUN --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv lock
 
-# --group postgres bundles the psycopg2 driver so the image can run against Postgres
-# (DB_ENGINE=postgres); without it the app is SQLite-only. --group plugins bakes in the site-wide
+# The Postgres driver (psycopg2) is a core dependency: the same image runs on SQLite (the default) or Postgres. --group plugins bakes in the site-wide
 # plugins (integrations, marvin-storage-s3, marvin-ai-openai) at the commits uv.lock pins, so a pod
 # never downloads them at start-up. Other backend groups (ldap, vault, bitwarden) stay opt-in — add
 # --group <name> here if a deployment needs them.
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=uv.lock,target=uv.lock \
-    uv sync --frozen --no-install-project --no-dev --no-editable --group postgres --group plugins
+    uv sync --frozen --no-install-project --no-dev --no-editable --group plugins
 
 # The, add the rest of the projects source code and install it
 ADD . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
-    uv sync --frozen --no-dev --no-editable --group postgres --group plugins
+    uv sync --frozen --no-dev --no-editable --group plugins
 
 # Remove unnecessary files from the virtual env before copying
 RUN find /app/.venv -name '__pycache__' -type d -exec rm -rf {} + && \
@@ -117,6 +116,11 @@ COPY --chown=app:app CHANGELOG.md UNRELEASED.tx[t] $MARVIN_HOME/
 # The user manual, for the agents' search_docs / read_doc tools (services/docs.py looks in
 # BASE_DIR/docs/manual), so they answer from the docs of the version actually running.
 COPY --chown=app:app docs/manual $MARVIN_HOME/docs/manual
+# Marvin's built-in embedding model (services/ai/embeddings.py BUILTIN_EMBEDDING_MODEL), for workspaces whose AI
+# provider has no embeddings (Anthropic): fetched once here (~65 MB) so a pod never downloads it at run time.
+ENV EMBEDDINGS_BUILTIN_CACHE=$MARVIN_HOME/models/fastembed
+RUN /app/.venv/bin/python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='$EMBEDDINGS_BUILTIN_CACHE')" \
+    && chown -R app:app $MARVIN_HOME/models
 
 # ##################################
 # Backend Image — the API only (no frontend, no Node)
@@ -240,17 +244,3 @@ ENTRYPOINT ["/app/start.sh"]
 # ENV PATH="/app/.venv/bin:$PATH"
 
 # CMD ["marvin"]
-
-
-# ##################################
-# Lambda Image
-# ##################################
-FROM production AS lambda
-
-ARG FUNCTION_DIR="/function"
-
-RUN pip install boto3
-# Lambda is single-process and invokes the handler directly — it must not inherit the dual-process
-# supervisor entrypoint from `production`. Reset it so the CMD handler is used as before.
-ENTRYPOINT []
-CMD ["marvin.app.handler"]

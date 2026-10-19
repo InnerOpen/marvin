@@ -1,0 +1,61 @@
+{
+  "name": "Integration health companion",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "integration_attention_needed"
+    },
+    "conditions": [
+      {
+        "field": "event.integration_slug",
+        "op": "exists"
+      },
+      {
+        "field": "event.code",
+        "op": "exists"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "open",
+        "entity": "entry",
+        "query": {
+          "entry_type": "{{task_entry_type}}",
+          "statuses": [
+            "inbox",
+            "processing",
+            "draft",
+            "needs_review",
+            "approved",
+            "published"
+          ],
+          "metadata": {
+            "integration_alert": "${event.integration_slug}:${event.code}"
+          }
+        },
+        "limit": 1
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{task_entry_type}}",
+        "title": "${event.title}: ${event.integration_slug} (${event.code})",
+        "data": {
+          "{{body_field}}": "${event.summary}\n\nThe provider's error: ${event.error}\nFailures since the alert opened: ${event.count}\n\nFix the connection (Settings → Integrations → Alerts & health), then archive this task. While it stays open, a reminder makes no second one."
+        },
+        "metadata": {
+          "integration_alert": "${event.integration_slug}:${event.code}",
+          "integration": "${event.integration_slug}",
+          "error_code": "${event.code}"
+        },
+        "status": "draft",
+        "when": {
+          "field": "steps.open.output.total",
+          "op": "eq",
+          "value": 0
+        }
+      }
+    ]
+  }
+}

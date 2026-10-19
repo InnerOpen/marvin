@@ -1,6 +1,6 @@
 /**
- * Admin Workspaces API — renaming a workspace (name and slug), the platform (admin's) workspace included,
- * and removing a member from one. A changed slug keeps resolving to the workspace (Publishing API URLs,
+ * Admin Workspaces API — renaming a workspace (name and slug), removing a member from one, and deleting one safely
+ * (a preview of what goes, a backup, the typed name). A changed slug keeps resolving to the workspace (Publishing API URLs,
  * CLI arguments, backups), so renaming doesn't break what already uses the old one.
  */
 
@@ -10,8 +10,34 @@ export interface AdminWorkspace {
   id: string;
   name: string;
   slug: string | null;
-  /** The platform (admin's) workspace: platform alerts and shared services run from it. */
-  isPlatform: boolean;
+}
+
+/** What deleting a workspace removes, and whether the backup rule is met (`GET /admin/groups/{id}/delete-preview`). */
+export interface WorkspaceDeletePreview {
+  workspaceId: string;
+  workspaceName: string;
+  members: number;
+  entries: number;
+  assets: number;
+  assetBytes: number;
+  integrations: number;
+  scheduledTasks: number;
+  smtpProfiles: number;
+  /** Users whose home this is: they lose the home and stay, in no workspace. */
+  homeUsers: number;
+  lastBackupAt: string | null;
+  /** A bundle from the last `backupMaxAgeHours` exists: a delete doesn't need the explicit skip. */
+  backupIsRecent: boolean;
+  backupMaxAgeHours: number;
+  /** Its stored files are kept this many days after the delete, then purged (Admin → Storage). */
+  storageGraceDays: number;
+}
+
+export interface WorkspaceBackup {
+  filename: string;
+  size: number;
+  created_at: string;
+  download_url: string;
 }
 
 /** Rename a workspace. `slug` blank or omitted: derived from the name. 409 when a name/slug is taken. */
@@ -39,6 +65,29 @@ export async function removeWorkspaceMember(workspaceId: string, userId: string,
     { method: "DELETE" },
     authToken,
   );
+}
+
+export async function getWorkspaceDeletePreview(id: string, authToken?: string): Promise<WorkspaceDeletePreview> {
+  return fetchApi<WorkspaceDeletePreview>(`/api/admin/groups/${encodeURIComponent(id)}/delete-preview`, {}, authToken);
+}
+
+/** Make a backup bundle of the workspace now (the one a delete asks for). */
+export async function backUpWorkspace(id: string, authToken?: string): Promise<WorkspaceBackup> {
+  return fetchApi<WorkspaceBackup>(`/api/admin/backups/workspaces/${encodeURIComponent(id)}`, { method: "POST" }, authToken);
+}
+
+/**
+ * Delete a workspace. `confirmName` is its typed name; `skipBackup` deletes without a bundle from the last 24 hours
+ * (otherwise 409 `backup_required`). Its content goes with it (`force`: the typed name is the confirmation).
+ */
+export async function deleteWorkspace(
+  id: string,
+  options: { confirmName: string; skipBackup: boolean },
+  authToken?: string,
+): Promise<{ status: string; message: string; storageLocations: number; storagePurgeAfter: string | null }> {
+  const query = new URLSearchParams({ confirm_name: options.confirmName, force: "true" });
+  if (options.skipBackup) query.set("skip_backup", "true");
+  return fetchApi(`/api/admin/groups/${encodeURIComponent(id)}?${query}`, { method: "DELETE" }, authToken);
 }
 
 /** The readable message of an admin API error (`detail.message`), else the error's own. */

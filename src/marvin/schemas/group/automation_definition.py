@@ -177,7 +177,8 @@ def writeback_field_ok(kind: str, field: str) -> bool:
 
 
 class OperationAction(_StepBase):
-    """Runs an AI operation (`op`: its slug) on the entry, or (`entity_type`) an asset | resource. `op: "custom"` takes
+    """Runs an AI operation (`op`: its slug) on the entry, or (`entity_type`) an asset | resource | form_submission. classify-form-submission
+    reads the run's `${form_submission.*}`; its answer is for a `when` or a template. `op: "custom"` takes
     your own `prompt` (with ${…} templates) and `output_schema` (a JSON Schema object); `see` adds context: item,
     attachments, images, persona. `write_back`: true saves a built-in op's own fields on an entry; a map {output key:
     field} names them (entry summary/tags, asset alt_text/description/name/tags, resource description/name/tags,
@@ -186,8 +187,8 @@ class OperationAction(_StepBase):
     kind: Literal["operation"]
     op: str  # AI operation slug
     input: dict[str, Any] = Field(default_factory=dict)
-    entity_type: str = "entry"  # unset: the target's or the triggering item's kind, else entry
-    entity_id: str | None = None  # defaults to the run's $event.<entity_type>_id
+    entity_type: str = "entry"  # unset: the target's or the triggering item's kind, else entry (a form op: form_submission)
+    entity_id: str | None = None  # defaults to the run's $event.<entity_type>_id (a submission: ${form_submission.id})
     entity_slug: str | None = None  # preferred for webhook payloads; resolved at run time
     write_back: bool | dict[str, str] = False
     prompt: str | None = None  # op "custom" only: the instructions (≤ 8000 characters)
@@ -229,8 +230,8 @@ class OperationAction(_StepBase):
 
 
 class EntryAction(_StepBase):
-    """Changes an entry without AI: a status op, collection membership, a metadata/data write or a review
-    request — or `create` makes one (`entry_type` slug, `title`, `data`, `metadata`, `status` inbox|draft; output
+    """Changes an entry without AI — a status op, collection membership, a metadata/data write or a review
+    request — or creates one. `create` takes (`entry_type` slug, `title`, `data`, `metadata`, `status` inbox|draft; output
     entry_id/slug). `trash` / `restore` also act on an asset or a resource (`entity_type`; unset, the kind of the
     target's or the triggering item): `entity_slug` / `entity_id`, else the current one — never `entity_query`."""
 
@@ -246,6 +247,7 @@ class EntryAction(_StepBase):
         "set_metadata",
         "set_data",
         "request_review",
+        "attach_asset",
         "create",
     ]
     entity_type: Literal["entry", "asset", "resource"] = "entry"  # trash / restore also act on an asset or resource
@@ -257,6 +259,8 @@ class EntryAction(_StepBase):
     collection_slug: str | None = None  # …preferred: a collection slug/name (may be a $event.* template)
     metadata: dict[str, Any] | None = None  # for set_metadata: keys merged into metadata_json (values may be templates)
     data: dict[str, Any] | None = None  # for set_data: schema fields merged into data_json (validated; values may be templates)
+    asset: str | None = None  # for attach_asset: the asset's id or slug (may be a template to a step's asset)
+    role: str | None = None  # for attach_asset: the role to link it in (hero, cover…)
     reason: str | None = None  # for request_review: why it needs review, added to metadata_json.review_reasons (may be a template)
     entry_type: str | None = None  # for create: the new entry's type (a slug; may be a template)
     title: str | None = None  # for create (may be a template)
@@ -297,25 +301,45 @@ class EntryAction(_StepBase):
 
 
 class EmitEventAction(_StepBase):
-    """Sends a Marvin event (`event`: an emittable event name) for other workflows and subscribers."""
+    """Sends a Marvin event (`event`: an emittable event name) for other workflows and subscribers. A workspace's own
+    `custom.<name>` event carries `payload` (its registered fields, values may be templates) and an optional `message`."""
 
     kind: Literal["emit_event"]
     event: str  # internal event name to re-emit
     entity_id: str | None = None
+    payload: dict[str, Any] | None = None  # custom.<name> events: {field: value}, held to the event's registered fields
+    message: str | None = None  # custom.<name> and site events: the event's text (may be a template)
     id: str | None = None
+
+
+MAX_CHOICES = 8
 
 
 class ApprovalAction(_StepBase):
     """Waits for a person to approve or deny. The run parks here, `approvers` (members at that workspace role or above)
     are asked `message`, and the run goes on from the next step once one decides — or when it expires — with
     ${steps.<id>.output.decision}: approved | denied | expired | stale (the entry changed after it was asked). An
-    integration action that requires approval may follow it (it runs only when approved)."""
+    integration action that requires approval may follow it (it runs only when approved). `choices` (2–8 labels,
+    templates allowed, or a template to a list, e.g. ${steps.ideas.output.titles}) asks them to pick one: approving
+    sets ${steps.<id>.output.choice} (the label) and .choice_index (from 0); denying picks none. `image` shows a picture
+    with the question — a template to a picture URL, e.g. a step's generated asset (${steps.cover.output.images.0.asset.url})
+    or ${entry.image} — so the approver sees what they decide on."""
 
     kind: Literal["approval"]
     message: str  # what the approvers are asked (templates allowed)
     approvers: Literal["editor", "admin"] = "editor"
     expires_in_hours: int = Field(default=72, ge=1, le=720)
+    choices: list[str] | str | None = None  # 2–8 labels, or one template to a list
+    # A picture shown with the question: a template to an asset URL (${steps.cover.output.images.0.asset.url}, ${entry.image}).
+    image: str | None = None
     id: str | None = None
+
+    @field_validator("choices")
+    @classmethod
+    def _two_to_eight_choices(cls, value):
+        if isinstance(value, list) and not 2 <= len(value) <= MAX_CHOICES:
+            raise ValueError(f"choices needs 2 to {MAX_CHOICES} to pick from (or a template to a list)")
+        return value
 
 
 class HandlerAction(_StepBase):
@@ -328,7 +352,9 @@ class HandlerAction(_StepBase):
 
 
 class WebhookAction(_StepBase):
-    """Calls one of the workspace's outgoing webhooks (`webhook_id`), or a raw `url`, with a JSON `body`."""
+    """Calls one of the workspace's outgoing webhooks (`webhook_id`), or a raw `url`, with a JSON `body`.
+    `idempotency_key` (a template, e.g. handoff-${entry.id}) makes the call once: the same key again at this webhook
+    within `idempotency_window_hours` (default 24) calls nothing and reuses the first call's output."""
 
     kind: Literal["webhook"]
     webhook_id: str | None = None  # a configured workspace webhook…
@@ -337,15 +363,19 @@ class WebhookAction(_StepBase):
     body: dict[str, Any] = Field(default_factory=dict)
     secret_ref: str | None = None  # optional secret ref, sent as `Authorization: <auth_scheme> <secret>`
     auth_scheme: str | None = None  # Bearer (default) | Token | … — some APIs (Buttondown) reject Bearer
+    idempotency_key: str | None = None  # a template: the same key at this webhook within the window is not called again
+    idempotency_window_hours: int | None = Field(default=None, ge=1, le=720)  # how long a key counts (default 24)
     id: str | None = None
 
 
 class IntegrationAction(_StepBase):
-    """Runs a connected integration's action (`integration`: its slug, `action`: the action key) with `args` — or,
+    """Runs a connected integration's action with `args`. `integration`: its slug, `action`: the action key — or,
     with `capability` instead of `action`, whichever of its actions offers that (`notify`: `title`, `body`). An image.*
     action's pictures are kept as assets (output `images: [{asset}]`); `attach_as` links them to the run's entry, `tags` tags them.
     `source` (an image.* action that works on a picture, e.g. image.edit) is that picture, as a media step's source: it
-    is passed as image_b64 and the result is kept as a version of it."""
+    is passed as image_b64 and the result is kept as a version of it. `idempotency_key` (a template, e.g.
+    handoff-${entry.id}) makes the call once: the same key for this action within `idempotency_window_hours` (default 24)
+    calls nothing and reuses the first call's output; a failed call doesn't count, so a retry still makes it."""
 
     kind: Literal["integration"]
     integration: str  # the workspace integration's slug
@@ -357,6 +387,8 @@ class IntegrationAction(_StepBase):
     attach_as: str | None = None
     tags: list[str] | None = None  # …and these tags put on them
     source: str | None = None  # the picture an image.* action works on (an asset, ${entry.image}, role:<role>, a step's)
+    idempotency_key: str | None = None  # a template: the same key for this action within the window is not called again
+    idempotency_window_hours: int | None = Field(default=None, ge=1, le=720)  # how long a key counts (default 24)
     id: str | None = None
 
     @model_validator(mode="after")
@@ -511,13 +543,148 @@ class FetchAction(_StepBase):
         return self
 
 
+class SchemaCheckAction(_StepBase):
+    """Checks a JSON document against a JSON Schema and reports what doesn't fit. `document`: usually an earlier step's
+    parsed answer (${steps.<id>.output.json} of a fetch step) or any template; a string holding a JSON object or array is
+    read as JSON text. The schema: `schema` inline (an object, or a template giving one) or `schema_resource` (a resource,
+    id or slug, whose metadata.schema holds it). Output `valid`, `errors` [{path, message}] (at most `max_errors`, default
+    20, up to 50), `error_count`, `truncated` and `text`. An invalid document is output for a `when`, never a failed step,
+    unless `fail_on_invalid`. A malformed inline schema is refused when the workflow is saved; documents over 100 KB are
+    reported, not checked."""
+
+    kind: Literal["schema_check"]
+    document: Any
+    schema_: dict[str, Any] | bool | str | None = Field(default=None, alias="schema")
+    schema_resource: str | None = None
+    fail_on_invalid: bool = False
+    max_errors: int = Field(default=20, ge=1, le=50)
+    id: str | None = None
+
+    @model_validator(mode="after")
+    def _one_schema(self):
+        if (self.schema_ is not None) == bool(self.schema_resource):
+            raise ValueError("a schema_check step takes `schema` (the JSON Schema) or `schema_resource` (a resource that holds it), one of them")
+        # An inline schema is checked as it is written; a template's (a string) when the step runs.
+        if isinstance(self.schema_, dict | bool):
+            from marvin.services.automation.actions.schema_check import schema_problem
+
+            if problem := schema_problem(self.schema_):
+                raise ValueError(f"not a valid JSON Schema: {problem}")
+        return self
+
+
+class EmailAction(_StepBase):
+    """Emails a member of the workspace — never an outside address. `to` (a user id or email: ${member.id}), `subject`,
+    `body` (markdown), optional `heading`, `button_text` + `button_link`, `once_per`. Sent once per event; the workflow
+    guide's `email` section has the rules. Output `sent`, `to`, `name`, `role`, `subject`."""
+
+    kind: Literal["email"]
+    to: str
+    subject: str = Field(min_length=1, max_length=400)
+    body: str = Field(min_length=1, max_length=40_000)
+    heading: str | None = Field(default=None, max_length=400)
+    button_text: str | None = Field(default=None, max_length=120)
+    button_link: str | None = Field(default=None, max_length=2000)
+    once_per: str | None = Field(default=None, max_length=300)
+    id: str | None = None
+
+    @model_validator(mode="after")
+    def _button_pair(self):
+        if bool(self.button_text) != bool(self.button_link):
+            raise ValueError("a button needs both `button_text` and `button_link`")
+        return self
+
+
+class SnapshotAction(_StepBase):
+    """Keeps a version of an entry and puts it back (`op` capture | restore). It acts on the triggering entry, or `entity_id` / `entity_slug`."""
+
+    kind: Literal["snapshot"]
+    op: Literal["capture", "restore"] = "capture"
+    label: str | None = Field(default=None, max_length=100)
+    snapshot: str | None = None
+    parts: list[Literal["content", "collections", "assets", "status"]] | None = None
+    entity_id: str | None = None
+    entity_slug: str | None = None
+    id: str | None = None
+
+    @model_validator(mode="after")
+    def _shape(self):
+        if self.op == "capture" and (self.snapshot is not None or self.parts is not None):
+            raise ValueError("snapshot and parts go with op restore")
+        if self.op == "restore" and self.parts is not None and not self.parts:
+            raise ValueError("parts is empty: name content, collections, assets or status — or leave it out for the first three")
+        return self
+
+
+class MetricAction(_StepBase):
+    """Records a number as an observation (never a conclusion). `metric` (slug), `value`, optional `variant` / `subject`
+    labels, `window` day | week | month (the run's own, in the workspace zone; `at` = another date) or 2026-10-18 /
+    2026-W42 / 2026-10. One per metric+variant+subject+window. `op` record (the default) REPLACES it (a total you
+    already have; a rerun can't double-count); `op` add raises it by `value` (default 1, negative counts down) — counting
+    things as they happen — once per event delivery, so the same event handled twice adds once. A dry run writes
+    nothing. `op` read: `metric` (+ `variant`, `subject`, `window_from`, `window_to`, `limit`) → output
+    `rows`, `count`, `total`, `text`."""
+
+    kind: Literal["metric"]
+    op: Literal["record", "add", "read"] = "record"
+    metric: str
+    value: float | str | None = None
+    variant: str | None = None
+    subject: str | None = None
+    window: str = "day"
+    at: str | None = None
+    window_from: str | None = None
+    window_to: str | None = None
+    limit: int = Field(default=50, ge=1, le=250)
+    id: str | None = None
+
+    @model_validator(mode="after")
+    def _shape(self):
+        from marvin.services import metrics
+
+        def literal(text) -> bool:
+            return isinstance(text, str) and "${" not in text
+
+        if literal(self.metric):
+            try:
+                metrics.clean_metric(self.metric)
+            except metrics.MetricError as e:
+                raise ValueError(str(e)) from e
+        if self.op in ("record", "add"):
+            blank = self.value is None or (isinstance(self.value, str) and not self.value.strip())
+            if blank and self.op == "record":
+                raise ValueError("a metric step that records needs a `value` (a number, or a template that gives one)")
+            if not blank and isinstance(self.value, str) and literal(self.value):
+                try:
+                    metrics.clean_value(self.value)
+                except metrics.MetricError as e:
+                    raise ValueError(str(e)) from e
+            if self.window_from or self.window_to or "limit" in self.model_fields_set:
+                raise ValueError("window_from, window_to and limit go with op read")
+            if literal(self.window) and self.window.strip().lower() not in metrics.GRANULARITIES:
+                try:
+                    metrics.parse_window(self.window)
+                except metrics.MetricError as e:
+                    raise ValueError(str(e)) from e
+        else:
+            if self.value is not None or self.at is not None or "window" in self.model_fields_set:
+                raise ValueError("value, window and at go with op record or add; a read takes window_from and window_to")
+            for bound in (self.window_from, self.window_to):
+                if bound and literal(bound):
+                    try:
+                        metrics.parse_window(bound)
+                    except metrics.MetricError as e:
+                        raise ValueError(str(e)) from e
+        return self
+
+
 class WaitAction(_StepBase):
     """Waits, then goes on — the run is kept and resumed later. `for`: a span (30m, 12h, 3d, 2w); or `until`: a date
     or a date and time (e.g. ${entry.data.event_date}, or one every entry has: ${entry.publish_at}, ${entry.expire_at},
     ${entry.published_at}), moved by `offset` (-7d: a week before) and, for a date, at `at`
     (default 09:00) — in the workspace's time zone. A moment already past goes on at once (output late). Output
-    waited_until, resumed_at. A year at most; the entry going to the Trash, or the workflow switched off or changed,
-    cancels the wait."""
+    waited_until, resumed_at. A year at most; the entry going to the Trash, the workflow switched off or this step
+    removed, cancels the wait (an edit elsewhere in the workflow applies when it goes on)."""
 
     kind: Literal["wait"]
     for_: str | None = Field(default=None, alias="for", pattern=r"^\s*\d{1,4}\s*[mhdwMHDW]\s*$")
@@ -537,7 +704,19 @@ class WaitAction(_StepBase):
 
 # A repeat's inner steps: any step but a wait, an approval or another repeat (a run can't park mid-loop).
 RepeatStep = Annotated[
-    OperationAction | EntryAction | EmitEventAction | HandlerAction | WebhookAction | IntegrationAction | MediaAction | CollectAction | FetchAction,
+    OperationAction
+    | EntryAction
+    | EmitEventAction
+    | HandlerAction
+    | WebhookAction
+    | IntegrationAction
+    | MediaAction
+    | CollectAction
+    | FetchAction
+    | SchemaCheckAction
+    | EmailAction
+    | MetricAction
+    | SnapshotAction,
     Field(discriminator="kind"),
 ]
 MAX_REPEAT_ITEMS = 25
@@ -568,6 +747,53 @@ class RepeatAction(_StepBase):
         return name
 
 
+# Parallel branches: named lists of steps that run independently, then join. A branch holds plain steps only (the same
+# ones a repeat may): a run can't park mid-branch, and nesting stops at one level.
+MAX_PARALLEL_BRANCHES = 5
+MAX_BRANCH_STEPS = 5
+NOT_IN_A_BRANCH = ("wait", "approval", "repeat", "parallel")
+
+
+class ParallelBranch(_DefnBase):
+    """One branch of a parallel step: a `name` (read later as ${steps.<id>.output.branches.<name>.*}) and its `steps`
+    (1–5)."""
+
+    name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,30}$")
+    steps: list[RepeatStep] = Field(min_length=1, max_length=MAX_BRANCH_STEPS)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _plain_steps_only(cls, data: Any) -> Any:
+        steps = data.get("steps") if isinstance(data, dict) else None
+        held = sorted({str(s.get("kind")) for s in steps if isinstance(s, dict)} & set(NOT_IN_A_BRANCH)) if isinstance(steps, list) else []
+        if held:
+            raise ValueError(
+                f"a branch can't hold a {', '.join(held)} step: a run can't wait, or nest, in the middle of branches. "
+                "Put the wait or approval before the parallel step or after it"
+            )
+        return data
+
+
+class ParallelAction(_StepBase):
+    """Runs 2–5 named `branches` (1–5 steps each) in order; a branch reads what ran before, not its siblings. `join`:
+    all (default) or any (the first branch to succeed wins, the rest are skipped). `on_branch_failure`: fail (default:
+    fails the step when the join isn't met) or continue (never fails the step: read `satisfied`, `text`). Output
+    `branches.<name>` {status, error, steps, output}. No wait/approval/repeat inside."""
+
+    kind: Literal["parallel"]
+    branches: list[ParallelBranch] = Field(min_length=2, max_length=MAX_PARALLEL_BRANCHES)
+    join: Literal["all", "any"] = "all"
+    on_branch_failure: Literal["fail", "continue"] = "fail"
+    id: str | None = None
+
+    @model_validator(mode="after")
+    def _names_differ(self):
+        names = [b.name for b in self.branches]
+        if len(set(names)) != len(names):
+            raise ValueError("each branch needs its own name")
+        return self
+
+
 ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "operation": OperationAction,
     "entry": EntryAction,
@@ -579,8 +805,13 @@ ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "media": MediaAction,
     "collect": CollectAction,
     "fetch": FetchAction,
+    "schema_check": SchemaCheckAction,
+    "email": EmailAction,
+    "metric": MetricAction,
+    "snapshot": SnapshotAction,
     "wait": WaitAction,
     "repeat": RepeatAction,
+    "parallel": ParallelAction,
 }
 
 Action = Annotated[
@@ -594,8 +825,13 @@ Action = Annotated[
     | MediaAction
     | CollectAction
     | FetchAction
+    | SchemaCheckAction
+    | EmailAction
+    | MetricAction
+    | SnapshotAction
     | WaitAction
-    | RepeatAction,
+    | RepeatAction
+    | ParallelAction,
     Field(discriminator="kind"),
 ]
 

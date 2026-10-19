@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from .. import BaseMixins, SqlAlchemyBase
@@ -19,12 +19,15 @@ class WorkspaceSecret(SqlAlchemyBase, BaseMixins):
 
     Values are encrypted at rest by the configured secret backend.
     Slugs are the reference handle used in {{SLUG}} interpolation.
+
+    A row with `group_id` NULL is a **platform** secret (SMTP password, platform alert channels): it belongs to no
+    workspace, so no workspace API lists or resolves it — see services/secrets/platform.py.
     """
 
     __tablename__ = "workspace_secrets"
 
     id: Mapped[GUID] = mapped_column(GUID, primary_key=True, default=GUID.generate)
-    group_id: Mapped[GUID] = mapped_column(GUID, ForeignKey("groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    group_id: Mapped[GUID | None] = mapped_column(GUID, ForeignKey("groups.id", ondelete="CASCADE"), nullable=True, index=True)
     group: Mapped[Optional["Groups"]] = relationship("Groups", back_populates="secrets", single_parent=True)
 
     name: Mapped[str] = mapped_column(String, nullable=False)
@@ -38,7 +41,17 @@ class WorkspaceSecret(SqlAlchemyBase, BaseMixins):
     encrypted_value: Mapped[str] = mapped_column(Text, nullable=False)
     """Fernet-encrypted secret value. Never returned in API responses."""
 
-    __table_args__ = (UniqueConstraint("group_id", "slug", name="uq_workspace_secrets_group_slug"),)
+    __table_args__ = (
+        UniqueConstraint("group_id", "slug", name="uq_workspace_secrets_group_slug"),
+        # NULLs are distinct in a unique constraint, so the platform scope needs its own index.
+        Index(
+            "uq_workspace_secrets_platform_slug",
+            "slug",
+            unique=True,
+            postgresql_where=text("group_id IS NULL"),
+            sqlite_where=text("group_id IS NULL"),
+        ),
+    )
 
     @auto_init()
     def __init__(self, session: Session, **kwargs) -> None:

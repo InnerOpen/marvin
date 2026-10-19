@@ -18,13 +18,12 @@ with timezone formats from databases like PostgreSQL.
 from __future__ import annotations  # Enables using Self for return type hints
 
 import re  # For regular expression operations in datetime parsing
-from collections.abc import Sequence  # For typing sequences
 from datetime import UTC, datetime  # Standard datetime objects
 from enum import Enum  # For creating enumerations like SearchType
-from typing import Any, ClassVar, Protocol, TypeVar  # Typing utilities
+from typing import Any, ClassVar, TypeVar  # Typing utilities
 
 from humps import camelize  # For converting snake_case to camelCase for API responses
-from pydantic import UUID4, BaseModel, ConfigDict, model_validator  # Core Pydantic components
+from pydantic import BaseModel, ConfigDict, model_validator  # Core Pydantic components
 
 # Placeholder for SQLAlchemy specific types, assuming they would be imported if used directly
 # For example, if filter_search_query was fully implemented here:
@@ -348,30 +347,3 @@ class _MarvinModel(BaseModel):
         # Placeholder until SQLAlchemy parts are actively used/integrated here:
         cls.logger.warning(f"Search for model {cls.__name__} was called but SQLAlchemy logic is placeholder.")
         return query  # Return unmodified query
-
-
-class HasUUID(Protocol):
-    """
-    A protocol defining an object that has a UUID `id` attribute.
-
-    This is useful for type hinting functions or collections that operate on
-    objects identifiable by a UUID, without requiring them to inherit from a
-    specific base class.
-    """
-
-    id: UUID4  # The required attribute: an ID of type UUID4
-
-
-def extract_uuids(models: Sequence[HasUUID]) -> list[UUID4]:
-    """
-    Extracts UUID `id` attributes from a sequence of model instances.
-
-    Args:
-        models (Sequence[HasUUID]): A sequence of objects, where each object
-                                    is expected to have an `id` attribute of type UUID4
-                                    (conforming to the `HasUUID` protocol).
-
-    Returns:
-        list[UUID4]: A list containing the UUID `id` from each model instance.
-    """
-    return [model.id for model in models]

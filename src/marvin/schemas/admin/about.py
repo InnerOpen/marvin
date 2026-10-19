@@ -58,21 +58,24 @@ class AppInfo(_MarvinModel):
     enable_openai_image_services: bool  # Indicates if OpenAI image-related services are specifically enabled.
 
 
-class AppStartupInfo(_MarvinModel):
-    """
-    Schema for information relevant to the application's startup state,
-    particularly concerning initial setup or first login.
-    """
+class IndexedEmbeddingModel(_MarvinModel):
+    """One embedding model that has vectors stored, and how many chunks."""
 
-    is_first_login: bool
-    """
-    Indicates the application's best guess that this might be the first time
-    any user (or specifically an admin) is logging in. Currently, its logic
-    relies on the presence of the default 'changeme@example.com' admin user.
-    Once that default user's email is changed or the user is removed, this flag
-    will consistently return False.
-    """
-    is_demo: bool  # Indicates if the application is currently running in demo mode.
+    model_id: str
+    chunks: int
+
+
+class EmbeddingsInfo(_MarvinModel):
+    """The built-in embedding engine and what the search indexes were built with (read without loading the model)."""
+
+    builtin_enabled: bool  # EMBEDDINGS_BUILTIN_ENABLED: workspaces use Marvin's own model rather than their AI provider's.
+    builtin_available: bool  # Enabled and fastembed is installed, so the built-in model is what embeds.
+    model: str | None = None  # The built-in model in use; None when it isn't (workspaces then use their provider's model).
+    dimensions: int | None = None  # Numbers per vector for that model.
+    engine: str = "fastembed"
+    engine_version: str | None = None  # None when the package isn't installed.
+    onnxruntime_version: str | None = None  # None when the package isn't installed.
+    indexed_models: list[IndexedEmbeddingModel] = []  # Platform-wide, most chunks first; one that isn't `model` needs a reindex.
 
 
 class AdminAboutInfo(AppInfo):
@@ -86,8 +89,8 @@ class AdminAboutInfo(AppInfo):
     api_docs: bool  # Indicates if API documentation (e.g., Swagger UI) is enabled.
     db_type: str  # The type of database being used (e.g., "sqlite", "postgres").
     db_url: str | None = None  # The database connection URL (potentially masked for security).
-    default_group: str  # The platform (admin's) workspace's current name.
     build_id: str  # The Git commit hash or build identifier for the current application build.
+    embeddings: EmbeddingsInfo | None = None  # The built-in embedding engine and the models the indexes were built with.
 
 
 class CheckAppConfig(_MarvinModel):

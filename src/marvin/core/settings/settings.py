@@ -1,9 +1,8 @@
 """
 This module defines the main application settings for Marvin.
 
-It includes Pydantic models for application settings (`AppSettings`) and plugin
-settings (`PluginSettings`). It also provides helper classes and functions for
-managing features, schedules, and sensitive data.
+It includes the Pydantic model for application settings (`AppSettings`), plus helper
+classes and functions for managing features, schedules, and sensitive data.
 
 Settings are loaded from environment variables and .env files.
 """
@@ -14,7 +13,7 @@ import secrets
 from collections import OrderedDict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any, NamedTuple
+from typing import Annotated, NamedTuple
 from urllib.parse import urlparse
 
 from dateutil.tz import tzlocal
@@ -22,7 +21,7 @@ from dotenv import dotenv_values
 from pydantic import PlainSerializer, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .db_providers import AbstractDBProvider, db_provider_factory
+from .db_providers import SQLITE, AbstractDBProvider, db_provider_factory, engine_is_explicit, resolve_engine
 from .theme import Theme
 
 
@@ -103,6 +102,27 @@ def determine_secrets(data_dir: Path, production: bool) -> str:
         return new_secret
 
 
+def guard_existing_install(data_dir: Path, db_path: Path) -> None:
+    """Refuse to start an existing install on a brand-new SQLite database.
+
+    An install that has run before has a `.secret` in its data directory. If the engine was left to the auto
+    rule, resolved to SQLite, and there is no database file, the install lost its database configuration (a
+    missing `DB_ENGINE` / `POSTGRES_*`): starting would quietly create an empty database next to the old
+    secrets and look like data loss.
+
+    Raises:
+        RuntimeError: `.secret` exists, `db_path` does not.
+    """
+    if data_dir.joinpath(".secret").is_file() and not db_path.exists():
+        raise RuntimeError(
+            f"{data_dir} holds a .secret from an earlier run but no database ({db_path}), and DB_ENGINE is not set "
+            "and no POSTGRES_SERVER / POSTGRES_URL_OVERRIDE is configured, so Marvin would start on an empty SQLite "
+            "database. If this install uses Postgres, restore its DB_ENGINE / POSTGRES_* settings. If it uses SQLite, "
+            "restore the database file or set DB_SQLITE_PATH. To start fresh on SQLite, remove the .secret too "
+            "(stored secrets encrypted with it become unreadable)."
+        )
+
+
 ENVIRONMENT_LABEL_MAX_LENGTH = 12
 """Longest ``ENVIRONMENT_LABEL`` kept; longer values are truncated so the badge stays small."""
 
@@ -140,6 +160,11 @@ class AppSettings(BaseSettings):
 
     FRONTEND_URL: str = "http://localhost:4322"
     """URL of the frontend app. Used for OIDC callback redirects in dev. In production same-origin deployments, set to BASE_URL."""
+
+    PUBLIC_API_URL: str = ""
+    """The API's public address (e.g. ``https://api.example.com``; the chart's ``config.publicApiUrl``). The remote MCP
+    server's OAuth issuer is this, and its resource is this plus ``/mcp``. Empty: in PRODUCTION remote MCP stays off;
+    in development the issuer is taken from each request. Trailing slashes are trimmed."""
 
     CORS_ORIGINS: str = ""
     """Comma-separated list of browser origins allowed to call the API in PRODUCTION
@@ -276,8 +301,6 @@ class AppSettings(BaseSettings):
 
     ENV_SECRETS: OrderedDict | None = None
 
-    API_HOST: str = "0.0.0.0"
-
     API_PORT: int = 8080
 
     GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: int | None = None
@@ -303,6 +326,15 @@ class AppSettings(BaseSettings):
     are ended by the hourly sweep (services/ai/parked_runs.py): pending calls denied, the execution
     failed "expired", an approval_rejected event with reason "expired". 0 keeps parks forever.
     """
+
+    AI_AGENT_MAX_STEPS: int = 6
+    """
+    Tool calls an agent run may make before it must answer (Ask, the bubble). A request may ask for more, up to
+    AI_AGENT_MAX_STEPS_CAP. Each step is a model call, so this bounds a run's cost.
+    """
+
+    AI_AGENT_MAX_STEPS_CAP: int = 12
+    """The most steps any agent run may take, whatever it asks for."""
 
     AI_HANDOFF_MAX_DEPTH: int = 1
     """
@@ -348,6 +380,10 @@ class AppSettings(BaseSettings):
 
     BACKUP_CRONJOB_PREFIX: str = ""
     """ kubernetes runner: a target's CronJob is this + its name (the chart's `<fullname>-backup-`). """
+
+    WORKFLOW_RUN_RETENTION_DAYS: int = 90
+    """ how long a finished workflow run (and its steps) is kept; the prune_workflow_runs task deletes older ones.
+    A run still running or waiting is never deleted. 0 disables pruning (keep forever). Overridable per-task. """
 
     EVENT_LOG_RETENTION_DAYS: int = 90
     """ default retention for the event_log audit trail; the prune_event_logs task deletes
@@ -455,8 +491,27 @@ class AppSettings(BaseSettings):
     SECURITY_PASSWORD_RESET_IP_MAX_PER_HOUR: int = 10
     "password-reset requests one client IP can make per hour"
 
+    SECURITY_PASSWORD_RESET_TOKEN_MINUTES: int = 60
+    "how long an emailed password-reset link works; after that it is refused and deleted (a new request replaces it)"
+
+    SECURITY_PASSWORD_MIN_LENGTH: int = 8
+    "the shortest password accepted wherever one is set: registration, a reset, a change"
+
     SECURITY_USER_LOCKOUT_TIME: int = 24
     "time in hours; only for a lock set before sign-in throttling (users.locked_at), which nothing sets now"
+
+    # Remote MCP server (OAuth sign-in) — each is a default an admin can override (Admin → Site Settings → Remote MCP)
+    MCP_REMOTE_ENABLED: bool = False
+    """Serve the remote MCP server with OAuth sign-in (/mcp, /oauth/*, /.well-known/oauth-*). Off: those answer 404."""
+
+    MCP_ACCESS_TOKEN_MINUTES: int = 60
+    "how long a remote MCP access token works"
+
+    MCP_REFRESH_TOKEN_DAYS: int = 30
+    "how long an unused remote MCP refresh token works; each use replaces it with a new one"
+
+    MCP_GRANT_MAX_DAYS: int = 180
+    "the longest a remote MCP connection lasts before its user must sign in again, however often it is used"
 
     # Token Security Settings
     SECURITY_TOKEN_PREFIX_USER: str = "marvin_tk_"
@@ -553,6 +608,10 @@ class AppSettings(BaseSettings):
     STORAGE_REMOTE_PUBLIC_URL: str | None = None
     """Public base URL for remote storage assets (CDN, custom domain, etc). Works with S3, R2, MinIO, Spaces, etc. Optional."""
 
+    STORAGE_ALLOW_WORKSPACE_STORAGE: bool = False
+    """Whether workspaces may keep their assets in their own bucket ("bring your own storage"), until a platform admin
+    decides otherwise (platform setting `workspace_storage`). Off by default."""
+
     # ===============================================
     # Secrets Backend Configuration
 
@@ -603,7 +662,7 @@ class AppSettings(BaseSettings):
 
     model_config = SettingsConfigDict(arbitrary_types_allowed=True, extra="allow")
 
-    @field_validator("BASE_URL", "FRONTEND_URL")
+    @field_validator("BASE_URL", "FRONTEND_URL", "PUBLIC_API_URL")
     @classmethod
     def remove_trailing_slash(cls, v: str) -> str:
         """Pydantic validator to remove trailing slashes from URL settings."""
@@ -649,17 +708,28 @@ class AppSettings(BaseSettings):
     # ===============================================
     # Database Config
 
-    DB_ENGINE: str = "sqlite"
-    """The database engine to use ('sqlite' or 'postgres')."""
+    DB_ENGINE: str = ""
+    """The database engine, 'sqlite' or 'postgres'. Unset means auto: Postgres when `POSTGRES_SERVER` or
+    `POSTGRES_URL_OVERRIDE` is set, else SQLite (see `db_providers.resolve_engine`). `app_settings_constructor`
+    replaces the empty default with the resolved engine, so every reader sees one of the two names."""
+
+    DB_SQLITE_PATH: Path | None = None
+    """The SQLite database file. Unset, it is `marvin.db` in `DATA_DIR`."""
+
+    DB_SQLITE_WAL_MODE: bool = True
+    """Enable WAL journal mode for SQLite (allows concurrent reads during writes)."""
+
+    DB_SQLITE_BUSY_TIMEOUT_MS: int = 30000
+    """How long (ms) SQLite waits for another connection's write lock before failing with "database is locked"."""
+
+    DB_SQLITE_WRITE_WARN_SECONDS: float = 5.0
+    """Warn when a SQLite write transaction stays open this long (it blocks every other writer); 0 turns it off."""
 
     DB_POOL_SIZE: int = 5
     """SQLAlchemy connection pool size (number of persistent connections)."""
 
     DB_MAX_OVERFLOW: int = 10
     """Maximum number of connections above pool_size allowed before blocking."""
-
-    DB_SQLITE_WAL_MODE: bool = True
-    """Enable WAL journal mode for SQLite (allows concurrent reads during writes)."""
 
     DB_PROVIDER: AbstractDBProvider | None = None
     """The database provider instance, configured by `app_settings_constructor`."""
@@ -692,43 +762,8 @@ class AppSettings(BaseSettings):
         if not self.DEFAULT_PASSWORD:
             self.DEFAULT_PASSWORD = secrets.token_urlsafe(16)
 
-    DEFAULT_GROUP: str = "Default"
-    """Name of the platform (admin's) workspace, used only when a fresh install creates it (slug derived
-    from it). Choose it at install time (chart value ``config.platformWorkspaceName``). On an existing
-    install it is informational: the marked workspace keeps its name until a super admin renames it
-    (Admin → Workspaces). Never look the workspace up by this name — use
-    ``services.group.platform_workspace.platform_workspace()``."""
-
     _DEFAULT_INTEGRATION_ID: str = "generic"
     """# Default identifier for integrations if not specified when creating an API token."""
-
-    # ===============================================
-    # Plugin Configurtion
-
-    PLUGIN_PREFIX: str | None = "marvin_"
-
-    @property
-    def PLUGIN_ENABLED(self) -> bool:
-        """Indicates if Plugin is configured and enabled."""
-        return self.PLUGIN_FEATURE.enabled
-
-    @property
-    def PLUGIN_FEATURE(self) -> FeatureDetails:
-        """Details about the PLUGIN feature status"""
-        description = None
-        required = {
-            "PLUGIN_PREFIX": self.PLUGIN_PREFIX,
-        }
-
-        not_none = None not in required.values()
-        if not not_none and not description:
-            missing_values = [key for (key, value) in required.items() if value is None]
-            description = f"Missing required values for {missing_values}"
-
-        return FeatureDetails(
-            enabled=not_none,
-            description=description,
-        )
 
     # ===============================================
     # Email Configuration
@@ -956,26 +991,6 @@ class AppSettings(BaseSettings):
     """Your OpenAI API key. Required to enable OpenAI features (masked)."""
     OPENAI_MODEL: str = "gpt-4o-mini"
     """Which OpenAI model to send requests to. Leave this unset for most use cases."""
-    OPENAI_CUSTOM_HEADERS: dict[str, str] = {}
-    """Custom HTTP headers to send with each OpenAI request."""
-    OPENAI_CUSTOM_PARAMS: dict[str, Any] = {}
-    """Custom HTTP parameters to send with each OpenAI request."""
-    OPENAI_ENABLE_IMAGE_SERVICES: bool = True
-    """Whether to enable image-related features in OpenAI."""
-    OPENAI_WORKERS: int = 2
-    """
-    Number of OpenAI workers per request. Higher values may increase
-    processing speed but will incur additional API costs.
-    """
-    OPENAI_SEND_DATABASE_DATA: bool = True
-    """
-    Sending database data may increase accuracy in certain requests
-    but will incur additional API costs.
-    """
-    OPENAI_REQUEST_TIMEOUT: int = 60
-    """
-    The number of seconds to wait for an OpenAI request to complete before cancelling.
-    """
 
     @property
     def OPENAI_FEATURE(self) -> FeatureDetails:
@@ -1048,6 +1063,10 @@ class AppSettings(BaseSettings):
     """Embedding model for the Google provider."""
     OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
     """Embedding model for the Ollama provider."""
+    EMBEDDINGS_BUILTIN_ENABLED: bool = True
+    """Index and search with Marvin's own embedding model (BAAI/bge-small-en-v1.5, run in-process), whatever a
+    workspace's chat provider, so changing provider never breaks search. Off: the provider's own embedding model
+    (none for Anthropic, which then searches titles only)."""
     AI_RAG_TOP_K: int = 5
     """Number of similar chunks retrieved per RAG question."""
     AI_EMBED_CHUNK_SIZE: int = 1500
@@ -1070,37 +1089,6 @@ class AppSettings(BaseSettings):
 
     TLS_PRIVATE_KEY_PATH: str | os.PathLike[str] | None = None
     """Path where the TLS private key resides."""
-
-
-class PluginSettings(BaseSettings):
-    """
-    Base settings class for Marvin plugins.
-
-    Plugins can inherit from this class to define their own specific settings,
-    which will be loaded with a prefix based on the plugin's name.
-    """
-
-    # Plugin Name
-    PLUGIN_NAME: str
-    """The name of the plugin."""
-
-    # Plugin Version
-    PLUGIN_VERSION: str
-    """The version of the plugin."""
-
-    # Plugin Description
-    PLUGIN_DESCRIPTION: str | None = None
-    """An optional description of the plugin."""
-
-    # Plugin Author
-    PLUGIN_AUTHOR: str | None = None
-    """The author of the plugin."""
-
-    # Plugin Author Email
-    PLUGIN_AUTHOR_EMAIL: str | None = None
-    """The email address of the plugin author."""
-
-    model_config = SettingsConfigDict(arbitrary_types_allowed=True, extra="allow")
 
 
 def app_settings_constructor(
@@ -1130,6 +1118,13 @@ def app_settings_constructor(
         AppSettings: The configured application settings object.
     """
 
+    env = {**{k: v for k, v in dotenv_values(env_file).items() if v is not None}, **os.environ}
+    engine = resolve_engine(env)
+    sqlite_path = Path(env["DB_SQLITE_PATH"]) if env.get("DB_SQLITE_PATH") else None
+    if engine == SQLITE and not engine_is_explicit(env):
+        # Before determine_secrets: it would create the `.secret` this check reads.
+        guard_existing_install(data_dir, sqlite_path or data_dir / "marvin.db")
+
     app_settings = AppSettings(
         _env_file=env_file,  # type: ignore # pydantic-settings internal
         _env_file_encoding=env_encoding,  # type: ignore
@@ -1139,68 +1134,12 @@ def app_settings_constructor(
         **{"DATA_DIR": data_dir},
     )
 
+    app_settings.DB_ENGINE = engine
     app_settings.DB_PROVIDER = db_provider_factory(
-        app_settings.DB_ENGINE or "sqlite",
+        engine,
         data_dir,
         env_file=env_file,
         env_encoding=env_encoding,
+        sqlite_path=app_settings.DB_SQLITE_PATH,
     )
-    return app_settings
-
-
-def app_plugin_settings_constructor(
-    name: str,
-    version: str,
-    env_file: Path | None,
-    data_dir: Path,
-    production: bool,
-    env_secrets: Path | None,
-    secrets_dir: Path | None,
-    env_encoding: str = "utf-8",
-    description: str | None = None,
-    author: str | None = None,
-    author_email: str | None = None,
-    env_nested_delimiter: str = "__",
-    settings_class: type[PluginSettings] = PluginSettings,  # Changed default to PluginSettings
-) -> PluginSettings:
-    """
-    Factory function to create and configure `PluginSettings` objects.
-
-    This function handles the initialization of plugin-specific settings,
-    loading from .env files with a plugin-specific prefix.
-
-    Args:
-        name (str): The name of the plugin.
-        version (str): The version of the plugin.
-        env_file (Path): Path to the main .env file.
-        data_dir (Path): The application's data directory.
-        production (bool): Flag indicating if in production mode.
-        env_secrets (Path): Path to the .env.secrets file.
-        secrets_dir (Path): Directory for storing secrets.
-        env_encoding (str): Encoding for .env files.
-        description (str | None): Optional description of the plugin.
-        author (str | None): Optional author of the plugin.
-        author_email (str | None): Optional author email of the plugin.
-        env_nested_delimiter (str): Delimiter for nested environment variables.
-        settings_class (type[PluginSettings]): The specific PluginSettings subclass
-                                               to instantiate. Defaults to `PluginSettings`.
-
-    Returns:
-        PluginSettings: The configured plugin settings object.
-    """
-    app_settings = settings_class(
-        PLUGIN_NAME=name,
-        PLUGIN_VERSION=version,
-        PLUGIN_DESCRIPTION=description,
-        PLUGIN_AUTHOR=author,
-        PLUGIN_AUTHOR_EMAIL=author_email,
-        _env_prefix=name.upper() + "_",
-        _env_file=env_file,  # type: ignore
-        _env_file_encoding=env_encoding,  # type: ignore
-        _secrets_dir=secrets_dir,  # type: ignore
-        _env_nested_delimiter=env_nested_delimiter,
-        **{"SECRET": determine_secrets(data_dir, production)},
-        **{"ENV_SECRETS": dotenv_values(env_secrets)},
-    )
-
     return app_settings

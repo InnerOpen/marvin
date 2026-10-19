@@ -7,6 +7,7 @@ schedule needs, the plain-language error mapping, and the masked settings on Adm
 import io
 import json
 import sqlite3
+import subprocess
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -326,6 +327,22 @@ def _read_runs(db: Path) -> list[BackupRunModel]:
     return rows
 
 
+def _read_pg_runs(db_session) -> list[BackupRunModel]:
+    db_session.expire_all()
+    return db_session.query(BackupRunModel).order_by(BackupRunModel.started_at).all()
+
+
+@pytest.fixture
+def clean_runs(db_session):
+    """On the Postgres twin, backup_runs belongs to the test: emptied before and after, since the job commits its own rows."""
+    db_session.query(BackupRunModel).delete()
+    db_session.commit()
+    yield
+    db_session.rollback()
+    db_session.query(BackupRunModel).delete()
+    db_session.commit()
+
+
 def test_recorder_columns_match_the_model():
     model = {c.name for c in BackupRunModel.__table__.columns}
     assert set(recorder.COLUMNS) == model - {"notified_at"}  # notified_at is the backend's
@@ -448,14 +465,56 @@ class SharedMemoryTarget(MemoryBackupTarget):
         return super().list(prefix)
 
 
-@pytest.fixture
-def job(entry_points, tmp_path, monkeypatch):  # noqa: F811
+def _pg_env() -> dict[str, str]:
+    """The suite's Postgres as the backup job sees it: POSTGRES_* in the environment."""
+    from marvin.db.db_setup import engine
+
+    if engine.dialect.name != "postgresql":
+        pytest.skip("the Postgres backup job records into a Postgres database; this suite runs on SQLite")
+    url = engine.url
+    return {
+        "DB_ENGINE": "postgres",
+        "POSTGRES_SERVER": url.host or "localhost",
+        "POSTGRES_PORT": str(url.port or 5432),
+        "POSTGRES_USER": url.username or "",
+        "POSTGRES_PASSWORD": url.password or "",
+        "POSTGRES_DB": url.database or "",
+    }
+
+
+@pytest.fixture(params=["sqlite", "postgres"])
+def job(request, entry_points, tmp_path, monkeypatch):  # noqa: F811
+    """The CLI's run() against a job environment of each engine. The SQLite twin records into a database file of its
+    own (the real path: a snapshot with the backup API, an INSERT into backup_runs) and runs on every suite; the
+    Postgres twin records into the suite's own Postgres (pg_dump faked) and skips on a SQLite suite."""
     entry_points.append(_EP("memtest", StoragePlugin(slug="memtest", name="Memory", target=SharedMemoryTarget)))
     SharedMemoryTarget.store, SharedMemoryTarget.fail_with = {}, None
     data = tmp_path / "data"
-    db = _runs_db(data)
+    if request.param == "sqlite":
+        db = _runs_db(data)
+        engine_env: dict[str, str] = {"DB_ENGINE": "sqlite"}
+        read = lambda: _read_runs(db)  # noqa: E731
+    else:
+        engine_env = _pg_env()
+        db_session = request.getfixturevalue("db_session")
+        request.getfixturevalue("clean_runs")
+        data.mkdir()
+        (data / ".secret").write_text("installation-secret")
+        real_run = subprocess.run
+
+        def fake_pg(args, **kwargs):  # pg_dump / pg_restore --list; the dump is faked, the run record is real
+            if args[0] == "pg_dump":
+                out = next(a.split("=", 1)[1] for a in args if a.startswith("--file="))
+                Path(out).write_bytes(b"PGDMP" + b"x" * 64)
+                return subprocess.CompletedProcess(args, 0, "", "")
+            if args[0] == "pg_restore":
+                return subprocess.CompletedProcess(args, 0, "1; 0 0 TABLE DATA public users marvin", "")
+            return real_run(args, **kwargs)
+
+        monkeypatch.setattr(subprocess, "run", fake_pg)
+        read = lambda: _read_pg_runs(db_session)  # noqa: E731
     env = {
-        "DB_ENGINE": "sqlite",
+        **engine_env,
         "BACKUP_DATA_DIR": str(data),
         "BACKUP_SCHEDULE": "0 * * * *",
         "BACKUP_TIME_ZONE": "America/New_York",
@@ -464,30 +523,30 @@ def job(entry_points, tmp_path, monkeypatch):  # noqa: F811
         "HOSTNAME": "marvin-backup-r2-1-xyz",
         "AWS_SECRET_ACCESS_KEY": "fake-secret-value-two",
     }
-    yield SimpleNamespace(env=env, db=db)
+    yield SimpleNamespace(env=env, read=read, prefix=f"{request.param}/")
     SharedMemoryTarget.fail_with = None
 
 
 def test_run_records_a_successful_run(job):
     assert backup_cli.run("memtest", "r2", env=job.env) == 0
-    (row,) = _read_runs(job.db)
+    (row,) = job.read()
     assert (row.target_name, row.target_type, row.status, row.failures) == ("r2", "memtest", "ok", 0)
     assert (row.schedule, row.time_zone, row.keep_hourly) == ("0 * * * *", "America/New_York", 48)
-    assert row.db_key.startswith("sqlite/") and row.db_bytes > 0 and row.config_items == 1
+    assert row.db_key.startswith(job.prefix) and row.db_bytes > 0 and row.config_items == 1
     assert row.host == "marvin-backup-r2-1-xyz" and row.error_summary is None and row.location
 
 
 def test_run_records_a_failed_run_when_the_key_is_revoked(job):
     SharedMemoryTarget.fail_with = _client_error("InvalidAccessKeyId", 403)
     assert backup_cli.run("memtest", "r2", env=job.env) == 1
-    (row,) = _read_runs(job.db)
+    (row,) = job.read()
     assert row.status == "failed" and row.db_key is None and row.failures >= 2
     assert row.error_summary.startswith("database, config: " + hc.KEY_INVALID) and row.error_summary.count("InvalidAccessKeyId") == 1
 
 
 def test_run_records_a_target_that_cannot_be_opened(job):
     assert backup_cli.run("nosuch", "nas", env=job.env) == 2
-    (row,) = _read_runs(job.db)
+    (row,) = job.read()
     assert (row.target_name, row.status) == ("nas", "failed")
     assert row.error_summary.startswith("target: ") and "unknown backup target 'nosuch'" in row.error_summary
 
@@ -495,7 +554,7 @@ def test_run_records_a_target_that_cannot_be_opened(job):
 def test_run_records_partial_when_only_assets_fail(job):
     env = {**job.env, "BACKUP_ASSET_PROVIDERS": "nosuch"}
     assert backup_cli.run("memtest", "r2", env=env) == 1
-    (row,) = _read_runs(job.db)
+    (row,) = job.read()
     assert row.status == "partial" and row.db_key and "assets from nosuch" in row.error_summary
 
 
@@ -503,7 +562,7 @@ def test_run_never_records_a_secret(job):
     secret = job.env["AWS_SECRET_ACCESS_KEY"]
     SharedMemoryTarget.fail_with = RuntimeError(f"signature mismatch for {secret}")
     backup_cli.run("memtest", "r2", env=job.env)
-    (row,) = _read_runs(job.db)
+    (row,) = job.read()
     assert secret not in (row.error_summary or "") and "****" in row.error_summary
     assert secret not in json.dumps(row.settings_json or {})
 
@@ -517,7 +576,7 @@ def test_failures_with_the_same_reason_are_folded():
 
 def test_a_dry_run_is_not_recorded(job):
     assert backup_cli.run("memtest", "r2", dry_run=True, env=job.env) == 0
-    assert _read_runs(job.db) == []
+    assert job.read() == []
 
 
 def test_test_command_checks_a_target(job, monkeypatch, capsys):
@@ -526,7 +585,7 @@ def test_test_command_checks_a_target(job, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "put" in out and "delete" in out and "FAILED" not in out
     assert SharedMemoryTarget.store == {}  # nothing left behind
-    assert _read_runs(job.db) == []  # a test records nothing
+    assert job.read() == []  # a test records nothing
     SharedMemoryTarget.fail_with = _client_error("AccessDenied", 403)
     assert backup_cli.main(["test", "--target", "memtest", "--name", "r2"]) == 1
     assert hc.KEY_NO_ACCESS in capsys.readouterr().out

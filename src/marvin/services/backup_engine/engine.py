@@ -48,6 +48,8 @@ from typing import Any
 
 from marvin_integration_sdk.storage import BackupTarget, StorageConfigError, StorageProvider, TargetObject, read_config
 
+from marvin.core.settings.db_providers import resolve_engine
+
 from .layout import (
     ASSETS_PREFIX,
     BUNDLES_PREFIX,
@@ -72,6 +74,25 @@ log = logging.getLogger("marvin.backup")
 
 DB_NAME = "marvin.db"
 PG_DUMP_NAME = "marvin.dump"
+SQLITE = "sqlite"
+POSTGRES = "postgres"
+
+
+def sqlite_db_file(env: Mapping[str, str]) -> Path:
+    """The live SQLite file the job's environment points at: DB_SQLITE_PATH, else BACKUP_DATA_DIR/marvin.db."""
+    if env.get("DB_SQLITE_PATH"):
+        return Path(env["DB_SQLITE_PATH"])
+    return Path(env.get("BACKUP_DATA_DIR") or "/app/data") / DB_NAME
+
+
+def check_engine(engine: str) -> str:
+    """`sqlite` or `postgres` (lower-cased), or a ValueError naming what the engine does handle."""
+    engine = (engine or "").strip().lower()
+    if engine not in (SQLITE, POSTGRES):
+        raise ValueError(f"unknown DB engine {engine!r}; the backup engine handles {SQLITE!r} and {POSTGRES!r}")
+    return engine
+
+
 # Files and directories under DATA_DIR that go into the config archive. Logs, `.temp`, `backups/`,
 # the `marvin.db.pre-*` manual snapshots and the live `-wal`/`-shm` files are deliberately absent.
 CONFIG_FILES = (".secret", "scheduler_state.json")
@@ -98,7 +119,7 @@ def normalize_prefix(prefix: str | None) -> str:
 @dataclass
 class BackupSettings:
     data_dir: Path
-    engine: str
+    engine: str = POSTGRES
     prefix: str = ""
     retention: Retention = field(default_factory=Retention)
     asset_provider: str = "local"
@@ -106,10 +127,20 @@ class BackupSettings:
     extra_asset_providers: tuple[str, ...] = ()  # BACKUP_ASSET_PROVIDERS: more providers to mirror
     # libpq environment for pg_dump (PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE); never logged.
     pg_env: dict[str, str] = field(default_factory=dict, repr=False)
+    sqlite_path: Path | None = None  # DB_SQLITE_PATH: the SQLite file, when it is not DATA_DIR/marvin.db
+
+    def __post_init__(self) -> None:
+        self.engine = check_engine(self.engine)
+
+    @property
+    def db_file(self) -> Path:
+        """The live SQLite database file."""
+        return self.sqlite_path or self.data_dir / DB_NAME
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> BackupSettings:
-        """BACKUP_DATA_DIR (default `/app/data`), BACKUP_DB_ENGINE (default DB_ENGINE, else `sqlite`),
+        """BACKUP_DATA_DIR (default `/app/data`), BACKUP_DB_ENGINE (default: the engine ``resolve_engine`` finds in the
+        environment, so DB_ENGINE, else Postgres when POSTGRES_SERVER is set, else `sqlite`), DB_SQLITE_PATH,
         BACKUP_PREFIX (else BACKUP_S3_PREFIX, so the old script's environment carries over),
         BACKUP_KEEP_HOURLY / _DAILY / _WEEKLY, STORAGE_PROVIDER + STORAGE_LOCAL_ROOT (where assets are
         read from), BACKUP_ASSET_PROVIDERS (comma-separated providers mirrored as well: an admin can send
@@ -119,13 +150,14 @@ class BackupSettings:
         data_dir = Path(env.get("BACKUP_DATA_DIR") or "/app/data")
         return cls(
             data_dir=data_dir,
-            engine=(env.get("BACKUP_DB_ENGINE") or env.get("DB_ENGINE") or "sqlite").lower(),
+            engine=(env.get("BACKUP_DB_ENGINE") or resolve_engine(env)).lower(),
             prefix=normalize_prefix(env.get("BACKUP_PREFIX") or env.get("BACKUP_S3_PREFIX")),
             retention=Retention.from_env(env),
             asset_provider=env.get("STORAGE_PROVIDER") or "local",
             assets_root=Path(env["STORAGE_LOCAL_ROOT"]) if env.get("STORAGE_LOCAL_ROOT") else data_dir / "assets",
             extra_asset_providers=tuple(p.strip() for p in (env.get("BACKUP_ASSET_PROVIDERS") or "").split(",") if p.strip()),
             pg_env=pg_env_from(env),
+            sqlite_path=Path(env["DB_SQLITE_PATH"]) if env.get("DB_SQLITE_PATH") else None,
         )
 
 
@@ -362,7 +394,7 @@ def backup_database(settings: BackupSettings, target: BackupTarget, now: datetim
 
 def backup_sqlite(settings: BackupSettings, target: BackupTarget, now: datetime, work: Path, report: Report, dry_run: bool) -> None:
     snapshot = work / DB_NAME
-    snapshot_sqlite(settings.data_dir / DB_NAME, snapshot)  # raises before anything is uploaded
+    snapshot_sqlite(settings.db_file, snapshot)  # raises before anything is uploaded
     packed = work / f"{DB_NAME}.gz"
     gzip_file(snapshot, packed)
     key = db_key(now)
@@ -722,11 +754,12 @@ def run_restore(
     skip_db: bool = False,
     skip_config: bool = False,
     force: bool = False,
-    engine: str = "sqlite",
+    engine: str = "postgres",
 ) -> None:
     """Restore into the directory `into` (a data dir layout). The database object is the newest of the
     engine's family unless `db` names one; a `postgres/` key is fetched as marvin.dump, a `sqlite/` key
-    restored as marvin.db."""
+    restored as marvin.db (its -wal/-shm moved aside)."""
+    engine = check_engine(engine)
     into.mkdir(parents=True, exist_ok=True)
     db = None if skip_db else db or latest_key(target, db_prefix(engine))
     is_pg = bool(db and db.startswith(PG_PREFIX))

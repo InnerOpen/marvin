@@ -38,13 +38,14 @@ InnerOpen Astro site
 ```text
 read:published_entries
 read:collections
-read:assets
 ```
 
+There are no asset or resource permissions: the publishing API serves entries and the site
+(`GET /site`), and an entry carries its assets and resources inline, including the ones in its
+`asset`, `asset-list`, `resource` and `resource-list` data fields (served as objects, not ids).
 Later permissions may include:
 
 ```text
-read:published_resources
 read:public_metadata
 ```
 
@@ -56,7 +57,7 @@ Initial read-only routes:
 GET /api/publish/{group_slug}/collections
 GET /api/publish/{group_slug}/entries
 GET /api/publish/{group_slug}/entries/{slug}
-GET /api/publish/{group_slug}/assets
+GET /api/publish/{group_slug}/site
 ```
 
 ## Request Pattern

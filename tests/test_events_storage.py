@@ -23,6 +23,7 @@ import marvin.db.migration_types as mt
 from marvin.app import app
 from marvin.core.dependencies import get_current_user
 from marvin.db.models.groups.automations import WorkspaceAutomationModel, assemble_trigger, split_trigger
+from tests._users import member_of
 
 _VERSIONS = Path(__file__).resolve().parents[1] / "src" / "marvin" / "alembic" / "versions"
 
@@ -158,7 +159,9 @@ def workspace(db_session):
         )
     )
     db_session.commit()
-    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=uid, group_id=gid, active_group_id=gid, admin=True, is_superuser=False)
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
+        id=uid, group_id=gid, active_group_id=gid, admin=True, is_superuser=False, **member_of(gid)
+    )
     yield gid
     app.dependency_overrides.pop(get_current_user, None)
     _drop_workspace(db_session, gid)
@@ -471,6 +474,18 @@ def test_everything_a_blueprint_creates_records_its_integration(db_session, work
     assert (workflow["sourceIntegrationId"], workflow["sourceBlueprint"]) == (str(acme.id), "acme-on-publish")
     hook = next(h for h in _api("get", "/incoming-webhooks", 200) if h["slug"] == "acme-events")
     assert (hook["sourceIntegrationId"], hook["sourceBlueprint"]) == (str(acme.id), "acme-events")
+
+    # A collection also carries that integration's name, which members read (the sidebar groups by it) though the
+    # integrations list is admin-only.
+    from marvin.db.models.platform.collections import Collections
+    from marvin.schemas.platform.collections import CollectionRead
+
+    picks = db_session.query(Collections).filter_by(group_id=workspace, slug="acme-picks").one()
+    read = CollectionRead.model_validate(picks)
+    assert read.source_integration_name == "Acme"
+    # …and its provider, so the sidebar can show the provider's logo or emoji on the group.
+    assert read.source_integration_provider == acme.provider
+    assert read.source_integration_has_logo is False
 
 
 def test_with_two_connections_the_one_the_card_passed_wins_else_none(db_session, workspace):

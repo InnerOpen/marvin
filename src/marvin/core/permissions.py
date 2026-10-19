@@ -82,12 +82,6 @@ class Permissions:
     # Collection permissions
     READ_COLLECTIONS = "read:collections"
 
-    # Asset permissions
-    READ_ASSETS = "read:assets"
-
-    # Resource permissions
-    READ_RESOURCES = "read:resources"
-
     # Form permissions
     READ_FORMS = "read:forms"
     WRITE_FORMS = "write:forms"

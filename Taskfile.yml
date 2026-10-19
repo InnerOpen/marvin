@@ -2,7 +2,6 @@ version: "3"
 
 # Environment shared by every task. `.env` and `.dev.env` (when present) layer on top.
 env:
-  DEFAULT_GROUP: Default
   PRODUCTION: false
   API_PORT: 8080
   API_DOCS: True
@@ -31,10 +30,16 @@ tasks:
       - task --list
     silent: true
 
+  audit:dead:
+    desc: print dead-code findings (backend vulture at 80%, frontend knip); never fails
+    cmds:
+      - uvx vulture src/marvin --min-confidence 80 || true
+      - cd frontend && npx --yes knip --no-exit-code
+
   dev:clean:
     desc: remove local dev data (sqlite db, log, secret)
     cmds:
-      - rm -rf src/dev/data/marvin*.db
+      - rm -rf src/dev/data/marvin*.db src/dev/data/marvin*.db-wal src/dev/data/marvin*.db-shm
       - rm -rf src/dev/data/marvin.log
       - rm -rf src/dev/data/.secret
 
@@ -43,21 +48,6 @@ tasks:
     cmds:
       - uv run src/dev/code_generation/main.py
       - task: py:format
-
-  # dev:reset-and-seed:
-  #   desc: reset the dev environment and seed Mash & Burn Co. demo data
-  #   cmds:
-  #     - echo "Stopping Marvin service..."
-  #     - pkill -f "marvin-server|uvicorn.*marvin" || echo "No service running"
-  #     - sleep 2
-  #     - echo "Cleaning development environment..."
-  #     - task: dev:clean
-  #     - echo "Starting Marvin backend..."
-  #     - task py &
-  #     - sleep 5
-  #     - echo "Seeding demo data..."
-  #     - uv run scripts/seed_mashandburnco.py
-  #     - echo "✅ Reset complete! Marvin running with fresh data."
 
   dev:refresh:
     desc: refresh marvin-dev from production's newest backup (database, outbound paused, missing assets)
@@ -97,9 +87,7 @@ tasks:
       - uv run mkdocs serve
 
   docs:openapi:
-    desc: export the OpenAPI spec into docs/manual/openapi.json (no server needed)
-    env:
-      DB_ENGINE: sqlite
+    desc: export the OpenAPI spec into docs/manual/openapi.json (no server needed; importing the app opens no connection)
     cmds:
       - uv run python -c "import json; from marvin.app import app; json.dump(app.openapi(), open('docs/manual/openapi.json', 'w'), indent=2)"
 
@@ -175,9 +163,9 @@ tasks:
   py:coverage:
     desc: run tests with coverage and open the HTML report
     env:
-      # Default to SQLite so the .env loaded above can't aim a schema-dropping test run at a real
-      # Postgres database. An explicit `DB_ENGINE=postgres task py:coverage` still wins — the OS
-      # environment takes precedence over a task's env.
+      # SQLite, a file per run (tests/conftest.py), so the .env loaded above can't aim a schema-dropping test run at a
+      # real Postgres database. An explicit `DB_ENGINE=postgres task py:test` still wins (the OS environment takes
+      # precedence over a task's env) and runs on the dev container's own `marvin_test` database.
       DB_ENGINE: sqlite
     cmds:
       # --cov is what records the data; a bare `pytest` leaves the reporters below with nothing to
@@ -241,9 +229,9 @@ tasks:
   py:test:
     desc: run python tests (args after '--')
     env:
-      # Default to SQLite so the .env loaded above can't aim a schema-dropping test run at a real
-      # Postgres database. An explicit `DB_ENGINE=postgres task py:test` still wins — the OS
-      # environment takes precedence over a task's env.
+      # SQLite, a file per run (tests/conftest.py), so the .env loaded above can't aim a schema-dropping test run at a
+      # real Postgres database. An explicit `DB_ENGINE=postgres task py:test` still wins (the OS environment takes
+      # precedence over a task's env) and runs on the dev container's own `marvin_test` database.
       DB_ENGINE: sqlite
     cmds:
       - uv run pytest {{ .CLI_ARGS }}
@@ -268,7 +256,7 @@ tasks:
     desc: install python dependencies and git hooks
     run: once
     cmds:
-      - uv sync --group dev --group postgres
+      - uv sync --group dev
       - uv run pre-commit install
     sources:
       - uv.lock

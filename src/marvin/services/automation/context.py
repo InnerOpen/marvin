@@ -17,6 +17,7 @@ def event_context(
     user_id: Any = None,
     reaction_depth: int = 0,
     correlation_id: str | None = None,
+    caused_by_workflows: list[str] | None = None,
 ) -> dict:
     """The match context's `event` for one event.
 
@@ -54,6 +55,8 @@ def event_context(
         "reaction_depth": reaction_depth,
         # Thread the triggering event's chain id so the whole reaction cascade shares it.
         "correlation_id": correlation_id,
+        # The workflows whose runs sent the event (an operational event is never answered by its own cause).
+        "caused_by_workflows": list(caused_by_workflows or ()),
     }
 
 
@@ -78,6 +81,7 @@ def event_context_from_event(event) -> dict:
         user_id=event.user_id,
         reaction_depth=getattr(event, "reaction_depth", 0),
         correlation_id=getattr(event, "correlation_id", None),
+        caused_by_workflows=getattr(event, "caused_by_workflows", None),
     )
 
 
@@ -103,4 +107,5 @@ def event_context_from_log(row) -> dict:
         user_id=row.user_id,
         reaction_depth=depth if isinstance(depth, int) else 0,
         correlation_id=row.correlation_id,
+        caused_by_workflows=data.get("causedByWorkflows", data.get("caused_by_workflows")),
     )

@@ -6,6 +6,7 @@ from pydantic import UUID4
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import require_workspace_editor
 from marvin.schemas.platform import ResourceCreate, ResourceRead, ResourceUpdate
+from marvin.schemas.platform.assets import TypeCount
 from marvin.services import trash
 from marvin.services.event_bus_service.event_types import EventOperation, EventResourceData, EventTypes
 
@@ -53,6 +54,22 @@ class ResourcesController(BaseUserController):
         )
 
         return resource
+
+    @router.get("/types", response_model=list[TypeCount], summary="Resource types in use")
+    def resource_types(self) -> list[TypeCount]:
+        """Each resource type and how many resources it has (most first) — never the Trash."""
+        from sqlalchemy import func
+
+        from marvin.db.models.platform.resources import Resources
+
+        rows = (
+            self.session.query(Resources.resource_type, func.count(Resources.id))
+            .filter(Resources.group_id == self.group_id, Resources.trashed_at.is_(None))
+            .group_by(Resources.resource_type)
+            .order_by(func.count(Resources.id).desc(), Resources.resource_type)
+            .all()
+        )
+        return [TypeCount(type=kind, count=n) for kind, n in rows]
 
     @router.get("/{item_id}", response_model=ResourceRead, summary="Get Resource")
     def get_resource(self, item_id: UUID4) -> ResourceRead:

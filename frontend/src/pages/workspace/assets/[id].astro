@@ -8,6 +8,7 @@ import SuggestionBanner from "@/components/SuggestionBanner.astro";
 import TagChips from "@/components/TagChips.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import { isUnsearchableImage } from "@/lib/assetLibraryView";
 import { listCollections } from "@/lib/api/collections";
 import { listTags, type TagRead } from "@/lib/api/tags";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
@@ -134,6 +135,13 @@ const showAiPanel = aiEnabled && isImage;
               <p class="form-help">Auto-generated from name</p>
             </div>
 
+            {asset && isUnsearchableImage(asset as any) && (
+              <p class="search-nudge">
+                <strong>Not searchable yet.</strong> Search and the assistants find a picture by its alt text or description, and this one
+                has neither. Type one below{canEdit && showAiPanel ? <>, or use <em>✨ Generate alt text</em> on the right (one AI call), then Save Changes</> : ""}.
+              </p>
+            )}
+
             <div class="form-group">
               <label for="altText">Alt Text</label>
               <input
@@ -173,7 +181,7 @@ const showAiPanel = aiEnabled && isImage;
                     {Object.entries(asset.metadataJson).map(([key, value]) => (
                       <div class="metadata-preview-item">
                         <dt>{key}</dt>
-                        <dd><AssetMetaValue name={key} value={value} authToken={authToken} /></dd>
+                        <dd><AssetMetaValue name={key} value={value} authToken={authToken} metadata={asset.metadataJson} /></dd>
                       </div>
                     ))}
                   </dl>
@@ -481,6 +489,7 @@ const showAiPanel = aiEnabled && isImage;
     white-space: pre-wrap;
     font-family: monospace;
   }
+  .search-nudge { margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2, var(--panel)); font-size: 14px; line-height: 1.5; }
 </style>
 
 <script>

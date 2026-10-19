@@ -126,6 +126,17 @@ def validate_template_content(template_type: str, content_fields: dict[str, str]
     return missing
 
 
+# Platform setting: {template_type: fingerprint of the subject + body last seeded}. A stored template whose content
+# still matches it was never edited, so a newer built-in copy may replace it; one that differs is an admin's edit.
+SEEDED_KEY = "email_templates_seeded"
+
+
+def _fingerprint(subject: str | None, body: str | None) -> str:
+    import hashlib
+
+    return hashlib.sha256(f"{subject or ''}\x00{body or ''}".encode()).hexdigest()
+
+
 def seed_system_templates(session) -> int:
     """
     Create system templates (group_id=NULL) if they don't already exist.
@@ -134,7 +145,10 @@ def seed_system_templates(session) -> int:
     from sqlalchemy import select
 
     from marvin.db.models.groups.email_templates import EmailTemplateModel
+    from marvin.services.platform_settings import PlatformSettingsService
 
+    settings_svc = PlatformSettingsService(session)
+    seeded: dict = dict(settings_svc.get(SEEDED_KEY) or {})
     created = 0
     for defn in SYSTEM_TEMPLATES:
         existing = session.execute(
@@ -145,13 +159,19 @@ def seed_system_templates(session) -> int:
         ).scalar_one_or_none()
 
         if existing:
-            # Update content in case seeded templates have changed
-            existing.body_markdown = defn.body_markdown
-            existing.subject = defn.subject
+            # A newer built-in copy replaces the stored one only while nobody has edited it: the stored content is
+            # compared with what was seeded last time (a fingerprint kept in platform settings), so an admin's edit
+            # survives restarts. The variables a template takes always follow the code.
             existing.available_variables = {
                 "required": defn.required_vars,
                 "optional": defn.optional_vars,
             }
+            current = _fingerprint(existing.subject, existing.body_markdown)
+            last_seeded = seeded.get(defn.template_type)
+            if last_seeded is None or last_seeded == current:  # untouched (or seeded before fingerprints existed)
+                existing.body_markdown = defn.body_markdown
+                existing.subject = defn.subject
+                seeded[defn.template_type] = _fingerprint(defn.subject, defn.body_markdown)
             continue
 
         template = EmailTemplateModel(session=session)
@@ -168,8 +188,10 @@ def seed_system_templates(session) -> int:
         }
         session.add(template)
         created += 1
+        seeded[defn.template_type] = _fingerprint(defn.subject, defn.body_markdown)
         logger.info(f"Seeded system email template: {defn.template_type}")
 
+    settings_svc.set(SEEDED_KEY, seeded)
     session.commit()
     if created:
         logger.info(f"Email template seeder: created {created} system template(s)")

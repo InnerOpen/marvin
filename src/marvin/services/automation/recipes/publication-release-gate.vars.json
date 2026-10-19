@@ -1,0 +1,20 @@
+{
+  "recipe": "publication-release-gate",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "Slug of the entry type whose approved entries go through the gate.",
+      "example": "article"
+    },
+    "text_field": {
+      "type": "field_key",
+      "description": "That type's text field, which must be filled in.",
+      "example": "body"
+    },
+    "min_characters": {
+      "type": "integer",
+      "description": "The least text it must hold, in characters.",
+      "example": 200
+    }
+  }
+}

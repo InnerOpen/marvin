@@ -30,7 +30,6 @@ from marvin.schemas.publishing import (
     EntryTypeRendering,
     PaginationMeta,
     PublishedAssetRead,
-    PublishedAssetsResponse,
     PublishedCollectionExpandedRead,
     PublishedCollectionRead,
     PublishedCollectionsResponse,
@@ -44,17 +43,14 @@ from marvin.schemas.publishing import (
     PublishedEntryResource,
     PublishedEntryTypeInfo,
     PublishedEntryTypeRead,
-    PublishedResourcesResponse,
-    PublishedResourceSummary,
-    SiteConfiguration,
-    SiteSeo,
     WorkspaceInfo,
     WorkspaceSiteInfo,
 )
 from marvin.services.entry_urls import best_entry_url, site_base_url
 from marvin.services.media_embeds.publish import embeds_for_entries, site_embeds
+from marvin.services.publish_entry_links import published_asset, published_resource, resolve_entry_links
+from marvin.services.publish_site import build_site_info
 from marvin.services.publish_visibility import non_publishable_type_ids
-from marvin.services.storage.provider_factory import asset_public_url
 
 settings = get_app_settings()
 
@@ -88,16 +84,6 @@ def _entry_eager_options():
 def _entry_eager_options_with_type():
     """Eager loading options for entries including entry_type (prevents N+1 on type access)."""
     return _entry_eager_options() + [joinedload(Entries.entry_type)]
-
-
-def _asset_eager_options():
-    """Common eager loading options for asset relationships."""
-    return [selectinload(Assets.entry_assets).joinedload(EntryAssets.entry), selectinload(Assets.tags)]
-
-
-def _resource_eager_options():
-    """Common eager loading options for resource relationships."""
-    return [selectinload(Resources.entry_resources).joinedload(EntryResources.entry), selectinload(Resources.tags)]
 
 
 def _build_entry_type_info(entry: Entries) -> PublishedEntryTypeInfo | None:
@@ -140,16 +126,6 @@ def _serves_asset(ea: EntryAssets) -> bool:
     return bool(ea.asset) and ea.asset.trashed_at is None and not _is_suggested(ea)
 
 
-def _unless_trashed_asset(session: Session, group_id, value: str | None) -> str | None:
-    """A site-settings image (logo, favicon, share image) — or None when it names an asset in the Trash: by
-    slug or id, as the assets API resolves it, or by a URL with the asset's storage key in it."""
-    if not value:
-        return value
-    trashed = session.query(Assets.id, Assets.slug, Assets.storage_key).filter(Assets.group_id == group_id, Assets.trashed_at.isnot(None)).all()
-    hit = any(value in (slug, str(asset_id)) or (key and key in value) for asset_id, slug, key in trashed)
-    return None if hit else value
-
-
 def _serves_resource(er: EntryResources) -> bool:
     """An entry's resource link the publishing API shows: the resource not in the Trash."""
     return bool(er.resource) and er.resource.trashed_at is None
@@ -157,20 +133,7 @@ def _serves_resource(er: EntryResources) -> bool:
 
 def _build_published_asset(ea: EntryAssets, workspace_slug: str) -> PublishedAssetRead:
     """Build a PublishedAssetRead from an entry-asset junction row."""
-    return PublishedAssetRead(
-        slug=ea.asset.slug,
-        name=ea.asset.name,
-        mime_type=ea.asset.mime_type,
-        asset_type=ea.asset.asset_type,
-        file_size=ea.asset.file_size,
-        width=ea.asset.width,
-        height=ea.asset.height,
-        alt_text=ea.asset.alt_text,
-        description=ea.asset.description,
-        public_url=asset_public_url(ea.asset),
-        metadata=ea.asset.metadata_json,
-        tags=list(ea.asset.tag_names),
-    )
+    return published_asset(ea.asset)
 
 
 def _resolve_featured_asset(entry: Entries, workspace_slug: str) -> PublishedAssetRead | None:
@@ -204,15 +167,17 @@ def _list_items(
     """Serialize a page of entries: list items, or full reads with ``expand=full``.
 
     The entries must have been loaded with ``_entry_eager_options_with_type()``; the media
-    ``embeds`` for the whole page come from one cache query. Nothing here queries per entry.
+    ``embeds`` for the whole page come from one cache query, and the ``data`` asset/resource fields from one
+    query per kind (``resolve_entry_links``). Nothing here queries per entry.
     """
     embeds = embeds_for_entries(session, entries, site_embeds(_site_metadata(session, group.id))) if entries else {}
+    linked = resolve_entry_links(session, group.id, entries)  # asset/resource fields in `data`: ids become the objects
     build = _entry_to_read if expand == EXPAND_FULL else _entry_to_list_item
-    return [build(entry, group.slug, site_url=site_url, embeds=embeds.get(entry.id)) for entry in entries]
+    return [build(entry, group.slug, site_url=site_url, embeds=embeds.get(entry.id), data=linked.get(entry.id)) for entry in entries]
 
 
 def _expandable(expand: str | None, entries: list[Entries]) -> str | None:
-    """``expand`` for an unpaginated endpoint (a collection, a resource's entries), honoured up to
+    """``expand`` for an unpaginated endpoint (a collection), honoured up to
     ``PUBLISHING_MAX_EXPANDED_ENTRIES``. Past that the response is the plain list — what a server
     without ``expand`` returns — and a client falls back to reading entries one at a time."""
     return expand if expand == EXPAND_FULL and len(entries) <= settings.PUBLISHING_MAX_EXPANDED_ENTRIES else None
@@ -229,11 +194,13 @@ def _entry_to_read(
     workspace_slug: str,
     site_url: str | None = None,
     embeds: dict | None = None,
+    data: dict | None = None,
 ) -> PublishedEntryRead:
     """Convert an entry model to the single-entry read shape (``PublishedEntryRead``).
 
     Shared by ``GET /entries/{slug}`` and the ``?expand=full`` lists, so an expanded item is the
-    single read. Only public collections and non-suggested assets are included.
+    single read. Only public collections and non-suggested assets are included. ``data`` is the entry's
+    ``data_json`` with its asset/resource fields resolved (``resolve_entry_links``); absent, as stored.
     """
     collections = [
         PublishedEntryCollection(
@@ -262,16 +229,7 @@ def _entry_to_read(
             role=er.role,
             position=er.position,
             metadata=er.metadata_json,
-            resource=PublishedResourceSummary(
-                slug=er.resource.slug,
-                name=er.resource.name,
-                resource_type=er.resource.resource_type,
-                description=er.resource.description,
-                url=er.resource.url,
-                external_id=er.resource.external_id,
-                metadata=er.resource.metadata_json,
-                tags=list(er.resource.tag_names),
-            ),
+            resource=published_resource(er.resource),
         )
         for er in entry.entry_resources
         if _serves_resource(er)
@@ -296,7 +254,7 @@ def _entry_to_read(
         url=best_entry_url(entry, site_url),
         summary=entry.summary,
         description=entry.description,
-        data=entry.data_json,
+        data=entry.data_json if data is None else data,
         published_at=entry.published_at,
         metadata=entry.metadata_json,
         collections=collections,
@@ -313,6 +271,7 @@ def _entry_to_list_item(
     include_order: bool = False,
     site_url: str | None = None,
     embeds: dict | None = None,
+    data: dict | None = None,
 ) -> PublishedEntryListItem:
     """
     Convert an entry model to a PublishedEntryListItem with relationships.
@@ -323,6 +282,7 @@ def _entry_to_list_item(
         include_order: Whether to include sort order from junction table
         site_url: The workspace's site address (``site_base_url``) for the entry's ``url``
         embeds: The entry's resolved media embeds (``embeds_for_entries``), keyed by URL as written
+        data: The entry's ``data_json`` with its asset/resource fields resolved (``resolve_entry_links``)
 
     Returns:
         PublishedEntryListItem with populated relationships
@@ -354,7 +314,7 @@ def _entry_to_list_item(
         "url": best_entry_url(entry, site_url),
         "summary": entry.summary,
         "description": entry.description,
-        "data": entry.data_json,
+        "data": entry.data_json if data is None else data,
         "published_at": entry.published_at,
         "collections": collections,
         "assets": asset_slugs,
@@ -423,44 +383,7 @@ async def get_site_configuration(
     # Require at least one publishing permission to access site configuration
     perms.require_any_permission([Permissions.READ_PUBLISHED_ENTRIES, Permissions.READ_ALL_ENTRIES], "site configuration")
 
-    # Get group preferences (includes site configuration)
-    from marvin.db.models.groups import GroupPreferencesModel
-
-    prefs = session.query(GroupPreferencesModel).filter(GroupPreferencesModel.group_id == group.id).first()
-
-    # Parse the structured SEO block (stored under metadata.seo) into its typed model, so
-    # consumers get a validated site.seo alongside the raw metadata blob.
-    site_metadata = prefs.site_metadata_json if prefs else None
-    seo_raw = (site_metadata or {}).get("seo")
-    seo = SiteSeo(**seo_raw) if isinstance(seo_raw, dict) and seo_raw else None
-    if seo is not None:
-        seo.image = _unless_trashed_asset(session, group.id, seo.image)
-    embeds = site_embeds(site_metadata)
-
-    # Build site configuration from preferences (with sensible defaults)
-    site_config = SiteConfiguration(
-        title=prefs.site_title if prefs and prefs.site_title else group.name,
-        tagline=prefs.site_tagline if prefs else None,
-        description=prefs.site_description if prefs else None,
-        canonical_url=prefs.site_canonical_url if prefs else None,
-        logo=_unless_trashed_asset(session, group.id, prefs.site_logo) if prefs else None,
-        favicon=_unless_trashed_asset(session, group.id, prefs.site_favicon) if prefs else None,
-        locale=prefs.site_locale if prefs and prefs.site_locale else "en-US",
-        timezone=prefs.site_timezone if prefs and prefs.site_timezone else "America/New_York",
-        contact_email=prefs.site_contact_email if prefs else None,
-        social=prefs.site_social_json if prefs else None,
-        seo=seo,
-        embeds=embeds,
-        metadata=site_metadata,
-    )
-
-    return WorkspaceSiteInfo(
-        workspace=WorkspaceInfo(
-            slug=group.slug,
-            name=group.name,
-        ),
-        site=site_config,
-    )
+    return build_site_info(session, group)
 
 
 @router.get(
@@ -926,420 +849,3 @@ async def get_published_collection(
         entry_count=len(entry_items),
         entries=entry_items,
     )
-
-
-@router.get(
-    "/{workspace_slug}/assets",
-    response_model=PublishedAssetsResponse,
-    summary="List Assets",
-)
-async def list_published_assets(
-    context: tuple = Depends(get_publishing_context),
-    session: Session = Depends(generate_session),
-    type: str | None = Query(None, description="Filter by MIME type prefix (image, video, audio, application)"),
-    limit: int = Query(settings.PUBLISHING_DEFAULT_PAGE_SIZE, ge=1, le=settings.PUBLISHING_MAX_PAGE_SIZE, description="Max results"),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
-) -> PublishedAssetsResponse:
-    """
-    List all assets in the workspace.
-
-    Returns asset metadata for external sites to reference.
-
-    **Filters:**
-    - `type`: Filter by MIME type prefix (image, video, audio, application)
-    - Scoped to the workspace associated with the API client
-
-    **Use cases:**
-    - `?type=image` - Get all images
-    - `?type=video` - Get all videos
-    - Build asset galleries, media libraries
-
-    **Authentication**: Requires API client token (marvin_sk_*)
-    **Permissions**: read:assets
-    """
-    api_client, group, perms = context
-
-    # Require permission to read assets
-    perms.require_permission(Permissions.READ_ASSETS, "assets")
-
-    # Build query for assets with eager loading to prevent N+1 queries
-    # Ask files (chat attachments, services/assets/scope.py) are private to the workspace: never on the site API.
-    query = (
-        session.query(Assets)
-        .filter(Assets.group_id == group.id, Assets.trashed_at.is_(None), Assets.scope == "library")
-        .options(*_asset_eager_options())
-    )
-
-    # Filter by MIME type prefix if specified
-    if type:
-        query = query.filter(Assets.mime_type.like(f"{type}/%"))
-
-    # Get total count
-    total = query.count()
-
-    # Apply pagination
-    assets = query.order_by(Assets.name).offset(offset).limit(limit).all()
-
-    # Convert to response schema
-    data = []
-    for asset in assets:
-        # Get published entry slugs that use this asset
-        entry_slugs = [
-            ea.entry.slug for ea in asset.entry_assets if ea.entry and ea.entry.status == settings.PUBLISHING_DEFAULT_STATUS and not _is_suggested(ea)
-        ]
-
-        data.append(
-            PublishedAssetRead(
-                slug=asset.slug,
-                name=asset.name,
-                mime_type=asset.mime_type,
-                asset_type=asset.asset_type,
-                file_size=asset.file_size,
-                width=asset.width,
-                height=asset.height,
-                alt_text=asset.alt_text,
-                description=asset.description,
-                public_url=asset_public_url(asset),
-                metadata=asset.metadata_json,
-                entries=entry_slugs,
-                tags=list(asset.tag_names),
-            )
-        )
-
-    return PublishedAssetsResponse(
-        data=data,
-        meta=PaginationMeta(
-            total=total,
-            page=(offset // limit) + 1,
-            limit=limit,
-            offset=offset,
-        ),
-    )
-
-
-@router.get(
-    "/{workspace_slug}/assets/{asset_slug}",
-    response_model=PublishedAssetRead,
-    summary="Get Published Asset Metadata",
-)
-async def get_published_asset(
-    asset_slug: str,
-    context: tuple = Depends(get_publishing_context),
-    session: Session = Depends(generate_session),
-) -> PublishedAssetRead:
-    """
-    Get asset metadata for published content.
-
-    Returns asset information (name, mime_type, dimensions, alt_text) for consumption
-    by external sites.
-
-    **Use case**: Astro site fetches asset metadata to build <img> tags with proper
-    dimensions and alt text.
-
-    **Authentication**: Requires API client token (marvin_sk_*)
-    **Permissions**: read:assets
-
-    **Raises:**
-    - 404: Asset not found
-
-    **Note**: Actual file serving (GET /assets/{slug}/file) is deferred to Phase 7.
-    """
-    api_client, group, perms = context
-
-    # Require permission to read assets
-    perms.require_permission(Permissions.READ_ASSETS, "asset")
-
-    asset = (
-        session.query(Assets)
-        .filter(
-            Assets.group_id == group.id,
-            Assets.slug == asset_slug,
-            Assets.trashed_at.is_(None),
-            Assets.scope == "library",  # never an Ask file
-        )
-        .options(*_asset_eager_options())
-        .first()
-    )
-
-    if not asset:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
-
-    # Get published entry slugs that use this asset
-    entry_slugs = [
-        ea.entry.slug for ea in asset.entry_assets if ea.entry and ea.entry.status == settings.PUBLISHING_DEFAULT_STATUS and not _is_suggested(ea)
-    ]
-
-    return PublishedAssetRead(
-        slug=asset.slug,
-        name=asset.name,
-        mime_type=asset.mime_type,
-        asset_type=asset.asset_type,
-        file_size=asset.file_size,
-        width=asset.width,
-        height=asset.height,
-        alt_text=asset.alt_text,
-        description=asset.description,
-        public_url=asset_public_url(asset),
-        metadata=asset.metadata_json,
-        entries=entry_slugs,
-        tags=list(asset.tag_names),
-    )
-
-
-@router.get(
-    "/{workspace_slug}/assets/{asset_slug}/file",
-    summary="Serve Asset File",
-)
-async def serve_asset_file(
-    asset_slug: str,
-    context: tuple = Depends(get_publishing_context),
-    session: Session = Depends(generate_session),
-):
-    """
-    Serve the actual asset file content.
-
-    This endpoint proxies through to the storage provider to serve the asset file.
-    For local storage, it redirects to the static file path.
-    For S3 storage, it could generate a signed URL or proxy the content.
-
-    **Use case**: Browsers fetching images, PDFs, videos via their public URL.
-
-    **Authentication**: Requires API client token (marvin_sk_*)
-    **Permissions**: read:assets
-
-    **Raises:**
-    - 404: Asset not found
-    """
-    from fastapi.responses import RedirectResponse
-
-    api_client, group, perms = context
-
-    # Require permission to access asset files
-    perms.require_permission(Permissions.READ_ASSETS, "asset file")
-
-    asset = (
-        session.query(Assets)
-        .filter(
-            Assets.group_id == group.id,
-            Assets.slug == asset_slug,
-            Assets.trashed_at.is_(None),
-            Assets.scope == "library",  # never an Ask file
-        )
-        .first()
-    )
-
-    if not asset:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
-
-    return RedirectResponse(url=asset_public_url(asset))
-
-
-@router.get(
-    "/{workspace_slug}/resources",
-    response_model=PublishedResourcesResponse,
-    summary="List Resources",
-)
-async def list_published_resources(
-    context: tuple = Depends(get_publishing_context),
-    session: Session = Depends(generate_session),
-    resource_type: str | None = Query(None, description="Filter by resource type"),
-    limit: int = Query(settings.PUBLISHING_DEFAULT_PAGE_SIZE, ge=1, le=settings.PUBLISHING_MAX_PAGE_SIZE, description="Max results"),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
-) -> PublishedResourcesResponse:
-    """
-    List all resources in the workspace.
-
-    Returns resource metadata for external sites to reference.
-
-    **Filters:**
-    - `resource_type`: Filter by resource type (fabric, tool, supplier, etc.)
-    - Scoped to the workspace associated with the API client
-
-    **Use cases:**
-    - `?resource_type=fabric` - Get all fabrics
-    - `?resource_type=tool` - Get all tools
-    - Build resource directories, material libraries
-
-    **Authentication**: Requires API client token (marvin_sk_*)
-    **Permissions**: read:resources
-    """
-    api_client, group, perms = context
-
-    # Require permission to read resources
-    perms.require_permission(Permissions.READ_RESOURCES, "resources")
-
-    # Build query for resources with eager loading to prevent N+1 queries
-    query = session.query(Resources).filter(Resources.group_id == group.id, Resources.trashed_at.is_(None)).options(*_resource_eager_options())
-
-    # Filter by resource type if specified
-    if resource_type:
-        query = query.filter(Resources.resource_type == resource_type)
-
-    # Get total count
-    total = query.count()
-
-    # Apply pagination
-    resources = query.order_by(Resources.name).offset(offset).limit(limit).all()
-
-    # Convert to response schema
-    data = []
-    for resource in resources:
-        # Get published entry slugs that reference this resource
-        entry_slugs = [er.entry.slug for er in resource.entry_resources if er.entry and er.entry.status == settings.PUBLISHING_DEFAULT_STATUS]
-
-        data.append(
-            PublishedResourceSummary(
-                slug=resource.slug,
-                name=resource.name,
-                resource_type=resource.resource_type,
-                description=resource.description,
-                url=resource.url,
-                external_id=resource.external_id,
-                metadata=resource.metadata_json,
-                entries=entry_slugs,
-                tags=list(resource.tag_names),
-            )
-        )
-
-    return PublishedResourcesResponse(
-        data=data,
-        meta=PaginationMeta(
-            total=total,
-            page=(offset // limit) + 1,
-            limit=limit,
-            offset=offset,
-        ),
-    )
-
-
-@router.get(
-    "/{workspace_slug}/resources/{resource_slug}",
-    response_model=PublishedResourceSummary,
-    summary="Get Resource",
-)
-async def get_published_resource(
-    resource_slug: str,
-    context: tuple = Depends(get_publishing_context),
-    session: Session = Depends(generate_session),
-) -> PublishedResourceSummary:
-    """
-    Get a single resource by slug.
-
-    Returns resource metadata for external sites to reference.
-
-    **Use case**: Resource detail pages, material information displays.
-
-    **Authentication**: Requires API client token (marvin_sk_*)
-    **Permissions**: read:resources
-
-    **Raises:**
-    - 404: Resource not found
-    """
-    api_client, group, perms = context
-
-    # Require permission to read resources
-    perms.require_permission(Permissions.READ_RESOURCES, "resource")
-
-    # Query resource with eager loading to prevent N+1 queries
-    resource = (
-        session.query(Resources)
-        .filter(
-            Resources.group_id == group.id,
-            Resources.slug == resource_slug,
-            Resources.trashed_at.is_(None),
-        )
-        .options(*_resource_eager_options())
-        .first()
-    )
-
-    if not resource:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found")
-
-    # Get published entry slugs that reference this resource
-    entry_slugs = [er.entry.slug for er in resource.entry_resources if er.entry and er.entry.status == settings.PUBLISHING_DEFAULT_STATUS]
-
-    return PublishedResourceSummary(
-        slug=resource.slug,
-        name=resource.name,
-        resource_type=resource.resource_type,
-        description=resource.description,
-        url=resource.url,
-        external_id=resource.external_id,
-        metadata=resource.metadata_json,
-        entries=entry_slugs,
-        tags=list(resource.tag_names),
-    )
-
-
-@router.get(
-    "/{workspace_slug}/resources/{resource_slug}/entries",
-    response_model=list[PublishedEntryListItem] | list[PublishedEntryRead],
-    summary="Get Resource Entries",
-)
-async def get_resource_entries(
-    resource_slug: str,
-    context: tuple = Depends(get_publishing_context),
-    session: Session = Depends(generate_session),
-    expand: Literal["full"] | None = Query(None, description=_EXPAND_DESCRIPTION),
-) -> list[PublishedEntryListItem] | list[PublishedEntryRead]:
-    """
-    Get all published entries that reference a resource.
-
-    Returns entries that use this resource (e.g., projects using a fabric).
-
-    **Filters:**
-    - Only returns entries with `status = 'published'`
-
-    **Use case**: "View projects using this fabric" links on resource pages.
-
-    **Expand:** `?expand=full` returns each entry in the single-read shape. Honoured up to
-    `PUBLISHING_MAX_EXPANDED_ENTRIES` (500) entries; past that the response is unexpanded.
-
-    **Authentication**: Requires API client token (marvin_sk_*)
-    **Permissions**: read:resources (plus read:published_entries OR read:all_entries with `expand=full`)
-
-    **Raises:**
-    - 404: Resource not found
-    """
-    api_client, group, perms = context
-
-    # Require permission to read resources
-    perms.require_permission(Permissions.READ_RESOURCES, "resource entries")
-    _require_entry_read(perms, expand, "resource entries")
-
-    # Get resource
-    resource = (
-        session.query(Resources)
-        .filter(
-            Resources.group_id == group.id,
-            Resources.slug == resource_slug,
-            Resources.trashed_at.is_(None),
-        )
-        .first()
-    )
-
-    if not resource:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found")
-
-    # Get published entries that reference this resource with eager loading
-    from marvin.db.models.platform import EntryResources
-
-    entries = (
-        _only_publishable_types(
-            session,
-            group.id,
-            session.query(Entries)
-            .join(EntryResources)
-            .filter(
-                EntryResources.resource_id == resource.id,
-                Entries.status == settings.PUBLISHING_DEFAULT_STATUS,
-            ),
-        )
-        .options(*_entry_eager_options_with_type())
-        .order_by(Entries.published_at.desc())
-        .all()
-    )
-
-    # Convert to list items (full reads with expand=full) using shared helper
-    site_url = site_base_url(session, group.id)
-    return _list_items(session, group, entries, site_url, _expandable(expand, entries))

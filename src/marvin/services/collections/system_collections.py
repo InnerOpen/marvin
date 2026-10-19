@@ -1,8 +1,8 @@
 """System workflow collections.
 
 Every workspace gets a small set of **system** collections that mirror the entry review
-pipeline: Inbox → Drafts → Needs Review → Approved → Archive, plus the Trash (deleted entries, waiting
-to be restored or emptied). They are:
+pipeline: Inbox → Drafts → Needs Review → Approved → Published → Archive, plus the Trash (deleted entries,
+waiting to be restored or emptied). They are:
 
 - **smart** — membership is derived from entry status (see smart_collections), so entries move
   between them automatically as they progress;
@@ -36,6 +36,14 @@ WORKFLOW_COLLECTIONS: list[dict] = [
         "description": "Approved and ready to publish.",
         "sort_order": -10,
         "statuses": ["approved"],
+    },
+    {
+        "slug": "published",
+        "name": "Published",
+        "icon": "🌐",
+        "description": "Live on the site.",
+        "sort_order": -8,
+        "statuses": ["published"],
     },
     {
         "slug": "archive",

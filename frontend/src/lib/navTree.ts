@@ -24,6 +24,7 @@ const NODES: NavNode[] = [
   // Platform admin
   { id: "admin", label: "Admin", href: "/admin", title: "Overview" },
   { id: "admin.users", label: "Users", href: "/admin/users", parent: "admin" },
+  { id: "admin.connected-apps", label: "Connected apps", href: "/admin/connected-apps", parent: "admin", title: "Connected MCP apps" },
   { id: "admin.users.new", label: "Create User", href: "/admin/users/new", parent: "admin.users" },
   { id: "admin.users.user", label: "User", href: "/admin/users/[id]", parent: "admin.users" },
   { id: "admin.workspaces", label: "Workspaces", href: "/admin/workspaces", parent: "admin" },
@@ -70,14 +71,17 @@ const NODES: NavNode[] = [
   { id: "admin.backup-health", label: "Backup Health", href: "/admin/backup-health", parent: "admin" },
   // Which platform events also go out by email or a chat integration.
   { id: "admin.alerts", label: "Platform Alerts", href: "/admin/alerts", parent: "admin" },
-  { id: "admin.maintenance", label: "Maintenance", href: "/admin/maintenance", parent: "admin" },
+  { id: "admin.maintenance", label: "Database & cleanup", href: "/admin/maintenance", parent: "admin" },
 
-  // Workspace pages with no parent: the dashboard (the sidebar's Workspace → Settings) and creating a workspace.
-  { id: "workspace", label: "Workspace", href: "/workspace", title: "Workspace Dashboard" },
+  // A workspace page with no parent: creating a workspace. (The dashboard lives at /, outside the map; /workspace redirects there.)
   { id: "workspace.new", label: "Create Workspace", href: "/workspace/new" },
 
   // Workspace settings
   { id: "settings", label: "Settings", href: "/workspace/settings", title: "Workspace Settings" },
+  // The hub's tabs that group pages of their own: a page under one shows it in the trail (Settings → Automation → …).
+  { id: "settings.publishing", label: "Publishing", href: "/workspace/settings?tab=publishing", parent: "settings" },
+  { id: "settings.automation", label: "Automation", href: "/workspace/settings?tab=automation", parent: "settings" },
+  { id: "settings.ai", label: "AI", href: "/workspace/settings?tab=ai", parent: "settings" },
   {
     id: "settings.general",
     label: "General",
@@ -94,6 +98,7 @@ const NODES: NavNode[] = [
     title: "Workspace Secrets",
   },
   { id: "settings.backups", label: "Backups", href: "/workspace/settings/backups", parent: "settings" },
+  { id: "settings.storage", label: "Storage", href: "/workspace/settings/storage", parent: "settings" },
   { id: "settings.members", label: "Members", href: "/workspace/members", parent: "settings" },
   { id: "settings.members.new", label: "Add Member", href: "/workspace/members/new", parent: "settings.members" },
   { id: "settings.invites", label: "Invitations", href: "/workspace/invites", parent: "settings" },
@@ -143,7 +148,7 @@ const NODES: NavNode[] = [
     id: "settings.submission-protection",
     label: "Submission Protection",
     href: "/workspace/settings/submission-protection",
-    parent: "settings",
+    parent: "settings.publishing",
   },
   { id: "settings.integrations", label: "Integrations", href: "/workspace/settings/integrations", parent: "settings" },
   {
@@ -152,35 +157,37 @@ const NODES: NavNode[] = [
     href: "/workspace/settings/integration-health",
     parent: "settings.integrations",
   },
-  { id: "settings.ai", label: "AI Settings", href: "/workspace/settings/ai-workflow", parent: "settings" },
-  { id: "settings.ai-ask", label: "Ask", href: "/workspace/settings/ai-ask", parent: "settings" },
-  { id: "settings.ai-agents", label: "Agents", href: "/workspace/settings/ai-agents", parent: "settings" },
+  { id: "settings.ai-workflow", label: "AI Settings", href: "/workspace/settings/ai-workflow", parent: "settings.ai" },
+  { id: "settings.ai-ask", label: "Ask", href: "/workspace/settings/ai-ask", parent: "settings.ai" },
+  { id: "settings.ai-agents", label: "Agents", href: "/workspace/settings/ai-agents", parent: "settings.ai" },
   {
     id: "settings.ai-executions",
     label: "AI Executions",
     href: "/workspace/settings/ai-executions",
-    parent: "settings",
+    parent: "settings.ai",
   },
   {
     id: "settings.ai-mcp-servers",
     label: "MCP Servers",
     href: "/workspace/settings/ai-mcp-servers",
-    parent: "settings",
+    parent: "settings.ai",
   },
 
   // Automation and Publishing pages sit directly under Settings: the hub's tabs aren't pages, so they're not crumbs.
-  { id: "automation.workflows", label: "Workflows", href: "/automation/workflows", parent: "settings" },
-  { id: "automation.library", label: "Workflow Library", href: "/automation/library", parent: "settings" },
-  { id: "automation.approvals", label: "Approvals", href: "/automation/approvals", parent: "settings" },
-  { id: "automation.events", label: "Events", href: "/automation/events", parent: "settings" },
+  { id: "automation.workflows", label: "Workflows", href: "/automation/workflows", parent: "settings.automation" },
+  { id: "automation.library", label: "Workflow Library", href: "/automation/library", parent: "settings.automation" },
+  { id: "automation.approvals", label: "Approvals", href: "/automation/approvals", parent: "settings.automation" },
+  { id: "automation.events", label: "Events", href: "/automation/events", parent: "settings.automation" },
   { id: "automation.events.type", label: "Event", href: "/automation/events/[type]", parent: "automation.events" },
+  { id: "automation.custom-events", label: "Custom Events", href: "/automation/custom-events", parent: "settings.automation" },
+  { id: "automation.metrics", label: "Metrics", href: "/automation/metrics", parent: "settings.automation" },
   {
     id: "automation.events.type.webhook",
     label: "Connect Webhook",
     href: "/automation/events/[type]/webhook/[webhookId]",
     parent: "automation.events.type",
   },
-  { id: "automation.webhooks", label: "Webhooks", href: "/automation/webhooks", parent: "settings" },
+  { id: "automation.webhooks", label: "Webhooks", href: "/automation/webhooks", parent: "settings.automation" },
   {
     id: "automation.webhooks.new",
     label: "New Webhook",
@@ -204,14 +211,14 @@ const NODES: NavNode[] = [
     id: "automation.incoming-webhooks",
     label: "Incoming Webhooks",
     href: "/automation/incoming-webhooks",
-    parent: "settings",
+    parent: "settings.automation",
   },
-  { id: "automation.notifications", label: "Notifications", href: "/automation/notifications", parent: "settings" },
+  { id: "automation.notifications", label: "Notifications", href: "/automation/notifications", parent: "settings.automation" },
   {
     id: "automation.scheduled-tasks",
     label: "Scheduled Tasks",
     href: "/workspace/scheduled-tasks",
-    parent: "settings",
+    parent: "settings.automation",
   },
   {
     id: "automation.scheduled-tasks.new",
@@ -231,10 +238,10 @@ const NODES: NavNode[] = [
     href: "/workspace/scheduled-tasks/[id]",
     parent: "automation.scheduled-tasks",
   },
-  { id: "automation.event-log", label: "Event Log", href: "/workspace/events", parent: "settings" },
+  { id: "automation.event-log", label: "Event Log", href: "/workspace/events", parent: "settings.automation" },
 
-  { id: "publishing.site", label: "Site", href: "/publishing/site", parent: "settings", title: "Site Configuration" },
-  { id: "publishing.clients", label: "API Clients", href: "/publishing/clients", parent: "settings" },
+  { id: "publishing.site", label: "Site", href: "/publishing/site", parent: "settings.publishing", title: "Site Configuration" },
+  { id: "publishing.clients", label: "API Clients", href: "/publishing/clients", parent: "settings.publishing" },
   {
     id: "publishing.clients.new",
     label: "New API Client",

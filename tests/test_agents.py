@@ -75,7 +75,16 @@ def test_agent_read_marks_system_agents_without_an_id():
 def test_system_agents_match_the_reserved_slugs_and_shapes():
     assert tuple(SYSTEM_AGENTS) == SYSTEM_AGENT_SLUGS
     assert SYSTEM_AGENTS["marvin"].tool_allowlist is None  # everything the role allows
-    assert SYSTEM_AGENTS["ask"].tool_allowlist == ("search_content", "workspace_overview", "search_docs", "read_doc", "suggest_agent")
+    assert SYSTEM_AGENTS["ask"].tool_allowlist == (
+        "search_content",
+        "get_entry",
+        "get_asset",
+        "get_resource",
+        "workspace_overview",
+        "search_docs",
+        "read_doc",
+        "suggest_agent",
+    )
     assert SYSTEM_AGENTS["chat"].kind == "model"
     assert all(s.is_system for s in SYSTEM_AGENTS.values())
 
@@ -303,7 +312,8 @@ def test_permission_matrix_rows_cover_the_catalog_and_keep_mcp():
     entries = next(r for r in rows if r["id"] == "entries_read")
     assert entries["default"] == POLICY_ALLOW and all(t["decision"] == POLICY_ALLOW for t in entries["tools"])
     author = next(r for r in rows if r["id"] == "entries_author")
-    assert author["default"] == POLICY_BLOCK and {t["name"] for t in author["tools"]} == {"compose_entry", "revise_entry", "add_embed"}
+    assert author["default"] == POLICY_BLOCK
+    assert {t["name"] for t in author["tools"]} == {"compose_entry", "revise_entry", "create_draft", "update_draft", "add_embed"}
     assert next(r for r in rows if r["id"] == "mcp")["tools"] == []
     # discovered MCP tools handed in by the controller land in their hinted rows
     with_mcp = catalog_tools() + [
@@ -412,7 +422,19 @@ def test_preamble_tells_agents_to_keep_workspace_paths_relative():
 
 def test_ask_agent_may_use_the_overview_tool():
     ask = SYSTEM_AGENTS["ask"]
-    assert set(ask.tool_allowlist) == {"search_content", "workspace_overview", "search_docs", "read_doc", "suggest_agent"}
+    assert set(ask.tool_allowlist) == {
+        "search_content",
+        "get_entry",
+        "get_asset",
+        "get_resource",
+        "workspace_overview",
+        "search_docs",
+        "read_doc",
+        "suggest_agent",
+    }
+    from marvin.services.ai.tools import get_tool
+
+    assert all(get_tool(name).read_only for name in ask.tool_allowlist)  # Ask never writes
     # it may refer (a no-op) but never hand off
     assert resolve_policy(ask, "suggest_agent", "agents_read", ROLE_VIEWER)[0] == POLICY_ALLOW
     assert resolve_policy(ask, "run_agent", "agents_run", ROLE_VIEWER)[0] == POLICY_BLOCK
@@ -545,6 +567,23 @@ def test_list_agents_tool_gates_can_run_on_the_context_source():
     assert by_slug(from_agent)["mcp-only"] is False and by_slug(from_mcp)["mcp-only"] is True
 
 
+def test_list_agents_says_which_agents_can_write_for_this_user():
+    """A read-only agent asked for a change refers it to one that canWrite (suggest_agent says so)."""
+    from types import SimpleNamespace
+
+    from marvin.db.models.users.roles import WorkspaceRole
+
+    rows = [_row(slug="workshop", name="Workshop", allow_writes=False), _row(slug="editor-bot", name="Editor bot", allow_writes=True)]
+    editor = SimpleNamespace(admin=False, workspace_memberships=[SimpleNamespace(group_id="g1", workspace_role=WorkspaceRole.EDITOR)])
+    can_write = lambda user: {a["slug"]: a["canWrite"] for a in json.loads(list_agents_tool(_ctx(rows, user=user), {}))["agents"]}  # noqa: E731
+    as_editor, as_viewer = can_write(editor), can_write(None)
+    assert as_editor["marvin"] is True and as_editor["editor-bot"] is True and as_editor["workshop"] is False
+    assert not any(as_viewer.values())  # a viewer can't write through anyone
+    from marvin.services.ai.tools import get_tool
+
+    assert "tool" in get_tool("suggest_agent").input_schema["properties"]  # the per-tool match supersedes the bare canWrite hint
+
+
 def test_run_agent_and_suggest_agent_are_bound_for_the_agent_source_but_not_chained():
     from marvin.services.ai.tools import get_tool
 
@@ -577,3 +616,152 @@ def test_builder_drafts_only_with_approval_and_never_switches_on_or_runs():
         assert resolve_policy(builder, name, category_of(name, read_only=False), ROLE_ADMIN)[0] == POLICY_ASK
     assert resolve_policy(builder, "search_docs", "docs_read", ROLE_ADMIN)[0] == POLICY_ALLOW
     assert "section=editor" in builder.system_prompt and "switched off" in builder.system_prompt
+
+
+# ── A read-only agent hands the job to one that may do it, with what it found ──────────────────────
+
+from dataclasses import replace as _replace  # noqa: E402
+
+from marvin.services.ai.agents import (  # noqa: E402
+    AGENT_SETTINGS_URL,
+    HANDOFF_WRITE_RULE,
+    agents_that_can,
+    clean_handoff_context,
+    how_to_allow,
+    workspace_preamble,
+)
+
+ASSET_A, ASSET_B = "0b0c1d2e-3f40-4152-8364-758697a8b9c0", "11111111-2222-4333-8444-555555555555"
+
+
+def _editor():
+    from marvin.db.models.users.roles import WorkspaceRole
+
+    return SimpleNamespace(admin=False, workspace_memberships=[SimpleNamespace(group_id="g1", workspace_role=WorkspaceRole.EDITOR)])
+
+
+def _writer_rows(**bot_over):
+    """Workshop (read-only, as in the bug) and a writing bot — both with no allowlist, so only writes matter."""
+    return [
+        _row(slug="workshop", name="Workshop", allow_writes=False, tool_allowlist=None),
+        _row(slug="editor-bot", name="Editor bot", allow_writes=True, tool_allowlist=None, **bot_over),
+    ]
+
+
+def test_agents_that_can_match_per_tool_marvin_first_then_allow_before_ask():
+    marvin = SYSTEM_AGENTS["marvin"]
+    bot = spec_from_row(_row(slug="a-bot", name="A bot", allow_writes=True, tool_allowlist=None))  # writes ask first
+    sure = spec_from_row(_row(slug="z-sure", name="Z sure", allow_writes=True, tool_allowlist=None, tool_policy={"links": "allow"}))
+    ro = spec_from_row(_row(slug="workshop", name="Workshop", allow_writes=False, tool_allowlist=None))
+    off = spec_from_row(_row(slug="off", name="Off", allow_writes=True, tool_allowlist=None, enabled=False))
+    cat = category_of("attach_asset", read_only=False)
+    found = agents_that_can([ro, bot, sure, off, marvin, SYSTEM_AGENTS["chat"]], "attach_asset", cat, ROLE_EDITOR, "agent")
+    assert [(s.slug, d) for s, d in found] == [("marvin", "allow"), ("z-sure", "allow"), ("a-bot", "ask")]
+    # a different tool is a different answer: this bot may attach tags but not assets
+    picky = spec_from_row(_row(slug="picky", name="Picky", allow_writes=True, tool_allowlist=None, tool_policy={"attach_asset": "block"}))
+    assert "picky" not in [s.slug for s, _ in agents_that_can([picky], "attach_asset", cat, ROLE_EDITOR, "agent")]
+    assert "picky" in [s.slug for s, _ in agents_that_can([picky], "attach_tag", category_of("attach_tag"), ROLE_EDITOR, "agent")]
+    # a tool outside an agent's own list, a role below Editor and a source the agent isn't open to all rule it out
+    listed = spec_from_row(_row(slug="listed", name="Listed", allow_writes=True, tool_allowlist=["search_content"]))
+    assert agents_that_can([listed], "attach_asset", cat, ROLE_EDITOR, "agent") == []
+    assert agents_that_can([marvin], "attach_asset", cat, ROLE_AUTHOR, "agent") == []
+    mcp_only = spec_from_row(_row(slug="m", name="M", allow_writes=True, tool_allowlist=None, sources=["mcp"]))
+    assert agents_that_can([mcp_only], "attach_asset", cat, ROLE_EDITOR, "agent") == []
+
+
+def test_suggest_agent_with_a_tool_refers_to_the_agent_that_may_run_it_and_carries_what_was_found():
+    ctx = _ctx(_writer_rows(), user=_editor())
+    context = {"entry": "bench-note-14", "assetIds": [ASSET_A, ASSET_B, ASSET_A, "not-an-id"], "summary": "two denim shots", "extra": "x"}
+    out = json.loads(suggest_agent(ctx, {"agent": "workshop", "tool": "attach_asset", "question": "Attach these", "context": context}))
+    assert out["recorded"] is True and out["agent"] == "marvin" and "instead" in out["next"]  # workshop can't, marvin first
+    assert ctx.referrals == [
+        {
+            "agent": "marvin",
+            "name": "Marvin",
+            "question": "Attach these",
+            "reason": "Marvin may run attach_asset for you",
+            "tool": "attach_asset",
+            "context": {"entry": "bench-note-14", "assetIds": [ASSET_A, ASSET_B], "summary": "two denim shots"},
+        }
+    ]
+
+
+def test_suggest_agent_with_a_tool_honours_a_named_agent_that_may_and_needs_no_agent():
+    ctx = _ctx(_writer_rows(), user=_editor())
+    out = json.loads(suggest_agent(ctx, {"agent": "editor-bot", "tool": "attach_tag", "question": "Tag it"}))
+    assert out["agent"] == "editor-bot" and "instead" not in out["next"]
+    assert "asks you first" in ctx.referrals[0]["reason"]  # its writes ask first
+    ctx = _ctx(_writer_rows(), user=_editor())
+    assert json.loads(suggest_agent(ctx, {"tool": "create_draft", "question": "Draft it"}))["agent"] == "marvin"
+
+
+def test_suggest_agent_with_a_tool_skips_an_agent_whose_matrix_blocks_that_tool(monkeypatch):
+    rows = _writer_rows(tool_policy={"links": "allow"})
+    marvin_blocked = _replace(SYSTEM_AGENTS["marvin"], tool_policy={"attach_asset": "block"})
+    monkeypatch.setattr("marvin.services.ai.agents.list_agents", lambda session, group_id: [marvin_blocked, *(spec_from_row(r) for r in rows)])
+    ctx = _ctx(rows, user=_editor())
+    out = json.loads(suggest_agent(ctx, {"agent": "marvin", "tool": "attach_asset", "question": "Attach"}))
+    assert out["agent"] == "editor-bot"  # marvin is preferred, but this workspace blocked attach_asset for it
+
+
+def test_suggest_agent_names_the_setting_when_no_agent_may(monkeypatch):
+    rows = _writer_rows()
+    marvin_off = _replace(SYSTEM_AGENTS["marvin"], tool_policy={"links": "block"})
+    bot_off = spec_from_row(_row(slug="editor-bot", name="Editor bot", allow_writes=False, tool_allowlist=None))
+    ws = spec_from_row(rows[0])
+    monkeypatch.setattr("marvin.services.ai.agents.list_agents", lambda session, group_id: [marvin_off, ws, bot_off])
+    ctx = _ctx(rows, user=_editor())
+    out = json.loads(suggest_agent(ctx, {"agent": "workshop", "tool": "attach_asset", "question": "Attach"}))
+    assert out["recorded"] is False and ctx.referrals == []
+    assert "Settings → AI → Agents" in out["blocked"] and AGENT_SETTINGS_URL in out["next"]
+    assert "set “Links” to Allow (or Ask first) for Marvin" in out["blocked"]
+    assert "turn on Allow writes for Editor bot" in out["blocked"] and "turn on Allow writes for Workshop" in out["blocked"]
+
+
+def test_how_to_allow_gives_the_role_answer_and_a_fix_per_agent():
+    cat = category_of("attach_asset", read_only=False)
+    ws = spec_from_row(_row(slug="workshop", name="Workshop", allow_writes=False, tool_allowlist=None))
+    assert "Editor role" in how_to_allow([SYSTEM_AGENTS["marvin"], ws], "attach_asset", cat, ROLE_AUTHOR, "agent")
+    only_ws = how_to_allow([ws], "attach_asset", cat, ROLE_EDITOR, "agent")
+    assert only_ws == "To allow it, in Settings → AI → Agents: turn on Allow writes for Workshop."
+    per_tool = spec_from_row(_row(slug="p", name="P", allow_writes=True, tool_allowlist=None, tool_policy={"attach_asset": "block"}))
+    assert "set attach_asset to Allow (or Ask first) for P" in how_to_allow([per_tool], "attach_asset", cat, ROLE_EDITOR, "agent")
+    off = spec_from_row(_row(slug="o", name="O", allow_writes=True, tool_allowlist=None, enabled=False))
+    assert "switch O on" in how_to_allow([off], "attach_asset", cat, ROLE_EDITOR, "agent")
+    listed = spec_from_row(_row(slug="l", name="L", allow_writes=True, tool_allowlist=["search_content"]))
+    assert "nothing in Settings" in how_to_allow([listed], "attach_asset", cat, ROLE_EDITOR, "agent")
+
+
+def test_a_viewer_is_told_it_is_the_role_not_an_agent_setting():
+    ctx = _ctx(_writer_rows(), user=None)
+    out = json.loads(suggest_agent(ctx, {"tool": "attach_asset", "question": "Attach"}))
+    assert out["recorded"] is False and "Editor role" in out["blocked"] and ctx.referrals == []
+
+
+def test_suggest_agent_with_an_unknown_tool_lists_the_write_tools():
+    out = json.loads(suggest_agent(_ctx(_writer_rows(), user=_editor()), {"tool": "attach_pictures", "question": "x"}))
+    assert "unknown tool 'attach_pictures'" in out["error"] and "attach_asset" in out["error"] and "search_content" not in out["error"]
+
+
+def test_list_agents_can_say_per_tool_who_may_run_it():
+    ctx = _ctx(_writer_rows(), user=_editor())
+    by = {a["slug"]: a for a in json.loads(list_agents_tool(ctx, {"tool": "attach_asset"}))["agents"]}
+    assert by["marvin"]["canUseTool"] and by["marvin"]["toolPolicy"] == "allow"
+    assert by["editor-bot"]["toolPolicy"] == "ask" and by["workshop"]["canUseTool"] is False
+    assert "canUseTool" not in json.loads(list_agents_tool(ctx, {}))["agents"][0]
+    assert "unknown tool" in json.loads(list_agents_tool(ctx, {"tool": "nope"}))["error"]
+
+
+def test_the_handoff_context_keeps_only_ids_slugs_and_a_short_note():
+    assert clean_handoff_context(None) == {} and clean_handoff_context("x") == {} and clean_handoff_context({"entry": "has space"}) == {}
+    many = [f"00000000-0000-4000-8000-{i:012d}" for i in range(30)]
+    clean = clean_handoff_context({"entry": " Bench_Note-14 ", "assetIds": many, "summary": "a\n\n b " + "x" * 400, "token": "secret"})
+    assert clean["entry"] == "Bench_Note-14" and len(clean["assetIds"]) == 20 and len(clean["summary"]) == 300
+    assert set(clean) == {"entry", "assetIds", "summary"} and "\n" not in clean["summary"]
+    assert clean_handoff_context({"assetIds": "not a list"}) == {}
+
+
+def test_a_read_only_agent_is_told_how_to_hand_a_change_over_and_a_writing_one_is_not():
+    assert HANDOFF_WRITE_RULE in workspace_preamble("W", ["search_content", "suggest_agent"])
+    assert HANDOFF_WRITE_RULE not in workspace_preamble("W", ["search_content", "suggest_agent", "attach_asset"])
+    assert HANDOFF_WRITE_RULE not in workspace_preamble("W", ["search_content"])  # nobody to hand it to

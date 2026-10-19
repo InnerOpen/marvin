@@ -27,11 +27,12 @@ config:
   production: true      # OpenShift's random UID can't write /app/dev (dev mode); dev uses DATA_DIR too
   environmentLabel: DEV # badge + "[DEV] " tab titles, so dev is never mistaken for production
   logLevel: INFO
-  dbEngine: postgres
+  dbEngine: postgres   # pinned: the chart default is sqlite
   # Public tunnel hosts (Cloudflare, one level deep so the free *.iwobble.com certificate covers them):
   # admin-dev.iwobble.com → UI, api-dev.iwobble.com → API. The LAN .apps routes below keep working.
   publicApiUrl: https://api-dev.iwobble.com
   corsOrigins: "https://admin-dev.iwobble.com,https://marvin-marvin-dev.apps.ocp4.iwobble.com"
+  publicUiUrl: https://admin-dev.iwobble.com # emailed links, push, agent answers (BASE_URL / FRONTEND_URL)
 
 # Web Push for the installable admin app: VAPID keys from this Secret (create it first — see
 # docs/manual/app-and-push.md; until it exists the backend starts with push off).
@@ -55,10 +56,10 @@ priorityClassName: marvin-dev-low
 resources:
   requests:
     cpu: 100m
-    memory: 256Mi
+    memory: 384Mi
   limits:
     cpu: 500m
-    memory: 768Mi
+    memory: 1Gi  # the built-in embedding model: ~+250Mi loaded, ~+300Mi while indexing (values-iwobble.yaml)
 
 # Same relaxed probe cadence as production (see values-iwobble.yaml for why).
 livenessProbe:
@@ -139,6 +140,10 @@ extraEnv:
     value: https://marvin-api-marvin-dev.apps.ocp4.iwobble.com/assets
   - name: INTEGRATION_HTTP_MAX_BYTES
     value: "16777216"
+  # The remote MCP server (OAuth sign-in) is switched on here only, to build and verify it before production;
+  # Admin → Site Settings → Remote MCP can still override it.
+  - name: MCP_REMOTE_ENABLED
+    value: "true"
   # Assets on R2 (storage slice 8): the s3 provider is configured (Secret marvin-r2-assets, a token scoped to
   # marvin-assets-dev only); which provider takes NEW uploads is the admin choice (Admin → Storage).
   - name: STORAGE_REMOTE_PUBLIC_URL

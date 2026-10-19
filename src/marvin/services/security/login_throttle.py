@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from marvin.core.config import get_app_settings
 from marvin.db.models.platform.auth_throttles import AuthThrottleModel
+from marvin.services.platform_policy import security
 from marvin.services.security.client_info import UNKNOWN_IP, get_client_ip
 
 ACCOUNT, IP, RESET_EMAIL, RESET_IP = "login:account", "login:ip", "reset:email", "reset:ip"
@@ -82,10 +83,10 @@ class LoginThrottle:
     def failed(self, account: str, ip: str) -> int | None:
         """Count one failed sign-in. Returns the account's failure count when this failure is the one that starts
         a refusal (the first, and the longer one) — worth announcing — else None."""
-        limit = self.settings.SECURITY_MAX_LOGIN_ATTEMPTS
+        limit = security("SECURITY_MAX_LOGIN_ATTEMPTS")
         count = self._fail(ACCOUNT, account, limit)
         if ip != UNKNOWN_IP:
-            self._fail(IP, ip, self.settings.SECURITY_LOGIN_IP_MAX_FAILURES)
+            self._fail(IP, ip, security("SECURITY_LOGIN_IP_MAX_FAILURES"))
         self.session.commit()
         return count if count in (limit, 2 * limit) else None
 
@@ -108,12 +109,12 @@ class LoginThrottle:
     def _fail(self, scope: str, key: str, limit: int) -> int:
         now = datetime.now(UTC)
         row = self._row(scope, key) or self._new(scope, key, now)
-        if row.window_start < now - timedelta(hours=self.settings.SECURITY_LOGIN_FAILURE_WINDOW_HOURS):
+        if row.window_start < now - timedelta(hours=security("SECURITY_LOGIN_FAILURE_WINDOW_HOURS")):
             row.count, row.window_start, row.locked_until = 0, now, None
         row.count += 1
         if row.count >= limit:
             long = row.count >= 2 * limit
-            minutes = self.settings.SECURITY_LOGIN_LONG_LOCKOUT_MINUTES if long else self.settings.SECURITY_LOGIN_LOCKOUT_MINUTES
+            minutes = security("SECURITY_LOGIN_LONG_LOCKOUT_MINUTES") if long else security("SECURITY_LOGIN_LOCKOUT_MINUTES")
             row.locked_until = now + timedelta(minutes=minutes)
         return row.count
 
@@ -121,8 +122,8 @@ class LoginThrottle:
 
     def allow_reset(self, email: str, ip: str) -> bool:
         """Count one password-reset request; False when the address or the IP is over its hourly cap."""
-        email_ok = self._within(RESET_EMAIL, email.strip().lower()[:_KEY_LENGTH], self.settings.SECURITY_PASSWORD_RESET_MAX_PER_HOUR)
-        ip_ok = ip == UNKNOWN_IP or self._within(RESET_IP, ip, self.settings.SECURITY_PASSWORD_RESET_IP_MAX_PER_HOUR)
+        email_ok = self._within(RESET_EMAIL, email.strip().lower()[:_KEY_LENGTH], security("SECURITY_PASSWORD_RESET_MAX_PER_HOUR"))
+        ip_ok = ip == UNKNOWN_IP or self._within(RESET_IP, ip, security("SECURITY_PASSWORD_RESET_IP_MAX_PER_HOUR"))
         self.session.commit()
         return email_ok and ip_ok
 

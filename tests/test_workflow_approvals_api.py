@@ -119,3 +119,20 @@ def test_an_author_may_not(ws):  # noqa: F811
     _waiting_run(ws)
     _sign_in(ws.gid, WorkspaceRole.AUTHOR)
     assert TestClient(app).get(APPROVALS).status_code == 403
+
+
+def test_a_choice_travels_through_the_api(ws):  # noqa: F811
+    from marvin.db.models.groups.workflow_approvals import WorkflowApprovalModel
+
+    _waiting_run(ws)
+    row = ws.session.query(WorkflowApprovalModel).filter_by(group_id=ws.gid).one()
+    row.choices = ["Dawn", "Dusk"]
+    ws.session.commit()
+    _sign_in_as_real_editor(ws)
+    client = TestClient(app)
+
+    (waiting,) = client.get(APPROVALS).json()
+    assert waiting["choices"] == ["Dawn", "Dusk"] and waiting["choice"] is None
+    assert client.post(f"{APPROVALS}/{waiting['id']}/decide", json={"decision": "approve"}).status_code == 422
+    decided = client.post(f"{APPROVALS}/{waiting['id']}/decide", json={"decision": "approve", "choice": "Dusk"})
+    assert decided.status_code == 200 and (decided.json()["status"], decided.json()["choice"]) == ("approved", "Dusk")

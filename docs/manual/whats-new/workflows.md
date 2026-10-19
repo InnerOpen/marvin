@@ -20,11 +20,40 @@ A workflow (an "automation" in the API) is a trigger, optional conditions and up
 | `incoming_webhook` | An [incoming webhook](incoming-webhooks.md) receives a POST | `webhook`: slug, or `any` |
 | `mcp` | An external MCP host calls the workflow's own tool, `marvin_wf_<slug>` (see [Settings](#settings)); **Run** also works | |
 
-Event triggers accept only the curated catalog: Entries (`entry_created`, `entry_updated`, `entry_published`, `entry_unpublished`, `entry_archived`, `entry_trashed`, `entry_restored`, `entry_deleted`, resource/tag/asset attach and detach), Collections, Assets, Resources, Forms (`form_submission_received`, `submission_surge_detected`, `form_*`), Entry types and Site (`site_deployment_started`, `_completed`, `_failed`; a trigger naming the old `site_build_*` names is saved as its `site_deployment_*` counterpart). Site events come from an **Emit event** step (usually a workflow on a host's deploy-notification webhook), so a second workflow can react to them — for example, tell someone when a deploy fails; reaction depth keeps such chains bounded.
+Event triggers accept only the curated catalog: Members (`member_added`, `member_role_changed` — the run reads the person as `${member.*}`: `id`, `username`, `name`, `email`, `role`; the event's `user_id` is the admin who did it), Entries (`entry_created`, `entry_updated`, `entry_published`, `entry_unpublished`, `entry_archived`, `entry_trashed`, `entry_restored`, `entry_deleted`, resource/tag/asset attach and detach), Collections, Assets, Resources, Forms (`form_submission_received`, `submission_surge_detected`, `form_*`), Entry types and Site (`site_deployment_started`, `_completed`, `_failed`; a trigger naming the old `site_build_*` names is saved as its `site_deployment_*` counterpart). Site events come from an **Emit event** step (usually a workflow on a host's deploy-notification webhook), so a second workflow can react to them — for example, tell someone when a deploy fails; reaction depth keeps such chains bounded. Your own [custom events](#custom-events) (`custom.<name>`) are offered under a **Custom** heading once registered. Under **Operations**: the platform reporting a failure or a shortfall — see [Answer a failure](#operational-events).
+
+### Custom events {#custom-events}
+
+Marvin's catalog lists what Marvin itself sends. A workspace can add events of its own, named `custom.<name>`: a "milestone reached", a "kit shipped". Nothing in Marvin sends one but a workflow's **Emit event** step; everything else treats it like any other event.
+
+**Register one** under **Settings → Automation → Custom events** (`/automation/custom-events`, workspace OWNER/ADMIN), or `PUT /api/groups/custom-events/{name}`. A name is `custom.` and a slug: it starts with a letter and uses lowercase letters, digits and underscores (40 characters at most). Give it an optional title and description and up to 12 **fields**, each a key and a simple type: `string`, `number`, `boolean` or `date`. A workspace can register 50. Registering an existing name replaces it. An event a workflow still starts on or sends can't be removed (the page says which workflows); what the Event Log recorded stays.
+
+**Send it** with an Emit event step: `{"kind": "emit_event", "event": "custom.milestone", "payload": {"milestone": "Shipped", "badge": "First ${entry.title}"}, "message": "${entry.title} shipped"}`. The payload may name only the event's fields (a key it doesn't have fails the step, and the validator and the AI authoring guide say so first); each value is a template, then held to its field's type: `"12"` becomes the number 12 for a `number`, `"yes"` the boolean true, an ISO date or date and time the date; a value that doesn't fit fails the step, and an empty one is left out. The event is about the run's entry when there is one (`entity_id`, default `$event.entry_id`) and carries the workflow's reaction depth + 1. A dry run shows the resolved payload and sends nothing. An unregistered name is never sent.
+
+**React to it.** A workflow can start on it: the editor's trigger list has a **Custom** heading, and the run reads `${event.payload.<field>}` (and `${entry.*}` when the event is about an entry). A workflow never wakes for an event its own run sent; another one does, which is how one workflow hands work to the next. Chains stop where every emitted event does: at reaction depth 3 the event is recorded but nothing reacts to it. Webhook, email and integration subscriptions name a custom event like any other (the pickers list it, with its fields): a webhook receives `eventType: "custom.milestone"` and `documentData: {eventName, payload, workspaceId}`, and an email template reads each field as `{{ field }}`. The Events pages show it under **Custom** with what sends and reacts to it, and `describe_event` explains it with its fields. Custom events are always recorded in the Event Log.
+
+### Answer a failure (operational events) {#operational-events}
+
+A workflow can start on the events that say something is failing or running short. They are listed under **Operations** in the trigger list:
+
+| Event | Fields (`${event.<field>}`) |
+|---|---|
+| `webhook_delivery_failed` | `webhook_id`, `webhook_name`, `delivered_event_type`, `status_code`, `error_message`, `attempts` |
+| `integration_attention_needed` / `integration_attention_resolved` | `integration_slug`, `integration_name`, `provider`, `provider_name`, `alert_id`, `code`, `error`, `count`, `reminder`, `title`, `summary` |
+| `scheduled_task_failed` | `task_id`, `task_name`, `task_slug`, `task_type`, `error_message`, `consecutive_failures`, `transient` |
+| `ai_budget_threshold_reached` / `ai_budget_exceeded` | `current_value`, `limit_value`, `percent`, `detail` |
+
+`describe_event` and the AI authoring guide list the same fields. **Whose failure it is.** A workflow is never woken by a failure its own run caused: its Emit event step that a down webhook can't deliver, its AI call that crosses the budget, its integration step that makes a connection fail. That failure goes to the other workflows and to the usual alerts, but not back to the one that made it, so answering a failure can't start a loop. This also holds when the delivery runs after the workflow's run ended: the failed delivery is announced with the workflows that sent the event it carried, and those sit it out (a workflow that merely ran earlier in the same chain, without sending the event, still answers it). A failure nothing a workflow did caused wakes every workflow that answers it.
+
+**Whose workspace.** A workflow runs in the workspace the event belongs to. A scheduled task that is the platform's own (the system tasks in Admin) has no workspace, so no workflow hears its failure (it shows under **Admin → Scheduled Tasks**). A workspace's own scheduled tasks do.
+
+**A backup channel.** These events still reach **Settings → Automation → Notifications** (email to owners and admins, push, a chat connection) with no workflow involved, and a workflow that answers one and fails itself is reported there as a failed workflow. So a workflow is an addition to the alerts, never the only way to hear. A workflow runs on every event: for one that should act once per incident, look for an open task first (the Library's *Integration health companion* and *Webhook repair desk* do), or gate it with a condition such as `event.consecutive_failures` ≥ 2.
 
 ### Conditions and context
 
-Operators: `eq`, `neq`, `contains`, `in` (a comma-separated string is accepted), `starts_with`, `exists` (`value: false` inverts), `changed`, `changed_from`, `changed_to`, and the number comparisons `gt`, `gte`, `lt`, `lte` (**is more than**, **is at least**, **is less than**, **is at most**: both sides read as numbers, typed-in text too; anything that isn't a number never matches). A top-level list is AND; `{"all": […]}`, `{"any": […]}` and `{"not": …}` nest. An unknown operator never matches. The `changed*` operators read `event.changed_fields`, `event.before` and `event.after` from an `entry_updated` event.
+Operators: `eq`, `neq`, `contains`, `in` (a comma-separated string is accepted), `starts_with`, `exists` (`value: false` inverts), `changed`, `changed_from`, `changed_to`, and the number comparisons `gt`, `gte`, `lt`, `lte` (**is more than**, **is at least**, **is less than**, **is at most**: both sides read as numbers, typed-in text too; anything that isn't a number never matches). `longer_than` and `shorter_than` (**is longer than**, **is shorter than**, in characters) compare a text's length — or a list's item count — with a number; nothing there counts as length 0. A top-level list is AND; `{"all": […]}`, `{"any": […]}` and `{"not": …}` nest. An unknown operator never matches. The `changed*` operators read `event.changed_fields`, `event.before` and `event.after` from an `entry_updated` event (and the publish, unpublish, archive, trash and restore events, which carry the same diff).
+
+**A type's own field changing.** The diff covers `status`, `title` and `slug` and every changed field of the entry's type, as `data.<field>`: `entry.data.price` with `changed` is true when the price changed, `changed_from` / `changed_to` compare the old and new value, and `event.changed_fields` `contains` `data.price` says the same. The values are `${event.before.data.price}` and `${event.after.data.price}`. They are kept small, because an event outlives the edit (it goes to the Event Log and to webhooks): a number, yes/no or a short text (up to 160 characters) is carried as it is; a longer text such as a body, a list, an object, or a field whose name reads as a secret (`password`, `token`, `api_key`…) shows `‹elided›` — the field is still named in `changed_fields`, so “the body changed” works, but not what it said. An event names up to 100 changed fields and carries values for the first 25. The field picker offers `event.after.data.`, `event.before.data.` and `entry.data.`, and `describe_event` lists the diff fields.
 
 The builder sends every value as text. `eq` and `neq` convert it to the type of the value being compared: `true`/`false` (also `yes`/`no`, `on`/`off`, `1`/`0`) against a checkbox, a number against a number field.
 
@@ -34,11 +63,12 @@ The builder sends every value as text. `eq` and `neq` convert it to the type of 
 | `entry.*` | `id`, `entry_type`, `status`, `title`, `slug`, `summary`, `data.<field>` (the entry type's fields), `metadata.<key>`, `image` (the featured image's public URL, or empty). Present for entry events and for every row of a query run. |
 | `asset.*` | `id`, `slug`, `name`, `asset_type`, `mime_type`, `filename`, `file_size`, `description`, `tags`, `metadata.<key>`, `url` (its public URL, or empty), `trashed`, `derived_from` (the id of the asset it was made from — a [Process an image](#process-an-image) step's or an entry type's media derivative; empty for an original), `origin` (`upload`, `derived` or `generated`). Present for `asset_*` events and for every row of an asset query run. |
 | `resource.*` | `id`, `slug`, `name`, `resource_type`, `description`, `tags`, `metadata.<key>`, `url` (its link), `external_id`, `trashed`. Present for `resource_*` events and for every row of a resource query run. |
+| `form_submission.*` | `id`, `form` (the form's name), `form_slug`, `data.<field>`, `status`, `submitted_at`, `flagged` (submission protection held it), `review_reasons`. Present for `form_submission_received` and for any run on an entry of a form (a submittable entry type) — see [Classify a form submission](#classify-a-form-submission). |
 | `previous.*`, `steps.<id or index>.output.*` | Step outputs; usable in step inputs only, never in conditions. |
 
 A numeric path segment indexes a list: `event.payload.items.0.id`.
 
-Templates in step inputs: `$event.entry_id` or `${event.count}` alone keeps the value's type; `Summary: ${previous.summary}` embeds as text, so `${entry.image}` or `${entry.data.<field>}` can be handed to a webhook or integration. `${entry.url}` is the entry's page on the site (absolute when the Canonical URL is set, otherwise the site path; empty when its type has no page URL pattern). `${site.url}` is the workspace's Canonical URL (Settings → General), or empty when it isn't set — e.g. the base a newsletter integration makes an issue's relative links absolute against. `${path|url}` URL-encodes the value, for a share link's text or a query string (`https://bsky.app/intent/compose?text=${steps.post.output.text|url}`). An entry also carries the dates every entry has, whatever its type's fields: `${entry.published_at}`, `${entry.publish_at}` (scheduled), `${entry.expire_at}`, `${entry.created_at}` and `${entry.updated_at}` (UTC). `{{SLUG}}` secret refs resolve only in a configured webhook's headers, in a webhook step's `secret_ref`, and in a Run integration step's `args` (see below).
+Templates in step inputs: `$event.entry_id` or `${event.count}` alone keeps the value's type; `Summary: ${previous.summary}` embeds as text, so `${entry.image}` or `${entry.data.<field>}` can be handed to a webhook or integration. `${entry.url}` is the entry's page on the site (absolute when the Canonical URL is set, otherwise the site path; empty when its type has no page URL pattern). `${site.url}` is the workspace's Canonical URL (Settings → General), or empty when it isn't set — e.g. the base a newsletter integration makes an issue's relative links absolute against. `${path|url}` URL-encodes the value, for a share link's text or a query string (`https://bsky.app/intent/compose?text=${steps.post.output.text|url}`). A member event's run reads the person as `${member.name}`, `${member.email}` and so on. An entry also carries the dates every entry has, whatever its type's fields: `${entry.published_at}`, `${entry.publish_at}` (scheduled), `${entry.expire_at}`, `${entry.created_at}` and `${entry.updated_at}` (UTC). `{{SLUG}}` secret refs resolve only in a configured webhook's headers, in a webhook step's `secret_ref`, and in a Run integration step's `args` (see below).
 
 ### Run on a query {#run-on-a-query-of-entries}
 
@@ -82,30 +112,47 @@ With **Assets** or **Resources**, the target is `{"entity": "asset", "query": {�
 | `asset_type` / `asset_types` | assets only: `image`, `svg`, `document`, `video`, `audio`, `archive`, `other` (**Asset type**) |
 | `mime_type` / `mime_types` | assets only: exact MIME type, e.g. `image/svg+xml` (**MIME type**) |
 | `origin` / `origins` | assets only: `upload`, `derived` (made from another asset by a media step or recipe), `generated` (an image an integration made) |
+| `decision` | assets only: what the person said when an approval step showed the picture — `approved`, `denied`, `expired`, `stale`, or `none` (never asked). See [A picture's decision stays with it](#a-pictures-decision-stays-with-it). |
 | `versions` | assets only: `false` leaves out versions of an original still in the library; `true` keeps only versions; `all` keeps both (**Versions**). A workflow's asset target runs on **originals only** unless it sets `versions`, `source` or `origin: derived` — so a bulk job never makes copies of copies |
 | `source` | assets only: the versions made from this asset (id or slug) |
 | `resource_type` / `resource_types` | resources only: the resource's type, e.g. `supplier` (**Resource type**) |
 
 An asset or resource query takes only these keys: no `where`, `sort`, `status`, `fields` or `metadata`. Saving a workflow whose target, or whose entry step's `entity_query`, has an unknown key or the wrong shape is refused with the path of each problem (`POST /api/automations/validate` lists them too). The [Workflow Library](https://github.com/InnerOpen/marvin/blob/develop/docs/workflow-library/catalogue.md) has worked examples: *Trash every unattached image*, *Restore all resources in the Trash* and *Post new uploads to a chat channel*.
 
+### Make a call once (idempotency keys) {#idempotency}
+
+A **webhook** or **integration** step can carry an `idempotency_key`, a template that names what makes this call the same call again: `handoff-${entry.id}`, `subscribe-${entry.data.email}`. The first call goes out and its output is kept. The same key at the same webhook (or integration action), in the same workflow, within the window calls nothing: the step is recorded as a success and its output is the first call's, so `${steps.<id>.output…}` reads what it read the first time, plus `idempotency: {key, duplicate: true, recorded_at}`.
+
+- **The window** is `idempotency_window_hours`, 1 to 720, 24 by default. When it ends the next call goes out and a new window starts. The editor has both fields under the step ("Make this call once", "For how many hours").
+- **A failed call doesn't count.** The step gives its key back, so a retry (an integration's retry resumes at the failed step with its own seed) or the next event makes the call. A call still in flight holds the key, so two duplicates racing deliver once; one a crashed worker never finished is open again after five minutes.
+- **Different keys are different calls**, and so is the same key at another destination or in another workflow. An entry saved ten times with `handoff-${entry.id}` is handed off once a day, not once per save: put what changed into the key if a later change should go out.
+- **A key that reads nothing** (`${entry.data.missing}`) fails the step instead of treating every call as one.
+- **A dry run** shows `would: call` or `would: skip (duplicate)` with the key, and claims nothing; after a skip it hands the next step the output a real run would.
+- Marvin keeps a hash of the key, the workflow, the destination and the output (up to 100,000 characters; a larger one is dropped, the call still counts). The scheduled **Prune Workflow Runs** task deletes keys whose window ended.
+
 ### Step kinds
 
 | `kind` (builder label) | Fields | Behaviour |
 |---|---|---|
-| `entry` (Entry action) | `op` (`publish`, `unpublish`, `archive`, `trash`, `restore`, `add_to_collection`, `remove_from_collection`, `set_metadata`, `set_data`, `request_review`, `create`), `entity_id` (default `$event.entry_id`), `entity_slug`, `entity_query` (the query above; must match exactly one entry — with `if_none: skip`, no match ends the step quietly with output `{skipped: true, reason: "no matching entry"}` instead of failing it; more than one match still fails; in the builder, **By query (find exactly one)** with **If no entry matches, skip this step instead of failing the run**), `collection_slug`/`collection_id`, `metadata`, `data`, `reason` | Status ops emit the matching lifecycle event (`unpublish` returns the entry to `draft`; `restore` returns an archived entry to `draft` and a trashed one to the status it had, a published one as a draft). **Move to Trash** (`trash`) sends `entry_updated` and `entry_trashed`; an entry already in the Trash is skipped (`{skipped: true}`), so a target of "all entries" + `trash` can be run again safely. `trash` and `restore` also act on an asset or a resource: with no `entity_type` (**Acts on**: *The current item*) they act on each row of an asset or resource target, or on the asset/resource an `asset_*` / `resource_*` event is about; with `entity_type: "asset"` / `"resource"` they act on one named by `entity_slug` or `entity_id` (default `$event.asset_id` / `$event.resource_id`); they send only `asset_trashed` / `asset_restored` (or the resource events), and one already where the op would put it is skipped. No other op takes an `entity_type`. There is no op to delete forever or empty the Trash — see [Trash](trash.md). A publish the publish gate refuses (a missing required field, a placeholder link, a passed expiration date) fails the step with that reason. **Set metadata** (`set_metadata`) merges templated keys into the entry's metadata. **Set fields** (`set_data`) merges into the entry type's own fields, converts typed text to the field's type (true/false for a checkbox, a number for a number field) and validates against the schema, so an unknown select option fails the step. Both drop values that resolve empty and fail if nothing is left. **Send to review** (`request_review`) moves the entry to Needs review; its optional templated `reason` is added to the entry's `metadata.review_reasons` (once — a repeat isn't listed twice), and the review queue's entry cards show it beside a flagged submission's own reasons. **Create an entry** (`create`) makes a new one: `entry_type` (a slug), `title`, optional `data` (that type's fields, typed and validated as **Set fields** does) and `metadata`, `status` `draft` (default) or `inbox` — publishing is a following **Publish** step with `entity_id: ${steps.<id>.output.entry_id}`, which checks the type's publish rules. Templates work in every value. Its output is `{entry_id, slug, created}`; it sends `entry_created`, and the same event handled twice (same correlation id, workflow and step) finds the entry it made instead of making a second (`created: false`; the key is kept in the new entry's `metadata.automation_created`). |
+| `entry` (Entry action) | `op` (`publish`, `unpublish`, `archive`, `trash`, `restore`, `add_to_collection`, `remove_from_collection`, `set_metadata`, `set_data`, `request_review`, `create`, `attach_asset`), `entity_id` (default `$event.entry_id`), `entity_slug`, `entity_query` (the query above; must match exactly one entry — with `if_none: skip`, no match ends the step quietly with output `{skipped: true, reason: "no matching entry"}` instead of failing it; more than one match still fails; in the builder, **By query (find exactly one)** with **If no entry matches, skip this step instead of failing the run**), `collection_slug`/`collection_id`, `metadata`, `data`, `reason` | Status ops emit the matching lifecycle event (`unpublish` returns the entry to `draft`; `restore` returns an archived entry to `draft` and a trashed one to the status it had, a published one as a draft). **Move to Trash** (`trash`) sends `entry_updated` and `entry_trashed`; an entry already in the Trash is skipped (`{skipped: true}`), so a target of "all entries" + `trash` can be run again safely. `trash` and `restore` also act on an asset or a resource: with no `entity_type` (**Acts on**: *The current item*) they act on each row of an asset or resource target, or on the asset/resource an `asset_*` / `resource_*` event is about; with `entity_type: "asset"` / `"resource"` they act on one named by `entity_slug` or `entity_id` (default `$event.asset_id` / `$event.resource_id`); they send only `asset_trashed` / `asset_restored` (or the resource events), and one already where the op would put it is skipped. No other op takes an `entity_type`. There is no op to delete forever or empty the Trash — see [Trash](trash.md). A publish the publish gate refuses (a missing required field, a placeholder link, a passed expiration date) fails the step with that reason. **Set metadata** (`set_metadata`) merges templated keys into the entry's metadata. **Set fields** (`set_data`) merges into the entry type's own fields, converts typed text to the field's type (true/false for a checkbox, a number for a number field) and validates against the schema, so an unknown select option fails the step. Both drop values that resolve empty and fail if nothing is left. **Send to review** (`request_review`) moves the entry to Needs review; its optional templated `reason` is added to the entry's `metadata.review_reasons` (once — a repeat isn't listed twice), and the review queue's entry cards show it beside a flagged submission's own reasons. **Create an entry** (`create`) makes a new one: `entry_type` (a slug), `title`, optional `data` (that type's fields, typed and validated as **Set fields** does) and `metadata`, `status` `draft` (default) or `inbox` — publishing is a following **Publish** step with `entity_id: ${steps.<id>.output.entry_id}`, which checks the type's publish rules. Templates work in every value. Its output is `{entry_id, slug, created}`; it sends `entry_created`, and the same event handled twice (same correlation id, workflow and step) finds the entry it made instead of making a second (`created: false`; the key is kept in the new entry's `metadata.automation_created`). |
 | `webhook` (Call webhook) | `webhook_id` or raw `url`; `method` (raw URL only; default `POST`), `body`, `secret_ref`, `auth_scheme` (`Bearer` default, or `Token`) | A configured webhook's URL, method, `{{SLUG}}` headers and custom payload are used, with `${event…}` templates resolved. Timeout 15 s. A non-2xx response fails the step. Output: `status_code`, `ok`, `webhook_id`, `body` (parsed JSON or text). Deliveries appear in the webhook log. |
 | `integration` (Run integration) | `integration` (the connection's slug from its card, not the provider's), `action` (the provider action key) — or `capability` instead: `notify` with `args` `title` and `body` sends through whatever message action that integration has (Slack's `send_message`, Apprise's `notify`), so one workflow works with either — `args` (templated) | Runs one action of an enabled [integration](integrations.md) with its stored credentials; the provider's result is the step output. An action that requires approval runs only after a [Wait for approval](#wait-for-approval) step, and only when it was approved. An action that makes images (an `image.*` capability, such as OpenAI Images' **Generate image**) keeps each one as an asset — see [Generated images are kept](#generated-images-are-kept). A top-level arg whose whole value is `{{SLUG}}` is replaced by that workspace secret for the call only (the stored workflow keeps the reference); a secret that does not exist fails the step. A provider may give its error a stable code (Buttondown: `blocked`, `suppressed`, `spammy`, `unknown`), which on-failure steps read as `${error.code}`. An input the provider links to one of its read actions gets a searchable picker above the arguments (see [Pick a value from the service](integrations.md#pick-a-value-from-the-service)). |
-| `approval` (Wait for approval) | `message` (what is asked; templates allowed), `approvers` (`editor`, the default, or `admin`), `expires_in_hours` (1–720, default 72) | The run waits here for a person — see [Wait for approval](#wait-for-approval). |
+| `approval` (Wait for approval) | `message` (what is asked; templates allowed), `approvers` (`editor`, the default, or `admin`), `expires_in_hours` (1–720; default the workspace's **Approvals wait**, else 72) | The run waits here for a person — see [Wait for approval](#wait-for-approval). |
 | `collect` (Gather items) | `entity` (`entry`, `asset`, `resource`), `query` (a target's keys), `fields`, `limit` (default 25, at most 250) | Gathers a set into one output so the steps after it see them all — see [Gather items](#gather-items-many-one). |
 | `wait` (Wait) | `for` (a span) or `until` (a date) with `offset` and `at` | Keeps the run and goes on later — see [Wait](#wait). |
 | `repeat` (Repeat for each) | `for_each` (a list), `as` (the item's name), `steps` (1–5), `limit`, `on_item_error` | Runs its steps once for each item — see [Repeat for each](#repeat-for-each). |
+| `parallel` (Parallel branches) | `branches` (2–5, each a `name` and `steps` 1–5), `join` (`all`, the default, or `any`), `on_branch_failure` (`fail`, the default, or `continue`) | Runs independent branches of steps and joins them — see [Parallel branches](#parallel-branches). |
 | `fetch` (Check a web address) | `url` (+ `method` `GET`/`HEAD`, `find`) or `links` (a text, + `base`) | Reads a public web address, or checks the links in a text. A dead link is output, not a failure — see [Check a web address](#check-a-web-address). |
+| `schema_check` (Check against a schema) | `document`, `schema` or `schema_resource`; `fail_on_invalid`, `max_errors` | Holds a JSON document up against a JSON Schema and reports what doesn't fit. An invalid document is output, not a failure, unless `fail_on_invalid` — see [Check against a schema](#check-against-a-schema). |
+| `email` (Email a member) | `to` (a member's id or email), `subject`, `body` (markdown), `heading`, `button_text` + `button_link`, `once_per` | Writes to a member of the workspace — never an outside address — in the workspace's email layout; sent once per event. See [Email a member](#email-a-member). |
+| `metric` (Record a metric) | `op` (`record`, the default, `add` or `read`), `metric`, `value`, `variant`, `subject`, `window` (`day`/`week`/`month` or `2026-10-18` / `2026-W42` / `2026-10`), `at`; for a read `window_from`, `window_to`, `limit` | Records a number as an observation for a metric, variant and window — or adds to a count, or reads observations back. Recording again replaces the number; adding raises it, once for each event; a dry run writes nothing. Observations, not conclusions — see [Record a metric](#record-a-metric). |
+| `snapshot` (Save or restore a version) | `op` (`capture`, the default, or `restore`), `label`, `snapshot` (an id), `parts`, `entity_id`/`entity_slug` | Keeps a version of an entry and puts it back — see [Save and restore a version](#save-and-restore-a-version). |
 | `media` (Process an image) | `op` (`resize`, `crop`, `convert`, `grade`, `inspect`, `palette`), `source`, the op's own fields, `attach_as` | Makes a new image from an image, or reads one — no AI or provider needed. See [Process an image](#process-an-image). |
 | `operation` (AI operation) | `op` (AI operation slug), `input`, `entity_type`, `entity_id`/`entity_slug`, `write_back` | Offered only when AI is enabled and the **Workflows** invocation source is on. **Write the result back to the entry** (`write_back: true`) follows the workspace approval mode: the result is applied or staged as a suggestion, and the output's `_write_back` says which (`applied` or `staged`). On an asset or resource the step sees the item (an image asset's picture, for an operation that looks at images) and `write_back` is a map of output keys to the item's fields, for example `{"alt_text": "alt_text"}`: an asset takes `alt_text`, `description`, `name`, `tags` or `metadata.<key>`, a resource `description`, `name`, `tags` or `metadata.<key>`. It follows the same approval mode, and needs a workflow author who is an EDITOR or above (else `_write_back` is `not_permitted`). The workspace's AI limits apply: over the daily request or monthly cost limit the step fails, and the per-request token cap bounds the call (see [Agents and Ask → Usage and limits](agents-and-ask.md#usage-and-limits)). |
 | `handler` (Run task) | `task`, `config` | Allowlist: `request_site_rebuild`, `publish_scheduled_entries`, `unpublish_expired_entries`, `ai_reindex_embeddings`, `resync_smart_collections`, `media_enrich`. `request_site_rebuild` queues a coalesced rebuild (see [Operations → Site rebuilds](../operations.md#site-rebuilds)). |
-| `emit_event` (Emit event) | `event`, `entity_id` (default `$event.entry_id`); for site events `message`, `error`, `site_url`, `deployment_id` (templated) | An entry event (`entry_*`) is re-emitted for the entry in context, at depth + 1. A site event (`site_deployment_started` / `_completed` / `_failed`; the old names `site_build_*` emit the same events) needs no entry: it records the build or deploy with the given message (default "Site deploy failed" and so on), failure reason and site URL, and shows as an activity toast. For a site event the builder adds message, failure-reason and site-URL inputs; `deployment_id` is set through **Edit as JSON**. Other events are refused. |
+| `emit_event` (Emit event) | `event`, `entity_id` (default `$event.entry_id`); for custom events `payload`, `message`; for site events `message`, `error`, `site_url`, `deployment_id` (templated) | An entry event (`entry_*`) is re-emitted for the entry in context, at depth + 1. A site event (`site_deployment_started` / `_completed` / `_failed`; the old names `site_build_*` emit the same events) needs no entry: it records the build or deploy with the given message (default "Site deploy failed" and so on), failure reason and site URL, and shows as an activity toast. For a site event the builder adds message, failure-reason and site-URL inputs; `deployment_id` is set through **Edit as JSON**. A workspace's own `custom.<name>` event (see [Custom events](#custom-events)) takes `payload` (its registered fields, values templated), an optional `message` and an optional `entity_id` (the entry it is about; default `$event.entry_id`, none if the run has no entry). Other events are refused. |
 
-Only the first 10 steps run; the validator warns when there are more.
+Only the first 10 steps run — or the workspace's **Steps per workflow** (Settings → General, 1–25) — and the validator warns when there are more.
 
 ### Run a step only when… (if/else)
 
@@ -154,6 +201,62 @@ in, and calls nothing.
 
 Workflow Library recipes that use it: **Community question**, **Marvin margin notes**, **Soundtrack brief**,
 **Resource attachment notes** and **Asset attachment social kit**.
+
+### Classify a form submission {#classify-a-form-submission}
+
+A workflow that starts on `form_submission_received` (or runs on an entry of a form) reads the submission as
+`${form_submission.*}` — what the visitor sent, as the public form saved it. An **AI operation** step with
+`op: "classify-form-submission"` finds that submission itself (no `entity_type` or `entity_id` needed; name
+`entity_id` to classify another) and answers `category`, `confidence`, `is_spam`, `sentiment`, `tags` and
+`action_required`. Give the step an `id` and read the answer as `${steps.<id>.output.<key>}`, in a `when` or in
+later steps. `input.categories` is the list to choose from (default inquiry, support, feedback, other).
+
+```json
+{"kind": "operation", "id": "sort", "op": "classify-form-submission", "input": {"categories": ["lead", "support", "press"]}}
+```
+
+A dry run asks no AI: the step previews with a stand-in for each text answer (`‹AI answer: category›`) and the steps
+after it preview as they will run. The submission's text goes to the workspace's AI provider; submissions that
+submission protection already flagged are best left out with a condition on `event.flagged`.
+
+Workflow Library recipe: **Form submission sorter**.
+
+### Save and restore a version {#save-and-restore-a-version}
+
+Entries had a history of *what happened* but no record of *what they looked like*. A **Save or restore a version** step
+(`kind: "snapshot"`) keeps one, and puts it back later:
+
+```json
+{"kind": "snapshot", "id": "save", "label": "before the rewrite"}
+{"kind": "snapshot", "op": "restore", "snapshot": "${steps.save.output.snapshot_id}"}
+```
+
+**Capture** (the default) keeps the entry's title, summary, description, fields, metadata, status, its collections and
+which assets are attached (references — the files aren't copied). Smart collections, tags and linked resources aren't
+kept. Output: `snapshot_id`, `label`, `created`. An entry whose latest version is already identical gets that one back
+(`created: false`), so a run repeated for the same entry adds nothing; an entry keeps its **latest 20** versions and the
+oldest go first. They are removed with the entry.
+
+**Restore** puts `snapshot` back on its entry; left out, the entry's latest (or the latest with `label`) is used.
+`parts` says what comes back: `content` (title, summary, description, fields, metadata — metadata whole, except the
+Trash record), `collections` (added to the ones it was in, removed from the others), `assets` (the links it had are made
+again in their role, the ones added since are detached; an asset that has been trashed or deleted since is listed as
+`missing`). The default is those three. **`status` is only restored when you list it**: restoring content never publishes
+or unpublishes an entry by itself, and a status that would publish goes through the same publish checks as any edit. It
+never moves an entry into or out of the Trash (an entry in the Trash must be restored from there first). Restoring runs
+through the entry service, so the usual events go out at the next reaction depth (`entry_updated`, collection and asset
+link events, a status change's own) and other workflows see them. A restore that would change nothing writes nothing;
+output: `restored`, `changed`, and what changed by part.
+
+A dry run previews the same difference (`would`: `capture` | `reuse`, or `restore` | `leave`) and writes nothing; when the
+snapshot comes from an earlier step that only previewed, there is no id yet and it says so. Both ops need the workflow
+author to be at least an AUTHOR, like any entry step. A typical use: capture before an AI rewrite, and restore in an
+`on_failure` step.
+
+**API**, for a person: `GET`/`POST /entries/{id}/snapshots` (list; keep one, `{"label": …}`),
+`GET …/snapshots/{snapshot_id}/diff?parts=…` (what a restore would change), `POST …/snapshots/{snapshot_id}/restore`
+(`{"parts": […]}`) and `DELETE …/snapshots/{snapshot_id}`. AUTHOR and above, on entries the caller may change (an AUTHOR:
+their own until approved or published). There is no snapshot list on the entry page yet; use the API or a workflow.
 
 ### Run inputs
 
@@ -246,6 +349,107 @@ public addresses only (a private or local one is refused, also after a redirect)
  "args": {"title": "Broken links in ${entry.title}", "body": "${steps.links.output.text}"},
  "when": {"field": "steps.links.output.broken_count", "op": "gt", "value": 0}}
 ```
+
+### Check against a schema
+
+A **Check against a schema** step (`schema_check`) holds a JSON document up against a [JSON Schema](https://json-schema.org)
+and reports what doesn't fit — an agent's capability document, an API's answer, a story an AI wrote.
+
+- **`document`** — what to check: usually a Check a web address step's parsed answer (`${steps.page.output.json}`), or
+  any template (an entry's field, a run input). Text holding a JSON object or array is read as JSON; any other text is
+  checked as the text itself. Documents over 100 KB are reported, not checked.
+- **`schema`** — the schema, written inline (Draft 2020-12 unless it says otherwise; `format` isn't asserted, so use a
+  `pattern`; a `$ref` can point only inside the schema, nothing is fetched) — or **`schema_resource`**: a resource (id or
+  slug) whose metadata holds the schema under `schema` (an object or its JSON text), so several workflows share one. A
+  malformed inline schema is refused when you write the workflow, in the editor and in the validator; a schema that
+  arrives by template or resource and can't be used fails the step.
+- Output: `valid`, `errors` (`[{path, message}]`, in path order; `$.agents[0].name` names the place), `error_count`,
+  `truncated` and `text` (one line per problem, for a note or an AI prompt). `max_errors` (default 20, at most 50) bounds
+  how many are listed; a long message is cut at 300 characters.
+- A document that doesn't fit — or that never arrived — is output, never a failed step, so a `when` on `valid` decides
+  what happens. Set **Stop the run when the document doesn't fit** (`fail_on_invalid`) to fail the run instead.
+- A dry run checks a document it has; when an earlier step didn't really run (a fetch, an AI answer) there is nothing to
+  judge and `valid` is empty.
+
+```json
+{"kind": "fetch", "id": "page", "url": "${entry.data.capabilities_url}"},
+{"kind": "schema_check", "id": "check", "document": "${steps.page.output.json}",
+ "schema": {"type": "object", "required": ["name", "url"], "properties": {"name": {"type": "string"}}}},
+{"kind": "entry", "op": "request_review", "reason": "Doesn't fit the schema:\n${steps.check.output.text}",
+ "when": {"field": "steps.check.output.valid", "op": "eq", "value": false}}
+```
+
+It checks the shape of a document, not what the document says: it can't run an agent or follow links between passages.
+Two Library recipes use it: **Agent directory intake** (a submitted capability document is fetched and checked) and
+**Choose your own adventure** (an AI writes a branching story as nested passages; the schema holds every branch to a
+choice or an ending before it is drafted).
+
+### Email a member {#email-a-member}
+
+An **Email a member** step (`email`) writes to one person in the workspace: a welcome, a heads-up that something of theirs
+was published, a note to the owner an entry names. It needs an SMTP profile (Settings → Email), the platform's or the
+workspace's; with none the step fails and says so.
+
+- **`to`** — the person, by user id or by the email address on their account: `${member.id}` or `${member.email}` on a
+  member event, an entry field that holds an address, a Gather items row. They must be a **member of this workspace**: an
+  outside address, someone who is only in another workspace, or a typed-in word fails the step and nothing is sent (the
+  message is the same for "no such person" and "elsewhere", so a workflow can't be used to learn who has an account). The
+  email goes to the address on their account. A fixed outside recipient is still an email subscription's `specific`
+  recipient (Settings → Email).
+- **`subject`** and **`body`** — templates; the body is markdown (headings, bold, italic, links, bare addresses) and any
+  HTML in it is shown as text. It is set in the workspace's email layout (its own template file, else Marvin's), which
+  names the workspace; **`heading`** (default the subject) titles the layout, and **`button_text`** + **`button_link`** (an
+  `http(s)` address; left out when the link resolves to nothing) add its button. `${site.url}` is the public site and
+  `${site.app_url}` where the admin app lives (the configured `FRONTEND_URL`).
+- **Links for a role** — give each kind of member its own step with *Only run this step when…* on `member.role` (the New
+  member welcome recipe sends writers a button to the workspace and readers one to the site).
+- **Sent once.** The step records each send (by event, step and person) before it sends: the same event handled twice, a
+  retry of the run or a re-run sends nothing the second time (the output says `sent: false, skipped: true`). **`once_per`**
+  (a template such as `welcome:${member.id}`) widens that — this step writes to that person once, whatever the event. A
+  send the mail server refuses fails the step and gives the record back, so a retry sends it. A manual run has no event, so
+  without `once_per` it sends every time.
+- Needs an admin author, like a webhook or integration step; a demoted author's step fails closed. Put an
+  [approval](#wait-for-approval) step before it to have a person agree to each send.
+- A **dry run** resolves the person, renders the email (`body_html`) and says whether it would go (`would_send`: false when it
+  was already sent, or the workspace can't send mail) — it sends nothing and records nothing. Output: `sent`, `to`, `name`,
+  `role`, `subject`.
+
+```json
+{"kind": "email", "id": "welcome", "to": "${member.id}", "subject": "Welcome to the Studio",
+ "body": "Hi ${member.name},\n\nYou joined as **${member.role}**.",
+ "button_text": "Open the workspace", "button_link": "${site.app_url}",
+ "once_per": "welcome:${member.id}", "when": {"field": "member.role", "op": "neq", "value": "VIEWER"}}
+```
+
+The **New member welcome** Library recipe is this step on `member_added`.
+
+### Record a metric
+
+A **Record a metric** step (`metric`) notes a number down against a **metric**, a **variant** and a **window**, so a workflow can keep a plain log of results — clicks on two versions of a post, followers each week — and a person can read it later. It records **observations, not conclusions**: nothing here compares variants, tests significance or says what caused a number. The list says what was recorded, and the reading is yours.
+
+- **`metric`** — a name: lowercase letters, digits, `-` and `_` (up to 64 characters), e.g. `clicks`.
+- **`value`** — a number, usually a template (`${input.clicks}`, an earlier step's output). `1,204` is read as 1204. Something that isn't a number fails the step, naming it. With `op: "add"` it is optional and means 1 (see below).
+- **`variant`** and **`subject`** — optional labels (up to 100 characters; templates allowed): `a` / `b`, and what the numbers are about (an entry's slug, a campaign). Both are part of the key.
+- **`window`** — which stretch of time the number belongs to. **`day`** (the default), **`week`** (Monday to Sunday, ISO weeks: `2026-W42`) or **`month`** mean the one the run falls in, worked out in the **workspace's time zone** (Settings → Site), so a run at 11:30 pm New York time on the 31st is still that month's, whatever UTC says; **`at`** points at another date to take it from (`${entry.published_at}`). Or name it outright: `2026-10-18`, `2026-W42` or `2026-10` (a template may give it).
+- **One observation per metric, variant, subject and window.** **`op: "record"`** (the default) **replaces the value** — a run repeated for the same window, a retry, a scheduled check that reads the same number twice never double-counts, and an unchanged number saves nothing. Use it for a total you already have ("clicks so far", "followers today"). To count things as they happen, use **`op: "add"`** (below).
+- Output: `recorded`, `created`, `changed`, `metric`, `variant`, `subject`, `window`, `value` and `previous_value` (empty when new). A **dry run** resolves everything and says what it would do (`would`: `create`, `change` or `leave`) and writes nothing; with no number yet (an AI answer that wasn't asked for) it previews without one.
+
+With **`op: "add"`** the step **counts**: it raises the window's number by `value` — 1 when you leave `value` out, a negative number to count down. A workflow that records 1 for each signup shows how many signups there were that week, where `record` would show 1. Same `metric`, `variant`, `subject`, `window` and `at` as a record. **Each event is counted once**: the step claims a key made of the run's event, the workflow and the step (in `metric_contributions`, in the same transaction as the new number), so the same event handled twice — a re-delivery, a retry, a run of the same trigger again — adds nothing the second time, while a different event adds again; inside a repeat each item counts once. A write that fails leaves no claim behind, so a retry can still count. Each manual run is its own event. Clearing a window on the Metrics page starts its count over. Output: `value` (the window's new total), `previous_value` (0 for a new window), `added`, `window`, `changed`, plus `created`, `metric`, `variant`, `subject` and `counted` (`false`, with `skipped`, when the event was already added). A **dry run** says `would: "add"` with the previous and new value and writes and claims nothing (`would: "leave"` when this event is already counted).
+
+With **`op: "read"`** the step lists observations back: `metric`, optionally one `variant` / `subject` and a range `window_from` to `window_to` (any window form; a window counts when it starts inside the range), up to `limit` (default 50, at most 250). Output: `rows` (`[{metric, variant, subject, window, value}]`, newest window first), `count`, `total` and `text` — a plain list headed "Observations, not conclusions:" for a note or a prompt. A filter that resolves to nothing fails the step rather than widening the report. Reading changes nothing, so a dry run runs it.
+
+```json
+{"kind": "metric", "id": "a", "metric": "clicks", "value": "${input.a_clicks}", "variant": "a", "subject": "${entry.slug}", "window": "week"},
+{"kind": "metric", "id": "report", "op": "read", "metric": "clicks", "subject": "${entry.slug}"}
+```
+
+Counting signups, one per member added:
+
+```json
+{"kind": "metric", "op": "add", "metric": "signups", "window": "week"}
+```
+
+**Where they are listed.** **Settings → Automation → Metrics** (`/automation/metrics`; editors and above) shows each metric as a table of windows by variant — plain numbers — and every observation below it; an owner or admin can remove one (a workflow that records that window again writes it afresh). Through the API: `GET /api/groups/metrics` (the metrics, with how many observations and the first and last window), `GET /api/groups/metrics/observations?metric=&variant=&subject=&window_from=&window_to=&limit=&offset=` (editors and above; `variant=` empty means observations with no variant; `422` for a window that isn't a day, week or month) and `DELETE /api/groups/metrics/observations/{id}` (admins). A workspace keeps at most 50,000 observations. They are a deliberate record: no scheduled task trims them (remove the ones you don't want). The Library's **Social experiment log** recipe uses it.
 
 ### Process an image
 
@@ -374,7 +578,9 @@ A **Run integration** step whose action makes images (an `image.*` capability �
 keeps each picture as an asset before the result reaches the run: the output's `images` become
 `[{"asset": {"id", "slug", "url", …}}]` (an edit or upscale action's single image becomes `asset`). The asset is named
 after the step's `name` argument, else "<workflow> — <entry title>", and records how it was made: `generated_by`
-(`<provider>.<action>`), the `prompt`, the `model`, the entry it was made for, and the run. A picture returned as a
+(`<provider>.<action>`), the `prompt`, the `model`, the entry it was made for, and the run. Its page says so in one
+line — **Generated by … (model) · for the entry … · by the workflow …** — with the entry and the workflow linked, and
+the same ids in its File Metadata link there too. A picture returned as a
 link is fetched through Marvin's guarded client (public hosts only, 20 MB at most); the upload size and type limits
 apply. **Attach as** (`attach_as`) on the step links the pictures to the run's entry in that role, and `tags` tags them. Because the run now
 carries references instead of image data, it can wait for approval *after* generating ("use this cover?") and be
@@ -408,6 +614,16 @@ workflow is switched off or its steps change while it waits, the run stops there
 switching the workflow off is how to stop a waiting run. A wait is at most a year; a dry run shows `would_wait_until`.
 The Workflow Library's **Event countdown** drafts reminders a week and a day before an event.
 
+**Editing while runs wait.** A waiting run goes on with the workflow *as it is then*: a changed prompt, voice or field
+applies, and a step added or removed before the Wait step doesn't move it (the step is found by its id). Only
+switching the workflow off, removing the Wait step itself, or the entry going to the Trash cancels a waiting run — and
+then `automation_failed` says why, so an admin alert or an `on_error` workflow can react.
+
+**Cancelling a wait.** Under **Runs**, a run parked at a Wait step has a **Cancel** button (admins): it stops there —
+the steps after the wait never run, what ran before it stays, and the run's status becomes `cancelled`
+(`POST …/executions/{id}/cancel`; 409 when the run isn't waiting at a Wait step — one waiting for an approval is
+decided on Automation → Approvals).
+
 ### Repeat for each
 
 A **Repeat for each** step (`repeat`) runs a few steps once for each item of a list — usually what a
@@ -439,6 +655,51 @@ A **Repeat for each** step (`repeat`) runs a few steps once for each item of a l
   **At most** and **If one fails**, then the steps to repeat (indented, lettered a, b, c — **+ Add a step to repeat**,
   up to 5). An Entry action inside usually targets the item: **Target entry → By id** with `${person.id}`.
 
+### Parallel branches
+
+A **Parallel branches** step (`parallel`) runs two to five named branches of steps independently and joins them: the
+way to run several checks and decide once, or to try one source and fall back to another.
+
+```json
+{"kind": "parallel", "id": "checks", "join": "all", "on_branch_failure": "continue",
+ "branches": [
+   {"name": "text", "steps": [{"kind": "schema_check", "document": "${entry.data}", "schema": {…}, "fail_on_invalid": true}]},
+   {"name": "images", "steps": [
+     {"kind": "collect", "id": "pictures", "entity": "asset", "query": {"entry": "${entry.id}"}},
+     {"kind": "schema_check", "document": "${steps.pictures.output}", "schema": {…}, "fail_on_invalid": true}]}
+ ]}
+```
+
+- **Branches run one after another, in the order written, inside the run** — not at the same moment. What "parallel"
+  means here is independence and a fixed merge: a branch reads what ran before the step (the entry, earlier steps) but
+  never a sibling's output, nothing a branch ran leaks into the next one, and the result is merged by name in written
+  order, so it can't depend on which branch happened to finish first.
+- **Each branch** has a `name` (lower case, letters, digits and `_`; each different) and 1–5 steps, with the same
+  step kinds and `when` as a Repeat's. Steps inside a branch read each other as `${steps.<id>.output}`. **A wait, an
+  approval, a repeat or another parallel step can't go inside** (a run can't be parked, or nested, in the middle of
+  branches): put the wait or approval before the step or after it. A save with one says so.
+- **The join.** `all` (the default): every branch must succeed. `any`: the first branch that succeeds satisfies it and the
+  branches after it are skipped (not run) — a fallback chain, cheapest first.
+- **When a branch fails** (`on_branch_failure`): `fail` (the default) fails the step when the join isn't met — under `all`
+  the first failing branch stops the rest, which are skipped; under `any` the step fails only if every branch did. What
+  a branch had already done stays done. `continue` never fails the step for a branch: every branch under `all` still
+  runs, and the output says how it went for a later step's `when` to act on.
+- **Output:** `branches.<name>` (`status` `ok`, `failed` or `skipped`; `error` and `step` for a failure; `steps`, each
+  step's output by id; `output`, the last step's), `order`, `count`, `ok`, `failed`, `skipped`, `satisfied` (the join was
+  met), `winner` (under `any`), `errors` and `text` (one line per failed branch, for a note or a review reason). Read a
+  value as `${steps.checks.output.branches.images.output.count}`.
+- **A check that should block must fail its step**: a Check against a schema step with `fail_on_invalid`, say. A gate is
+  `continue`, then one step with **Only run this step when** `steps.checks.output.failed` equals 0 (go ahead) and another
+  with it greater than 0 (send `${steps.checks.output.text}` to review) — the [Publication release gate](#workflow-library)
+  recipe does this.
+- **Limits.** At most five branches of five steps; all the branches' steps together count against the workspace's
+  **steps per workflow** (Settings → General), so a save warns, and a run fails with the count, when they're over it.
+  A create inside a branch is keyed on the branch, so the same event handled twice makes nothing again.
+- **A dry run** previews every branch and writes nothing. Under `any`, the branches after the first success show as
+  `skipped` with what they would have done.
+- **In the guided builder**, choose **Parallel branches**: **Join when** (all / any), **If a branch fails** (stop / carry
+  on), then each branch (**+ Add a branch**) with its name and its steps (**+ Add a step to this branch**).
+
 ### Wait for approval
 
 A **Wait for approval** step (`approval`) stops the run until a person decides. The members who may decide — editors and
@@ -454,6 +715,12 @@ They **Approve** or **Deny**, optionally with a note, and the run goes on from t
   buttons: the tap opens Approvals so the person looks first. Each approver's buttons work once, for 15 minutes, as
   them and at their role now; afterwards the run is decided in Approvals.
 - **Expired:** if nobody decides within `expires_in_hours`, the run goes on with `expired` (checked hourly).
+- **A picture's decision stays with it:** an approval step that shows a picture (`image`) writes its outcome onto that
+  asset's metadata as `approval` — `decision` (`approved`, `denied`, `expired`, `stale`), who (`decided_by`,
+  `decided_by_name`), `decided_at`, the `note`, and `approval_id` — when the picture is one of the workspace's assets.
+  A denied generated image stays in the library, so this is what tells it from one that was kept: the asset page
+  says "Denied by … — note", the library shows a **Denied** badge and filters by **Decision**, and a workflow can
+  gather `{"entity": "asset", "query": {"decision": "denied", "created_before": "-30d"}}` to trash them later.
 - **Stale:** approving an entry that has changed since the question was asked gives `stale`, not `approved` — what was
   approved is not what would be acted on.
 - **Actions that need approval:** an integration action that requires approval (OpenAI image generation, Instagram's
@@ -473,6 +740,13 @@ They **Approve** or **Deny**, optionally with a note, and the run goes on from t
 API: `GET /api/automations/approvals` (what you may decide, EDITOR+), `POST /api/automations/approvals/{id}/decide`
 with `{"decision": "approve" | "deny", "note": …}` (403 below the step's role, 409 already decided or expired). Events:
 `workflow_approval_requested`, `workflow_approval_decided`.
+
+**Ask for one of several** — `choices`: 2–8 labels (templates allowed), or one template that resolves to a list
+(`${steps.ideas.output.titles}`). The Approvals page shows a button per choice and **None of these**; approving with
+one sets `${steps.<id>.output.choice}` (the label) and `.choice_index` (from 0), so a later step can act on the pick
+(`"role": "thumbnail-option-${steps.pick.output.choice_index}"`); denying picks none. The API takes `choice` (the
+label or its index) on `decide`, and refuses an approval with choices that names none (422). In the builder, **Choices**
+on the Wait for approval step.
 
 ### One run per entry at a time
 
@@ -570,13 +844,48 @@ All routes need workspace ADMIN or OWNER. See [API reference](../api/index.md).
 
 A workflow is `enabled: false` when created. A disabled workflow does not run from events, the scheduler or **Run**, but can be dry-run. A workflow with the `mcp` trigger is exposed by the Marvin MCP server as a tool named `marvin_wf_<slug>` (non-alphanumerics in the slug become `_`; needs a user token, see [Marvin as an MCP server](marvin-as-mcp-server.md)). Separately, the agent's `run_workflow` tool runs any enabled workflow by slug, name or id, skipping its trigger and conditions as **Run** does, and the run is recorded under **Runs**. Like **Run**, it needs workspace ADMIN or OWNER (as does `list_workflows`).
 
-**Agents can draft workflows.** Asked to create, build or set up a workflow, an agent reads the format from `workflow_authoring_guide` and saves it with `draft_workflow`. The workflow is created switched off, through the same save as **New workflow** (the same slug from the name, the same checks, recorded as created by you, so its steps run with your role), and the agent answers with a link that opens it in the editor (`/automation/workflows?workflow=<id>&edit=1`). Review the trigger and steps, dry-run it to see which entries it would act on, then tick **Enabled**. An agent never enables or runs a workflow it drafted. A draft also has to pass checks the editor doesn't make: every key must be one the format has (a `steps` list or a step's `type` is refused rather than ignored), and every name must exist (a triggerable event, an entry query key, an entry type, a collection, an AI operation, an allowed job, an integration action that can run unattended, an outgoing or incoming webhook, another workflow); template values (`${…}`) are left to run time. The agent gets each problem with its path, such as `actions[0].op`, and tries again. `update_workflow_draft` revises a workflow only while it is switched off. See [Agents and Ask](agents-and-ask.md#what-it-does).
+**Agents can draft workflows.** Asked to create, build or set up a workflow, an agent reads the format from `workflow_authoring_guide` — its index first (what each section holds and when to read it, the step kinds in a line each, this workspace's entry types), then only the sections the request needs, several in one call — and saves it with `draft_workflow`. The workflow is created switched off, through the same save as **New workflow** (the same slug from the name, the same checks, recorded as created by you, so its steps run with your role), and the agent answers with a link that opens it in the editor (`/automation/workflows?workflow=<id>&edit=1`). Review the trigger and steps, dry-run it to see which entries it would act on, then tick **Enabled**. An agent never enables or runs a workflow it drafted. A draft also has to pass checks the editor doesn't make: every key must be one the format has (a `steps` list or a step's `type` is refused rather than ignored), and every name must exist (a triggerable event, an entry query key, an entry type, a collection, an AI operation, an allowed job, an integration action that can run unattended, an outgoing or incoming webhook, another workflow); template values (`${…}`) are left to run time. The agent gets each problem with its path, such as `actions[0].op`, and tries again. `update_workflow_draft` revises a workflow only while it is switched off. See [Agents and Ask](agents-and-ask.md#what-it-does).
 
 ## Since
 
-`form_submission_received` as a trigger: v1.0.0-rc.51 (`8f1443d1`). `auth_scheme`: rc.50 (`a65ba7d0`). `entry.summary` and `entry.data.*`: rc.52 (`433e949e`). Response `body`, `set_metadata` and metadata targeting: rc.59 (`1380e92e`). `entity_query`: rc.60 (`65ffb648`). Raw-URL `method` and templated stored URLs: rc.61 (`b88e4035`). Builder fixes: rc.63 (`57956e71`). `set_data`, the integration step, `entry.metadata` and list indexes in paths: rc.111. `entry.image`: rc.119. Full entry context per query row and **Fields equal**: rc.129. Typed values for checkbox and number fields: rc.131. The shared entry query (`where`, `sort`, date filters): rc.138. Unknown `where` ops match nothing, and `run_workflow` runs appear under **Runs**: rc.139. Site build and deploy events from `emit_event`: rc.144. `{{SLUG}}` in integration step args: rc.145. AI limits on operation steps: rc.146. Site events as notification subscriptions: rc.151; as workflow triggers: rc.152. `automation_started` and the shared `execution_id`: rc.165. Dry run against a sample event, with the condition checklist and `GET …/samples`: rc.173. A refused publish fails the entry step with the reason: rc.175. `${site.url}`: rc.177. Each event's subject, a run's trigger (`trigger_entity_*`) and step summaries in `automation_ran` / `automation_failed`, `$event.entity_type` / `$event.entity_id`: rc.178. `if_none: skip` and `${entry.url}`: rc.179. `on_failure`, `request_review` and an integration error's `${error.code}`: rc.193. Integration error policies (`integration_errors`, `handled` / `handling` / `retry_attempt` on run events), a workflow never re-triggering itself, and option pickers in the **Run integration** step: rc.197. A step's `when` (if/else), an operation step's `write_back` field map, custom AI steps (`op: "custom"`), **Create an entry** (`create`) and **Wait for approval** (`approval`, migration `5c2e8a91d4f7`): unreleased (2026-10-11). **Process an image** (`media`), generated images kept as assets, `attach_as`, `asset.derived_from`, the `role` on `asset_attached_to_entry`, and `gt` / `gte` / `lt` / `lte`: unreleased (2026-10-12). **Render a template** (`render`): unreleased (2026-10-12). **Gather items** (`collect`), relative query dates, lists of pictures in a render, and local times across the admin: unreleased (2026-10-12). Linked items in queries (`entries`, `asset`, `resource`, `entry`, `role`, `exclude`, `checksum`, sort `position`), `only_invalid`, `asset.checksum` and **Check a web address** (`fetch`): unreleased (2026-10-12). Step ids and the result key in the editor, dry-run stand-ins for AI answers, and unchanged Set metadata / Set fields saving nothing: unreleased (2026-10-12). Run inputs (`trigger.inputs`, `${input.*}`) and cron in the editor's schedule: unreleased (2026-10-12). `extract_text`, `pages`, `find_sensitive`, `redact` (pypdfium2), `zip` and printed renders (`format: pdf`, the guide template): unreleased (2026-10-12). An integration step's `source` (image edits): unreleased (2026-10-12). `watermark`: unreleased (2026-10-12). **Wait** (`wait`, migration `b7e2c4f9a1d3`): unreleased (2026-10-13). Entry dates in `${entry.*}` and the recipe date picker: unreleased (2026-10-13). `${path|url}`, `attach_to`, comma-separated `entries`, and the One-tap share links, On this day, Audience milestone and Collaborator shout-out recipes (with the entry page's **Share** box): unreleased (2026-10-13). **Repeat for each** (`repeat`, `${each.*}`) with its guided form, an Entry action's **By id** target, and **Edit** opening as JSON when the guided builder can't show a workflow in full: unreleased (2026-10-13).
+Operational events as triggers (**Operations** heading: `webhook_delivery_failed`, `integration_attention_*`, `scheduled_task_failed`, `ai_budget_*`; a workflow never answers a failure its own run caused; Integration health companion and Webhook repair desk recipes): 2026-10-18.
+Parallel branches (`parallel`; the Publication release gate recipe): 2026-10-18.
+
+Custom events (`custom.<name>`: registered fields, Emit event `payload`, trigger and subscriptions, Achievement cabinet recipe): 2026-10-18.
+
+Save or restore a version (`snapshot` step, `/entries/{id}/snapshots`, migration `c5b1eb095038`): 2026-10-18.
+
+Classify a form submission (`${form_submission.*}`, the `classify-form-submission` step from a workflow; Form submission sorter recipe): 2026-10-18.
+
+Check against a schema (`schema_check`; Agent directory intake and Choose your own adventure recipes): 2026-10-18.
+
+Email a member (`email`, `site.app_url`; New member welcome recipe): 2026-10-18.
+Record a metric (`metric`, migration `c4139a718fc6`, the Metrics page and `/api/groups/metrics`; Social experiment log recipe): 2026-10-18. `op: add` (counts each event once; migration `4d8eabca4995`): 2026-10-18.
+
+`form_submission_received` as a trigger: v1.0.0-rc.51 (`8f1443d1`). `auth_scheme`: rc.50 (`a65ba7d0`). `entry.summary` and `entry.data.*`: rc.52 (`433e949e`). Response `body`, `set_metadata` and metadata targeting: rc.59 (`1380e92e`). `entity_query`: rc.60 (`65ffb648`). Raw-URL `method` and templated stored URLs: rc.61 (`b88e4035`). Builder fixes: rc.63 (`57956e71`). `set_data`, the integration step, `entry.metadata` and list indexes in paths: rc.111. `entry.image`: rc.119. Full entry context per query row and **Fields equal**: rc.129. Typed values for checkbox and number fields: rc.131. The shared entry query (`where`, `sort`, date filters): rc.138. Unknown `where` ops match nothing, and `run_workflow` runs appear under **Runs**: rc.139. Site build and deploy events from `emit_event`: rc.144. `{{SLUG}}` in integration step args: rc.145. AI limits on operation steps: rc.146. Site events as notification subscriptions: rc.151; as workflow triggers: rc.152. `automation_started` and the shared `execution_id`: rc.165. Dry run against a sample event, with the condition checklist and `GET …/samples`: rc.173. A refused publish fails the entry step with the reason: rc.175. `${site.url}`: rc.177. Each event's subject, a run's trigger (`trigger_entity_*`) and step summaries in `automation_ran` / `automation_failed`, `$event.entity_type` / `$event.entity_id`: rc.178. `if_none: skip` and `${entry.url}`: rc.179. `on_failure`, `request_review` and an integration error's `${error.code}`: rc.193. Integration error policies (`integration_errors`, `handled` / `handling` / `retry_attempt` on run events), a workflow never re-triggering itself, and option pickers in the **Run integration** step: rc.197. A step's `when` (if/else), an operation step's `write_back` field map, custom AI steps (`op: "custom"`), **Create an entry** (`create`) and **Wait for approval** (`approval`, migration `5c2e8a91d4f7`): unreleased (2026-10-11). **Process an image** (`media`), generated images kept as assets, `attach_as`, `asset.derived_from`, the `role` on `asset_attached_to_entry`, and `gt` / `gte` / `lt` / `lte`: unreleased (2026-10-12). **Render a template** (`render`): unreleased (2026-10-12). **Gather items** (`collect`), relative query dates, lists of pictures in a render, and local times across the admin: unreleased (2026-10-12). Linked items in queries (`entries`, `asset`, `resource`, `entry`, `role`, `exclude`, `checksum`, sort `position`), `only_invalid`, `asset.checksum` and **Check a web address** (`fetch`): unreleased (2026-10-12). Step ids and the result key in the editor, dry-run stand-ins for AI answers, and unchanged Set metadata / Set fields saving nothing: unreleased (2026-10-12). Run inputs (`trigger.inputs`, `${input.*}`) and cron in the editor's schedule: unreleased (2026-10-12). `extract_text`, `pages`, `find_sensitive`, `redact` (pypdfium2), `zip` and printed renders (`format: pdf`, the guide template): unreleased (2026-10-12). An integration step's `source` (image edits): unreleased (2026-10-12). `watermark`: unreleased (2026-10-12). **Wait** (`wait`, migration `b7e2c4f9a1d3`): unreleased (2026-10-13). Entry dates in `${entry.*}` and the recipe date picker: unreleased (2026-10-13). `${path|url}`, `attach_to`, comma-separated `entries`, and the One-tap share links, On this day, Audience milestone and Collaborator shout-out recipes (with the entry page's **Share** box): unreleased (2026-10-13). **Repeat for each** (`repeat`, `${each.*}`) with its guided form, an Entry action's **By id** target, and **Edit** opening as JSON when the guided builder can't show a workflow in full: unreleased (2026-10-13). Approvals with `choices` (migration `c9d4e7a2b1f8`), `longer_than` / `shorter_than`, **Cancel** on a waiting run, and the Thumbnail audition, Platform preview checker, Time capsule and Intake triage recipes: unreleased (2026-10-13).
 
 ## Related
 
 - [Incoming webhooks](incoming-webhooks.md) · [Outgoing webhooks](outgoing-webhooks.md) · [Forms and submission protection](forms-and-submission-protection.md) · [Integrations](integrations.md)
 - [Glossary](../glossary.md)
+
+## A picture with the question, and attaching it only once approved
+
+An **Approval** step can show a picture: `image` is a template to a picture URL — a step's generated asset
+(`${steps.cover.output.images.0.asset.url}`) or the entry's main picture (`${entry.image}`) — and it appears on the
+Approvals page and the dashboard card, so the approver judges the actual picture. A new entry op, **Attach a picture**
+(`attach_asset`), links an asset to the entry: `asset` is the asset's id or slug (a template to a step's asset works),
+`role` the role to link it in. Together they let a run make a picture, show it, and attach it only on a yes:
+
+```json
+{"kind": "approval", "id": "ok", "message": "Make a cover for “${entry.title}”? (one paid image)"},
+{"kind": "integration", "id": "cover", "integration": "images", "action": "generate", "args": {"prompt": "…"},
+ "when": {"field": "steps.ok.output.decision", "op": "eq", "value": "approved"}},
+{"kind": "approval", "id": "keep", "message": "Use this cover?", "image": "${steps.cover.output.images.0.asset.url}",
+ "when": {"field": "steps.ok.output.decision", "op": "eq", "value": "approved"}},
+{"kind": "entry", "op": "attach_asset", "asset": "${steps.cover.output.images.0.asset.id}", "role": "cover-variant",
+ "when": {"field": "steps.keep.output.decision", "op": "eq", "value": "approved"}}
+```
+
+Denied at the second step, the picture stays in the library, unattached. The library's **Alternate universe cover**
+recipe has this shape.

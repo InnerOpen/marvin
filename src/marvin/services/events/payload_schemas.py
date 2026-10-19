@@ -12,20 +12,6 @@ from marvin.core.root_logger import get_logger
 
 logger = get_logger(__name__)
 
-# Wrapper showing the full webhook payload structure
-PAYLOAD_WRAPPER = {
-    "eventType": "<event_type_name>",
-    "eventId": "evt_a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "timestamp": "2026-07-16T00:00:00Z",
-    "workspaceId": "<workspace-uuid>",
-    "integrationId": "<integration-name>",
-    "message": {
-        "title": "<Event Label>",
-        "body": "<event description>",
-    },
-    "documentData": {},  # replaced per event type
-}
-
 
 def get_payload_example(event_type: str) -> dict:
     """Build an example webhook payload for the given event type."""
@@ -212,6 +198,7 @@ def get_payload_example(event_type: str) -> dict:
             "workspaceName": "My Workspace",
             "authorId": "<user-uuid>",
             "authorName": "Jane Smith",
+            "before": {"status": "trashed"},
         },
         "entry_added_to_collection": {
             "documentType": "entry",
@@ -308,6 +295,7 @@ def get_payload_example(event_type: str) -> dict:
             "workspaceName": "My Workspace",
             "uploaderId": "<user-uuid>",
             "uploaderName": "Jane Smith",
+            "visibleToSites": False,
         },
         "asset_trashed": {
             "documentType": "asset",
@@ -617,6 +605,7 @@ def get_payload_example(event_type: str) -> dict:
             "resourceType": "supplier",
             "workspaceId": "<workspace-uuid>",
             "workspaceName": "My Workspace",
+            "visibleToSites": False,
         },
         "resource_trashed": {
             "documentType": "resource",

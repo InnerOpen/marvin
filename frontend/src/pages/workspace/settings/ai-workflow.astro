@@ -5,8 +5,10 @@ import ToneEditor from "@/components/ToneEditor.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getTones } from "@/lib/api/aiTones";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { moodFieldsHtml } from "@/lib/marvin/characterSheet";
 import { sourceAllowed } from "@/lib/marvin/gate";
 import { voiceFor } from "@/lib/marvin/persona";
+import { aiLogoUrl } from "@/lib/integrationLogo";
 import { createSdkClient } from "@/lib/sdk";
 import type { TonesState } from "@/lib/tones";
 import { nullIfForbidden } from "@/lib/workspaceRole";
@@ -17,7 +19,7 @@ let settings: any = null;
 let secrets: any[] = [];
 let sources: any[] = [];
 let characterCatalog: any[] = [];
-let characterLibrary: { id: string; name: string; states?: Record<string, string> }[] = [];
+let characterLibrary: { id: string; name: string; states?: Record<string, string>; persona?: { assistantName?: string | null; personaPrompt?: string | null } | null }[] = [];
 let tones: TonesState | null = null;
 // The AI providers this platform has: core's built-ins and installed AI provider plugins
 // (GET /api/ai/provider-types, services/ai/registry.py). The provider list and model picker come from it.
@@ -27,6 +29,7 @@ let providerTypes: {
   selfHosted?: boolean;
   defaultModel?: string | null;
   suggestedModels?: string[];
+  hasLogo?: boolean;
 }[] = [];
 let error: string | null = null;
 
@@ -67,7 +70,12 @@ const s = {
   assistantIcon: (settings as any)?.assistantIcon ?? null,
   assistantCharacter: (settings as any)?.assistantCharacter ?? null,
   personaPrompt: settings?.personaPrompt ?? null,
+  mood: (settings as any)?.mood ?? null,
 };
+// The library character the persona was copied from (services/ai/character_library.py: apply_pack_persona), when
+// the bubble plays one that has a character sheet: the page offers "Reset to <its name>'s".
+const personaPack = characterLibrary.find((p) => p.id === s.assistantCharacter?.library && p.persona) ?? null;
+const personaPackName = personaPack ? personaPack.persona?.assistantName || personaPack.name : "";
 
 // The bubble's canned lines (AI settings → Persona → Bubble lines; services/ai/bubble_lines.py). An empty
 // list shows, as its placeholder, the built-in lines the bubble falls back to.
@@ -111,11 +119,15 @@ const sourceCatalog = sources.length
     ];
 
 const budgetCfg = s.budgetConfig ?? {};
+// The platform's steps per question and the most a workspace may set (AI_AGENT_MAX_STEPS / _CAP): a higher value is
+// trimmed to the cap, so the form never offers more than the platform gives.
+const agentStepsDefault: number = (s as any).agentStepsDefault ?? 6;
+const agentStepsCap: number = (s as any).agentStepsCap ?? 12;
 const logCfg = s.loggingConfig ?? {};
 const modCfg = s.moderationConfig ?? {};
 ---
 
-<AppLayout crumb="settings.ai">
+<AppLayout crumb="settings.ai-workflow">
   <div class="page-header">
     <div>
       <h2>AI Settings</h2>
@@ -182,11 +194,14 @@ const modCfg = s.moderationConfig ?? {};
         </div>
         <div class="form-row">
           <label class="form-field">
-            <span class="label">Provider</span>
+            <span class="label provider-label">
+              Provider
+              <span class="int-mark provider-mark" hidden={!currentType?.hasLogo}><img class="int-mark-img" id="provider-logo" src={currentType?.hasLogo ? aiLogoUrl(currentType.slug) : undefined} alt="" decoding="async" /></span>
+            </span>
             <select name="provider" class="input" id="provider-select">
               <option value="" selected={!s.provider}>— select —</option>
               {providerTypes.map((t) => (
-                <option value={t.slug} selected={s.provider === t.slug} data-default-model={t.defaultModel ?? ""}>
+                <option value={t.slug} selected={s.provider === t.slug} data-default-model={t.defaultModel ?? ""} data-logo={t.hasLogo ? aiLogoUrl(t.slug) : undefined}>
                   {t.name}{t.selfHosted ? " (self-hosted)" : ""}
                 </option>
               ))}
@@ -299,7 +314,7 @@ const modCfg = s.moderationConfig ?? {};
     </div>
 
     <!-- 5. Persona -->
-    <div class="section-card ai-dependent" id="persona-section">
+    <div class="section-card ai-dependent" id="persona-section" data-library={JSON.stringify(characterLibrary.map((p) => ({ id: p.id, name: p.name, persona: p.persona ?? null })))}>
       <div class="section-title">
         <h3>Persona</h3>
         <p>Who your assistant is: its name, look and character for this workspace. How it delivers a given piece of work is the tone's job (Tones, below).</p>
@@ -334,6 +349,12 @@ const modCfg = s.moderationConfig ?? {};
           library={characterLibrary}
           removeConfirm="Your uploaded character's files are deleted. Continue?"
         />
+        <small class="hint">Picking a library character names the assistant after it, and one with a character sheet brings its Character, bubble lines and tone too, for you to edit from there.</small>
+        {personaPack && (
+          <p class="persona-from" id="persona-from">
+            From {personaPackName} — edit freely. <button type="button" id="persona-reset">Reset to {personaPackName}'s</button>
+          </p>
+        )}
       </div>
       <label class="form-field">
         <span class="label">Character</span>
@@ -375,6 +396,7 @@ const modCfg = s.moderationConfig ?? {};
           <span class="save-status" id="bubble-lines-msg"></span>
         </div>
       </div>
+      <div class="form-field" id="persona-mood" set:html={moodFieldsHtml(s.mood)} />
     </div>
 
     <!-- 5b. Tones -->
@@ -431,6 +453,34 @@ const modCfg = s.moderationConfig ?? {};
             value={budgetCfg.max_tokens_per_request ?? ""} placeholder="App default" min="1" />
         </label>
       </div>
+      <h4 class="subhead">How agents behave</h4>
+      <div class="form-row usage-limits">
+        <label class="form-field">
+          <span class="label">Steps per question</span>
+          <input type="number" name="budget.agent_max_steps" class="input"
+            value={budgetCfg.agent_max_steps ?? ""} placeholder={String(agentStepsDefault)} min="1" max={agentStepsCap} />
+          <span class="hint">Tool calls an agent may make before it must answer (at most {agentStepsCap} on this platform). Each is a paid model call.</span>
+        </label>
+        <label class="form-field">
+          <span class="label">Conversation memory (turns)</span>
+          <input type="number" name="budget.history_turns" class="input"
+            value={budgetCfg.history_turns ?? ""} placeholder="10" min="2" max="50" />
+          <span class="hint">Earlier messages sent back with each question. More remembers more and costs more.</span>
+        </label>
+        <label class="form-field">
+          <span class="label">Ask before changing more than</span>
+          <input type="number" name="budget.bulk_ask_threshold" class="input"
+            value={budgetCfg.bulk_ask_threshold ?? ""} placeholder="20" min="1" max="1000" />
+          <span class="hint">Tag or link changes in one call; above this the agent asks you first.</span>
+        </label>
+      </div>
+      <label class="checkbox-row">
+        <input type="checkbox" name="budget.load_tools_on_demand" checked={budgetCfg.load_tools_on_demand !== false} />
+        <span>
+          Load rarely used tools only when needed
+          <span class="hint">Agents start with reading, searching and drafting, and load the rest (tags and links, the Trash, workflows…) when a question needs them. Cuts the prompt of every question roughly in half; nothing becomes unavailable.</span>
+        </span>
+      </label>
       <p class="hint">Costs are estimates from Marvin's price table; search indexing isn't counted (a fraction of a cent per reindex). Your provider's own balance isn't visible here — if it runs out, the failed run says so and you get a toast.</p>
     </div>
 
@@ -494,6 +544,7 @@ const modCfg = s.moderationConfig ?? {};
   import { previewTone } from '@/lib/api/aiTones';
   import { characterPreviewView, promptPreviewHtml, promptPreviewMessage } from '@/lib/promptPreview';
   import { createSdkClient } from '@/lib/sdk';
+  import { readMood } from '@/lib/marvin/characterSheet';
   // ── Usage & limits ── (GET /api/groups/ai-settings/usage; see services/ai/budget.py)
   const usd = (n: number) => (n < 0.01 && n > 0 ? '<$0.01' : `$${n.toFixed(2)}`);
   const num = (n: number) => n.toLocaleString();
@@ -597,6 +648,41 @@ const modCfg = s.moderationConfig ?? {};
   // Generation runs in the background after a voice is saved, so the card polls while it does.
   const BUBBLE_API = '/api/groups/ai-settings/bubble-lines';
   const BUBBLE_POLL_MS = 3000;
+  // ── A library character's persona (services/ai/character_library.py) ──
+  // Picking a pack names the assistant after it and copies its sheet (Character, lines…) over the workspace's:
+  // ask first when that would replace a Character written here, and reload once it's done so the form shows it.
+  const PERSONA_API = '/api/groups/ai-settings/character';
+  const library: { id: string; name: string; persona?: { assistantName?: string | null; personaPrompt?: string | null } | null }[] =
+    JSON.parse(document.getElementById('persona-section')?.dataset.library || '[]');
+  const personaBox = document.querySelector<HTMLTextAreaElement>('textarea[name="persona_prompt"]');
+  const picker = document.querySelector<HTMLElement>('#persona-section .character-picker');
+  const packOf = (id: string | null | undefined) => library.find((p) => p.id === id) ?? null;
+  const currentPack = () => packOf(JSON.parse(picker?.dataset.character || 'null')?.library);
+  picker?.addEventListener('character-before-pick', (ev) => {
+    const pack = packOf((ev as CustomEvent).detail?.pack);
+    if (!pack?.persona) return; // animations only: nothing of the persona changes
+    const written = personaBox?.value.trim() ?? '';
+    const fromPack = (currentPack()?.persona?.personaPrompt ?? '').trim();
+    const name = pack.persona.assistantName || pack.name;
+    if (written && written !== fromPack && !confirm(`${name} brings its own persona: your Character, name and bubble lines are replaced with ${name}'s. Continue?`)) {
+      ev.preventDefault();
+    }
+  });
+  // Any pick renames the assistant after the pack (and a sheet brings the rest): show the form as saved.
+  picker?.addEventListener('character-picked', () => window.location.reload());
+  document.getElementById('persona-reset')?.addEventListener('click', async (ev) => {
+    const button = ev.currentTarget as HTMLButtonElement;
+    if (!confirm(`${button.textContent}? Your edits to the name, Character, bubble lines, tone and mood are replaced.`)) return;
+    button.disabled = true;
+    try {
+      await fetchApi(`${PERSONA_API}/reset-persona`, { method: 'POST' });
+      window.location.reload();
+    } catch (err) {
+      button.disabled = false;
+      button.after(` Couldn't reset: ${err instanceof Error ? err.message : err}`);
+    }
+  });
+
   const BUBBLE_POLL_LIMIT = 60; // ~3 minutes, then the card stops waiting and says so
   const bubbleBox = document.getElementById('bubble-lines');
   const bubbleAreas = Array.from(document.querySelectorAll<HTMLTextAreaElement>('.bubble-lines-list'));
@@ -611,6 +697,7 @@ const modCfg = s.moderationConfig ?? {};
     if (st.bubbleLinesGenerating) return 'Writing lines from the persona…';
     if (!st.bubbleLines) return 'Using the built-in lines.';
     const when = st.bubbleLinesUpdatedAt ? ` on ${new Date(st.bubbleLinesUpdatedAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}` : '';
+    if (st.bubbleLinesSource === 'character') return `From the library character${when}.`;
     return st.bubbleLinesSource === 'edited' ? `Edited${when}.` : `Generated from the persona${when}.`;
   }
 
@@ -728,6 +815,14 @@ const modCfg = s.moderationConfig ?? {};
 
   // ── Ollama model library: show installed models + pull new ones ────────────
   const providerSelect = document.getElementById('provider-select') as HTMLSelectElement | null;
+  // The chosen provider's logo beside "Provider" (none for one that ships no logo).
+  const providerLogo = document.getElementById('provider-logo') as HTMLImageElement | null;
+  providerSelect?.addEventListener('change', () => {
+    const src = providerSelect.selectedOptions[0]?.dataset.logo;
+    if (!providerLogo) return;
+    if (src) providerLogo.src = src;
+    (providerLogo.parentElement as HTMLElement).hidden = !src;
+  });
   const ollamaBlock = document.getElementById('ollama-models');
   const installedList = document.getElementById('installed-list');
   const pullName = document.getElementById('pull-name') as HTMLInputElement | null;
@@ -854,11 +949,14 @@ const modCfg = s.moderationConfig ?? {};
 
     // Start from what is stored so a key this form doesn't show survives the save.
     const budgetCfg: Record<string, unknown> = JSON.parse((form as HTMLElement).dataset.budget || '{}');
-    for (const key of ['max_cost_per_month_usd', 'max_requests_per_day', 'max_tokens_per_request']) {
+    for (const key of ['max_cost_per_month_usd', 'max_requests_per_day', 'max_tokens_per_request', 'agent_max_steps', 'history_turns', 'bulk_ask_threshold']) {
       const raw = fd.get(`budget.${key}`)?.toString().trim();
       if (raw) budgetCfg[key] = Number(raw);
       else delete budgetCfg[key];
     }
+    // On is the default: store only the opt-out.
+    if (fd.has('budget.load_tools_on_demand')) delete budgetCfg.load_tools_on_demand;
+    else budgetCfg.load_tools_on_demand = false;
 
     const logCfg: Record<string, unknown> = {
       log_inputs: fd.has('logging.log_inputs'),
@@ -890,6 +988,7 @@ const modCfg = s.moderationConfig ?? {};
       assistantIcon: ((document.getElementById('assistant_icon_url') as HTMLInputElement).value.trim()
         || (document.getElementById('assistant_icon_emoji') as HTMLInputElement).value.trim() || null),
       personaPrompt: (fd.get('persona_prompt')?.toString().trim() || null),
+      mood: readMood(document.getElementById('persona-mood') ?? document),
     };
 
     const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
@@ -915,6 +1014,10 @@ const modCfg = s.moderationConfig ?? {};
 </script>
 
 <style>
+  .provider-label { display: inline-flex; align-items: center; gap: 8px; }
+  .provider-mark { height: 24px; min-width: 24px; }
+  .provider-mark[hidden] { display: none; }
+  .provider-mark .int-mark-img { height: 20px; }
   .page-header {
     display: flex;
     justify-content: space-between;
@@ -1199,4 +1302,8 @@ const modCfg = s.moderationConfig ?? {};
   /* ── workspace-creds inner spacing ── */
   #workspace-creds { display: flex; flex-direction: column; gap: 16px; }
   #workspace-creds .form-row { margin-bottom: 0; }
+  .subhead { margin: 18px 0 8px; font-size: 14px; }
+  .checkbox-row { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; font-size: 14px; }
+  .checkbox-row input { margin-top: 3px; }
+  .checkbox-row .hint { display: block; font-size: 12px; color: var(--muted); }
 </style>

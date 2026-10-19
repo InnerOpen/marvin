@@ -1,0 +1,20 @@
+{
+  "recipe": "social-experiment-log",
+  "variables": {
+    "draft_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type the two variants are drafted as.",
+      "example": "social-post"
+    },
+    "draft_body_field": {
+      "type": "field_key",
+      "description": "That type's text field, where each variant's wording goes.",
+      "example": "body"
+    },
+    "metric": {
+      "type": "string",
+      "description": "What you observe for each variant: a short name \u2014 lowercase letters, digits, - and _.",
+      "example": "clicks"
+    }
+  }
+}

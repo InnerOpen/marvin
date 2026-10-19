@@ -20,6 +20,7 @@ from datetime import UTC, datetime, timedelta
 from marvin.core.root_logger import get_logger
 from marvin.services.entries import trash as entry_trash
 from marvin.services.event_bus_service.event_types import EventAssetData, EventOperation, EventResourceData, EventTypes
+from marvin.services.publish_visibility import item_served_to_sites
 
 logger = get_logger(__name__)
 
@@ -190,6 +191,7 @@ def delete_asset(session, group_id, asset_id, *, actor_id=None, event_bus=None, 
     if asset is None:
         return False
     data = event_data(session, group_id, ASSET, asset, EventOperation.delete, actor_id=actor_id)
+    data.visible_to_sites = item_served_to_sites(session, ASSET, asset)  # asked while the row and its links still exist
     name = asset.name
     if not AssetStorageService(AllRepositories(session, group_id=group_id), get_storage_provider()).delete_asset(asset_id):
         return False
@@ -213,10 +215,18 @@ def delete_resource(session, group_id, resource_id, *, actor_id=None, event_bus=
     resource = _get(session, group_id, RESOURCE, resource_id)
     if resource is None:
         return False
-    _emit(
-        session, group_id, RESOURCE, resource, EventTypes.resource_deleted, EventOperation.delete,
-        f"Resource '{resource.name}' deleted", actor_id=actor_id, event_bus=event_bus, integration_id=integration_id,
-    )  # fmt: skip
+    data = event_data(session, group_id, RESOURCE, resource, EventOperation.delete, actor_id=actor_id)
+    data.visible_to_sites = item_served_to_sites(session, RESOURCE, resource)  # asked before the row and its links go
+    _bus(event_bus).dispatch(
+        integration_id=integration_id or _INTEGRATION[RESOURCE],
+        group_id=group_id,
+        event_type=EventTypes.resource_deleted,
+        document_data=data,
+        message=f"Resource '{resource.name}' deleted",
+        user_id=actor_id,
+        entity_id=resource.id,
+        entity_type=RESOURCE,
+    )
     AllRepositories(session, group_id=group_id).resources.delete(resource_id)
     return True
 

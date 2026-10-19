@@ -1,0 +1,65 @@
+{
+  "name": "Achievement cabinet",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "custom.milestone"
+    },
+    "conditions": [
+      {
+        "field": "event.entry_id",
+        "op": "exists"
+      },
+      {
+        "field": "event.payload.badge",
+        "op": "exists"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "held",
+        "entity": "entry",
+        "query": {
+          "entry_type": "{{badge_entry_type}}",
+          "metadata": {
+            "achievement": "${entry.slug}:${event.payload.badge}"
+          }
+        },
+        "limit": 1
+      },
+      {
+        "kind": "entry",
+        "id": "badge",
+        "op": "create",
+        "entry_type": "{{badge_entry_type}}",
+        "title": "${event.payload.badge}",
+        "data": {
+          "{{badge_body_field}}": "${entry.title} reached “${event.payload.milestone}”."
+        },
+        "metadata": {
+          "achievement": "${entry.slug}:${event.payload.badge}",
+          "project": "${entry.slug}",
+          "milestone": "${event.payload.milestone}"
+        },
+        "status": "draft",
+        "when": {
+          "field": "steps.held.output.total",
+          "op": "eq",
+          "value": 0
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "add_to_collection",
+        "entity_id": "${steps.badge.output.entry_id}",
+        "collection_slug": "{{cabinet_collection}}",
+        "when": {
+          "field": "steps.held.output.total",
+          "op": "eq",
+          "value": 0
+        }
+      }
+    ]
+  }
+}

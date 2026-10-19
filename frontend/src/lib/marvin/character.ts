@@ -88,8 +88,8 @@ const EVENT_STATE: Record<CharacterEvent, CharacterState> = {
 // loops of a typical one-second animation — long enough to read, short enough not to linger.
 export const GREETING_MS = 2_000;
 export const SUCCESS_MS = 2_000;
-export const IDLE_VARIANT_MS = 2_600;
-export const PEEK_MS = 2_000;
+const IDLE_VARIANT_MS = 2_600;
+const PEEK_MS = 2_000;
 /** An error stays up a little longer: it's news the user should catch. */
 export const ERROR_HOLD_MS = 4_000;
 
@@ -110,7 +110,7 @@ export const IDLE_VARIANT_MIN_MS = 20_000;
 export const IDLE_VARIANT_MAX_MS = 40_000;
 
 /** Pointer movement below this many pixels doesn't turn the character round (jitter). */
-export const DRAG_DIRECTION_MIN_PX = 2;
+const DRAG_DIRECTION_MIN_PX = 2;
 
 const DRAG_EVENTS: ReadonlySet<CharacterEvent> = new Set(["drag_left", "drag_right", "drop"]);
 const DRAG_STATES: ReadonlySet<CharacterState> = new Set(["move_left", "move_right"]);
@@ -134,7 +134,7 @@ export function dragDirection(dx: number): "drag_left" | "drag_right" | null {
   return dx < 0 ? "drag_left" : "drag_right";
 }
 
-export interface CharacterView {
+interface CharacterView {
   state: CharacterState;
   src: string;
 }

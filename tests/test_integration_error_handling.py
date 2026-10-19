@@ -143,7 +143,9 @@ def _publish(db_session, shop, runner):
 def _runs(db_session, shop):
     from marvin.db.models.groups.automation_executions import AutomationExecutionModel
 
-    return db_session.query(AutomationExecutionModel).filter_by(group_id=shop.gid).order_by(AutomationExecutionModel.started_at).all()
+    rows = db_session.query(AutomationExecutionModel).filter_by(group_id=shop.gid).all()
+    # Two runs can start in the same tick: one resumed from another (retry_of) comes after it, whatever the clock says.
+    return sorted(rows, key=lambda r: (r.started_at, r.retry_of_id is not None))
 
 
 def _retries(db_session, shop):

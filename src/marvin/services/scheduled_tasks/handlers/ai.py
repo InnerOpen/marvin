@@ -31,7 +31,7 @@ class ReindexEmbeddingsHandler(ScheduledTaskHandler):
 
     def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
         from marvin.db.models.groups.groups import Groups
-        from marvin.services.ai.embeddings import default_embedding_model, reindex_workspace
+        from marvin.services.ai.embeddings import embedder_for, reindex_workspace
         from marvin.services.ai.factory import AIDisabledError, get_workspace_ai_provider
 
         done = 0
@@ -43,20 +43,19 @@ class ReindexEmbeddingsHandler(ScheduledTaskHandler):
                 groups = session.query(Groups).all()
 
             for g in groups:
+                # Marvin's built-in embedding model needs no AI provider: a workspace with AI off is indexed too.
                 try:
                     provider = get_workspace_ai_provider(session, g.id)
                 except AIDisabledError:
-                    continue  # AI off for this workspace
+                    provider = None
                 except Exception as ex:
                     logger.warning("reindex: provider error for workspace %s: %s", g.id, ex)
-                    continue
-                if not getattr(provider, "supports_embeddings", False):
-                    continue
-                model = default_embedding_model(provider.provider_type)
+                    provider = None
+                embedder, model = embedder_for(provider)
                 if not model:
                     continue
 
-                result = reindex_workspace(session, g.id, provider, model)
+                result = reindex_workspace(session, g.id, embedder, model)
                 total_entities += result.entities
                 total_chunks += result.chunks
                 total_failed += result.failed

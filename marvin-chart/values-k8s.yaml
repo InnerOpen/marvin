@@ -22,7 +22,7 @@ image:
 config:
   production: true
   logLevel: INFO
-  dbEngine: sqlite
+  dbEngine: postgres   # pinned: the chart default is sqlite; this environment uses the CloudNativePG cluster below
   # Browser-facing API URL. Combined SSR reaches the API over localhost, but
   # client-side calls (login/interactive) need a URL the browser can reach. This
   # names the pinned API NodePort (service.nodePorts.http = 30271 below), so it's
@@ -70,3 +70,8 @@ extraEnv:
       secretKeyRef:
         name: marvin-ai
         key: OPENAI_API_KEY
+
+# The chart's default is no database cluster (SQLite); this environment pins the CloudNativePG one.
+postgres:
+  cluster:
+    enabled: true

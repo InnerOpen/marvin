@@ -13,7 +13,7 @@ The admin is an installable web app (a PWA): it can sit on a phone's home screen
 | Safari on macOS (Sonoma and later) | **File → Add to Dock**. |
 | Firefox | Desktop Firefox doesn't install web apps; Firefox on Android does, from its menu. The admin works in a tab either way. |
 
-Once Marvin runs as the installed app, Profile says so and the install entry goes away. The app opens on the dashboard; its shortcuts (long-press or right-click the icon) go to **Ask**, **New entry** and the **Review queue**. On an installed app the icon shows how many entries wait in the current workspace's inbox (the number on the Entries badge) plus how many of your conversations wait for your approval in any workspace, where the system supports app badges (`GET /api/self/push/badge` gives both parts). An approval's notification and its Approve/Deny confirmation update the count too.
+Once Marvin runs as the installed app, Profile says so and the install entry goes away. The app opens on the dashboard; its shortcuts (long-press or right-click the icon) go to **Ask** and **New entry**. On an installed app the icon shows how many entries wait in the current workspace's inbox (the number on the Entries badge) plus how many of your conversations wait for your approval in any workspace, where the system supports app badges (`GET /api/self/push/badge` gives both parts). An approval's notification and its Approve/Deny confirmation update the count too.
 
 A non-production instance (the backend's `ENVIRONMENT_LABEL`, e.g. `DEV`) installs as **Marvin DEV**, with a dark icon and an amber title bar, so it can't be mistaken for the real one on a home screen.
 

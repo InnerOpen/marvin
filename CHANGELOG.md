@@ -6,6 +6,1135 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.384 (2026-10-19)
+
+### Bug Fixes
+
+- **frontend**: Connected apps can be disconnected on a phone — Disconnect was pushed off-screen
+  ([`4ac8ffd`](https://github.com/InnerOpen/marvin/commit/4ac8ffd946da261ab6d329a59e50a7dcb0e4642a))
+
+- **frontend**: The workspace page and its delete panel fit a 390 px screen
+  ([`03853d2`](https://github.com/InnerOpen/marvin/commit/03853d2ce3d0b6d741fad0c6c3d948b9eb25bfe6))
+
+### Chores
+
+- **alembic**: Users_group_id_nullable follows the platform SMTP/alerts migrations
+  ([`9eb42d4`](https://github.com/InnerOpen/marvin/commit/9eb42d4b80372ae107b183c9e58390deee5b5ec3))
+
+- **deploy**: Drop promote-iwobble.sh — promote.sh does the work
+  ([`f1e9d86`](https://github.com/InnerOpen/marvin/commit/f1e9d8688fb9facbc2e50ffcfe8eb9b45a396b7e))
+
+- **dev**: Slim the character kit — Marvin builds packs; keep prompts and references
+  ([`203225f`](https://github.com/InnerOpen/marvin/commit/203225f4dec20ef004011435ceaefc9247e3eb21))
+
+- **dev**: Task audit:dead — vulture + knip on demand
+  ([`57aeab1`](https://github.com/InnerOpen/marvin/commit/57aeab1fc55a56fe1cbaff69081f45aec4dbd6a3))
+
+- **scripts**: Drop stale manual test scripts
+  ([`312d0fc`](https://github.com/InnerOpen/marvin/commit/312d0fcb20f02163441d6723a2e17e3a4a0c53b1))
+
+- **scripts**: Drop the Mash & Burn seed script
+  ([`54302e2`](https://github.com/InnerOpen/marvin/commit/54302e247ecf9a72df4bf08ea7d5094b3d319152))
+
+### Documentation
+
+- First boot is Admin, workspaces delete safely, files wait out a grace period
+  ([`9e49601`](https://github.com/InnerOpen/marvin/commit/9e49601c898556dd978146bf2f07f596ac8bfbf8))
+
+- **tasks**: Plan — retire the platform workspace (decisions recorded)
+  ([`cf562a4`](https://github.com/InnerOpen/marvin/commit/cf562a4f73245259ae13e68ad817a1b116f4e05a))
+
+- **tasks**: Plan — SQLite back as the fresh-install default engine
+  ([`7c6d7aa`](https://github.com/InnerOpen/marvin/commit/7c6d7aa2544ea70b7496470a7d34a4d09213f407))
+
+- **tasks**: SQLite plan — decisions recorded (all as recommended)
+  ([`39b8217`](https://github.com/InnerOpen/marvin/commit/39b82178f582b36fe53dc83885e7200591bf4516))
+
+### Features
+
+- **admin**: Platform SMTP and Platform channels pages, docs, and stage 1 status
+  ([`a83ab07`](https://github.com/InnerOpen/marvin/commit/a83ab074f10573f4ecf0811ccc3f4ca23f971395))
+
+- **alerts**: Platform alert channels that belong to no workspace
+  ([`959da3a`](https://github.com/InnerOpen/marvin/commit/959da3acb408d91ab785779eef2b22893c1173c0))
+
+- **backup**: The backup engine backs up, records and restores SQLite again, beside Postgres
+  ([`e2c0c4b`](https://github.com/InnerOpen/marvin/commit/e2c0c4bff0bc4e59141e87dfb2daae48069bf9c5))
+
+- **ci**: The suite runs on SQLite and Postgres; docs say SQLite is back
+  ([`f14bc10`](https://github.com/InnerOpen/marvin/commit/f14bc103b6842c479f9384da4448cf9f719d027c))
+
+- **db**: Dashboard, admin and models run the same on SQLite and Postgres
+  ([`e82be71`](https://github.com/InnerOpen/marvin/commit/e82be71c5d63b9501e2cd05ca48338958a85e571))
+
+- **db**: Races that SQLite's single writer used to lose are closed
+  ([`ff5ef0a`](https://github.com/InnerOpen/marvin/commit/ff5ef0a47f226bcae97fa13198cfc9df1b3c7610))
+
+- **db**: SQLite is a supported engine again, and the fresh-install default
+  ([`521c33b`](https://github.com/InnerOpen/marvin/commit/521c33b1c4763676e930f1d11a3bdbe249666403))
+
+- **email**: Platform SMTP with per-field Admin overrides over the environment
+  ([`67df146`](https://github.com/InnerOpen/marvin/commit/67df1465f540e0f2f276f79d1dba4da4fe814564))
+
+- **frontend**: A user with no workspace is sent to Admin or a waiting-for-an-invite page
+  ([`d76f1e4`](https://github.com/InnerOpen/marvin/commit/d76f1e4bf9f411a9e67b3ce08384be589526d856))
+
+- **frontend**: Delete a workspace with a preview, a backup and the typed name; list files awaiting
+  a purge
+  ([`4ee205d`](https://github.com/InnerOpen/marvin/commit/4ee205dfb7412d898b69062b11727d2461e36a41))
+
+- **migration**: Copy the platform workspace's SMTP profile and alert integrations into platform
+  settings
+  ([`0df2fef`](https://github.com/InnerOpen/marvin/commit/0df2fefe9cd8a52b224fd0adadd15940933e5c55))
+
+- **secrets**: A platform secret scope (workspace_secrets.group_id NULL)
+  ([`1bdcaa6`](https://github.com/InnerOpen/marvin/commit/1bdcaa6a70085598a8f90fe17a823df08a0447ac))
+
+- **workspace**: Fresh installs create no workspace; retire the platform marker
+  ([`728e30b`](https://github.com/InnerOpen/marvin/commit/728e30b93b37db208698e17962eed534b3fd0d13))
+
+- **workspace**: Safer workspace deletion and a deferred purge of its stored files
+  ([`45e8eed`](https://github.com/InnerOpen/marvin/commit/45e8eed90809c9641dd332c7203332b44299f070))
+
+- **workspace**: Users can be in no workspace; Admin works without one
+  ([`3de164d`](https://github.com/InnerOpen/marvin/commit/3de164d8d2e46ab472322993bb3ff9565837cb8f))
+
+### Refactoring
+
+- Drop unused schemas and helpers
+  ([`727f56b`](https://github.com/InnerOpen/marvin/commit/727f56be1e2e694b26566bcd9ed0795994b15d8d))
+
+- Remove dead backend files and the broken Lambda entry
+  ([`859406c`](https://github.com/InnerOpen/marvin/commit/859406c7e9c0f95d10dcb0ef5dfa618c91d1e3ac))
+
+- Remove the legacy plugin loader (AppPlugins) — entry points are the plugin system
+  ([`ded6223`](https://github.com/InnerOpen/marvin/commit/ded622382c78eb099f9d28874b1eaf2cc740a80e))
+
+- **frontend**: Drop unused exports
+  ([`f4528d4`](https://github.com/InnerOpen/marvin/commit/f4528d4e4736c0401beb2ee6f340194e545d6c6c))
+
+- **frontend**: Drop unused files and the 0g dependency
+  ([`faa4a63`](https://github.com/InnerOpen/marvin/commit/faa4a631910cae1415a3a34eccbcadf0a3012183))
+
+### Testing
+
+- Keep a developer's .env SMTP out of the suite
+  ([`9598684`](https://github.com/InnerOpen/marvin/commit/95986847f94e785e33831808779af869c174d26e))
+
+- No-workspace fixture removes the member's API tokens before the user
+  ([`ac02dcc`](https://github.com/InnerOpen/marvin/commit/ac02dccdfb0ee2adaf61f3587f9a97ba0a518b7d))
+
+- Platform events have no workspace, so their fixtures clean up by user
+  ([`c902b6f`](https://github.com/InnerOpen/marvin/commit/c902b6f82d71abb148e0057154cabbc13f52c0c0))
+
+- **alerts**: The platform channels page test tolerates real message plugins installed alongside the
+  fakes
+  ([`1fddc8e`](https://github.com/InnerOpen/marvin/commit/1fddc8ea69b2752a1ecc4e5dd85fabb71074b570))
+
+
+## v1.0.0-rc.383 (2026-10-19)
+
+### Bug Fixes
+
+- **workflows**: Describe_event lists an entry update's diff under updateDiff, not workflowTrigger
+  ([`276244a`](https://github.com/InnerOpen/marvin/commit/276244a415fc2a5e758ee8a83c11ecdde01bf17b))
+
+- **workflows**: The guide's records section holds the metric, snapshot and schema check steps —
+  actions fits its budget again
+  ([`8f01cc0`](https://github.com/InnerOpen/marvin/commit/8f01cc0fbc794168606a2b5795721924f94c4f20))
+
+### Chores
+
+- **alembic**: Mcp_upload_links follows entry_snapshots
+  ([`592fac6`](https://github.com/InnerOpen/marvin/commit/592fac6ef8c17b949e32a8acae8f03209b44b83c))
+
+### Features
+
+- **agents**: A read-only agent hands the job to one that may do it — with what it found
+  ([`3e68fd1`](https://github.com/InnerOpen/marvin/commit/3e68fd15f7b44ec1741908c8af0776df1185092f))
+
+- **mcp**: MCP Apps image viewer for show_image
+  ([`b2ef7dc`](https://github.com/InnerOpen/marvin/commit/b2ef7dc74194b15c2d6a2972349797bba5898033))
+
+- **mcp**: Per-workspace connector URLs, /mcp/w/<slug>
+  ([`e29f3ff`](https://github.com/InnerOpen/marvin/commit/e29f3fff39237ff5af781d62cd7a576bfa8df0cd))
+
+- **mcp**: Photo upload links for chat assistants
+  ([`619bb34`](https://github.com/InnerOpen/marvin/commit/619bb344d7f845672b0b69b2cbcf001054d88986))
+
+- **workflows**: Classify a form submission — a workflow reads it as ${form_submission.*}, and
+  classify-form-submission works on it
+  ([`273f038`](https://github.com/InnerOpen/marvin/commit/273f03860db50821713779863f49d659d0b9383d))
+
+- **workflows**: Make a call once — idempotency keys on webhook and integration steps
+  ([`9706967`](https://github.com/InnerOpen/marvin/commit/97069676611b6297fa563d9fe44c20a62cdd4c8d))
+
+- **workflows**: React to a type field changing — changed_fields, before and after name it
+  ([`277aa7a`](https://github.com/InnerOpen/marvin/commit/277aa7a708242c6e92fb260d18f83570ade9490b))
+
+- **workflows**: Save and restore a version of an entry — a snapshot step and
+  /entries/{id}/snapshots
+  ([`21d1434`](https://github.com/InnerOpen/marvin/commit/21d1434c2c62241fad1309926ecf2f9aaee62104))
+
+
+## v1.0.0-rc.382 (2026-10-18)
+
+### Bug Fixes
+
+- **assistant**: The agent knows the greeting the bubble showed
+  ([`75ea3f1`](https://github.com/InnerOpen/marvin/commit/75ea3f160e4950bc68fe013156b153293bfa5b50))
+
+### Chores
+
+- **publish**: API clients lose read:assets and read:resources
+  ([`abffb57`](https://github.com/InnerOpen/marvin/commit/abffb57827361f3528c5ab05bb4a876156b169d3))
+
+### Continuous Integration
+
+- **sdk**: The SDK gate installs from uv.lock, like the image
+  ([`2ab13b1`](https://github.com/InnerOpen/marvin/commit/2ab13b19ededd91e4cfcff0acd10787fafd5c702))
+
+
+## v1.0.0-rc.381 (2026-10-18)
+
+### Bug Fixes
+
+- **sites**: An asset used only in an entry's field or the brand counts as on the site
+  ([`6d7d043`](https://github.com/InnerOpen/marvin/commit/6d7d04324a863da8b6496508608f533ee0c236c5))
+
+- **sites**: Rebuild only when something a site serves changes — emptying the Trash no longer
+  rebuilds
+  ([`56c4391`](https://github.com/InnerOpen/marvin/commit/56c4391fe7da6637263e493cf15614554847477e))
+
+- **workflows**: An operational event names the workflows that caused it, not whichever had run in
+  its chain
+  ([`b47fcac`](https://github.com/InnerOpen/marvin/commit/b47fcacb9b07e73cc45aae907d28e4d9bc1720eb))
+
+- **workflows**: The guide fits its budgets again with every new step
+  ([`9a337dd`](https://github.com/InnerOpen/marvin/commit/9a337dd51de60c684574ba50b8b5321b8e5cd7e1))
+
+### Documentation
+
+- **tasks**: Review of the 2026-10-18 Workflow Library and publishing work
+  ([`5313907`](https://github.com/InnerOpen/marvin/commit/531390765dd638c1bbf636e107ad85fe1cd5c6e0))
+
+- **workflows**: Roadmap row 22 names the commit that delivered custom events
+  ([`367cc67`](https://github.com/InnerOpen/marvin/commit/367cc672d656aa1edababce30b80fbfc9ba0165a))
+
+- **workflows**: The library's roadmap and catalogue match what ships
+  ([`9c12941`](https://github.com/InnerOpen/marvin/commit/9c12941fc75190580f698c287eb75cd9d32f6407))
+
+### Features
+
+- **admin**: System shows the embedding model and its versions; Plugins shows available updates
+  ([`07def60`](https://github.com/InnerOpen/marvin/commit/07def609617fa7afd5a87d2f976e4e124f744cd1))
+
+- **publish**: Entries resolve their asset and resource fields; the last resource route goes
+  ([`73daa0a`](https://github.com/InnerOpen/marvin/commit/73daa0a056900848c5cdfd782ba9b423ca1a499a))
+
+- **publish**: The publishing API serves entries and the site — assets and resources come with their
+  entries
+  ([`4e71f42`](https://github.com/InnerOpen/marvin/commit/4e71f42074482b6a104c920827daf561e09ab5d0))
+
+- **workflows**: A metric step can add to the count — each event once
+  ([`c265d9c`](https://github.com/InnerOpen/marvin/commit/c265d9c4f8256dbfb4fd9acfe8f869ecf0e191e0))
+
+- **workflows**: Check against a schema — a step that validates JSON and reports what's wrong
+  ([`241af62`](https://github.com/InnerOpen/marvin/commit/241af627e19ef596fe5e7b90a7a90edfe823ca3a))
+
+- **workflows**: Custom events — a workspace names its own, workflows send and react to them
+  ([`2a450a8`](https://github.com/InnerOpen/marvin/commit/2a450a82d8fb285de448728210c14316bbdd2d4d))
+
+- **workflows**: Email a person — a step that writes to a member of the workspace
+  ([`a5b4b54`](https://github.com/InnerOpen/marvin/commit/a5b4b54f1495da1a815262a035b5221f85fff76c))
+
+- **workflows**: Metrics — a step records an observation per variant and window; a page lists them
+  ([`89d9bb7`](https://github.com/InnerOpen/marvin/commit/89d9bb7b10f1491db210e8c4b572a168de78f6a7))
+
+- **workflows**: Operational events as triggers — a workflow can answer a failed webhook, a budget
+  alert or a stuck integration
+  ([`2f1d13a`](https://github.com/InnerOpen/marvin/commit/2f1d13af4100aa9337352a7293e500acdaf4017e))
+
+- **workflows**: Run branches side by side and join them — all or any, merged in order
+  ([`378554e`](https://github.com/InnerOpen/marvin/commit/378554e3cef312dc1ae4aef4d5772c06481d9692))
+
+### Testing
+
+- **workflows**: Repair tasks sharing a title list oldest first, so the health-companion test
+  doesn't depend on row order
+  ([`d3b88e9`](https://github.com/InnerOpen/marvin/commit/d3b88e92ba90610ae58f41aee8be181b8be79eba))
+
+
+## v1.0.0-rc.380 (2026-10-17)
+
+### Features
+
+- **logos**: AI providers show their logos; integration plugins bumped to the versions that ship one
+  ([`de653f6`](https://github.com/InnerOpen/marvin/commit/de653f6063409f7c8bc87a0ef2b521c17c2f6a8f))
+
+
+## v1.0.0-rc.379 (2026-10-16)
+
+### Bug Fixes
+
+- **character**: Picking a library character always names the assistant (or agent) after it
+  ([`439b0f9`](https://github.com/InnerOpen/marvin/commit/439b0f96feb93970134526e2b774854ecc679886))
+
+
+## v1.0.0-rc.378 (2026-10-16)
+
+### Features
+
+- **character**: Library characters carry their persona — pick copies it, Reset re-copies; agents
+  get their own; portable pack .zip
+  ([`00c1bf8`](https://github.com/InnerOpen/marvin/commit/00c1bf83fe6e950c28f1796265a286c37c901ebb))
+
+
+## v1.0.0-rc.377 (2026-10-16)
+
+### Features
+
+- **character**: A lone PNG upload names the character from its file name (Elvira.png → Elvira); a
+  .zip's name and the Name box still win
+  ([`c113ea8`](https://github.com/InnerOpen/marvin/commit/c113ea824ff13a061c8774205e73e5e4590aedcc))
+
+
+## v1.0.0-rc.376 (2026-10-16)
+
+### Features
+
+- **ui**: Assets and Resources get the Entries search; slim lists; Trash counts; integration logos
+  in the sidebar
+  ([`43c05cb`](https://github.com/InnerOpen/marvin/commit/43c05cbb6e56f7dbc01c7e2ee98ae00cb7be5046))
+
+
+## v1.0.0-rc.375 (2026-10-16)
+
+### Features
+
+- **nav**: Integration collections fold under their integration; Entries is Cards · List
+  ([`bee2cb1`](https://github.com/InnerOpen/marvin/commit/bee2cb170dc9422f9f1e6e7d808ca7f5a48eca6b))
+
+
+## v1.0.0-rc.374 (2026-10-16)
+
+### Features
+
+- **entries**: A List view with small pictures, and Cards · List on every collection
+  ([`3c09209`](https://github.com/InnerOpen/marvin/commit/3c0920927cd520208a84e36630331b8372d2a406))
+
+
+## v1.0.0-rc.373 (2026-10-16)
+
+### Features
+
+- **entries**: Beaker-style search — a title box, status buttons, and stacked condition rows
+  ([`ef7dab7`](https://github.com/InnerOpen/marvin/commit/ef7dab756793fd774405889fed61f890261e6bfc))
+
+
+## v1.0.0-rc.372 (2026-10-16)
+
+### Bug Fixes
+
+- **entries**: One search only — the chips; the right-hand search box and menus are gone
+  ([`5b40843`](https://github.com/InnerOpen/marvin/commit/5b408436870152f97fa6f2cb8cafb2a8b3ee208d))
+
+- **nav**: All entries sits under Content, above Collections (Jared)
+  ([`b29bf85`](https://github.com/InnerOpen/marvin/commit/b29bf858111ddcb1cddd58741e8e1f9349310ba3))
+
+- **nav**: An "All entries" row at the top of the sidebar's Entries group
+  ([`ee3ea1a`](https://github.com/InnerOpen/marvin/commit/ee3ea1a9914f49ec4f55ef6ad3bdb3656b19b6bc))
+
+
+## v1.0.0-rc.371 (2026-10-16)
+
+### Bug Fixes
+
+- **entries**: A compact condition editor, one value at a time
+  ([`3e13dfd`](https://github.com/InnerOpen/marvin/commit/3e13dfd4cbe936e6c090e0c11f247aa64808783e))
+
+
+## v1.0.0-rc.370 (2026-10-16)
+
+### Bug Fixes
+
+- **entries**: The condition editor's checkbox list wraps inside the editor
+  ([`7915f61`](https://github.com/InnerOpen/marvin/commit/7915f61687bbb4be2ccc75c4fa80af97acea5802))
+
+
+## v1.0.0-rc.369 (2026-10-16)
+
+### Features
+
+- **entries**: One search bar — the quick filters set chips, the search box still filters as you
+  type
+  ([`1c3620f`](https://github.com/InnerOpen/marvin/commit/1c3620f84e029ba64a6cf3a2e9c81a4a6dc206f8))
+
+
+## v1.0.0-rc.368 (2026-10-16)
+
+### Bug Fixes
+
+- **entries**: The condition editor stays hidden until "+ Add condition"
+  ([`a5789aa`](https://github.com/InnerOpen/marvin/commit/a5789aa251dc60884c6963689a9f88b475658148))
+
+
+## v1.0.0-rc.367 (2026-10-16)
+
+### Features
+
+- **entries**: Structured search — add a condition, then another, then another
+  ([`6102c98`](https://github.com/InnerOpen/marvin/commit/6102c986f45e2b6c851011594ff90c1c0a2c2ca9))
+
+
+## v1.0.0-rc.366 (2026-10-16)
+
+### Bug Fixes
+
+- **assets**: A new version is labelled by its bytes, not its original's type
+  ([`a699894`](https://github.com/InnerOpen/marvin/commit/a699894546a2db77109ad42270fba142eef51df4))
+
+
+## v1.0.0-rc.365 (2026-10-16)
+
+### Bug Fixes
+
+- **ai**: Send a picture to the model with the type its bytes say
+  ([`33492c0`](https://github.com/InnerOpen/marvin/commit/33492c0c3f58a1a419281951e610984431dca867))
+
+
+## v1.0.0-rc.364 (2026-10-16)
+
+### Features
+
+- **agents**: A read-only agent's referral reaches an agent that can write, in one click
+  ([`46fd6ab`](https://github.com/InnerOpen/marvin/commit/46fd6abbb13c30bc5ebd4a53c828b2a1c2b9c784))
+
+
+## v1.0.0-rc.363 (2026-10-16)
+
+### Features
+
+- **assets**: Say which pictures search can't find, and let a person describe them
+  ([`0ce247f`](https://github.com/InnerOpen/marvin/commit/0ce247fac92dbfaec4cfeec3734693270b9df1f5))
+
+
+## v1.0.0-rc.362 (2026-10-15)
+
+### Bug Fixes
+
+- **ai**: Ask may open the entries it finds; compose researches for itself
+  ([`8a86db5`](https://github.com/InnerOpen/marvin/commit/8a86db5ce984fbf7b757ab2c30ae4213b137b13b))
+
+
+## v1.0.0-rc.361 (2026-10-15)
+
+### Bug Fixes
+
+- **ai**: Say when to compose vs save a draft, and that search returns snippets
+  ([`33f8a9d`](https://github.com/InnerOpen/marvin/commit/33f8a9da235ff0eeace441c48332f298890b44b9))
+
+
+## v1.0.0-rc.360 (2026-10-15)
+
+### Features
+
+- **ai**: Create_draft and update_draft — save a draft the caller wrote, with no AI of Marvin's
+  ([`4697fa3`](https://github.com/InnerOpen/marvin/commit/4697fa3f1b618388ea202df050c02b1d5e16fa19))
+
+### Testing
+
+- **mcp**: Search_content is listed while there is an embedding model
+  ([`85e3a37`](https://github.com/InnerOpen/marvin/commit/85e3a37b02ca913d9709849098662aff5c0042df))
+
+
+## v1.0.0-rc.359 (2026-10-15)
+
+### Features
+
+- **ai**: Marvin's own embedding model — search no longer depends on the chat provider
+  ([`6c6ca06`](https://github.com/InnerOpen/marvin/commit/6c6ca06b89c58ccc94ad0f9b22af149a7a8c2137))
+
+
+## v1.0.0-rc.358 (2026-10-15)
+
+### Bug Fixes
+
+- **mcp**: Hide search_content where the workspace has no embedding model
+  ([`b482f7c`](https://github.com/InnerOpen/marvin/commit/b482f7cf46c6d9f51e6eda3c7c92e78917635128))
+
+
+## v1.0.0-rc.357 (2026-10-15)
+
+### Features
+
+- **ai**: Test connection asks the workspace's model for a structured answer
+  ([`6045580`](https://github.com/InnerOpen/marvin/commit/6045580c4abfc9f4208c47a08115104715569abe))
+
+- **mcp**: ChatGPT's search and fetch, a per-connection request limit, and the docs
+  ([`bd88217`](https://github.com/InnerOpen/marvin/commit/bd882176ba9aeab9524f0df3ac832460fa41549d))
+
+
+## v1.0.0-rc.356 (2026-10-15)
+
+### Features
+
+- **mcp**: Compose_entry over the remote MCP server — a connection can create drafts
+  ([`0fc8902`](https://github.com/InnerOpen/marvin/commit/0fc890205f74352799a81fc94cbb473d4747f6d4))
+
+
+## v1.0.0-rc.355 (2026-10-15)
+
+### Bug Fixes
+
+- **ai**: A slug that parses as a UUID (an Instagram media id) resolves by slug
+  ([`d5dd5ac`](https://github.com/InnerOpen/marvin/commit/d5dd5ac789e70a9f8c103dc545e42b2f45179ee4))
+
+### Chores
+
+- **mcp**: Log each remote tool listing and call (name, outcome, content types)
+  ([`5cc75dd`](https://github.com/InnerOpen/marvin/commit/5cc75dde13e9129f0d8951023a731c42c3f4d198))
+
+
+## v1.0.0-rc.354 (2026-10-15)
+
+### Bug Fixes
+
+- **ai**: Marvin-ai-anthropic 0.3.1 — a leading thinking block no longer breaks completions
+  ([`e52d2b8`](https://github.com/InnerOpen/marvin/commit/e52d2b8c7030882661c593c9fcf74f14e2b69900))
+
+### Features
+
+- **mcp**: Show_image — the remote MCP server hands back the picture itself
+  ([`2bf5a07`](https://github.com/InnerOpen/marvin/commit/2bf5a07437b526c1ec0afbfad6baeff9cb1446ba))
+
+
+## v1.0.0-rc.353 (2026-10-15)
+
+### Bug Fixes
+
+- **ai**: Marvin-ai-anthropic 0.3.0 — structured output works on claude-sonnet-5-5
+  ([`6269eb8`](https://github.com/InnerOpen/marvin/commit/6269eb8fe992fc807807d13a71ff1936c2d55312))
+
+
+## v1.0.0-rc.352 (2026-10-15)
+
+### Features
+
+- **ai**: Find_entries rows carry updatedAt and publishedAt
+  ([`1cb3263`](https://github.com/InnerOpen/marvin/commit/1cb3263c728e93a9eb975e5416788ba273de6ec5))
+
+
+## v1.0.0-rc.351 (2026-10-15)
+
+### Bug Fixes
+
+- **deps**: Keep mcp below 2 — the remote MCP server is built on 1.x's low-level Server
+  ([`e5d6591`](https://github.com/InnerOpen/marvin/commit/e5d6591230ed88c92420bdd1b1c8064db1fd5a7d))
+
+
+## v1.0.0-rc.350 (2026-10-15)
+
+### Features
+
+- **mcp**: Remote MCP slice 3 — Marvin's tools, prompts and resources at /mcp
+  ([`56b37be`](https://github.com/InnerOpen/marvin/commit/56b37beea3f777da01b4501e2843954945cdc689))
+
+
+## v1.0.0-rc.349 (2026-10-15)
+
+### Bug Fixes
+
+- **storage**: The Storage settings page declares its breadcrumb (settings.storage)
+  ([`26375e6`](https://github.com/InnerOpen/marvin/commit/26375e6907883810e41d72815b80c55b6f7987ef))
+
+### Features
+
+- **mcp**: Remote MCP slice 2 — OAuth sign-in, consent page and connected apps
+  ([`d013079`](https://github.com/InnerOpen/marvin/commit/d01307961161229a2899ada97a262401671022d3))
+
+
+## v1.0.0-rc.348 (2026-10-15)
+
+### Features
+
+- **storage**: Bring your own storage, slice 5 — a workspace's own backups in its own private bucket
+  ([`d9ab2d1`](https://github.com/InnerOpen/marvin/commit/d9ab2d1650b2ffed6436c468f6a3052c2d055dc7))
+
+
+## v1.0.0-rc.347 (2026-10-15)
+
+### Features
+
+- **ai**: One gateway for unattended tool calls, with the AI budget
+  ([`6f7f384`](https://github.com/InnerOpen/marvin/commit/6f7f384348804d70cc8f0bb847b466c9254abe1f))
+
+- **mcp**: Remote MCP slice 1 — OAuth tables, the remote_mcp switch (off), discovery metadata, purge
+  ([`0339548`](https://github.com/InnerOpen/marvin/commit/0339548900a81fc9baa18c639b3ddc32aaa287d0))
+
+
+## v1.0.0-rc.346 (2026-10-15)
+
+### Features
+
+- **storage**: Bring your own storage, slice 4 — hourly bucket checks, backup visibility, bundle
+  switch
+  ([`b5d46fe`](https://github.com/InnerOpen/marvin/commit/b5d46fe7f047643fea8e6d5f9f30e3207cdae1f1))
+
+
+## v1.0.0-rc.345 (2026-10-15)
+
+### Features
+
+- **storage**: Copy events — workspace_storage_copy_started and _finished
+  ([`445c40f`](https://github.com/InnerOpen/marvin/commit/445c40f02d62a43b1bf5c1cf67bf31e73d3a1b72))
+
+
+## v1.0.0-rc.344 (2026-10-15)
+
+### Documentation
+
+- **tasks**: MCP OAuth plan — all sixteen questions decided as recommended
+  ([`da9dc92`](https://github.com/InnerOpen/marvin/commit/da9dc92394feece90434660ba49c35bbf1f4974b))
+
+### Features
+
+- **storage**: Bring your own storage, slice 3 — copy a workspace's existing files into its own
+  bucket
+  ([`2f3ff06`](https://github.com/InnerOpen/marvin/commit/2f3ff0649765c2668637043d2c9bddc76b3ffbff))
+
+
+## v1.0.0-rc.343 (2026-10-14)
+
+### Documentation
+
+- **tasks**: Remote MCP with OAuth sign-in plan — five slices, sixteen questions
+  ([`506088f`](https://github.com/InnerOpen/marvin/commit/506088f16b29f1b0ce109b55c8cbab8b6da316c0))
+
+### Features
+
+- **storage**: Bring your own storage, slice 2 — Workspace → Storage page, API, Check connection,
+  policy switch
+  ([`74ed875`](https://github.com/InnerOpen/marvin/commit/74ed8752f5e4d29dd255f9f2ccde8a6bafac8d05))
+
+
+## v1.0.0-rc.342 (2026-10-14)
+
+### Bug Fixes
+
+- **assets**: Drop the upload service's second smart-collection join, which failed on every upload
+  ([`8a50883`](https://github.com/InnerOpen/marvin/commit/8a50883daa4769ad11b4901dcf9f6cbae47d64bc))
+
+
+## v1.0.0-rc.341 (2026-10-14)
+
+### Features
+
+- **user**: Command line & MCP page — install and sign in the CLI, connect the MCP server, with this
+  Marvin's API address
+  ([`e90e693`](https://github.com/InnerOpen/marvin/commit/e90e6934ace2fe67458af2c381fa14e018bb0c02))
+
+
+## v1.0.0-rc.340 (2026-10-14)
+
+### Bug Fixes
+
+- **storage**: A workspace connection's access key ID can be a workspace secret; the own-bucket
+  check ignores keys
+  ([`4278fa5`](https://github.com/InnerOpen/marvin/commit/4278fa5454596d59d94bcd3524aebfc9434c7698))
+
+
+## v1.0.0-rc.339 (2026-10-14)
+
+### Features
+
+- **storage**: Bring your own storage, slice 1 — a workspace's uploads can go to its own bucket
+  (inert: policy off)
+  ([`e98f551`](https://github.com/InnerOpen/marvin/commit/e98f5518b038f83a1b23898189ad327f5e94ace5))
+
+
+## v1.0.0-rc.338 (2026-10-14)
+
+### Bug Fixes
+
+- **dev**: A dev refresh drops the previous refresh's pause records before pausing
+  ([`7898827`](https://github.com/InnerOpen/marvin/commit/789882703544b27a67d83d7c95008af8907caabe))
+
+### Code Style
+
+- **collections**: The Sidebar control is a switch
+  ([`fe72885`](https://github.com/InnerOpen/marvin/commit/fe728856b0f714d524b1f6b5c663dc40ac3328e1))
+
+### Documentation
+
+- **postgres**: Dev holds production's .secret, so copied secrets decrypt there
+  ([`dc408a4`](https://github.com/InnerOpen/marvin/commit/dc408a4fa15b2b432d40b5ebcdf3f5e4fab9beb5))
+
+- **tasks**: Bring-your-own-storage decisions — all ten answered
+  ([`d39584a`](https://github.com/InnerOpen/marvin/commit/d39584abef5bf25cf52ba61ad45312ecd729c075))
+
+
+## v1.0.0-rc.337 (2026-10-14)
+
+### Documentation
+
+- **manual**: The tools-on-demand note sits in the usage section, not a section of its own
+  ([`2f96b88`](https://github.com/InnerOpen/marvin/commit/2f96b88b787f22757936098acd65438ae08cbd08))
+
+- **tasks**: Bring-your-own-storage plan — ws: locations, five slices, open questions
+  ([`94c5077`](https://github.com/InnerOpen/marvin/commit/94c50775850fc09e96bb2f6acbde1b9457818030))
+
+### Features
+
+- **admin**: Overview lists recent sign-ins and plugins with a newer release
+  ([`93ab333`](https://github.com/InnerOpen/marvin/commit/93ab3333dbcf93408539d9998746ef71d625472b))
+
+- **ai**: Tools on demand — all-tools agents start lean and load a tool group when a question needs
+  it
+  ([`e5674ff`](https://github.com/InnerOpen/marvin/commit/e5674ffcfb9554fd5b05371e49253da6f77aa00a))
+
+- **collections**: A Sidebar switch picks which collections the sidebar lists
+  ([`22c89fc`](https://github.com/InnerOpen/marvin/commit/22c89fcfdeeec39939a7e69ab52cd369d715942d))
+
+### Testing
+
+- **workflows**: The authoring test accepts workflow tools named in load_tools
+  ([`a9145e0`](https://github.com/InnerOpen/marvin/commit/a9145e095ca60a7cda3188447096552ba417cc77))
+
+
+## v1.0.0-rc.336 (2026-10-14)
+
+### Bug Fixes
+
+- **workflows**: Workflow limit lookups clamp to range and ignore a value that isn't a number
+  ([`034947a`](https://github.com/InnerOpen/marvin/commit/034947ad23f4971e635a18a32d7dea49728f1f75))
+
+### Documentation
+
+- **manual**: Admin overview, security and branding, workspace limits, workflow run retention
+  ([`075ff55`](https://github.com/InnerOpen/marvin/commit/075ff552a1659646d44e2ac60e34307fcf3f2f41))
+
+### Features
+
+- **admin**: Overview health strip, workspaces and AI spend; Security and email Branding settings;
+  dead settings gone
+  ([`fb32bcc`](https://github.com/InnerOpen/marvin/commit/fb32bccec1f65f2697337d3e6947a3a789169387))
+
+- **retention**: Prune_workflow_runs — finished workflow runs and their steps go after 90 days
+  ([`3593d35`](https://github.com/InnerOpen/marvin/commit/3593d3550682ad3403712fb124329581118d2219))
+
+- **workspace**: Limits a workspace sets — agent steps, chat memory, bulk-change threshold, workflow
+  steps, approval wait
+  ([`70ac614`](https://github.com/InnerOpen/marvin/commit/70ac614343fb895f9fa87ddf6bf11a057c04cb5d))
+
+
+## v1.0.0-rc.335 (2026-10-14)
+
+### Bug Fixes
+
+- **security**: Reset links expire; one password minimum everywhere; template edits survive
+  restarts; agent steps a setting
+  ([`c7a80e8`](https://github.com/InnerOpen/marvin/commit/c7a80e879cf73e9c986175d339186c894f14287e))
+
+### Documentation
+
+- **manual**: Reset links expire; one minimum password length
+  ([`5d06752`](https://github.com/InnerOpen/marvin/commit/5d067529bc9541619fe4c40b570c91e2fef85ad1))
+
+
+## v1.0.0-rc.334 (2026-10-14)
+
+### Bug Fixes
+
+- **chart**: Set BASE_URL / FRONTEND_URL — prod's reset and invite emails linked to localhost
+  ([`ec93ddf`](https://github.com/InnerOpen/marvin/commit/ec93ddf61f12fcbb77dab19eb04b4cef96bc9c87))
+
+- **email**: A password reset's "Platform" is a badge with a reason, not a button-shaped label
+  ([`d103e91`](https://github.com/InnerOpen/marvin/commit/d103e912565f7f27cc4f9f34a6399654990fac3d))
+
+### Chores
+
+- **frontend**: SDK 3.2.0-next.28 → 5.12.0 — the bubble shows the provider's reason, not "Server
+  error: 502"
+  ([`e211787`](https://github.com/InnerOpen/marvin/commit/e211787092523b80120bf382e0644833a639121d))
+
+- **integrations**: Marvin-integration-instagram 0.5.3 — token refresh passes the token as a
+  parameter
+  ([`3bc71ad`](https://github.com/InnerOpen/marvin/commit/3bc71ad9adc1989f598ccf1bfbf77d4b6351126d))
+
+### Code Style
+
+- **tests**: Lint the cache-rate test
+  ([`1dcb26c`](https://github.com/InnerOpen/marvin/commit/1dcb26c4d8db9bf77f7e5666799eb50219464573))
+
+### Documentation
+
+- **manual**: Database & cleanup, and Scheduled Tasks grouped by owner
+  ([`feec8b0`](https://github.com/InnerOpen/marvin/commit/feec8b001ccab3c27975254f5cd0ccd0eaf43fa9))
+
+### Features
+
+- **admin**: Maintenance becomes Database & cleanup — the largest tables and what keeps each in
+  check
+  ([`3380d7f`](https://github.com/InnerOpen/marvin/commit/3380d7fc35f60a3663308419d989a2029a8e6309))
+
+- **admin**: Scheduled Tasks lists System first, then each workspace's under its name; Events uses
+  the full width
+  ([`90a4360`](https://github.com/InnerOpen/marvin/commit/90a43608673aa76cd8081f25402d2a694c742201))
+
+- **ask**: Search conversations — titles and everything said, with the words around each hit
+  ([`94bd4b8`](https://github.com/InnerOpen/marvin/commit/94bd4b8928d216c1c2671042d6ea93fe220c6998))
+
+- **incoming-webhooks**: "N received" opens the last calls and what each carried
+  ([`3a413bf`](https://github.com/InnerOpen/marvin/commit/3a413bfaf8f7fdde3b958ccfe46f855eebabe5b0))
+
+### Testing
+
+- **ai**: The cache-rate test stands in for the Anthropic plugin; the caching note sits under the
+  usage card
+  ([`0d2a6b0`](https://github.com/InnerOpen/marvin/commit/0d2a6b0f08318af5b6be06578dbf1b22c6da7a51))
+
+
+## v1.0.0-rc.333 (2026-10-14)
+
+### Chores
+
+- **ai**: Marvin-ai-google 0.1.1 — default model gemini-3.8-flash (Google retired 2.5-flash for new
+  keys)
+  ([`42c8520`](https://github.com/InnerOpen/marvin/commit/42c852045f15ecec93ce8829af1427f85294bfd3))
+
+### Code Style
+
+- **dashboard**: One frame, two column stacks, every section a panel
+  ([`f2e6893`](https://github.com/InnerOpen/marvin/commit/f2e6893796584eb5631ed3816f2b685f0e8be2c7))
+
+- **dashboard**: Recent activity joins the left column so the two stacks end level
+  ([`ce8ac7d`](https://github.com/InnerOpen/marvin/commit/ce8ac7d0162f44bd86643a5e15772418cd514e92))
+
+### Features
+
+- **ai**: Prompt caching — cached tokens reported, priced at the cache rates, shown per run
+  ([`3f27221`](https://github.com/InnerOpen/marvin/commit/3f2722145fa753899506316ac7a9c5f7739c3b65))
+
+
+## v1.0.0-rc.332 (2026-10-14)
+
+### Features
+
+- **approvals**: A picture's decision stays with the asset — stamped on its metadata, shown,
+  filterable
+  ([`6c99c7f`](https://github.com/InnerOpen/marvin/commit/6c99c7f4c853583e0a54c059d8489b94a619581e))
+
+
+## v1.0.0-rc.331 (2026-10-14)
+
+### Chores
+
+- **ai**: Marvin-ai-openai 0.1.1 — prices for gpt-image-2 and the other current image models
+  ([`dd47b30`](https://github.com/InnerOpen/marvin/commit/dd47b30e5e5978628e2d9d8fa25c4780de82eaa4))
+
+### Features
+
+- **assets**: A generated image links its entry and workflow; asset and resource lists stack on a
+  phone
+  ([`ff8a227`](https://github.com/InnerOpen/marvin/commit/ff8a2275ee93de17d068b8f74696ffa88a470961))
+
+
+## v1.0.0-rc.330 (2026-10-14)
+
+### Bug Fixes
+
+- **workflows**: The editor knows attach_asset — label, fields, and the manual
+  ([`2d1967c`](https://github.com/InnerOpen/marvin/commit/2d1967cfd7a1697bc564cf535759b1805de03bb0))
+
+
+## v1.0.0-rc.329 (2026-10-14)
+
+### Bug Fixes
+
+- **workflows**: Attach_asset declares what it sends (asset_attached_to_entry)
+  ([`7826699`](https://github.com/InnerOpen/marvin/commit/7826699f715cb88b013612d19a6ce11c667e3982))
+
+
+## v1.0.0-rc.328 (2026-10-14)
+
+### Bug Fixes
+
+- **assets**: A row or a card opens its asset wherever it's tapped
+  ([`35dfba6`](https://github.com/InnerOpen/marvin/commit/35dfba68d9f84aab49d75c998824165f28793fa7))
+
+
+## v1.0.0-rc.327 (2026-10-14)
+
+### Features
+
+- **workflows**: An approval can show a picture, and attach_asset links one only once approved
+  ([`68d8392`](https://github.com/InnerOpen/marvin/commit/68d8392a6a9d0c1dc50dfa95c9c55aee7da7868a))
+
+
+## v1.0.0-rc.326 (2026-10-14)
+
+### Bug Fixes
+
+- **frontend**: A JSON body is sent as JSON — approving a workflow from the page failed with 422
+  ([`7d458f5`](https://github.com/InnerOpen/marvin/commit/7d458f528bb06068e9036c927123c78259a54576))
+
+
+## v1.0.0-rc.325 (2026-10-14)
+
+### Chores
+
+- **integrations**: Instagram 0.5.2 — the recipe makes a JPEG copy before posting
+  ([`2bff003`](https://github.com/InnerOpen/marvin/commit/2bff0030e2dcf11d716f1651a2fc7fa619b0d8ee))
+
+### Features
+
+- **integrations**: OpenAI Images 0.4.0, and a labelled Check connection button on every card
+  ([`15a182b`](https://github.com/InnerOpen/marvin/commit/15a182bb8e994e49f54a9936cc66f1bffdaa20bd))
+
+
+## v1.0.0-rc.324 (2026-10-14)
+
+### Features
+
+- **integrations**: Instagram 0.5.1 — post to the feed, with the plugin's own recipe
+  ([`39a3f27`](https://github.com/InnerOpen/marvin/commit/39a3f27b0cef963b3754282ad9e2b8ee68bb5a9c))
+
+
+## v1.0.0-rc.323 (2026-10-14)
+
+### Features
+
+- **publishing**: Typed privacy & cookies block in Site Settings
+  ([`1395816`](https://github.com/InnerOpen/marvin/commit/139581636f743a060d29cc643a35d86ddd46baa5))
+
+### Refactoring
+
+- **ai**: One runner records and runs an operation for the route and the workflow step
+  ([`e028cc4`](https://github.com/InnerOpen/marvin/commit/e028cc45cdf89ec117ac754f45d091e11a1ca950))
+
+- **backup**: Drop the SQLite paths from the backup engine
+  ([`694bd7b`](https://github.com/InnerOpen/marvin/commit/694bd7bea1f9d7344da36c9d7c11e88d6c6eb687))
+
+
+## v1.0.0-rc.322 (2026-10-14)
+
+### Chores
+
+- **settings**: Drop the "Custom Fields — coming soon" card
+  ([`84c29eb`](https://github.com/InnerOpen/marvin/commit/84c29eb47da20b41fc645504ad0f0469b1c729dc))
+
+- **tasks**: Lessons live in the Brain, not the repo
+  ([`1113e71`](https://github.com/InnerOpen/marvin/commit/1113e71aa6c5648e22d1866dd33f10a4c9102b58))
+
+### Features
+
+- **dashboard**: Second pass — pick up where you left off, published by week, content by type
+  ([`f8bb372`](https://github.com/InnerOpen/marvin/commit/f8bb372fc1b00efba502e2a06f5fab251796447c))
+
+### Testing
+
+- **library**: Date-based waits take the event date from the workspace's calendar
+  ([`a59ff23`](https://github.com/InnerOpen/marvin/commit/a59ff23095f1b9c6ae9c3c74c982ea432f83e84b))
+
+
+## v1.0.0-rc.321 (2026-10-14)
+
+### Bug Fixes
+
+- **settings**: The Preferences card opens the site form instead of saying "coming soon"
+  ([`088609c`](https://github.com/InnerOpen/marvin/commit/088609cd3de811a1f71682bdcf102e3f63cc5614))
+
+
+## v1.0.0-rc.320 (2026-10-13)
+
+### Bug Fixes
+
+- **entries**: The Ask button carries the workspace's assistant name
+  ([`c386a42`](https://github.com/InnerOpen/marvin/commit/c386a425ad7d658d824db2667cbda98476f8f739))
+
+
+## v1.0.0-rc.319 (2026-10-13)
+
+### Features
+
+- **dashboard**: AI usage against the workspace's limits
+  ([`1cbd888`](https://github.com/InnerOpen/marvin/commit/1cbd888a4246ce216f1400080735381af3be58cd))
+
+
+## v1.0.0-rc.318 (2026-10-13)
+
+### Bug Fixes
+
+- **entries**: Ask Marvin asks for a revision, so the improvements land as a suggestion
+  ([`8302af0`](https://github.com/InnerOpen/marvin/commit/8302af0382da604d33e973e1aad5405e0d142a33))
+
+
+## v1.0.0-rc.317 (2026-10-13)
+
+### Features
+
+- **entries**: Ask Marvin goes to the Ask page when the bubble is off, in the same thread
+  ([`2591aca`](https://github.com/InnerOpen/marvin/commit/2591aca7b9de733ac413586fa0c26395a6bff5ba))
+
+
+## v1.0.0-rc.316 (2026-10-13)
+
+### Features
+
+- **entries**: One Ask Marvin button replaces the AI menu, Generate and Improve
+  ([`fb49d1e`](https://github.com/InnerOpen/marvin/commit/fb49d1e1e53394d86361c3ad793946ac97e7edec))
+
+
+## v1.0.0-rc.315 (2026-10-13)
+
+### Features
+
+- **frontend**: Drop the Review Queue button and the app's Review shortcut
+  ([`959537a`](https://github.com/InnerOpen/marvin/commit/959537a0b59b51960bf4e5419978df48c200d196))
+
+
+## v1.0.0-rc.314 (2026-10-13)
+
+### Bug Fixes
+
+- **entries**: The per-field Improve button stays out of the Marvin chat composer
+  ([`16f5eb3`](https://github.com/InnerOpen/marvin/commit/16f5eb3d04a8e7fd1f31df06ee26f385778701cf))
+
+
+## v1.0.0-rc.313 (2026-10-13)
+
+### Features
+
+- **dashboard**: One dashboard at /, with the live panels; /workspace redirects there
+  ([`e82dffe`](https://github.com/InnerOpen/marvin/commit/e82dffea0daaf12cc75d361580d57dc04676c82d))
+
+
+## v1.0.0-rc.312 (2026-10-13)
+
+### Bug Fixes
+
+- **dashboard**: A caller without a readable role still gets the dashboard
+  ([`6c4f7c3`](https://github.com/InnerOpen/marvin/commit/6c4f7c36d7747663c2edf6a552d9cc62566cc761))
+
+
+## v1.0.0-rc.311 (2026-10-13)
+
+### Features
+
+- **dashboard**: What waits on you, what's coming up, a health strip and a runs sparkline
+  ([`d564023`](https://github.com/InnerOpen/marvin/commit/d564023c5009e0fd4ddf700e19727e4d7806db3e))
+
+
+## v1.0.0-rc.310 (2026-10-13)
+
+### Bug Fixes
+
+- **ci**: Vault test job gets a Postgres service; Helm workflow runs on its own changes
+  ([`4744557`](https://github.com/InnerOpen/marvin/commit/47445575e98ec67159536b59688a1fcefaf902d7))
+
+
+## v1.0.0-rc.309 (2026-10-13)
+
+### Bug Fixes
+
+- **ci**: Make the Postgres-only pipeline green
+  ([`e4743d5`](https://github.com/InnerOpen/marvin/commit/e4743d5aba428db3935ce0ec74ad58fecf7f3888))
+
+
+## v1.0.0-rc.308 (2026-10-13)
+
+### Chores
+
+- **todo**: SQLite stays for now — Jared: trash it soon, not yet
+  ([`2cad883`](https://github.com/InnerOpen/marvin/commit/2cad8833efbed74ae13ee4d562e8d53f03bd14aa))
+
+### Features
+
+- **db**: Retire SQLite — Marvin runs on Postgres only
+  ([`2fb4473`](https://github.com/InnerOpen/marvin/commit/2fb44737f94f052a756f93bcf0c28d67b745aec2))
+
+
+## v1.0.0-rc.307 (2026-10-13)
+
+### Bug Fixes
+
+- **groups**: Renaming a workspace through its preferences actually renames it
+  ([`607dc21`](https://github.com/InnerOpen/marvin/commit/607dc21351403c6de4f445b36bacc2161c21c5d6))
+
+
+## v1.0.0-rc.306 (2026-10-13)
+
+### Features
+
+- **frontend**: Assets and Resources fold open to their types, with counts
+  ([`32e4c98`](https://github.com/InnerOpen/marvin/commit/32e4c987675d09742b97ebec9b3781b4d6c86004))
+
+
+## v1.0.0-rc.305 (2026-10-13)
+
+### Features
+
+- **frontend**: A Gmail-shaped sidebar — New, entry folders with counts, collections and settings
+  folded
+  ([`f917d70`](https://github.com/InnerOpen/marvin/commit/f917d702a1bd9bc600bcb5028ece230bface8c42))
+
+
+## v1.0.0-rc.304 (2026-10-13)
+
+### Bug Fixes
+
+- **frontend**: The breadcrumb shows the settings tab a page belongs to
+  ([`973fdaa`](https://github.com/InnerOpen/marvin/commit/973fdaa3eb1dd5d5950cea4990e0fe75f76831e5))
+
+
+## v1.0.0-rc.303 (2026-10-13)
+
+### Bug Fixes
+
+- **frontend**: Every admin and workspace page fits a phone
+  ([`44ef84f`](https://github.com/InnerOpen/marvin/commit/44ef84fa6c1a9c30b01bbe0fc3e5ba1b58d5f43b))
+
+### Refactoring
+
+- **workflows**: The authoring guide is read like a vault — an index first, then the sections a
+  request needs
+  ([`b7a4194`](https://github.com/InnerOpen/marvin/commit/b7a419404e4b2399b179900cd109fc962c1b4774))
+
+
+## v1.0.0-rc.302 (2026-10-13)
+
+### Features
+
+- **workflows**: Member events as triggers (${member.*}); Community welcome pack runs
+  ([`382c275`](https://github.com/InnerOpen/marvin/commit/382c27509da229b759c09f837ca7ed4f02cd1ae9))
+
+
+## v1.0.0-rc.301 (2026-10-13)
+
+### Features
+
+- **workflows**: Thank-you notes and Post-event recap recipes (built on Repeat for each)
+  ([`65986ca`](https://github.com/InnerOpen/marvin/commit/65986ca5a2dc6cbe42379f950e555b148c5b1d4a))
+
+
+## v1.0.0-rc.300 (2026-10-13)
+
+### Bug Fixes
+
+- **workflows**: A waiting run finds its step by id and goes on with the edited workflow; a
+  cancelled wait is announced
+  ([`d1db920`](https://github.com/InnerOpen/marvin/commit/d1db920999307759098b0369f84d1355c674b2c2))
+
+
+## v1.0.0-rc.299 (2026-10-13)
+
+### Features
+
+- **workflows**: Approvals with choices, length conditions, cancelling a waiting run
+  ([`f12b80c`](https://github.com/InnerOpen/marvin/commit/f12b80c17574d091da965b962ddec780836a089a))
+
+
 ## v1.0.0-rc.298 (2026-10-13)
 
 ### Features

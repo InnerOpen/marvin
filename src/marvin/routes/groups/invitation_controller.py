@@ -150,7 +150,7 @@ class GroupInvitationsController(BaseUserController):
         self.checks.can_manage_members(self.group_id)
 
         if not email_ready(self.group_id):
-            # No SMTP for this workspace: its own profile, the platform settings or the platform workspace's profile
+            # No SMTP for this workspace: its own profile or the platform's SMTP settings
             self.logger.error("SMTP service is not enabled, cannot send email invitations.")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Email service is currently unavailable. Please try again later."

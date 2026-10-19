@@ -40,6 +40,7 @@ from marvin.schemas.platform.event_connections import (
     WorkspaceEventReactions,
 )
 from marvin.schemas.platform.event_log import EventLogSummary
+from marvin.services.events import custom_events
 from marvin.services.events.event_catalog import CATALOG, TRIGGERABLE_EVENT_TYPES, CatalogEntry, get_catalog_entry
 
 # The order reactions are listed in (built-in ones come last).
@@ -51,8 +52,11 @@ _WEBHOOK_TASK = "webhook_task"
 _RECIPIENTS = {"admins": "To the workspace admins", "specific": "To specific addresses", "event_field": "To an address in the event"}
 
 
-def workspace_entry(event_type: str) -> CatalogEntry | None:
-    """The catalog entry for a shown workspace-scope event type, or None (unknown, hidden, or a platform event)."""
+def workspace_entry(event_type: str, session: Session | None = None, group_id=None) -> CatalogEntry | None:
+    """The catalog entry for a shown workspace-scope event type, or None (unknown, hidden, or a platform event).
+    With a workspace, its own registered `custom.*` events count too."""
+    if custom_events.is_custom(event_type):
+        return custom_events.entry_for(session, group_id, event_type) if session is not None else None
     entry = get_catalog_entry(event_type)
     return entry if entry is not None and entry.scope == "workspace" and not entry.hidden else None
 
@@ -89,7 +93,7 @@ def _workflow_runs(f: _Facts) -> bool:
     lifecycle = _LIFECYCLE_TRIGGERS.get(f.event_type)
     if lifecycle is not None:
         return f.trigger_type in (lifecycle, "event")
-    return f.event_type in TRIGGERABLE_EVENT_TYPES and f.trigger_type == "event"
+    return (f.event_type in TRIGGERABLE_EVENT_TYPES or custom_events.is_custom(f.event_type)) and f.trigger_type == "event"
 
 
 def _runs(facts: list[_Facts], group_id) -> list[bool]:
@@ -390,11 +394,15 @@ def _step_sends(step, subject: str = "entry") -> list[tuple[str, str]]:
         return []
     kind = step.get("kind")
     emits = canonical_event_type(step["event"]) if kind == "emit_event" and isinstance(step.get("event"), str) else None
-    if emits in EMITTABLE_EVENT_TYPES:  # anything else fails at run time
+    if emits in EMITTABLE_EVENT_TYPES or custom_events.is_custom(emits):  # anything else fails at run time
         return [(emits, "Emit event step")]
     if kind == "handler" and step.get("task") in AUTOMATION_ALLOWED_HANDLERS and TaskHandlerRegistry.is_registered(step["task"]):
         handler = TaskHandlerRegistry.get_handler(step["task"])
         return [(e, f"{handler.name} step") for e in handler.sends]
+    if kind == "snapshot" and step.get("op") == "restore":
+        from marvin.services.snapshots import RESTORE_SENDS
+
+        return [(e, "Snapshot step: restore") for e in RESTORE_SENDS]
     item_op = (step.get("entity_type") or (subject if step.get("op") in ITEM_OPS else "entry"), step.get("op"))
     if kind == "entry" and item_op in ITEM_OP_SENDS:
         return [(e, f"Entry step: {step['op']} ({item_op[0]})") for e in ITEM_OP_SENDS[item_op]]
@@ -630,7 +638,7 @@ def summary(session: Session, group_id, *, visible=None) -> list[EventConnection
             builtin_reactions=len(builtin(e.event_type)),
             last_occurred_at=last.get(e.event_type),
         )
-        for e in CATALOG
+        for e in [*CATALOG, *custom_events.catalog_entries(session, group_id)]
         if e.scope == "workspace" and not e.hidden
     ]
 

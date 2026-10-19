@@ -8,7 +8,7 @@ import {
   getCollectionMembers,
 } from "@/lib/api/collections";
 import type { CollectionRead, EntryRead } from "@/lib/api/entries";
-import LocalTime from "@/components/LocalTime.astro";
+import EntryViews from "@/components/EntryViews.astro";
 import TrashView from "@/components/TrashView.astro";
 import { listEntryTypes } from "@/lib/api/entryTypes";
 import type { AssetRead } from "@/lib/api/assets";
@@ -73,17 +73,9 @@ const memberHref = (m: CollectionMember) =>
       ? `/workspace/resources/${m.id}`
       : `/workspace/entries/${m.id}`;
 const totalCount = targetType === "entry" ? entries.length : members.length;
+// The Trash counts everything in it, as its tabs and the sidebar do.
+const headerCount = isTrash ? entries.length + trashedAssets.length + trashedResources.length : totalCount;
 
-const statusMeta: Record<string, { label: string; cls: string }> = {
-  inbox: { label: "Inbox", cls: "s-inbox" },
-  processing: { label: "Processing", cls: "s-processing" },
-  draft: { label: "Draft", cls: "s-draft" },
-  needs_review: { label: "Needs Review", cls: "s-review" },
-  approved: { label: "Approved", cls: "s-approved" },
-  published: { label: "Published", cls: "s-published" },
-  archived: { label: "Archived", cls: "s-archived" },
-  trashed: { label: "In Trash", cls: "s-archived" },
-};
 ---
 
 <AppLayout
@@ -105,7 +97,7 @@ const statusMeta: Record<string, { label: string; cls: string }> = {
           <h2 class="col-title">
             {collection.icon && <span class="col-icon">{collection.icon}</span>}
             {collection.name}
-            <span class="col-count">{totalCount}</span>
+            <span class="col-count">{headerCount}</span>
             {collection.isSmart && <span class="pill">Smart</span>}
             {targetType !== "entry" && <span class="pill target-pill">{targetType}s</span>}
             {collection.isSystem && <span class="pill system-pill">System</span>}
@@ -140,29 +132,7 @@ const statusMeta: Record<string, { label: string; cls: string }> = {
           <p>{targetType === "entry" ? "Entries" : `${targetType[0].toUpperCase()}${targetType.slice(1)}s`} matching this collection will appear here.</p>
         </div>
       ) : targetType === "entry" ? (
-        <ul class="inbox">
-          {entries.map((entry) => {
-            const s = statusMeta[entry.status] ?? { label: entry.status, cls: "s-default" };
-            return (
-              <li class="inbox-row">
-                <a class="inbox-link" href={`/workspace/entries/${entry.id}`}>
-                  <span class={`status-dot ${s.cls}`} title={s.label}></span>
-                  <span class="inbox-main">
-                    <span class="inbox-title">{entry.title || "Untitled"}</span>
-                    {entry.summary && <span class="inbox-summary">{entry.summary}</span>}
-                  </span>
-                  <span class="inbox-meta">
-                    {typeMap.get(entry.entryTypeId) && (
-                      <span class="inbox-type">{typeMap.get(entry.entryTypeId)}</span>
-                    )}
-                    <span class={`status-pill ${s.cls}`}>{s.label}</span>
-                    <span class="inbox-date"><LocalTime iso={entry.updateAt ?? entry.createdAt} format="short-date" fallback="" /></span>
-                  </span>
-                </a>
-              </li>
-            );
-          })}
-        </ul>
+        <EntryViews entries={entries} typeNames={typeMap} storageKey="collection-view" defaultView="list" />
       ) : (
         <ul class="inbox">
           {members.map((m) => (
@@ -275,6 +245,7 @@ const statusMeta: Record<string, { label: string; cls: string }> = {
     border-radius: 50%;
     background: var(--muted);
   }
+
 
   .inbox-main {
     flex: 1 1 auto;

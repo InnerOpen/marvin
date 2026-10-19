@@ -13,11 +13,13 @@ System agents are code so every workspace has them without seeding:
 
 from __future__ import annotations
 
+import re
+import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
 
 from marvin.schemas.group.agent import SYSTEM_AGENT_SLUGS
-from marvin.services.ai.operations.base import INVOCATION_SOURCES, ROLE_ADMIN, ROLE_VIEWER
+from marvin.services.ai.operations.base import INVOCATION_SOURCES, ROLE_ADMIN, ROLE_EDITOR, ROLE_VIEWER
 
 ASK_SYSTEM_PROMPT = (
     "You answer questions about this workspace using ONLY what your tools return: search_content for "
@@ -33,8 +35,9 @@ ASK_SYSTEM_PROMPT = (
 BUILDER_SYSTEM_PROMPT = (
     "You help the admin set Marvin up to do what they need: workflows (automations), and how entry types, collections, "
     "scheduled tasks and integrations fit in. You configure Marvin; you never write code for their site.\n"
-    "First, learn the real pieces: workflow_authoring_guide (this workspace's entry types, fields, collections and "
-    "integrations; section=editor gives the editor's own labels), search_docs / read_doc for how Marvin works (cite the "
+    "First, learn the real pieces: workflow_authoring_guide (its index says where each detail lives; section=workspace "
+    "gives this workspace's entry types, fields, collections and integrations, section=editor the editor's own labels), "
+    "search_docs / read_doc for how Marvin works (cite the "
     "page's url), and list_workflows / get_workflow for what exists. Before giving steps, look up the entry type(s) "
     "involved (list_entry_types, get_entry_type) and use their real slug, field keys and option values, checked "
     "with find_entries when a value matters — the manual's examples use made-up names. Never name a step, field, "
@@ -133,16 +136,18 @@ NO_REMOVE_RULE = (
 # guide (generated from the code), the workflow from draft_workflow — switched off, for the user to enable.
 WORKFLOW_RULE = (
     "Creating a workflow (automation): when asked to create, build or set up a workflow or automation, make it yourself. "
-    "Call workflow_authoring_guide first (unless its result is already in this conversation; ask it for a section when "
-    "you need detail), then draft_workflow with a definition in exactly that format, using this workspace's own names "
-    "from the guide. Never say you can't create workflows, and never invent another format. If draft_workflow returns "
+    "Call workflow_authoring_guide first (unless it is already in this conversation): its index says which sections the "
+    "request needs — read those, several in one call (section=shape,actions,workspace,templates) — then draft_workflow "
+    "with a definition in exactly that format, using this workspace's own names from the guide. "
+    "Never say you can't create workflows, and never invent another format. If draft_workflow returns "
     "issues, fix each one and call it again — at most three tries, then tell the user what is still wrong. It is created "
     "switched off: say so, give the result's editLink verbatim, and say what to check before enabling it (the trigger, "
     "which entries it acts on — a dry run shows them without changing anything — and each step). Revise a draft with "
     "update_workflow_draft; never enable or run it yourself."
 )
 WORKFLOW_GUIDE_ONLY_RULE = (
-    "Workflows (automations): you can't save one here. Asked for one, call workflow_authoring_guide and write the "
+    "Workflows (automations): you can't save one here. Asked for one, call workflow_authoring_guide (its index, then the "
+    "sections it points to) and write the "
     "definition in exactly that format for the user to paste into the workflow editor (New workflow → Edit as JSON); "
     "never invent another format."
 )
@@ -157,6 +162,21 @@ def external_servers(tool_names: Iterable[str]) -> dict[str, int]:
             if len(parts) == 3:
                 counts[parts[1]] = counts.get(parts[1], 0) + 1
     return counts
+
+
+HANDOFF_WRITE_RULE = (
+    "You cannot change anything here. When the user asks for a change (create, edit, attach), do the reading part, "
+    "then call suggest_agent ONCE with `tool` set to the tool the change needs (attach_asset, attach_tag, "
+    "create_draft, update_draft, revise_entry…) and `context` holding what you found (the entry slug, the asset ids "
+    "you chose, a short summary). The workspace picks the agent that may run it, or tells you which setting would "
+    "allow one: pass that on in one line. Never imply the change was made."
+)
+
+
+def _writes(tool_name: str) -> bool:
+    from marvin.services.ai.tools.categories import category_of, category_writes
+
+    return tool_name != "suggest_agent" and category_writes(category_of(tool_name))
 
 
 def workspace_preamble(workspace_name: str | None, tool_names: Iterable[str]) -> str:
@@ -206,6 +226,8 @@ def workspace_preamble(workspace_name: str | None, tool_names: Iterable[str]) ->
         lines.append(WORKFLOW_RULE)
     elif "workflow_authoring_guide" in names:
         lines.append(WORKFLOW_GUIDE_ONLY_RULE)
+    if "suggest_agent" in names and not any(_writes(n) for n in names):
+        lines.append(HANDOFF_WRITE_RULE)
     if names:
         lines.append(
             "Act, don't announce: when a question needs a tool, call it in this same turn. Never reply with "
@@ -252,6 +274,12 @@ class AgentSpec:
     # The bubble's character while this agent talks, as stored (an own pack or {"library": id}); None →
     # the workspace's. System agents have none: they're code, and `marvin` *is* the workspace's character.
     character: dict | None = None
+    # Its own Character, in place of the workspace's (None → the workspace's), and its bubble lines and mood
+    # settings (not active yet) — copied from a library pack when it picks one, then the owner's to edit.
+    persona_prompt: str | None = None
+    bubble_lines: dict | None = None
+    bubble_lines_source: str | None = None
+    mood: dict | None = None
     # A built-in agent whose matrix this workspace changed (Settings → AI → Agents): `tool_policy` is then
     # the code default with the workspace's override merged over it (see `_system_agent`).
     tool_policy_overridden: bool = False
@@ -270,8 +298,9 @@ SYSTEM_AGENTS: dict[str, AgentSpec] = {
         name="Ask",
         description="Grounded answers from your content only (semantic search; no writes).",
         system_prompt=ASK_SYSTEM_PROMPT,
-        # suggest_agent runs nothing: Ask can point the user at a specialist but never calls one.
-        tool_allowlist=("search_content", "workspace_overview", "search_docs", "read_doc", "suggest_agent"),
+        # suggest_agent runs nothing: Ask can point the user at a specialist but never calls one. get_entry / get_asset /
+        # get_resource read a hit in full: search returns 400-character snippets, and without them Ask searched again.
+        tool_allowlist=("search_content", "get_entry", "get_asset", "get_resource", "workspace_overview", "search_docs", "read_doc", "suggest_agent"),
         handoff_hint="the user wants a grounded answer from the workspace content, with citations",
         is_system=True,
     ),
@@ -345,6 +374,10 @@ def spec_from_row(row) -> AgentSpec:
         is_system=False,
         id=str(row.id),
         character=getattr(row, "character", None) or None,
+        persona_prompt=(getattr(row, "persona_prompt", None) or "").strip() or None,
+        bubble_lines=getattr(row, "bubble_lines", None) or None,
+        bubble_lines_source=getattr(row, "bubble_lines_source", None) or None,
+        mood=getattr(row, "mood", None) or None,
     )
 
 
@@ -354,6 +387,19 @@ def unsaved_spec(values: dict, slug: str) -> AgentSpec:
     from types import SimpleNamespace
 
     return replace(spec_from_row(SimpleNamespace(**values, slug=slug, id=None, character=None)), id=None)
+
+
+def agent_persona(session, group_id, spec: AgentSpec | None = None) -> tuple[str, str]:
+    """(assistant name, Character) for a run: the workspace's assistant name, always — it names the router —
+    and the agent's own Character when it has one, else the workspace's (Marvin's built-in voice while the
+    workspace has none and is still called Marvin)."""
+    from marvin.services.ai.persona import resolve_persona
+
+    row = _ai_settings(session, group_id)
+    name, persona = resolve_persona(row.assistant_name if row else None, row.persona_prompt if row else None)
+    if spec is not None and spec.persona_prompt:
+        persona = spec.persona_prompt
+    return name, persona
 
 
 def _ai_settings(session, group_id):
@@ -568,7 +614,6 @@ def resolve_policy(spec: AgentSpec, tool_name: str, category_id: str, role: int)
     a write is doing it. EDITOR, not AUTHOR: agent writes (links, revisions, AI write-back, external
     MCP writes) reach any entry, and an AUTHOR may change only their own drafts.
     """
-    from marvin.services.ai.operations.base import ROLE_EDITOR
     from marvin.services.ai.tools.categories import category_writes
 
     if spec.tool_allowlist is not None and tool_name not in spec.tool_allowlist:
@@ -618,6 +663,103 @@ def unattended_refusal(spec: AgentSpec, tool_name: str, category_id: str, role: 
     else:
         error = f"Not done: {tool_name} is in {label}, which is switched off for {spec.name} in this workspace ({where})."
     return {"error": error, "tool": tool_name, "category": category_id, "policy": decision, "reason": reason}
+
+
+# ── Handing a job to an agent that may do it ─────────────────────────────────
+
+# Where an admin changes what an agent may do (its Allow writes switch and tool matrix).
+AGENT_SETTINGS_PATH = "Settings → AI → Agents"
+AGENT_SETTINGS_URL = "/workspace/settings/ai-agents"
+
+
+def agents_that_can(specs: Iterable[AgentSpec], tool_name: str, category_id: str, role: int, source: str) -> list[tuple[AgentSpec, str]]:
+    """The enabled agents this caller may talk to whose permission matrix lets them run `tool_name` for a user
+    of `role`: `[(spec, "allow" | "ask")]`, the router (marvin) first, then Allow before Ask first, then by name.
+
+    "Ask first" counts: the receiving conversation can park the call for the user's approval. It ranks behind an
+    agent that just does it. A model agent binds no tools, so never qualifies. `resolve_policy` is the one rule
+    the run itself applies, so this never promises what the run would then refuse.
+    """
+    found = []
+    for spec in specs:
+        if spec.kind != "persona" or not may_talk(spec, role, source)[0]:
+            continue
+        decision = resolve_policy(spec, tool_name, category_id, role)[0]
+        if decision in (POLICY_ALLOW, POLICY_ASK):
+            found.append((spec, decision))
+    found.sort(key=lambda p: (not (p[0].is_system and p[0].slug == ROUTER_SLUG), p[1] != POLICY_ALLOW, p[0].name.lower()))
+    return found
+
+
+def how_to_allow(specs: Iterable[AgentSpec], tool_name: str, category_id: str, role: int, source: str) -> str:
+    """When no agent may run `tool_name` for this caller: which setting would let one, as a sentence.
+
+    Names the cheapest fix per agent, the router first: switch the agent on, turn Allow writes on, or set the
+    tool's group to Allow. A caller below EDITOR gets the role answer instead, since no agent setting lifts that.
+    An agent whose fixed tool list leaves the tool out is not offered (nothing in the UI changes that).
+    """
+    from marvin.services.ai.tools.categories import CATEGORY_BY_ID, category_writes
+
+    if category_writes(category_id) and role < ROLE_EDITOR:
+        return (
+            f"{tool_name} changes things, which takes an Editor role or above; no agent setting lifts that. Ask a workspace admin for a higher role."
+        )
+    cat = CATEGORY_BY_ID.get(category_id)
+    label = f"“{cat.label}”" if cat else category_id
+    fixes: list[str] = []
+    ordered = sorted((s for s in specs if s.kind == "persona"), key=lambda s: (not (s.is_system and s.slug == ROUTER_SLUG), s.name.lower()))
+    for spec in ordered:
+        if not may_talk(spec, role, source)[0]:
+            continue
+        decision, reason = resolve_policy(spec, tool_name, category_id, role)
+        if decision != POLICY_BLOCK or reason == "not in the agent's allowlist":
+            continue
+        if reason == "agent is read-only":
+            fixes.append(f"turn on Allow writes for {spec.name}")
+        else:
+            fixes.append(f"set {tool_name if reason == 'tool policy' else label} to Allow (or Ask first) for {spec.name}")
+    for spec in ordered:
+        if not spec.enabled and resolve_policy(spec, tool_name, category_id, role)[0] != POLICY_BLOCK:
+            fixes.append(f"switch {spec.name} on")
+    fixes = fixes[:3]
+    if not fixes:
+        return f"No agent has {tool_name} among its tools, so nothing in {AGENT_SETTINGS_PATH} can allow it."
+    return f"To allow it, in {AGENT_SETTINGS_PATH}: " + "; or ".join(fixes) + "."
+
+
+HANDOFF_CONTEXT_SUMMARY_MAX = 300
+HANDOFF_ASSET_IDS_MAX = 20
+_HANDOFF_ENTRY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,119}")
+
+
+def clean_handoff_context(raw) -> dict:
+    """What a referral may carry to the receiving agent: the ids and slugs the referrer found, and a short note.
+
+    `{"entry": slug or id, "assetIds": [uuid…], "summary": text}`: anything else is dropped, an id that is not a
+    UUID is dropped, lists are capped, empty keys are omitted. It is text for the receiving agent to *check*
+    (it still resolves each id under its own permissions); it grants nothing.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out: dict = {}
+    entry = str(raw.get("entry") or "").strip()
+    if _HANDOFF_ENTRY.fullmatch(entry):
+        out["entry"] = entry
+    ids: list[str] = []
+    items = raw.get("assetIds")
+    for item in items if isinstance(items, list) else []:
+        try:
+            uid = str(uuid.UUID(str(item).strip()))
+        except ValueError:
+            continue
+        if uid not in ids:
+            ids.append(uid)
+    if ids:
+        out["assetIds"] = ids[:HANDOFF_ASSET_IDS_MAX]
+    summary = " ".join(str(raw.get("summary") or "").split())[:HANDOFF_CONTEXT_SUMMARY_MAX]
+    if summary:
+        out["summary"] = summary
+    return out
 
 
 def permission_matrix(spec: AgentSpec, role: int, catalog: list[dict]) -> list[dict]:

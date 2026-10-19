@@ -1,6 +1,6 @@
 [project]
 name = "marvin"
-version = "1.0.0-rc.298"
+version = "1.0.0-rc.384"
 description = "Marvin"
 readme = "README.md"
 
@@ -17,17 +17,18 @@ dependencies = [
     "httpx>=0.27.0",
     "isodate>=0.7.2",
     "jinja2>=3.1.6",
-    "mangum>=0.19.0",
+    "jsonschema>=4.26,<5",  # the schema_check workflow step (also AI-operation answers); was only a transitive dependency of mcp
     # The plugin contract (integrations, storage, AI providers): pinned to a commit, since it isn't on PyPI. A
     # direct reference, so no installer ever looks the name up on an index. Bump it with the SDK.
-    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@v0.9.0",
-    "mcp[cli]>=1.28.1",
+    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@v0.12.0",
+    "mcp[cli]>=1.28.1,<2",  # 2.x replaced the low-level Server API the remote MCP server is built on
     "numpy>=2.2.6",
     "pillow>=11.1.0",
     "pre-commit>=4.2.0",
     "pydantic-core>=2.33.2",
     "pydantic-settings>=2.9.1",
     "pyhumps>=3.8.0",
+    "psycopg2-binary>=2.9",
     "pyjwt>=2.10.1",
     "pypdf>=6.19.0",
     "pypdfium2>=5.14.0",
@@ -47,6 +48,7 @@ dependencies = [
     "types-requests>=2.32.0.20250515",
     "unicode>=2.9",
     "uvicorn>=0.34.2",
+    "fastembed>=0.7,<1",
 ]
 
 [project.scripts]
@@ -81,9 +83,6 @@ dev = [
 # Optional LDAP auth. Needs system libs to build the C extension (libldap2-dev, libsasl2-dev)
 # and is only imported when LDAP auth is enabled. Opt in with `uv sync --group ldap`.
 ldap = ["python-ldap>=3.4.5"]
-# Optional PostgreSQL driver. SQLAlchemy's bare `postgresql://` dialect uses psycopg2;
-# the binary wheel needs no build step. Opt in with `uv sync --group postgres`.
-postgres = ["psycopg2-binary>=2.9"]
 
 # The site-wide plugins baked into the image (docker/Dockerfile: `--group plugins`), so a pod never downloads
 # them at start-up. Each follows its repo's branch here and uv.lock pins the exact commit, so an image tag pins
@@ -91,19 +90,19 @@ postgres = ["psycopg2-binary>=2.9"]
 # The chart's plugins.packages can still add one at start-up (a hot fix) without a build.
 plugins = [
     "marvin-integration-apprise @ git+https://github.com/InnerOpen/marvin-integration-apprise@v0.3.0",
-    "marvin-integration-slack @ git+https://github.com/InnerOpen/marvin-integration-slack@v0.4.0",
-    "marvin-integration-openai-images @ git+https://github.com/InnerOpen/marvin-integration-openai-images@v0.3.0",
-    "marvin-integration-instagram @ git+https://github.com/InnerOpen/marvin-integration-instagram@v0.4.0",
-    "marvin-integration-square @ git+https://github.com/InnerOpen/marvin-integration-square@v0.4.0",
-    "marvin-integration-cloudflare-pages @ git+https://github.com/InnerOpen/marvin-integration-cloudflare-pages@v0.1.0",
+    "marvin-integration-slack @ git+https://github.com/InnerOpen/marvin-integration-slack@v0.5.0",
+    "marvin-integration-openai-images @ git+https://github.com/InnerOpen/marvin-integration-openai-images@v0.4.0",
+    "marvin-integration-instagram @ git+https://github.com/InnerOpen/marvin-integration-instagram@v0.5.3",
+    "marvin-integration-square @ git+https://github.com/InnerOpen/marvin-integration-square@v0.5.0",
+    "marvin-integration-cloudflare-pages @ git+https://github.com/InnerOpen/marvin-integration-cloudflare-pages@v0.2.0",
     "marvin-integration-buttondown @ git+https://github.com/InnerOpen/marvin-integration-buttondown@v0.7.0",
-    "marvin-integration-n8n @ git+https://github.com/InnerOpen/marvin-integration-n8n@v0.2.0",
-    "marvin-storage-s3 @ git+https://github.com/InnerOpen/marvin-storage-s3@v0.1.0",
+    "marvin-integration-n8n @ git+https://github.com/InnerOpen/marvin-integration-n8n@v0.3.0",
+    "marvin-storage-s3 @ git+https://github.com/InnerOpen/marvin-storage-s3@v0.4.0",
     # The AI providers: core ships none (slice 5). Same slugs as the old built-ins, so saved settings carry over.
-    "marvin-ai-openai @ git+https://github.com/InnerOpen/marvin-ai-openai@v0.1.0",
-    "marvin-ai-anthropic @ git+https://github.com/InnerOpen/marvin-ai-anthropic@v0.1.0",
-    "marvin-ai-google @ git+https://github.com/InnerOpen/marvin-ai-google@v0.1.0",
-    "marvin-ai-ollama @ git+https://github.com/InnerOpen/marvin-ai-ollama@v0.1.0",
+    "marvin-ai-openai @ git+https://github.com/InnerOpen/marvin-ai-openai@v0.3.0",
+    "marvin-ai-anthropic @ git+https://github.com/InnerOpen/marvin-ai-anthropic@v0.4.0",
+    "marvin-ai-google @ git+https://github.com/InnerOpen/marvin-ai-google@v0.3.0",
+    "marvin-ai-ollama @ git+https://github.com/InnerOpen/marvin-ai-ollama@v0.2.0",
 ]
 # Optional HashiCorp Vault secret backend (SECRET_BACKEND=vault). Opt in with `uv sync --group vault`.
 vault = ["hvac>=2.0"]
@@ -114,7 +113,7 @@ bitwarden = ["bitwarden-sdk>=1.0.0"]
 # Every plugin builds against the one SDK commit Marvin pins above: their own pyproject points the SDK at a
 # sibling checkout (or another commit) for local development, which uv would otherwise follow.
 override-dependencies = [
-    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@v0.9.0",
+    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@v0.12.0",
 ]
 
 [tool.pytest.ini_options]

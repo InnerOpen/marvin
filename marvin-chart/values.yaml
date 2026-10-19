@@ -217,23 +217,24 @@ config:
   # Maps to the API's ENVIRONMENT_LABEL. Unrelated to `production` (container runtime mode).
   environmentLabel: ""
 
-  # Name of the platform (admin's) workspace — where platform alerts and shared services run. Used only
-  # when a FRESH install creates it (its slug is derived from the name). Empty = the built-in "Default".
-  # On an existing install it changes nothing: rename the workspace in Admin → Workspaces instead.
-  # Maps to the API's DEFAULT_GROUP.
-  platformWorkspaceName: ""
-
   # Application settings
   allowSignup: true
   logLevel: DEBUG
 
-  # Database configuration: sqlite (a file in dataDir) or postgres (see `postgres` below).
+  # Database configuration: sqlite (a file in dataDir: one API replica, persistence on) or postgres (see
+  # `postgres` below). The default is sqlite so a plain install needs nothing else; every environment values
+  # file pins postgres (and postgres.cluster.enabled) explicitly.
   dbEngine: sqlite
   dataDir: /app/data
 
+  # Where people open the editor UI — the origin links in emails (password reset, invitations), push notifications
+  # and agent answers point at. Set it to the address users actually reach (a public tunnel host, not the cluster's
+  # *.apps route when people are off the LAN). Empty: https://<route.ui.host> when that is set, else unset, and the
+  # API falls back to localhost — every emailed link is then broken. Maps to the API's BASE_URL and FRONTEND_URL.
+  publicUiUrl: ""
+
   # API configuration
   apiPort: 8080
-  apiHost: "0.0.0.0"
 
   # URL the user's browser uses to reach the backend API. The frontend injects it into each page
   # at request time (resolved at runtime, not baked into the image), so set it to the address a
@@ -363,7 +364,7 @@ webPush:
     privateKey: VAPID_PRIVATE_KEY
     subject: VAPID_SUBJECT
 
-# PostgreSQL — used when config.dbEngine is postgres, ignored with sqlite. The app's POSTGRES_SERVER,
+# PostgreSQL — used when config.dbEngine is postgres, ignored with sqlite (the default). The app's POSTGRES_SERVER,
 # _PORT, _USER, _PASSWORD and _DB come from an existing Secret: by default the one CloudNativePG keeps
 # for a cluster's owner, `<cluster>-app`. The data PVC (persistence) stays either way: it holds the
 # uploaded assets and the `.secret` key that decrypts stored secrets; only the database moves.
@@ -384,7 +385,7 @@ postgres:
   # Its backups are the off-site job's pg_dump (`backup` below, hourly in a Postgres release); there
   # is no WAL archiving / point-in-time recovery by choice (how to add it: the template's header).
   cluster:
-    enabled: false
+    enabled: false   # a plain install runs on SQLite; set true (with config.dbEngine=postgres) for a CloudNativePG database, or point postgres.existingSecret at your own
     name: ""   # default "<release fullname>-pg"
     instances: 1
     # The Postgres major the clusters run, the CI suite tests and the backend image's pg_dump (Debian

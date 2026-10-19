@@ -3,16 +3,15 @@
 Super admins see platform events (backups, storage, security) in the bell and on Admin → Events. These
 settings also send the ones that matter somewhere people look when they aren't in Marvin:
 
-  * **email** — built in and on by default: the platform SMTP settings (Admin → Email settings), else the
-    platform workspace's active SMTP profile (email_senders.platform_sender), to every super admin unless an
-    explicit list is set. Without either nothing is sent, and the channel's last delivery says so;
+  * **email** — built in and on by default: through the platform SMTP server (Admin → Email: the environment's
+    settings with an admin's per-field overrides, services/platform_smtp.py), to every super admin unless an
+    explicit list is set. Without it nothing is sent, and the channel's last delivery says so;
   * **push** — when the server has Web Push (VAPID): to the devices of the super admins who turned push on
     with "Platform alerts" in their Profile;
   * **integration routes** — any action that can carry a message (``alert_routing.message_actions``: Slack's
-    ``send_message``, Apprise's ``notify``, whatever a plugin declares — never a list of names) on a
-    connection in the **platform workspace**. Integrations are connected per workspace and the admin area
-    configures none, so platform alerts borrow that one workspace's connections. Without it, routes are
-    unavailable and email still works.
+    ``send_message``, Apprise's ``notify``, whatever a plugin declares — never a list of names) on one of the
+    **platform's own channels** (Admin → Alerts → Platform channels, services/platform_connections.py). They
+    belong to no workspace, so deleting any workspace leaves platform alerts working.
 
 Delivery hangs off the event bus (``PlatformAlertListener``): one dispatched event, one attempt per
 enabled channel — after the backup check's own once-per-incident rule, so this adds no dedupe and no
@@ -47,7 +46,6 @@ from marvin.services.alerting import (  # noqa: F401 — the platform alerts' pu
     Route,
     Target,
     event_data,
-    targets,
 )
 from marvin.services.platform_settings import PlatformSettingsService
 
@@ -117,18 +115,6 @@ ALERT_EVENT_TYPES: frozenset[str] = frozenset(k.event_type for k in KINDS)
 """What the listener looks at; any other event costs it nothing."""
 
 
-def _platform_workspace(session: Session):
-    """The workspace whose integration connections platform alerts may use, or None.
-
-    The platform workspace, found by its marker whatever it is called (services/group/platform_workspace)."""
-    from marvin.services.group.platform_workspace import PlatformWorkspaceMissing, platform_workspace
-
-    try:
-        return platform_workspace(session)
-    except PlatformWorkspaceMissing:
-        return None
-
-
 def super_admin_emails(session: Session) -> list[str]:
     from marvin.db.models.users.roles import PlatformRole
     from marvin.db.models.users.users import Users
@@ -138,15 +124,15 @@ def super_admin_emails(session: Session) -> list[str]:
 
 
 def smtp_ready() -> bool:
-    """The platform SMTP settings are on, or the platform workspace has an active SMTP profile."""
+    """The platform SMTP server (the environment's settings with Admin → Email's overrides) can send."""
     from marvin.services.email.email_senders import email_ready
 
     return email_ready()
 
 
 class PlatformScope(alerting.AlertScope):
-    """Platform alerts: stored in ``platform_settings``, routes through the platform workspace's connections,
-    email to every super admin through the platform SMTP settings."""
+    """Platform alerts: stored in ``platform_settings``, routes through the platform's own channels, email to
+    every super admin through the platform SMTP server."""
 
     name = "platform alerts"
     kinds = KINDS
@@ -155,8 +141,8 @@ class PlatformScope(alerting.AlertScope):
     test_title = TEST_TITLE
     everyone = "every super admin"
     nobody = "no super admin has an email address"
-    email_setup = "email isn't set up (Admin → Email settings, or an active SMTP profile in the platform workspace)"
-    where = "the platform workspace"
+    email_setup = "email isn't set up (Admin → Email settings)"
+    where = "the platform channels"
     push_category = web_push.PLATFORM_ALERTS
     push_everyone = "super admins who turned on push with “Platform alerts” in their Profile"
 
@@ -172,8 +158,15 @@ class PlatformScope(alerting.AlertScope):
     def store_status(self, session: Session, status: dict) -> None:
         PlatformSettingsService(session).set(STATUS_KEY, status)
 
-    def workspace(self, session: Session):
-        return _platform_workspace(session)
+    def connections(self, session: Session) -> list[alerting.ConnectionView]:
+        from marvin.services import platform_connections
+
+        return [
+            alerting.ConnectionView(
+                id=c.id, name=c.name, provider=c.provider, config=c.config, enabled=c.enabled, secret_ref=c.secret_ref, group_id=None
+            )
+            for c in platform_connections.load(session)
+        ]
 
     def default_recipients(self, session: Session) -> list[str]:
         return super_admin_emails(session)
@@ -187,7 +180,7 @@ class PlatformScope(alerting.AlertScope):
     def email_service(self):
         from marvin.services.email.email_service import EmailService
 
-        return EmailService()  # no workspace: the platform's sender (SMTP settings, else the platform workspace's profile)
+        return EmailService()  # no workspace: the platform SMTP server
 
     def scope_label(self, session: Session) -> str:
         return SCOPE
@@ -200,6 +193,11 @@ class PlatformScope(alerting.AlertScope):
 
 
 PLATFORM = PlatformScope()
+
+
+def targets(session: Session) -> list[Target]:
+    """What a new route can use: every message-capable action on a platform channel."""
+    return alerting.targets(PLATFORM, session)
 
 
 def load(session: Session) -> AlertSettings:
@@ -218,7 +216,7 @@ def validate(
     session: Session, *, types: dict[str, bool], email_enabled: bool, recipients: list[str] | None, routes: list[dict], push: dict | None = None
 ) -> AlertSettings:
     """What the admin asked for as settings, or InvalidAlertSettings. Routes must name a message-capable
-    action on a connection in the platform workspace. ``push`` ({enabled}) left out keeps it as it is."""
+    action on one of the platform's channels. ``push`` ({enabled}) left out keeps it as it is."""
     return alerting.validate(PLATFORM, session, types=types, email_enabled=email_enabled, recipients=recipients, routes=routes, push=push)
 
 
@@ -244,9 +242,9 @@ def send_email(session: Session, settings: AlertSettings, message: AlertMessage)
     return alerting.send_email(PLATFORM, session, settings, message)
 
 
-def send_route(session: Session, route: Route, message: AlertMessage, workspace=None) -> Delivery:
-    """Run the route's action on its platform-workspace connection with the message filled in."""
-    return alerting.send_route(PLATFORM, session, route, message, workspace)
+def send_route(session: Session, route: Route, message: AlertMessage) -> Delivery:
+    """Run the route's action on its platform channel with the message filled in."""
+    return alerting.send_route(PLATFORM, session, route, message)
 
 
 def deliver(session: Session, event, data: dict | None = None) -> dict[str, dict]:

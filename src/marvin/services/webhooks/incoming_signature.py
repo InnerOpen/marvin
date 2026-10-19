@@ -329,10 +329,6 @@ def verify_request(
     return any(hmac.compare_digest(c, expected) for c in candidates)
 
 
-def expected_signature(raw_body: bytes, key: str) -> str:
-    return hmac.new(key.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
-
-
 def verify_signature(raw_body: bytes, header_value: str | None, key: str | None) -> bool:
     """The original scheme on its own: `sha256=<hex>` (prefix optional, case-insensitive hex) of the raw body."""
     return verify_request(PRESETS[DEFAULT_SCHEME], raw_body, {DEFAULT_SIGNATURE_HEADER: header_value or ""}, key)

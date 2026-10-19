@@ -13,7 +13,7 @@ import {
   stateBadge,
 } from "@/lib/admin/backupHealth";
 import { type BackupHealth, type BackupRun, getBackupHealth } from "@/lib/api/admin/backupHealth";
-import { getAuthToken } from "@/lib/api/client";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
 
 await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
@@ -28,6 +28,12 @@ try {
   console.error("[admin/backup-health] Failed to load:", e);
   error = e instanceof Error ? e.message : String(e);
 }
+
+// Workspaces keeping files in their own bucket: the platform's asset mirror doesn't reach those files.
+type OwnBucket = { workspace: string; workspaceSlug: string; label: string | null; files: number; inUse: boolean; inBundles: boolean; status: string };
+const ownBuckets = (await fetchApi<OwnBucket[]>("/api/admin/storage/workspace-buckets", {}, authToken).catch(() => [] as OwnBucket[])).filter(
+  (b) => b.files > 0 || b.inUse,
+);
 
 const now = health?.now ?? new Date().toISOString();
 const utc = (iso: string | null | undefined) => (iso ? `${iso.slice(0, 16).replace("T", " ")} UTC` : "—");
@@ -176,6 +182,25 @@ oc logs -f job/marvin-backup-${t.name}-test -c backup; oc delete job marvin-back
         </>
       )}
 
+      {ownBuckets.length > 0 && (
+        <section class="card" data-testid="own-buckets">
+          <h3>Not in the platform's asset backups</h3>
+          <p class="muted">
+            These workspaces keep files in their own bucket, which the asset mirror above can't reach. Their owners back
+            those buckets up; a workspace's bundles include the files only if it asks (Workspace settings → Storage).
+          </p>
+          <ul class="own-buckets">
+            {ownBuckets.map((b) => (
+              <li>
+                <strong>{b.workspace}</strong> — {b.label || "own bucket"}: {b.files.toLocaleString()} file{b.files === 1 ? "" : "s"}
+                {b.inUse && ", new uploads go here"}{b.inBundles ? ", in its bundles" : ", not in its bundles"}
+                {b.status === "failing" && <span class="bad-text"> — failing its checks</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {health.runs.length > 0 && (
         <section class="card" data-testid="recent-runs">
           <div class="runs-head">
@@ -229,6 +254,8 @@ oc logs -f job/marvin-backup-${t.name}-test -c backup; oc delete job marvin-back
 </script>
 
 <style>
+  .own-buckets { margin: 8px 0 0; padding-left: 18px; font-size: 14px; line-height: 1.6; }
+  .bad-text { color: var(--color-error, #dc2626); }
   .page { display: grid; gap: 20px; max-width: 1100px; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
   .card h3 { margin: 0; font-size: 17px; font-weight: 600; }

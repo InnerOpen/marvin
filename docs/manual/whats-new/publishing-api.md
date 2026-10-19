@@ -10,16 +10,19 @@ Only entries with status `published` are served, and only from entry types whose
 
 What is new in this release:
 
-- **`expand=full` on the list endpoints.** `/collections/{slug}`, `/entries` and `/resources/{slug}/entries` return each entry in the single-read shape, so a site gets asset roles and resources for a whole collection in one request instead of one per entry. See [Full entries in one request](#full-entries-in-one-request-expandfull).
+- **The API serves entries and the site; assets and resources come with their entries** (breaking). `GET …/assets`, `…/assets/{slug}`, `…/assets/{slug}/file`, `…/resources` and `…/resources/{slug}` are gone (404). A single entry carries full `assets[]` (with `publicUrl`) and `resources[]`; a list item carries `assetSlugs`, `resourceSlugs` and a resolved `featuredAsset`. `GET …/resources/{slug}/entries` is gone too (404): the API serves entries and the site only. `GET /site` returns `logo`, `favicon` and `site.seo.image` (and the same block under `metadataJson.seo`) as public URLs, never asset slugs, and `null` for an asset in the Trash or one that doesn't exist; a value that is already a URL passes through. `metadataJson.brand` also holds colours and text, so there only a value that names an asset changes: a library asset (slug or id) becomes its public URL, an asset in the Trash (or a URL to its file) becomes `null`, and anything else (`#aa3322`, `Tagline text`) passes through as stored. The `read:assets` and `read:resources` keys no longer gate anything and are gone from the admin form and the default grant (a client that holds one keeps the key harmlessly; it shows under **Other**). `PublishedResourceSummary.entries` was dropped.
+- **`expand=full` on the list endpoints.** `/collections/{slug}` and `/entries` return each entry in the single-read shape, so a site gets asset roles and resources for a whole collection in one request instead of one per entry. See [Full entries in one request](#full-entries-in-one-request-expandfull).
+- **An entry's asset and resource fields come resolved.** The `asset`, `asset-list`, `resource` and `resource-list` fields of an entry type (the built-in Project type's `gallery` and `relatedResources`) store ids, which a site can no longer look up. In `data` of the single read, list items and `expand=full`, each id is now the published object the entry's `assets[].asset` / `resources[].resource` carries (`publicUrl`, `mimeType`, `tags`…). A list keeps its order; an asset or resource that is in the [Trash](trash.md), missing or an Ask file is dropped (`null` for a single field); a value that isn't an id (an object, a URL) passes through. Sites that looked ids up through the removed endpoints need no lookup any more.
 - **List items carry `data` and `description`** (fadb3f52). `PublishedEntryListItem` now includes the entry's schema fields (`data`, never null) and its `description`, so a whole collection or entries page renders from one request. `marvin-astro` skips its per-entry hydrate fetch when `data` is present, which removes an N+1 on large collections.
-- **Entries of non-publishable types are never served** (0e676a23). An entry of a submittable type (a contact message, a newsletter signup) with status `published` used to be returned with its data to any site token. Types whose capabilities say `publishable: false` are now excluded from the entries list, entry detail, collection entries and resource entries, whatever the status. Absent capabilities count as publishable.
-- **Nothing in the [Trash](trash.md) is served.** A trashed entry, asset or resource is left out of every list and read (a read by slug is a 404), an entry's `assets[]` / `resources[]`, a list item's `assetSlugs` / `resourceSlugs` and `featuredAsset`, a resource's entries, and the site settings' `logo`, `favicon` and `seo.image` when they name a trashed asset (`null`). A trashed asset's file stays in storage, so a URL to it already in a built site or pasted into an entry keeps loading until the asset is deleted forever. Trashing or restoring an asset or resource a site shows queues a rebuild (unreleased).
+- **Entries of non-publishable types are never served** (0e676a23). An entry of a submittable type (a contact message, a newsletter signup) with status `published` used to be returned with its data to any site token. Types whose capabilities say `publishable: false` are now excluded from the entries list, entry detail and collection entries, whatever the status. Absent capabilities count as publishable.
+- **Nothing in the [Trash](trash.md) is served.** A trashed entry is left out of every list and read (a read by slug is a 404), and a trashed asset or resource is left out of an entry's `assets[]` / `resources[]`, a list item's `assetSlugs` / `resourceSlugs` and `featuredAsset`, and the site settings' `logo`, `favicon` and `seo.image` when they name a trashed asset (`null`). A trashed asset's file stays in storage, so a URL to it already in a built site or pasted into an entry keeps loading until the asset is deleted forever. Trashing or restoring an asset or resource a site shows queues a rebuild (unreleased).
+- **`site.privacy`: privacy & cookie disclosures** (unreleased). See [Privacy & cookies](#privacy-cookies).
 
 ## Where
 
 - Base URL: `/api/publish/{workspace_slug}`.
 - Tokens: **Settings → Publishing → Site Clients** (`/publishing/clients`). The plaintext token is shown once, in a dialog, when you create the client or rotate its token (see [Auth and tokens → API clients](../auth-and-tokens.md#api-clients-marvin_sk_)).
-- Consumers: `@inneropen/marvin-sdk` ([SDK docs](https://inneropen.github.io/marvin/sdk/)), `marvin-astro`, and the Marvin CLI ([CLI docs](https://inneropen.github.io/marvin/cli/)), whose `marvin publish` command group (site, entries, collections, resources, assets, renderers — shown once you `marvin login --site-token …`) calls this API directly.
+- Consumers: `@inneropen/marvin-sdk` ([SDK docs](https://inneropen.github.io/marvin/sdk/)), `marvin-astro`, and the Marvin CLI ([CLI docs](https://inneropen.github.io/marvin/cli/)), whose `marvin publish` command group (site, entries, collections, renderers — shown once you `marvin login --site-token …`) calls this API directly.
 
 ## How to use
 
@@ -29,7 +32,7 @@ curl -H "Authorization: Bearer $MARVIN_SITE_TOKEN" \
   "https://marvin.example/api/publish/my-site/entries?entry_type=post&limit=20"
 ```
 
-Paginate with `limit` (default `PUBLISHING_DEFAULT_PAGE_SIZE` = 20, capped at `PUBLISHING_MAX_PAGE_SIZE` = 100) and `offset`. Entries list newest-published first; assets and resources list by name.
+Paginate with `limit` (default `PUBLISHING_DEFAULT_PAGE_SIZE` = 20, capped at `PUBLISHING_MAX_PAGE_SIZE` = 100) and `offset`. Entries list newest-published first.
 
 Sample `GET /entries` response (fields abbreviated):
 
@@ -63,9 +66,9 @@ Field names are camelCase on the wire; the `PublishedEntriesResponse` schema is 
 
 ### Full entries in one request: `expand=full`
 
-A list item has asset and resource *slugs* only. A site that needs asset roles (the hero image), resources or every collection membership used to read each item again through `/entries/{slug}`, one request per entry. Add `expand=full` to `/collections/{slug}`, `/entries` or `/resources/{slug}/entries` and each entry comes back in the single-read shape (`PublishedEntryRead`: `assets[]` and `resources[]` placements, full `collections`, `data`, `embeds`), the same JSON `/entries/{slug}` returns for it. A collection's entries also keep their `order`.
+A list item has asset and resource *slugs* (plus a resolved `featuredAsset`) only. A site that needs asset roles (the hero image), resources or every collection membership used to read each item again through `/entries/{slug}`, one request per entry. Add `expand=full` to `/collections/{slug}` or `/entries` and each entry comes back in the single-read shape (`PublishedEntryRead`: `assets[]` and `resources[]` placements, full `collections`, `data`, `embeds`), the same JSON `/entries/{slug}` returns for it. A collection's entries also keep their `order`.
 
-- Filters and pagination are unchanged. `/entries` keeps its `limit` cap (`PUBLISHING_MAX_PAGE_SIZE`, 100). The two unpaginated endpoints expand up to `PUBLISHING_MAX_EXPANDED_ENTRIES` entries (default 500); past that they return plain list items, as a server without `expand` does, and a client falls back to per-entry reads.
+- Filters and pagination are unchanged. `/entries` keeps its `limit` cap (`PUBLISHING_MAX_PAGE_SIZE`, 100). The unpaginated endpoint (a collection) expands up to `PUBLISHING_MAX_EXPANDED_ENTRIES` entries (default 500); past that it returns plain list items, as a server without `expand` does, and a client falls back to per-entry reads.
 - Expanding never shows more than the single read: published entries only (a `read:all_entries` token's drafts drop out of an expanded collection), and the token needs `read:published_entries` or `read:all_entries` on top of the endpoint's own key, else 403.
 - The cost is a fixed number of queries per response, however many entries it holds. Any other value of `expand` is a 422; without it the response is exactly as before.
 - Detect a server that ignores the parameter by the items: a list item has `assetSlugs`, an expanded one has `assets[]`. `marvin-astro` does this and falls back to per-entry reads.
@@ -75,18 +78,12 @@ A list item has asset and resource *slugs* only. A site that needs asset roles (
 | Method | Path | Query | Permission |
 | --- | --- | --- | --- |
 | GET | `/` | — | `read:published_entries` or `read:all_entries` |
-| GET | `/site` | — | same; returns site configuration (SEO, verification tags, `embeds`: media privacy mode, consent text, player origins) |
+| GET | `/site` | — | same; returns site configuration (`logo`, `favicon` and `seo.image` as URLs, SEO, verification tags, `privacy`, `embeds`: media privacy mode, consent text, player origins) |
 | GET | `/entry-types` | — | same; ordered by `sort_order`, name |
 | GET | `/entries` | `entry_type`, `collection`, `tag` (comma, any), `slug` (comma), `updated_since` (ISO), `limit`, `offset`, `expand` | same |
 | GET | `/entries/{slug}` | — | same; full `PublishedEntryRead` with collections, resources, assets and media `embeds` (list items carry `embeds` too; see [Media embeds](media-embeds.md)) |
 | GET | `/collections` | `limit`, `offset` | `read:collections`; public collections only |
 | GET | `/collections/{slug}` | `expand` | `read:collections`; entries ordered by junction `sort_order` then `published_at` desc. With `read:all_entries` the token also sees non-published members (not with `expand=full`) |
-| GET | `/assets` | `type` (MIME prefix: image, video, audio, application), `limit`, `offset` | `read:assets` |
-| GET | `/assets/{slug}` | — | `read:assets` |
-| GET | `/assets/{slug}/file` | — | `read:assets`; streams the file |
-| GET | `/resources` | `resource_type`, `limit`, `offset` | `read:resources` |
-| GET | `/resources/{slug}` | — | `read:resources` |
-| GET | `/resources/{slug}/entries` | `expand` | `read:resources`; published entries linked to the resource |
 | GET | `/forms/{slug}` | — | `read:published_entries`; form definition, success message, honeypot field name when enabled |
 | POST | `/forms/{slug}/submit` | body: submission dict | `write:public_entries` or `write:form_submissions` |
 
@@ -101,14 +98,17 @@ Defined in `src/marvin/core/permissions.py`:
 | `read:published_entries` | yes | default on a new client |
 | `read:all_entries` | yes | substitutes for `read:published_entries` and widens `/collections/{slug}` |
 | `read:collections` | yes | default on a new client |
-| `read:assets` | yes | default on a new client |
-| `read:resources` | yes | |
+| `read:assets`, `read:resources` | no | retired: they gated the asset and resource routes, which are gone; a client that holds one keeps it harmlessly |
 | `write:public_entries` | yes | form submit, entry-type path |
 | `write:form_submissions` | yes | form submit, legacy key existing site tokens hold |
 | `read:draft_entries` | no | defined, but no publishing route checks it; the client form stopped offering it in rc.181 (`read:all_entries` is what grants drafts) |
 | `read:forms`, `write:forms`, `read:form_submissions` | no | defined; no route references them |
 
-The create and edit forms (`/publishing/clients/new`, `/publishing/clients/{id}/edit`) offer exactly the keys the routes check, in two groups: **Content** (Read Published Entries, Read All Entries, Read Collections, Read Assets, Read Resources) and **Forms** (**Submit Forms** for `write:form_submissions`, **Submit Public Entries** for `write:public_entries`). A key a client holds that the form doesn't list appears under **Other**, so it can be removed. Full reference: [`../api/`](../api/index.md).
+The create and edit forms (`/publishing/clients/new`, `/publishing/clients/{id}/edit`) offer exactly the keys the routes check, in two groups: **Content** (Read Published Entries, Read All Entries, Read Collections) and **Forms** (**Submit Forms** for `write:form_submissions`, **Submit Public Entries** for `write:public_entries`). A key a client holds that the form doesn't list (such as the retired `read:assets` or `read:resources`) appears under **Other**, so it can be removed. Full reference: [`../api/`](../api/index.md).
+
+### Privacy & cookies
+
+**Publishing → Site** has a **Privacy & Cookies** section beside SEO. It stores the facts a privacy or cookie policy page needs under `site_metadata_json.privacy`, and `GET /site` serves them typed as `site.privacy` (`null` when nothing is set): the **controller** (`legalName`, `contactEmail`, and optionally `address`, `euRepresentative`, `dpoEmail`), a list of **processors** (`name`, `purpose`, `dataCategories`, and optionally `region`, `transferBasis`, `dpaUrl`, `privacyUrl`), a list of **cookies** (`name`, `provider`, `purpose`, optionally `duration`, and a `category` of `necessary`, `preferences`, `analytics` or `marketing`) and **consent** (`policyEntrySlug`, `cookiePolicyEntrySlug`, `lastReviewed`). `bannerRequired` is worked out, not saved: it is true when any cookie is not `necessary`. A processor whose `region` is outside the EU/EEA (anything other than an EU or EEA country, `EU` or `EEA`) must give a `transferBasis`, such as `SCCs`. Saving a block with an unknown cookie category or a missing transfer basis is refused (422); a malformed block already stored is left out of `site.privacy`. This is disclosure only: Marvin does not show a consent banner, and the metadata editor under it leaves `privacy` alone, as it does `seo`.
 
 ## Entry page URLs
 
@@ -131,13 +131,15 @@ The URL is built whatever the entry's status, because a draft's link is where it
 
 A static site that builds from this API is usually rebuilt by an outgoing webhook (its host's deploy hook) subscribed to `webhook_triggered`. The `request_site_rebuild` handler, from a workflow step or a scheduled task, queues a rebuild for the workspace instead of sending one each time. The scheduler sends one `webhook_triggered` per workspace once requests stop arriving for `SITE_REBUILD_QUIET_SECONDS` (default 60), or at most `SITE_REBUILD_MAX_WAIT_SECONDS` (default 600) after the first request, so a bulk edit triggers one build. A single change therefore starts building a minute or two later; read fast-changing values live if the site cannot wait. See [Operations → Site rebuilds](../operations.md#site-rebuilds).
 
-**Automatic rebuilds.** Published content changes queue a rebuild on their own, with no workflow needed. **Settings → General → Site Configuration → Rebuild the site automatically** (`site_auto_rebuild` in the workspace preferences, on by default) controls it. What counts:
+**Automatic rebuilds.** A rebuild is queued when something a site can fetch from the publishing API changes, with no workflow needed. **Settings → General → Site Configuration → Rebuild the site automatically** (`site_auto_rebuild` in the workspace preferences, on by default) controls it. What counts:
 
-- an entry published, unpublished, archived or deleted;
-- on a published entry, or one leaving `published`: an edit, a collection added or removed, a tag, resource or image attached or detached;
-- a collection updated or deleted, an asset or resource updated or deleted, and workspace site settings changed (`workspace_settings_changed`).
+- an entry published, unpublished or archived; a published entry created, trashed or deleted (an entry that was never published, or already in the Trash, leaves nothing to rebuild — so **Empty trash** and the auto-empty queue nothing);
+- on a published entry, or one leaving `published`: an edit, a collection added or removed, a tag, resource or image attached or detached (also through the tag routes), or a tag deleted that is on one;
+- a collection created, updated or deleted while **Visible to sites**, or turned on or off; an entry type edited or deleted; the workspace renamed;
+- an asset or resource edited or deleted for good while a site can see it (attached to a published entry, in a collection visible to sites, or named as the site logo or favicon);
+- workspace settings a site reads: the site configuration (`site_*`), the workspace's name and slug, and any setting not listed below.
 
-A draft saved or moved between workflow collections queues nothing, and neither does anything done to an entry of a non-publishable type (a newsletter signup confirmed and filed) or to a collection with **Visible to sites** off (its members, edits, order or deletion), except turning **Visible to sites** on or off. The requests go into the same per-workspace queue as `request_site_rebuild`, so a burst of edits is one build, and the rebuild still goes out as `webhook_triggered` to the workspace's deploy hook. Without an outgoing webhook on **Site Rebuild Sent** (`webhook_triggered`) nothing is built.
+Nothing is queued for a draft saved, moved between workflow collections, archived, trashed or deleted; for anything done to an entry of a non-publishable type (a newsletter signup confirmed and filed); for a collection with **Visible to sites** off (its members, edits, order or deletion), except turning it on or off; for an asset or resource only a draft uses; for renaming a tag (the API serves its slug, which never changes); or for settings no site renders: auditing, notifications, storage, agents, custom events, the Trash auto-empty, workflow and approval limits, submission protection and the first day of the week. When Marvin can't tell (an older event, an event a workflow sent with no status, an item it can't find), it queues one: a spare build beats a stale site. The requests go into the same per-workspace queue as `request_site_rebuild`, so a burst of edits is one build, and the rebuild still goes out as `webhook_triggered` to the workspace's deploy hook. Without an outgoing webhook on **Site Rebuild Sent** (`webhook_triggered`) nothing is built.
 
 **Queued rebuilds.** The request that opens a new batch emits `site_rebuild_queued` once (never per request), with the reason, the first change, the quiet and maximum waits and `expected_send_at`. The admin shows it as "Site rebuild queued — building in about 60 s" with "More changes join this build (sent at the latest 10 min after the first)" (the times come from `SITE_REBUILD_QUIET_SECONDS` and `SITE_REBUILD_MAX_WAIT_SECONDS`), and that toast turns into the **Site rebuild** toast in place when the rebuild is sent. Later requests join the batch without a toast of their own.
 

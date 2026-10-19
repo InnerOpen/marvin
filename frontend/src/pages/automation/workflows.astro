@@ -264,6 +264,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     previewAutomation,
     listAutomationExecutions,
     getAutomationExecution,
+    cancelAutomationExecution,
   } from "@/lib/api/automations";
   import { listIntegrations, listProviders, type ProviderInfo } from "@/lib/api/integrations";
   import { installLogoFallback, markHtml } from "@/lib/integrationLogo";
@@ -474,6 +475,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const DATA_OPS = new Set(["set_data", "create"]);
   const CREATE_OPS = new Set(["create"]); // makes a new entry: no target, its type/title/status instead
   const REVIEW_OPS = new Set(["request_review"]);
+  const ATTACH_OPS = new Set(["attach_asset"]);
   const TARGET_MODE_HINTS: Record<string, string> = {
     default: "Acts on the triggering item (or each item a Run-on target matches).",
     slug: "Point at one entry by slug — a literal or a template such as <code>$event.payload.entry_slug</code>.",
@@ -490,9 +492,12 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const COND_OP_LABELS: Record<string, string> = WORKFLOW_LABELS.conditionOps;
   // Most-useful-first (backend returns kinds alphabetically). New steps default to the first
   // available — an AI operation when AI is on, otherwise the first non-AI kind.
-  const KIND_ORDER = ["operation", "entry", "media", "collect", "repeat", "fetch", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
-  // A repeat's inner steps: a run can't park mid-loop, so no wait, approval or repeat inside (backend: NOT_INSIDE).
-  const NOT_IN_REPEAT = new Set(["wait", "approval", "repeat"]);
+  const KIND_ORDER = ["operation", "entry", "media", "collect", "repeat", "parallel", "fetch", "schema_check", "email", "metric", "snapshot", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
+  // A repeat's or a parallel branch's inner steps: a run can't park mid-loop or mid-branch, so no wait, approval, repeat or
+  // parallel inside (backend: NOT_INSIDE, NOT_IN_A_BRANCH).
+  const NOT_IN_REPEAT = new Set(["wait", "approval", "repeat", "parallel"]);
+  const MAX_BRANCHES = 5;
+  const MAX_BRANCH_STEPS = 5;
   const orderedKinds = (): string[] => {
     const avail = OPTIONS.actionKinds || [];
     return KIND_ORDER.filter((k) => avail.includes(k)).concat(avail.filter((k: string) => !KIND_ORDER.includes(k)));
@@ -706,6 +711,29 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     return row;
   }
 
+  /** One branch of a parallel step: its name and its steps (ordinary rows, up to MAX_BRANCH_STEPS). */
+  function branchBlock(branch: any, onChange: () => void): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "a-p-branch";
+    el.innerHTML = `
+      <div class="a-p-head">
+        <label class="tf"><span>Branch name <span class="muted">(lower case, e.g. images)</span></span>
+          <input class="input a-p-name" value="${esc(branch.name ?? "")}" placeholder="e.g. images" spellcheck="false" autocomplete="off" /></label>
+        <button type="button" class="icon-btn a-p-remove" title="Remove branch">✕</button>
+      </div>
+      <div class="a-p-steps rows"></div>
+      <button type="button" class="linkish a-p-add-step">+ Add a step to this branch</button>`;
+    const box = el.querySelector(".a-p-steps") as HTMLElement;
+    for (const step of (Array.isArray(branch.steps) && branch.steps.length ? branch.steps : [{}])) box.appendChild(actionRow(step, true));
+    const add = el.querySelector(".a-p-add-step") as HTMLButtonElement;
+    const syncAdd = () => { add.hidden = box.querySelectorAll(":scope > .action-row").length >= MAX_BRANCH_STEPS; };
+    add.addEventListener("click", () => { box.appendChild(actionRow({}, true)); syncAdd(); revalidate(); });
+    box.addEventListener("click", () => setTimeout(syncAdd));  // a removed step frees a place
+    el.querySelector(".a-p-remove")!.addEventListener("click", () => { el.remove(); onChange(); revalidate(); });
+    syncAdd();
+    return el;
+  }
+
   // ── The step key: what later steps write to read this step's result ──────────
   /** The output keys a step of this kind (and op) gives later steps — `${steps.<id>.output.<key>}`. */
   function stepOutputs(kind: string, row: HTMLElement): string[] {
@@ -721,6 +749,18 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         return (row.querySelector(".a-f-links") as HTMLInputElement | null)?.value.trim()
           ? ["broken_count", "text", "checked"]
           : ["ok", "status", "title", "text", "found"];
+      case "schema_check":
+        return ["valid", "errors", "error_count", "text"];
+      case "email":
+        return ["sent", "to", "name", "role", "subject"];
+      case "metric":
+        return (row.querySelector(".a-mt-op") as HTMLSelectElement | null)?.value === "read"
+          ? ["text", "count", "rows", "total"]
+          : ["value", "previous_value", "added", "changed", "created", "window"];
+      case "snapshot":
+        return (row.querySelector(".a-sn-op") as HTMLSelectElement | null)?.value === "restore"
+          ? ["restored", "changed", "content", "collections", "assets"]
+          : ["snapshot_id", "created", "label"];
       case "media": {
         const mediaOp = (row.querySelector(".a-media-op") as HTMLSelectElement | null)?.value;
         if (mediaOp === "inspect") return ["width", "height", "sharpness", "orientation"];
@@ -733,11 +773,13 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         return ["asset.id", "asset.url"];
       }
       case "approval":
-        return ["decision"];
+        return (row.querySelector(".a-choices") as HTMLInputElement | null)?.value.trim() ? ["decision", "choice", "choice_index"] : ["decision"];
       case "wait":
         return ["waited_until", "late"];
       case "repeat":
         return ["count", "done", "failed", "results"];
+      case "parallel":
+        return ["satisfied", "failed", "text", "branches"];
       case "webhook":
         return ["status_code", "body"];
       default:
@@ -783,6 +825,15 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       .catch(() => ({ bySlug: new Map(), providers: new Map() }));
     return integrationCatalog;
   }
+  // Idempotency (webhook and integration steps): the same key within the window makes the call once.
+  function idempotencyHtml(a: any): string {
+    return `<div class="a-idem">
+      <label class="tf"><span>Make this call once <span class="muted">(a key, e.g. handoff-\${entry.id}: the same key again within the window calls nothing and reuses the first answer)</span></span>
+        <input class="input a-idem-key" placeholder="leave blank to call every time" value="${esc(a.idempotency_key ?? "")}" /></label>
+      <label class="tf"><span>For how many hours <span class="muted">(1–720, default 24)</span></span>
+        <input class="input a-idem-hours" type="number" min="1" max="720" placeholder="24" value="${esc(a.idempotency_window_hours ?? "")}" /></label>
+    </div>`;
+  }
   let integrationRowSeq = 0;
 
   function integrationFields(wrap: HTMLElement, a: any) {
@@ -802,7 +853,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       <label class="tf"><span>Attach as <span class="muted">(actions that make images: link each picture to the entry in this role, e.g. cover-variant)</span></span>
         <input class="input a-int-attach" placeholder="leave blank to only keep them in Assets" value="${esc(a.attach_as ?? "")}" /></label>
       <label class="tf"><span>Tag them <span class="muted">(actions that make images; comma-separated)</span></span>
-        <input class="input a-int-tags" placeholder="e.g. generated, cover-ideas" value="${esc((a.tags ?? []).join(", "))}" /></label>`;
+        <input class="input a-int-tags" placeholder="e.g. generated, cover-ideas" value="${esc((a.tags ?? []).join(", "))}" /></label>
+      ${idempotencyHtml(a)}`;
     const slugInput = wrap.querySelector(".a-integration") as HTMLInputElement;
     const actionInput = wrap.querySelector(".a-int-action") as HTMLInputElement;
     const argsInput = wrap.querySelector(".a-int-args") as HTMLTextAreaElement;
@@ -1020,6 +1072,10 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
           <input class="input a-collection" placeholder="slug or name — e.g. featured" value="${esc(a.collection_slug ?? "")}" /></label>
         <label class="a-reason-wrap tf" ${REVIEW_OPS.has(a.op) ? "" : "hidden"}><span>Reason <span class="muted">(optional — shown with the entry in the review queue)</span></span>
           <input class="input a-reason" placeholder="e.g. Refused: \${error.message}" value="${esc(a.reason ?? "")}" /></label>
+        <label class="a-asset-wrap tf" ${ATTACH_OPS.has(a.op) ? "" : "hidden"}><span>Picture <span class="muted">(the asset's id or slug — a template to a step's picture works)</span></span>
+          <input class="input a-asset" placeholder="e.g. \${steps.cover.output.images.0.asset.id}" value="${esc(a.asset ?? "")}" /></label>
+        <label class="a-role-wrap tf" ${ATTACH_OPS.has(a.op) ? "" : "hidden"}><span>Role <span class="muted">(optional — hero, cover…)</span></span>
+          <input class="input a-role" placeholder="e.g. cover-variant" value="${esc(a.role ?? "")}" /></label>
         <div class="a-target-wrap tf" ${CREATE_OPS.has(a.op) ? "hidden" : ""}><span>Target entry</span>
           <select class="input a-target-mode">
             ${modeOpt("default", "Triggering entry (default)")}
@@ -1041,6 +1097,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         wrap.querySelector(".a-collection-wrap")!.toggleAttribute("hidden", !COLLECTION_OPS.has(opSel.value));
         wrap.querySelector(".a-entity-type-wrap")!.toggleAttribute("hidden", !ITEM_OPS.has(opSel.value));
         wrap.querySelector(".a-reason-wrap")!.toggleAttribute("hidden", !REVIEW_OPS.has(opSel.value));
+        wrap.querySelector(".a-asset-wrap")!.toggleAttribute("hidden", !ATTACH_OPS.has(opSel.value));
+        wrap.querySelector(".a-role-wrap")!.toggleAttribute("hidden", !ATTACH_OPS.has(opSel.value));
         wrap.querySelector(".a-meta-wrap")!.toggleAttribute("hidden", !METADATA_OPS.has(opSel.value));
         wrap.querySelector(".a-data-wrap")!.toggleAttribute("hidden", !DATA_OPS.has(opSel.value));
         wrap.querySelector(".a-create-wrap")!.toggleAttribute("hidden", !CREATE_OPS.has(opSel.value));
@@ -1068,9 +1126,17 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
           <input class="input a-site-error" placeholder="Failure reason (failed events), e.g. \${event.payload.data.reason}" value="${esc(a.error ?? "")}" />
           <input class="input a-site-url" placeholder="Site URL (optional)" value="${esc(a.site_url ?? "")}" />
         </div>
-        <span class="hint small">Entry events re-emit so other workflows can react; site events show as activity toasts (failures stay until dismissed).</span>`;
+        <div class="a-custom-wrap" ${String(a.event ?? emittable[0]).startsWith("custom.") ? "" : "hidden"}>
+          <textarea class="input mono a-custom-payload" rows="4" spellcheck="false" placeholder='{"milestone": "Shipped", "badge": "First \${entry.title}"}'>${esc(a.payload && Object.keys(a.payload).length ? JSON.stringify(a.payload, null, 2) : "")}</textarea>
+          <input class="input a-custom-message" placeholder="Message (optional), e.g. \${entry.title} shipped" value="${esc(a.message ?? "")}" />
+          <input class="input a-custom-entity" placeholder="Entry it is about (default: the run's entry), e.g. \${event.entry_id}" value="${esc(a.entity_id ?? "")}" />
+          <span class="hint small">Payload: the event's fields (Settings → Automation → Custom events), values may be templates. Workflows that start on it read <code>\${event.payload.&lt;field&gt;}</code>.</span>
+        </div>
+        <span class="hint small">Entry events re-emit so other workflows can react; site events show as activity toasts (failures stay until dismissed); your own custom events carry the fields you registered.</span>`;
       wrap.querySelector(".a-event")!.addEventListener("change", (ev) => {
-        wrap.querySelector(".a-site-wrap")!.toggleAttribute("hidden", !(ev.target as HTMLSelectElement).value.startsWith("site_"));
+        const picked = (ev.target as HTMLSelectElement).value;
+        wrap.querySelector(".a-site-wrap")!.toggleAttribute("hidden", !picked.startsWith("site_"));
+        wrap.querySelector(".a-custom-wrap")!.toggleAttribute("hidden", !picked.startsWith("custom."));
       });
     } else if (kind === "integration") {
       integrationFields(wrap, a);
@@ -1098,6 +1164,113 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         <label class="tf"><span>— or check the links in <span class="muted">(a text, e.g. \${entry.data.body}; fill this or the address, not both)</span></span>
           <input class="input a-f-links" value="${esc(a.links ?? "")}" placeholder="\${entry.data.body}" /></label>
         <span class="hint small">Public addresses only. A missing page is output, not a failed step: later steps read <code>\${steps.&lt;step id&gt;.output.ok}</code>, <code>.status</code> and <code>.text</code> — or, for links, <code>.broken_count</code> and <code>.text</code> (the broken ones). A dry run doesn't fetch. Give this step an id.</span>`;
+    } else if (kind === "schema_check") {
+      const docText = typeof a.document === "string" ? a.document : a.document == null ? "" : JSON.stringify(a.document);
+      const schemaText = typeof a.schema === "string" ? a.schema : a.schema == null ? "" : JSON.stringify(a.schema, null, 2);
+      wrap.innerHTML = `
+        <label class="tf"><span>Check this document <span class="muted">(usually an earlier step's JSON — e.g. \${steps.page.output.json} — or any template)</span></span>
+          <input class="input a-sc-document" value="${esc(docText)}" placeholder="\${steps.page.output.json}" /></label>
+        <label class="tf"><span>Against this JSON Schema</span>
+          <textarea class="input mono a-sc-schema" rows="7" spellcheck="false" placeholder='{"type": "object", "required": ["name", "url"], "properties": {"name": {"type": "string"}}}'>${esc(schemaText)}</textarea></label>
+        <label class="tf"><span>— or take the schema from a resource <span class="muted">(its id or slug; the schema sits in its metadata under <code>schema</code>)</span></span>
+          <input class="input a-sc-resource" value="${esc(a.schema_resource ?? "")}" /></label>
+        <label class="tf"><span>Report at most <span class="muted">(problems; up to 50)</span></span>
+          <input class="input a-sc-max" type="number" min="1" max="50" value="${esc(a.max_errors ?? 20)}" /></label>
+        <label class="check"><input type="checkbox" class="a-sc-fail" ${a.fail_on_invalid ? "checked" : ""} /> Stop the run when the document doesn't fit</label>
+        <span class="hint small">A document that doesn't fit is output, not a failed step: later steps read <code>\${steps.&lt;step id&gt;.output.valid}</code>, <code>.errors</code> (path and message) and <code>.text</code>. A malformed schema is refused as you write it. Give this step an id.</span>`;
+    } else if (kind === "email") {
+      wrap.innerHTML = `
+        <label class="tf"><span>To <span class="muted">(a member of this workspace — their id or email, e.g. \${member.id} or \${member.email}; anyone else fails the step)</span></span>
+          <input class="input a-e-to" value="${esc(a.to ?? "")}" placeholder="\${member.id}" /></label>
+        <label class="tf"><span>Subject <span class="muted">(templates allowed)</span></span>
+          <input class="input a-e-subject" value="${esc(a.subject ?? "")}" placeholder="Welcome to the team" /></label>
+        <label class="tf"><span>Message <span class="muted">(markdown; templates allowed — it goes in the workspace's email layout)</span></span>
+          <textarea class="input a-e-body" rows="6" spellcheck="false" placeholder="Hi \${member.name},&#10;&#10;You joined as **\${member.role}**.">${esc(a.body ?? "")}</textarea></label>
+        <label class="tf"><span>Title in the email <span class="muted">(default: the subject)</span></span>
+          <input class="input a-e-heading" value="${esc(a.heading ?? "")}" /></label>
+        <label class="tf"><span>Button text <span class="muted">(optional)</span></span>
+          <input class="input a-e-button-text" value="${esc(a.button_text ?? "")}" placeholder="Open the workspace" /></label>
+        <label class="tf"><span>Button link <span class="muted">(https://… — \${site.url} is the site, \${site.app_url} the admin app)</span></span>
+          <input class="input a-e-button-link" value="${esc(a.button_link ?? "")}" placeholder="\${site.app_url}" /></label>
+        <label class="tf"><span>Send each person this once, ever <span class="muted">(optional — a name for what it is, e.g. welcome:\${member.id}; left empty it is once per event)</span></span>
+          <input class="input a-e-once" value="${esc(a.once_per ?? "")}" placeholder="welcome:\${member.id}" /></label>
+        <span class="hint small">Needs an SMTP profile (Settings → Email). The same event handled twice sends nothing more; a dry run shows the email and sends nothing. Give a role its own link with “Only run this step when…” on <code>member.role</code>. Later steps read <code>\${steps.&lt;step id&gt;.output.sent}</code>.</span>`;
+    } else if (kind === "metric") {
+      const opNow = a.op === "read" || a.op === "add" ? a.op : "record";
+      const windowSpec = String(a.window ?? "day");
+      const windowKind = ["day", "week", "month"].includes(windowSpec) ? windowSpec : "explicit";
+      wrap.innerHTML = `
+        <label class="tf"><span>What to do</span>
+          <select class="input a-mt-op"><option value="record" ${opNow === "record" ? "selected" : ""}>Record an observation</option><option value="add" ${opNow === "add" ? "selected" : ""}>Add to the count</option><option value="read" ${opNow === "read" ? "selected" : ""}>Read observations back</option></select></label>
+        <label class="tf"><span>Metric <span class="muted">(a name: lowercase letters, digits, - and _)</span></span>
+          <input class="input a-mt-metric" value="${esc(a.metric ?? "")}" placeholder="clicks" spellcheck="false" /></label>
+        <div class="a-mt-record">
+          <label class="tf"><span class="a-mt-value-label">Value</span>
+            <input class="input a-mt-value" value="${esc(a.value ?? "")}" placeholder="\${input.clicks}" /></label>
+          <label class="tf"><span>Window</span>
+            <select class="input a-mt-window">${[["day", "The day of the run"], ["week", "The week of the run (Monday to Sunday)"], ["month", "The month of the run"], ["explicit", "A window I name…"]].map(([v, l]) => `<option value="${v}" ${windowKind === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+          <label class="tf a-mt-explicit-wrap"><span>The window <span class="muted">(2026-10-18, 2026-W42 or 2026-10; may be a template)</span></span>
+            <input class="input a-mt-explicit" value="${esc(windowKind === "explicit" ? windowSpec : "")}" placeholder="2026-W42" spellcheck="false" /></label>
+          <label class="tf a-mt-at-wrap"><span>Count the date as <span class="muted">(optional: a date to take the window from instead of the run's time — e.g. \${entry.published_at})</span></span>
+            <input class="input a-mt-at" value="${esc(a.at ?? "")}" placeholder="\${entry.published_at}" /></label>
+        </div>
+        <div class="inline">
+          <label class="tf"><span>Variant <span class="muted">(optional: a, b…)</span></span>
+            <input class="input a-mt-variant" value="${esc(a.variant ?? "")}" placeholder="a" /></label>
+          <label class="tf"><span>Subject <span class="muted">(optional: an entry slug, a campaign)</span></span>
+            <input class="input a-mt-subject" value="${esc(a.subject ?? "")}" placeholder="\${entry.slug}" /></label>
+        </div>
+        <div class="a-mt-read inline">
+          <label class="tf"><span>From window</span>
+            <input class="input a-mt-from" value="${esc(a.window_from ?? "")}" placeholder="2026-W40" spellcheck="false" /></label>
+          <label class="tf"><span>To window</span>
+            <input class="input a-mt-to" value="${esc(a.window_to ?? "")}" placeholder="2026-W44" spellcheck="false" /></label>
+          <label class="tf"><span>At most</span>
+            <input class="input a-mt-limit" type="number" min="1" max="250" value="${esc(String(a.limit ?? 50))}" /></label>
+        </div>
+        <span class="hint small a-mt-hint-record">Record is for a total you already have (clicks so far, followers today): recording again <strong>replaces</strong> the number, so a rerun doesn't double-count.</span>
+        <span class="hint small a-mt-hint-add">Add is for counting things as they happen (one per signup): it raises the window's number by the value, <strong>once for each event</strong> — the same event handled twice adds once, a different event adds again. A run with no event behind it (a manual run) adds every time.</span>
+        <span class="hint small">These are observations, not conclusions: nothing here compares variants or says what caused a number. One number is kept per metric, variant, subject and window. A dry run writes nothing. The <strong>Metrics</strong> page (Settings → Automation) lists them. Give this step an id to read <code>\${steps.&lt;step id&gt;.output.text}</code> from a read.</span>`;
+      const opSel = wrap.querySelector(".a-mt-op") as HTMLSelectElement;
+      const winSel = wrap.querySelector(".a-mt-window") as HTMLSelectElement;
+      const syncMetric = () => {
+        const read = opSel.value === "read";
+        const adding = opSel.value === "add";
+        (wrap.querySelector(".a-mt-value-label") as HTMLElement).innerHTML = adding
+          ? `How much to add <span class="muted">(optional — 1 if left empty; a number, negative to count down, or a template)</span>`
+          : `Value <span class="muted">(a number, or a template — e.g. \${input.clicks})</span>`;
+        (wrap.querySelector(".a-mt-value") as HTMLInputElement).placeholder = adding ? "1" : "\${input.clicks}";
+        (wrap.querySelector(".a-mt-hint-record") as HTMLElement).hidden = adding || read;
+        (wrap.querySelector(".a-mt-hint-add") as HTMLElement).hidden = !adding;
+        (wrap.querySelector(".a-mt-record") as HTMLElement).hidden = read;
+        (wrap.querySelector(".a-mt-read") as HTMLElement).hidden = !read;
+        (wrap.querySelector(".a-mt-explicit-wrap") as HTMLElement).hidden = winSel.value !== "explicit";
+        (wrap.querySelector(".a-mt-at-wrap") as HTMLElement).hidden = winSel.value === "explicit";
+      };
+      opSel.addEventListener("change", syncMetric);
+      winSel.addEventListener("change", syncMetric);
+      syncMetric();
+    } else if (kind === "snapshot") {
+      const restoring = a.op === "restore";
+      const parts: string[] = Array.isArray(a.parts) && a.parts.length ? a.parts : ["content", "collections", "assets"];
+      wrap.innerHTML = `
+        <label class="tf"><span>What to do</span>
+          <select class="input a-sn-op"><option value="capture" ${restoring ? "" : "selected"}>Save a version of the entry</option><option value="restore" ${restoring ? "selected" : ""}>Put a saved version back</option></select></label>
+        <label class="tf"><span>Name <span class="muted a-sn-label-note">(optional: what this version is — “before the rewrite”)</span></span>
+          <input class="input a-sn-label" value="${esc(a.label ?? "")}" placeholder="before the rewrite" maxlength="100" /></label>
+        <div class="a-sn-restore">
+          <label class="tf"><span>Which version <span class="muted">(an earlier step's \${steps.save.output.snapshot_id}; empty = the entry's latest, or the latest with that name)</span></span>
+            <input class="input a-sn-snapshot" value="${esc(a.snapshot ?? "")}" placeholder="\${steps.save.output.snapshot_id}" spellcheck="false" /></label>
+          <div class="a-sn-parts">${[["content", "Title, summary, description, fields and metadata"], ["collections", "Collections"], ["assets", "Attached pictures and files"], ["status", "Status (publishing or unpublishing — only if you tick it)"]]
+            .map(([v, l]) => `<label class="check"><input type="checkbox" class="a-sn-part" value="${v}" ${parts.includes(v) ? "checked" : ""} /> ${l}</label>`).join("")}</div>
+        </div>
+        <span class="hint small">Saving an unchanged entry reuses its latest version; an entry keeps its latest 20. Restoring runs like an edit: the usual events go out, and a dry run shows what would change without writing. Tags and linked resources aren't saved. Give the saving step an id to read <code>\${steps.&lt;step id&gt;.output.snapshot_id}</code> later.</span>`;
+      const snOp = wrap.querySelector(".a-sn-op") as HTMLSelectElement;
+      const syncSnapshot = () => {
+        (wrap.querySelector(".a-sn-restore") as HTMLElement).hidden = snOp.value !== "restore";
+      };
+      snOp.addEventListener("change", syncSnapshot);
+      syncSnapshot();
     } else if (kind === "wait") {
       const untilMode = Boolean(a.until);
       wrap.innerHTML = `
@@ -1144,6 +1317,24 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       add.addEventListener("click", () => { box.appendChild(actionRow({}, true)); syncAdd(); revalidate(); });
       box.addEventListener("click", () => setTimeout(syncAdd));  // a removed inner step frees a place
       syncAdd();
+    } else if (kind === "parallel") {
+      wrap.innerHTML = `
+        <div class="inline">
+          <label class="tf"><span>Done when</span>
+            <select class="input a-p-join">${[["all", "Every branch succeeds"], ["any", "Any branch succeeds (the first wins, the rest are skipped)"]].map(([v, l]) => `<option value="${v}" ${(a.join ?? "all") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+          <label class="tf"><span>If a branch fails</span>
+            <select class="input a-p-onerr">${[["fail", "Fail the step"], ["continue", "Carry on and report"]].map(([v, l]) => `<option value="${v}" ${(a.on_branch_failure ?? "fail") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        </div>
+        <div class="a-p-branches rows"></div>
+        <button type="button" class="linkish a-p-add">+ Add a branch</button>
+        <span class="hint small">Branches run one after another, in the order written, each on its own: a branch reads what ran before this step but not another branch. Read a result later as <code>\${steps.&lt;id&gt;.output.branches.&lt;name&gt;.output…}</code>. A check that should block must fail its step (e.g. Check against a schema with “Fail the step if it doesn't fit”). “Carry on and report” never fails the step: use “Only run this step when…” on <code>steps.&lt;id&gt;.output.failed</code>. No wait, approval or repeat inside a branch — put it before or after.</span>`;
+      const box = wrap.querySelector(".a-p-branches") as HTMLElement;
+      const add = wrap.querySelector(".a-p-add") as HTMLButtonElement;
+      const syncBranches = () => { add.hidden = box.querySelectorAll(":scope > .a-p-branch").length >= MAX_BRANCHES; };
+      const given = Array.isArray(a.branches) && a.branches.length ? a.branches : [{ name: "first" }, { name: "second" }];
+      for (const branch of given) box.appendChild(branchBlock(branch, syncBranches));
+      add.addEventListener("click", () => { box.appendChild(branchBlock({ name: `branch_${box.children.length + 1}` }, syncBranches)); syncBranches(); revalidate(); });
+      syncBranches();
     } else if (kind === "approval") {
       const hours = Number(a.expires_in_hours ?? 72);
       wrap.innerHTML = `
@@ -1153,7 +1344,11 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
           <select class="input a-approvers">${[["editor", "Editors and above"], ["admin", "Admins and above"]].map(([v, l]) => `<option value="${v}" ${(a.approvers ?? "editor") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         <label class="tf"><span>Expires after (hours) <span class="muted">— then the run goes on as expired</span></span>
           <input class="input a-expires" type="number" min="1" max="720" value="${Number.isFinite(hours) ? hours : 72}" /></label>
-        <span class="hint small">The run waits here; they're told (push, and Automation → Approvals). It goes on from the next step once one decides, with <code>\${steps.&lt;step id&gt;.output.decision}</code>: approved, denied, expired or stale (the entry changed after it was asked) — use “Only run this step when…” on the steps after it. Give this step an id.</span>`;
+        <label class="tf"><span>Choices <span class="muted">(optional: 2–8 to pick one of, comma-separated — or a template to a list, e.g. \${steps.ideas.output.titles})</span></span>
+          <input class="input a-choices" value="${esc(Array.isArray(a.choices) ? a.choices.join(", ") : (a.choices ?? ""))}" placeholder="e.g. Dawn, Dusk, Night" /></label>
+        <label class="tf"><span>Picture <span class="muted">(optional: shown with the question — a template to a picture URL, e.g. \${steps.cover.output.images.0.asset.url} or \${entry.image})</span></span>
+          <input class="input a-image" value="${esc(a.image ?? "")}" placeholder="e.g. \${steps.cover.output.images.0.asset.url}" /></label>
+        <span class="hint small">The run waits here; they're told (push, and Automation → Approvals). It goes on from the next step once one decides, with <code>\${steps.&lt;step id&gt;.output.decision}</code>: approved, denied, expired or stale (the entry changed after it was asked) — use “Only run this step when…” on the steps after it. With choices, approving picks one: <code>.choice</code> (the label) and <code>.choice_index</code> (from 0). Give this step an id.</span>`;
     } else if (kind === "handler") {
       wrap.innerHTML = `<input class="input a-task" list="wf-handlers" placeholder="request_site_rebuild" value="${esc(a.task ?? "")}" /><span class="hint small">An internal task to run (e.g. request_site_rebuild, ai_reindex_embeddings).</span>`;
     } else if (kind === "webhook") {
@@ -1176,7 +1371,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         return wrap;
       }
       const opts = whs.map((w: any) => `<option value="${esc(w.id)}" ${a.webhook_id === w.id ? "selected" : ""}>${esc(w.name)} · ${esc(w.method)}</option>`).join("");
-      wrap.innerHTML = `<select class="input a-webhook">${opts}</select><span class="hint small">Fires one of your configured webhooks (its URL, method, headers, and payload).</span>`;
+      wrap.innerHTML = `<select class="input a-webhook">${opts}</select><span class="hint small">Fires one of your configured webhooks (its URL, method, headers, and payload).</span>${idempotencyHtml(a)}`;
     }
     return wrap;
   }
@@ -1235,6 +1430,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       setOrDrop("entity_type", ITEM_OPS.has(op) ? field(".a-entity-type")?.value || null : null);
       setOrDrop("collection_slug", COLLECTION_OPS.has(op) ? field(".a-collection")?.value.trim() : null);
       setOrDrop("reason", REVIEW_OPS.has(op) ? field(".a-reason")?.value.trim() : null);
+      setOrDrop("asset", ATTACH_OPS.has(op) ? field(".a-asset")?.value.trim() : null);
+      setOrDrop("role", ATTACH_OPS.has(op) ? field(".a-role")?.value.trim() : null);
       const metadata = readKv(r.querySelector(".a-meta-wrap"));
       setOrDrop("metadata", METADATA_OPS.has(op) && Object.keys(metadata).length ? metadata : null);
       const data = readKv(r.querySelector(".a-data-wrap"));
@@ -1248,10 +1445,28 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     }
     if (kind === "emit_event") {
       step.event = field(".a-event")!.value;
-      if (step.event.startsWith("site_")) {
-        for (const [key, cls] of [["message", ".a-site-message"], ["error", ".a-site-error"], ["site_url", ".a-site-url"]]) {
-          const value = field(cls)?.value.trim();
-          if (value) step[key] = value;
+      const siteEvent = step.event.startsWith("site_");
+      const customEvent = step.event.startsWith("custom.");
+      for (const key of ["message", "error", "site_url", "payload"]) delete step[key];
+      if (customEvent) delete step.entity_id; // read from the box below; an entry event keeps what the JSON view gave it
+      const extras = siteEvent
+        ? [["message", ".a-site-message"], ["error", ".a-site-error"], ["site_url", ".a-site-url"]]
+        : customEvent
+          ? [["message", ".a-custom-message"], ["entity_id", ".a-custom-entity"]]
+          : [];
+      for (const [key, cls] of extras) {
+        const value = field(cls)?.value.trim();
+        if (value) step[key] = value;
+      }
+      const rawPayload = customEvent ? field(".a-custom-payload")?.value.trim() : "";
+      if (rawPayload) {
+        try {
+          step.payload = JSON.parse(rawPayload);
+        } catch (e: any) {
+          throw new Error(`Step ${i + 1}: the payload must be a JSON object (${e.message})`);
+        }
+        if (typeof step.payload !== "object" || step.payload === null || Array.isArray(step.payload)) {
+          throw new Error(`Step ${i + 1}: the payload must be a JSON object`);
         }
       }
       return step;
@@ -1289,7 +1504,9 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       const extra = (field(".a-c-fields")?.value ?? "").split(",").map((f) => f.trim()).filter(Boolean);
       setOrDrop("fields", extra.length ? extra : null);
       const limit = Number(field(".a-c-limit")?.value);
-      step.limit = Number.isInteger(limit) && limit >= 1 ? Math.min(limit, 250) : 25;
+      const atMost = Number.isInteger(limit) && limit >= 1 ? Math.min(limit, 250) : 25;
+      // The default isn't written unless the step already said it, so a collect without a limit still opens guided.
+      if (atMost !== 25 || "limit" in step) step.limit = atMost;
       return step;
     }
     if (kind === "fetch") {
@@ -1301,6 +1518,85 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       setOrDrop("method", !links && field(".a-f-method")?.value === "HEAD" ? "HEAD" : null);
       const find = (field(".a-f-find")?.value ?? "").split(",").map((w) => w.trim()).filter(Boolean);
       setOrDrop("find", !links && find.length ? find : null);
+      return step;
+    }
+    if (kind === "schema_check") {
+      const target = field(".a-sc-document")?.value.trim() ?? "";
+      if (!target) throw new Error(`Step ${i + 1}: say what to check (e.g. \${steps.page.output.json}).`);
+      step.document = /^[{[]/.test(target) ? (() => { try { return JSON.parse(target); } catch { return target; } })() : target;
+      const schemaText = field(".a-sc-schema")?.value.trim() ?? "";
+      const resource = field(".a-sc-resource")?.value.trim() ?? "";
+      if (!schemaText && !resource) throw new Error(`Step ${i + 1}: give the JSON Schema, or the resource that holds it.`);
+      setOrDrop("schema_resource", schemaText ? null : resource);
+      setOrDrop("schema", !schemaText ? null : schemaText.startsWith("${") ? schemaText : parseJsonObject(schemaText, `Step ${i + 1} schema`));
+      const max = Number(field(".a-sc-max")?.value);
+      setOrDrop("max_errors", Number.isInteger(max) && max >= 1 && max !== 20 ? Math.min(max, 50) : null);
+      setOrDrop("fail_on_invalid", (field(".a-sc-fail") as HTMLInputElement | null)?.checked ? true : null);
+      return step;
+    }
+    if (kind === "email") {
+      const to = field(".a-e-to")?.value.trim() ?? "";
+      const subject = field(".a-e-subject")?.value.trim() ?? "";
+      const body = field(".a-e-body")?.value.trim() ?? "";
+      if (!to) throw new Error(`Step ${i + 1}: say who to email (a member's id or email, e.g. \${member.id}).`);
+      if (!subject) throw new Error(`Step ${i + 1}: the email needs a subject.`);
+      if (!body) throw new Error(`Step ${i + 1}: the email needs a message.`);
+      step.to = to;
+      step.subject = subject;
+      step.body = body;
+      setOrDrop("heading", field(".a-e-heading")?.value.trim());
+      const buttonText = field(".a-e-button-text")?.value.trim() ?? "";
+      const buttonLink = field(".a-e-button-link")?.value.trim() ?? "";
+      if (Boolean(buttonText) !== Boolean(buttonLink)) throw new Error(`Step ${i + 1}: a button needs both its text and its link.`);
+      setOrDrop("button_text", buttonText);
+      setOrDrop("button_link", buttonLink);
+      setOrDrop("once_per", field(".a-e-once")?.value.trim());
+      return step;
+    }
+    if (kind === "metric") {
+      const opChosen = field(".a-mt-op")?.value;
+      const reading = opChosen === "read";
+      const metric = field(".a-mt-metric")?.value.trim() ?? "";
+      if (!metric) throw new Error(`Step ${i + 1}: name the metric (e.g. clicks).`);
+      step.metric = metric;
+      setOrDrop("variant", field(".a-mt-variant")?.value.trim());
+      setOrDrop("subject", field(".a-mt-subject")?.value.trim());
+      for (const key of ["op", "value", "window", "at", "window_from", "window_to", "limit"]) delete step[key];
+      if (reading) {
+        step.op = "read";
+        setOrDrop("window_from", field(".a-mt-from")?.value.trim());
+        setOrDrop("window_to", field(".a-mt-to")?.value.trim());
+        const limit = Number(field(".a-mt-limit")?.value);
+        setOrDrop("limit", Number.isInteger(limit) && limit >= 1 && limit !== 50 ? Math.min(limit, 250) : null);
+        return step;
+      }
+      const adding = opChosen === "add";
+      if (adding) step.op = "add";
+      const value = field(".a-mt-value")?.value.trim() ?? "";
+      if (!value && !adding) throw new Error(`Step ${i + 1}: give the value to record (a number or a template).`);
+      if (value) step.value = !Number.isNaN(Number(value)) ? Number(value) : value;
+      const windowKind = field(".a-mt-window")?.value || "day";
+      if (windowKind === "explicit") {
+        const named = field(".a-mt-explicit")?.value.trim() ?? "";
+        if (!named) throw new Error(`Step ${i + 1}: name the window (2026-10-18, 2026-W42 or 2026-10).`);
+        step.window = named;
+      } else {
+        setOrDrop("window", windowKind === "day" ? null : windowKind);
+        setOrDrop("at", field(".a-mt-at")?.value.trim());
+      }
+      return step;
+    }
+    if (kind === "snapshot") {
+      for (const key of ["op", "label", "snapshot", "parts"]) delete step[key];
+      setOrDrop("label", field(".a-sn-label")?.value.trim());
+      if (field(".a-sn-op")?.value === "restore") {
+        step.op = "restore";
+        setOrDrop("snapshot", field(".a-sn-snapshot")?.value.trim());
+        const ticked = Array.from(r.querySelectorAll<HTMLInputElement>(".a-sn-part:checked")).map((box) => box.value);
+        if (!ticked.length) throw new Error(`Step ${i + 1}: tick what to put back (content, collections, pictures, status).`);
+        const standard = ticked.length === 3 && ["content", "collections", "assets"].every((p) => ticked.includes(p));
+        setOrDrop("parts", standard ? null : ticked);
+      }
       return step;
     }
     if (kind === "wait") {
@@ -1326,6 +1622,10 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       step.approvers = field(".a-approvers")?.value || "editor";
       const hours = Number(field(".a-expires")?.value);
       step.expires_in_hours = Number.isFinite(hours) && hours >= 1 ? Math.min(Math.round(hours), 720) : 72;
+      // One template (to a list) stays as typed; anything else is labels, comma-separated.
+      const choices = field(".a-choices")?.value.trim() ?? "";
+      setOrDrop("choices", !choices ? null : /^\$\{[^}]+\}$/.test(choices) ? choices : choices.split(",").map((c) => c.trim()).filter(Boolean));
+      setOrDrop("image", field(".a-image")?.value.trim() || null);
       return step;
     }
     if (kind === "handler") {
@@ -1333,6 +1633,15 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       if (!task) return null;
       step.task = task;
       return step;
+    }
+    if (kind === "integration" || kind === "webhook") {
+      // Both step kinds can call once: the same key within the window makes the call a single time.
+      const idemKey = field(".a-idem-key");
+      if (idemKey) {
+        setOrDrop("idempotency_key", idemKey.value.trim());
+        const hours = Number(field(".a-idem-hours")?.value);
+        setOrDrop("idempotency_window_hours", step.idempotency_key && Number.isFinite(hours) && hours >= 1 ? Math.min(Math.round(hours), 720) : null);
+      }
     }
     if (kind === "integration") {
       const integration = field(".a-integration")!.value.trim();
@@ -1362,6 +1671,21 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       setOrDrop("on_item_error", field(".a-r-onerr")?.value === "continue" ? "continue" : null);
       step.steps = readSteps(r.querySelector(".a-r-steps")!);
       if (!step.steps.length) throw new Error(`Step ${i + 1}: add a step to repeat.`);
+      return step;
+    }
+    if (kind === "parallel") {
+      setOrDrop("join", field(".a-p-join")?.value === "any" ? "any" : null);
+      setOrDrop("on_branch_failure", field(".a-p-onerr")?.value === "continue" ? "continue" : null);
+      step.branches = [...r.querySelectorAll(".a-p-branch")].map((b, n) => {
+        const name = (b.querySelector(".a-p-name") as HTMLInputElement).value.trim();
+        if (!/^[a-z][a-z0-9_]{0,30}$/.test(name)) throw new Error(`Step ${i + 1}, branch ${n + 1}: give it a name in lower case — letters, digits and _, e.g. images.`);
+        const steps = readSteps(b.querySelector(".a-p-steps")!);
+        if (!steps.length) throw new Error(`Step ${i + 1}, branch “${name}”: add a step to it.`);
+        return { name, steps };
+      });
+      const names = step.branches.map((b: any) => b.name);
+      if (new Set(names).size !== names.length) throw new Error(`Step ${i + 1}: each branch needs its own name.`);
+      if (step.branches.length < 2) throw new Error(`Step ${i + 1}: a parallel step needs at least two branches.`);
       return step;
     }
     if (kind === "webhook") {
@@ -1783,10 +2107,12 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     // A failure the integration's error policy took in hand (review, retry, …), and a retry run.
     const handled = r.handled ? ` <span class="run-tag handled" title="An integration's error policy handled the failure">handled</span>` : "";
     const retry = r.retryOfId ? ` <span class="run-tag">retry</span>` : "";
+    // A run parked at a Wait step can be stopped here; one parked for an approval is decided on Automation → Approvals.
+    const cancel = r.status === "waiting" ? ` <button type="button" class="linkish danger js-cancel-run" data-exec="${esc(r.id)}">Cancel</button>` : "";
     return `<div class="run-row" data-exec="${esc(r.id)}">
         <span class="run-status status-${esc(r.status)}">${esc(r.status)}</span>${handled}${retry}
         <span class="run-when">${esc(when)}</span>
-        <span class="run-meta muted">${esc(r.triggerType)}${esc(targets)}${esc(steps)}${esc(dur)}</span>
+        <span class="run-meta muted">${esc(r.triggerType)}${esc(targets)}${esc(steps)}${esc(dur)}</span>${cancel}
       </div>
       <div class="run-detail" hidden></div>`;
   }
@@ -1834,6 +2160,20 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     try {
       const runs: any[] = await listAutomationExecutions(id, 15);
       panel.innerHTML = runs.length ? runs.map(runRow).join("") : `<span class="hint">No runs recorded yet.</span>`;
+      panel.querySelectorAll<HTMLButtonElement>(".js-cancel-run").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();  // not a click on the row (which opens its steps)
+          btn.disabled = true;
+          try {
+            await cancelAutomationExecution(id, btn.dataset.exec!);
+            panel.setAttribute("hidden", "");
+            await toggleHistory(card, id);  // the list, fresh
+          } catch (err: any) {
+            btn.disabled = false;
+            btn.insertAdjacentHTML("afterend", ` <span class="hint error">${esc(err?.message ?? err)}</span>`);
+          }
+        });
+      });
       panel.querySelectorAll(".run-row").forEach((rr) => {
         rr.addEventListener("click", async () => {
           const execId = (rr as HTMLElement).dataset.exec!;
@@ -2198,6 +2538,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.a-int-mark:empty) { display: none; }
   .workflows-page :global(.a-int-pickers:empty) { display: none; }
   .workflows-page :global(.a-int-pickers) { display: flex; flex-direction: column; gap: 8px; }
+  .workflows-page :global(.a-idem) { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
   .workflows-page :global(.tf) { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
   .workflows-page :global(.tf > span) { color: var(--muted); }
   .workflows-page :global(.target-checks) { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 10px; }
@@ -2286,6 +2627,14 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   /* Step numbers follow the order on screen; the id is what later steps use to read a step's result. */
   .workflows-page :global(#wf-actions) { counter-reset: step; }
   .workflows-page :global(#wf-actions > .action-row) { counter-increment: step; }
+  /* A parallel step's branches: each boxed, its steps indented and lettered like a repeat's. */
+  .workflows-page :global(.a-p-branches) { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 6px; }
+  .workflows-page :global(.a-p-branch) { border: 1px solid var(--line); border-radius: 8px; padding: 10px; min-width: 0; }
+  .workflows-page :global(.a-p-head) { display: flex; gap: 8px; align-items: flex-end; }
+  .workflows-page :global(.a-p-head .tf) { flex: 1; min-width: 0; }
+  .workflows-page :global(.a-p-steps) { counter-reset: inner; display: flex; flex-direction: column; gap: 8px; margin: 10px 0 6px; padding-left: 12px; border-left: 2px solid var(--line); }
+  .workflows-page :global(.a-p-steps > .action-row) { counter-increment: inner; }
+  .workflows-page :global(.a-p-steps > .action-row > .action-head .a-num::before) { content: counter(inner, lower-alpha); }
   /* A repeat's inner steps: indented under it, lettered a, b, c… */
   .workflows-page :global(.a-r-steps) { counter-reset: inner; display: flex; flex-direction: column; gap: 8px; margin: 10px 0 6px; padding-left: 12px; border-left: 2px solid var(--line); }
   .workflows-page :global(.a-r-steps > .action-row) { counter-increment: inner; }

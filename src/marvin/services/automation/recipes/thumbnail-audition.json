@@ -1,0 +1,151 @@
+{
+  "name": "Thumbnail audition",
+  "definition": {
+    "trigger": {
+      "type": "manual",
+      "inputs": [
+        {
+          "name": "piece",
+          "type": "entry",
+          "label": "The entry to make thumbnails for"
+        }
+      ]
+    },
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "ideas",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "Propose three different thumbnail concepts for “${entry.title}”, from what the entry says: each a short title (a few words) and a one-line visual description for an illustrator. Make them clearly different from each other. Also list the three titles on their own.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "concepts": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60
+                  },
+                  "visual": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 300
+                  }
+                },
+                "required": [
+                  "title",
+                  "visual"
+                ]
+              }
+            },
+            "titles": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "type": "string",
+                "maxLength": 60
+              }
+            }
+          },
+          "required": [
+            "concepts",
+            "titles"
+          ]
+        }
+      },
+      {
+        "kind": "approval",
+        "id": "go",
+        "message": "Draw three thumbnail concepts for “${entry.title}”? (three paid images) — ${steps.ideas.output.titles}",
+        "approvers": "editor",
+        "expires_in_hours": 72
+      },
+      {
+        "kind": "integration",
+        "id": "draw_0",
+        "integration": "{{image_integration}}",
+        "action": "generate",
+        "attach_as": "thumbnail-option-0",
+        "args": {
+          "prompt": "{{style}}: ${steps.ideas.output.concepts.0.visual}",
+          "name": "${entry.title} — thumbnail ${steps.ideas.output.concepts.0.title}"
+        },
+        "when": {
+          "field": "steps.go.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      },
+      {
+        "kind": "integration",
+        "id": "draw_1",
+        "integration": "{{image_integration}}",
+        "action": "generate",
+        "attach_as": "thumbnail-option-1",
+        "args": {
+          "prompt": "{{style}}: ${steps.ideas.output.concepts.1.visual}",
+          "name": "${entry.title} — thumbnail ${steps.ideas.output.concepts.1.title}"
+        },
+        "when": {
+          "field": "steps.go.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      },
+      {
+        "kind": "integration",
+        "id": "draw_2",
+        "integration": "{{image_integration}}",
+        "action": "generate",
+        "attach_as": "thumbnail-option-2",
+        "args": {
+          "prompt": "{{style}}: ${steps.ideas.output.concepts.2.visual}",
+          "name": "${entry.title} — thumbnail ${steps.ideas.output.concepts.2.title}"
+        },
+        "when": {
+          "field": "steps.go.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      },
+      {
+        "kind": "approval",
+        "id": "pick",
+        "message": "Which thumbnail for “${entry.title}”? The three are on the entry as thumbnail-option-0, -1 and -2.",
+        "choices": "${steps.ideas.output.titles}",
+        "approvers": "editor",
+        "expires_in_hours": 168,
+        "when": {
+          "field": "steps.go.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "thumbnail": {
+            "role": "thumbnail-option-${steps.pick.output.choice_index}",
+            "concept": "${steps.pick.output.choice}"
+          }
+        },
+        "when": {
+          "field": "steps.pick.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      }
+    ]
+  }
+}

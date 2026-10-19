@@ -497,33 +497,6 @@ def test_entry_payload_and_tag_counts_leave_trashed_items_out(http):
     assert usage() == 0
 
 
-def test_admin_delete_trashes_and_permanent_removes_the_file(http):
-    """routes/admin/platform isn't mounted in the app today; mounted on its own, its delete takes the Trash's path."""
-    from fastapi import FastAPI
-
-    from marvin.routes.admin.platform import router as admin_platform
-
-    http.sign_in(WorkspaceRole.OWNER, admin=True)
-    mini = FastAPI()
-    mini.include_router(admin_platform, prefix="/api/admin")
-    mini.dependency_overrides[get_current_user] = app.dependency_overrides[get_current_user]
-    client, platform = TestClient(mini), TestClient(app)
-    aid, rid = http.asset("admin"), http.resource("admin")
-    key = http.key_of(aid)
-    trashed = client.delete(f"/api/admin/platform/assets/{aid}")
-    assert trashed.status_code == 200 and trashed.json()["trashedAt"] and http.store.exists(key)
-    assert str(aid) not in {a["id"] for a in client.get("/api/admin/platform/assets").json()}
-    assert client.post(f"/api/admin/platform/assets/{aid}/restore").json()["trashedAt"] is None
-    assert client.delete(f"/api/admin/platform/assets/{aid}?permanent=true").status_code == 409  # restored: not in the Trash
-    client.delete(f"/api/admin/platform/assets/{aid}")
-    assert client.delete(f"/api/admin/platform/assets/{aid}?permanent=true").status_code == 200
-    assert not http.store.exists(key)  # it used to drop the row and orphan the file
-    assert platform.get(f"/api/platform/assets/{aid}").status_code == 404
-    client.delete(f"/api/admin/platform/resources/{rid}")
-    assert client.delete(f"/api/admin/platform/resources/{rid}?permanent=true").status_code == 200
-    assert platform.get(f"/api/platform/resources/{rid}").status_code == 404
-
-
 # ── Publishing API ────────────────────────────────────────────────────────────
 
 
@@ -538,24 +511,19 @@ def test_publishing_api_never_serves_a_trashed_asset_or_resource(db_session, mak
     hero.trashed_at = material.trashed_at = datetime.now(UTC)
     db_session.commit()
     try:
-        from marvin.core.permissions import Permissions
         from tests.test_publishing_expand import SITE_TOKEN
 
         ws.group.name = "Pub"  # the site endpoint reads it
-        client = site(ws, {**SITE_TOKEN, Permissions.READ_ASSETS: True})
+        client = site(ws, SITE_TOKEN)
         entry = client.get(f"/api/publish/{slug}/entries/{ws.slugs[0]}").json()
         assert [a["asset"]["slug"] for a in entry["assets"]] == ["gallery-0"]
         assert entry["resources"] == []
         item = client.get(f"/api/publish/{slug}/entries").json()["data"][0]
         assert item["assetSlugs"] == ["gallery-0"] and item["resourceSlugs"] == []
         assert item["featuredAsset"]["slug"] == "gallery-0"  # the trashed hero isn't featured
-        assert "hero-0" not in {a["slug"] for a in client.get(f"/api/publish/{slug}/assets").json()["data"]}
-        assert client.get(f"/api/publish/{slug}/assets/hero-0").status_code == 404
-        assert client.get(f"/api/publish/{slug}/resources").json()["data"] == []
-        assert client.get(f"/api/publish/{slug}/resources/waxed-canvas").status_code == 404
-        assert client.get(f"/api/publish/{slug}/resources/waxed-canvas/entries").status_code == 404
         site_info = client.get(f"/api/publish/{slug}/site").json()["site"]
-        assert site_info["logo"] is None and site_info["favicon"] == "gallery-0"
+        assert site_info["logo"] is None  # the trashed logo
+        assert site_info["favicon"] == item["featuredAsset"]["publicUrl"]  # a URL, not the slug it is stored as
     finally:
         db_session.query(GroupPreferencesModel).filter_by(group_id=gid).delete()
         db_session.commit()
@@ -683,3 +651,19 @@ def test_the_orphaned_assets_task_moves_orphans_to_the_trash_instead_of_dropping
     row = _get(ws, "asset", aid)
     assert row is not None and T.is_trashed(row) and ws.store.exists(row.storage_key)
     assert "asset_trashed" in _names(aid)
+
+
+def test_type_counts_leave_the_trash_out(http, db_session):
+    """The sidebar's Assets and Resources folds: each type in use and how many — a trashed item counts nowhere."""
+    a1, a2, doc = http.asset("a1"), http.asset("a2"), http.asset("doc")
+    db_session.get(Assets, doc).asset_type = "document"
+    r1, tool = http.resource("r1"), http.resource("tool")
+    db_session.get(Resources, tool).resource_type = "tool"
+    db_session.commit()
+    editor = http.sign_in(WorkspaceRole.EDITOR)
+    assert editor.delete(f"/api/platform/assets/{a2}").status_code in (200, 204)
+
+    viewer = http.sign_in(WorkspaceRole.VIEWER)  # any member reads
+    assert viewer.get("/api/platform/assets/types").json() == [{"type": "document", "count": 1}, {"type": "image", "count": 1}]
+    assert viewer.get("/api/platform/resources/types").json() == [{"type": "material", "count": 1}, {"type": "tool", "count": 1}]
+    assert a1 and r1

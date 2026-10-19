@@ -131,7 +131,8 @@ def test_below_editor_gets_403(db_session, workspace, role, method):
 
     response = _sign_in(workspace, role).request(method, URL)
 
-    assert response.status_code == 403
+    # a non-member is in no workspace at all: 409 no_workspace, before the gate
+    assert response.status_code == (409 if role is None else 403)
     assert _rows(db_session, workspace) == []
 
 

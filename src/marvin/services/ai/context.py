@@ -18,6 +18,8 @@ from datetime import UTC, datetime
 from pydantic import UUID4
 from sqlalchemy.orm import Session
 
+from marvin.services.assets.image_type import sniff_image_mime
+
 from .operations.base import OperationContext
 
 
@@ -174,7 +176,11 @@ class ContextBuilder:
                 continue
             try:
                 fh = provider_for(asset.get("storage_provider")).get(asset["storage_key"])
-                asset["image_data"] = base64.b64encode(fh.read()).decode("ascii")
+                data = fh.read()
+                asset["image_data"] = base64.b64encode(data).decode("ascii")
+                # The model gets the file's real type: a stored label can be wrong (a PNG version saved as image/jpeg),
+                # and Anthropic refuses an image whose bytes don't match the type it was told.
+                asset["mime_type"] = sniff_image_mime(data) or mime
                 loaded += 1
             except Exception:
                 continue  # skip unreadable assets rather than failing the whole operation
@@ -217,16 +223,11 @@ class ContextBuilder:
         return self
 
     def with_form_submission(self, submission_id: UUID4) -> "ContextBuilder":
-        from marvin.db.models.platform.form_submissions import FormSubmissions
+        """Load a submission of this workspace: an entry of a submittable type, or a legacy Forms row."""
+        from marvin.services import form_submissions
 
-        sub = self._session.get(FormSubmissions, submission_id)
-        if sub:
-            self._ctx.form_submission = {
-                "id": str(sub.id),
-                "data": sub.data_json or {},
-                "status": sub.status or "",
-                "submitted_at": str(sub.submitted_at or ""),
-            }
+        if sub := form_submissions.load(self._session, self._group_id, submission_id):
+            self._ctx.form_submission = {k: sub[k] for k in ("id", "form", "data", "status", "submitted_at")}
         return self
 
     def with_semantic_search(self, query: str, provider, model: str, limit: int = 5, entity_types: list[str] | None = None) -> "ContextBuilder":
@@ -239,7 +240,7 @@ class ContextBuilder:
             qvec = provider.embed([query], model)[0]
         except Exception:
             return self  # embedding unavailable — proceed without retrieval
-        self._ctx.retrieved = search_embeddings(self._session, self._group_id, qvec, limit, entity_types)
+        self._ctx.retrieved = search_embeddings(self._session, self._group_id, qvec, limit, entity_types, model=model)
         return self
 
     def inject(self, key: str, value: str) -> "ContextBuilder":

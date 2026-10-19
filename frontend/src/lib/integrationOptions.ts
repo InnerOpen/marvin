@@ -19,7 +19,7 @@ export interface InputOption {
   label: string;
 }
 
-export const OPTIONS_HINT = "x-marvin-options";
+const OPTIONS_HINT = "x-marvin-options";
 
 /** The input's hint, or null when it has none (or a malformed one — the input stays free text). */
 export function optionsHint(prop: unknown): OptionsHint | null {

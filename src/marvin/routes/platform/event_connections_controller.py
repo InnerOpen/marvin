@@ -42,7 +42,7 @@ class EventConnectionsController(BaseUserController):
         from marvin.services.events import connections
 
         require_workspace_admin(self.user, self.group_id)
-        entry = connections.workspace_entry(event_type)
+        entry = connections.workspace_entry(event_type, self.session, self.group_id)
         if entry is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Event type {event_type} not found.")
         return connections.detail(self.session, self.group_id, entry, limit=limit, visible=self._visible())

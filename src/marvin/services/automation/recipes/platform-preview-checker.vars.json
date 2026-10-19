@@ -1,0 +1,35 @@
+{
+  "recipe": "platform-preview-checker",
+  "variables": {
+    "post_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type of your social-post drafts.",
+      "example": "social-post"
+    },
+    "body_field": {
+      "type": "field_key",
+      "description": "Their text field.",
+      "example": "body"
+    },
+    "network": {
+      "type": "text",
+      "description": "The network the posts are for (named in the review reasons).",
+      "example": "Bluesky"
+    },
+    "max_length": {
+      "type": "integer",
+      "description": "That network's limit: Bluesky 300, Mastodon 500, Threads 500, LinkedIn 3000.",
+      "example": 300
+    },
+    "image_role": {
+      "type": "text",
+      "description": "The role of the post's picture, if it has one.",
+      "example": "hero"
+    },
+    "orientation": {
+      "type": "text",
+      "description": "The picture shape that shows best there: landscape, portrait or square.",
+      "example": "landscape"
+    }
+  }
+}

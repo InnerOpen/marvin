@@ -101,7 +101,7 @@ Only actions a provider names this way can be run to fill a list, with the provi
 
 ### Logos
 
-A provider can ship its official logo (`marvin-integration-sdk` 0.6.0, `logo = "logo.svg"`, an SVG or PNG inside its package). Marvin shows it on the integration cards, the **Add an integration** catalog, **Admin → Extensions → Plugins** and the workflow **Run integration** step: 32px tall on a white tile in both light and dark mode, keeping its shape (wordmarks get a wider tile), with the name beside it. Without a logo, or if it fails to load, the provider's emoji shows as before.
+A provider can ship its official logo (`marvin-integration-sdk` 0.6.0, `logo = "logo.svg"`, an SVG or PNG inside its package). Marvin shows it on the integration cards, the **Add an integration** catalog, **Admin → Extensions → Plugins**, the workflow **Run integration** step and, icon-sized, beside the sidebar group of collections the integration installed (Collections › Buttondown): 32px tall on a white tile in both light and dark mode, keeping its shape (wordmarks get a wider tile), with the name beside it. Without a logo, or if it fails to load, the provider's emoji shows as before. AI providers (`marvin-ai-*`) ship theirs the same way, on the `AIProvider` class; Marvin serves it from `GET /api/ai/provider-types/{slug}/logo` and shows it beside **Provider** in AI settings and in **Admin → Extensions → Plugins**.
 
 Marvin checks every logo when it loads the provider and refuses one that is larger than 64 KB, a PNG that isn't really a PNG, or an SVG that could run a script, load something from elsewhere or link out (a DOCTYPE or entity, `<script>`, `<foreignObject>`, `on…` event attributes, links or `url(…)` that don't point inside the file, `javascript:`). A refused logo is logged at startup and the emoji is used instead.
 
@@ -130,7 +130,7 @@ Integrations that ship them (2026-10-11):
 | Buttondown 0.7.0 | yes | **Subscribe form submitters who opt in**: a contact or event form's opt-in checkbox subscribes the sender |
 | Apprise 0.3.0 | yes | **Announce published entries and record delivery**: records `apprise_delivery: sent` or `failed` on the entry (Apprise reports a refused message without failing the step) |
 | Square 0.4.0 | yes | **Re-list every item for sale on Square**: a manual run lists every published, unsold item again (for the switch from sandbox to production) |
-| Instagram 0.4.0 | yes | none: its reply actions need approval and can't run from a workflow |
+| Instagram 0.5.1 | yes | **Post to Instagram when published** — the main picture to the feed after an editor approves, the post's link kept on the entry (`publish_media`; the plugin ships the recipe) |
 
 How to add them to an integration: the SDK's README, "Teach Marvin about it"; the integration template has an example.
 

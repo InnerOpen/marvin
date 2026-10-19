@@ -57,7 +57,13 @@ jobs:
           - 6379:6379
 
     env:
-      DATABASE_URL: postgresql://marvin:marvin@localhost:5432/marvin_cli_test
+      # The backend runs on the job's Postgres service (the engine production runs).
+      DB_ENGINE: postgres
+      POSTGRES_SERVER: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: marvin
+      POSTGRES_PASSWORD: marvin
+      POSTGRES_DB: marvin_cli_test
       REDIS_URL: redis://localhost:6379/0
       MARVIN_API_URL: http://localhost:8080
 
@@ -239,7 +245,7 @@ jobs:
           echo "✅ Collection deleted"
 
           echo "📝 Test: Delete workspace"
-          marvin admin groups delete "$WS_ID" --yes --force >/dev/null
+          marvin admin groups delete "$WS_ID" --yes --force --skip-backup >/dev/null
           echo "✅ Workspace deleted"
 
           echo "=== All CLI integration tests passed ==="

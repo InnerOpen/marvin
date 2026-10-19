@@ -1,11 +1,17 @@
 // Where an asset came from, read off its metadata: a media step's or the media pipeline's derivative (`derived_from`,
 // `derivation`), or an image an integration generated (`generated_by`, `prompt`). The asset pages show it as one line
-// ("Made from … · resize 800 wide, webp · by workflow …"). Pure, so `npm test` covers it (assetLineage.test.mjs).
+// ("Made from … · resize 800 wide, webp · for the entry … · by the workflow …"). Pure, so `npm test` covers it
+// (assetLineage.test.mjs).
 
 export interface Lineage {
   sourceId: string | null;
   made: string;
+  /** The model that generated it (from the provider's usage), when known. */
+  model: string | null;
   workflow: string | null;
+  workflowId: string | null;
+  /** The entry the picture was made for (`made_for_entry`). */
+  entryId: string | null;
   prompt: string | null;
 }
 
@@ -42,23 +48,37 @@ export function describeDerivation(derivation: string): string {
   return words.length ? `${op} ${words.join(", ")}` : op;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** The asset's lineage, or null for an original (nothing made it). */
 export function lineageOf(metadata: unknown): Lineage | null {
   if (!metadata || typeof metadata !== "object") return null;
   const m = metadata as Record<string, unknown>;
   const text = (k: string) => (typeof m[k] === "string" && (m[k] as string).trim() ? (m[k] as string) : null);
+  const id = (k: string) => (UUID.test(text(k) ?? "") ? text(k) : null);
   const sourceId = text("derived_from");
   const derivation = text("derivation") ?? (text("generated_by") ? `generated:${text("generated_by")}` : null);
   if (!sourceId && !derivation) return null;
   return {
     sourceId,
     made: derivation ? describeDerivation(derivation) : "derived",
+    model: text("model"),
     workflow: text("workflow_slug"),
+    workflowId: id("workflow_id"),
+    entryId: id("made_for_entry"),
     prompt: text("prompt"),
   };
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Where a workflow opens: its card on the Workflows page, runs shown (the page reads `?workflow=`). */
+export function workflowHref(id: string): string {
+  return `/automation/workflows?workflow=${encodeURIComponent(id)}`;
+}
+
+/** Where an entry opens. */
+export function entryHref(id: string): string {
+  return `/workspace/entries/${encodeURIComponent(id)}`;
+}
 
 /** The assets a metadata entry points at, so the asset pages can link them: `derived_from` (the picture a version was
  *  made from) and `rendered_from` (a render's pictures: {name: id | [ids]}). Anything else, or a value that isn't an
@@ -68,4 +88,47 @@ export function assetRefs(key: string, value: unknown): string[] {
   if (key !== "rendered_from" || !value || typeof value !== "object") return [];
   const ids = Object.values(value as Record<string, unknown>).flat();
   return [...new Set(ids.filter((id): id is string => typeof id === "string" && UUID.test(id)))];
+}
+
+/** A metadata entry that names something other than an asset, as a link: the entry a picture was made for
+ *  (`made_for_entry`) and the workflow that made it (`workflow_id`). Null for anything else, or a value that isn't an id. */
+export function metaLink(key: string, value: unknown): { kind: "entry" | "workflow"; href: string } | null {
+  if (typeof value !== "string" || !UUID.test(value)) return null;
+  if (key === "made_for_entry") return { kind: "entry", href: entryHref(value) };
+  if (key === "workflow_id") return { kind: "workflow", href: workflowHref(value) };
+  return null;
+}
+
+/** What a person said when an approval step showed this picture (`metadata.approval`, written by the approvals
+ *  service): the decision, who, when and the note. Null when it was never asked. */
+export interface Decision {
+  decision: string;
+  label: string;
+  by: string | null;
+  at: string | null;
+  note: string | null;
+}
+
+const DECISION_WORDS: Record<string, string> = {
+  approved: "Approved",
+  denied: "Denied",
+  expired: "Not decided in time",
+  stale: "Approved too late (the entry had changed)",
+};
+
+export function decisionOf(metadata: unknown): Decision | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const raw = (metadata as Record<string, unknown>).approval;
+  if (!raw || typeof raw !== "object") return null;
+  const a = raw as Record<string, unknown>;
+  const text = (k: string) => (typeof a[k] === "string" && (a[k] as string).trim() ? (a[k] as string) : null);
+  const decision = text("decision");
+  if (!decision) return null;
+  return {
+    decision,
+    label: DECISION_WORDS[decision] ?? decision,
+    by: text("decided_by_name"),
+    at: text("decided_at"),
+    note: text("note"),
+  };
 }

@@ -8,6 +8,7 @@ targets, used platform-wide) and AI providers (services/ai/registry.py: model ve
 choose) are pluggable, so the admin keeps a single list of what is installed.
 """
 
+import logging
 from typing import Any
 
 import sqlalchemy as sa
@@ -15,6 +16,8 @@ from sqlalchemy.orm import Session
 
 from marvin.db.models.groups.integrations import IntegrationModel
 from marvin.schemas.admin.plugins import PluginProviderRead, PluginRead
+
+logger = logging.getLogger(__name__)
 
 KIND_INTEGRATION = "integration"
 KIND_STORAGE = "storage"
@@ -100,6 +103,7 @@ def _ai_provider_read(plugin: Any, usage: dict[str, int]) -> PluginProviderRead:
         name=plugin.name or plugin.slug,
         provides=[name for name, on in plugin.provider.capabilities().items() if on],
         workspaces=usage.get(plugin.slug, 0),
+        has_logo=_has_ai_logo(plugin.slug),
     )
 
 
@@ -107,6 +111,12 @@ def connected_workspaces(session: Session) -> dict[str, int]:
     """Provider slug → how many distinct workspaces have at least one connection to it."""
     rows = session.query(IntegrationModel.provider, sa.func.count(sa.distinct(IntegrationModel.group_id))).group_by(IntegrationModel.provider).all()
     return dict(rows)
+
+
+def _has_ai_logo(slug: str) -> bool:
+    from marvin.services.integrations import logos
+
+    return logos.has_ai_logo(slug)
 
 
 def _has_logo(slug: str) -> bool:
@@ -126,6 +136,23 @@ def _provider_read(provider: Any, usage: dict[str, int]) -> PluginProviderRead:
         blueprints=len(getattr(provider, "content", ()) or ()),
         workspaces=usage.get(provider.slug, 0),
     )
+
+
+def _package_key(package: str | None) -> str:
+    return (package or "").lower().replace("_", "-")
+
+
+def _latest_versions(session: Session) -> dict[str, str]:
+    """{package: newer version} from the cached update check — never waits on GitHub (a stale cache is refreshed in the
+    background). Empty when the check hasn't run or fails: the list still shows."""
+    from marvin.services.plugin_updates import available_updates
+
+    try:
+        return {_package_key(u.package): u.latest for u in available_updates(session)}
+    except Exception:  # noqa: BLE001 — update notices are a courtesy; they never break the plugin list
+        session.rollback()
+        logger.debug("plugin update lookup failed", exc_info=True)
+        return {}
 
 
 def installed_plugins(session: Session) -> list[PluginRead]:
@@ -169,4 +196,7 @@ def installed_plugins(session: Session) -> list[PluginRead]:
         )
         for report, found in _ai_sources()
     ]
+    latest = _latest_versions(session)
+    for plugin in plugins:
+        plugin.latest_version = latest.get(_package_key(plugin.package))
     return sorted(plugins, key=lambda p: (p.package or p.name).lower())

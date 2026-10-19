@@ -23,6 +23,11 @@ from typing import Literal
 EventScope = Literal["workspace", "platform"]
 
 
+OPERATIONS = "Operations"
+"""The builder's heading for the events that report the platform failing or running short: a budget crossing, a
+connection needing attention, a webhook that couldn't deliver, a scheduled task that failed."""
+
+
 @dataclass
 class EventVariable:
     slug: str
@@ -54,10 +59,12 @@ class CatalogEntry:
     """A workflow can start on it (an "event" trigger): the builder's trigger dropdown offers it and the
     automation listener reacts to it. Curated, not the whole firehose: only events that are actually sent and
     worth reacting to. Left out on purpose: internal/audit noise (AI runs, reindexing, deliveries,
-    scheduled_task_*, webhook_task, auth, budgets), automation_ran/automation_failed (they drive the chained /
+    scheduled_task_completed, webhook_task, auth), automation_ran/automation_failed (they drive the chained /
     on_error trigger types instead), automation_started (a workflow reacting to runs starting — its own
     included — would loop) and site_rebuild_queued (rebuild progress, not content). A triggerable event's
-    `document_data` is flattened into `$event.*`, so conditions can key on its fields."""
+    `document_data` is flattened into `$event.*`, so conditions can key on its fields. The OPERATIONS group
+    (ai_budget_*, integration_attention_*, webhook_delivery_failed, scheduled_task_failed) is the platform
+    reporting a failure; the engine never runs a workflow for one its own run caused (engine._caused_by_own_run)."""
     trigger_group: str | None = None
     """The heading the builder lists a triggerable event under, when it isn't `category` ("Entries",
     "Collections", … split the Content category the way the dropdown reads best)."""
@@ -176,6 +183,7 @@ CATALOG: list[CatalogEntry] = [
         name="Member Added",
         description="A new member joined the workspace.",
         category="Members",
+        triggerable=True,
         sent_by=["Adding a member (workspace Members settings, admin Workspaces page, API)"],
         variables=COMMON_VARS
         + [
@@ -189,6 +197,7 @@ CATALOG: list[CatalogEntry] = [
         name="Member Role Changed",
         description="A workspace member's role was updated.",
         category="Members",
+        triggerable=True,
         sent_by=["Changing a member's role (workspace Members settings, admin Workspaces page, API)"],
         variables=COMMON_VARS
         + [
@@ -292,6 +301,7 @@ CATALOG: list[CatalogEntry] = [
         description="A workspace's name or configuration was updated.",
         category="Workspaces",
         sent_by=["A platform admin editing a workspace"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("workspace_slug", "URL slug of the workspace", "my-blog", type="slug"),
@@ -345,6 +355,7 @@ CATALOG: list[CatalogEntry] = [
             "A site visitor's form submission, stored as an inbox entry",
             "An integration task storing fetched records as entries",
         ],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_title", "Title of the entry", "Draft Post", type="title"),
@@ -498,6 +509,7 @@ CATALOG: list[CatalogEntry] = [
         trigger_group="Collections",
         triggerable=True,
         sent_by=["Creating a collection (app, API, CLI)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("collection_name", "Name of the collection", "Featured Posts", type="name"),
@@ -652,6 +664,7 @@ CATALOG: list[CatalogEntry] = [
         triggerable=True,
         emittable=True,
         sent_by=["Editing an entry type (app, API, CLI)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_type_name", "Name of the entry type", "Blog Post", type="name"),
@@ -667,6 +680,7 @@ CATALOG: list[CatalogEntry] = [
         triggerable=True,
         emittable=True,
         sent_by=["Deleting an entry type (app, API, CLI)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_type_name", "Name of the entry type", "Blog Post", type="name"),
@@ -1122,8 +1136,9 @@ CATALOG: list[CatalogEntry] = [
         ],
     ),
     # ── Connect: Integrations ─────────────────────────────────────────────────
-    # Not workflow triggers (automation/triggers.py): a workflow reacting to a connection alert could
-    # call the failing connection again. Route them from Settings → Integrations → Integration alerts.
+    # Workflow triggers under "Operations" — see the OPERATIONS rule: a workflow never answers a failure its own run
+    # caused, so a workflow that calls the failing connection is not woken by it. The alert itself still reaches
+    # people without any workflow (Settings → Automation → Notifications, Integration alerts).
     CatalogEntry(
         event_type="integration_attention_needed",
         name="Integration Needs Attention",
@@ -1132,11 +1147,15 @@ CATALOG: list[CatalogEntry] = [
         "never once per affected item.",
         category="Connect",
         sent_by=["An integration failing (Alerts & health)"],
+        triggerable=True,
+        trigger_group=OPERATIONS,
         variables=COMMON_VARS
         + [
             EventVariable("integration_name", "The connection's name", "Shop", type="name"),
             EventVariable("integration_slug", "The connection's slug", "shop"),
+            EventVariable("provider", "The provider's registry key", "square"),
             EventVariable("provider_name", "The provider's name", "Square", type="name"),
+            EventVariable("alert_id", "The alert's ID (one per connection and error code)", "<alert-uuid>"),
             EventVariable("code", "The provider's error code", "auth"),
             EventVariable("error", "The latest failure's message", "The access token expired"),
             EventVariable("count", "Failures since the alert opened", "3", type="number"),
@@ -1152,6 +1171,8 @@ CATALOG: list[CatalogEntry] = [
         "or an admin's Resolve. Also delivered to every channel that delivered the alert.",
         category="Connect",
         sent_by=["An integration working again: a passing health check, a successful action, or an admin"],
+        triggerable=True,
+        trigger_group=OPERATIONS,
         variables=COMMON_VARS
         + [
             EventVariable("integration_name", "The connection's name", "Shop", type="name"),
@@ -1257,6 +1278,8 @@ CATALOG: list[CatalogEntry] = [
         description="An outgoing webhook couldn't deliver an event, even after its retries.",
         category="Connect",
         sent_by=["An outgoing webhook delivery failing after its retries (event, scheduled and test sends)"],
+        triggerable=True,
+        trigger_group=OPERATIONS,
         variables=COMMON_VARS
         + [
             EventVariable("webhook_id", "ID of the webhook", "<webhook-uuid>", type="string"),
@@ -1632,10 +1655,17 @@ CATALOG: list[CatalogEntry] = [
         category="Automation",
         internal=True,
         sent_by=["Running a scheduled task, when it fails"],
+        triggerable=True,
+        trigger_group=OPERATIONS,
         variables=COMMON_VARS
         + [
+            EventVariable("task_id", "ID of the task", "<task-uuid>"),
             EventVariable("task_name", "Name of the failed task", "Daily Cleanup", type="name"),
+            EventVariable("task_slug", "The task's slug", "daily-cleanup"),
+            EventVariable("task_type", "What kind of task it is", "cleanup"),
             EventVariable("error_message", "What went wrong", "Connection timeout", type="error"),
+            EventVariable("consecutive_failures", "Runs in a row that have failed, this one included (1 = the first)", "2", type="count"),
+            EventVariable("transient", "True for a network blip (a timeout, a dropped connection) rather than a real error", "false"),
         ],
     ),
     CatalogEntry(
@@ -1849,6 +1879,146 @@ CATALOG: list[CatalogEntry] = [
         ],
     ),
     CatalogEntry(
+        event_type="workspace_storage_copy_started",
+        name="Copying Files to the Workspace's Bucket",
+        description="Copying this workspace's existing files into its own bucket started (originals are kept).",
+        category="Assets",
+        sent_by=["A workspace owner starting a copy (Workspace settings → Storage → Copy existing files here)"],
+        triggerable=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("bucket_label", "The bucket's name in Marvin", "Our R2 bucket", type="name"),
+            EventVariable("location", "Where the files go: ws:<connection id>", "ws:561e4c27-9cd3-4178-bae9-a1973bb85403"),
+            EventVariable("files", "Files to copy", "51", type="count"),
+            EventVariable("bytes", "Their size", "3984588", type="size"),
+            EventVariable("started_by_name", "Who started it", "Jane Smith", type="name"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="workspace_storage_copy_finished",
+        name="Files Copied to the Workspace's Bucket",
+        description="Copying this workspace's files into its own bucket finished: how many moved, and any that failed.",
+        category="Assets",
+        sent_by=["The 'Copy files to …' scheduled task, when it ends (successfully or not)"],
+        triggerable=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("bucket_label", "The bucket's name in Marvin", "Our R2 bucket", type="name"),
+            EventVariable("location", "Where the files went: ws:<connection id>", "ws:561e4c27-9cd3-4178-bae9-a1973bb85403"),
+            EventVariable("moved", "Files now served from the bucket", "51", type="count"),
+            EventVariable("already_there", "Files whose copy was already there", "0", type="count"),
+            EventVariable("changed_meanwhile", "Files changed or deleted while copying (left as they were)", "0", type="count"),
+            EventVariable("failed", "Files that failed (listed in failures)", "0", type="count"),
+            EventVariable("copied_bytes", "Data copied", "3984588", type="size"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="workspace_storage_unhealthy",
+        name="Workspace Bucket Failing",
+        description="The workspace's own bucket failed its hourly check twice in a row: uploads stop until it passes again.",
+        category="Assets",
+        sent_by=["The hourly Check Workspace Storage system task"],
+        triggerable=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("bucket_label", "The bucket's name in Marvin", "Our R2 bucket", type="name"),
+            EventVariable("location", "ws:<connection id>", "ws:561e4c27-9cd3-4178-bae9-a1973bb85403"),
+            EventVariable("error", "Why the check failed", "put: the key is invalid or revoked (InvalidAccessKeyId)", type="error"),
+            EventVariable("consecutive_failures", "Failed checks in a row", "2", type="count"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="workspace_storage_recovered",
+        name="Workspace Bucket Working Again",
+        description="The workspace's own bucket passed its hourly check after failing: uploads go there again.",
+        category="Assets",
+        sent_by=["The hourly Check Workspace Storage system task"],
+        triggerable=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("bucket_label", "The bucket's name in Marvin", "Our R2 bucket", type="name"),
+            EventVariable("location", "ws:<connection id>", "ws:561e4c27-9cd3-4178-bae9-a1973bb85403"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="workspace_backup_saved",
+        name="Workspace Backup Saved",
+        description="The workspace's backup bundle was saved to its own private backup bucket.",
+        category="Workspaces",
+        sent_by=["The daily Workspace Backup Bundles task", "Back up now (Workspace settings → Storage)"],
+        triggerable=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("bucket_label", "The backup bucket's name in Marvin", "Our backups", type="name"),
+            EventVariable("key", "Where it was saved", "marvin-backups/mash-burn-co/20261014T030000Z-mash-burn-co-backup-2026-10-14.zip"),
+            EventVariable("size", "Its size", "5242880", type="size"),
+            EventVariable("pruned", "Older backups deleted", "1", type="count"),
+            EventVariable("trigger", "scheduled or manual", "scheduled"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="workspace_backup_failed",
+        name="Workspace Backup Failed",
+        description="The workspace's backup couldn't be saved to its own backup bucket.",
+        category="Workspaces",
+        sent_by=["The daily Workspace Backup Bundles task", "Back up now (Workspace settings → Storage)"],
+        triggerable=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("bucket_label", "The backup bucket's name in Marvin", "Our backups", type="name"),
+            EventVariable("error", "Why it failed", "the workspace's backup bucket can't be reached", type="error"),
+            EventVariable("trigger", "scheduled or manual", "scheduled"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="mcp_connection_authorized",
+        name="MCP App Connected",
+        description="A user let an MCP app (claude.ai, ChatGPT, Claude Code…) use Marvin as them in one workspace.",
+        category="Security",
+        sent_by=["The remote MCP consent page (Approve)"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("client_name", "What the app calls itself (unverified)", "Claude", type="name"),
+            EventVariable("redirect_host", "Where the approval went back to", "claude.ai"),
+            EventVariable("access", "read or write", "read"),
+            EventVariable("workspace_name", "The workspace it can use", "Mash & Burn Co", type="name"),
+            EventVariable("user_name", "The user it acts as", "Jane Smith", type="name"),
+            EventVariable("reason", "Why it was revoked", "user"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="mcp_connection_revoked",
+        name="MCP App Disconnected",
+        description="An MCP app's access was revoked: by its user, an admin, or Marvin (membership lost, a reused token, a dev refresh).",
+        category="Security",
+        sent_by=["Connected apps (Revoke)", "Admin → Connected apps", "Marvin itself"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("client_name", "What the app calls itself (unverified)", "Claude", type="name"),
+            EventVariable("redirect_host", "Where the approval went back to", "claude.ai"),
+            EventVariable("access", "read or write", "read"),
+            EventVariable("workspace_name", "The workspace it can use", "Mash & Burn Co", type="name"),
+            EventVariable("user_name", "The user it acts as", "Jane Smith", type="name"),
+            EventVariable("reason", "Why it was revoked", "user"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="mcp_token_reuse_detected",
+        name="MCP Token Reused",
+        description="An MCP app presented a refresh token that had already been used; a copy may be elsewhere, so its access was revoked.",
+        category="Security",
+        sent_by=["The remote MCP token endpoint"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("client_name", "What the app calls itself (unverified)", "Claude", type="name"),
+            EventVariable("redirect_host", "Where the approval went back to", "claude.ai"),
+            EventVariable("access", "read or write", "read"),
+            EventVariable("workspace_name", "The workspace it can use", "Mash & Burn Co", type="name"),
+            EventVariable("user_name", "The user it acts as", "Jane Smith", type="name"),
+            EventVariable("reason", "Why it was revoked", "user"),
+        ],
+    ),
+    CatalogEntry(
         event_type="storage_public_domain_changed",
         name="Workspace Asset Domain Changed",
         description="A platform admin changed the public domain a workspace's remote-stored assets are served from.",
@@ -1962,11 +2132,14 @@ CATALOG: list[CatalogEntry] = [
         description="Workspace AI spend crossed a budget warning threshold (~80% of the monthly cost limit).",
         category="AI",
         sent_by=["An AI call crossing the workspace's monthly budget warning (AI operations, workflow steps, persona lines)"],
+        triggerable=True,
+        trigger_group=OPERATIONS,
         variables=COMMON_VARS
         + [
             EventVariable("current_value", "Current monthly spend (USD)", "40.00", type="number"),
             EventVariable("limit_value", "Monthly cost limit (USD)", "50.00", type="number"),
             EventVariable("percent", "Percent of limit reached", "80", type="number"),
+            EventVariable("detail", "One line saying what was reached", "AI spend reached 80% of the $50.00 monthly limit"),
         ],
     ),
     CatalogEntry(
@@ -1990,10 +2163,13 @@ CATALOG: list[CatalogEntry] = [
         description="The workspace monthly AI cost limit was reached.",
         category="AI",
         sent_by=["An AI call going over the workspace's monthly budget (AI operations, workflow steps, persona lines)"],
+        triggerable=True,
+        trigger_group=OPERATIONS,
         variables=COMMON_VARS
         + [
             EventVariable("current_value", "Current monthly spend (USD)", "50.00", type="number"),
             EventVariable("limit_value", "Monthly cost limit (USD)", "50.00", type="number"),
+            EventVariable("detail", "One line saying what was reached", "Monthly AI cost limit of $50.00 reached (spent $50.12)"),
         ],
     ),
     CatalogEntry(
@@ -2195,6 +2371,9 @@ _PLATFORM_SCOPE: frozenset[str] = frozenset(
         "storage_provider_changed",
         "storage_public_domain_changed",
         "platform_settings_changed",
+        "mcp_connection_authorized",
+        "mcp_connection_revoked",
+        "mcp_token_reuse_detected",
     }
 )
 for _e in CATALOG:
@@ -2212,6 +2391,10 @@ TRIGGERABLE_EVENT_TYPES: frozenset[str] = frozenset(e.event_type for e in CATALO
 """What a workflow's "event" trigger can name — the automation listener reacts to exactly these (plus the
 incoming_webhook / chained / on_error trigger types' own events)."""
 
+OPERATIONAL_EVENT_TYPES: frozenset[str] = frozenset(e.event_type for e in CATALOG if e.triggerable and e.trigger_group == OPERATIONS)
+"""The triggerable events that report a failure or a shortfall (the builder's Operations heading): the engine never
+runs a workflow for one that workflow's own run caused."""
+
 EMITTABLE_EVENT_TYPES: frozenset[str] = frozenset(e.event_type for e in CATALOG if e.emittable)
 """What a workflow's Emit event step accepts."""
 
@@ -2226,6 +2409,67 @@ def trigger_groups() -> dict[str, list[str]]:
         if e.triggerable:
             groups.setdefault(e.trigger_group or e.category, []).append(e.event_type)
     return groups
+
+
+def operational_fields(event_type: str) -> dict[str, dict[str, str]]:
+    """What a workflow reads of an operational event as `${event.<field>}` (and in a condition as `event.<field>`):
+    each field of its payload with its type and meaning. Empty for any other event. The catalog's variables minus the
+    template extras every event offers to an email (workspace_name, message_title…), which `$event` doesn't carry;
+    tests/test_ops_triggers.py holds each one to the payload model that really sends it."""
+    entry = CATALOG_BY_TYPE.get(event_type)
+    if entry is None or not entry.triggerable or entry.trigger_group != OPERATIONS:
+        return {}
+    common = {v.slug for v in COMMON_VARS}
+    return {v.slug: {"type": v.type, "description": v.description} for v in entry.variables if v.slug not in common}
+
+
+# The events whose payload carries the update's diff (entry_service._diff).
+DIFF_EVENTS = frozenset({"entry_updated", "entry_published", "entry_unpublished", "entry_archived", "entry_restored", "entry_trashed"})
+
+
+def diff_fields(event_type: str) -> dict[str, dict[str, str]]:
+    """What a workflow reads of an entry update's diff (`event.changed_fields`, `event.before`, `event.after`); empty for any
+    other event. Status, title and slug, plus the type's own fields as `data.<key>` (values bounded: long text, lists and
+    secret-like fields read ‹elided›)."""
+    if event_type not in DIFF_EVENTS:
+        return {}
+    return {
+        "changed_fields": {"type": "list", "description": "what changed: status, title, slug and data.<field> for the type's own fields"},
+        "before": {"type": "object", "description": "prior values of the changed fields (before.status, before.data.<field>)"},
+        "after": {
+            "type": "object",
+            "description": "new values of the changed fields (after.status, after.data.<field>); long text, lists and secrets read ‹elided›",
+        },
+    }
+
+
+FORM_SUBMISSION_FIELDS: dict[str, str] = {
+    "id": "the submission's id (an entry of the form's type — the same as ${entry.id} — or a legacy Forms row)",
+    "form": "the form's name",
+    "form_slug": "the form's slug (its entry type's)",
+    "data.<field>": "what the visitor submitted, by field",
+    "status": "the submission's status (inbox, or needs_review when submission protection held it)",
+    "submitted_at": "when it was received",
+    "flagged": "true when submission protection held it for review",
+    "review_reasons": "why it was held (a list)",
+}
+"""What a run on a submission reads as `${form_submission.<field>}` (engine._form_submission_context)."""
+
+
+def workflow_reads(event_type: str) -> dict | None:
+    """The extra namespace a workflow starting on this event can read besides `event` and `entry`: a form
+    submission's `${form_submission.*}`, which classify-form-submission works on. None for any other event."""
+    if event_type != "form_submission_received":
+        return None
+    return {
+        "namespace": "form_submission",
+        "fields": FORM_SUBMISSION_FIELDS,
+        "note": (
+            "An operation step with op classify-form-submission (input.categories: [...]) reads it itself; its answer "
+            "(category, confidence, is_spam, sentiment, tags, action_required) is ${steps.<id>.output.<key>} for a `when` "
+            "or a template. A dry run doesn't ask the AI: it previews with a stand-in answer."
+        ),
+    }
 
 
 def offered_emittable() -> list[str]:
@@ -2251,6 +2495,7 @@ CATEGORIES = [
     "Security",
     "Secrets",
     "Variables",
+    "Custom",
     "System",
 ]
 
@@ -2264,12 +2509,6 @@ def canonical_event_type(event_type: str) -> str:
 def aliases_of(event_type: str) -> list[str]:
     """The old names that stand for `event_type` (empty for most types)."""
     return [alias for alias, target in ALIASES.items() if target == event_type]
-
-
-def get_event_variables(event_type: str) -> list[EventVariable]:
-    """Return variables available for a given event type."""
-    entry = CATALOG_BY_TYPE.get(event_type)
-    return entry.variables if entry else []
 
 
 def get_catalog_entry(event_type: str) -> CatalogEntry | None:

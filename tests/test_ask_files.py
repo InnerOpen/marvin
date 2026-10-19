@@ -82,18 +82,28 @@ def test_ask_files_stay_out_of_ai_queries_overview_collections_and_the_index(ws)
 def test_the_site_api_never_serves_an_ask_file(ws):
     from marvin.app import app
     from marvin.core.dependencies import get_publishing_context
+    from marvin.db.models.groups.preferences import GroupPreferencesModel
+    from marvin.services.storage.provider_factory import asset_public_url
 
     chat, kept = _asset(ws, "chat.png"), _asset(ws, "logo.png", ask=False)
-    perms = SimpleNamespace(require_permission=lambda *a, **k: None)
+    perms = SimpleNamespace(require_permission=lambda *a, **k: None, require_any_permission=lambda *a, **k: None)
     slug = ws.workspace.slug
-    app.dependency_overrides[get_publishing_context] = lambda: (SimpleNamespace(id=uuid.uuid4()), SimpleNamespace(id=ws.gid, slug=slug), perms)
+    app.dependency_overrides[get_publishing_context] = lambda: (
+        SimpleNamespace(id=uuid.uuid4()),
+        SimpleNamespace(id=ws.gid, slug=slug, name="Pub"),
+        perms,
+    )
     try:
         client = TestClient(app)
-        listed = client.get(f"/api/publish/{slug}/assets").json()["data"]
-        slugs = {a["slug"] for a in listed}  # the site API names assets by slug, not id
-        assert kept.slug in slugs and chat.slug not in slugs
-        assert client.get(f"/api/publish/{slug}/assets/{chat.slug}").status_code == 404
+        for named, served in ((kept, True), (chat, False)):  # the site names its images by slug; only a library asset resolves
+            ws.session.query(GroupPreferencesModel).filter_by(group_id=ws.gid).delete()
+            ws.session.add(GroupPreferencesModel(session=ws.session, group_id=ws.gid, site_logo=named.slug))
+            ws.session.commit()
+            logo = client.get(f"/api/publish/{slug}/site").json()["site"]["logo"]
+            assert (logo == asset_public_url(named)) if served else logo is None
     finally:
+        ws.session.query(GroupPreferencesModel).filter_by(group_id=ws.gid).delete()
+        ws.session.commit()
         app.dependency_overrides.pop(get_publishing_context, None)
 
 

@@ -60,16 +60,16 @@ jobs:
           enable-cache: true
           cache-dependency-glob: marvin/uv.lock
 
-      # The default `dev` group carries mkdocs + mkdocs-material. LDAP is imported lazily and
-      # DB_ENGINE defaults to sqlite, so nothing else is needed to import the app.
+      # The default `dev` group carries mkdocs + mkdocs-material. LDAP is imported lazily and the app
+      # opens no database connection on import, so nothing else is needed to export the spec.
       - name: Install dependencies
         working-directory: marvin
         run: uv sync
 
       - name: Export OpenAPI spec
         working-directory: marvin
-        env:
-          DB_ENGINE: sqlite
+        # No database settings: importing the app needs none (with no POSTGRES_SERVER the engine is SQLite, and the
+        # spec is the same on either engine).
         run: uv run python -c "import json; from marvin.app import app; json.dump(app.openapi(), open('docs/manual/openapi.json', 'w'), indent=2)"
 
       - name: Build core site

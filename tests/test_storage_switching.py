@@ -73,7 +73,7 @@ def workspace(db_session, platform):
     db_session.commit()
     yield SimpleNamespace(gid=gid, uid=uid, slug=f"switch-{marker}")
     db_session.rollback()
-    db_session.query(EventLogModel).filter(EventLogModel.workspace_id == gid).delete()
+    db_session.query(EventLogModel).filter(sa.or_(EventLogModel.workspace_id == gid, EventLogModel.user_id == uid)).delete()
     db_session.query(Assets).filter(Assets.group_id == gid).delete()
     db_session.query(Users).filter(Users.group_id == gid).delete()
     db_session.query(Groups).filter(Groups.id == gid).delete()
@@ -197,7 +197,7 @@ def _logged_changes(db_session, workspace):
     db_session.expire_all()
     return (
         db_session.query(EventLogModel)
-        .filter(EventLogModel.workspace_id == workspace.gid, EventLogModel.event_type == "storage_provider_changed")
+        .filter(EventLogModel.user_id == workspace.uid, EventLogModel.event_type == "storage_provider_changed")
         .order_by(EventLogModel.occurred_at)
         .all()
     )
@@ -236,6 +236,7 @@ def test_admin_switches_and_it_is_audited_at_platform_scope(db_session, workspac
         "New uploads now go to fakes3 (was STORAGE_PROVIDER)",
         "New uploads now go to local (STORAGE_PROVIDER) (was fakes3)",
     ]
+    assert all(r.workspace_id is None for r in rows)  # a platform setting: no workspace
     entry = get_catalog_entry("storage_provider_changed")
     assert is_platform_event("storage_provider_changed") and entry.audit_locked
 

@@ -151,3 +151,5 @@ class AIProviderTypeRead(_MarvinModel):
     suggested_models: list[str] = []
     """Models the AI settings' picker offers; any other id the vendor accepts still works."""
     self_hosted: bool = False
+    has_logo: bool = False
+    """Whether it ships a logo Marvin accepted (served by GET /api/ai/provider-types/{slug}/logo)."""

@@ -11,7 +11,7 @@ interface CallerFlags {
 
 type Memberships = Pick<WorkspaceWithMembership, "role" | "isActive">[];
 
-export type WorkspaceRoleName = "VIEWER" | "AUTHOR" | "EDITOR" | "ADMIN" | "OWNER";
+type WorkspaceRoleName = "VIEWER" | "AUTHOR" | "EDITOR" | "ADMIN" | "OWNER";
 
 const RANK: Record<WorkspaceRoleName, number> = { VIEWER: 1, AUTHOR: 2, EDITOR: 3, ADMIN: 4, OWNER: 5 };
 
@@ -22,7 +22,11 @@ const RANK: Record<WorkspaceRoleName, number> = { VIEWER: 1, AUTHOR: 2, EDITOR: 
  * @param memberships - from `listWorkspaces()`; the active entry carries the caller's role
  * @param user - the caller's profile, for the super-admin and legacy-admin bypasses
  */
-export function hasWorkspaceRole(memberships: Memberships, user: CallerFlags | null | undefined, minimum: WorkspaceRoleName): boolean {
+function hasWorkspaceRole(
+  memberships: Memberships,
+  user: CallerFlags | null | undefined,
+  minimum: WorkspaceRoleName,
+): boolean {
   if (user?.admin === true || user?.platformRole === "SUPER_ADMIN") return true;
   const role = memberships.find((m) => m.isActive)?.role as WorkspaceRoleName | undefined;
   return role !== undefined && (RANK[role] ?? 0) >= RANK[minimum];
@@ -44,7 +48,7 @@ export function canAuthorContent(memberships: Memberships, user?: CallerFlags | 
 }
 
 /** Statuses only an EDITOR or above may set, or edit an entry in (backend `AUTHOR_LOCKED_STATUSES`). */
-export const AUTHOR_LOCKED_STATUSES: readonly string[] = ["approved", "published"];
+const AUTHOR_LOCKED_STATUSES: readonly string[] = ["approved", "published"];
 
 /**
  * Whether the caller may change (or delete) this entry: EDITOR and above any entry; an AUTHOR only

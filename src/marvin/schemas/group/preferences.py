@@ -7,7 +7,9 @@ settings associated with a user group, such as privacy settings or display optio
 like the first day of the week.
 """
 
-from pydantic import UUID4, ConfigDict, field_validator  # For UUID type and Pydantic model configuration
+from typing import Annotated
+
+from pydantic import UUID4, ConfigDict, Field, field_validator  # For UUID type and Pydantic model configuration
 from sqlalchemy.orm.interfaces import LoaderOption  # Type for loader options
 
 # Corresponding SQLAlchemy models (used in loader_options)
@@ -66,6 +68,10 @@ class GroupPreferencesCreate(_MarvinModel):
     """Workspace override of the platform submission-protection defaults; null fields inherit."""
     scheduled_publish_requires_approval: bool = False
     """Scheduled publish only publishes due entries whose status is 'approved'; the others wait."""
+    workflow_max_steps: int | None = None
+    """Steps a workflow runs before it stops; null = the platform's default (10)."""
+    approval_expires_hours: int | None = None
+    """Hours an approval waits when its step sets none; null = 72."""
     trash_auto_empty_days: int | None = None
     """Days an entry stays in the Trash before it is deleted forever (0 = never); null inherits the platform default."""
 
@@ -123,9 +129,25 @@ class GroupPreferencesUpdate(_MarvinModel):  # Typically, update schemas allow p
     """Optional: workspace override of the platform submission-protection defaults; null fields inherit."""
     scheduled_publish_requires_approval: bool | None = None
     """Optional: scheduled publish only publishes due entries whose status is 'approved'."""
+    workflow_max_steps: Annotated[int, Field(ge=1, le=25)] | None = None
+    """Optional: steps a workflow runs before it stops (1-25); null goes back to the platform's default (10)."""
+    approval_expires_hours: Annotated[int, Field(ge=1, le=720)] | None = None
+    """Optional: hours an approval waits when its step sets none (1-720); null goes back to 72."""
     trash_auto_empty_days: int | None = None
     """Optional: days an entry stays in the Trash before it is deleted forever (0 = never). An explicit null
     goes back to inheriting the platform default."""
+
+    @field_validator("site_metadata_json")
+    @classmethod
+    def validate_privacy_block(cls, value: dict | None) -> dict | None:
+        # The privacy block is typed (SitePrivacy): refuse a bad one on save so it can't be stored
+        # and silently dropped on read. Other metadata keys stay free-form.
+        privacy = (value or {}).get("privacy")
+        if privacy:
+            from marvin.schemas.publishing import SitePrivacy
+
+            SitePrivacy.model_validate(privacy)  # ValidationError is a ValueError -> 422
+        return value
 
     @field_validator("trash_auto_empty_days")
     @classmethod

@@ -22,15 +22,6 @@ def upload_scope(metadata: dict | None) -> str:
     return ASK if (metadata or {}).get("attachedVia") in ASK_SURFACES else LIBRARY
 
 
-def in_library(column: Any | None = None):
-    """SQL filter for library assets (``Assets.scope == 'library'``); pass another mapped column to filter a join."""
-    if column is None:
-        from marvin.db.models.platform import Assets
-
-        column = Assets.scope
-    return column == LIBRARY
-
-
 def is_ask_file(asset: Any) -> bool:
     return getattr(asset, "scope", LIBRARY) == ASK
 

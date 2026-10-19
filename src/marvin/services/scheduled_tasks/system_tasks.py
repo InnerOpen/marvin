@@ -17,6 +17,7 @@ logger = get_logger(__name__)
 # these system tasks don't care when in the day they run, so they keep the interval.
 _DAILY_SECONDS = 24 * 60 * 60
 _WEEKLY_SECONDS = 7 * _DAILY_SECONDS
+_HOURLY_SECONDS = 60 * 60
 # Scheduled publish/expiry granularity: an entry goes live (or expires) within this of its time.
 _PUBLISHING_INTERVAL_SECONDS = 5 * 60
 
@@ -37,6 +38,40 @@ class SystemTaskDefinition:
 
 
 SYSTEM_SCHEDULED_TASKS: list[SystemTaskDefinition] = [
+    SystemTaskDefinition(
+        slug="check_workspace_storage",
+        name="Check Workspace Storage",
+        task_type="check_workspace_storage",
+        description=(
+            "Check the buckets workspaces keep their own files in (list, put, get, delete, public URL). Two failures in a "
+            "row mark a bucket failing (its workspace's uploads stop) and tell the workspace; it recovers on its own. "
+            "Admin-only; runs hourly."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _HOURLY_SECONDS},
+    ),
+    SystemTaskDefinition(
+        slug="purge_deleted_workspace_storage",
+        name="Purge Deleted Workspace Storage",
+        task_type="purge_deleted_workspace_storage",
+        description=(
+            "Delete the stored files of workspaces deleted more than 30 days ago (platform storage and the workspace's own bucket), "
+            "unless an admin chose to keep them in Admin → Storage. Admin-only; runs daily."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _DAILY_SECONDS},
+    ),
+    SystemTaskDefinition(
+        slug="prune_workflow_runs",
+        name="Prune Workflow Runs",
+        task_type="prune_workflow_runs",
+        description=(
+            "Delete finished workflow runs and their steps older than the retention window (WORKFLOW_RUN_RETENTION_DAYS); "
+            "a run still running or waiting is kept. Admin-only; runs daily."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _DAILY_SECONDS},
+    ),
     SystemTaskDefinition(
         slug="prune_event_logs",
         name="Prune Event Logs",
@@ -91,10 +126,25 @@ SYSTEM_SCHEDULED_TASKS: list[SystemTaskDefinition] = [
         slug="prune_revoked_tokens",
         name="Prune Revoked Tokens",
         task_type="prune_revoked_tokens",
-        description="Delete API tokens and site clients revoked more than 30 days ago (they can never sign in again). Admin-only; runs daily.",
+        description=(
+            "Delete API tokens and site clients revoked more than 30 days ago (they can never sign in again), "
+            "and expired password-reset links. Admin-only; runs daily."
+        ),
         schedule_type="interval",
         schedule_config={"interval_seconds": _DAILY_SECONDS},
         task_config={"age_days": 30},
+    ),
+    SystemTaskDefinition(
+        slug="purge_oauth_records",
+        name="Purge OAuth Records",
+        task_type="purge_oauth_records",
+        description=(
+            "Delete the remote MCP server's expired sign-ins and tokens, connections revoked or unusable for 90 days, "
+            "and registered clients unused for 7 days with no connection. Admin-only; runs daily."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _DAILY_SECONDS},
+        task_config={"grant_days": 90, "client_days": 7},
     ),
     SystemTaskDefinition(
         slug="create_workspace_bundles",

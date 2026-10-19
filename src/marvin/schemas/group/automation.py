@@ -434,8 +434,12 @@ class WorkflowApprovalRead(_MarvinModel):
     decided_by: UUID4 | None = None
     decided_at: datetime | None = None
     note: str | None = None
+    choices: list[str] | None = None  # an approval with choices: the labels to pick from
+    choice: str | None = None  # the one picked, once approved
+    image_url: str | None = None  # a picture shown with the question
 
 
 class WorkflowApprovalDecision(_MarvinModel):
     decision: Literal["approve", "deny"]
     note: str | None = None
+    choice: str | int | None = None  # an approval with choices: the label (or its index) to approve with

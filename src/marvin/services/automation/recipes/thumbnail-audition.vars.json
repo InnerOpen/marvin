@@ -1,0 +1,15 @@
+{
+  "recipe": "thumbnail-audition",
+  "variables": {
+    "image_integration": {
+      "type": "integration_slug",
+      "description": "The connected image-generation integration (Settings → Integrations).",
+      "example": "openai-images"
+    },
+    "style": {
+      "type": "text",
+      "description": "The look of the thumbnails, in a few words.",
+      "example": "a bold, flat-colour illustration"
+    }
+  }
+}

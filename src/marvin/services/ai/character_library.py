@@ -229,6 +229,23 @@ def agent_characters(session: Session, group_id) -> dict[str, dict]:
     return {slug: character for slug, character in resolved if character and character.get("states")}
 
 
+def agent_voices(session: Session, group_id) -> dict[str, dict]:
+    """{agent slug: {name, bubble_lines}} for the workspace's agents with a voice of their own (a Character or
+    bubble lines) — what the bubble shows under that agent's name while it talks. The rest speak, and bubble,
+    as the workspace."""
+    import sqlalchemy as sa
+
+    from marvin.db.models.groups.agents import WorkspaceAgentModel
+
+    columns = (WorkspaceAgentModel.slug, WorkspaceAgentModel.name, WorkspaceAgentModel.persona_prompt, WorkspaceAgentModel.bubble_lines)
+    rows = session.query(*columns).filter(
+        WorkspaceAgentModel.group_id == group_id,
+        sa.or_(WorkspaceAgentModel.persona_prompt.isnot(None), WorkspaceAgentModel.bubble_lines.isnot(None)),
+    )
+    # A cleared JSON column holds JSON null, which IS NOT NULL matches: what counts is checked here.
+    return {slug: {"name": name, "bubble_lines": lines or None} for slug, name, persona, lines in rows if (persona or "").strip() or lines}
+
+
 # --- managing it ----------------------------------------------------------------------------------
 
 
@@ -288,3 +305,138 @@ def unlink_pack(session: Session, pack_id: str) -> int:
                 setattr(row, attr, None)
                 unlinked += 1
     return unlinked
+
+
+# --- a pack's persona (its character sheet) --------------------------------------------------------
+# Picking a pack COPIES its persona into the workspace's (or agent's) own fields; from then on they're the
+# owner's to edit, and every reader (the run's Character block, the bubble's lines, the tone preview, seed
+# export) keeps reading those fields alone. Re-picking the pack, or Reset, copies it again.
+
+PERSONA_KEYS = ("assistant_name", "persona_prompt", "bubble_lines", "default_register", "icon", "mood")
+
+
+def clean_persona(raw: dict | None) -> dict | None:
+    """A character sheet as a pack stores it: validated, blanks dropped; None when nothing is set.
+    CharacterError says what's wrong."""
+    from pydantic import ValidationError
+
+    from marvin.schemas.group.ai_settings import CharacterPackPersona
+    from marvin.services.ai.bubble_lines import BubbleLinesError, clean_edited
+    from marvin.services.ai.persona import is_image_url
+
+    if not raw:
+        return None
+    if not isinstance(raw, dict):
+        raise CharacterError("a character sheet is an object")
+    try:
+        sheet = CharacterPackPersona.model_validate(raw)
+    except ValidationError as e:
+        first = e.errors()[0]
+        where = ".".join(str(p) for p in first["loc"])
+        raise CharacterError(f"character sheet {where}: {first['msg']}") from None
+    icon = (sheet.icon or "").strip() or None
+    if icon and is_image_url(icon):
+        raise CharacterError("a character's icon is an emoji; its animations are its picture")
+    try:
+        lines = clean_edited(sheet.bubble_lines.model_dump()) if sheet.bubble_lines else None
+    except BubbleLinesError as e:
+        raise CharacterError(str(e)) from None
+    persona = {
+        "assistant_name": (sheet.assistant_name or "").strip() or None,
+        "persona_prompt": (sheet.persona_prompt or "").strip() or None,
+        "bubble_lines": lines,
+        "default_register": sheet.default_register,
+        "icon": icon,
+        "mood": sheet.mood.stored() if sheet.mood else None,
+    }
+    persona = {k: v for k, v in persona.items() if v is not None}
+    return persona or None
+
+
+def pack_persona(pack: CharacterPackModel) -> dict | None:
+    """The pack's character sheet with every key present (blanks None), the name defaulting to the pack's;
+    None when the pack has no sheet — it's animations only."""
+    if not pack.persona:
+        return None
+    persona = {key: pack.persona.get(key) for key in PERSONA_KEYS}
+    persona["assistant_name"] = persona["assistant_name"] or pack.name
+    return persona
+
+
+def apply_pack_persona(target, pack: CharacterPackModel) -> bool:
+    """Copy the pack's persona onto a workspace's AI settings row or a workspace agent: name, Character, bubble
+    lines (source "character"; none → none, so the workspace's are written from the Character), tone, icon and
+    mood. A tone or icon the sheet leaves unset keeps the target's. A pack without a sheet still names the
+    assistant (or agent) after itself, and leaves the rest as it was. True when a sheet was copied; the caller
+    commits."""
+    from marvin.db.models.groups.agents import WorkspaceAgentModel
+    from marvin.services.ai import bubble_lines
+
+    is_agent = isinstance(target, WorkspaceAgentModel)
+    persona = pack_persona(pack)
+    if persona is None:
+        setattr(target, "name" if is_agent else "assistant_name", pack.name)
+        return False
+    lines = persona["bubble_lines"]
+    target.persona_prompt = persona["persona_prompt"]
+    target.mood = persona["mood"]
+    if is_agent:
+        target.name = persona["assistant_name"]
+        target.bubble_lines = lines
+        target.bubble_lines_source = bubble_lines.SOURCE_CHARACTER if lines else None
+    else:
+        target.assistant_name = persona["assistant_name"]
+        bubble_lines.store(target, lines, bubble_lines.SOURCE_CHARACTER)
+    tone = persona["default_register"]
+    if tone and (is_agent or tone not in (target.hidden_tones or [])):  # a workspace's default can't be a tone it hides
+        target.default_register = tone
+    if persona["icon"]:
+        setattr(target, "icon" if is_agent else "assistant_icon", persona["icon"])
+    return True
+
+
+# --- the portable pack file ------------------------------------------------------------------------
+
+
+def pack_zip(pack: CharacterPackModel) -> bytes:
+    """The pack as one .zip: its images, each read from the provider it lives in, and a character.json
+    (format MANIFEST_FORMAT) naming the file each state plays, where each drawing sits in its frame, and the
+    pack's persona — what an upload of it (services/ai/character.py: read_manifest) rebuilds the pack from."""
+    import json
+    import zipfile
+
+    from marvin.services.ai.character import MANIFEST_FORMAT, MANIFEST_NAME
+
+    store = library_store(pack.id)
+    character = pack.pack or {}
+    names: dict[str, str] = {}  # stored URL → the name it has in the zip
+    insets: dict[str, dict] = {}
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
+        for file in character.get("files") or []:
+            name = _unique_entry(library_download_name(file), set(names.values()) | {MANIFEST_NAME})
+            with store.storage_for(file).get(file["key"]) as fh:
+                archive.writestr(name, fh.read())
+            names[file["url"]] = name
+            if file.get("inset"):
+                insets[name] = file["inset"]
+        manifest = {
+            "format": MANIFEST_FORMAT,
+            "name": pack.name,
+            "slug": pack.slug,
+            "states": {state: names[url] for state, url in (character.get("states") or {}).items() if url in names},
+            "insets": insets,
+            "persona": pack.persona or None,
+        }
+        archive.writestr(MANIFEST_NAME, json.dumps(manifest, ensure_ascii=False, indent=2))
+    return out.getvalue()
+
+
+def _unique_entry(name: str, taken: set[str]) -> str:
+    """`name`, numbered before its extension when the zip has it already (case-insensitively)."""
+    lowered = {t.lower() for t in taken}
+    stem, dot, ext = name.rpartition(".") if "." in name else (name, "", "")
+    candidate, n = name, 2
+    while candidate.lower() in lowered:
+        candidate, n = f"{stem}-{n}{dot}{ext}", n + 1
+    return candidate

@@ -13,7 +13,7 @@ export type ChangelogItem = {
   commit?: string | null;
   commitUrl?: string | null;
 };
-export type ChangelogSection = { title: string; items: ChangelogItem[] };
+type ChangelogSection = { title: string; items: ChangelogItem[] };
 export type ChangelogRelease = { version: string; date?: string | null; sections: ChangelogSection[] };
 export type RenderedVersion = { frontend: string; backend: string };
 
@@ -26,10 +26,10 @@ export type WhatsNewItem = {
 export type WhatsNewSection = { title: string; items: WhatsNewItem[] };
 export type WhatsNewRelease = { version: string; date: string | null; sections: WhatsNewSection[] };
 
-export const CHANGES_PATH = "/api/app/changes";
+const CHANGES_PATH = "/api/app/changes";
 
 /** The length git and the changelog use for an abbreviated commit. */
-export const SHORT_COMMIT_LENGTH = 7;
+const SHORT_COMMIT_LENGTH = 7;
 
 /** Shown first, in this order; any other user-facing section follows in changelog order. */
 const SECTION_ORDER = ["breaking changes", "features", "bug fixes", "performance improvements"];

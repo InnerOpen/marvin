@@ -37,13 +37,3 @@ class EmailEventSubscriptionRead(_MarvinModel):
     update_at: datetime
 
     model_config = {"from_attributes": True}
-
-
-class EmailEventSubscriptionSummary(_MarvinModel):
-    id: UUID4
-    event_type: str
-    recipient_type: RecipientType
-    template_id: UUID4
-    enabled: bool
-
-    model_config = {"from_attributes": True}

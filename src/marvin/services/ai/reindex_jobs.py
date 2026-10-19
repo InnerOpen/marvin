@@ -48,16 +48,21 @@ def _progress(key: str):
 
 def _run(group_id, user_id, force: bool) -> None:
     from marvin.db.db_setup import session_context
-    from marvin.services.ai.embeddings import ReindexResult, default_embedding_model, reindex_workspace
-    from marvin.services.ai.factory import get_workspace_ai_provider
+    from marvin.services.ai.embeddings import ReindexResult, embedder_for, reindex_workspace
+    from marvin.services.ai.factory import AIDisabledError, get_workspace_ai_provider
 
     key = str(group_id)
     model, result = None, ReindexResult()
     try:
         with session_context() as session:
-            provider = get_workspace_ai_provider(session, group_id)
-            model = default_embedding_model(provider.provider_type)
-            result = reindex_workspace(session, group_id, provider, model, force=force, progress=_progress(key))
+            try:
+                provider = get_workspace_ai_provider(session, group_id)
+            except AIDisabledError:
+                provider = None  # Marvin's built-in embedding model needs none
+            embedder, model = embedder_for(provider)
+            if not model:
+                raise RuntimeError("no embedding model: the AI provider has none and Marvin's built-in one is off")
+            result = reindex_workspace(session, group_id, embedder, model, force=force, progress=_progress(key))
     except Exception as e:  # noqa: BLE001 — reported through the event, never lost
         logger.error("reindex for %s failed: %s", group_id, e, exc_info=True)
         result.failed += 1

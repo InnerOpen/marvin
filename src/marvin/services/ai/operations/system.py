@@ -260,12 +260,13 @@ class ClassifyFormSubmissionOperation(AIOperation):
         categories = input.get("categories", ["inquiry", "support", "feedback", "other"])
         submission = ctx.form_submission or {}
         data = submission.get("data", {})
+        form = f" (sent through the “{submission['form']}” form)" if submission.get("form") else ""
         return [
             Message(role="system", content=(f"You are a form submission classifier for {ctx.workspace_name or 'this workspace'}.")),
             Message(
                 role="user",
                 content=(
-                    f"Classify this form submission.\n\nSubmission data:\n{data}\n\n"
+                    f"Classify this form submission{form}.\n\nSubmission data:\n{data}\n\n"
                     f"Available categories: {', '.join(categories)}.\n\n"
                     f"Return JSON matching the output schema."
                 ),

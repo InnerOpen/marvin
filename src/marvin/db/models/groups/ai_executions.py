@@ -44,6 +44,9 @@ class AIExecutionModel(SqlAlchemyBase, BaseMixins):
     prompt_tokens: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     completion_tokens: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     total_tokens: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    # Parts of prompt_tokens the provider's prompt cache served / stored (priced at the cache rates); null = not reported.
+    cached_prompt_tokens: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    cache_write_tokens: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     estimated_cost_usd: Mapped[float | None] = mapped_column(sa.Float, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     error_message: Mapped[str | None] = mapped_column(sa.String, nullable=True)

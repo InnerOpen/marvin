@@ -3,20 +3,22 @@
  * A provider's logo on a small white tile, or its emoji when it has no (accepted) logo or the image
  * fails to load. Decorative: always render the provider/integration name next to it.
  */
-import { logoUrl } from "@/lib/integrationLogo";
+import { aiLogoUrl, logoUrl } from "@/lib/integrationLogo";
 
 interface Props {
   slug: string;
   icon?: string | null;
   hasLogo?: boolean | null;
+  /** Whose logo: an integration provider's (default) or an AI provider's. */
+  kind?: "integration" | "ai";
 }
 
-const { slug, icon, hasLogo } = Astro.props;
+const { slug, icon, hasLogo, kind = "integration" } = Astro.props;
 ---
 
 {hasLogo ? (
   <span class="int-mark" data-emoji={icon ?? ""}>
-    <img class="int-mark-img" src={logoUrl(slug)} alt="" height="32" decoding="async" />
+    <img class="int-mark-img" src={kind === "ai" ? aiLogoUrl(slug) : logoUrl(slug)} alt="" height="32" decoding="async" />
   </span>
 ) : icon ? (
   <span class="int-mark-emoji" aria-hidden="true">{icon}</span>

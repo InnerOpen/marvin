@@ -23,6 +23,20 @@ from marvin.schemas.user.password import PasswordResetToken as PasswordResetToke
 from marvin.services import BaseService  # Base service class
 
 
+def reset_token_expired(created_at, now=None) -> bool:
+    """Whether a reset token made at ``created_at`` (naive UTC, as stored) is older than SECURITY_PASSWORD_RESET_TOKEN_MINUTES.
+    A token with no recorded time counts as expired: a link must not work forever."""
+    from datetime import UTC, datetime, timedelta
+
+    from marvin.services.platform_policy import security
+
+    if created_at is None:
+        return True
+    made = created_at if created_at.tzinfo else created_at.replace(tzinfo=UTC)
+    minutes = max(1, security("SECURITY_PASSWORD_RESET_TOKEN_MINUTES"))
+    return (now or datetime.now(UTC)) - made > timedelta(minutes=minutes)
+
+
 class PasswordResetService(BaseService):
     """
     Service layer for managing password reset processes.
@@ -99,6 +113,10 @@ class PasswordResetService(BaseService):
         from marvin.schemas.user.password import SavePasswordResetToken  # Ensure this schema is appropriate
 
         token_save_data = SavePasswordResetToken(user_id=user.id, token=token_string)
+        # One live link per user: a new request replaces any earlier one (and an old email stops working).
+        from marvin.db.models.users import PasswordResetModel
+
+        self.db.session.query(PasswordResetModel).filter(PasswordResetModel.user_id == user.id).delete(synchronize_session=False)
 
         created_token_db_model = self.db.tokens_pw_reset.create(token_save_data)
 
@@ -190,6 +208,14 @@ class PasswordResetService(BaseService):
         if token_entry_db is None:
             self.logger.warning("Password reset attempt with an invalid or expired token")
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired password reset token.")
+        from marvin.db.models.users import PasswordResetModel
+
+        # The repository's schema leaves out created_at: read it from the row itself.
+        made_at = self.db.session.query(PasswordResetModel.created_at).filter(PasswordResetModel.token == token).scalar()
+        if reset_token_expired(made_at):
+            self.logger.warning("Password reset attempt with an expired token (user %s)", token_entry_db.user_id)
+            self.db.tokens_pw_reset.delete(token_entry_db.token, match_key="token")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This reset link has expired. Ask for a new one.")
 
         # Fetch the user associated with the token
         # `token_entry_db.user_id` should be available from the schema/model used by the repo.

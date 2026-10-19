@@ -70,6 +70,7 @@ def _sign_in(workspace, role: WorkspaceRole | None = WorkspaceRole.OWNER, platfo
         is_superuser=False,
         full_name="AC",
         platform_role=platform_role,
+        workspace_memberships=[],
         get_workspace_role=lambda group_id: role if str(group_id) == str(workspace.gid) else None,
     )
     return TestClient(app)
@@ -175,13 +176,14 @@ MEMBER_ROUTES = [
 @pytest.mark.parametrize("role", [WorkspaceRole.EDITOR, WorkspaceRole.AUTHOR, WorkspaceRole.VIEWER, None])
 @pytest.mark.parametrize(("method", "path"), MEMBER_ROUTES)
 def test_api_client_routes_below_admin_return_403(workspace, role, method, path):
+    # A non-member (role None) is in no workspace at all: 409 no_workspace, before the gate.
     created = _create(_sign_in(workspace))
     member = _sign_in(workspace, role)
     body = {"name": "Hijack", "permissions": {Permissions.READ_PUBLISHED_ENTRIES: True}} if method in ("post", "patch") else None
 
     res = member.request(method, BASE + path.format(id=created["id"]), json=body)
 
-    assert res.status_code == 403, res.text
+    assert res.status_code == (409 if role is None else 403), res.text
 
 
 def test_member_patch_leaves_api_client_unchanged(workspace):

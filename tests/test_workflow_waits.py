@@ -193,3 +193,103 @@ def test_the_validator_names_a_wait_step_it_cant_read(ws, step):
     from marvin.services.automation.authoring import draft_issues
 
     assert draft_issues(ws.session, ws.gid, {"trigger": {"type": "manual"}, "actions": [step]})
+
+
+def test_an_admin_cancels_a_waiting_run_from_the_api(ws):
+    from fastapi.testclient import TestClient
+
+    from marvin.app import app
+    from marvin.db.models.groups.automation_executions import AutomationExecutionModel
+    from marvin.db.models.users.roles import WorkspaceRole
+    from tests.test_workflow_library_api import _sign_in
+
+    studio = _entry(ws)
+    row = _workflow(
+        ws,
+        [{"kind": "wait", "for": "2d"}, {"kind": "entry", "op": "set_metadata", "metadata": {"reminded": True}}],
+        inputs=[{"name": "piece", "type": "entry"}],
+    )
+    _run(ws, row, inputs={"piece": studio.slug})
+    wait = _wait_row(ws, row)
+    _sign_in(ws.gid, WorkspaceRole.ADMIN)
+    client = TestClient(app)
+    base = f"/api/automations/{row.id}/executions/{wait.execution_id}/cancel"
+
+    cancelled = client.post(base)
+
+    assert cancelled.status_code == 200 and cancelled.json()["status"] == "cancelled"
+    assert client.post(base).status_code == 409  # not waiting any more
+    assert waits.resume_due(ws.session, now_=waits.now() + timedelta(days=3)) == 0
+    assert _metadata(ws, studio) == {}  # the steps after the wait never ran
+    ws.session.expire_all()
+    assert (_wait_row(ws, row).status, ws.session.get(AutomationExecutionModel, wait.execution_id).status) == ("cancelled", "cancelled")
+    assert "cancelled by" in _wait_row(ws, row).note
+    app.dependency_overrides.clear()
+
+
+# ── Editing while runs wait ──────────────────────────────────────────────────
+def _edit(ws, row, actions):
+    row.definition = {**row.definition, "actions": actions}
+    ws.session.commit()
+
+
+def test_an_edit_made_while_it_waited_applies_when_it_goes_on(ws):
+    studio = _entry(ws)
+    row = _workflow(
+        ws,
+        [{"kind": "wait", "id": "later", "for": "1d"}, {"kind": "entry", "op": "set_metadata", "metadata": {"voice": "old"}}],
+        inputs=[{"name": "piece", "type": "entry"}],
+    )
+    _run(ws, row, inputs={"piece": studio.slug})
+    _edit(ws, row, [{"kind": "wait", "id": "later", "for": "1d"}, {"kind": "entry", "op": "set_metadata", "metadata": {"voice": "new"}}])
+
+    assert waits.resume_due(ws.session, now_=waits.now() + timedelta(days=2)) == 1
+
+    assert _metadata(ws, studio)["voice"] == "new"
+
+
+def test_a_step_added_before_the_wait_doesnt_move_it(ws):
+    studio = _entry(ws)
+    row = _workflow(
+        ws,
+        [{"kind": "wait", "id": "later", "for": "1d"}, {"kind": "entry", "op": "set_metadata", "metadata": {"after": True}}],
+        inputs=[{"name": "piece", "type": "entry"}],
+    )
+    _run(ws, row, inputs={"piece": studio.slug})
+    _edit(
+        ws,
+        row,
+        [
+            {"kind": "entry", "op": "set_metadata", "metadata": {"before": True}},  # new, ahead of the wait
+            {"kind": "wait", "id": "later", "for": "1d"},
+            {"kind": "entry", "op": "set_metadata", "metadata": {"after": True}},
+        ],
+    )
+
+    waits.resume_due(ws.session, now_=waits.now() + timedelta(days=2))
+
+    meta = _metadata(ws, studio)
+    assert meta.get("after") is True and "before" not in meta  # went on from after the wait; the new step is before it
+    assert _wait_row(ws, row).status == "resumed"
+
+
+def test_removing_the_wait_step_cancels_the_run_and_says_so(ws, monkeypatch):
+    from marvin.services.event_bus_service.event_bus_service import EventBusService
+
+    sent = []
+    monkeypatch.setattr(EventBusService, "dispatch", lambda self, **kw: sent.append((kw["event_type"].name, kw)))
+    studio = _entry(ws)
+    row = _workflow(
+        ws,
+        [{"kind": "wait", "id": "later", "for": "1d"}, {"kind": "entry", "op": "set_metadata", "metadata": {"after": True}}],
+        inputs=[{"name": "piece", "type": "entry"}],
+    )
+    _run(ws, row, inputs={"piece": studio.slug})
+    _edit(ws, row, [{"kind": "entry", "op": "set_metadata", "metadata": {"after": True}}])
+
+    waits.resume_due(ws.session, now_=waits.now() + timedelta(days=2))
+
+    wait = _wait_row(ws, row)
+    assert wait.status == "cancelled" and "Wait step was removed" in wait.note and "after" not in _metadata(ws, studio)
+    failed = [kw for name, kw in sent if name == "automation_failed"]
+    assert len(failed) == 1 and "Wait step was removed" in failed[0]["document_data"].error

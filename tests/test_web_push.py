@@ -106,7 +106,6 @@ def world(db_session, monkeypatch):
     monkeypatch.setattr(web_push, "_post", fake_post)
     monkeypatch.setattr(notes, "smtp_ready", lambda session, group_id: False)
     monkeypatch.setattr(platform, "smtp_ready", lambda: False)
-    monkeypatch.setattr(platform, "_platform_workspace", lambda session: session.get(Groups, gid))
     yield SimpleNamespace(gid=gid, other=other, marker=marker, users=users, pushes=pushes, answers=answers)
 
     app.dependency_overrides.pop(get_current_user, None)

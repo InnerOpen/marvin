@@ -213,3 +213,14 @@ def test_a_version_an_entry_uses_stays_and_keeps_its_original_in_use(db_session,
     trash.trash(s, gid, trash.ASSET, harbour.id)
     s.expire_all()
     assert trash.is_trashed(square) and not trash.is_trashed(small)  # the used version stands on its own
+
+
+def test_decision_filters_on_what_an_approval_said_about_the_picture(db_session, workspace, library):
+    """A denied generated image stays in the library; `decision` tells it from the rest (and `none` from the undecided)."""
+    s, gid = db_session, workspace.gid
+    library["drawn"].metadata_json = {"generated_by": "openai_images.generate", "approval": {"decision": "denied", "note": "too dark"}}
+    s.commit()
+    assert _names({"decision": "denied"}, s, gid) == {"drawn cover"}
+    assert _names({"decision": "approved"}, s, gid) == set()
+    assert "drawn cover" not in _names({"decision": "none", "versions": "all"}, s, gid)
+    assert "decision is one of" in item_query.run(s, gid, item_query.ASSET, {"decision": "maybe"}).note

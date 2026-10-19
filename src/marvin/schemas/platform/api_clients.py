@@ -21,10 +21,9 @@ class APIClientCreate(_MarvinModel):
         default_factory=lambda: {
             "read:published_entries": True,
             "read:collections": True,
-            "read:assets": True,
         }
     )
-    """Permissions JSON. Default allows reading published entries, collections, and assets."""
+    """Permissions JSON. Default allows reading published entries and collections."""
 
     model_config = ConfigDict(from_attributes=True)
 

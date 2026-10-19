@@ -31,9 +31,12 @@ class EventTypesController(BaseUserController):
         by_category: dict[str, list] = {c: [] for c in CATEGORIES}
         by_category["Other"] = []
 
+        from marvin.services.events import custom_events
         from marvin.services.events.payload_schemas import get_payload_example
 
-        for entry in CATALOG:
+        own = custom_events.read(self.session, self.group_id)  # the workspace's own events come with their fields
+        examples = {custom_events.event_type_of(e.name): custom_events.payload_example(e) for e in own}
+        for entry in [*CATALOG, *(custom_events.catalog_entry(e) for e in own)]:
             if not entry.enabled or entry.hidden or entry.scope == "platform":
                 continue  # internal/disabled events and the platform's own aren't offered to a workspace
             cat = entry.category if entry.category in by_category else "Other"
@@ -45,7 +48,7 @@ class EventTypesController(BaseUserController):
                     "category": entry.category,
                     "enabled": entry.enabled,
                     "variables": [{"slug": v.slug, "description": v.description, "example": v.example, "type": v.type} for v in entry.variables],
-                    "payloadExample": get_payload_example(entry.event_type),
+                    "payloadExample": examples.get(entry.event_type) or get_payload_example(entry.event_type),
                 }
             )
 

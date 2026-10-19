@@ -27,7 +27,7 @@ export type ParsedWorkflowJson =
   | { ok: false; error: string };
 
 /** The shape hint shown with every "this isn't a workflow" error. */
-export const ACCEPTED_SHAPES =
+const ACCEPTED_SHAPES =
   'Paste a definition like {"trigger": {…}, "actions": […]} or a whole workflow like {"name": "…", "definition": {…}}.';
 
 // Keys of a whole workflow document that the editor uses; every other top-level key is ignored.

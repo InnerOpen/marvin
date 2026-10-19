@@ -100,6 +100,8 @@ const choiceGroup = `character-source-${api.replace(/[^a-z0-9]+/gi, "-")}`;
 <style is:global>
   /* Global: the rows are built in the script, and pages restyle nothing here. */
   .character-picker { display: grid; gap: 8px; }
+  /* The rules below give elements a display, which would otherwise beat the `hidden` the script sets. */
+  .character-picker [hidden] { display: none !important; }
   .character-picker .character-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .character-picker .character-choices {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 8px;

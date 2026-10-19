@@ -8,7 +8,7 @@
 import type { AlertDelivery, AlertKind, AlertTarget } from "./alerts";
 import { fetchApi } from "./client";
 
-export interface NotificationEmail {
+interface NotificationEmail {
   enabled: boolean;
   /** null: every owner and admin of the workspace with an email address. */
   recipients: string[] | null;
@@ -19,7 +19,7 @@ export interface NotificationEmail {
   lastDelivery: AlertDelivery | null;
 }
 
-export interface NotificationPush {
+interface NotificationPush {
   /** The server has Web Push (VAPID); without it push isn't a channel and the page hides it. */
   configured: boolean;
   enabled: boolean;

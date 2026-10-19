@@ -17,6 +17,8 @@ from marvin.db.models.platform.event_log import EventLogModel
 from marvin.db.models.platform.scheduled_tasks import ScheduledTaskExecutionLogModel, ScheduledTaskModel
 from marvin.routes._base import BaseUserController, controller
 from marvin.schemas._marvin import _MarvinModel
+from marvin.services import dashboard as dash
+from marvin.services.dashboard import ApprovalBrief, EntryBrief, HealthStrip, PublishingPulse, RunsDay, TypeStatusRow, UpcomingItem
 
 router = APIRouter(prefix="/stats")
 
@@ -52,11 +54,22 @@ class AttentionCounts(_MarvinModel):
     needs_review: int = 0  # entries in Needs review: flagged submissions, entries a workflow sent there (a refused signup)
     ai_suggestions: int = 0  # entities with a pending AI write-back (suggestion_json)
     failures: int = 0  # failed executions in the last 7 days (tasks/webhooks/AI)
+    approvals: int = 0  # workflow approvals this member may decide
+    parked_runs: int = 0  # workflow runs stopped at a wait or an approval
+    oldest_draft_days: int | None = None  # age of the oldest draft / inbox entry — "4 drafts" reads differently from "a draft for 23 days"
+    oldest_inbox_days: int | None = None
 
 
 class DashboardData(_MarvinModel):
     recent_activity: list[RecentEvent] = []
     attention: AttentionCounts = AttentionCounts()
+    approvals: list[ApprovalBrief] = []  # the oldest few, decided inline
+    upcoming: list[UpcomingItem] = []  # the next 7 days: publishes, resumes, scheduled tasks
+    health: HealthStrip = HealthStrip()
+    runs_by_day: list[RunsDay] = []  # 14 days for the sparkline, oldest first
+    publishing: PublishingPulse = PublishingPulse()  # 12 weeks of published entries, by type
+    recent_for_you: list[EntryBrief] = []  # the caller's last-touched entries
+    by_type: list[TypeStatusRow] = []  # each entry type's pipeline
 
 
 def _event_message(e) -> str:
@@ -183,7 +196,33 @@ class StatsController(BaseUserController):
             )
         )
 
+        from marvin.routes._base.checks import _bypasses_workspace_roles
+        from marvin.routes.automations.automations_controller import _rank
+
+        now = datetime.now(UTC)
+        try:  # a caller the role helpers can't read gets the member-level dashboard, like any other guarded panel
+            role, sees_backups = _rank(self.user, gid), _bypasses_workspace_roles(self.user)
+        except Exception:
+            role, sees_backups = 0, False
+        approvals_count, approvals = dash.approvals_waiting(session, gid, role)
         return DashboardData(
             recent_activity=recent,
-            attention=AttentionCounts(inbox=inbox, drafts=drafts, needs_review=needs_review, ai_suggestions=suggestions, failures=failures),
+            attention=AttentionCounts(
+                inbox=inbox,
+                drafts=drafts,
+                needs_review=needs_review,
+                ai_suggestions=suggestions,
+                failures=failures,
+                approvals=approvals_count,
+                parked_runs=dash.parked_runs(session, gid),
+                oldest_draft_days=dash.oldest_entry_days(session, gid, "draft", now),
+                oldest_inbox_days=dash.oldest_entry_days(session, gid, "inbox", now),
+            ),
+            approvals=approvals,
+            upcoming=dash.upcoming(session, gid, now),
+            health=dash.health(session, gid, now, sees_backups=sees_backups),
+            runs_by_day=dash.runs_by_day(session, gid, now),
+            publishing=dash.published_by_week(session, gid, now),
+            recent_for_you=dash.recent_for_you(session, gid, getattr(self.user, "id", None), now),
+            by_type=dash.by_type_status(session, gid),
         )

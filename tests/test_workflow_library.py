@@ -31,6 +31,10 @@ pytest.importorskip("marvin_integration_sdk", reason="integrations SDK not insta
 from marvin_integration_sdk import INTEGRATION_REGISTRY, IntegrationProvider, ProviderAction  # noqa: E402
 from marvin_integration_sdk.ai.fake import FakeAIProvider, ScriptedTransport  # noqa: E402
 
+from marvin.db.models.groups.workflow_email_sends import WorkflowEmailSendModel  # noqa: E402
+from marvin.db.models.users.roles import WorkspaceRole  # noqa: E402
+from marvin.db.models.users.users import Users  # noqa: E402
+from marvin.db.models.users.workspace_members import WorkspaceMembers  # noqa: E402
 from marvin.services.ai.media import render  # noqa: E402
 from marvin.services.ai.tools import get_tool  # noqa: E402
 from marvin.services.automation import recipes  # noqa: E402
@@ -39,6 +43,7 @@ from marvin.services.automation.context import event_context  # noqa: E402
 from marvin.services.automation.engine import run_automation_now, run_automations_for_event  # noqa: E402
 from marvin.services.automation.library import RecipeConfigError, configure, placeholders, unresolved  # noqa: E402
 from marvin.services.automation.recorder import ExecutionRecorder  # noqa: E402
+from marvin.services.email import email_senders  # noqa: E402
 from tests.test_workflow_fetch import _web  # noqa: E402
 from tests.test_workflow_item_targets import _asset, _resource  # noqa: E402
 from tests.test_workflow_media_documents import _Vision, pdf  # noqa: E402
@@ -67,6 +72,8 @@ def test_catalogue_covers_every_recipe_file_and_every_status_is_honest():
     assert len({r["id"] for r in CATALOGUE["recipes"]}) == len(CATALOGUE["recipes"])
     files = {p.name.removesuffix(".json") for p in RECIPES_DIR.glob("*.json") if not p.name.endswith(".vars.json") and p.name != "catalogue.json"}
     assert files == set(WORKFLOW_RECIPES), "every recipe file is catalogued as a workflow, and every workflow recipe has a file"
+    tally = {s: sum(1 for r in CATALOGUE["recipes"] if r["status"] == s) for s in CATALOGUE["counts"]}
+    assert CATALOGUE["counts"] == tally and sum(tally.values()) == len(CATALOGUE["recipes"]), "counts follow the recipes' statuses"
     for r in CATALOGUE["recipes"]:
         assert r["status"] in STATUSES, r["id"]
         assert r["shape"] in ("workflow", "configuration", "idea"), r["id"]
@@ -281,7 +288,8 @@ def ws(db_session, monkeypatch):
         "campaign": ([_field("utm_source"), _field("utm_medium")], "/campaigns/{slug}", None),
         "contact-request": ([_field("email"), _field("message", "textarea")], None, {"submittable": True}),
         "project": ([_field("stage"), _field("collaborators")], None, None),
-        "person": ([_field("handle"), _field("ok_to_tag", "boolean")], None, None),
+        "person": ([_field("handle"), _field("ok_to_tag", "boolean"), _field("role")], None, None),
+        "rsvp": ([_field("event"), _field("email")], None, None),
         "event": ([_field("date", "date")], None, None),
     }
     for slug, (fields, pattern, caps) in specs.items():
@@ -310,6 +318,15 @@ def ws(db_session, monkeypatch):
         webhooks[name] = str(row.id)
     db_session.add(WorkspaceAISettingsModel(session=db_session, group_id=gid, enabled=True, model="fake-model", approval_mode="allow-draft-update"))
     db_session.commit()
+    # The workspace's own `custom.milestone` event (Achievement cabinet starts on it).
+    from marvin.schemas.group.custom_events import CustomEventDefinition
+    from marvin.services.events import custom_events
+
+    custom_events.save(
+        db_session,
+        gid,
+        CustomEventDefinition(name="milestone", title="Milestone reached", fields=[{"key": "milestone"}, {"key": "badge"}]),
+    )
 
     values = {
         "newsletter_entry_type": "newsletter-issue",
@@ -379,6 +396,7 @@ def ws(db_session, monkeypatch):
         "report_entry_type": "newsletter-issue",
         "report_body_field": "body",
         "draft_body_field": "body",
+        "metric": "clicks",
         "resource_type": "supplier",
         "unavailable_text": "sold out",
         "notes_body_field": "body",
@@ -404,16 +422,55 @@ def ws(db_session, monkeypatch):
         "person_type": "person",
         "consent_field": "ok_to_tag",
         "handle_field": "handle",
+        "role_field": "role",
+        "rsvp_type": "rsvp",
+        "rsvp_event_field": "event",
+        "send_at": "10:00",
+        "start_here_collection": "featured",
+        "badge_entry_type": "article",
+        "badge_body_field": "body",
+        "cabinet_collection": "featured",
         "network": "Bluesky",
+        "post_type": "article",
+        "max_length": 300,
+        "orientation": "landscape",
         "post_length": 300,
         "launch_entry_type": "event",
+        "workspace_name": "the Studio",
+        "welcome_note": "Glad you're here. Start with **Start here**.",
         "launch_date": "data.date",
         "post_at": "09:00",
         "product_type": "article",
         "open_after": "26w",
         "queues": "commissions, orders, press, other",
+        "categories": ["inquiry", "support", "feedback", "other"],
+        "text_field": "body",
+        "min_characters": 20,
+        "document_url_field": "message",
+        "capability_schema": {
+            "type": "object",
+            "required": ["name", "url", "capabilities"],
+            "properties": {
+                "name": {"type": "string", "minLength": 1},
+                "url": {"type": "string", "pattern": "^https://"},
+                "capabilities": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+            },
+        },
     }
-    yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
+    people: list = []  # more users a test adds (tests/test_workflow_email.py `_person`) — removed with the workspace
+    groups: list = []  # …and the other workspaces it makes for them
+    yield SimpleNamespace(
+        gid=gid,
+        uid=uid,
+        session=db_session,
+        types=types,
+        webhooks=webhooks,
+        values=values,
+        providers=providers,
+        ai=transport,
+        people=people,
+        groups=groups,
+    )
 
     from marvin.db.models.groups.automation_executions import AutomationActionExecutionModel, AutomationExecutionModel
     from marvin.db.models.groups.automations import WorkspaceAutomationModel
@@ -426,9 +483,39 @@ def ws(db_session, monkeypatch):
     db_session.query(IntegrationModel).filter(IntegrationModel.group_id == gid).delete()
     db_session.query(WorkspaceAISettingsModel).filter(WorkspaceAISettingsModel.group_id == gid).delete()
     purge_group_dependents(db_session, gid)
-    db_session.query(Users).filter(Users.id == uid).delete()
-    db_session.query(Groups).filter(Groups.id == gid).delete()
+    from marvin.db.models.groups.workflow_email_sends import WorkflowEmailSendModel
+    from marvin.db.models.users.workspace_members import WorkspaceMembers
+
+    db_session.query(WorkflowEmailSendModel).filter(WorkflowEmailSendModel.group_id == gid).delete()
+    db_session.query(WorkspaceMembers).filter(WorkspaceMembers.user_id.in_([uid, *people])).delete()
+    db_session.query(Users).filter(Users.id.in_([uid, *people])).delete()
+    db_session.query(Groups).filter(Groups.id.in_([gid, *groups])).delete()
     db_session.commit()
+
+
+def _person(ws, username: str, *, email: str | None = None, group_id=None, member: bool = True, role=WorkspaceRole.EDITOR) -> Users:
+    gid = group_id or ws.gid
+    uid = uuid.uuid4()
+    ws.session.execute(
+        Users.__table__.insert().values(
+            id=uid, group_id=gid, username=f"{username}-{uid.hex[:6]}", email=email or f"{username}-{uid.hex[:6]}@t.test", full_name=username.title(),
+            password="x", is_superuser=False, platform_role="NONE", auth_method="MARVIN",
+        )
+    )  # fmt: skip
+    ws.people.append(uid)
+    if member:
+        ws.session.add(WorkspaceMembers(session=ws.session, user_id=uid, group_id=gid, workspace_role=role))
+    ws.session.commit()
+    return ws.session.get(Users, uid)
+
+
+@pytest.fixture
+def outbox(monkeypatch):
+    """Mail goes nowhere: what the workspace's sender was asked to send, as [(to, subject, html)]."""
+    sent: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(email_senders, "email_ready", lambda *a, **k: True)
+    monkeypatch.setattr(email_senders.WorkspaceEmailSender, "send", lambda self, to, subject, html: sent.append((to, subject, html)) or True)
+    return sent
 
 
 def _configured(ws, rid: str) -> dict:
@@ -451,6 +538,23 @@ def _install(ws, rid: str, *, enabled: bool = True):
     definition = _configured(ws, rid)
     assert draft_issues(ws.session, ws.gid, definition) == [], rid
     row = WorkspaceAutomationModel(session=ws.session, group_id=ws.gid, name=BY_ID[rid]["title"], slug=rid, enabled=enabled, definition=definition)
+    ws.session.add(row)
+    ws.session.commit()
+    return row
+
+
+def _install_workflow(ws, slug: str, trigger: str, actions: list[dict], when: list[dict] | None = None):
+    """A hand-written workflow in the fixture workspace (a sender for a recipe's event)."""
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+
+    row = WorkspaceAutomationModel(
+        session=ws.session,
+        group_id=ws.gid,
+        name=slug,
+        slug=slug,
+        enabled=True,
+        definition={"trigger": {"type": "event", "event": trigger}, "conditions": when or [], "actions": actions},
+    )
     ws.session.add(row)
     ws.session.commit()
     return row
@@ -482,6 +586,15 @@ def _reload(ws, entry):
     return ws.session.get(Entries, entry.id)
 
 
+def _day_in(ws, days: int) -> str:
+    """A date `days` from today in the workspace's own calendar (New York by default) — the one date-based waits
+    ("the day after the event, 09:00") read. Between 00:00 and 04:00 UTC the UTC date is already tomorrow, and a
+    date taken from it put a resume an hour before its wait was due (CI, 2026-10-14 00:30 UTC)."""
+    from marvin.services.automation import waits
+
+    return (datetime.now(waits.workspace_zone(ws.session, ws.gid)).date() + timedelta(days=days)).isoformat()
+
+
 def _fire(ws, event_type: str, document: dict, *, entity=None, entity_type: str | None = None, user_id=None, correlation_id: str = "corr-1"):
     """Dispatch one event to the engine exactly as the reaction listener would build it."""
     ctx = event_context(event_type, document, entity_id=entity, entity_type=entity_type, user_id=user_id, correlation_id=correlation_id)
@@ -506,8 +619,9 @@ def _dispatched(monkeypatch):
 def _runs(ws, slug: str):
     from marvin.db.models.groups.automation_executions import AutomationExecutionModel
 
-    rows = ws.session.query(AutomationExecutionModel).filter_by(group_id=ws.gid, automation_slug=slug)
-    return rows.order_by(AutomationExecutionModel.started_at).all()
+    rows = ws.session.query(AutomationExecutionModel).filter_by(group_id=ws.gid, automation_slug=slug).all()
+    # Two runs can start in the same tick: one resumed from another (retry_of) comes after it, whatever the clock says.
+    return sorted(rows, key=lambda r: (r.started_at, r.retry_of_id is not None))
 
 
 def _http(monkeypatch, *, status: int = 200, body: dict | None = None):
@@ -1352,8 +1466,17 @@ class TestExecution:
 
         (call,) = ws.providers["openai_images"].calls
         assert "1950s sci-fi pulp" in call["prompt"] and "Harbour at dawn" in call["prompt"]
+        # Drawn, kept, and now shown: the second approval carries the picture, and nothing is attached until it's a yes.
+        from marvin.services.automation import approvals as approvals_svc
+        from marvin.services.automation.authz import ROLE_EDITOR
+
+        (asking,) = approvals_svc.pending(ws.session, ws.gid, ROLE_EDITOR)
+        assert asking.image_url and "Use this" in asking.message
+        assert ws.session.query(EntryAssets).filter_by(entry_id=article.id, role="cover-variant").count() == 0
+        self._decide(ws)
         link = ws.session.query(EntryAssets).filter_by(entry_id=article.id, role="cover-variant").one()
         cover = link.asset
+        assert asking.image_url.endswith(cover.storage_key.rsplit("/", 1)[-1]) or cover.slug in asking.image_url
         assert cover.name == "Harbour at dawn — a 1950s sci-fi pulp cover" and cover.mime_type == "image/png"
         assert cover.metadata_json["generated_by"] == "openai_images.generate" and cover.metadata_json["model"] == "gpt-image-1"
 
@@ -1635,7 +1758,7 @@ class TestExecution:
         from marvin.services.automation import waits
 
         _install(ws, "teaser-ladder")
-        day = (datetime.now(UTC).date() + timedelta(days=10)).isoformat()
+        day = _day_in(ws, 10)
         kiln = _entry(ws, "event", "Kiln No. 2", status="published", data={"date": day})
         for title in ("Three days to go", "It's here", "A week on"):
             ws.ai.reply_text(json.dumps({"title": title, "body": f"{title} — the new kiln."}))
@@ -1728,12 +1851,332 @@ class TestExecution:
         assert "commissions, orders, press, other" in json.dumps(ws.ai.requests[0])
         assert len(ws.ai.requests) == 1 and "triage" not in (_reload(ws, spam).metadata_json or {})  # flagged: never sent to the AI
 
+    def test_form_submission_sorter(self, ws):
+        _install(ws, "form-submission-sorter")
+        lead = _entry(ws, "contact-request", "Ada", status="inbox", data={"email": "ada@example.com", "message": "Can you engrave brass?"})
+        spam = _entry(ws, "contact-request", "Cheap", status="inbox", data={"email": "x@spam.test", "message": "cheap pills, click here"})
+        quiet = _entry(ws, "contact-request", "Thanks", status="inbox", data={"email": "t@example.com", "message": "Lovely work, thanks."})
+        held = _entry(ws, "contact-request", "Held", status="needs_review", data={"email": "h@spam.test", "message": "buy now"})
+        answers = [
+            {"category": "inquiry", "confidence": 0.93, "is_spam": False, "sentiment": "positive", "tags": [], "action_required": True},
+            {"category": "other", "confidence": 0.99, "is_spam": True, "sentiment": "neutral", "tags": [], "action_required": False},
+            {"category": "feedback", "confidence": 0.8, "is_spam": False, "sentiment": "positive", "tags": [], "action_required": False},
+        ]
+        for answer in answers:
+            ws.ai.reply_text(json.dumps(answer))
+
+        for entry, flagged in ((lead, False), (spam, False), (quiet, False), (held, True)):
+            doc = _entry_doc(entry, form_name="Contact", flagged=flagged, submission_id=str(entry.id), submission_data=entry.data_json)
+            _fire(ws, "form_submission_received", doc, entity=entry.id, entity_type="entry", correlation_id=f"form-{entry.slug}")
+
+        asked = [json.dumps(r) for r in ws.ai.requests]
+        assert len(asked) == 3  # the flagged one never reached the AI
+        assert "Can you engrave brass?" in asked[0] and "inquiry, support, feedback, other" in asked[0] and "Contact" in asked[0]
+        routed = _reload(ws, lead)
+        assert routed.metadata_json["classified"] == {
+            "category": "inquiry", "confidence": 0.93, "is_spam": False, "sentiment": "positive", "action_required": True,
+        }  # fmt: skip
+        assert routed.status == "needs_review" and routed.metadata_json["review_reasons"] == ["inquiry · positive"]
+        junk = _reload(ws, spam)
+        assert junk.metadata_json["classified"]["is_spam"] is True and junk.status == "needs_review"
+        assert junk.metadata_json["review_reasons"] == ["Looks like spam — check it, then trash it or keep it"]
+        fine = _reload(ws, quiet)  # nothing to act on: classified, left where it landed
+        assert fine.metadata_json["classified"]["category"] == "feedback" and fine.status == "inbox"
+        assert "classified" not in (_reload(ws, held).metadata_json or {})
+
+    def test_thumbnail_audition(self, ws, store):
+        from marvin.db.models.platform import EntryAssets
+        from marvin.services.automation import approvals
+        from marvin.services.automation.authz import ROLE_EDITOR
+
+        row = _install(ws, "thumbnail-audition")
+        piece = _entry(ws, "article", "Brass lantern", status="published", data={"body": "How the lantern was made."})
+        concepts = [
+            {"title": t, "visual": f"{t}: a lantern, {v}"}
+            for t, v in (("Glow", "lit at dusk"), ("Parts", "exploded view"), ("Hands", "being polished"))
+        ]
+        ws.ai.reply_text(json.dumps({"concepts": concepts, "titles": [c["title"] for c in concepts]}))
+
+        self._run_with(ws, row, {"piece": piece.slug})
+        assert ws.providers["openai_images"].calls == []  # nothing drawn before an editor says yes
+        self._decide(ws)  # draw them
+
+        assert [c["prompt"] for c in ws.providers["openai_images"].calls] == [f"a 1950s sci-fi pulp: {c['visual']}" for c in concepts]
+        roles = {ea.role for ea in ws.session.query(EntryAssets).filter_by(entry_id=piece.id)}
+        assert roles == {"thumbnail-option-0", "thumbnail-option-1", "thumbnail-option-2"}
+        (pick,) = approvals.pending(ws.session, ws.gid, ROLE_EDITOR)
+        assert pick.choices == ["Glow", "Parts", "Hands"]
+
+        approvals.decide(ws.session, ws.gid, pick.id, "approve", user_id=ws.uid, role=ROLE_EDITOR, choice="Parts")
+
+        assert _reload(ws, piece).metadata_json["thumbnail"] == {"role": "thumbnail-option-1", "concept": "Parts"}
+
+    def test_platform_preview_checker(self, ws, store, monkeypatch):
+        _install(ws, "platform-preview-checker")
+        _web(monkeypatch, {"https://shop.example/brass": (200, "text/html", ""), "https://shop.example/old": (404, "text/html", "")})
+        body = "A new lantern. " * 25 + "See https://shop.example/brass and https://shop.example/old"
+        post = _entry(ws, "article", "Lantern post", status="draft", data={"body": body})
+        self._with_hero(ws, store, post, size=(900, 1200))  # portrait
+        fine = _entry(ws, "article", "Short post", status="draft", data={"body": "Short and sweet. https://shop.example/brass"})
+        self._with_hero(ws, store, fine, size=(1200, 900))
+
+        for entry in (post, fine):
+            _fire(
+                ws,
+                "entry_updated",
+                _entry_doc(entry, changed_fields=["data_json"]),
+                entity=entry.id,
+                entity_type="entry",
+                correlation_id=f"upd-{entry.slug}",
+            )
+
+        flagged = _reload(ws, post)
+        assert flagged.status == "needs_review"
+        reasons = flagged.metadata_json["review_reasons"]
+        assert reasons[0] == "Too long for Bluesky: over its character limit"
+        assert reasons[1].startswith("Dead links:") and "shop.example/old" in reasons[1] and "shop.example/brass" not in reasons[1]
+        assert reasons[2] == "The picture is 900×1200; Bluesky shows landscape pictures best"
+        assert _reload(ws, fine).status == "draft"  # nothing wrong: left alone
+
+    def test_thank_you_notes(self, ws):
+        _install(ws, "thank-you-notes")
+        ada = _entry(ws, "person", "Ada", status="published", data={"role": "wiring"})
+        grace = _entry(ws, "person", "Grace", status="published", data={"role": "glass"})
+        lantern = _entry(ws, "project", "Brass lantern", status="published", data={"collaborators": f"{ada.slug}, {grace.slug}"})
+        for name in ("Ada", "Grace"):
+            ws.ai.reply_text(json.dumps({"title": f"Thank you, {name}", "body": f"{name} — the lantern wouldn't shine without your work on it."}))
+
+        _fire(ws, "entry_published", _entry_doc(lantern), entity=lantern.id, entity_type="entry", correlation_id="pub-lantern")
+
+        notes = {e.metadata_json["to"]: e for e in self._issues(ws)}
+        assert set(notes) == {ada.slug, grace.slug} and all(
+            e.status == "draft" and e.metadata_json["thank_you_for"] == lantern.slug for e in notes.values()
+        )
+        asked = [json.dumps(r) for r in ws.ai.requests]
+        assert len(asked) == 2 and {("wiring" in a, "glass" in a) for a in asked} == {(True, False), (False, True)}  # each note: its person's part
+
+    def test_post_event_recap(self, ws):
+        from marvin.services.automation import waits
+
+        _install(ws, "post-event-recap")
+        day = _day_in(ws, 3)
+        fair = _entry(ws, "event", "Maker fair", status="published", data={"date": day})
+        guests = [
+            _entry(ws, "rsvp", name, status="published", data={"event": fair.slug, "email": f"{name.lower()}@x.test"}) for name in ("Ada", "Grace")
+        ]
+        _entry(ws, "rsvp", "Elsewhere", status="published", data={"event": "another-event"})
+        ws.ai.reply_text(json.dumps({"title": "What a fair", "body": "Thank you all for coming to the Maker fair — send us your photos!"}))
+        for name in ("Ada", "Grace"):
+            ws.ai.reply_text(json.dumps({"body": f"{name}, thank you for coming yesterday. Send any photos you took!"}))
+
+        _fire(ws, "entry_published", _entry_doc(fair), entity=fair.id, entity_type="entry", correlation_id="pub-fair")
+        assert self._issues(ws) == [] and ws.ai.requests == []  # the day after, not now
+        waits.resume_due(ws.session, now_=waits.now() + timedelta(days=4, hours=12))
+
+        (recap,) = self._issues(ws)
+        assert recap.metadata_json["recap_of"] == fair.slug and "2 guests" in json.dumps(ws.ai.requests[0])
+        written = {_reload(ws, g).metadata_json["thank_you"]["message"].split(",")[0] for g in guests}
+        assert written == {"Ada", "Grace"} and all(_reload(ws, g).metadata_json["thank_you"]["for"] == fair.slug for g in guests)
+        assert len(ws.ai.requests) == 3  # the recap, and one message per guest who came — none for another event's RSVP
+
+    def test_achievement_cabinet(self, ws, monkeypatch):
+        from fastapi.encoders import jsonable_encoder
+
+        from marvin.db.models.platform import Collections, Entries, EntryCollections
+        from marvin.services.event_bus_service.event_bus_service import EventBusService
+
+        _install(ws, "achievement-cabinet")
+        # The event comes from another workflow, as it would in practice: a project's stage becomes "shipped".
+        _install_workflow(
+            ws,
+            "award-shipping",
+            "entry_updated",
+            [{"kind": "emit_event", "event": "custom.milestone", "payload": {"milestone": "Shipped", "badge": "First ${entry.title}"}}],
+            when=[{"field": "entry.data.stage", "op": "eq", "value": "shipped"}],
+        )
+        sent: list[dict] = []
+        monkeypatch.setattr(EventBusService, "dispatch", lambda self, **kw: sent.append(kw))
+        lantern = _entry(ws, "project", "Brass lantern", status="published", data={"stage": "shipped"})
+
+        def hand_on(chain: str):
+            """The custom event the sender workflow put on the bus, delivered to the workflows that start on it (each real
+            event has its own correlation id: a create is made once per id, so the badge check here is what counts)."""
+            event = [e for e in sent if e["event_type"].name.startswith("custom.")][-1]
+            document = jsonable_encoder(event["document_data"], by_alias=False)
+            return _fire(ws, event["event_type"].name, document, entity=event["entity_id"], entity_type=event["entity_type"], correlation_id=chain)
+
+        def badges():
+            return [
+                e
+                for e in ws.session.query(Entries).filter_by(group_id=ws.gid, entry_type_id=ws.types["article"]).all()
+                if e.metadata_json.get("achievement")
+            ]
+
+        def cabinet():
+            featured = ws.session.query(Collections).filter_by(group_id=ws.gid, slug="featured").one()
+            return {m.entry_id for m in ws.session.query(EntryCollections).filter_by(collection_id=featured.id)}
+
+        for n in range(2):  # the stage change, and the same event sent again: the badge is awarded once
+            _fire(ws, "entry_updated", _entry_doc(lantern), entity=lantern.id, entity_type="entry", user_id=ws.uid, correlation_id=f"cab-1-{n}")
+            assert hand_on(f"cab-1-{n}") == 1
+            assert [(e["event_type"].name, e["reaction_depth"]) for e in sent if e["event_type"].name.startswith("custom.")][-1] == (
+                "custom.milestone",
+                1,
+            )
+            (badge,) = badges()
+            assert (badge.title, badge.status, badge.data_json["body"]) == ("First Brass lantern", "draft", "Brass lantern reached “Shipped”.")
+            assert {k: v for k, v in badge.metadata_json.items() if k != "automation_created"} == {
+                "achievement": f"{lantern.slug}:First Brass lantern",
+                "project": lantern.slug,
+                "milestone": "Shipped",
+            }
+            assert cabinet() == {badge.id}
+
+        # …another badge for the same project is another award; the same badge for another project is too
+        for n, (badge_name, project) in enumerate((("Tinkerer", lantern), ("Tinkerer", _entry(ws, "project", "Copper kettle", status="published")))):
+            doc = {"event_name": "milestone", "payload": {"milestone": "Tinkered", "badge": badge_name}, "workspace_id": str(ws.gid)}
+            _fire(ws, "custom.milestone", doc, entity=project.id, entity_type="entry", correlation_id=f"cab-2-{n}")
+        assert sorted(b.title for b in badges()) == ["First Brass lantern", "Tinkerer", "Tinkerer"] and len(cabinet()) == 3
+
+        # an event about no project, or naming no badge, is ignored
+        _fire(ws, "custom.milestone", {"event_name": "milestone", "payload": {"badge": "Orphan"}}, correlation_id="cab-3")
+        _fire(ws, "custom.milestone", {"event_name": "milestone", "payload": {"milestone": "x"}}, entity=lantern.id, entity_type="entry")
+        assert len(badges()) == 3
+
+    def _repair_tasks(self, ws, key: str) -> list:
+        from marvin.db.models.platform import Entries
+
+        ws.session.expire_all()
+        rows = ws.session.query(Entries).filter_by(group_id=ws.gid, entry_type_id=ws.types["article"]).all()
+        # Title, then creation time: a closed task and its reopened successor share a title.
+        return sorted((e for e in rows if key in (e.metadata_json or {})), key=lambda e: (e.title, e.created_at, str(e.id)))
+
+    def test_integration_health_companion(self, ws):
+        _install(ws, "integration-health-companion")
+        alert = {
+            "alert_id": str(uuid.uuid4()), "integration_id": str(uuid.uuid4()), "integration_slug": "shop", "integration_name": "Shop",
+            "provider": "square", "provider_name": "Square", "code": "auth", "error": "The access token expired", "count": 3,
+            "reminder": False, "title": "Square needs attention", "workspace_id": str(ws.gid),
+            "summary": "Square (shop) needs attention: auth - The access token expired (3 failures)",
+        }  # fmt: skip
+
+        assert _fire(ws, "integration_attention_needed", alert, correlation_id="alert-1") == 1
+        (task,) = self._repair_tasks(ws, "integration_alert")
+        assert (task.title, task.status) == ("Square needs attention: shop (auth)", "draft")
+        assert task.metadata_json["integration_alert"] == "shop:auth" and task.metadata_json["integration"] == "shop"
+        body = task.data_json["body"]
+        assert "Square (shop) needs attention" in body and "The access token expired" in body and "Failures since the alert opened: 3" in body
+
+        # Run #2: a reminder for the same alert, and the same failure again, find the open task and make no second one.
+        _fire(ws, "integration_attention_needed", {**alert, "reminder": True, "count": 9}, correlation_id="alert-1-reminder")
+        _fire(ws, "integration_attention_needed", alert, correlation_id="alert-1-again")
+        assert [t.id for t in self._repair_tasks(ws, "integration_alert")] == [task.id]
+        assert len(_runs(ws, "integration-health-companion")) == 3
+
+        # Another error code on the same connection, or the same code on another connection, is another task.
+        _fire(ws, "integration_attention_needed", {**alert, "code": "rate_limit", "title": "Square is rate limited"}, correlation_id="alert-2")
+        _fire(ws, "integration_attention_needed", {**alert, "integration_slug": "cafe"}, correlation_id="alert-3")
+        assert sorted(t.metadata_json["integration_alert"] for t in self._repair_tasks(ws, "integration_alert")) == [
+            "cafe:auth",
+            "shop:auth",
+            "shop:rate_limit",
+        ]
+
+        # An archived task is closed: the next outage of that connection drafts a new one.
+        task.status = "archived"
+        ws.session.commit()
+        _fire(ws, "integration_attention_needed", {**alert, "reminder": True}, correlation_id="alert-4")
+        assert [t.status for t in self._repair_tasks(ws, "integration_alert") if t.metadata_json["integration_alert"] == "shop:auth"] == [
+            "archived",
+            "draft",
+        ]
+
+        # An alert naming no connection is ignored.
+        before = len(self._repair_tasks(ws, "integration_alert"))
+        _fire(ws, "integration_attention_needed", {k: v for k, v in alert.items() if k != "integration_slug"}, correlation_id="alert-5")
+        assert len(self._repair_tasks(ws, "integration_alert")) == before
+
+    def test_webhook_repair_desk(self, ws):
+        _install(ws, "webhook-repair-desk")
+        failure = {
+            "webhook_id": str(ws.webhooks["announce"]), "webhook_name": "Announce", "delivered_event_type": "entry_published",
+            "status_code": 503, "error_message": "HTTP 503", "attempts": 3,
+        }  # fmt: skip
+
+        assert _fire(ws, "webhook_delivery_failed", failure, entity=ws.webhooks["announce"], entity_type="webhook", correlation_id="wh-1") == 1
+        (task,) = self._repair_tasks(ws, "webhook_repair")
+        assert (task.title, task.status) == ("Repair webhook “Announce”", "draft")
+        assert task.metadata_json["webhook_repair"] == failure["webhook_id"] and task.metadata_json["last_event"] == "entry_published"
+        assert "failed after 3 attempts: HTTP 503" in task.data_json["body"] and "delivery log" in task.data_json["body"]
+
+        # Run #2: the same webhook failing again while its task is open makes no second task; another webhook does.
+        _fire(ws, "webhook_delivery_failed", {**failure, "error_message": "ConnectTimeout"}, correlation_id="wh-2")
+        assert [t.id for t in self._repair_tasks(ws, "webhook_repair")] == [task.id]
+        _fire(ws, "webhook_delivery_failed", {**failure, "webhook_id": str(uuid.uuid4()), "webhook_name": "Forum"}, correlation_id="wh-3")
+        assert [t.title for t in self._repair_tasks(ws, "webhook_repair")] == ["Repair webhook “Announce”", "Repair webhook “Forum”"]
+
+        # A task that is closed (trashed) lets the next failure of that webhook draft a new one.
+        task.status = "archived"
+        ws.session.commit()
+        _fire(ws, "webhook_delivery_failed", failure, correlation_id="wh-4")
+        assert len(self._repair_tasks(ws, "webhook_repair")) == 3
+
+    def test_community_welcome_pack(self, ws):
+        from marvin.db.models.platform import Collections, EntryCollections
+
+        _install(ws, "community-welcome-pack")
+        featured = ws.session.query(Collections).filter_by(group_id=ws.gid, slug="featured").one()
+        for order, title in enumerate(("Start here", "How we work")):
+            piece = _entry(ws, "article", title, status="published", data={"body": "x"})
+            ws.session.add(EntryCollections(entry_id=piece.id, collection_id=featured.id, sort_order=order))
+        ws.session.commit()
+        ws.ai.reply_text(json.dumps({"title": "Welcome, U", "body": "Welcome aboard — start with “Start here”, then “How we work”."}))
+        joined = {
+            "operation": "create",
+            "workspace_id": str(ws.gid),
+            "user_id": str(ws.uid),
+            "username": "u",
+            "user_full_name": "U",
+            "role": "EDITOR",
+        }
+
+        _fire(ws, "member_added", joined, entity=ws.uid, entity_type="member", correlation_id="join-1")
+
+        (welcome,) = self._issues(ws)
+        assert welcome.status == "draft" and welcome.metadata_json["welcome_for"] and welcome.metadata_json["to"].endswith("@t.test")
+        asked = json.dumps(ws.ai.requests[0])
+        assert "joined as EDITOR" in asked and "Start here" in asked and "/articles/" in asked  # the pieces, with their addresses
+
+    def test_new_member_welcome(self, ws, outbox, monkeypatch):
+        monkeypatch.setattr("marvin.services.ui_links.ui_base_url", lambda: "https://app.example")
+        monkeypatch.setattr("marvin.services.entry_urls.site_base_url", lambda *a, **k: "https://site.example")
+        _install(ws, "new-member-welcome")
+        ada, vee = _person(ws, "ada"), _person(ws, "vee", role=WorkspaceRole.VIEWER)
+
+        def joined(person, role, correlation):
+            doc = {"operation": "create", "workspace_id": str(ws.gid), "user_id": str(ws.uid), "username": person.username, "role": role}
+            _fire(ws, "member_added", doc, entity=person.id, entity_type="member", correlation_id=correlation)
+
+        joined(ada, "EDITOR", "join-ada")
+        joined(vee, "VIEWER", "join-vee")
+        assert [(to, subject) for to, subject, _ in outbox] == [(ada.email, "Welcome to the Studio"), (vee.email, "Welcome to the Studio")]
+        writer, reader = outbox[0][2], outbox[1][2]
+        assert "Hi Ada" in writer and "<strong>EDITOR</strong>" in writer and "Glad you're here" in writer and "<strong>Start here</strong>" in writer
+        assert 'href="https://app.example"' in writer and "Open the workspace" in writer and "Visit the site" not in writer  # a writer's way in
+        assert "Hi Vee" in reader and "as a reader" in reader and 'href="https://site.example"' in reader and "Open the workspace" not in reader
+
+        # The same event handled again — and the same people joining again — are not welcomed twice.
+        joined(ada, "EDITOR", "join-ada")
+        joined(vee, "VIEWER", "join-vee-again")
+        assert len(outbox) == 2
+        assert [r.status for r in _runs(ws, "new-member-welcome")] == ["success"] * 4
+
     # ── waits ──
     def test_event_countdown(self, ws):
         from marvin.services.automation import waits
 
         _install(ws, "event-countdown")
-        day = (datetime.now(UTC).date() + timedelta(days=12)).isoformat()
+        day = _day_in(ws, 12)
         fair = _entry(ws, "event", "Maker fair", status="published", data={"date": day})
         ws.ai.reply_text(json.dumps({"title": "One week to the Maker fair", "body": "The Maker fair is a week away — come and see the stalls."}))
         ws.ai.reply_text(json.dumps({"title": "Maker fair: tomorrow!", "body": "Tomorrow's the Maker fair — doors at nine, come early."}))
@@ -1753,7 +2196,7 @@ class TestExecution:
 
     def test_event_countdown_skips_a_reminder_already_past(self, ws):
         _install(ws, "event-countdown")
-        soon = _entry(ws, "event", "Pop-up", status="published", data={"date": (datetime.now(UTC).date() + timedelta(days=3)).isoformat()})
+        soon = _entry(ws, "event", "Pop-up", status="published", data={"date": _day_in(ws, 3)})
         _fire(ws, "entry_published", _entry_doc(soon), entity=soon.id, entity_type="entry", correlation_id="pub-pop")
         assert self._issues(ws) == [] and ws.ai.requests == []  # the week-before moment has passed: no draft; it waits for the day before
 
@@ -2303,6 +2746,224 @@ class TestExecution:
         ws.session.query(Resources).filter(Resources.group_id == ws.gid).delete(synchronize_session=False)
         ws.session.commit()
 
+    # ── several checks side by side, then one verdict (a parallel step) ──
+    def test_publication_release_gate(self, ws):
+        from marvin.db.models.platform import Assets, EntryAssets
+
+        _install(ws, "publication-release-gate")
+        long_text = {"body": "A body that is comfortably longer than twenty characters."}
+        approved = lambda e: _entry_doc(e, changed_fields=["status"], before={"status": "needs_review"}, after={"status": "approved"})  # noqa: E731
+
+        def attach(entry, name, *, mime="image/png", **extra):
+            asset = _asset(ws, name, asset_type="image" if mime.startswith("image/") else "document", mime=mime, **extra)
+            ws.session.add(EntryAssets(entry_id=entry.id, asset_id=asset.id, position=0))
+            ws.session.commit()
+            return asset
+
+        ready = _entry(ws, "article", "Ready", status="approved", data=long_text)
+        attach(ready, "cover", alt_text="A lighthouse at dusk")
+        attach(ready, "brochure", mime="application/pdf", description="The printable brochure")
+        no_picture = _entry(ws, "article", "No picture", status="approved", data=long_text)
+        bare = _entry(ws, "article", "Bare", status="approved", data={"body": "short"})
+        photo = attach(bare, "photo")  # no alt text
+        attach(bare, "terms", mime="application/pdf")  # no description
+
+        for entry in (ready, no_picture, bare):
+            _fire(ws, "entry_updated", approved(entry), entity=entry.id, entity_type="entry", correlation_id=f"corr-gate-{entry.slug}")
+
+        assert _reload(ws, ready).status == "published"
+        held = _reload(ws, no_picture)
+        assert held.status == "needs_review"
+        (reason,) = held.metadata_json["review_reasons"]
+        assert (
+            reason.startswith("Held back by the release gate:\n- images: ")
+            and "$.count" in reason
+            and "text:" not in reason
+            and "downloads:" not in reason
+        )
+        # Every failed check is named at once — a missing picture doesn't hide a short text.
+        (reason,) = _reload(ws, bare).metadata_json["review_reasons"]
+        assert [line.split(":")[0] for line in reason.splitlines()[1:]] == ["- text", "- images", "- downloads"]
+        assert "$.body" in reason and "$.rows[0].alt_text" in reason and "$.rows[0].description" in reason
+        assert _reload(ws, bare).status == "needs_review"
+
+        # A second delivery of the same event changes nothing: the published entry stays published, the held one is
+        # held for the same reason (not listed twice).
+        _fire(ws, "entry_updated", approved(ready), entity=ready.id, entity_type="entry", correlation_id=f"corr-gate-{ready.slug}")
+        _fire(ws, "entry_updated", approved(no_picture), entity=no_picture.id, entity_type="entry", correlation_id=f"corr-gate-{no_picture.slug}")
+        assert _reload(ws, ready).status == "published"
+        assert len(_reload(ws, no_picture).metadata_json["review_reasons"]) == 1
+
+        # Fix what the reasons name, approve again: now it passes.
+        entry = _reload(ws, bare)
+        entry.data_json = long_text
+        entry.status = "approved"
+        ws.session.get(Assets, photo.id).alt_text = "A storm over the point"
+        for link in ws.session.query(EntryAssets).filter(EntryAssets.entry_id == bare.id):
+            other = ws.session.get(Assets, link.asset_id)
+            other.description = other.description or "Terms of sale"
+        ws.session.commit()
+        _fire(ws, "entry_updated", approved(bare), entity=bare.id, entity_type="entry", correlation_id="corr-gate-bare-again")
+        assert _reload(ws, bare).status == "published", _reload(ws, bare).metadata_json
+        runs = [r.status for r in _runs(ws, "publication-release-gate")]
+        assert runs.count("success") == len(runs)  # a failed check is a verdict, not a failed run
+
+        ws.session.query(EntryAssets).filter(EntryAssets.entry_id.in_([ready.id, bare.id])).delete(synchronize_session=False)
+        ws.session.query(Assets).filter(Assets.group_id == ws.gid).delete(synchronize_session=False)
+        ws.session.commit()
+
+    # ── checking a document against a schema (a schema_check step) ──
+    def test_agent_directory_intake(self, ws, monkeypatch):
+        _install(ws, "agent-directory-intake")
+        good_url, bad_url = "https://agents.example/scribe.json", "https://agents.example/broken.json"
+        _web(
+            monkeypatch,
+            {
+                good_url: (200, "application/json", json.dumps({"name": "Scribe", "url": "https://scribe.example", "capabilities": ["summarise"]})),
+                bad_url: (200, "application/json", json.dumps({"name": "Broken", "url": "http://insecure.example"})),
+            },
+        )
+        good = _entry(ws, "contact-request", "Scribe", status="inbox", data={"message": good_url})
+        bad = _entry(ws, "contact-request", "Broken", status="inbox", data={"message": bad_url})
+        gone = _entry(ws, "contact-request", "Gone", status="inbox", data={"message": "https://nowhere.example/agent.json"})
+        for n, request in enumerate((good, bad, gone)):
+            doc = _entry_doc(request, form_name="Agents", flagged=False, duplicate=False, submission_data=request.data_json)
+            _fire(ws, "form_submission_received", doc, entity=request.id, entity_type="entry", correlation_id=f"corr-agent-{n}")
+
+        fits, misses, unread = (_reload(ws, e) for e in (good, bad, gone))
+        assert (fits.status, misses.status, unread.status) == ("needs_review",) * 3
+        assert fits.metadata_json["capability_check"]["valid"] is True
+        assert fits.metadata_json["review_reasons"] == ["Capability document fits the schema — ready for a look"]
+        check = misses.metadata_json["capability_check"]
+        assert check["valid"] is False and check["fetched_status"] == 200 and check["error_count"] == 2
+        assert {e["path"] for e in check["errors"]} == {"$", "$.url"}  # a missing field, an address that isn't https
+        assert misses.metadata_json["review_reasons"][0].startswith("Capability document doesn't fit the schema (2 problems):\n- $")
+        assert unread.metadata_json["capability_check"]["valid"] is False and unread.metadata_json["capability_check"]["fetched_status"] == 0
+        sent = {c["title"]: c["body"] for c in ws.providers["apprise"].calls}
+        assert sorted(sent) == ["Agent submission: Broken", "Agent submission: Gone", "Agent submission: Scribe"]
+        assert "fits the schema: True" in sent["Agent submission: Scribe"] and "fits the schema: False" in sent["Agent submission: Broken"]
+
+        # A second delivery of the same submission (a retried event) reads the same answer and leaves the review as it was.
+        doc = _entry_doc(good, form_name="Agents", flagged=False, duplicate=False, submission_data=good.data_json)
+        _fire(ws, "form_submission_received", doc, entity=good.id, entity_type="entry", correlation_id="corr-agent-0")
+        assert _reload(ws, good).metadata_json["review_reasons"] == ["Capability document fits the schema — ready for a look"]
+        assert _reload(ws, good).metadata_json["capability_check"]["valid"] is True
+
+    def test_choose_your_own_adventure(self, ws):
+        from marvin.db.models.platform import Entries
+
+        row = _install(ws, "choose-your-own-adventure")
+        premise = _entry(ws, "article", "A lighthouse at the edge of the map", status="published", data={"body": "Who keeps the light?"})
+        story = {
+            "text": "You wake in the lamp room; the lens is dark and a storm is coming.",
+            "choices": [
+                {"label": "Relight the lamp", "next": {"text": "The beam sweeps out and a ship answers.", "ending": "A ship is saved"}},
+                {
+                    "label": "Climb down to the cellar",
+                    "next": {
+                        "text": "The cellar door hangs open; something knocks below.",
+                        "choices": [
+                            {"label": "Answer the knock", "next": {"text": "A drowned keeper hands you a key.", "ending": "You inherit the light"}},
+                            {"label": "Bolt the door", "next": {"text": "Dawn finds you alive and very alone.", "ending": "A quiet morning"}},
+                        ],
+                    },
+                },
+            ],
+        }
+        dead_end = {
+            **story,
+            "choices": [story["choices"][0], {"label": "Walk into the sea", "next": {"text": "The water is cold and the story stops."}}],
+        }
+
+        def adventures():
+            ws.session.expire_all()
+            return (
+                ws.session.query(Entries).filter(Entries.group_id == ws.gid, Entries.metadata_json["adventure_of"].as_string() == premise.slug).all()
+            )
+
+        def run(answer):
+            ws.ai.reply_text(json.dumps({"title": "The Lamp Room", "story_json": json.dumps(answer)}))
+            recorder = ExecutionRecorder(ws.session, ws.gid)
+            return run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, recorder=recorder, inputs={"premise": premise.slug})
+
+        assert run(story)["ok"]
+        (draft,) = adventures()
+        assert (draft.title, draft.status, draft.metadata_json["story_check"]) == ("The Lamp Room", "draft", {"valid": True})
+        assert json.loads(draft.data_json["body"]) == story  # saved as written
+
+        # A story with a branch that never ends stops the run at the check: nothing is drafted, and the message names the branch.
+        assert not run(dead_end)["ok"]
+        failed = [a.error for r in _runs(ws, row.slug) for a in r.actions if a.error]
+        assert any("$.choices[1].next" in e and "'choices' is a required property" in e for e in failed), failed
+        assert len(adventures()) == 1
+
+        assert run(story)["ok"]  # run again: another draft, the premise is untouched
+        assert len(adventures()) == 2 and "adventure_of" not in (_reload(ws, premise).metadata_json or {})
+
+    # ── recording observations per variant and window (a metric step) ──
+    def test_social_experiment_log(self, ws):
+        from marvin.db.models.groups.metric_observations import MetricObservationModel
+        from marvin.db.models.platform import Entries
+
+        row = _install(ws, "social-experiment-log")
+        post = _entry(ws, "article", "Spring sale", status="published", data={"body": "Everything half price this weekend."})
+        ws.ai.reply_text(
+            json.dumps(
+                {"variant_a": "Half price, this weekend only.", "variant_b": "Ever seen a sale this good?", "what_differs": "the opening hook"}
+            )
+        )
+
+        def variants():
+            ws.session.expire_all()
+            found = ws.session.query(Entries).filter(Entries.group_id == ws.gid, Entries.metadata_json["experiment"]["id"].as_string() == post.slug)
+            return {e.metadata_json["experiment"]["variant"]: e for e in found.all()}
+
+        def observed():
+            ws.session.expire_all()
+            return {(o.variant, o.window_label): o.value for o in ws.session.query(MetricObservationModel).filter_by(group_id=ws.gid).all()}
+
+        def run(**inputs):
+            recorder = ExecutionRecorder(ws.session, ws.gid)
+            return run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, recorder=recorder, inputs={"post": post.slug, **inputs})
+
+        # A dry run drafts nothing and asks nobody; with numbers it previews what it would record and writes nothing.
+        preview = run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, dry_run=True, inputs={"post": post.slug, "a_value": 10})
+        assert preview["ok"], _step_errors(preview["plan"])
+        assert ws.ai.requests == [] and variants() == {} and observed() == {}
+        assert [p["resolved"].get("would") for p in preview["plan"] if p["resolved"].get("would")] == ["create"]
+
+        first = run()  # the first run: two drafts, marked, and nothing yet to report
+        assert first["ok"] and len(ws.ai.requests) == 1
+        both = variants()
+        assert sorted(both) == ["a", "b"] and all(e.status == "draft" for e in both.values())
+        assert (
+            both["a"].data_json["body"] == "Half price, this weekend only." and both["b"].metadata_json["experiment"]["differs"] == "the opening hook"
+        )
+        marked = _reload(ws, post).metadata_json
+        assert marked["experiment_id"] == post.slug and marked["experiment_variants"] == {"a": str(both["a"].id), "b": str(both["b"].id)}
+        assert "experiment_report" not in marked and observed() == {}
+
+        second = run(a_value=10, b_value=8)  # the numbers observed so far: no new drafts, no new AI call
+        assert second["ok"] and len(ws.ai.requests) == 1 and len(variants()) == 2
+        week = next(window for (_, window) in observed())
+        assert week.startswith("20") and "-W" in week and observed() == {("a", week): 10.0, ("b", week): 8.0}
+        report = _reload(ws, post).metadata_json["experiment_report"]
+        assert report.startswith("Observations, not conclusions:") and f"{week} clicks (variant a · {post.slug}): 10" in report
+        assert report.count("\n- ") == 2  # a line per observation
+
+        before = _reload(ws, post).update_at
+        third = run(a_value=10, b_value=8)  # the same numbers again: nothing doubles, nothing is rewritten
+        assert third["ok"] and observed() == {("a", week): 10.0, ("b", week): 8.0} and len(variants()) == 2
+        assert _reload(ws, post).update_at == before
+        dry = run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, dry_run=True, inputs={"post": post.slug, "a_value": 10, "b_value": 9})
+        assert dry["ok"] and [p["resolved"]["would"] for p in dry["plan"] if p["resolved"].get("would")] == ["leave", "change"]
+        assert observed()[("b", week)] == 8.0  # previewed, not written
+
+        assert run(a_value=12)["ok"]  # a later reading of the same window replaces it
+        assert observed() == {("a", week): 12.0, ("b", week): 8.0}
+        assert run(a_value=3, window="day")["ok"] and len(observed()) == 3  # another window is another observation
+        assert "variant a" in _reload(ws, post).metadata_json["experiment_report"]
+
     @needs_browser
     def test_best_of_month(self, ws, store):
         row = _install(ws, "best-of-month")
@@ -2398,6 +3059,136 @@ def test_a_dry_run_of_a_scheduled_digest_and_an_event_recipe_passes(ws):
     assert preview["plan"][-1]["resolved"]["title"] == "‹AI answer: title›"
 
 
+def test_a_dry_run_of_the_new_member_welcome_shows_the_email_and_sends_nothing(ws, outbox, monkeypatch):
+    from marvin.services.automation.engine import dry_run_for_event
+
+    monkeypatch.setattr("marvin.services.ui_links.ui_base_url", lambda: "https://app.example")
+    row = _install(ws, "new-member-welcome")
+    ada = _person(ws, "ada")
+    ctx = event_context(
+        "member_added", {"operation": "create", "role": "EDITOR"}, entity_id=ada.id, entity_type="member", user_id=ws.uid, correlation_id="dry-join"
+    )
+    for _ in range(2):  # a dry run changes nothing, so the second shows the same
+        preview = dry_run_for_event(ws.session, ws.gid, row, ctx)
+        assert preview["would_fire"] and _step_errors(preview["plan"]) == []
+        team, reader = preview["plan"]
+        assert reader["status"] == "skipped"  # the reader's step: she is no reader
+        mail = team["resolved"]
+        assert (mail["to"], mail["subject"], mail["would_send"], mail["already_sent"]) == (ada.email, "Welcome to the Studio", True, False)
+        assert "Hi Ada" in mail["body_html"] and "https://app.example" in mail["body_html"]
+        assert outbox == [] and ws.session.query(WorkflowEmailSendModel).filter_by(group_id=ws.gid).count() == 0
+
+
+def test_a_dry_run_of_the_achievement_cabinet_previews_the_badge_and_the_event_that_sends_it(ws, monkeypatch):
+    from marvin.db.models.platform import Entries
+    from marvin.services.automation.engine import dry_run_for_event
+    from marvin.services.event_bus_service.event_bus_service import EventBusService
+
+    monkeypatch.setattr(EventBusService, "dispatch", lambda self, **kw: pytest.fail("a dry run sent an event"))
+    lantern = _entry(ws, "project", "Brass lantern", status="published")
+    row = _install(ws, "achievement-cabinet")
+    doc = {"event_name": "milestone", "payload": {"milestone": "Shipped", "badge": "First release"}, "workspace_id": str(ws.gid)}
+    ctx = event_context("custom.milestone", doc, entity_id=lantern.id, entity_type="entry", correlation_id="dry")
+
+    preview = dry_run_for_event(ws.session, ws.gid, row, ctx)
+
+    assert preview["would_fire"] and _step_errors(preview["plan"]) == []
+    create = next(p for p in preview["plan"] if p.get("kind") == "entry" and p["resolved"].get("title"))["resolved"]
+    assert create["title"] == "First release" and create["data"] == {"body": "Brass lantern reached “Shipped”."}
+    assert ws.session.query(Entries).filter_by(group_id=ws.gid, title="First release").count() == 0  # previewed, not made
+
+    sender = _install_workflow(
+        ws, "sender", "entry_updated", [{"kind": "emit_event", "event": "custom.milestone", "payload": {"badge": "B", "milestone": "M"}}]
+    )
+    result = run_automation_now(ws.session, ws.gid, sender, user_id=ws.uid, dry_run=True)
+    assert result["ok"], _step_errors(result["plan"])
+    assert result["plan"][0]["resolved"]["payload"] == {"badge": "B", "milestone": "M"}
+
+
+def test_a_dry_run_of_the_repair_recipes_previews_the_task_and_makes_none_then_skips_it_once_one_is_open(ws):
+    from marvin.db.models.platform import Entries
+    from marvin.services.automation.engine import dry_run_for_event
+
+    cases = {
+        "integration-health-companion": (
+            "integration_attention_needed",
+            {"integration_slug": "shop", "provider_name": "Square", "code": "auth", "error": "expired", "count": 1, "title": "Square needs attention",
+             "summary": "Square (shop) needs attention"},  # fmt: skip
+            "Square needs attention: shop (auth)",
+        ),
+        "webhook-repair-desk": (
+            "webhook_delivery_failed",
+            {
+                "webhook_id": str(ws.webhooks["announce"]),
+                "webhook_name": "Announce",
+                "delivered_event_type": "entry_published",
+                "error_message": "HTTP 503",
+                "attempts": 3,
+            },
+            "Repair webhook “Announce”",
+        ),
+    }  # fmt: skip
+    for rid, (event, doc, title) in cases.items():
+        row = _install(ws, rid)
+        ctx = event_context(event, doc, correlation_id="dry")
+
+        preview = dry_run_for_event(ws.session, ws.gid, row, ctx)
+        assert preview["would_fire"] and _step_errors(preview["plan"]) == [], rid
+        create = next(p for p in preview["plan"] if p.get("kind") == "entry" and p["resolved"].get("title"))
+        assert create["resolved"]["title"] == title and create["resolved"]["status"] == "draft", rid
+        assert ws.session.query(Entries).filter_by(group_id=ws.gid, title=title).count() == 0  # previewed, not made
+
+        # Run #2: with the task made (a real run), a dry run of the same event no longer plans a create.
+        assert _fire(ws, event, doc, correlation_id="real") == 1
+        assert ws.session.query(Entries).filter_by(group_id=ws.gid, title=title).count() == 1
+        again = dry_run_for_event(ws.session, ws.gid, row, event_context(event, doc, correlation_id="dry-2"))
+        assert again["would_fire"] and _step_errors(again["plan"]) == [], rid
+        (create_step,) = [p for p in again["plan"] if p.get("kind") == "entry"]
+        assert create_step["status"] == "skipped" and create_step["resolved"]["when"][0]["actual"] == 1, rid
+
+
+def test_a_dry_run_of_the_schema_recipes_checks_nothing_it_cant_have(ws, monkeypatch):
+    from marvin.services.automation.engine import dry_run_for_event
+
+    calls = _web(monkeypatch, {})
+    request = _entry(ws, "contact-request", "Scribe", status="inbox", data={"message": "https://agents.example/scribe.json"})
+    row = _install(ws, "agent-directory-intake")
+    ctx = event_context(
+        "form_submission_received", _entry_doc(request, form_name="Agents"), entity_id=request.id, entity_type="entry", correlation_id="dry"
+    )
+    preview = dry_run_for_event(ws.session, ws.gid, row, ctx)
+    assert preview["would_fire"] and _step_errors(preview["plan"]) == [] and calls == []  # the page wasn't fetched, so nothing was judged
+    assert preview["plan"][1]["resolved"]["valid"] is None
+
+    premise = _entry(ws, "article", "A lighthouse", status="published", data={"body": "x"})
+    adventure = _install(ws, "choose-your-own-adventure")
+    result = run_automation_now(ws.session, ws.gid, adventure, user_id=ws.uid, dry_run=True, inputs={"premise": premise.slug})
+    assert result["ok"], _step_errors(result["plan"])  # the AI wasn't asked: its stand-in isn't a story to fail on
+    assert ws.ai.requests == [] and result["plan"][1]["resolved"]["valid"] is None
+    assert result["plan"][-1]["resolved"]["title"] == "‹AI answer: title›"
+
+
+def test_a_dry_run_of_the_release_gate_shows_each_check_and_changes_nothing(ws):
+    from marvin.services.automation.engine import dry_run_for_event
+
+    entry = _entry(ws, "article", "Dry gate", status="approved", data={"body": "short"})
+    row = _install(ws, "publication-release-gate")
+    ctx = event_context(
+        "entry_updated",
+        _entry_doc(entry, changed_fields=["status"], before={"status": "needs_review"}, after={"status": "approved"}),
+        entity_id=entry.id,
+        entity_type="entry",
+        correlation_id="dry-gate",
+    )
+    for _ in range(2):  # and again: a dry run leaves nothing behind to change the next one
+        preview = dry_run_for_event(ws.session, ws.gid, row, ctx)
+        assert preview["would_fire"] and _step_errors(preview["plan"]) == []
+        checks = preview["plan"][0]["resolved"]
+        assert checks["order"] == ["text", "images", "downloads"]
+        assert {n: b["status"] for n, b in checks["branches"].items()} == {"text": "failed", "images": "failed", "downloads": "ok"}
+        assert _reload(ws, entry).status == "approved" and not (_reload(ws, entry).metadata_json or {}).get("review_reasons")
+
+
 def test_a_dry_run_fills_a_render_from_an_ai_step_without_a_browser(ws, monkeypatch):
     monkeypatch.setattr(render, "screenshot", lambda *a, **k: pytest.fail("a dry run took a screenshot"))
     _entry(ws, "project", "Chore coat", status="published", data={"stage": "complete"})
@@ -2434,8 +3225,8 @@ def test_guide_offers_the_recipes_this_workspace_can_run(ws):
     one = authoring_guide(ws.session, ws.gid, "examples", "newsletter-delivery")["examples"]["newsletter-delivery"]
     assert one["definition"] == recipes.load_recipe("newsletter-delivery")["definition"] and "newsletter_integration" in one["setup_variables"]
     assert "{{" in json.dumps(one["definition"]) and "${entry.title}" in json.dumps(one["definition"])
-    overview = authoring_guide(ws.session, ws.gid)["examples"]
-    assert overview["count"] == len(WORKFLOW_RECIPES) and "section='examples'" in overview["note"]  # the list is a call away
+    index = authoring_guide(ws.session, ws.gid)
+    assert index["workspace"]["recipes_ready"] == len(WORKFLOW_RECIPES) and "examples" in index["sections"]  # the list is a call away
 
     # Disconnect Buttondown: the newsletter recipe is no longer offered, and asking for it says why.
     ws.session.query(IntegrationModel).filter_by(group_id=ws.gid, slug="newsletter").update({"enabled": False})
@@ -2447,7 +3238,7 @@ def test_guide_offers_the_recipes_this_workspace_can_run(ws):
     assert "buttondown" in asked["error"] and "publication-ledger" in asked["available"]
     assert "no such recipe" in authoring_guide(ws.session, ws.gid, "examples", "nope")["examples"]["error"]
     # An idea is never offered, however the workspace is set up.
-    assert "status is needs-engine-capability" in authoring_guide(ws.session, ws.gid, "examples", "agent-directory-intake")["examples"]["error"]
+    assert "status is needs-engine-capability" in authoring_guide(ws.session, ws.gid, "examples", "reply-drafting-desk")["examples"]["error"]
 
 
 def test_draft_workflow_instantiates_a_recipe_with_typed_vars(ws):
@@ -2466,7 +3257,7 @@ def test_draft_workflow_instantiates_a_recipe_with_typed_vars(ws):
     assert "must be a integer" in out["error"] and "interval_seconds" in out["setup_variables"]
     out = _tool(ws, "draft_workflow", {"recipe": "newsletter-delivery", "vars": {}})
     assert "missing setup value" in out["error"]
-    out = _tool(ws, "draft_workflow", {"recipe": "agent-directory-intake", "vars": {}})
+    out = _tool(ws, "draft_workflow", {"recipe": "reply-drafting-desk", "vars": {}})
     assert "not runnable" in out["error"] and "publication-ledger" in out["available"]
     out = _tool(ws, "draft_workflow", {"name": "x"})
     assert "Pass a definition, or a recipe" in out["error"]
@@ -2497,3 +3288,149 @@ def test_a_workspace_type_and_a_built_in_with_the_same_slug_are_listed_once(ws):
     finally:
         ws.session.delete(built_in)
         ws.session.commit()
+
+
+# ── A run on a form submission reads it, and an operation step classifies it ─
+def _submission_doc(entry, **extra) -> dict:
+    return _entry_doc(entry, form_name="Contact", submission_id=str(entry.id), submission_data=entry.data_json, **extra)
+
+
+def _classify_workflow(ws, **step):
+    return _install_workflow(
+        ws,
+        "classify-it",
+        "form_submission_received",
+        [
+            {"kind": "operation", "id": "judge", "op": "classify-form-submission", "input": {"categories": ["lead", "support"]}, **step},
+            {
+                "kind": "entry",
+                "op": "set_metadata",
+                "metadata": {
+                    "seen": {"form": "${form_submission.form}", "who": "${form_submission.data.email}", "kind": "${steps.judge.output.category}"}
+                },
+            },
+            {
+                "kind": "entry",
+                "op": "request_review",
+                "reason": "spam: ${form_submission.data.message}",
+                "when": [{"field": "steps.judge.output.is_spam", "op": "eq", "value": True}],
+            },
+        ],
+    )
+
+
+def test_a_workflow_on_a_submission_classifies_what_was_submitted_and_branches_on_the_answer(ws):
+    _classify_workflow(ws)
+    spam = _entry(ws, "contact-request", "Pills", status="inbox", data={"email": "x@spam.test", "message": "cheap pills"})
+    lead = _entry(ws, "contact-request", "Ada", status="inbox", data={"email": "ada@example.com", "message": "A brass plate, please"})
+    ws.ai.reply_text(json.dumps({"category": "lead", "confidence": 0.9, "is_spam": True, "sentiment": "neutral", "action_required": False}))
+    ws.ai.reply_text(json.dumps({"category": "lead", "confidence": 0.9, "is_spam": False, "sentiment": "positive", "action_required": True}))
+
+    for entry in (spam, lead):
+        assert _fire(ws, "form_submission_received", _submission_doc(entry), entity=entry.id, entity_type="entry") == 1
+
+    first, second = (json.dumps(r) for r in ws.ai.requests)
+    assert "cheap pills" in first and "A brass plate" not in first and "A brass plate" in second  # each run read its own submission
+    assert "lead, support" in first and "Contact Request" in first
+    assert _reload(ws, spam).metadata_json["seen"] == {"form": "Contact Request", "who": "x@spam.test", "kind": "lead"}
+    assert _reload(ws, spam).status == "needs_review" and _reload(ws, spam).metadata_json["review_reasons"] == ["spam: cheap pills"]
+    assert _reload(ws, lead).status == "inbox"  # the branch on is_spam held for one only
+
+
+def test_a_submission_is_the_entry_the_form_saved_or_a_legacy_row_in_this_workspace_only(ws):
+    from marvin.db.models.platform.form_submissions import FormSubmissions
+    from marvin.db.models.platform.forms import Forms
+    from marvin.services import form_submissions
+
+    entry = _entry(
+        ws, "contact-request", "Ada", status="needs_review", data={"message": "hi"},
+        metadata={"submission": {"received_at": "2026-10-01T10:00:00+00:00", "review_reasons": ["honeypot"]}},
+    )  # fmt: skip
+    assert form_submissions.load(ws.session, ws.gid, entry.id) == {
+        "id": str(entry.id), "form": "Contact Request", "form_slug": "contact-request", "data": {"message": "hi"},
+        "status": "needs_review", "submitted_at": "2026-10-01T10:00:00+00:00", "flagged": True, "review_reasons": ["honeypot"],
+    }  # fmt: skip
+    assert form_submissions.load(ws.session, uuid.uuid4(), entry.id) is None  # another workspace's, or a stranger's
+    assert form_submissions.load(ws.session, ws.gid, "not-an-id") is None
+    article = _entry(ws, "article", "Post", data={"body": "x"})
+    assert form_submissions.load(ws.session, ws.gid, article.id) is None  # an entry of a type that takes no submissions
+
+    form = Forms(session=ws.session, group_id=ws.gid, name="Old form", slug="old-form")
+    form.id = uuid.uuid4()
+    ws.session.add(form)
+    ws.session.flush()
+    legacy = FormSubmissions(session=ws.session, form_id=form.id, group_id=ws.gid, data_json={"message": "from the old table"})
+    ws.session.add(legacy)
+    ws.session.commit()
+    try:
+        found = form_submissions.load(ws.session, ws.gid, legacy.id)
+        assert (found["form"], found["data"], found["status"], found["flagged"]) == ("Old form", {"message": "from the old table"}, "received", False)
+        assert form_submissions.load(ws.session, uuid.uuid4(), legacy.id) is None
+    finally:
+        ws.session.delete(legacy)
+        ws.session.delete(form)
+        ws.session.commit()
+
+
+def test_form_submission_is_bound_for_a_submittable_entry_and_nothing_else(ws):
+    from marvin.services.automation.engine import match_context
+
+    contact = _entry(ws, "contact-request", "Ada", status="inbox", data={"message": "hi"})
+    article = _entry(ws, "article", "Post", data={"body": "x"})
+    for event_type, entry, bound in (
+        ("form_submission_received", contact, True),
+        ("entry_created", contact, True),  # any run on a form's entry reads it as a submission
+        ("entry_updated", article, False),
+    ):
+        ctx = match_context(ws.session, ws.gid, event_context(event_type, _entry_doc(entry), entity_id=entry.id, entity_type="entry"))
+        assert ("form_submission" in ctx) is bound, event_type
+        if bound:
+            assert ctx["form_submission"]["data"] == {"message": "hi"} and ctx["form_submission"]["id"] == str(contact.id)
+
+
+def test_classifying_without_a_submission_fails_the_step_plainly(ws):
+    from marvin.db.models.groups.automation_executions import AutomationActionExecutionModel
+
+    _install_workflow(ws, "no-sub", "entry_updated", [{"kind": "operation", "op": "classify-form-submission"}])
+    article = _entry(ws, "article", "Post", data={"body": "x"})
+
+    _fire(ws, "entry_updated", _entry_doc(article), entity=article.id, entity_type="entry")
+
+    (step,) = ws.session.query(AutomationActionExecutionModel).filter_by(group_id=ws.gid).all()
+    assert step.status == "failed" and "no form submission to read" in (step.error or "")
+    assert ws.ai.requests == []
+
+
+def test_a_dry_run_on_a_submission_previews_the_classification_without_asking_the_ai_and_run_two_matches(ws):
+    from marvin.services.automation.engine import dry_run_for_event
+
+    row = _install(ws, "form-submission-sorter")
+    request = _entry(ws, "contact-request", "Ada", status="inbox", data={"email": "ada@example.com", "message": "Can you engrave brass?"})
+    for n in (1, 2):  # a dry run changes nothing, so the second shows the same
+        ctx = event_context(
+            "form_submission_received", _submission_doc(request, flagged=False), entity_id=request.id, entity_type="entry", correlation_id=f"d{n}"
+        )
+        preview = dry_run_for_event(ws.session, ws.gid, row, ctx)
+        assert preview["would_fire"] and _step_errors(preview["plan"]) == [], n
+        classify, notes, *_ = preview["plan"]
+        assert (classify["resolved"]["entity_type"], classify["resolved"]["entity_id"]) == ("form_submission", str(request.id))
+        assert classify["resolved"]["category"] == "‹AI answer: category›"
+        assert notes["resolved"]["would_merge"]["classified"]["category"] == "‹AI answer: category›"
+        assert ws.ai.requests == []  # previewed, not asked
+        assert "classified" not in (_reload(ws, request).metadata_json or {})
+
+
+def test_the_guide_and_describe_event_say_what_a_run_on_a_submission_reads(ws):
+    events = authoring_guide(ws.session, ws.gid, "events")["events"]["form_submission_received"]
+    assert events["namespace"] == "form_submission" and {"data.<field>", "flagged"} <= set(events["fields"])
+    assert "classify-form-submission" in events["note"]
+    namespaces = authoring_guide(ws.session, ws.gid, "templates")["templates"]["namespaces"]
+    assert "data.<field>" in namespaces["form_submission"]
+    described = _tool(ws, "describe_event", {"event": "form_submission_received"})
+    assert described["workflowReads"]["namespace"] == "form_submission" and "review_reasons" in described["workflowReads"]["fields"]
+    assert "workflowReads" not in _tool(ws, "describe_event", {"event": "entry_published"})
+
+    ok = {"trigger": {"type": "event", "event": "form_submission_received"}, "actions": [{"kind": "operation", "op": "classify-form-submission"}]}
+    assert draft_issues(ws.session, ws.gid, ok) == []
+    wrong = {**ok, "actions": [{"kind": "operation", "op": "classify-form-submission", "entity_type": "entry"}]}
+    assert "runs on form_submission" in draft_issues(ws.session, ws.gid, wrong)[0]["message"]

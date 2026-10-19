@@ -2,7 +2,7 @@
 
 A site that needs asset roles or resources used to read every list item again through the
 single-entry endpoint: one request per entry, ~470 for one site build. With ``expand=full`` the
-collection read, the entries list and a resource's entries return each entry in the single-read
+collection read and the entries list return each entry in the single-read
 shape. These pin that an expanded item IS the single read, that a page costs a fixed number of
 queries whatever its size, that the plain response is untouched, and that expanding never shows
 more than the single read would.
@@ -41,7 +41,7 @@ from marvin.db.models.users.users import Users
 from marvin.routes.publish import publishing_controller as pub
 from marvin.schemas.publishing import PublishedEntryListItem
 
-SITE_TOKEN = {Permissions.READ_PUBLISHED_ENTRIES: True, Permissions.READ_COLLECTIONS: True, Permissions.READ_RESOURCES: True}
+SITE_TOKEN = {Permissions.READ_PUBLISHED_ENTRIES: True, Permissions.READ_COLLECTIONS: True}
 
 
 @contextmanager
@@ -272,17 +272,6 @@ def test_expanded_entries_list_items_equal_the_single_read(make_workspace, site)
         assert item == _single(client, ws, item["slug"])
 
 
-def test_expanded_resource_entries_equal_the_single_read(make_workspace, site):
-    ws = make_workspace(2)
-    client = site(ws)
-
-    body = _get(client, f"/api/publish/{ws.group.slug}/resources/waxed-canvas/entries", expand="full")
-
-    assert sorted(e["slug"] for e in body) == sorted(ws.slugs)
-    for item in body:
-        assert item == _single(client, ws, item["slug"])
-
-
 def test_expanded_item_has_what_a_list_item_lacks(make_workspace, site):
     """The point of expanding: placements with roles, resources, every public membership, embeds."""
     ws = make_workspace(1)
@@ -312,7 +301,6 @@ def test_expanded_item_has_what_a_list_item_lacks(make_workspace, site):
         ("collections/projects", {"expand": "full"}),
         ("entries", {"expand": "full", "limit": 100}),
         ("entries", {"collection": "projects", "expand": "full", "limit": 100}),
-        ("resources/waxed-canvas/entries", {"expand": "full"}),
     ],
 )
 def test_expanded_page_costs_the_same_queries_at_any_size(make_workspace, site, path, params):
@@ -354,9 +342,8 @@ def test_plain_responses_are_list_items(make_workspace, site):
 
     collection = _get(client, f"{root}/collections/projects")["entries"]
     entries = _get(client, f"{root}/entries", collection="projects")["data"]
-    by_resource = _get(client, f"{root}/resources/waxed-canvas/entries")
 
-    for items in (collection, entries, by_resource):
+    for items in (collection, entries):
         assert items
         for item in items:
             assert set(item) == LIST_ITEM_KEYS
@@ -397,10 +384,9 @@ def test_expanded_collection_serves_only_what_the_single_read_serves(make_worksp
     root = f"/api/publish/{ws.group.slug}"
 
     expanded = _get(client, f"{root}/collections/projects", expand="full")
-    by_resource = _get(client, f"{root}/resources/waxed-canvas/entries", expand="full")
     listed = _get(client, f"{root}/entries", expand="full", limit=100)
 
-    for items in (expanded["entries"], by_resource, listed["data"]):
+    for items in (expanded["entries"], listed["data"]):
         assert sorted(e["slug"] for e in items) == sorted(ws.slugs)
         for item in items:
             assert all(c["collection"]["slug"] != "hidden" for c in item["collections"])
@@ -412,7 +398,7 @@ def test_expanded_collection_serves_only_what_the_single_read_serves(make_worksp
 
 @pytest.mark.parametrize(
     ("path", "permission"),
-    [("collections/projects", Permissions.READ_COLLECTIONS), ("resources/waxed-canvas/entries", Permissions.READ_RESOURCES)],
+    [("collections/projects", Permissions.READ_COLLECTIONS)],
 )
 def test_expanding_needs_the_single_read_permission(make_workspace, site, path, permission):
     ws = make_workspace(1)
@@ -454,11 +440,9 @@ def test_collection_past_the_cap_comes_back_unexpanded(make_workspace, site, mon
     root = f"/api/publish/{ws.group.slug}"
 
     over = _get(client, f"{root}/collections/projects", expand="full")["entries"]
-    by_resource = _get(client, f"{root}/resources/waxed-canvas/entries", expand="full")
 
-    for items in (over, by_resource):
-        assert len(items) == 3
-        assert all("assetSlugs" in item and "assets" not in item for item in items)
+    assert len(over) == 3
+    assert all("assetSlugs" in item and "assets" not in item for item in over)
 
 
 def test_expanded_entries_page_keeps_the_page_size_cap(make_workspace, site):

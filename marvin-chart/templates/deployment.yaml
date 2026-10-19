@@ -8,7 +8,7 @@ metadata:
 spec:
   replicas: {{ .Values.replicaCount }}
   strategy:
-    {{- toYaml .Values.strategy | nindent 4 }}
+    {{- include "marvin.apiStrategy" . | nindent 4 }}
   selector:
     matchLabels:
       {{- include "marvin.selectorLabels" . | nindent 6 }}
@@ -109,11 +109,6 @@ spec:
             configMapKeyRef:
               name: {{ include "marvin.fullname" . }}
               key: apiPort
-        - name: API_HOST
-          valueFrom:
-            configMapKeyRef:
-              name: {{ include "marvin.fullname" . }}
-              key: apiHost
         - name: SCHEDULER_INTERVAL_SECONDS
           valueFrom:
             configMapKeyRef:
@@ -132,6 +127,12 @@ spec:
             configMapKeyRef:
               name: {{ include "marvin.fullname" . }}
               key: publicApiUrl
+        # The same address for the backend: the remote MCP server's OAuth issuer (empty = remote MCP off).
+        - name: PUBLIC_API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "marvin.fullname" . }}
+              key: publicApiUrl
         # Allowed browser origins for the API in production (split UI/API deploys). Empty =
         # no CORS middleware (same-origin/combined). See config.corsOrigins / route.ui.host.
         - name: CORS_ORIGINS
@@ -145,14 +146,6 @@ spec:
             configMapKeyRef:
               name: {{ include "marvin.fullname" . }}
               key: environmentLabel
-        {{- end }}
-        {{- if .Values.config.platformWorkspaceName }}
-        # Name of the platform (admin's) workspace on a fresh install only. See config.platformWorkspaceName.
-        - name: DEFAULT_GROUP
-          valueFrom:
-            configMapKeyRef:
-              name: {{ include "marvin.fullname" . }}
-              key: platformWorkspaceName
         {{- end }}
         # Secrets from Secret
         - name: SMTP_HOST

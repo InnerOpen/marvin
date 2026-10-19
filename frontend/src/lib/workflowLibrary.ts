@@ -11,7 +11,7 @@ export interface RecipeVariable {
   example?: unknown;
 }
 
-export interface RecipeUse {
+interface RecipeUse {
   id: string;
   name: string;
   slug: string;
@@ -19,7 +19,7 @@ export interface RecipeUse {
   outdated?: boolean;
 }
 
-export interface RecipeSource {
+interface RecipeSource {
   provider: string;
   name: string;
   package?: string | null;
@@ -133,7 +133,7 @@ const chosenType = (variable: RecipeVariable, recipe: Recipe, refs: LibraryRefs,
 };
 
 /** The dates every entry has, whatever its type's fields (`${entry.<value>}`). */
-export const ENTRY_DATES: Choice[] = [
+const ENTRY_DATES: Choice[] = [
   { value: "publish_at", label: "Scheduled publish date (every entry)" },
   { value: "expire_at", label: "Expiry date (every entry)" },
   { value: "published_at", label: "Published date (every entry)" },
@@ -167,7 +167,10 @@ export function choicesFor(variable: RecipeVariable, recipe: Recipe, refs: Libra
     }
     case "entry_date": {
       // The type's own date fields first (`data.<key>`), then the dates every entry has — so there's always one.
-      const own = (chosenType(variable, recipe, refs, values)?.dateFields ?? []).map((key) => ({ value: `data.${key}`, label: key }));
+      const own = (chosenType(variable, recipe, refs, values)?.dateFields ?? []).map((key) => ({
+        value: `data.${key}`,
+        label: key,
+      }));
       return select([...own, ...ENTRY_DATES], { text: "" });
     }
     case "integration_slug": {

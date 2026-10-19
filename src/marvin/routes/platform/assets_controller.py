@@ -10,6 +10,7 @@ from marvin.db.models.users.roles import WorkspaceRole
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import require_workspace_editor, require_workspace_role
 from marvin.schemas.platform import AssetRead, AssetUpdate, AssetUploadRequest
+from marvin.schemas.platform.assets import TypeCount
 from marvin.services import trash
 from marvin.services.assets import scope
 from marvin.services.assets.asset_storage_service import AssetRejected, AssetStorageService
@@ -17,7 +18,7 @@ from marvin.services.assets.scope import ASK, LIBRARY, SCOPES, upload_scope
 from marvin.services.event_bus_service.event_types import EventAssetData, EventTypes
 from marvin.services.storage import StorageConfigError
 from marvin.services.storage.keys import content_disposition
-from marvin.services.storage.provider_factory import get_storage_provider, provider_for, public_url_for
+from marvin.services.storage.provider_factory import provider_for, public_url_for
 
 router = APIRouter(prefix="/assets")
 
@@ -68,6 +69,7 @@ class AssetsController(BaseUserController):
         q: str | None = Query(None, description="Name, slug or filename contains"),
         asset_type: list[str] = Query(default_factory=list, description="image, svg, document, video, audio, archive, other"),
         origin: list[str] = Query(default_factory=list, description="upload, derived (made from another asset), generated"),
+        decision: str | None = Query(None, description="what an approval that showed the picture decided: approved, denied, expired, stale, or none"),
         tag: list[str] = Query(default_factory=list, description="Carrying any of these tags (slug or name)"),
         collection: str | None = Query(None, description="In this collection (slug or name)"),
         unattached: bool | None = Query(None, description="true: on no entry; false: on at least one"),
@@ -86,6 +88,7 @@ class AssetsController(BaseUserController):
             "text": q,
             "asset_types": asset_type,
             "origins": origin,
+            "decision": decision,
             "tags": tag,
             "collection": collection,
             "unattached": unattached,
@@ -142,8 +145,7 @@ class AssetsController(BaseUserController):
         )
 
         # Get storage provider and create service
-        storage_provider = get_storage_provider()
-        asset_service = AssetStorageService(self.repos, storage_provider)
+        asset_service = AssetStorageService.for_workspace(self.repos)
 
         # Upload through service
         try:
@@ -176,6 +178,22 @@ class AssetsController(BaseUserController):
         )
 
         return asset
+
+    @router.get("/types", response_model=list[TypeCount], summary="Asset types in use")
+    def asset_types(self) -> list[TypeCount]:
+        """Each asset type in the library and how many assets it has (most first) — never the Trash or Ask files."""
+        from sqlalchemy import func
+
+        from marvin.db.models.platform.assets import Assets
+
+        rows = (
+            self.session.query(Assets.asset_type, func.count(Assets.id))
+            .filter(Assets.group_id == self.group_id, Assets.trashed_at.is_(None), Assets.scope == LIBRARY)
+            .group_by(Assets.asset_type)
+            .order_by(func.count(Assets.id).desc(), Assets.asset_type)
+            .all()
+        )
+        return [TypeCount(type=kind, count=n) for kind, n in rows]
 
     @router.get("/{item_id}", response_model=AssetRead, summary="Get Asset")
     def get_asset(self, item_id: UUID4) -> AssetRead:

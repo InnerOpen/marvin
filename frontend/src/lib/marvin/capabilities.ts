@@ -17,6 +17,7 @@ import {
   getThread,
   NEW_THREAD,
   type PendingCall,
+  type Referral,
   type RunProgress,
   resumeThread,
 } from "@/lib/api/aiAgents";
@@ -26,6 +27,7 @@ import { listAgentTools } from "@/lib/api/aiTools";
 import { type ApprovalCard, approvalCardHtml, type Decisions } from "@/lib/approvals";
 import { ATTACHMENTS_KEY, attachmentIds, loadAttachments } from "@/lib/marvin/attachments";
 import { getActiveContext } from "@/lib/marvin/context";
+import { takeGreeting } from "@/lib/marvin/greeting";
 import {
   askThreadHref,
   clearPending,
@@ -42,6 +44,7 @@ import {
   scoped,
   threadFor,
 } from "@/lib/marvin/pending";
+import { referralsHtml } from "@/lib/marvin/referrals";
 import { findTone } from "@/lib/tones";
 
 export interface MarvinResult {
@@ -213,9 +216,12 @@ async function runBubbleAgent(
   savePending(run);
   const stopLearning = learnWhileInFlight(run, pendingDeps(run));
   const attachments = attachmentIds(loadAttachments(sessionStorage, scoped(ATTACHMENTS_KEY), slug));
+  // The line the bubble greeted with, on the first message of a new conversation (@/lib/marvin/greeting).
+  const greeting = takeGreeting(slug, Boolean(run.threadId));
   const ref = {
     threadId: run.threadId ?? NEW_THREAD,
     clientRunId: run.clientRunId,
+    ...(greeting ? { greeting } : {}),
     ...(attachments.length ? { attachments } : {}),
   };
   let res: any;
@@ -266,7 +272,7 @@ function runResult(res: AgentRunResult | undefined, slug: string): MarvinResult 
   if (res?.stoppedReason === "awaiting_approval" && res.threadId)
     return parkedResult(res.threadId, slug, res.pending ?? []);
   return {
-    html: agentReplyHtml(res?.answer ?? "(no answer — the void stares back)", res?.steps ?? []),
+    html: agentReplyHtml(res?.answer ?? "(no answer — the void stares back)", res?.steps ?? [], res?.referrals ?? []),
     executionId: res?.executionId,
   };
 }
@@ -376,7 +382,10 @@ export async function resumePendingRun(run: PendingRun): Promise<MarvinResult | 
   if (outcome.threadId) rememberThread(run.agent, outcome.threadId);
   if (outcome.kind === "reply") {
     const m = outcome.message;
-    return { html: agentReplyHtml(m.content, m.stepsJson ?? []), executionId: m.executionId ?? undefined };
+    return {
+      html: agentReplyHtml(m.content, m.stepsJson ?? [], (m as any).metaJson?.referrals ?? []),
+      executionId: m.executionId ?? undefined,
+    };
   }
   if (outcome.kind === "parked") return parkedResult(outcome.threadId, run.agent, outcome.pending);
   const where = `<a href="${esc(askThreadHref(outcome.threadId))}">${outcome.threadId ? "the conversation on the Ask page" : "the Ask page"}</a>`;
@@ -387,8 +396,8 @@ export async function resumePendingRun(run: PendingRun): Promise<MarvinResult | 
   };
 }
 
-/** An agent answer as bubble HTML: the answer, image thumbnails, drafts it composed, tools it used. */
-function agentReplyHtml(answer: string, steps: any[]): string {
+/** An agent answer as bubble HTML: the answer, image thumbnails, drafts it composed, referrals, tools it used. */
+function agentReplyHtml(answer: string, steps: any[], referrals: Referral[] = []): string {
   let html = `<div class="mv-answer">${renderMarkdown(answer)}</div>`;
 
   // Deterministic thumbnail strip from the tool results' image assets (real urls, not guessed).
@@ -397,7 +406,7 @@ function agentReplyHtml(answer: string, steps: any[]): string {
   // Surface any drafts the agent composed as clickable links.
   const drafts: string[] = [];
   for (const s of steps) {
-    if (s.tool !== "compose_entry") continue;
+    if (s.tool !== "compose_entry" && s.tool !== "create_draft") continue;
     try {
       const r = typeof s.result === "string" ? JSON.parse(s.result) : s.result;
       if (r?.editUrl) drafts.push(`<a href="${esc(r.editUrl)}">${esc(r.title || "New draft")}</a>`);
@@ -408,6 +417,8 @@ function agentReplyHtml(answer: string, steps: any[]): string {
   if (drafts.length) {
     html += `<div class="mv-sources"><span>Drafts:</span> ${drafts.join(" · ")}</div>`;
   }
+
+  html += referralsHtml(referrals);
 
   // Show which tools were used, as a subtle trace of the agent's work.
   if (steps.length) {
@@ -620,7 +631,12 @@ const tone: Capability = {
       const rows = state.tones
         .filter((t) => !t.hidden)
         .map((t) => {
-          const mark = t.slug === current ? " <strong>(active)</strong>" : t.slug === state.defaultTone && !current ? " <strong>(default)</strong>" : "";
+          const mark =
+            t.slug === current
+              ? " <strong>(active)</strong>"
+              : t.slug === state.defaultTone && !current
+                ? " <strong>(default)</strong>"
+                : "";
           const desc = t.description ? `<span class="mv-muted"> — ${esc(t.description)}</span>` : "";
           return `<li><code>${esc(t.slug)}</code>${mark} ${esc(t.name)}${desc}</li>`;
         })
@@ -631,7 +647,9 @@ const tone: Capability = {
     }
     const hit = findTone(state.tones, ref);
     if (!hit) {
-      return { html: `<div class="mv-answer">No tone called <code>${esc(ref)}</code>. <code>/tone</code> lists them.</div>` };
+      return {
+        html: `<div class="mv-answer">No tone called <code>${esc(ref)}</code>. <code>/tone</code> lists them.</div>`,
+      };
     }
     setSessionTone({ slug: hit.slug, name: hit.name });
     return {
@@ -641,12 +659,7 @@ const tone: Capability = {
 };
 
 // ── Registry ─────────────────────────────────────────────────────────────────
-export const CAPABILITIES: Capability[] = [agent, ask, chat, tools, agents, use, tone];
-
-/** Register a new skill at runtime (e.g. from a plugin bundle). */
-export function registerCapability(cap: Capability): void {
-  CAPABILITIES.push(cap);
-}
+const CAPABILITIES: Capability[] = [agent, ask, chat, tools, agents, use, tone];
 
 /**
  * Route raw input to a capability.

@@ -3,7 +3,7 @@
 The job runs beside the live backend and must not build Marvin's settings or open the database through
 SQLAlchemy (see ``engine``), so this is one plain DB-API ``INSERT`` into the job's own database: Postgres
 through ``psycopg2`` with the POSTGRES_* connection the job already has for ``pg_dump``, or SQLite at
-``BACKUP_DATA_DIR/marvin.db`` (the data volume the job mounts; WAL lets it write while the backend runs).
+``DB_SQLITE_PATH`` (default ``BACKUP_DATA_DIR/marvin.db``; the data volume the job mounts; WAL lets it write while the backend runs).
 The backend reads the rows for Admin → Backup health, sends ``backup_completed`` / ``backup_failed`` from
 them, and notices a target that stops writing them (``services/backup_health``).
 
@@ -27,10 +27,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from marvin.core.settings.db_providers import resolve_engine
+
 log = logging.getLogger("marvin.backup")
 
 TABLE = "backup_runs"
-DB_NAME = "marvin.db"
 CONNECT_TIMEOUT = 10  # seconds
 SQLITE_BUSY_TIMEOUT = 30  # seconds: the backend may hold the write lock for a moment
 
@@ -220,21 +221,20 @@ def _write_postgres(pg_env: Mapping[str, str], values: tuple[Any, ...]) -> None:
 
 def record_run(record: RunRecord, env: Mapping[str, str] | None = None, now: datetime | None = None) -> bool:
     """Insert ``record`` into ``backup_runs``. True when written; False (logged, never raised) otherwise."""
-    from .engine import pg_env_from
+    from .engine import pg_env_from, sqlite_db_file
 
     env = dict(os.environ if env is None else env)
-    engine = (env.get("BACKUP_DB_ENGINE") or env.get("DB_ENGINE") or "sqlite").lower()
     record.host = record.host or env.get("HOSTNAME") or socket.gethostname()
     now = now or datetime.now(UTC)
     try:
+        engine = (env.get("BACKUP_DB_ENGINE") or resolve_engine(env)).lower()
         if engine == "postgres":
             pg_env = pg_env_from(env)
             if not all(pg_env.get(k) for k in ("PGHOST", "PGUSER", "PGDATABASE")):
                 raise RuntimeError("POSTGRES_SERVER/POSTGRES_USER/POSTGRES_DB not set")
             _write_postgres(pg_env, _values(record, "postgres", now))
         elif engine == "sqlite":
-            data_dir = Path(env.get("BACKUP_DATA_DIR") or "/app/data")
-            _write_sqlite(data_dir / DB_NAME, _values(record, "sqlite", now))
+            _write_sqlite(sqlite_db_file(env), _values(record, "sqlite", now))
         else:
             raise RuntimeError(f"unknown DB engine {engine!r}")
     except Exception as exc:

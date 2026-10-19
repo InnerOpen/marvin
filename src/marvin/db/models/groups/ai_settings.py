@@ -65,11 +65,15 @@ class WorkspaceAISettingsModel(SqlAlchemyBase, BaseMixins):
     # emotes}, each a list of strings — generated from the persona or hand-edited; see
     # services/ai/bubble_lines.py. Unset → the bubble's built-in lines.
     bubble_lines: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
-    # "generated" | "edited": a persona change regenerates generated lines, never edited ones.
+    # "generated" | "character" (copied from a library pack) | "edited": a persona change regenerates
+    # generated and character lines, never edited ones.
     bubble_lines_source: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     bubble_lines_updated_at: Mapped[datetime | None] = mapped_column(NaiveDateTime, nullable=True)
     # Why the last generation failed (the previous lines were kept); cleared by the next success.
     bubble_lines_warning: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    # The Social Battery settings for the workspace's own assistant (schemas/group/ai_settings.py:
+    # MoodSettings). Stored only: nothing reads them until the meter is built.
+    mood: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     # Default tone for agent runs — a SEPARATE axis from persona (axis B). Persona is how the
     # assistant addresses you; the tone is how work product reads. A tone slug: a built-in ("auto" |
     # "professional" | "playful") or one of `tones` below. A per-call tone overrides it. See

@@ -349,6 +349,8 @@ const scheduleConfig = task ? ((task as any).scheduleConfig ?? (task as any).sch
 
   .layout { display: grid; gap: 32px; max-width: 900px; }
   .form-container { min-width: 0; }
+  /* A grid item's floor is its content's width: a field's own width would push the form past a phone. */
+  .layout > *, .form > *, .form-section > * { min-width: 0; }
   .form { display: grid; gap: 24px; }
 
   .form-section {

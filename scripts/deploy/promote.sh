@@ -13,7 +13,8 @@
 # --dry-run renders the chart with the cluster's capabilities and server-side dry-run applies every object, which
 # checks the chart, the values and the caller's RBAC for each object without changing anything.
 #
-# Used by .github/workflows/promote.yml and, through promote-iwobble.sh, by hand.
+# Used by .github/workflows/promote.yml and by hand. By hand, `git fetch origin` first so the commit is present;
+# production is `scripts/deploy/promote.sh <commit> marvin values-iwobble.yaml`.
 # Needs: git with the commit present, curl, helm, kubectl (or KUBECTL=oc) pointed at the cluster.
 set -euo pipefail
 

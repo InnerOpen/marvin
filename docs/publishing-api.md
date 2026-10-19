@@ -102,7 +102,7 @@ Returns all published entries, optionally filtered by collection.
         {
           "id": "uuid",
           "slug": "napkin-flat-lay",
-          "url": "/api/publish/group/assets/napkin-flat-lay",
+          "publicUrl": "https://cdn.example.com/napkin-flat-lay.jpg",
           "alt_text": "Folded napkins on a table",
           "role": "featured",
           "usage": "detail",
@@ -159,7 +159,7 @@ resolved under `embeds` (see [Media embeds](#media-embeds)); list items carry th
       "id": "uuid",
       "slug": "napkin-flat-lay",
       "name": "Flat lay of napkins",
-      "url": "/api/publish/group/assets/napkin-flat-lay",
+      "publicUrl": "https://cdn.example.com/napkin-flat-lay.jpg",
       "alt_text": "Folded napkins on a table",
       "mime_type": "image/jpeg",
       "role": "featured",
@@ -222,59 +222,35 @@ Returns all entry types in the workspace with their rendering and capability met
 
 Used by the SDK `renderers.list()` method and the CLI `publish renderers` command. The `is_rendered` flag allows frontends to filter to only entry types that have a corresponding renderer component.
 
-### List Assets
+### Assets and resources
 
-```http
-GET /api/publish/{group_slug}/assets?limit=20&mime_type=image/jpeg
-Authorization: Bearer <site_client_token>
-```
+There are no asset or resource endpoints (`/assets`, `/assets/{slug}`, `/resources`, `/resources/{slug}`
+were removed). An entry carries what it uses: `GET /entries/{slug}` returns `assets[]` (each with
+`publicUrl`, dimensions, alt text) and `resources[]` in full, and a list item returns `assetSlugs`,
+`resourceSlugs` and a resolved `featuredAsset`. `GET /resources/{slug}/entries` was removed as well:
+the publishing API serves entries and the site, nothing else, and no `read:resources` permission remains.
 
-Returns all published assets available in the workspace.
+The site settings (`GET /site`) name images by URL too: `logo`, `favicon` and `seo.image` are public
+URLs, or `null` when the asset is in the Trash or gone, never an asset slug. `metadataJson.brand` also
+holds colours and text, so only a value that names an asset changes: a library asset (by slug or id)
+becomes its public URL, an asset in the Trash (or a URL to its file) becomes `null`, and anything else
+(`"#aa3322"`, `"Tagline text"`, a URL) passes through as stored.
 
-**Query Parameters:**
-- `page`: Page number (default: 1)
-- `limit`: Assets per page (default: 20, max: 100)
-- `mime_type`: Filter by MIME type (optional)
-
-**Response:**
+**Asset and resource fields in `data`.** An entry type's `asset`, `asset-list`, `resource` and
+`resource-list` fields store ids, which a site can no longer look up. The API serves them resolved, in
+`data` of the single read, list items and `expand=full` alike: an asset as the same object
+`assets[].asset` holds (`slug`, `publicUrl`, `mimeType`, dimensions, `altText`, `tags`, `metadataJson`),
+a resource as the same object `resources[].resource` holds. A list field keeps its order. An asset or
+resource in the Trash, missing, or an Ask file is dropped from a list and is `null` in a single field.
+A value that isn't an id (an object, a URL) passes through. The assets and resources a page names are loaded
+together, so the query count doesn't grow with the page.
 
 ```json
-{
-  "data": [
-    {
-      "id": "uuid",
-      "slug": "napkin-flat-lay",
-      "name": "Flat lay of napkins",
-      "url": "/api/publish/group/assets/napkin-flat-lay",
-      "alt_text": "Folded napkins on a table",
-      "mime_type": "image/jpeg",
-      "width": 1200,
-      "height": 800,
-      "metadata": {
-        "tone": "linen"
-      }
-    }
-  ],
-  "meta": {
-    "total": 45,
-    "page": 1,
-    "page_size": 20
-  }
+"data": {
+  "gallery": [{"slug": "tote-hero", "publicUrl": "…", "mimeType": "image/jpeg", "tags": []}],
+  "relatedResources": [{"slug": "waxed-canvas", "name": "Waxed Canvas", "resourceType": "material"}]
 }
 ```
-
-### Get Asset
-
-```http
-GET /api/publish/{group_slug}/assets/{asset_slug}
-Authorization: Bearer <site_client_token>
-```
-
-Downloads or redirects to the asset file.
-
-May return:
-- `200 OK` with file content and appropriate `Content-Type` header
-- `302 Found` redirect to cloud storage (S3, etc)
 
 ## Expanded lists (`expand=full`)
 
@@ -286,7 +262,6 @@ returns the full entries in the list response instead.
 ```http
 GET /api/publish/{group_slug}/collections/{collection_slug}?expand=full
 GET /api/publish/{group_slug}/entries?collection=projects&expand=full&limit=100
-GET /api/publish/{group_slug}/resources/{resource_slug}/entries?expand=full
 Authorization: Bearer <site_client_token>
 ```
 
@@ -318,8 +293,8 @@ Each entry is the same JSON [Get Entry](#get-entry) returns for it (`PublishedEn
 **Rules:**
 - Without `expand` every response is exactly as before. Any value other than `full` is a 422.
 - Filters and pagination are unchanged. `/entries` keeps its page cap (`limit` at most
-  `PUBLISHING_MAX_PAGE_SIZE`, 100). The unpaginated endpoints (a collection, a resource's entries)
-  expand up to `PUBLISHING_MAX_EXPANDED_ENTRIES` entries (default 500). Past that they return plain
+  `PUBLISHING_MAX_PAGE_SIZE`, 100). The unpaginated endpoint (a collection)
+  expands up to `PUBLISHING_MAX_EXPANDED_ENTRIES` entries (default 500). Past that it returns plain
   list items, as a server without `expand` does.
 - Visibility and permissions are the single read's: only published entries of publishable types
   (a `read:all_entries` token's drafts are left out of an expanded collection), only public

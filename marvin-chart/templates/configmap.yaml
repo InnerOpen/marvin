@@ -8,6 +8,11 @@
        where the browser calls the API cross-origin). An explicit config.corsOrigins wins;
        otherwise, if the UI route has an explicit host, derive https://<that host>. Empty
        for same-origin/combined deploys, which need no CORS. */ -}}
+{{- /* The UI origin users open (emailed links, push, agent answers): config.publicUiUrl, else the UI route host. */ -}}
+{{- $publicUiUrl := .Values.config.publicUiUrl -}}
+{{- if and (not $publicUiUrl) .Values.route.enabled .Values.route.ui.enabled .Values.route.ui.host -}}
+{{- $publicUiUrl = printf "https://%s" .Values.route.ui.host -}}
+{{- end -}}
 {{- $corsOrigins := .Values.config.corsOrigins -}}
 {{- if and (not $corsOrigins) .Values.route.enabled .Values.route.ui.enabled .Values.route.ui.host -}}
 {{- $corsOrigins = printf "https://%s" .Values.route.ui.host -}}
@@ -25,14 +30,13 @@ data:
   dbEngine: {{ include "marvin.dbEngine" . | quote }}
   dataDir: {{ .Values.config.dataDir | quote }}
   apiPort: {{ .Values.config.apiPort | quote }}
-  apiHost: {{ .Values.config.apiHost | quote }}
   publicApiUrl: {{ $publicApiUrl | default "" | quote }}
   corsOrigins: {{ $corsOrigins | default "" | quote }}
+  {{- with $publicUiUrl }}
+  publicUiUrl: {{ . | quote }}
+  {{- end }}
   {{- with .Values.config.environmentLabel }}
   environmentLabel: {{ . | quote }}
-  {{- end }}
-  {{- with .Values.config.platformWorkspaceName }}
-  platformWorkspaceName: {{ . | quote }}
   {{- end }}
   frontendPort: {{ .Values.config.frontendPort | quote }}
   schedulerInterval: {{ .Values.config.schedulerInterval | quote }}

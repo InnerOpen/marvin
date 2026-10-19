@@ -55,6 +55,12 @@ export async function fetchApi<T>(path: string, init: RequestInit = {}, authToke
   const url = getApiUrl(path);
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
+  // A string body is JSON unless the caller says otherwise: without the content type FastAPI can't read it and
+  // answers 422 ("Input should be a valid dictionary"), which is how approving a workflow from the dashboard
+  // failed (2026-10-14) — the callers all JSON.stringify and most never set the header.
+  if (typeof init.body === "string" && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
 
   // Use authToken if provided (SSR context), otherwise fall back to the site-client token.
   // getSiteClientToken() reads process.env, so it only yields a token server-side — in the

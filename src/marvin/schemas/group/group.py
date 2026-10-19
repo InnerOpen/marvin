@@ -82,8 +82,6 @@ class GroupRead(GroupUpdate):  # Extends GroupUpdate, which might be unusual if 
     """The unique identifier of the group."""
     slug: str | None = None
     """The URL-friendly slug of the group."""
-    is_platform: bool = False
-    """True on the platform (admin's) workspace — platform alerts and shared services run from it."""
     users: list[UserSummary] | None = None
     """
     DEPRECATED: Legacy users with group_id = this workspace.
@@ -113,40 +111,6 @@ class GroupRead(GroupUpdate):  # Extends GroupUpdate, which might be unusual if 
             joinedload(Groups.preferences),  # Eager load associated preferences
             selectinload(Groups.users).joinedload(Users.group),  # Eager load users (legacy), and their group (back-ref)
             selectinload(Groups.users).joinedload(Users.tokens),  # Eager load users (legacy), and their API tokens
-        ]
-
-
-class GroupSummary(GroupCreate):  # Extends GroupCreate, which only has 'name'.
-    """
-    Schema for a summary representation of a group.
-    Provides key identifying information like ID, name, slug, and preferences.
-    """
-
-    id: UUID4
-    """The unique identifier of the group."""
-    name: str  # Inherited from GroupCreate, but explicitly listed for clarity
-    """The name of the group."""
-    slug: str
-    """The URL-friendly slug of the group."""
-    is_platform: bool = False
-    """True on the platform (admin's) workspace."""
-    preferences: GroupPreferencesRead | None = None
-    """Optional group preference settings."""
-
-    # model_config from_attributes=True is inherited from GroupCreate via _MarvinModel
-
-    @classmethod
-    def loader_options(cls) -> list[LoaderOption]:
-        """
-        Provides SQLAlchemy loader options for optimizing queries for `GroupSummary`.
-
-        Configures eager loading for the `preferences` relationship.
-
-        Returns:
-            list[LoaderOption]: A list of SQLAlchemy loader options.
-        """
-        return [
-            joinedload(Groups.preferences),  # Eager load associated preferences
         ]
 
 

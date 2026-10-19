@@ -43,6 +43,17 @@ const siteMeta = (preferences?.siteMetadataJson || {}) as Record<string, any>;
 const seo = (siteMeta.seo || {}) as Record<string, any>;
 const seoKeywords = Array.isArray(seo.keywords) ? seo.keywords.join(", ") : (seo.keywords ?? "");
 
+// Privacy & cookies live under site_metadata_json.privacy (disclosure only). The repeatable rows are drawn by the
+// inline script from these JSON blobs, so the row markup exists once (in the <template>s below).
+const privacy = (siteMeta.privacy || {}) as Record<string, any>;
+const privacyController = (privacy.controller || {}) as Record<string, any>;
+const privacyConsent = (privacy.consent || {}) as Record<string, any>;
+const privacyProcessors = Array.isArray(privacy.processors) ? privacy.processors : [];
+const privacyCookies = Array.isArray(privacy.cookies) ? privacy.cookies : [];
+const COOKIE_CATEGORIES = ["necessary", "preferences", "analytics", "marketing"];
+// Derived, never stored: any non-"necessary" cookie needs prior consent (same rule as the API's bannerRequired).
+const bannerRequired = privacyCookies.some((c: Record<string, any>) => c?.category && c.category !== "necessary");
+
 // Media embeds live under site_metadata_json.embeds = {mode, consentText}; click-to-load is the default.
 const embeds = (siteMeta.embeds || {}) as Record<string, any>;
 const embedsMode = embeds.mode === "direct" ? "direct" : "click_to_load";
@@ -53,10 +64,11 @@ try {
   console.warn("[site] Could not load media embed providers:", e);
 }
 
-// The raw metadata editor owns everything EXCEPT seo and embeds (structured above) — compute its display value
+// The raw metadata editor owns everything EXCEPT seo, privacy and embeds (structured above) — compute its display value
 // here in the frontmatter, since TS generics/casts can't live inside Astro template expressions.
 const metaWithoutSeo: Record<string, any> = { ...siteMeta };
 delete metaWithoutSeo.seo;
+delete metaWithoutSeo.privacy;
 delete metaWithoutSeo.embeds;
 const siteSocial = (preferences?.siteSocialJson || null) as Record<string, any> | null;
 const metaForDisplay: Record<string, any> =
@@ -400,6 +412,94 @@ const metadataEditorValue = Object.keys(metaForDisplay).length > 0 ? JSON.string
         </div>
       </section>
 
+      <section class="form-section" id="privacy">
+        <h3>Privacy &amp; Cookies</h3>
+        <p class="section-description">The facts your site's privacy and cookie policy pages need, served to your site as <code>site.privacy</code>. Disclosure only: Marvin does not show a consent banner. Leave this section empty to publish nothing.</p>
+        <div class="form-grid">
+          <p class="subgroup-label">Controller</p>
+          <label>
+            <span>Legal name</span>
+            <input type="text" data-p="controller.legalName" value={privacyController.legalName || ""} />
+          </label>
+          <label>
+            <span>Contact email</span>
+            <input type="email" data-p="controller.contactEmail" value={privacyController.contactEmail || ""} placeholder="privacy@example.com" />
+          </label>
+          <label class="span-2">
+            <span>Address</span>
+            <input type="text" data-p="controller.address" value={privacyController.address || ""} />
+          </label>
+          <label>
+            <span>EU representative</span>
+            <input type="text" data-p="controller.euRepresentative" value={privacyController.euRepresentative || ""} />
+            <small>Only if you are outside the EU but serve EU visitors.</small>
+          </label>
+          <label>
+            <span>Data protection officer email</span>
+            <input type="email" data-p="controller.dpoEmail" value={privacyController.dpoEmail || ""} />
+          </label>
+
+          <p class="subgroup-label">Processors</p>
+          <div class="span-2 repeat-list" id="privacy-processors" data-initial={JSON.stringify(privacyProcessors)}></div>
+          <div class="span-2"><button type="button" class="button secondary" data-add="processors">Add processor</button></div>
+
+          <p class="subgroup-label">Cookies</p>
+          <div class="span-2 repeat-list" id="privacy-cookies" data-initial={JSON.stringify(privacyCookies)}></div>
+          <div class="span-2"><button type="button" class="button secondary" data-add="cookies">Add cookie</button></div>
+          <p class="span-2 banner-required">
+            <span>Consent banner required:</span> <strong id="privacy-banner-required">{bannerRequired ? "yes" : "no"}</strong>
+            <small>Derived from the cookies above: yes when any cookie is not "necessary".</small>
+          </p>
+
+          <p class="subgroup-label">Policy pages</p>
+          <label>
+            <span>Privacy policy entry slug</span>
+            <input type="text" data-p="consent.policyEntrySlug" value={privacyConsent.policyEntrySlug || ""} />
+          </label>
+          <label>
+            <span>Cookie policy entry slug</span>
+            <input type="text" data-p="consent.cookiePolicyEntrySlug" value={privacyConsent.cookiePolicyEntrySlug || ""} />
+          </label>
+          <label>
+            <span>Last reviewed</span>
+            <input type="date" data-p="consent.lastReviewed" value={privacyConsent.lastReviewed || ""} />
+          </label>
+        </div>
+
+        <template id="tpl-processors">
+          <div class="repeat-row" data-row>
+            <label><span>Name</span><input type="text" data-f="name" /></label>
+            <label><span>Purpose</span><input type="text" data-f="purpose" /></label>
+            <label class="span-2"><span>Data categories</span><input type="text" data-f="dataCategories" placeholder="email, IP address" /><small>Comma-separated.</small></label>
+            <label><span>Region</span><input type="text" data-f="region" placeholder="EU, Germany, US" /></label>
+            <label>
+              <span>Transfer basis</span>
+              <input type="text" data-f="transferBasis" placeholder="SCCs, adequacy decision" />
+              <small>Required when the region is outside the EU/EEA.</small>
+            </label>
+            <label><span>DPA URL</span><input type="url" data-f="dpaUrl" /></label>
+            <label><span>Privacy policy URL</span><input type="url" data-f="privacyUrl" /></label>
+            <div class="span-2"><button type="button" class="button secondary" data-remove>Remove processor</button></div>
+          </div>
+        </template>
+
+        <template id="tpl-cookies">
+          <div class="repeat-row" data-row>
+            <label><span>Name</span><input type="text" data-f="name" /></label>
+            <label><span>Provider</span><input type="text" data-f="provider" /></label>
+            <label class="span-2"><span>Purpose</span><input type="text" data-f="purpose" /></label>
+            <label><span>Duration</span><input type="text" data-f="duration" placeholder="session, 1 year" /></label>
+            <label>
+              <span>Category</span>
+              <select data-f="category">
+                {COOKIE_CATEGORIES.map((c) => <option value={c}>{c}</option>)}
+              </select>
+            </label>
+            <div class="span-2"><button type="button" class="button secondary" data-remove>Remove cookie</button></div>
+          </div>
+        </template>
+      </section>
+
       <section class="form-section" id="embeds">
         <h3>Embeds &amp; Privacy</h3>
         <p class="section-description">How your site shows media players for video, music and podcast links in your content.</p>
@@ -435,7 +535,7 @@ const metadataEditorValue = Object.keys(metaForDisplay).length > 0 ? JSON.string
 
       <section class="form-section">
         <h3>Advanced Metadata</h3>
-        <p class="section-description">Custom metadata for framework-specific settings, social links, analytics, etc. SEO and embeds are managed in the sections above.</p>
+        <p class="section-description">Custom metadata for framework-specific settings, social links, analytics, etc. SEO, privacy &amp; cookies and embeds are managed in the sections above.</p>
         <div class="form-grid">
           <label class="span-2">
             <span>Custom Metadata (JSON)</span>
@@ -555,7 +655,14 @@ const metadataEditorValue = Object.keys(metaForDisplay).length > 0 ? JSON.string
         consentText: (formData.get('embedsConsentText') as string | null)?.trim() || null,
       };
 
-      // Parse the raw metadata editor (everything except seo and embeds, which the sections above own).
+      // Privacy & cookies (stored under metadata.privacy); dropped entirely when nothing is filled in.
+      const privacy = collectPrivacy(form);
+      if (privacy && (!privacy.controller.legalName || !privacy.controller.contactEmail)) {
+        alert('Privacy & cookies: a legal name and contact email are required for the controller.');
+        return;
+      }
+
+      // Parse the raw metadata editor (everything except seo, privacy and embeds, which the sections above own).
       let metadataObj: Record<string, any> = {};
       const rawMeta = formData.get('siteMetadataJson') as string | null;
       if (rawMeta) {
@@ -580,6 +687,11 @@ const metadataEditorValue = Object.keys(metaForDisplay).length > 0 ? JSON.string
       } else {
         delete metadataObj.seo;
       }
+      if (privacy) {
+        metadataObj.privacy = privacy;
+      } else {
+        delete metadataObj.privacy;
+      }
       metadataObj.embeds = embeds;
       data['siteMetadataJson'] = Object.keys(metadataObj).length > 0 ? metadataObj : null;
 
@@ -602,6 +714,91 @@ const metadataEditorValue = Object.keys(metaForDisplay).length > 0 ? JSON.string
       }
     });
   }
+
+  // ---- Privacy & cookies: repeatable rows (plain DOM; the row markup lives in the <template>s) ----
+  type Row = Record<string, any>;
+
+  function rowFields(row: Element): (HTMLInputElement | HTMLSelectElement)[] {
+    return Array.from(row.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-f]'));
+  }
+
+  function addRow(kind: string, values: Row = {}) {
+    const tpl = document.getElementById('tpl-' + kind) as HTMLTemplateElement | null;
+    const list = document.getElementById('privacy-' + kind);
+    if (!tpl || !list) return;
+    const row = (tpl.content.firstElementChild as HTMLElement).cloneNode(true) as HTMLElement;
+    for (const el of rowFields(row)) {
+      const v = values[el.dataset.f as string];
+      if (v !== undefined && v !== null) el.value = Array.isArray(v) ? v.join(', ') : String(v);
+    }
+    list.appendChild(row);
+  }
+
+  // A row counts only when a text box has something in it (a fresh cookie row already has a category).
+  function readRows(kind: string): Row[] {
+    const rows: Row[] = [];
+    document.querySelectorAll('#privacy-' + kind + ' [data-row]').forEach((row) => {
+      const out: Row = {};
+      let filled = false;
+      for (const el of rowFields(row)) {
+        const key = el.dataset.f as string;
+        const v = el.value.trim();
+        if (el instanceof HTMLInputElement && v) filled = true;
+        if (!v) continue;
+        out[key] = key === 'dataCategories' ? v.split(',').map((c) => c.trim()).filter(Boolean) : v;
+      }
+      if (filled) rows.push(out);
+    });
+    return rows;
+  }
+
+  // Same rule as the API's derived bannerRequired: any cookie that is not "necessary".
+  function refreshBanner() {
+    const out = document.getElementById('privacy-banner-required');
+    if (out) out.textContent = readRows('cookies').some((c) => c.category !== 'necessary') ? 'yes' : 'no';
+  }
+
+  function collectPrivacy(scope: HTMLFormElement) {
+    const groups: Record<string, Row> = { controller: {}, consent: {} };
+    scope.querySelectorAll<HTMLInputElement>('[data-p]').forEach((el) => {
+      const [group, key] = (el.dataset.p as string).split('.');
+      const v = el.value.trim();
+      if (v) groups[group][key] = v;
+    });
+    const processors = readRows('processors');
+    const cookies = readRows('cookies');
+    const empty =
+      Object.keys(groups.controller).length === 0 &&
+      Object.keys(groups.consent).length === 0 &&
+      processors.length === 0 &&
+      cookies.length === 0;
+    return empty ? null : { controller: groups.controller, processors, cookies, consent: groups.consent };
+  }
+
+  for (const kind of ['processors', 'cookies']) {
+    const list = document.getElementById('privacy-' + kind);
+    if (!list) continue;
+    try {
+      for (const values of JSON.parse(list.dataset.initial || '[]')) addRow(kind, values);
+    } catch {
+      /* a malformed stored block just starts with no rows */
+    }
+    list.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('[data-remove]');
+      if (btn) {
+        btn.closest('[data-row]')?.remove();
+        refreshBanner();
+      }
+    });
+    list.addEventListener('input', refreshBanner);
+  }
+  document.querySelectorAll<HTMLElement>('[data-add]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      addRow(btn.dataset.add as string);
+      refreshBanner();
+    })
+  );
+  refreshBanner();
 
   // Metadata preview update
   const metadataEditor = document.getElementById('metadata-editor') as HTMLTextAreaElement | null;
@@ -743,6 +940,33 @@ const metadataEditorValue = Object.keys(metaForDisplay).length > 0 ? JSON.string
   .form-grid small {
     font-size: 12px;
     color: var(--muted);
+  }
+
+  .repeat-list {
+    display: grid;
+    gap: 12px;
+  }
+
+  .repeat-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+
+  .repeat-row .span-2 {
+    grid-column: 1 / -1;
+  }
+
+  .banner-required {
+    margin: 0;
+    font-size: 14px;
+  }
+
+  .banner-required small {
+    display: block;
   }
 
   .embed-providers {

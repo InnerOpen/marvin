@@ -75,7 +75,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     settings = get_app_settings()
 
     to_encode = data.copy()
-    expires_delta = expires_delta or timedelta(hours=settings.TOKEN_TIME)
+    expires_delta = expires_delta or timedelta(hours=_session_hours())
 
     expire = datetime.now(UTC) + expires_delta
 
@@ -110,26 +110,6 @@ def validate_file_path(file_path: Path, allowed_base: Path) -> Path:
     return abs_path
 
 
-def create_file_token(file_path: Path, allowed_base: Path) -> str:
-    """
-    Creates a short-lived JWT access token specifically for accessing a file.
-
-    Args:
-        file_path (Path): The path to the file.
-        allowed_base (Path): The base directory that file_path must be within.
-
-    Returns:
-        str: The encoded JWT file access token.
-
-    Raises:
-        ValueError: If file_path is invalid or outside allowed_base.
-    """
-    file_path = validate_file_path(file_path, allowed_base)
-
-    token_data = {"file": str(file_path)}
-    return create_access_token(token_data, expires_delta=timedelta(minutes=30))
-
-
 def hash_password(password: str) -> str:
     """Takes in a raw password and hashes it. Used prior to saving a new password to the database."""
     return get_hasher().hash(password)
@@ -154,3 +134,10 @@ def verify_password(password: str, hashed: str) -> bool:
 def url_safe_token() -> str:
     """Generates a cryptographic token without embedded data. Used for password reset tokens and invitation tokens"""
     return secrets.token_urlsafe(24)
+
+
+def _session_hours() -> int:
+    """Sign-in session length in hours: the admin's value (Admin → Site Settings → Security), else TOKEN_TIME."""
+    from marvin.services.platform_policy import security
+
+    return security("TOKEN_TIME")

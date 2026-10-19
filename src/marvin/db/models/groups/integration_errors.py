@@ -26,7 +26,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from .. import BaseMixins, SqlAlchemyBase
 from .._model_utils.auto_init import auto_init
-from .._model_utils.datetime import DateTime
+from .._model_utils.datetime import AwareDateTime
 from .._model_utils.guid import GUID
 
 if TYPE_CHECKING:
@@ -70,9 +70,9 @@ class IntegrationRetryModel(SqlAlchemyBase, BaseMixins):
     attempt: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
     """Retries made so far (0 until the first one runs)."""
     max_attempts: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=1)
-    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
-    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(AwareDateTime, nullable=True, index=True)
+    lease_until: Mapped[datetime | None] = mapped_column(AwareDateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(AwareDateTime, nullable=True)
 
     handle: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     """The policy (Handle.to_dict()) driving this chain; its `then` applies once retries run out."""
@@ -114,16 +114,16 @@ class IntegrationAlertModel(SqlAlchemyBase, BaseMixins):
     message: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     """The latest failure's message."""
     count: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=1)
-    first_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_at: Mapped[datetime | None] = mapped_column(AwareDateTime, nullable=True)
+    last_at: Mapped[datetime | None] = mapped_column(AwareDateTime, nullable=True)
     samples: Mapped[list | None] = mapped_column(sa.JSON, nullable=True)
     """The last few failures: [{at, message, action, entry_id, automation_slug, source}]."""
-    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notified_at: Mapped[datetime | None] = mapped_column(AwareDateTime, nullable=True)
     """When integration_attention_needed last went out (the open, or the latest reminder)."""
     channels: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     """Where the alert went: {"notify": [notification channels: "email", route ids], "email": [subscription ids],
     "integration": [subscription ids]}. The bell always gets it."""
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(AwareDateTime, nullable=True)
     resolved_by: Mapped[GUID | None] = mapped_column(GUID, sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     resolution: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     """How it resolved: check | action | manual."""

@@ -1,0 +1,258 @@
+---
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { CUSTOM_EVENT_FIELD_TYPES, type CustomEvent, listCustomEvents } from "@/lib/api/customEvents";
+import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
+
+const authToken = getAuthToken(Astro.cookies);
+// Admin-only page (the API refuses members with a 403); if the role can't be read, let the API decide.
+const adminOnly = !(await canManageCurrentWorkspace(authToken!).catch(() => true));
+
+let events: CustomEvent[] = [];
+let error: string | null = null;
+try {
+  events = await listCustomEvents(authToken);
+} catch (e) {
+  console.error("[custom-events] Error loading:", e);
+  error = e instanceof Error ? e.message : String(e);
+}
+
+const listJson = JSON.stringify(events).replace(/</g, "\\u003c");
+const typesJson = JSON.stringify(CUSTOM_EVENT_FIELD_TYPES);
+---
+
+<AppLayout crumb="automation.custom-events" adminOnly={adminOnly}>
+  <div class="ce-page">
+    <script type="application/json" id="ce-list-data" is:inline set:html={listJson}></script>
+    <script type="application/json" id="ce-types-data" is:inline set:html={typesJson}></script>
+    <div class="toolbar">
+      <div>
+        <h2>Custom events</h2>
+        <p>
+          Name events of your own — “milestone reached”, “kit shipped”. A workflow sends one with an <strong>Emit event</strong> step
+          and carries the fields you list; other workflows can start on it, and webhooks, emails and integrations can subscribe to it
+          like any other event.
+        </p>
+      </div>
+      <button id="ce-new" class="button">New event</button>
+    </div>
+
+    {error && <div class="banner error">{error}</div>}
+
+    <section id="ce-form" class="form-card" hidden>
+      <h3 id="ce-form-title">New custom event</h3>
+      <label class="form-field">
+        <span class="label">Name <span class="muted">(letters, digits and underscores)</span></span>
+        <span class="name-row"><code>custom.</code><input class="input" id="ce-name" placeholder="milestone" autocomplete="off" spellcheck="false" /></span>
+      </label>
+      <label class="form-field">
+        <span class="label">Title <span class="muted">(optional — how it reads in lists)</span></span>
+        <input class="input" id="ce-title" placeholder="Milestone reached" />
+      </label>
+      <label class="form-field">
+        <span class="label">Description <span class="muted">(optional)</span></span>
+        <input class="input" id="ce-desc" placeholder="A project reached a milestone worth a badge." />
+      </label>
+      <div class="form-field">
+        <span class="label">Fields <span class="muted">(what it carries — a workflow reads <code>${"{event.payload.<field>}"}</code>)</span></span>
+        <div id="ce-fields" class="fields"></div>
+        <button id="ce-add-field" class="button ghost sm" type="button">Add a field</button>
+      </div>
+      <div class="form-actions">
+        <button id="ce-save" class="button">Save</button>
+        <button id="ce-cancel" class="button ghost" type="button">Cancel</button>
+        <span id="ce-status" class="hint"></span>
+      </div>
+    </section>
+
+    <div id="ce-list" class="ce-list"></div>
+    <div id="ce-empty" class="empty" hidden>
+      No custom events yet. Register one, then send it from a workflow's Emit event step.
+    </div>
+  </div>
+</AppLayout>
+
+<script>
+  import { deleteCustomEvent, saveCustomEvent } from "@/lib/api/customEvents";
+
+  const $ = (id: string): any => document.getElementById(id);
+  const esc = (s: unknown) =>
+    String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
+
+  let events: any[] = JSON.parse($("ce-list-data").textContent || "[]");
+  const types: string[] = JSON.parse($("ce-types-data").textContent || "[]");
+  let editing: string | null = null; // the name being changed; null: a new one
+
+  function card(e: any) {
+    const fields = e.fields.length
+      ? e.fields.map((f: any) => `<span class="chip" title="${esc(f.description || "")}">${esc(f.key)} <span class="muted">${esc(f.type)}</span></span>`).join("")
+      : `<span class="hint">No fields: the event just happens.</span>`;
+    const used = e.usedBy.length ? `<span class="hint">Used by ${e.usedBy.map((n: string) => esc(n)).join(", ")}</span>` : `<span class="hint">No workflow uses it yet.</span>`;
+    return `<div class="ce-card" data-name="${esc(e.name)}">
+      <div class="ce-head">
+        <div class="ce-title">
+          <strong>${esc(e.title || e.name)}</strong>
+          <code class="slug">${esc(e.eventType)}</code>
+          ${e.description ? `<span class="desc">${esc(e.description)}</span>` : ""}
+        </div>
+        <div class="ce-actions">
+          <a class="button ghost sm" href="/automation/events/${encodeURIComponent(e.eventType)}">Reactions</a>
+          <button class="button ghost sm" data-act="edit">Edit</button>
+          <button class="button ghost sm danger" data-act="delete">Remove</button>
+        </div>
+      </div>
+      <div class="chips">${fields}</div>
+      ${used}
+      <span class="hint error" data-status></span>
+    </div>`;
+  }
+
+  function render() {
+    $("ce-list").innerHTML = events.map(card).join("");
+    $("ce-empty").toggleAttribute("hidden", events.length > 0);
+  }
+
+  function fieldRow(f: any = { key: "", type: "string", description: "" }) {
+    const row = document.createElement("div");
+    row.className = "field-row";
+    row.innerHTML = `<input class="input f-key" placeholder="key" value="${esc(f.key)}" autocomplete="off" spellcheck="false" />
+      <select class="input f-type">${types.map((t) => `<option value="${t}" ${f.type === t ? "selected" : ""}>${t}</option>`).join("")}</select>
+      <input class="input f-desc" placeholder="What it holds (optional)" value="${esc(f.description || "")}" />
+      <button class="button ghost sm" type="button" data-remove title="Remove this field">✕</button>`;
+    return row;
+  }
+
+  function openForm(e?: any) {
+    editing = e?.name ?? null;
+    $("ce-form-title").textContent = e ? `Change ${e.eventType}` : "New custom event";
+    $("ce-name").value = e?.name ?? "";
+    $("ce-name").disabled = Boolean(e);
+    $("ce-title").value = e?.title ?? "";
+    $("ce-desc").value = e?.description ?? "";
+    $("ce-fields").replaceChildren(...(e?.fields ?? []).map((f: any) => fieldRow(f)));
+    $("ce-status").textContent = "";
+    $("ce-form").removeAttribute("hidden");
+    $(e ? "ce-title" : "ce-name").focus();
+  }
+
+  $("ce-new").addEventListener("click", () => openForm());
+  $("ce-cancel").addEventListener("click", () => $("ce-form").setAttribute("hidden", ""));
+  $("ce-add-field").addEventListener("click", () => $("ce-fields").append(fieldRow()));
+  $("ce-fields").addEventListener("click", (ev: Event) => {
+    if ((ev.target as HTMLElement).closest("[data-remove]")) (ev.target as HTMLElement).closest(".field-row")?.remove();
+  });
+
+  $("ce-save").addEventListener("click", async () => {
+    const status = $("ce-status");
+    const name = $("ce-name").value.trim();
+    if (!name) {
+      status.textContent = "Give it a name.";
+      return;
+    }
+    const fields = [...document.querySelectorAll("#ce-fields .field-row")]
+      .map((row) => ({
+        key: (row.querySelector(".f-key") as HTMLInputElement).value.trim(),
+        type: (row.querySelector(".f-type") as HTMLSelectElement).value,
+        description: (row.querySelector(".f-desc") as HTMLInputElement).value.trim() || null,
+      }))
+      .filter((f) => f.key);
+    status.classList.remove("error");
+    status.textContent = "Saving…";
+    try {
+      const saved = await saveCustomEvent(editing ?? name, {
+        title: $("ce-title").value.trim() || null,
+        description: $("ce-desc").value.trim() || null,
+        fields: fields as any,
+      });
+      events = [...events.filter((x) => x.name !== saved.name), saved].sort((a, b) => a.name.localeCompare(b.name));
+      render();
+      $("ce-form").setAttribute("hidden", "");
+    } catch (e: any) {
+      status.classList.add("error");
+      status.textContent = e?.message ?? String(e);
+    }
+  });
+
+  $("ce-list").addEventListener("click", async (ev: Event) => {
+    const btn = (ev.target as HTMLElement).closest("[data-act]") as HTMLElement | null;
+    const cardEl = btn?.closest(".ce-card") as HTMLElement | null;
+    const e = events.find((x) => x.name === cardEl?.dataset.name);
+    if (!btn || !cardEl || !e) return;
+    if (btn.dataset.act === "edit") {
+      openForm(e);
+      $("ce-form").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } else if (btn.dataset.act === "delete") {
+      if (!confirm(`Remove ${e.eventType}? What the Event Log recorded stays; a subscription to it stops firing.`)) return;
+      try {
+        await deleteCustomEvent(e.name);
+        events = events.filter((x) => x.name !== e.name);
+        render();
+      } catch (err: any) {
+        const note = cardEl.querySelector("[data-status]");
+        if (note) note.textContent = err?.message ?? String(err);
+      }
+    }
+  });
+
+  render();
+</script>
+
+<style>
+  .ce-page { max-width: 900px; }
+  .toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+  .toolbar h2 { margin: 0 0 4px; font-size: 22px; }
+  .toolbar p { margin: 0; color: var(--muted); font-size: 14px; max-width: 64ch; }
+
+  .banner { padding: 12px 14px; border-radius: var(--radius); font-size: 14px; margin-bottom: 16px; }
+  .banner.error { background: var(--color-error-bg, rgba(192,57,43,.1)); color: var(--color-error, #c0392b); border: 1px solid var(--color-error, #c0392b); }
+
+  .button { padding: 8px 14px; border-radius: var(--radius); border: 1px solid var(--accent); background: var(--accent); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; }
+  .button.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+  .button.sm { padding: 4px 10px; font-size: 12px; }
+  .button.danger { color: var(--color-error, #c0392b); border-color: var(--color-error, #c0392b); }
+
+  .form-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+  .form-card[hidden] { display: none; }
+  .form-card h3 { margin: 0 0 12px; font-size: 16px; }
+  .form-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  .label { font-size: 13px; font-weight: 600; }
+  .muted { color: var(--muted); font-weight: 400; }
+  .input { padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 14px; background: var(--bg); color: var(--ink); width: 100%; box-sizing: border-box; min-width: 0; }
+  .input:focus { border-color: var(--accent); outline: none; }
+  .name-row { display: flex; align-items: center; gap: 6px; }
+  .name-row code { color: var(--muted); }
+  .fields { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+  .fields :global(.field-row) { display: grid; grid-template-columns: minmax(120px, 1fr) 110px minmax(160px, 2fr) auto; gap: 8px; align-items: center; }
+  .fields :global(.button) { padding: 4px 10px; border-radius: var(--radius); border: 1px solid var(--line); background: transparent; color: var(--ink); font-size: 12px; font-weight: 600; cursor: pointer; }
+  .form-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  .ce-list { display: flex; flex-direction: column; gap: 12px; }
+  .ce-list :global(.ce-card) { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .ce-list :global(.ce-head) { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .ce-list :global(.ce-title) { min-width: 0; overflow-wrap: anywhere; }
+  .ce-list :global(.ce-title strong) { font-size: 15px; }
+  .ce-list :global(.slug) { margin-left: 8px; font-size: 12px; color: var(--muted); background: var(--bg); padding: 1px 6px; border-radius: 4px; }
+  .ce-list :global(.desc) { display: block; margin-top: 4px; font-size: 13px; color: var(--muted); }
+  .ce-list :global(.ce-actions) { display: flex; gap: 6px; flex-shrink: 0; align-items: center; }
+  .ce-list :global(.button) { padding: 4px 10px; border-radius: var(--radius); border: 1px solid var(--line); background: transparent; color: var(--ink); font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: none; }
+  .ce-list :global(.button.danger) { color: var(--color-error, #c0392b); border-color: var(--color-error, #c0392b); }
+  .ce-list :global(.chips) { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ce-list :global(.chip) { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); font-size: 12px; overflow-wrap: anywhere; }
+  .ce-list :global(.muted) { color: var(--muted); font-weight: 400; }
+  .ce-list :global(.hint) { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .ce-list :global(.hint.error) { color: var(--color-error, #c0392b); }
+  .hint { font-size: 12px; color: var(--muted); }
+  .hint.error { color: var(--color-error, #c0392b); }
+  .empty { color: var(--muted); font-size: 14px; padding: 24px; text-align: center; border: 1px dashed var(--line); border-radius: var(--radius); }
+
+  /* Phones: the field rows stack (key and type side by side, the note under them), the card's buttons wrap under
+     the title, and the small buttons get finger-sized. */
+  @media (max-width: 640px) {
+    .toolbar { flex-wrap: wrap; }
+    .fields :global(.field-row) { grid-template-columns: 1fr 100px auto; }
+    .fields :global(.field-row .f-desc) { grid-column: 1 / -1; grid-row: 2; }
+    .ce-list :global(.ce-head) { flex-wrap: wrap; }
+    .ce-list :global(.button.sm), .fields :global(.button), .button.sm { min-height: 36px; }
+    .ce-list :global(.button) { min-height: 36px; display: inline-flex; align-items: center; }
+  }
+</style>

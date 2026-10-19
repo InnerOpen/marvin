@@ -115,13 +115,17 @@ const tabs = [
               <strong>{navTitle("settings.environment")}</strong>
               <p>Variables and Secrets — reference with &#123;&#123;SLUG&#125;&#125; anywhere</p>
             </a>
-            <div class="link-card disabled">
+            <a href={`${navHref("settings.general")}#site-settings-form`} class="link-card">
               <strong>Preferences</strong>
-              <p>Timezone, locale, and regional settings (Coming soon)</p>
-            </div>
+              <p>Timezone, locale and site details — on the General page</p>
+            </a>
             <a href={navHref("settings.backups")} class="link-card">
               <strong>{navTitle("settings.backups")}</strong>
               <p>Export workspace bundles and restore from a backup</p>
+            </a>
+            <a href={navHref("settings.storage")} class="link-card">
+              <strong>{navTitle("settings.storage")}</strong>
+              <p>Keep this workspace's files in your own bucket, or the platform's</p>
             </a>
           </div>
         </div>
@@ -148,7 +152,7 @@ const tabs = [
       {currentTab === 'entry-types' && (
         <div class="content-section">
           <h2>Content Model</h2>
-          <p class="section-description">Define content structure, custom fields, and the shared tag vocabulary</p>
+          <p class="section-description">Entry types (each with its own fields) and the shared tag vocabulary</p>
 
           <div class="quick-links">
             <a href={navHref("settings.entry-types")} class="link-card">
@@ -159,10 +163,6 @@ const tabs = [
               <strong>{navTitle("settings.tags")}</strong>
               <p>Rename, recolor, and remove tags</p>
             </a>
-            <div class="link-card disabled">
-              <strong>Custom Fields</strong>
-              <p>Coming soon</p>
-            </div>
           </div>
         </div>
       )}
@@ -241,6 +241,14 @@ const tabs = [
               <strong>{navTitle("automation.webhooks")}</strong>
               <p>Outgoing HTTP callbacks on events and schedules</p>
             </a>
+            <a href={navHref("automation.custom-events")} class="link-card">
+              <strong>{navTitle("automation.custom-events")}</strong>
+              <p>Events of your own — workflows send and react to them like any other</p>
+            </a>
+            <a href={navHref("automation.metrics")} class="link-card">
+              <strong>{navTitle("automation.metrics")}</strong>
+              <p>Numbers workflows recorded per variant and window — observations, not conclusions</p>
+            </a>
             <a href={navHref("automation.incoming-webhooks")} class="link-card">
               <strong>{navTitle("automation.incoming-webhooks")}</strong>
               <p>Tokened URLs external systems POST to, to trigger workflows</p>
@@ -267,8 +275,8 @@ const tabs = [
           <p class="section-description">AI capabilities, credentials, and activity for this workspace</p>
 
           <div class="quick-links">
-            <a href={navHref("settings.ai")} class="link-card">
-              <strong>{navTitle("settings.ai")}</strong>
+            <a href={navHref("settings.ai-workflow")} class="link-card">
+              <strong>{navTitle("settings.ai-workflow")}</strong>
               <p>Enable AI, credentials, approval mode, and per-subsystem access</p>
             </a>
             <a href={navHref("settings.ai-ask")} class="link-card">

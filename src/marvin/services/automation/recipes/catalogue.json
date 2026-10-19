@@ -15,10 +15,10 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 90,
+    "verified-current": 104,
     "needs-adapter": 3,
-    "needs-engine-capability": 9,
-    "supported-after-configuration": 11
+    "needs-engine-capability": 1,
+    "supported-after-configuration": 8
   },
   "capabilities": {
     "create-entry": {
@@ -43,7 +43,7 @@
       "name": "Iterate / aggregate over a target set",
       "priority": "P1",
       "capabilities_md": "Iteration / aggregation",
-      "acceptance": "Delivered 2026-10-12: a `collect` step (\"Gather items\") runs an entry/asset/resource query (a target's keys) and returns rows (each as ${entry.*}/${asset.*}/${resource.*}), count, total and text (a plain list for an AI prompt), up to the target cap; a render step's list images take the rows whole (grid, moodboard). Linked items (2026-10-12): `entries` (the entry a field names), `asset` / `resource` (the entries using one), an asset/resource query's `entry` (what an entry holds, in its order) and `role`, and sort by `position` (a collection's own order). Left: fanning one AI step out over the rows."
+      "acceptance": "Delivered 2026-10-12: a `collect` step (\"Gather items\") runs an entry/asset/resource query (a target's keys) and returns rows (each as ${entry.*}/${asset.*}/${resource.*}), count, total and text (a plain list for an AI prompt), up to the target cap; a render step's list images take the rows whole (grid, moodboard). Linked items (2026-10-12): `entries` (the entry a field names), `asset` / `resource` (the entries using one), an asset/resource query's `entry` (what an entry holds, in its order) and `role`, and sort by `position` (a collection's own order). Delivered 2026-10-13 (0e7c993b): a `repeat` step runs 1–5 inner steps (an AI step included) once per item of a list or a collect step's rows, keyed per item so a re-delivered event repeats nothing; at most 25 items, no wait/approval/repeat inside. Nothing left."
     },
     "relative-dates": {
       "name": "Relative dates and cron schedules",
@@ -61,7 +61,7 @@
       "name": "Approval step inside a workflow",
       "priority": "P1",
       "capabilities_md": "Durable approvals",
-      "acceptance": "Delivered 2026-10-11: an `approval` step parks the run (snapshot in workflow_approvals), asks members at its role (push, Automation → Approvals, app badge), resumes from the next step with ${steps.<id>.output.decision} (approved | denied | expired | stale — the entry changed after it was asked), expires hourly, and lets integration actions marked requires_approval run in an approved run. One-tap Approve/Deny on the push is a later slice."
+      "acceptance": "Delivered 2026-10-11: an `approval` step parks the run (snapshot in workflow_approvals), asks members at its role (push, Automation → Approvals, app badge), resumes from the next step with ${steps.<id>.output.decision} (approved | denied | expired | stale — the entry changed after it was asked), expires hourly, and lets integration actions marked requires_approval run in an approved run. Also delivered: one-tap Approve/Deny on the push when every later step can be undone in Marvin (2026-10-11, befe2ef0); `choices` (the approver picks one: `choice`, `choice_index`), length conditions, cancelling a waiting run (2026-10-13, f12b80c1); `image` shown with the question, and a picture's decision stamped on its asset (2026-10-13, 68d8392a / 6c99c7f4); the wait limit is a workspace setting (2026-10-14, 70ac6143)."
     },
     "waits": {
       "name": "Durable waits and delays",
@@ -73,7 +73,7 @@
       "name": "Per-step idempotency keys",
       "priority": "P0",
       "capabilities_md": "Idempotency",
-      "acceptance": "A webhook/integration step with `idempotency_key` (templated) that already succeeded for that key within the window is skipped and its recorded output reused; two concurrent duplicate events deliver once."
+      "acceptance": "Delivered 2026-10-18: a webhook or integration step with a templated `idempotency_key` that already made that call (same workflow, same destination, same key) within `idempotency_window_hours` (default 24, 1–720) is skipped and its recorded output reused, marked `idempotency: {duplicate: true}`; two concurrent duplicates deliver once (the first claims the key before it calls); a failed call gives the key back so retries still make it; a dry run says `would: call` or `would: skip (duplicate)`. Kept in `workflow_step_idempotency` as a hash; the Prune Workflow Runs task drops ended windows. It dedupes identical calls: it does not coalesce different keys."
     },
     "media-adapters": {
       "name": "Image, file and audio processing adapters",
@@ -103,55 +103,55 @@
       "name": "Collection-scoped steps",
       "priority": "P1",
       "capabilities_md": "Queries / relationships",
-      "acceptance": "A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup). Partly delivered 2026-10-12: a `collect` step reads a collection's entries in its own order (`collection` + sort `position`) for one step to use; left: collection events carrying the set."
+      "acceptance": "A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup). Partly delivered 2026-10-12: a `collect` step reads a collection's entries in its own order (`collection` + sort `position`) for one step to use; with an AI or `repeat` step over its rows, that is the roundup (2026-10-12/13); left only: `${collection.entries}` bound directly on collection events (a `collect` step reads the same set today)."
     },
     "member-email": {
       "name": "Member-addressed email",
       "priority": "P2",
       "capabilities_md": "—",
-      "acceptance": "member_added carries the member's email (or email subscriptions accept recipient_type `member`), and member events are triggerable with the subject distinguished from the actor."
+      "acceptance": "Delivered 2026-10-18: an `email` step (\"Email a member\") — `to` a member's user id or email (${member.id}, ${member.email}, an entry field), `subject` and `body` (templates; markdown, set in the workspace's email layout and sent through its SMTP profile), optional `heading`, `button_text` + `button_link`, `once_per`. The recipient must be a member of the workspace — an outside address, a member of another workspace only, or a word fails the step, nothing is mailed. Sent once: the same event handled twice, a retry or a re-run sends nothing more (a ledger, `workflow_email_sends`; a failed send gives its claim back); `once_per: welcome:${member.id}` sends that person the step's email once, ever. The step needs an admin author, and fails with no SMTP; a dry run renders the email (would_send) and sends nothing. Role-appropriate links: a `when` on ${member.role}, `${site.url}` (the site) and `${site.app_url}` (the admin app). Left: writing to an address that isn't a member's (a fixed outside recipient stays an email subscription's `specific` recipient), and member_added still carries no email for subscriptions."
     },
     "custom-events": {
       "name": "Custom emit_event names",
       "priority": "P2",
       "capabilities_md": "Event provenance",
-      "acceptance": "A workspace can register `custom.<name>` events (catalog entry with payload fields); emit_event sends them with a templated payload; they are triggerable and subscribable; depth bounding applies."
+      "acceptance": "Delivered 2026-10-18: a workspace registers `custom.<name>` events (Settings → Automation → Custom events, PUT /api/groups/custom-events/{name}) with typed payload fields (string, number, boolean, date); an Emit event step sends one with a templated `payload` held to those fields; a workflow can start on it, webhook/email/integration subscriptions can name it, the editor, Events pages, describe_event and the authoring guide list it; each hop carries reaction_depth + 1, so a chain stops at MAX_REACTION_DEPTH."
     },
     "ops-triggers": {
       "name": "Operational events as workflow triggers",
       "priority": "P2",
       "capabilities_md": "Event provenance",
-      "acceptance": "ai_budget_*, integration_attention_*, webhook_delivery_failed and scheduled_task_failed become triggerable with origin filtering (a workflow never reacts to a failure its own run caused) and an independent fallback channel."
+      "acceptance": "Delivered 2026-10-18: ai_budget_threshold_reached/_exceeded, integration_attention_needed/_resolved, webhook_delivery_failed and scheduled_task_failed (the workspace's own tasks; a platform task belongs to no workspace) are triggerable under the editor's Operations heading, their payload fields read as `${event.<field>}` (describe_event and the authoring guide list them). A workflow is never woken by a failure its own run caused: the engine's running-workflow guard covers what a run does itself, and a failed delivery that runs after the run joins the delivered event's chain (correlation id, reaction depth), where a workflow with a run in it sits out. The independent fallback is Settings → Automation → Notifications, which needs no workflow."
     },
     "joins": {
       "name": "Parallel branches and joins",
       "priority": "P1",
       "capabilities_md": "Parallel branches / joins",
-      "acceptance": "Fan-out steps run independently and a join step waits for all (or any), with deterministic merge of outputs and partial-failure semantics."
+      "acceptance": "Delivered 2026-10-18: a `parallel` step (\"Parallel branches\") runs 2–5 named branches of 1–5 steps (no wait, approval, repeat or parallel inside) one after another in the order written, each reading what ran before it but not its siblings; `join` all (default) or any (the first branch to succeed wins, the rest are skipped); `on_branch_failure` fail (the step fails when the join isn't met; under all the first failing branch stops the rest) or continue (the step reports `satisfied`, `failed`, `text` and each branch's status for a `when`). The merge is by name in written order (`branches.<name>` {status ok|failed|skipped, error, steps, output}, `order`), so it never depends on which branch finished first; branches' steps are keyed per branch so a create inside runs once per event and count against the workspace's steps-per-workflow limit; a dry run previews every branch. Branches run in-process, not concurrently."
     },
     "snapshots": {
       "name": "Entity snapshots and restore",
       "priority": "P2",
       "capabilities_md": "Snapshots and restoration",
-      "acceptance": "A step captures an entry version; a later step (or person) restores it; external publications are listed as not restorable."
+      "acceptance": "Delivered 2026-10-18: a `snapshot` step captures an entry's title, summary, description, data, metadata, status, collections and attached asset references into `entry_snapshots` (reusing the latest when identical; 20 kept per entry) and a later `restore` step (or `POST /entries/{id}/snapshots/{id}/restore`) puts content, collections and assets back through the entry service, so the normal events fire; status only when asked, through the publish gate, never into or out of the Trash; AUTHOR+ like any entry write; a dry run previews the diff. External publications (a newsletter sent, a webhook delivered) are not restorable and the entry page has no snapshots list yet."
     },
     "sandbox": {
       "name": "Schema validation / sandbox handler",
       "priority": "P2",
       "capabilities_md": "—",
-      "acceptance": "A step validates a fetched JSON document against a JSON schema and reports violations as output."
+      "acceptance": "Delivered 2026-10-18: a `schema_check` step (\"Check against a schema\") — `document` (usually a fetch step's `${steps.<id>.output.json}`, or any template; text holding a JSON object or array is read as JSON) against `schema` (inline, or a template giving one) or `schema_resource` (a resource whose metadata.schema holds it), Draft 2020-12 → valid, errors [{path, message}] (max_errors, default 20, at most 50), error_count, truncated, text. A document that doesn't fit is output, never a failed step, unless `fail_on_invalid`; a malformed inline schema is refused when the workflow is saved; documents over 100 KB are reported, not checked; a dry run checks when it has a document. Left: running anything (a sandbox proper) and graph checks beyond a schema (reachability over cycles)."
     },
     "form-classification": {
       "name": "Form-submission classification from workflows",
       "priority": "P0",
       "capabilities_md": "Typed output contracts",
-      "acceptance": "The workflow runner loads an entry-backed submission into `ctx.form_submission` so classify-form-submission classifies the real data; its output (`is_spam`, `category`) is usable by branches."
+      "acceptance": "Delivered 2026-10-18: a run on a form submission — a form_submission_received event, or any event on an entry of a submittable type — binds `${form_submission.*}` (id, form, form_slug, data.<field>, status, submitted_at, flagged, review_reasons: the entry the public form saved, or a legacy Forms row), and an operation step with op classify-form-submission reads it by itself (entity_type and entity_id default to the run's submission). Its answer — category, confidence, is_spam, sentiment, tags, action_required — is `${steps.<id>.output.<key>}` for a `when` or a template; a dry run previews with a stand-in answer and asks no AI. describe_event and the authoring guide list the fields."
     },
     "data-change-detection": {
       "name": "Data-field change detection",
       "priority": "P1",
       "capabilities_md": "Queries / relationships",
-      "acceptance": "entry_updated's changed_fields/before/after cover the entry type's own fields (opt-in per type, values elided for large fields) so `entry.data.body` with op `changed` works."
+      "acceptance": "Delivered 2026-10-18: entry_updated (and the publish, unpublish, archive, trash and restore events) name every changed field of the entry's type as `data.<key>` in `changed_fields`, with `before.data.<key>` / `after.data.<key>`; `changed`, `changed_from`, `changed_to` and `${event.before.data.price}` read them. Bounded, not opt-in: a short scalar (≤ 160 characters) is carried by value, a long text (a body), list, object or secret-like field name reads `‹elided›` — still named, so “the body changed” works; 100 names and 25 values per event."
     },
     "manual-params": {
       "name": "Manual / MCP run parameters",
@@ -163,7 +163,7 @@
       "name": "Metrics windows and experiments",
       "priority": "P2",
       "capabilities_md": "Experimental comparisons",
-      "acceptance": "A step records a metric observation against a variant id and window; a report lists observations without causal claims."
+      "acceptance": "Delivered 2026-10-18: a `metric` step (\"Record a metric\") records a number against a `metric` (slug), optional `variant` and `subject`, and a `window` — day, week (ISO) or month in the workspace's time zone, or one named outright (2026-10-18, 2026-W42, 2026-10); one observation per key, so recording again replaces the value and a rerun never double-counts. `op: \"read\"` lists observations back (rows, count, total, text headed \"Observations, not conclusions:\"). A dry run writes nothing. Settings → Automation → Metrics and GET /api/groups/metrics/observations list them (filters: metric, variant, subject, window range); an admin can remove one. No comparison or significance is computed, and no scheduled task trims them. Left: collecting the numbers from a network (social-adapters)."
     }
   },
   "recipes": [
@@ -398,7 +398,7 @@
       "failure_behaviour": "The webhook step makes one attempt; a non-2xx or a timeout fails the run (recorded in the run history, `workflow_failed` alert if enabled) and the metadata step after it does not run. Re-publishing re-sends: there is no per-step idempotency key.",
       "dependencies": [],
       "notes": [
-        "The brief's completion event (`newsletter_issue_processed`) is not possible: emit_event only sends entry_* and site_deployment_* events. The run's own `automation_ran` event, with the run id, is the completion signal — a `chained` workflow can react to it.",
+        "The brief's completion event (`newsletter_issue_processed`) is not a built-in event. Register your own (Settings → Automation → Custom events) and send it with an Emit event step, or use the run's own `automation_ran` event, with the run id, as the completion signal — a `chained` workflow can react to it.",
         "`announcement.run` is the event's correlation id, shared with the run history row."
       ],
       "verification": {
@@ -579,13 +579,6 @@
       "failure_behaviour": "A budget block (`AI budget: …`), disabled AI or a provider error fails the step; the second operation does not run. Nothing is written on failure.",
       "dependencies": [
         {
-          "capability": "data-change-detection",
-          "name": "Data-field change detection",
-          "priority": "P1",
-          "acceptance": "entry_updated's changed_fields/before/after cover the entry type's own fields (opt-in per type, values elided for large fields) so `entry.data.body` with op `changed` works.",
-          "why": "to run on body changes rather than the review transition"
-        },
-        {
           "capability": "custom-operation",
           "name": "Free-form AI operation",
           "priority": "P0",
@@ -595,7 +588,7 @@
       ],
       "notes": [
         "Title generation is not available: no operation writes `title`; summary (meta description) and tags are what the registry offers with a write-back map.",
-        "“Body changes” cannot be detected: entry_updated's changed_fields covers only status/title/slug. The recipe keys on the review transition instead.",
+        "Body changes can now be detected (`changed_fields` contains `data.<field>`, 2026-10-18); this recipe still keys on the review transition.",
         "Write-back follows the workspace approval mode (services/ai/approval.py): mid-review entries are always staged."
       ],
       "verification": {
@@ -756,7 +749,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate.",
+          "acceptance": "Slice 3 delivered 2026-10-12: media ops extract_text (a PDF's text layer; scanned pages and pictures by the vision model, image.read_text), pages (PDF pages as pictures, pypdfium2), find_sensitive and redact (faces, plates, personal text by the vision model, pixelated in a new copy). Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Also 2026-10-12: zip (files + manifest.json) and printed renders (format pdf; the guide template). Provider edits 2026-10-12: an integration step's `source` hands an image.edit action the picture (image_b64) and keeps the result as a version of it; OpenAI Images v0.3.0 has `edit`. Left: TTS.",
           "why": "a TTS provider action that returns an audio asset"
         }
       ],
@@ -1220,7 +1213,7 @@
     {
       "id": "publication-release-gate",
       "title": "Publication release gate",
-      "outcome": "Wait until text, images and downloads pass checks → publish together",
+      "outcome": "When an entry is approved, its text, its pictures and its downloads are checked side by side; if all pass it is published, otherwise it goes back to Needs review with every check that failed named.",
       "category": "Publishing and editorial",
       "category_slug": "publishing",
       "tags": [
@@ -1235,34 +1228,77 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "publication-release-gate.json",
+      "vars": "publication-release-gate.vars.json",
+      "setup_variables": [
         {
-          "capability": "joins",
-          "name": "Parallel branches and joins",
-          "priority": "P1",
-          "acceptance": "Fan-out steps run independently and a join step waits for all (or any), with deterministic merge of outputs and partial-failure semantics.",
-          "why": "wait for several checks"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "Slug of the entry type whose approved entries go through the gate.",
+          "example": "article"
+        },
+        {
+          "name": "text_field",
+          "type": "field_key",
+          "description": "That type's text field, which must be filled in.",
+          "example": "body"
+        },
+        {
+          "name": "min_characters",
+          "type": "integer",
+          "description": "The least text it must hold, in characters.",
+          "example": 200
         }
       ],
+      "requires": {
+        "trigger": "event:entry_updated",
+        "action_kinds": [
+          "parallel",
+          "schema_check",
+          "collect",
+          "entry"
+        ],
+        "entry_ops": [
+          "publish",
+          "request_review"
+        ],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "changed_to",
+          "eq",
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Publishes the entry when every check passes (emits entry_published; a site rebuild is queued when a deploy target exists)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Otherwise moves the entry to Needs review and appends the failed checks to metadata.review_reasons (emits entry_updated at depth+1)."
+        }
+      ],
+      "cost_notes": "None (no AI).",
+      "failure_behaviour": "A check that fails is not a failed run: the entry goes back to Needs review and its reason lists each failed check (text, images, downloads), all of them at once. If the publish itself is refused (Marvin's completeness rules) or a step errors, the on_failure step puts it back with that message and the run is recorded as failed.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): the publish gate already blocks on required fields, required asset roles and resource types (completeness rules); the editorial-approval-gate recipe uses it."
+        "The three checks are the branches of one parallel step (join all, on_branch_failure continue): they run one after another in the order written, each independent of the others, so a missing picture never hides a short text. The step then reports how many failed and one line per failed branch.",
+        "Text: the chosen field must hold at least min_characters. Images: at least one picture (jpeg, png, webp, gif) attached to the entry, each with alt text. Downloads (PDF, zip): optional, but each one attached needs a description.",
+        "This is on top of Marvin's own publish gate (completeness rules: required fields, asset roles, resource types); a refusal there is caught by the on_failure step.",
+        "Only the move to Approved starts the gate (changed_to), so fixing a held entry and approving it again runs it again."
       ],
       "verification": {
-        "level": "none",
+        "level": "fixture-executed",
         "mocked": [],
-        "test": null
+        "test": "tests/test_workflow_library.py::TestExecution::test_publication_release_gate"
       },
       "brief": {
         "flow": "Wait until text, images and downloads pass checks → publish together",
@@ -1362,25 +1398,11 @@
       ],
       "cost_notes": "None (no AI).",
       "failure_behaviour": "The webhook step makes one attempt; a non-2xx or a timeout fails the run (recorded in the run history, `workflow_failed` alert if enabled) and the metadata step after it does not run. Re-publishing re-sends: there is no per-step idempotency key.",
-      "dependencies": [
-        {
-          "capability": "data-change-detection",
-          "name": "Data-field change detection",
-          "priority": "P1",
-          "acceptance": "entry_updated's changed_fields/before/after cover the entry type's own fields (opt-in per type, values elided for large fields) so `entry.data.body` with op `changed` works.",
-          "why": "to fire only when the body changed"
-        },
-        {
-          "capability": "idempotency",
-          "name": "Per-step idempotency keys",
-          "priority": "P0",
-          "acceptance": "A webhook/integration step with `idempotency_key` (templated) that already succeeded for that key within the window is skipped and its recorded output reused; two concurrent duplicate events deliver once.",
-          "why": "to coalesce bursts of saves"
-        }
-      ],
+      "dependencies": [],
       "notes": [
-        "“Body changes” cannot be detected: changed_fields covers only status, title and slug (services/entries/entry_service.py `_TRACKED_FIELDS`). The recipe fires on every save of a published entry, including the publish itself and metadata writes made by other workflows.",
-        "If the external copy is the site itself, prefer the native rebuild: content changes already queue a coalesced rebuild (site_rebuild_queued → webhook_triggered)."
+        "It fires on every save of a published entry, including the publish itself and metadata writes made by other workflows; a `changed_fields contains data.<field>` condition (2026-10-18) would narrow it to one field.",
+        "If the external copy is the site itself, prefer the native rebuild: content changes already queue a coalesced rebuild (site_rebuild_queued → webhook_triggered).",
+        "Idempotency keys exist (2026-10-18) but dedupe identical calls; a burst of different saves is still one call each unless the key ignores what changed."
       ],
       "verification": {
         "level": "fixture-executed",
@@ -2371,7 +2393,7 @@
       "dependencies": [],
       "notes": [
         "The run waits (Wait step) and goes on at the time, in the workspace's time zone.",
-        "A changed date after publishing isn't followed: the waits were set when it was published."
+        "A changed date after publishing isn't followed: the waits were set when it was published. Other edits to the workflow apply when a wait goes on."
       ],
       "verification": {
         "level": "fixture-executed",
@@ -2726,23 +2748,11 @@
           "priority": "P1",
           "acceptance": "Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry).",
           "why": "metrics actions"
-        },
-        {
-          "capability": "waits",
-          "name": "Durable waits and delays",
-          "priority": "P1",
-          "acceptance": "`{\"kind\": \"wait\", \"until\": \"${entry.data.event_date} - 7d\"}` persists the run, survives a restart, honours the workspace timezone and DST, can be cancelled, and resumes exactly once.",
-          "why": "after the campaign"
-        },
-        {
-          "capability": "metrics",
-          "name": "Metrics windows and experiments",
-          "priority": "P2",
-          "acceptance": "A step records a metric observation against a variant id and window; a report lists observations without causal claims.",
-          "why": "baseline comparison"
         }
       ],
-      "notes": [],
+      "notes": [
+        "Recording and listing the numbers exists (the `metric` step, 2026-10-18); what is missing is a provider that collects them from a network (social-adapters)."
+      ],
       "verification": {
         "level": "none",
         "mocked": [],
@@ -2761,12 +2771,14 @@
     {
       "id": "social-experiment-log",
       "title": "Social experiment log",
-      "outcome": "Create two draft variants → assign experiment IDs → report observed results",
+      "outcome": "Run it on a post: an AI writes two versions that differ in one element, each drafted as an entry marked with the experiment id and its variant; run it again with what you observed for each and the numbers are recorded for the window (a repeat of the same window replaces the number, never adds), and a plain list of what was observed — not a verdict — is kept on the post.",
       "category": "Social and community",
       "category_slug": "social",
       "tags": [
         "ai",
-        "metrics"
+        "metrics",
+        "experiments",
+        "create-entry"
       ],
       "target_entity": "entry",
       "trigger": {
@@ -2774,34 +2786,80 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "social-experiment-log.json",
+      "vars": "social-experiment-log.vars.json",
+      "setup_variables": [
         {
-          "capability": "metrics",
-          "name": "Metrics windows and experiments",
-          "priority": "P2",
-          "acceptance": "A step records a metric observation against a variant id and window; a report lists observations without causal claims.",
-          "why": "observations"
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the two variants are drafted as.",
+          "example": "social-post"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field, where each variant's wording goes.",
+          "example": "body"
+        },
+        {
+          "name": "metric",
+          "type": "string",
+          "description": "What you observe for each variant: a short name — lowercase letters, digits, - and _.",
+          "example": "clicks"
         }
       ],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "operation",
+          "entry",
+          "metric"
+        ],
+        "entry_ops": [
+          "create",
+          "set_metadata"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "exists",
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call, on the first run for a post only."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "First run: creates two draft entries (variant A and B, metadata.experiment = {id, variant, differs}) and marks the post with metadata.experiment_id and experiment_variants. Later runs: record the numbers you give and keep metadata.experiment_report on the post (only when the list changed)."
+        }
+      ],
+      "cost_notes": "One AI call per post, the first time it is run on it, from the workspace's monthly AI budget.",
+      "failure_behaviour": "A number that isn't a number is refused by the Run form; a metric name that isn't a slug is refused when the workflow is saved. An AI answer missing its fields fails the first run before anything is drafted.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): set_metadata can stamp an experiment id (`${event.correlation_id}`) on an entry today."
+        "Observations, not conclusions: the report lists what was recorded per window and variant and compares nothing; whether one version did better, and why, is for a person to judge.",
+        "Run it on a post once to draft the two variants (leave the numbers blank). Run it again, any time, with the numbers observed so far for A and B: the window defaults to the week (day or month on request), counted in the workspace's time zone.",
+        "Recording the same window again replaces the number rather than adding to it, so enter what the network shows to date, not the increase since last time; running it twice with the same numbers changes nothing.",
+        "A post that already carries metadata.experiment_id is not drafted again; remove that key (and the two drafts) to start a new experiment on it.",
+        "The numbers also appear on Settings → Automation → Metrics, one table of windows by variant."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_social_experiment_log"
       },
       "brief": {
         "flow": "Create two draft variants → assign experiment IDs → report observed results",
@@ -2816,12 +2874,14 @@
     {
       "id": "platform-preview-checker",
       "title": "Platform preview checker",
-      "outcome": "Draft → check length, links, image ratio and preview → flag fixes",
+      "outcome": "Each time a social-post draft is edited, it's checked for the network you name — too long, dead links, a picture the wrong shape — and sent to Needs review with each problem as a reason; a clean draft is left alone.",
       "category": "Social and community",
       "category_slug": "social",
       "tags": [
-        "validation",
-        "social"
+        "social",
+        "checks",
+        "links",
+        "review"
       ],
       "target_entity": "entry",
       "trigger": {
@@ -2830,39 +2890,96 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "platform-preview-checker.json",
+      "vars": "platform-preview-checker.vars.json",
+      "setup_variables": [
         {
-          "capability": "fetch",
-          "name": "HTTP fetch step",
-          "priority": "P1",
-          "acceptance": "A GET/HEAD step (SSRF-guarded, bounded body) returns status, headers and parsed body as step output; a link-check handler reports broken links for one entry.",
-          "why": "link checks"
+          "name": "post_type",
+          "type": "entry_type_slug",
+          "description": "The entry type of your social-post drafts.",
+          "example": "social-post"
         },
         {
-          "capability": "social-adapters",
-          "name": "Social publishing adapters",
-          "priority": "P1",
-          "acceptance": "Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry).",
-          "why": "per-network limits"
+          "name": "body_field",
+          "type": "field_key",
+          "description": "Their text field.",
+          "example": "body"
+        },
+        {
+          "name": "network",
+          "type": "text",
+          "description": "The network the posts are for (named in the review reasons).",
+          "example": "Bluesky"
+        },
+        {
+          "name": "max_length",
+          "type": "integer",
+          "description": "That network's limit: Bluesky 300, Mastodon 500, Threads 500, LinkedIn 3000.",
+          "example": 300
+        },
+        {
+          "name": "image_role",
+          "type": "text",
+          "description": "The role of the post's picture, if it has one.",
+          "example": "hero"
+        },
+        {
+          "name": "orientation",
+          "type": "text",
+          "description": "The picture shape that shows best there: landscape, portrait or square.",
+          "example": "landscape"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "event:entry_updated",
+        "action_kinds": [
+          "fetch",
+          "media",
+          "entry"
+        ],
+        "entry_ops": [
+          "request_review"
+        ],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "contains",
+          "exists",
+          "longer_than",
+          "gt",
+          "neq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "external_call",
+          "description": "Fetches each link in the draft (public addresses only) to see that it answers."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Sends a draft with a problem to Needs review, with the problems as review_reasons."
+        }
+      ],
+      "cost_notes": "No AI; one web request per link in the draft.",
+      "failure_behaviour": "A draft with no problem isn't touched; a link that doesn't answer counts as dead, not as a failed run.",
+      "dependencies": [],
+      "notes": [
+        "Runs on drafts only, when their fields change (not on a status change).",
+        "Picture shape is read from the picture in the role you name; a draft without one skips that check."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "web"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_platform_preview_checker"
       },
       "brief": {
         "flow": "Draft → check length, links, image ratio and preview → flag fixes",
@@ -3229,7 +3346,7 @@
       "dependencies": [],
       "notes": [
         "The run waits (Wait step) — it's kept, and goes on at the time, in the workspace's time zone (Settings → Site).",
-        "A changed date after publishing isn't followed: the wait was set when it was published."
+        "A changed date after publishing isn't followed: the waits were set when it was published. Other edits to the workflow apply when a wait goes on."
       ],
       "verification": {
         "level": "fixture-executed",
@@ -3447,56 +3564,94 @@
     {
       "id": "community-welcome-pack",
       "title": "Community welcome pack",
-      "outcome": "Opt-in member event → assemble relevant reading links → draft welcome",
+      "outcome": "When someone joins the workspace, a welcome note is drafted for them — hello by name, what the place is for, and the pieces in your start-here collection to read first, with their addresses.",
       "category": "Social and community",
       "category_slug": "social",
       "tags": [
         "members",
-        "email"
+        "welcome",
+        "ai"
       ],
-      "target_entity": "member",
+      "target_entity": "entry",
       "trigger": {
-        "type": "subscription",
+        "type": "event",
         "event": "member_added",
         "builtin_event": true,
-        "custom_event": false,
-        "note": "member_added is not a workflow trigger and carries no email address."
+        "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "community-welcome-pack.json",
+      "vars": "community-welcome-pack.vars.json",
+      "setup_variables": [
         {
-          "capability": "member-email",
-          "name": "Member-addressed email",
-          "priority": "P2",
-          "acceptance": "member_added carries the member's email (or email subscriptions accept recipient_type `member`), and member events are triggerable with the subject distinguished from the actor.",
-          "why": "address the member"
+          "name": "start_here_collection",
+          "type": "collection_slug",
+          "description": "The collection of pieces a newcomer should read first (in its order).",
+          "example": "start-here"
         },
         {
-          "capability": "ops-triggers",
-          "name": "Operational events as workflow triggers",
-          "priority": "P2",
-          "acceptance": "ai_budget_*, integration_attention_*, webhook_delivery_failed and scheduled_task_failed become triggerable with origin filtering (a workflow never reacts to a failure its own run caused) and an independent fallback channel.",
-          "why": "member events as triggers"
+          "name": "voice",
+          "type": "text",
+          "description": "How the welcome should sound.",
+          "example": "a warm, plain voice"
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the welcome is drafted as.",
+          "example": "note"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
         }
       ],
+      "requires": {
+        "trigger": "event:member_added",
+        "action_kinds": [
+          "collect",
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": []
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per new member."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry (metadata.welcome_for: their username, metadata.to: their email)."
+        }
+      ],
+      "cost_notes": "One AI call per new member.",
+      "failure_behaviour": "An empty start-here collection still gets a welcome (with nothing to read); an AI error fails the run and nothing is drafted.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): see new-member-welcome for the admin-facing notification that works today."
+        "Nothing is sent: the welcome is a draft addressed to them (their email in metadata.to) for you to send.",
+        "The new member's name, username and role go to the AI; their email doesn't."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_community_welcome_pack"
       },
       "brief": {
         "flow": "Opt-in member event → assemble relevant reading links → draft welcome",
@@ -3958,6 +4113,251 @@
           "ai:custom"
         ],
         "test": "tests/test_workflow_library.py::TestExecution::test_collaborator_shout_out"
+      },
+      "brief": null
+    },
+    {
+      "id": "thank-you-notes",
+      "title": "Thank-you notes",
+      "outcome": "When a project is published, each person it lists gets their own short thank-you note drafted — what they did and what it meant — one draft per person, addressed to them.",
+      "category": "Social and community",
+      "category_slug": "social",
+      "tags": [
+        "credits",
+        "people",
+        "repeat",
+        "ai"
+      ],
+      "target_entity": "entry",
+      "trigger": {
+        "type": "event",
+        "event": "entry_published",
+        "builtin_event": true,
+        "custom_event": false
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "thank-you-notes.json",
+      "vars": "thank-you-notes.vars.json",
+      "setup_variables": [
+        {
+          "name": "project_type",
+          "type": "entry_type_slug",
+          "description": "The entries whose people get a note when they're published (projects, pieces, releases).",
+          "example": "project"
+        },
+        {
+          "name": "people_field",
+          "type": "field_key",
+          "description": "Its field naming the people who helped: their entries' slugs, comma-separated.",
+          "example": "collaborators"
+        },
+        {
+          "name": "person_type",
+          "type": "entry_type_slug",
+          "description": "The entry type of people.",
+          "example": "person"
+        },
+        {
+          "name": "role_field",
+          "type": "field_key",
+          "description": "Their field saying what they do (so each note can say what they did).",
+          "example": "role"
+        },
+        {
+          "name": "voice",
+          "type": "text",
+          "description": "How the notes should sound.",
+          "example": "a warm, plain voice"
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type each note is drafted as.",
+          "example": "note"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
+        }
+      ],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "collect",
+          "repeat",
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "exists",
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per person listed (up to 20)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates one draft entry per person (metadata.thank_you_for, metadata.to)."
+        }
+      ],
+      "cost_notes": "One AI call per person the project lists.",
+      "failure_behaviour": "A project listing nobody does nothing; a note that fails is noted and the others are still drafted (the step says which failed).",
+      "dependencies": [],
+      "notes": [
+        "The notes are drafts for you to send however you like — nothing is sent.",
+        "Collaborator shout-out is the public version (one post thanking everyone); this one is private and personal."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_thank_you_notes"
+      },
+      "brief": null
+    },
+    {
+      "id": "post-event-recap",
+      "title": "Post-event recap",
+      "outcome": "The day after an event, a recap post is drafted from its RSVPs (counts, no names) and each guest who RSVP'd gets a personal thank-you message drafted on their RSVP, asking for photos.",
+      "category": "Social and community",
+      "category_slug": "social",
+      "tags": [
+        "events",
+        "rsvp",
+        "waits",
+        "repeat",
+        "ai"
+      ],
+      "target_entity": "entry",
+      "trigger": {
+        "type": "event",
+        "event": "entry_published",
+        "builtin_event": true,
+        "custom_event": false
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "post-event-recap.json",
+      "vars": "post-event-recap.vars.json",
+      "setup_variables": [
+        {
+          "name": "event_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type of events.",
+          "example": "event"
+        },
+        {
+          "name": "event_date",
+          "type": "entry_date",
+          "description": "The event's date: one of its date fields.",
+          "example": "data.date"
+        },
+        {
+          "name": "send_at",
+          "type": "text",
+          "description": "The time of day, the day after, the recap and messages are drafted (workspace time zone).",
+          "example": "10:00"
+        },
+        {
+          "name": "rsvp_type",
+          "type": "entry_type_slug",
+          "description": "The entry type of RSVPs (one per guest, published once confirmed).",
+          "example": "rsvp"
+        },
+        {
+          "name": "rsvp_event_field",
+          "type": "field_key",
+          "description": "The RSVP's field naming its event (the event's slug).",
+          "example": "event"
+        },
+        {
+          "name": "voice",
+          "type": "text",
+          "description": "How the notes should sound.",
+          "example": "a warm, plain voice"
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type each note is drafted as.",
+          "example": "note"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
+        }
+      ],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "wait",
+          "collect",
+          "operation",
+          "entry",
+          "repeat"
+        ],
+        "entry_ops": [
+          "create",
+          "set_metadata"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call for the recap plus one per guest (up to 25), the day after the event."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry (metadata.recap_of) and writes metadata.thank_you (for, message) on each guest's RSVP."
+        }
+      ],
+      "cost_notes": "One AI call for the recap and one per guest who RSVP'd.",
+      "failure_behaviour": "An event with no RSVPs drafts nothing; a guest's message that fails is noted and the rest are still written; an event moved to the Trash cancels the wait.",
+      "dependencies": [],
+      "notes": [
+        "The run waits (Wait step) until the day after the event's date, in the workspace's time zone.",
+        "RSVPs are entries of their own (one per guest, published once confirmed) naming their event by slug; messages are drafted on them, not sent — guests' details never reach the public recap."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "clock"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_post_event_recap"
       },
       "brief": null
     },
@@ -4621,52 +5021,106 @@
     {
       "id": "thumbnail-audition",
       "title": "Thumbnail audition",
-      "outcome": "Entry → generate three thumbnail concepts → user selects one",
+      "outcome": "Run it on an entry: the AI proposes three thumbnail concepts, an editor okays the drawing, three pictures are made and attached, and an editor picks one — recorded on the entry as its thumbnail.",
       "category": "Images and files",
       "category_slug": "media",
       "tags": [
+        "thumbnails",
         "images",
-        "ai",
-        "approval"
+        "approval",
+        "choices",
+        "ai"
       ],
       "target_entity": "entry",
       "trigger": {
         "type": "manual",
         "event": null,
-        "custom_event": false
+        "custom_event": false,
+        "note": "Run with an entry input (the Run button asks)."
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "thumbnail-audition.json",
+      "vars": "thumbnail-audition.vars.json",
+      "setup_variables": [
+        {
+          "name": "image_integration",
+          "type": "integration_slug",
+          "description": "The connected image-generation integration (Settings → Integrations).",
+          "example": "openai-images"
+        },
+        {
+          "name": "style",
+          "type": "text",
+          "description": "The look of the thumbnails, in a few words.",
+          "example": "a bold, flat-colour illustration"
+        }
+      ],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "operation",
+          "approval",
+          "integration",
+          "entry"
+        ],
+        "entry_ops": [
+          "set_metadata"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [
+          "generate"
+        ],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {
+        "integrations": [
+          {
+            "provider": "openai_images",
+            "actions": [
+              "generate"
+            ],
+            "credentials": [
+              "api_key"
+            ]
+          }
+        ]
+      },
       "supporting_objects": [],
       "side_effects": [
         {
           "kind": "paid_call",
-          "description": "Three generations per run.",
-          "flag": true
-        }
-      ],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+          "description": "One AI call for the concepts, then three paid images once an editor approves."
+        },
         {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "Delivered 2026-10-11: an `approval` step parks the run (snapshot in workflow_approvals), asks members at its role (push, Automation → Approvals, app badge), resumes from the next step with ${steps.<id>.output.decision} (approved | denied | expired | stale — the entry changed after it was asked), expires hourly, and lets integration actions marked requires_approval run in an approved run. One-tap Approve/Deny on the push is a later slice.",
-          "why": "pick one of three generated thumbnails — an approval with choices (approval steps ask approve/deny); generating and attaching is delivered"
+          "kind": "approval",
+          "description": "Two approvals: to draw (three paid images), then to pick one (an approval with choices)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Attaches three pictures as thumbnail-option-0, -1, -2 and records the pick in metadata.thumbnail (role, concept)."
         }
       ],
-      "notes": [],
+      "cost_notes": "One AI call plus three generated images per run, after an editor approves the drawing.",
+      "failure_behaviour": "Declining the first approval draws nothing; declining the pick keeps all three attached and records none; an image error fails that step.",
+      "dependencies": [],
+      "notes": [
+        "The pick is recorded as the role of the chosen picture (thumbnail-option-N) — the site reads the entry's asset in that role.",
+        "The three options stay attached; detach the two not chosen on the entry page if you don't want them."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "integration:openai_images"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_thumbnail_audition"
       },
       "brief": {
         "flow": "Entry → generate three thumbnail concepts → user selects one",
@@ -6178,48 +6632,120 @@
     {
       "id": "achievement-cabinet",
       "title": "Achievement cabinet",
-      "outcome": "Milestone event → award configured badge → update project collection",
+      "outcome": "When a project reaches a milestone (a workflow sends your `custom.milestone` event for it), a badge is drafted for it and added to your cabinet collection — once per project and badge.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
         "rules",
-        "collections"
+        "collections",
+        "custom events"
       ],
       "target_entity": "entry",
       "trigger": {
         "type": "event",
-        "event": "entry_updated",
-        "builtin_event": true,
-        "custom_event": false
+        "event": "custom.milestone",
+        "builtin_event": false,
+        "custom_event": true
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "achievement-cabinet.json",
+      "vars": "achievement-cabinet.vars.json",
+      "setup_variables": [
         {
-          "capability": "custom-events",
-          "name": "Custom emit_event names",
-          "priority": "P2",
-          "acceptance": "A workspace can register `custom.<name>` events (catalog entry with payload fields); emit_event sends them with a templated payload; they are triggerable and subscribable; depth bounding applies.",
-          "why": "a `milestone` event"
+          "name": "badge_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type a badge is made as (its title is the badge's name).",
+          "example": "badge"
+        },
+        {
+          "name": "badge_body_field",
+          "type": "field_key",
+          "description": "That type's text field, where the line saying who earned it goes.",
+          "example": "body"
+        },
+        {
+          "name": "cabinet_collection",
+          "type": "collection_slug",
+          "description": "The collection every new badge is added to: the cabinet.",
+          "example": "achievements"
         }
       ],
+      "requires": {
+        "trigger": "event:custom.milestone",
+        "action_kinds": [
+          "collect",
+          "entry"
+        ],
+        "entry_ops": [
+          "create",
+          "add_to_collection"
+        ],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "exists",
+          "eq"
+        ]
+      },
+      "prerequisites": {
+        "custom_events": [
+          {
+            "event_type": "custom.milestone",
+            "fields": [
+              "milestone",
+              "badge"
+            ],
+            "note": "A string field `milestone` (what was reached) and `badge` (the badge's name). The event is about the project entry it is sent for."
+          }
+        ]
+      },
+      "supporting_objects": [
+        {
+          "kind": "custom_event",
+          "required": true,
+          "name": "custom.milestone",
+          "purpose": "The event this workflow starts on. Any workflow sends it with an Emit event step (event `custom.milestone`, `entity_id` the project, payload `milestone` and `badge`).",
+          "referenced_by": "trigger.event",
+          "create": "Settings → Automation → Custom events (PUT /api/groups/custom-events/milestone)",
+          "configuration": {
+            "name": "milestone",
+            "title": "Milestone reached",
+            "description": "A project reached a milestone worth a badge.",
+            "fields": [
+              {
+                "key": "milestone",
+                "type": "string",
+                "description": "What was reached, e.g. First release."
+              },
+              {
+                "key": "badge",
+                "type": "string",
+                "description": "The badge to award."
+              }
+            ]
+          }
+        }
+      ],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft badge entry (metadata.achievement: project:badge) and adds it to the cabinet collection (entry_created, collection updated)."
+        }
+      ],
+      "cost_notes": "Free: no AI.",
+      "failure_behaviour": "The same badge for the same project is awarded once: a repeated event finds it and does nothing. An event sent without a project or without a badge name is ignored. A badge type or collection that doesn't exist fails the run (recorded).",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): `add_to_collection` on a condition (`entry.data.milestone eq shipped`) works today — the badge itself can't be created."
+        "Badges are drafts: publish the ones you want shown. The cabinet is a collection, so the site lists it in the collection's order.",
+        "Send the event from any workflow, e.g. one on entry_updated whose condition is `entry.data.stage` changed to `shipped`: an Emit event step with event custom.milestone and payload {\"milestone\": \"Shipped\", \"badge\": \"First release\"}. A workflow that sends an event is never woken by it, but another workflow is: that is how one workflow hands work to another."
       ],
       "verification": {
-        "level": "none",
+        "level": "fixture-executed",
         "mocked": [],
-        "test": null
+        "test": "tests/test_workflow_library.py::TestExecution::test_achievement_cabinet"
       },
       "brief": {
         "flow": "Milestone event → award configured badge → update project collection",
@@ -6332,7 +6858,7 @@
     {
       "id": "choose-your-own-adventure",
       "title": "Choose your own adventure",
-      "outcome": "Story entry → generate branching draft and check reachable endings",
+      "outcome": "Run it on a premise entry: an AI writes a branching adventure as a tree of passages, a schema check confirms every branch offers choices or ends, and only then is it drafted (as JSON in the entry's text field); a story with a branch that goes nowhere stops the run and names the branch.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
@@ -6346,32 +6872,69 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "choose-your-own-adventure.json",
+      "vars": "choose-your-own-adventure.vars.json",
+      "setup_variables": [
         {
-          "capability": "sandbox",
-          "name": "Schema validation / sandbox handler",
-          "priority": "P2",
-          "acceptance": "A step validates a fetched JSON document against a JSON schema and reports violations as output.",
-          "why": "graph reachability check"
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the adventure is drafted as.",
+          "example": "article"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field; the story is saved in it as JSON.",
+          "example": "body"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "operation",
+          "schema_check",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": []
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per run (two if the answer misses its fields)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry (once per run), marked metadata.adventure_of, only when the story checks out."
+        }
+      ],
+      "cost_notes": "One AI call per run, from the workspace's monthly AI budget.",
+      "failure_behaviour": "A story that doesn't hold together fails the run at the check (the message names the first broken branch, e.g. $.choices[1].next) and nothing is drafted; run it again for another try.",
+      "dependencies": [],
+      "notes": [
+        "Reachability: the story is a tree (each passage is an ending or offers 2–3 choices that lead on), so every passage is reachable from the start by construction and the schema check holds every branch to an ending. A story whose choices loop back to an earlier passage (a graph) can't be written this way, and checking one would need a graph step the engine doesn't have.",
+        "The draft holds the story as JSON text (passages nested under choices) in the entry type's text field, for a person or a front end to turn into pages.",
+        "Run inputs: the Run button asks for the premise entry; the agent's run_workflow passes it as `inputs`.",
+        "Each run drafts a new adventure."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_choose_your_own_adventure"
       },
       "brief": {
         "flow": "Story entry → generate branching draft and check reachable endings",
@@ -6757,7 +7320,7 @@
     {
       "id": "alternate-universe-cover",
       "title": "Alternate universe cover",
-      "outcome": "When an entry is published, an editor is asked whether to make an alternate-universe cover; once approved, OpenAI Images draws it and it is attached to the entry as cover-variant.",
+      "outcome": "When an entry is published, an editor is asked whether to make an alternate-universe cover; once approved, OpenAI Images draws it, the editor sees the picture and decides whether to use it, and only then is it attached to the entry as cover-variant.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
@@ -6801,9 +7364,12 @@
         "trigger": "event:entry_published",
         "action_kinds": [
           "approval",
-          "integration"
+          "integration",
+          "entry"
         ],
-        "entry_ops": [],
+        "entry_ops": [
+          "attach_asset"
+        ],
         "operations": [],
         "handlers": [],
         "integration_actions": [
@@ -6843,14 +7409,14 @@
         },
         {
           "kind": "content_mutation",
-          "description": "Saves the picture as an asset (prompt, model and run recorded) and attaches it to the entry."
+          "description": "Saves the picture as an asset (prompt, model and run recorded); attaches it to the entry only after the second approval."
         }
       ],
       "cost_notes": "One paid image per approval, billed by OpenAI.",
-      "failure_behaviour": "Denied or expired: nothing is drawn. A provider error fails the step and follows the integration's error policy.",
+      "failure_behaviour": "Denied or expired at the first approval: nothing is drawn. Denied at the second: the picture stays in the library, unattached. A provider error fails the step and follows the integration's error policy.",
       "dependencies": [],
       "notes": [
-        "The picture is kept as an asset before the run goes on, so the run carries a reference, not image data."
+        "Two approvals: the first spends the image, the second shows it (the approval step's `image`) and attaches it only on a yes — so an editor judges the actual picture, not the idea."
       ],
       "verification": {
         "level": "fixture-executed",
@@ -6963,11 +7529,12 @@
         }
       ],
       "cost_notes": "One AI call per capsule, months later.",
-      "failure_behaviour": "An entry moved to the Trash, or the workflow switched off or changed, cancels the waiting capsule; publishing again doesn't seal a second one.",
+      "failure_behaviour": "An entry moved to the Trash, or the workflow switched off or its Wait step removed, cancels the waiting capsule (automation_failed says so); publishing again doesn't seal a second one.",
       "dependencies": [],
       "notes": [
         "The look back reads the entry as it is when the capsule opens, beside the sealed text.",
-        "The sealed text is kept in the entry's metadata, so it can be read (or edited) on the entry page."
+        "The sealed text is kept in the entry's metadata, so it can be read (or edited) on the entry page.",
+        "Editing the workflow while capsules wait is fine: each opens with the steps as they are then."
       ],
       "verification": {
         "level": "fixture-executed",
@@ -7286,18 +7853,11 @@
       ],
       "cost_notes": "None (no AI).",
       "failure_behaviour": "The webhook step makes one attempt; a non-2xx or a timeout fails the run (recorded in the run history, `workflow_failed` alert if enabled) and the metadata step after it does not run. Re-publishing re-sends: there is no per-step idempotency key. A non-JSON response is stored as trimmed text.",
-      "dependencies": [
-        {
-          "capability": "idempotency",
-          "name": "Per-step idempotency keys",
-          "priority": "P0",
-          "acceptance": "A webhook/integration step with `idempotency_key` (templated) that already succeeded for that key within the window is skipped and its recorded output reused; two concurrent duplicate events deliver once.",
-          "why": "to never hand off the same version twice"
-        }
-      ],
+      "dependencies": [],
       "notes": [
         "`ready_status` must be one of Marvin's statuses (needs_review, approved, published); `changed_to` fires once on the transition.",
-        "The whole `entry.data` object is sent — review what the type's fields contain before enabling."
+        "The whole `entry.data` object is sent — review what the type's fields contain before enabling.",
+        "Idempotency keys exist (2026-10-18): an `idempotency_key` on the webhook step such as `handoff-${entry.id}` would make the call once per window; this recipe doesn't set one."
       ],
       "verification": {
         "level": "fixture-executed",
@@ -7319,7 +7879,7 @@
     {
       "id": "agent-directory-intake",
       "title": "Agent directory intake",
-      "outcome": "Agent submission → validate capability document → sandbox checks → review",
+      "outcome": "A form submission naming an agent's capability document: the page is fetched, its JSON is checked against your schema, the problems (or a clean bill) are recorded on the submission, it goes to review and a notification says which.",
       "category": "Operations and knowledge",
       "category_slug": "operations",
       "tags": [
@@ -7334,41 +7894,139 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "agent-directory-intake.json",
+      "vars": "agent-directory-intake.vars.json",
+      "setup_variables": [
         {
-          "capability": "fetch",
-          "name": "HTTP fetch step",
-          "priority": "P1",
-          "acceptance": "A GET/HEAD step (SSRF-guarded, bounded body) returns status, headers and parsed body as step output; a link-check handler reports broken links for one entry.",
-          "why": "retrieve the capability document"
+          "name": "form_entry_type",
+          "type": "entry_type_slug",
+          "description": "The submittable entry type the agent form saves submissions as.",
+          "example": "agent-submission"
         },
         {
-          "capability": "sandbox",
-          "name": "Schema validation / sandbox handler",
-          "priority": "P2",
-          "acceptance": "A step validates a fetched JSON document against a JSON schema and reports violations as output.",
-          "why": "schema validation"
+          "name": "document_url_field",
+          "type": "field_key",
+          "description": "Its field holding the address of the agent's capability document (JSON).",
+          "example": "capabilities_url"
+        },
+        {
+          "name": "capability_schema",
+          "type": "object",
+          "description": "The JSON Schema a capability document must fit — what your directory requires of an agent (an object with `required` and `properties`).",
+          "example": {
+            "type": "object",
+            "required": [
+              "name",
+              "url",
+              "capabilities"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "url": {
+                "type": "string",
+                "pattern": "^https://"
+              },
+              "capabilities": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "notify_integration",
+          "type": "integration_slug",
+          "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
+          "example": "alerts"
         }
       ],
+      "requires": {
+        "trigger": "event",
+        "action_kinds": [
+          "fetch",
+          "schema_check",
+          "entry",
+          "integration"
+        ],
+        "entry_ops": [
+          "set_metadata",
+          "request_review"
+        ],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {
+        "integrations": [
+          {
+            "capability": "notify",
+            "examples": "Slack or Apprise"
+          }
+        ],
+        "entry_types": [
+          "A submittable entry type (a form) with a field for the capability document's address"
+        ]
+      },
+      "supporting_objects": [
+        {
+          "kind": "entry_type",
+          "required": true,
+          "name": "The agent form's entry type",
+          "purpose": "Where submissions land, with a field holding the address of the capability document.",
+          "referenced_by": "conditions[0] and actions[0].url",
+          "create": "Settings → Entry types (submittable, with a form)"
+        },
+        {
+          "kind": "integration_connection",
+          "required": true,
+          "name": "Slack or Apprise",
+          "purpose": "Where the result goes.",
+          "referenced_by": "actions[5].integration",
+          "create": "Settings → Integrations"
+        }
+      ],
+      "side_effects": [
+        {
+          "kind": "external_read",
+          "description": "One GET of the submitted address (a public address only, 2 MB, 10 s)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Sets metadata.capability_check (valid, the problems with their paths, the page's status) and sends the submission to review."
+        },
+        {
+          "kind": "external_post",
+          "description": "Sends one notification per submission."
+        }
+      ],
+      "cost_notes": "Free: no AI. One web request per submission.",
+      "failure_behaviour": "A page that doesn't answer, isn't JSON or is over 20 000 characters is a document that doesn't fit (the problem is recorded and the submission still goes to review), never a failed run; a malformed schema is refused when the workflow is saved; a notifier error fails the run after the review is recorded.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): form-intake-desk covers the intake half (record, review, notify)."
+        "Possible today (partial): form-intake-desk covers the intake half (record, review, notify) when no document needs checking.",
+        "The “sandbox checks” of the idea (running the agent) are not part of this: the check is the document's shape — required fields, types, patterns — never a call to the agent itself.",
+        "The schema is a setup variable (a JSON Schema object, Draft 2020-12). To keep it in one place for several workflows, put it in a resource's metadata under `schema` and use schema_resource in the step instead.",
+        "Formats (email, uri…) are not asserted; use a `pattern`. A page's JSON is read up to 20 000 characters; a larger document is reported as not read."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "http:guarded-client",
+          "integration:notify"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_agent_directory_intake"
       },
       "brief": {
         "flow": "Agent submission → validate capability document → sandbox checks → review",
@@ -8557,17 +9215,9 @@
       ],
       "cost_notes": "None (no AI).",
       "failure_behaviour": "A provider error fails the step and the provider's error policy applies (Buttondown: review/retry/notify by code); with `integration_errors: \"fail\"` or on_failure steps it fails plainly. The run is recorded and the `workflow_failed` alert fires (if enabled). Metadata and review land before the notice is attempted.",
-      "dependencies": [
-        {
-          "capability": "form-classification",
-          "name": "Form-submission classification from workflows",
-          "priority": "P0",
-          "acceptance": "The workflow runner loads an entry-backed submission into `ctx.form_submission` so classify-form-submission classifies the real data; its output (`is_spam`, `category`) is usable by branches.",
-          "why": "to classify before routing"
-        }
-      ],
+      "dependencies": [],
       "notes": [
-        "The brief's “classify” step is not possible yet: `classify-form-submission` receives no submission context from the workflow runner (it reads the legacy FormSubmissions table). See intake-triage.",
+        "To classify submissions (spam, category, sentiment) as they arrive, use form-submission-sorter, which sorts with an AI step; this desk stays free of AI.",
         "Marvin already creates the entry (status inbox, or needs_review when protection flagged it) and pushes form_submission_received to people with the app.",
         "Legacy Forms (the Forms table) also send this event, but with no entry — the `entry.entry_type` condition keeps the recipe to submittable entry types."
       ],
@@ -8587,6 +9237,108 @@
         ],
         "suggested_trigger_event": "form_submission_received"
       }
+    },
+    {
+      "id": "form-submission-sorter",
+      "title": "Form submission sorter",
+      "outcome": "A new submission is classified by AI — its category, whether it is spam, its sentiment, whether it needs a reply — recorded on the entry, and sent to Needs review when it looks like spam or needs action.",
+      "category": "Event-driven extensions",
+      "category_slug": "events",
+      "tags": [
+        "forms",
+        "classify",
+        "spam",
+        "review",
+        "ai"
+      ],
+      "target_entity": "entry",
+      "trigger": {
+        "type": "event",
+        "event": "form_submission_received",
+        "custom_event": false,
+        "builtin_event": true
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "form-submission-sorter.json",
+      "vars": "form-submission-sorter.vars.json",
+      "setup_variables": [
+        {
+          "name": "form_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type that takes public submissions (a contact or request form).",
+          "example": "contact-request"
+        },
+        {
+          "name": "categories",
+          "type": "list",
+          "description": "The kinds of submission you get — the AI puts each in one (a list of words).",
+          "example": [
+            "inquiry",
+            "support",
+            "feedback",
+            "other"
+          ]
+        }
+      ],
+      "requires": {
+        "trigger": "event:form_submission_received",
+        "action_kinds": [
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "set_metadata",
+          "request_review"
+        ],
+        "operations": [
+          "classify-form-submission"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "neq"
+        ]
+      },
+      "prerequisites": {
+        "features": [
+          "a submittable entry type (capabilities.submittable) — submissions are entries of that type",
+          "AI on for workflows (Settings → AI)"
+        ]
+      },
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per submission (none for one that submission protection already flagged)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Merges metadata.classified (category, confidence, is_spam, sentiment, action_required) into the entry (emits entry_updated at depth+1)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Moves a submission that looks like spam, or needs action, to Needs review with the reason (emits entry_updated at depth+1). Nothing is deleted."
+        }
+      ],
+      "cost_notes": "One AI call per submission that isn't flagged, from the workspace's monthly AI budget.",
+      "failure_behaviour": "A flagged submission is left alone; an AI error fails the run and the submission stays where it landed. A dry run doesn't ask the AI: it previews with a stand-in category.",
+      "dependencies": [],
+      "notes": [
+        "The submission's text is sent to the workspace's AI provider — say so in the form's privacy note.",
+        "The classification is the AI's opinion: spam is sent to Needs review, never trashed. A submission that is neither spam nor needs action stays in Inbox with metadata.classified for a view or a later workflow.",
+        "It reads ${form_submission.*} (the submission as the public form saved it); the classify-form-submission step finds it itself."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:classify-form-submission"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_form_submission_sorter"
+      },
+      "brief": null
     },
     {
       "id": "submission-surge-alert",
@@ -9091,60 +9843,63 @@
     {
       "id": "integration-health-companion",
       "title": "Integration health companion",
-      "outcome": "Marvin's own integration alerts (deduplicated, with reminders) reach your channels; nothing duplicates them.",
+      "outcome": "When a connection needs attention, a repair task is drafted for it — once per connection and error code while the task is open; Marvin's own alerts (with reminders) still reach your channels.",
       "category": "Event-driven extensions",
       "category_slug": "events",
       "tags": [
         "integrations",
         "alerts",
-        "notify"
+        "tasks"
       ],
-      "target_entity": "integration",
+      "target_entity": "entry",
       "trigger": {
-        "type": "subscription",
+        "type": "event",
         "event": "integration_attention_needed",
         "builtin_event": true,
-        "custom_event": false,
-        "note": "Not a workflow trigger: this event is delivered to subscriptions / Automation → Notifications, never to the automation engine."
+        "custom_event": false
       },
-      "status": "supported-after-configuration",
-      "shape": "configuration",
+      "status": "verified-current",
+      "shape": "workflow",
       "runnable": true,
-      "recipe": null,
-      "vars": null,
+      "recipe": "integration-health-companion.json",
+      "vars": "integration-health-companion.vars.json",
       "setup_variables": [
         {
-          "name": "ops_recipients",
-          "type": "list",
-          "description": "Email addresses for alerts (empty: owners and admins)."
+          "name": "task_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type a repair task is drafted as.",
+          "example": "task"
         },
         {
-          "name": "reminder_hours",
-          "type": "integer",
-          "description": "Hours between reminders for an open alert (0 = never).",
-          "example": 24
+          "name": "body_field",
+          "type": "field_key",
+          "description": "That type's text field, where the details go.",
+          "example": "body"
         }
       ],
       "requires": {
-        "trigger": "subscription:integration_attention_needed",
-        "action_kinds": [],
-        "entry_ops": [],
+        "trigger": "event:integration_attention_needed",
+        "action_kinds": [
+          "collect",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
         "operations": [],
         "handlers": [],
         "integration_actions": [],
-        "condition_ops": []
-      },
-      "prerequisites": {
-        "features": [
-          "SMTP (workspace or platform) for email; VAPID for push"
+        "condition_ops": [
+          "exists"
         ]
       },
+      "prerequisites": {},
       "supporting_objects": [
         {
           "kind": "notification_settings",
-          "required": true,
+          "required": false,
           "name": "Automation → Notifications",
-          "purpose": "Turns the `integration_attention` kind on and picks channels.",
+          "purpose": "Optional, and independent of this workflow: the `integration_attention` kind (on by default) emails owners and admins and can post to a chat channel, so people hear about it even if this workflow fails.",
           "referenced_by": "settings",
           "create": "PUT /api/groups/notifications",
           "configuration": {
@@ -9152,43 +9907,33 @@
               "integration_attention": true
             },
             "email": {
-              "enabled": true,
-              "recipients": "{{ops_recipients}}"
+              "enabled": true
             },
             "push": {
               "enabled": true
             },
             "routes": [],
-            "integration_reminder_hours": "{{reminder_hours}}"
-          },
-          "notes": "Routes can add a chat channel: `{integration_id, action, args, kinds}` naming a connected notify-capable action (Apprise `notify`, Slack `send_message`)."
+            "integration_reminder_hours": 24
+          }
         }
       ],
       "side_effects": [
         {
-          "kind": "notification",
-          "description": "Email/push/route per opened alert and per reminder window; a resolved notice goes to the same channels."
+          "kind": "content_mutation",
+          "description": "Drafts a repair task entry (metadata.integration_alert: <connection>:<code>); nothing is sent."
         }
       ],
-      "cost_notes": "None.",
-      "failure_behaviour": "Delivery is one attempt per channel; the last delivery status is shown on the Notifications page.",
-      "dependencies": [
-        {
-          "capability": "ops-triggers",
-          "name": "Operational events as workflow triggers",
-          "priority": "P2",
-          "acceptance": "ai_budget_*, integration_attention_*, webhook_delivery_failed and scheduled_task_failed become triggerable with origin filtering (a workflow never reacts to a failure its own run caused) and an independent fallback channel.",
-          "why": "to open a repair task from the alert"
-        }
-      ],
+      "cost_notes": "Free: no AI.",
+      "failure_behaviour": "One open task per connection and error code: a reminder, or a second failure while the task is open, finds it and does nothing. Archive or trash the task when the connection works again and the next outage drafts a new one. A task type or field that doesn't exist fails the run (recorded; a `workflow_failed` alert if enabled). The workflow is never woken by a failure its own run caused, and it makes no call to the connection.",
+      "dependencies": [],
       "notes": [
-        "Not a workflow: integration_attention_needed is deliberately not triggerable (a reacting workflow could call the failing connection). The “repair task” half would need the event as a trigger (roadmap: ops-triggers) or an integration event subscription to n8n."
+        "Marvin's alerts are unchanged: the Notifications page still sends the alert, its reminders and the “working again” note; this recipe adds the task beside them, so nothing is duplicated.",
+        "The task is a draft: the person who fixes the connection archives it. `integration_attention_resolved` is triggerable too, for a second workflow that closes tasks."
       ],
       "verification": {
-        "level": "none",
+        "level": "fixture-executed",
         "mocked": [],
-        "test": null,
-        "note": "Configuration objects are validated by their own API models on save; the fixture does not provision them."
+        "test": "tests/test_workflow_library.py::TestExecution::test_integration_health_companion"
       },
       "brief": {
         "flow": "Reuse native alerts; add supported repair task without duplicate notifications",
@@ -9217,7 +9962,7 @@
         "event": "integration_attention_resolved",
         "builtin_event": true,
         "custom_event": false,
-        "note": "Not a workflow trigger: this event is delivered to subscriptions / Automation → Notifications, never to the automation engine."
+        "note": "This recipe is Notifications / subscription configuration. A workflow can start on this event too (the editor's Operations heading), but never on a failure its own run caused."
       },
       "status": "supported-after-configuration",
       "shape": "configuration",
@@ -9292,53 +10037,63 @@
     {
       "id": "webhook-repair-desk",
       "title": "Webhook repair desk",
-      "outcome": "When an outgoing webhook fails after its retries, people hear about it on a channel that does not depend on that webhook.",
+      "outcome": "When an outgoing webhook fails after its retries, a repair task is drafted for it on this workspace's own entries — once per webhook while the task is open.",
       "category": "Event-driven extensions",
       "category_slug": "events",
       "tags": [
         "webhooks",
-        "alerts"
+        "alerts",
+        "tasks"
       ],
-      "target_entity": "webhook",
+      "target_entity": "entry",
       "trigger": {
-        "type": "subscription",
+        "type": "event",
         "event": "webhook_delivery_failed",
         "builtin_event": true,
-        "custom_event": false,
-        "note": "Not a workflow trigger: this event is delivered to subscriptions / Automation → Notifications, never to the automation engine."
+        "custom_event": false
       },
-      "status": "supported-after-configuration",
-      "shape": "configuration",
+      "status": "verified-current",
+      "shape": "workflow",
       "runnable": true,
-      "recipe": null,
-      "vars": null,
+      "recipe": "webhook-repair-desk.json",
+      "vars": "webhook-repair-desk.vars.json",
       "setup_variables": [
         {
-          "name": "ops_recipients",
-          "type": "list",
-          "description": "Email addresses (empty: owners and admins)."
+          "name": "task_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type a repair task is drafted as.",
+          "example": "task"
+        },
+        {
+          "name": "body_field",
+          "type": "field_key",
+          "description": "That type's text field, where the details go.",
+          "example": "body"
         }
       ],
       "requires": {
-        "trigger": "subscription:webhook_delivery_failed",
-        "action_kinds": [],
-        "entry_ops": [],
+        "trigger": "event:webhook_delivery_failed",
+        "action_kinds": [
+          "collect",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
         "operations": [],
         "handlers": [],
         "integration_actions": [],
-        "condition_ops": []
-      },
-      "prerequisites": {
-        "features": [
-          "SMTP or VAPID push"
+        "condition_ops": [
+          "exists"
         ]
       },
+      "prerequisites": {},
       "supporting_objects": [
         {
           "kind": "notification_settings",
-          "required": true,
+          "required": false,
           "name": "Automation → Notifications",
-          "purpose": "The `webhook_delivery_failed` kind is off by default; turn it on with email/push.",
+          "purpose": "Optional, and independent of the failing webhook and of this workflow: the `webhook_delivery_failed` kind is off by default; turn it on to be emailed or pushed for each failure.",
           "referenced_by": "settings",
           "create": "PUT /api/groups/notifications",
           "configuration": {
@@ -9346,8 +10101,7 @@
               "webhook_delivery_failed": true
             },
             "email": {
-              "enabled": true,
-              "recipients": "{{ops_recipients}}"
+              "enabled": true
             },
             "push": {
               "enabled": true
@@ -9357,29 +10111,21 @@
       ],
       "side_effects": [
         {
-          "kind": "notification",
-          "description": "One email/push per failed delivery (every failure, no dedup for this kind)."
+          "kind": "content_mutation",
+          "description": "Drafts a repair task entry (metadata.webhook_repair: the webhook's id); nothing is sent."
         }
       ],
-      "cost_notes": "None.",
-      "failure_behaviour": "Independent of the failing webhook by construction (email/push). The publisher never emits webhook_delivery_failed for a delivery of webhook_delivery_failed itself (loop guard).",
-      "dependencies": [
-        {
-          "capability": "ops-triggers",
-          "name": "Operational events as workflow triggers",
-          "priority": "P2",
-          "acceptance": "ai_budget_*, integration_attention_*, webhook_delivery_failed and scheduled_task_failed become triggerable with origin filtering (a workflow never reacts to a failure its own run caused) and an independent fallback channel.",
-          "why": "to open a repair task automatically"
-        }
-      ],
+      "cost_notes": "Free: no AI.",
+      "failure_behaviour": "One open task per webhook: the next failure while it is open finds it and does nothing; archive or trash it once the webhook works and the next failure drafts a new one. The task lives in Marvin, so it doesn't depend on the failing webhook. If the webhook that fails is one that carries this workflow's own entries (creating the task is an `entry_created` event), the failure that causes is not answered by this workflow — it can't loop; the Notifications page still alerts if you turned it on.",
+      "dependencies": [],
       "notes": [
-        "Not a workflow: webhook_delivery_failed is hidden from triggers. The webhook's own delivery log (GET /api/groups/webhooks/{id}/logs) is the repair context."
+        "The webhook's own delivery log (Automation → Webhooks → Log, or GET /api/groups/webhooks/{id}/logs) is the repair context; the task names the webhook and the event it couldn't deliver.",
+        "The publisher never announces a failed delivery of `webhook_delivery_failed` itself, so a webhook subscribed to it can't make this fire again."
       ],
       "verification": {
-        "level": "none",
+        "level": "fixture-executed",
         "mocked": [],
-        "test": null,
-        "note": "Configuration objects are validated by their own API models on save; the fixture does not provision them."
+        "test": "tests/test_workflow_library.py::TestExecution::test_webhook_repair_desk"
       },
       "brief": {
         "flow": "Notify via independent channel after native retries are exhausted",
@@ -9407,7 +10153,7 @@
         "event": "scheduled_task_failed",
         "builtin_event": true,
         "custom_event": false,
-        "note": "Not a workflow trigger: this event is delivered to subscriptions / Automation → Notifications, never to the automation engine."
+        "note": "This recipe is Notifications / subscription configuration. A workflow can start on this event too (the editor's Operations heading), but never on a failure its own run caused."
       },
       "status": "supported-after-configuration",
       "shape": "configuration",
@@ -9463,7 +10209,7 @@
       "failure_behaviour": "Incidents are keyed `scheduled_task:<id>`; repeated failures only bump the count — no loop, no spam.",
       "dependencies": [],
       "notes": [
-        "Not a workflow: scheduled_task_* are internal scheduler events, not triggerable. A workflow run on a schedule that fails reports through `automation_failed` (the `workflow_failed` kind), not here."
+        "The alert is native, one per incident. A workflow can start on `scheduled_task_failed` (the workspace's own tasks; a platform task belongs to no workspace) and reads `${event.task_name}`, `${event.error_message}` and `${event.consecutive_failures}`; it would run on every failed run, so gate it on `event.consecutive_failures`. A workflow run on a schedule that fails reports through `automation_failed` (the `workflow_failed` kind), not here."
       ],
       "verification": {
         "level": "none",
@@ -9498,7 +10244,7 @@
         "event": "ai_budget_threshold_reached",
         "builtin_event": true,
         "custom_event": false,
-        "note": "Not a workflow trigger: this event is delivered to subscriptions / Automation → Notifications, never to the automation engine."
+        "note": "This recipe is Notifications / subscription configuration. A workflow can start on this event too (the editor's Operations heading), but never on a failure its own run caused."
       },
       "status": "supported-after-configuration",
       "shape": "configuration",
@@ -9554,7 +10300,7 @@
       "failure_behaviour": "Email delivery failures are logged; no retry.",
       "dependencies": [],
       "notes": [
-        "Not a workflow trigger. “Propose cheaper options” is a concept (would need the model list and pricing as event fields)."
+        "A workflow can start on this event (`${event.current_value}`, `${event.limit_value}`, `${event.percent}`). “Propose cheaper options” is a concept (would need the model list and pricing as event fields)."
       ],
       "verification": {
         "level": "none",
@@ -9589,7 +10335,7 @@
         "event": "ai_budget_exceeded",
         "builtin_event": true,
         "custom_event": false,
-        "note": "Not a workflow trigger: this event is delivered to subscriptions / Automation → Notifications, never to the automation engine."
+        "note": "This recipe is Notifications / subscription configuration. A workflow can start on this event too (the editor's Operations heading), but never on a failure its own run caused."
       },
       "status": "supported-after-configuration",
       "shape": "configuration",
@@ -9925,7 +10671,7 @@
           "capability": "collection-scope",
           "name": "Collection-scoped steps",
           "priority": "P1",
-          "acceptance": "A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup).",
+          "acceptance": "A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup). Partly delivered 2026-10-12: a `collect` step reads a collection's entries in its own order (`collection` + sort `position`) for one step to use; with an AI or `repeat` step over its rows, that is the roundup (2026-10-12/13); left only: `${collection.entries}` bound directly on collection events (a `collect` step reads the same set today).",
           "why": "a summary of the collection itself"
         },
         {
@@ -10231,7 +10977,7 @@
     {
       "id": "new-member-welcome",
       "title": "New member welcome",
-      "outcome": "Admins (or a fixed address) are emailed when a member joins, with the member's name and role; the token-free payload is all the template sees.",
+      "outcome": "When someone joins the workspace they get a welcome email addressed to them — hello by name, the role they joined as, your note on where to start, and a button for their role (the workspace for anyone who can write, the site for a reader). Sent once per person.",
       "category": "Event-driven extensions",
       "category_slug": "events",
       "tags": [
@@ -10240,33 +10986,35 @@
       ],
       "target_entity": "member",
       "trigger": {
-        "type": "subscription",
+        "type": "event",
         "event": "member_added",
         "builtin_event": true,
-        "custom_event": false,
-        "note": "Not a workflow trigger: this event is delivered to subscriptions / Automation → Notifications, never to the automation engine."
+        "custom_event": false
       },
-      "status": "supported-after-configuration",
-      "shape": "configuration",
+      "status": "verified-current",
+      "shape": "workflow",
       "runnable": true,
-      "recipe": null,
-      "vars": null,
+      "recipe": "new-member-welcome.json",
+      "vars": "new-member-welcome.vars.json",
       "setup_variables": [
         {
-          "name": "template_id",
-          "type": "email_template_id",
-          "description": "Id of the email template for the welcome / new-member notice (Settings → Email templates; variables come from the event's catalog entry)."
+          "name": "workspace_name",
+          "type": "text",
+          "description": "What the new member's email calls the workspace (it goes in the subject and the first line).",
+          "example": "the Studio"
         },
         {
-          "name": "recipient_type",
+          "name": "welcome_note",
           "type": "text",
-          "description": "`admins`, or `specific` with `recipient_email`.",
-          "example": "admins"
+          "description": "The note they get under the greeting — a line or two on what the place is for and where to start (markdown).",
+          "example": "Glad you're here. Start with the pieces in Start here, and ask in the team thread if you get stuck."
         }
       ],
       "requires": {
-        "trigger": "subscription:member_added",
-        "action_kinds": [],
+        "trigger": "event:member_added",
+        "action_kinds": [
+          "email"
+        ],
         "entry_ops": [],
         "operations": [],
         "handlers": [],
@@ -10278,48 +11026,29 @@
           "SMTP"
         ]
       },
-      "supporting_objects": [
-        {
-          "kind": "email_event_subscription",
-          "required": true,
-          "name": "Member added email",
-          "purpose": "Delivers member_added by email.",
-          "referenced_by": "subscription",
-          "create": "POST /api/groups/email-event-subscriptions",
-          "configuration": {
-            "template_id": "{{template_id}}",
-            "event_type": "member_added",
-            "recipient_type": "{{recipient_type}}",
-            "enabled": true
-          },
-          "notes": "Template variables: username, first_name, role, workspace_name."
-        }
-      ],
+      "supporting_objects": [],
       "side_effects": [
         {
           "kind": "email",
-          "description": "One email per member added."
+          "description": "One email to each new member, once."
         }
       ],
       "cost_notes": "None.",
-      "failure_behaviour": "Email delivery failures are logged; no retry.",
-      "dependencies": [
-        {
-          "capability": "member-email",
-          "name": "Member-addressed email",
-          "priority": "P2",
-          "acceptance": "member_added carries the member's email (or email subscriptions accept recipient_type `member`), and member events are triggerable with the subject distinguished from the actor.",
-          "why": "to welcome the member directly with role-appropriate links"
-        }
-      ],
+      "failure_behaviour": "A workspace with no SMTP profile (and no platform SMTP) fails the step and nothing is sent; once mail is set up the next member is welcomed (a member added before isn't welcomed late). A send the mail server refuses fails the step and gives its claim back, so a retry of the run sends it.",
+      "dependencies": [],
       "notes": [
-        "The member cannot be addressed: member_added carries no email (recipient_type `event_field` has nothing to resolve). Invited members already receive Marvin's system invitation email."
+        "The member is addressed by their user id (${member.id}); the email goes to the address on their account, never to one typed into the workflow. A recipient who is no member of the workspace fails the step.",
+        "Two steps, one for each kind of member: anyone above a reader gets a button to the admin app (`${site.app_url}`, the configured FRONTEND_URL), a reader gets one to the public site (`${site.url}`). A button is left out when its address isn't set.",
+        "`once_per: welcome:${member.id}` makes the welcome once per person, ever — a member removed and added again isn't welcomed twice. Drop it for a welcome per join (the same event handled twice still sends once).",
+        "The email is the markdown body set in the workspace's email layout (its own, else Marvin's default); invited members already get Marvin's own invitation email, which this doesn't replace.",
+        "Community welcome pack drafts a welcome from the start-here collection with an AI; this one sends a fixed note."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null,
-        "note": "Configuration objects are validated by their own API models on save; the fixture does not provision them."
+        "level": "fixture-executed",
+        "mocked": [
+          "smtp:workspace-sender"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_new_member_welcome"
       },
       "brief": {
         "flow": "Draft or send explicitly configured welcome notification with role-appropriate links",

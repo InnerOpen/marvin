@@ -1,6 +1,8 @@
 ---
-import AssetRow from "@/components/AssetRow.astro";
+import AssetList from "@/components/AssetList.astro";
+import FilterSearch from "@/components/FilterSearch.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
+import { listAssetTypes } from "@/lib/api/assets";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { listCollections } from "@/lib/api/collections";
 import { getAssets } from "@/lib/api/platform";
@@ -8,7 +10,8 @@ import { listTags } from "@/lib/api/tags";
 import { listTrashedAssets } from "@/lib/api/trash";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { getMimeCategory } from "@/lib/assetCategory";
-import { isFiltered, listParams, ORIGINS, readLibraryView, SORTS, TYPES, viewHref } from "@/lib/assetLibraryView";
+import { DECISIONS, isFiltered, isUnsearchableImage, listParams, ORIGINS, readLibraryView, SORTS, TYPES, viewHref } from "@/lib/assetLibraryView";
+import { decisionOf } from "@/lib/assetLineage";
 import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -27,14 +30,17 @@ let error: string | null = null;
 
 // Ask files (chat attachments) live apart from the library: a link to them, with their count.
 let askFiles = 0;
+let typesInUse: { type: string; count: number }[] = [];
 try {
-  const [library, asks, trashed, tagList, collectionList] = await Promise.all([
+  const [library, asks, trashed, tagList, collectionList, types] = await Promise.all([
     view.status === "trashed" ? Promise.resolve([]) : getAssets(authToken, listParams(view)),
     fetchApi<unknown[]>("/api/platform/assets?scope=ask", {}, authToken).catch(() => []),
     listTrashedAssets(authToken).catch(() => []),
     listTags(authToken).catch(() => []),
     listCollections(authToken).catch(() => []),
+    listAssetTypes(authToken).catch(() => []),
   ]);
+  typesInUse = types;
   assets = library;
   askFiles = asks.length;
   trashedAssets = trashed;
@@ -45,29 +51,26 @@ try {
   error = e instanceof Error ? e.message : String(e);
   console.error("[Assets] Failed to load:", error);
 }
-const rows = view.status === "trashed" ? trashedAssets : assets;
+const listed = view.status === "trashed" ? trashedAssets : assets;
+// "Not searchable yet": pictures search and the assistants can't find, having no alt text or description.
+const rows = view.searchable === "no" ? listed.filter(isUnsearchableImage) : listed;
+const unsearchable = view.status === "trashed" ? [] : assets.filter(isUnsearchableImage);
 
-// Group assets by MIME category
-const categoryLabels: Record<string, string> = {
-  image: "Images",
-  video: "Videos",
-  audio: "Audio",
-  document: "Documents",
-  other: "Other",
+// The search bar (FilterSearch): the types in use as buttons (the chosen one too, if none are left), the other filters
+// as rows. Each takes one value, the list API's shape.
+const named = (rec: Record<string, string>) => Object.entries(rec).map(([value, label]) => ({ value, label }));
+const pillTypes = Object.keys(TYPES).filter((t) => t === view.type || typesInUse.some((u) => u.type === t));
+const pills = pillTypes.map((t) => ({ label: TYPES[t], href: viewHref(view, { type: view.type === t ? "" : t }), on: view.type === t }));
+const rowFields: Record<string, { label: string; options: { value: string; label: string }[] }> = {
+  origin: { label: "Origin", options: named(ORIGINS) },
+  decision: { label: "Approval", options: named(DECISIONS) },
+  ...(tags.length ? { tag: { label: "Tag", options: tags.map((t: any) => ({ value: t.slug, label: t.name })) } } : {}),
+  ...(collections.length ? { collection: { label: "Collection", options: collections.map((c: any) => ({ value: c.slug, label: c.name })) } } : {}),
+  attached: { label: "Used on an entry", options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] },
+  searchable: { label: "Searchable", options: [{ value: "no", label: "No (no alt text or description)" }] },
 };
-const categoryGroups = new Map<string, { label: string; assets: any[] }>();
-for (const asset of rows) {
-  const cat = getMimeCategory(asset.mimeType);
-  if (!categoryGroups.has(cat)) {
-    categoryGroups.set(cat, { label: categoryLabels[cat] || cat, assets: [] });
-  }
-  categoryGroups.get(cat)!.assets.push(asset);
-}
-const categoryOrder = ["image", "video", "audio", "document", "other"];
-const sortedCategoryGroups = categoryOrder
-  .filter((cat) => categoryGroups.has(cat))
-  .map((cat) => ({ key: cat, ...categoryGroups.get(cat)! }));
-const opt = (value: string, label: string, current: string) => ({ value, label, selected: value === current });
+const rowValues = Object.keys(rowFields).filter((k) => (view as any)[k]).map((k) => ({ field: k, value: (view as any)[k] as string }));
+const optionsOpen = rowValues.length > 0 || view.versions || Boolean(view.status) || view.sort !== "name";
 ---
 
 <AppLayout title="Assets">
@@ -95,43 +98,28 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
         </div>
       </div>
 
-      <form method="get" class="asset-filters" id="asset-filters">
-        <input type="search" name="q" class="filter-search" placeholder="Search name or filename…" value={view.q} />
-        <select name="type" class="filter-select" aria-label="Type">
-          <option value="">All types</option>
-          {Object.entries(TYPES).map(([v, l]) => <option value={v} selected={view.type === v}>{l}</option>)}
-        </select>
-        <select name="origin" class="filter-select" aria-label="Where it came from">
-          <option value="">Any origin</option>
-          {Object.entries(ORIGINS).map(([v, l]) => <option value={v} selected={view.origin === v}>{l}</option>)}
-        </select>
-        {tags.length > 0 && (
-          <select name="tag" class="filter-select" aria-label="Tag">
-            <option value="">Any tag</option>
-            {tags.map((t: any) => <option value={t.slug} selected={view.tag === t.slug}>{t.name}</option>)}
-          </select>
-        )}
-        {collections.length > 0 && (
-          <select name="collection" class="filter-select" aria-label="Collection">
-            <option value="">Any collection</option>
-            {collections.map((c: any) => <option value={c.slug} selected={view.collection === c.slug}>{c.name}</option>)}
-          </select>
-        )}
-        <select name="attached" class="filter-select" aria-label="Used on an entry">
-          {[opt("", "On entries or not", view.attached), opt("yes", "Used on an entry", view.attached), opt("no", "Not on any entry", view.attached)].map((o) => (
-            <option value={o.value} selected={o.selected}>{o.label}</option>
-          ))}
-        </select>
-        <select name="sort" class="filter-select" aria-label="Sort">
-          {Object.entries(SORTS).map(([v, l]) => <option value={v} selected={view.sort === v}>{l}</option>)}
-        </select>
-        <label class="filter-check"><input type="checkbox" name="versions" value="show" checked={view.versions} /> Show versions</label>
-        {trashedAssets.length > 0 && (
-          <label class="filter-check"><input type="checkbox" name="status" value="trashed" checked={view.status === "trashed"} /> The Trash ({trashedAssets.length})</label>
-        )}
-        {view.source && <input type="hidden" name="source" value={view.source} />}
-        {(isFiltered(view) || view.versions || view.status || view.sort !== "name") && <a class="filter-reset" href="/workspace/assets">Clear</a>}
-      </form>
+      <FilterSearch
+        path="/workspace/assets"
+        q={view.q}
+        placeholder="Search names…"
+        pills={pills}
+        fields={rowFields}
+        rows={rowValues}
+        open={optionsOpen}
+        filtered={isFiltered(view) || view.versions || Boolean(view.status) || view.sort !== "name"}
+      >
+        <Fragment slot="extras">
+          <label>Sort
+            <select name="sort" data-default="name">
+              {Object.entries(SORTS).map(([v, l]) => <option value={v} selected={view.sort === v}>{l}</option>)}
+            </select>
+          </label>
+          <label><input type="checkbox" name="versions" value="show" checked={view.versions} /> Show versions</label>
+          {(trashedAssets.length > 0 || view.status === "trashed") && (
+            <label><input type="checkbox" name="status" value="trashed" checked={view.status === "trashed"} /> The Trash ({trashedAssets.length})</label>
+          )}
+        </Fragment>
+      </FilterSearch>
 
       {rows.length === 0 && (isFiltered(view) || view.status) ? (
         <div class="empty-state">
@@ -147,46 +135,43 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
         </div>
       ) : (
         <>
+          {unsearchable.length > 0 && view.searchable !== "no" && (
+            <p class="search-nudge">
+              {unsearchable.length === 1 ? "1 picture has" : `${unsearchable.length} pictures have`} no alt text or description, so search and
+              the assistants can't find {unsearchable.length === 1 ? "it" : "them"}. <a href={viewHref(view, { searchable: "no" })}>Show {unsearchable.length === 1 ? "it" : "them"}</a>
+            </p>
+          )}
+          {view.searchable === "no" && rows.length > 0 && access.canEdit && (
+            <div class="search-nudge">
+              <p>
+                Give each a description so it can be found: open one and type it, or let AI look at {rows.length === 1 ? "it" : "them"} and
+                write one ({rows.length === 1 ? "one AI call" : `one AI call each, ${rows.length} in all`}). The text is saved straight away; edit it any time.
+              </p>
+              <button type="button" class="button" id="describe-all" data-ids={rows.map((a: any) => a.id).join(",")}>
+                ✨ Describe and save {rows.length === 1 ? "it" : `these ${rows.length}`} with AI
+              </button>
+              <p id="describe-status" class="describe-status" aria-live="polite"></p>
+            </div>
+          )}
           <div class="view-toggle">
-            <button class="toggle-btn active" id="view-table" title="All assets">
+            <button class="toggle-btn active" id="view-grid" title="Thumbnails">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
-              All
+              Cards
             </button>
-            <button class="toggle-btn" id="view-grid" title="Thumbnails">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="4" height="4" rx="1"/><rect x="6" y="1" width="4" height="4" rx="1"/><rect x="11" y="1" width="4" height="4" rx="1"/><rect x="1" y="6" width="4" height="4" rx="1"/><rect x="6" y="6" width="4" height="4" rx="1"/><rect x="11" y="6" width="4" height="4" rx="1"/><rect x="1" y="11" width="4" height="4" rx="1"/><rect x="6" y="11" width="4" height="4" rx="1"/><rect x="11" y="11" width="4" height="4" rx="1"/></svg>
-              Grid
-            </button>
-            <button class="toggle-btn" id="view-grouped" title="Group by type">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="14" height="3" rx="1"/><rect x="3" y="5.5" width="12" height="2" rx="0.5" opacity="0.6"/><rect x="3" y="8.5" width="12" height="2" rx="0.5" opacity="0.6"/><rect x="1" y="12" width="14" height="3" rx="1"/></svg>
-              Types
+            <button class="toggle-btn" id="view-table" title="A row each, with the details">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="2" width="14" height="2.5" rx="1"/><rect x="1" y="6.75" width="14" height="2.5" rx="1"/><rect x="1" y="11.5" width="14" height="2.5" rx="1"/></svg>
+              List
             </button>
           </div>
 
-          <div id="table-view" class="view-section">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th>Preview</th>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th>Dimensions</th>
-                  <th>Size</th>
-                  <th>Alt Text</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((asset: any) => (
-                  <AssetRow asset={asset} canEdit={access.canEdit} inTrash={view.status === "trashed"} versionsHref={viewHref(view, { source: asset.id, versions: false })} />
-                ))}
-              </tbody>
-            </table>
+          <div id="table-view" class="view-section" style="display:none;">
+            <AssetList assets={rows} inTrash={view.status === "trashed"} canEdit={access.canEdit} versionsHref={(asset) => viewHref(view, { source: asset.id, versions: false })} />
           </div>
 
-          <div id="grid-view" class="view-section" style="display:none;">
+          <div id="grid-view" class="view-section">
             <ul class="asset-grid">
               {rows.map((asset: any) => (
-                <li class="asset-card" data-in-trash={view.status === "trashed" ? "" : undefined}>
+                <li class="asset-card" data-href={view.status === "trashed" ? `/workspace/assets/${asset.id}` : `/workspace/assets/${asset.id}/view`} data-in-trash={view.status === "trashed" ? "" : undefined}>
                   <a class="thumb" href={view.status === "trashed" ? `/workspace/assets/${asset.id}` : `/workspace/assets/${asset.id}/view`} title={asset.name}>
                     {asset.publicUrl && getMimeCategory(asset.mimeType) === "image" ? (
                       <img src={asset.publicUrl} alt={asset.altText ?? asset.name} loading="lazy" style={`object-position: ${asset.focalPoint ?? "50% 50%"}`} />
@@ -194,11 +179,15 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
                       <span class="file-icon">📎</span>
                     )}
                   </a>
-                  <div class="card-name" title={asset.name}>{asset.name}</div>
+                  <a class="card-name" href={view.status === "trashed" ? `/workspace/assets/${asset.id}` : `/workspace/assets/${asset.id}/view`} title={asset.name}>{asset.name}</a>
                   <div class="card-meta">
+                    {isUnsearchableImage(asset)
+                      ? <span class="search-dot unsearchable" title="Not searchable: no alt text or description"></span>
+                      : <span class="search-dot" title="Searchable"></span>}
                     {asset.width && asset.height ? `${asset.width}×${asset.height}` : asset.mimeType}
                     {asset.origin === "derived" && <span class="card-badge">Version</span>}
                     {asset.origin === "generated" && <span class="card-badge">Generated</span>}
+                    {decisionOf(asset.metadataJson) && <span class={`card-badge decision-${decisionOf(asset.metadataJson)!.decision}`}>{decisionOf(asset.metadataJson)!.label}</span>}
                     {asset.versionsCount > 0 && (
                       <a class="card-badge versions" href={viewHref(view, { source: asset.id, versions: false })}>{asset.versionsCount} {asset.versionsCount === 1 ? "version" : "versions"}</a>
                     )}
@@ -208,37 +197,6 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
             </ul>
           </div>
 
-          <div id="grouped-view" class="view-section" style="display:none;">
-            {sortedCategoryGroups.map(({ key, label, assets: groupAssets }) => (
-              <details class="collection-group" data-group-type={key}>
-                <summary class="collection-header">
-                  <h3 class="collection-title">
-                    <span class="collapse-chevron"></span>
-                    {label}
-                    <span class="collection-count">{groupAssets.length}</span>
-                  </h3>
-                </summary>
-                <table class="table">
-                  <thead>
-                    <tr>
-                      <th>Preview</th>
-                      <th>Name</th>
-                      <th>Type</th>
-                      <th>Dimensions</th>
-                      <th>Size</th>
-                      <th>Alt Text</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {groupAssets.map((asset: any) => (
-                      <AssetRow asset={asset} canEdit={access.canEdit} inTrash={view.status === "trashed"} versionsHref={viewHref(view, { source: asset.id, versions: false })} />
-                    ))}
-                  </tbody>
-                </table>
-              </details>
-            ))}
-          </div>
         </>
       )}
     </>
@@ -246,36 +204,65 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
 </AppLayout>
 
 <script>
-  const tableView = document.getElementById('table-view');
-  const groupedView = document.getElementById('grouped-view');
-  const gridView = document.getElementById('grid-view');
-  const viewGridBtn = document.getElementById('view-grid');
-  const viewTableBtn = document.getElementById('view-table');
-  const viewGroupedBtn = document.getElementById('view-grouped');
+  import { createSdkClient } from '@/lib/sdk';
 
-  type View = 'table' | 'grid' | 'grouped';
+  // "Describe and save these with AI": one generate-alt-text call per picture, one after another, each saved as it
+  // comes back (the person clicked, so this is their save), then the list reloads without the described ones.
+  const describeAll = document.getElementById('describe-all') as HTMLButtonElement | null;
+  const describeStatus = document.getElementById('describe-status');
+  describeAll?.addEventListener('click', async () => {
+    const ids = (describeAll.dataset.ids ?? '').split(',').filter(Boolean);
+    const sdk = createSdkClient();
+    describeAll.disabled = true;
+    let done = 0;
+    const failed: string[] = [];
+    for (const id of ids) {
+      if (describeStatus) describeStatus.textContent = `Describing ${done + failed.length + 1} of ${ids.length}…`;
+      try {
+        const exec: any = await sdk.ai.operations.execute('generate-alt-text', { entityType: 'asset', entityId: id });
+        const out = exec?.outputJson ?? exec?.output_json ?? {};
+        const altText = out.alt_text ?? out.altText;
+        if (!altText) throw new Error('no description came back');
+        await sdk.assets.update(id, { altText, description: out.description ?? null } as any);
+        done += 1;
+      } catch (e: any) {
+        failed.push(e?.message || e?.detail || 'failed');
+      }
+    }
+    if (describeStatus) {
+      describeStatus.textContent = failed.length
+        ? `Described ${done} of ${ids.length}. ${failed.length} failed: ${failed[0]}`
+        : `Described all ${done}. Reloading…`;
+    }
+    if (!failed.length) setTimeout(() => window.location.reload(), 800);
+    else describeAll.disabled = false;
+  });
+
+  // Cards or List; the choice is remembered (the old "table" choice is List now).
+  type View = 'grid' | 'table';
+  const views: Record<View, { el: HTMLElement | null; btn: HTMLElement | null }> = {
+    grid: { el: document.getElementById('grid-view'), btn: document.getElementById('view-grid') },
+    table: { el: document.getElementById('table-view'), btn: document.getElementById('view-table') },
+  };
   function setView(view: View) {
-    if (!tableView || !groupedView || !gridView) return;
-    tableView.style.display = view === 'table' ? '' : 'none';
-    gridView.style.display = view === 'grid' ? '' : 'none';
-    groupedView.style.display = view === 'grouped' ? '' : 'none';
-    viewTableBtn?.classList.toggle('active', view === 'table');
-    viewGridBtn?.classList.toggle('active', view === 'grid');
-    viewGroupedBtn?.classList.toggle('active', view === 'grouped');
+    for (const [name, v] of Object.entries(views) as [View, (typeof views)[View]][]) {
+      if (v.el) v.el.style.display = name === view ? '' : 'none';
+      v.btn?.classList.toggle('active', name === view);
+    }
     try { localStorage.setItem('assets-view', view); } catch { /* a private window: the choice just isn't kept */ }
   }
-
-  viewTableBtn?.addEventListener('click', () => setView('table'));
-  viewGroupedBtn?.addEventListener('click', () => setView('grouped'));
-  viewGridBtn?.addEventListener('click', () => setView('grid'));
-
+  for (const [name, v] of Object.entries(views) as [View, (typeof views)[View]][]) v.btn?.addEventListener('click', () => setView(name));
   let savedView: string | null = null;
   try { savedView = localStorage.getItem('assets-view'); } catch { /* as above */ }
-  if (savedView === 'table' || savedView === 'grid' || savedView === 'grouped') setView(savedView);
+  if (savedView === 'table' || savedView === 'grid') setView(savedView);
 
-  // The filters are a GET form: a choice reloads the list from the server (search on Enter).
-  const filters = document.getElementById('asset-filters') as HTMLFormElement | null;
-  filters?.querySelectorAll('select, input[type="checkbox"]').forEach((el) => el.addEventListener('change', () => filters.requestSubmit()));
+  // A card opens its asset wherever it's tapped. Links, buttons and form controls inside keep their own meaning.
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('a, button, form, input, select, label, summary')) return;
+    const holder = target.closest<HTMLElement>('.asset-card[data-href]');
+    if (holder?.dataset.href) window.location.href = holder.dataset.href;
+  });
 </script>
 
 <style>
@@ -287,6 +274,7 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
     padding: 0;
     list-style: none;
   }
+  .asset-card[data-href] { cursor: pointer; }
   .asset-card {
     min-width: 0;
   }
@@ -316,6 +304,9 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    display: block;
+    color: inherit;
+    text-decoration: none;
   }
   .card-meta {
     display: flex;
@@ -335,38 +326,12 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
   .card-badge.versions {
     color: var(--accent, inherit);
   }
-
-  .asset-filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem 0.75rem;
-    align-items: center;
-    margin: 0 0 1rem;
+  .card-badge.decision-denied {
+    color: var(--color-error);
+    border-color: var(--color-error);
   }
-  .filter-search {
-    min-width: 220px;
-    padding: 0.5rem 0.75rem;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: var(--bg);
-    color: var(--text);
-  }
-  .filter-select {
-    padding: 0.5rem 0.75rem;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: var(--bg);
-    color: var(--text);
-  }
-  .filter-check {
-    display: inline-flex;
-    gap: 0.35rem;
-    align-items: center;
-    color: var(--muted);
-    font-size: 0.875rem;
-  }
-  .filter-reset {
-    font-size: 0.875rem;
+  .card-badge.decision-approved {
+    color: var(--color-success, var(--accent));
   }
 
   .error-banner {
@@ -446,68 +411,10 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
     box-shadow: 0 1px 2px rgba(0,0,0,0.06);
   }
 
-  .collection-group {
-    margin-bottom: 1.5rem;
-  }
-
-  .collection-group > .table {
-    margin-top: 1rem;
-  }
-
-  .collection-header {
-    padding: 0.625rem 0.75rem;
-    border-bottom: 1px solid var(--line);
-    cursor: pointer;
-    list-style: none;
-    user-select: none;
-  }
-
-  .collection-header::-webkit-details-marker {
-    display: none;
-  }
-
-  .collection-header:hover {
-    background: var(--panel-2);
-    border-radius: 6px;
-  }
-
-  .collection-title {
-    margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .collapse-chevron {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    transition: transform 0.15s;
-  }
-
-  .collapse-chevron::before {
-    content: '';
-    display: block;
-    width: 6px;
-    height: 6px;
-    border-right: 2px solid var(--muted);
-    border-bottom: 2px solid var(--muted);
-    transform: rotate(-45deg) translate(1px, -1px);
-    margin: 4px auto;
-  }
-
-  details[open] > .collection-header .collapse-chevron {
-    transform: rotate(90deg);
-  }
-
-  .collection-count {
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: var(--muted);
-    background: var(--panel-2);
-    padding: 0.125rem 0.5rem;
-    border-radius: 10px;
-  }
+  .search-nudge { margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); font-size: 14px; }
+  .search-nudge p { margin: 0 0 10px; }
+  .search-nudge p:last-child { margin-bottom: 0; }
+  .describe-status { color: var(--muted); font-size: 13px; }
+  .search-dot { width: 8px; height: 8px; border-radius: 50%; background: #16a34a; }
+  .search-dot.unsearchable { background: #d97706; }
 </style>

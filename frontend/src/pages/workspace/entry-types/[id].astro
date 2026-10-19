@@ -392,8 +392,12 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
 
   .form-row {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    /* minmax(0, …): a column's floor is otherwise its input's own width, which pushes two columns past a phone. */
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1rem;
+  }
+  @media (max-width: 640px) {
+    .form-row { grid-template-columns: minmax(0, 1fr); }
   }
 
   label {
@@ -477,6 +481,7 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
     gap: 1rem;
     padding-top: 1rem;
   }
+  .config-fields > * { min-width: 0; }
 
   .submission-settings {
     margin-top: 0.75rem;
@@ -493,6 +498,9 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
   .submission-settings .form-row {
     align-items: end;
   }
+  /* A dropdown is as wide as its longest option: let the row shrink and the dropdown fit it, or the page widens on a phone. */
+  .submission-settings > *, .form-group { min-width: 0; }
+  select { max-width: 100%; }
 
   .checkbox-label {
     display: flex;

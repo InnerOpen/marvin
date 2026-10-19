@@ -434,7 +434,7 @@ function statusMeta(status: string): { text: string; cls: string } {
                         title="Edit integration"
                         aria-label="Edit integration"
                       >✎</button>
-                      <button type="button" class="icon-btn-sm js-check" data-id={it.id} title="Run health check" aria-label="Run health check">↻</button>
+                      <button type="button" class="button small secondary js-check" data-id={it.id} title="Try the connection now — the key and settings are checked against the service and the status above updates">Check connection</button>
                       <button type="button" class="icon-btn-sm danger js-delete" data-id={it.id} data-name={it.name} title="Delete integration" aria-label="Delete integration">✕</button>
                     </div>
                   </div>
@@ -1101,6 +1101,9 @@ function statusMeta(status: string): { text: string; cls: string } {
 
   /* category groups (both lists) */
   .cat-groups { display: grid; gap: 18px; }
+  /* A grid item's floor is its content's width: one long address in a card would widen the whole page on a phone. */
+  .cat-groups > *, .conn-list > * { min-width: 0; }
+  .conn-card { overflow-wrap: anywhere; }
   .cat-title { margin: 0 0 8px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
   .cat-group { scroll-margin-top: 80px; border-radius: var(--radius); }
   .cat-group.is-focused { outline: 2px solid var(--accent); padding: 10px 12px 12px; }

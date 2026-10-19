@@ -1,0 +1,15 @@
+{
+  "recipe": "new-member-welcome",
+  "variables": {
+    "workspace_name": {
+      "type": "text",
+      "description": "What the new member's email calls the workspace (it goes in the subject and the first line).",
+      "example": "the Studio"
+    },
+    "welcome_note": {
+      "type": "text",
+      "description": "The note they get under the greeting — a line or two on what the place is for and where to start (markdown).",
+      "example": "Glad you're here. Start with the pieces in Start here, and ask in the team thread if you get stuck."
+    }
+  }
+}

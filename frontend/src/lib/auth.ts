@@ -14,7 +14,7 @@ export type User = UserProfile;
  * @param cookies - Astro cookies object
  * @returns User data if authenticated, null otherwise
  */
-export async function getCurrentUser(cookies: AstroCookies): Promise<User | null> {
+async function getCurrentUser(cookies: AstroCookies): Promise<User | null> {
   const token = getAuthToken(cookies);
 
   if (!token) {
@@ -104,16 +104,4 @@ export async function requireAdmin(
 export async function isAuthenticated(cookies: AstroCookies): Promise<boolean> {
   const user = await getCurrentUser(cookies);
   return user !== null;
-}
-
-/**
- * Check if user is admin (returns boolean)
- *
- * @param cookies - Astro cookies object
- * @returns true if authenticated and admin, false otherwise
- */
-export async function isAdmin(cookies: AstroCookies): Promise<boolean> {
-  const user = await getCurrentUser(cookies);
-  // Platform admin = SUPER_ADMIN (not the workspace-level `admin` boolean).
-  return user?.platformRole === "SUPER_ADMIN" || user?.isSuperuser === true;
 }

@@ -22,9 +22,9 @@ def resolve_entity_id(session, group_id, entity_type: str | None, entity_id):
         return entity_id
 
     try:
-        return _uuid.UUID(str(entity_id))  # already a UUID — normalize
+        as_uuid = _uuid.UUID(str(entity_id))
     except (ValueError, TypeError):
-        pass
+        as_uuid = None
 
     model = None
     if entity_type == "entry":
@@ -39,12 +39,18 @@ def resolve_entity_id(session, group_id, entity_type: str | None, entity_id):
         from marvin.db.models.platform.assets import Assets
 
         model = Assets
+    # An id in its usual written form is an id, without a lookup. Anything else uuid.UUID() accepts (32 hex digits
+    # with no hyphens, say) may be a slug: an Instagram import slugs assets by a 32-digit media id. The slug wins.
+    if as_uuid is not None and (model is None or str(as_uuid) == str(entity_id).strip().lower()):
+        return as_uuid
     if model is None:
         return entity_id
 
     row = session.query(model).filter_by(group_id=group_id, slug=str(entity_id)).first()
     if row:
         return row.id
+    if as_uuid is not None:
+        return as_uuid
     if model.__name__ == "Entries":
         from sqlalchemy import func
 

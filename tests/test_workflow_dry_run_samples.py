@@ -12,6 +12,7 @@ from pytest import fixture
 from marvin.app import app
 from marvin.core.dependencies import get_current_user
 from marvin.services.automation.matcher import explain, matches
+from tests._users import member_of
 
 HOOK_URL = "https://hooks.example.test/buttondown"
 NEWSLETTER_CONDITION = {"field": "entry.entry_type", "op": "eq", "value": "newsletter-issue"}
@@ -131,7 +132,7 @@ def workspaces(db_session):
     """Two workspaces; the caller is a workspace admin signed in to the first."""
     mine, theirs = _workspace(db_session, "dry"), _workspace(db_session, "dry-other")
     app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
-        id=uuid.uuid4(), group_id=mine.id, active_group_id=mine.id, admin=True, is_superuser=False
+        id=uuid.uuid4(), group_id=mine.id, active_group_id=mine.id, admin=True, is_superuser=False, **member_of(mine.id)
     )
     yield mine, theirs
     app.dependency_overrides.pop(get_current_user, None)
@@ -472,6 +473,21 @@ class TestExplain:
         (node,) = explain([{"field": "entry.status", "op": "changed"}], self.CTX)
 
         assert (node["actual"], node["expected"], node["pass"]) == (["status"], "status", True)
+
+    def test_a_type_field_is_checked_against_the_diff(self):
+        ctx = {"event": {"changed_fields": ["data.price"], "before": {"data": {"price": 5}}, "after": {"data": {"price": 7}}}}
+
+        changed, was, now = explain(
+            [
+                {"field": "entry.data.price", "op": "changed"},
+                {"field": "entry.data.price", "op": "changed_from", "value": 5},
+                {"field": "entry.data.price", "op": "changed_to", "value": 5},
+            ],
+            ctx,
+        )
+
+        assert (changed["actual"], changed["expected"], changed["pass"]) == (["data.price"], "data.price", True)
+        assert (was["actual"], was["pass"], now["actual"], now["pass"]) == (5, True, 7, False)
 
     def test_no_conditions_is_an_empty_checklist(self):
         assert explain(None, self.CTX) == []

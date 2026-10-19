@@ -4,20 +4,15 @@ v1 supports one action kind: ``operation`` — run an AI operation (e.g. ``gener
 entry and optionally apply its write-back. Runs under the ``"automation"`` invocation source, so the
 same gate that protects the MCP/agent surfaces protects automations.
 
-This reuses the already-factored primitives (ContextBuilder, provider factory,
-``provider.execute_operation``, the entries repo). It deliberately does NOT import the operations
-*controller* — unifying the controller's ``execute_operation`` onto a shared runner is a follow-up
-(same debt as the scheduled-agent tool-builder extraction).
+The provider call and its execution record are the shared runner's (``services/ai/operations/execute.py``,
+also behind the interactive route); this module keeps the step's own gates, context, dry run and write-back.
 """
 
-import json
-import time
-from datetime import UTC, datetime
+import re
 
 from marvin.schemas.group.automation_definition import writeback_field_ok
-from marvin.services.ai.base import Message
 from marvin.services.ai.operations import get_operation
-from marvin.services.ai.operations.custom import CUSTOM_OP, CustomOperation, output_problems, workspace_voice
+from marvin.services.ai.operations.custom import CUSTOM_OP, CustomOperation, workspace_voice
 
 from .actions.base import AutomationActionError  # re-exported for callers importing from runner
 from .matcher import interpolate
@@ -72,7 +67,6 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
     engine logs and moves on; automations never break event dispatch.
     """
     from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
-    from marvin.services.ai.context import resolve_prompt_messages
     from marvin.services.ai.factory import AIDisabledError, get_workspace_ai_provider
 
     slug = action.get("op")
@@ -97,6 +91,8 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
 
     entity_type = action.get("entity_type") or subject_kind(context) or "entry"
     supported = getattr(operation, "entity_types", None) or ()  # empty: the op needs no entity (a workspace question)
+    if not action.get("entity_type") and entity_type not in supported and "form_submission" in supported:
+        entity_type = "form_submission"  # a form operation acts on the run's submission (`${form_submission.*}`)
     if supported and entity_type not in supported:
         raise AutomationActionError(f"operation '{slug}' does not run on an {entity_type} (it runs on: {', '.join(supported)})")
     op_input = interpolate(action.get("input", {}) or {}, context)
@@ -105,13 +101,21 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
     if entity_type == "entry" and entity_slug:
         entity_id = _resolve_entry_id_by_slug(session, group_id, str(entity_slug))
     else:
-        entity_id = interpolate(action.get("entity_id", f"$event.{entity_type}_id"), context)
+        default_id = "${form_submission.id}" if entity_type == "form_submission" else f"$event.{entity_type}_id"
+        entity_id = interpolate(action.get("entity_id", default_id), context)
+
+    if custom:
+        stand_ins = _stand_ins(action.get("output_schema"))
+    elif entity_type == "form_submission":  # its answer feeds a `when` and the steps after it, like a custom step's
+        stand_ins = _stand_ins(operation.output_schema)
+    else:
+        stand_ins = {}
 
     if dry_run:
         # Preview: the op is authorized and its inputs/target resolve — but don't call the provider,
         # create an AIExecution row, or write back. (An AI call is the expensive, side-effectful part.)
         return {
-            **(_stand_ins(action.get("output_schema")) if custom else {}),
+            **stand_ins,
             "dry_run": True,
             "kind": "operation",
             "op": slug,
@@ -121,6 +125,9 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
             **({"prompt": operation.prompt[:2000], "see": list(operation.see)} if custom else {}),
             "would_write_back": bool(action.get("write_back")),
         }
+
+    if entity_type == "form_submission" and not entity_id:
+        raise AutomationActionError("this run has no form submission to read: run it on a form submission event, or name entity_id")
 
     from marvin.services.ai import budget
 
@@ -142,62 +149,28 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
 
     ctx = _operation_context(session, group_id, operation, entity_type, entity_id, model)
 
-    from marvin.db.models.groups.ai_executions import AIExecutionModel
+    from marvin.services.ai.operations.execute import OperationFailed, run_operation
 
-    execution = AIExecutionModel(
-        session=session,
-        group_id=group_id,
-        operation_slug=slug,
-        provider_type=provider.provider_type,
-        model_id=model,
-        status="running",
-        triggered_by=user_id,
-        trigger_type=AUTOMATION_SOURCE,
-        entity_type=entity_type,
-        entity_id=entity_id,
-        input_json=op_input,
-        started_at=datetime.now(UTC),
-    )
-    session.add(execution)
-    session.commit()
-
-    start = time.monotonic()
     try:
-        from marvin.core.config import get_app_settings
-        from marvin.services.ai.base import CompletionOptions
-
-        _app = get_app_settings()
-        opts = CompletionOptions(
-            temperature=_app.AI_DEFAULT_TEMPERATURE,
-            max_tokens=budget.max_output_tokens(session, group_id),
-        )
-        messages = operation.build_prompt(op_input, ctx)
-        messages = resolve_prompt_messages(messages, group_id, ctx.variables)
-        parsed, usage = _complete(provider, operation, messages, model, opts, check=custom)
-
-        from marvin.services.ai.pricing import estimate_cost
-
-        execution.status = "completed"
-        execution.completed_at = datetime.now(UTC)
-        execution.duration_ms = int((time.monotonic() - start) * 1000)
-        execution.output_json = parsed
-        prompt_tokens = sum(c.prompt_tokens or 0 for c in usage)  # a retried custom answer costs both calls
-        completion_tokens = sum(c.completion_tokens or 0 for c in usage)
-        execution.prompt_tokens = prompt_tokens
-        execution.completion_tokens = completion_tokens
-        execution.total_tokens = sum(c.total_tokens or 0 for c in usage)
-        execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, prompt_tokens, completion_tokens)
-        session.commit()
-    except Exception as e:
-        execution.status = "failed"
-        execution.error_message = str(e)
-        execution.completed_at = datetime.now(UTC)
-        session.commit()
-        raise AutomationActionError(f"operation '{slug}' failed: {e}") from e
+        run = run_operation(
+            session, group_id, operation, slug=slug, op_input=op_input, ctx=ctx, provider=provider, model=model,
+            source=AUTOMATION_SOURCE, user_id=user_id, entity_type=entity_type, entity_id=entity_id, check_schema=custom,
+        )  # fmt: skip
+    except OperationFailed as e:
+        raise AutomationActionError(f"operation '{slug}' failed: {e.cause}") from e.cause
+    execution, parsed = run.execution, run.parsed
     if crossing := budget.crossing_after(session, group_id, execution.estimated_cost_usd):
         budget.emit_crossing(group_id, crossing, user_id=user_id, source=AUTOMATION_SOURCE)
 
     return _apply_write_back(session, group_id, action, operation, parsed, entity_type, entity_id, context, user_id, authorizer_role, execution.id)
+
+
+STAND_IN = re.compile(r"‹AI answer: [^›]*›")
+
+
+def is_stand_in(value) -> bool:
+    """Whether `value` is, whole, a dry run's stand-in for an AI answer (there is nothing real to check in it)."""
+    return isinstance(value, str) and STAND_IN.fullmatch(value.strip()) is not None
 
 
 def _stand_ins(output_schema) -> dict:
@@ -246,25 +219,12 @@ def _operation_context(session, group_id, operation, entity_type: str, entity_id
             builder.with_asset_images()
     elif entity_type == "resource" and entity_id:
         builder.with_resource(entity_id)
-    return builder.build()
-
-
-def _complete(provider, operation, messages: list, model: str, opts, *, check: bool) -> tuple[dict, list]:
-    """The provider's structured answer and the usage of every call. With `check` (a custom step) the answer must match
-    the output schema: one more try, told what was wrong, then a ValueError (the step fails, logged as failed)."""
-    parsed, completion = provider.execute_operation(messages, model, operation.output_schema, opts)
-    usage = [completion]
-    if check and (problems := output_problems(operation.output_schema, parsed)):
-        retry = [
-            *messages,
-            Message(role="assistant", content=json.dumps(parsed)[:4000]),
-            Message(role="user", content=f"That answer doesn't match the schema: {'; '.join(problems)}. Answer again with only the JSON object."),
-        ]
-        parsed, completion = provider.execute_operation(retry, model, operation.output_schema, opts)
-        usage.append(completion)
-        if problems := output_problems(operation.output_schema, parsed):
-            raise ValueError(f"the answer doesn't match output_schema: {'; '.join(problems)}")
-    return parsed, usage
+    elif entity_type == "form_submission" and entity_id:
+        builder.with_form_submission(entity_id)
+    built = builder.build()
+    if entity_type == "form_submission" and built.form_submission is None:
+        raise AutomationActionError("no form submission with that id in this workspace")
+    return built
 
 
 def _apply_write_back(session, group_id, action, operation, parsed, entity_type, entity_id, context, user_id, authorizer_role, execution_id) -> dict:

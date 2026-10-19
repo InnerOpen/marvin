@@ -1,10 +1,11 @@
-"""Platform alerts past the bell (Admin → Platform alerts, services/platform_alerts.py).
+"""Platform alerts past the bell (Admin → Alerts, services/platform_alerts.py).
 
 Platform events (backups, storage, security) reach super admins by email — built in, on by default — and
-through any message-capable integration action on a connection in the platform workspace. The actions
-are found from provider metadata (the ``notify`` capability or category), never by name. One dispatched
-event is one attempt per enabled channel; a failing channel is recorded and never stops the others.
-Nothing here sends real email or chat: the providers are fakes and the SMTP send is captured.
+through any message-capable integration action on one of the platform's own channels
+(``platform_settings.platform_connections``, services/platform_connections.py), none of which belongs to a
+workspace. The actions are found from provider metadata (the ``notify`` capability or category), never by name.
+One dispatched event is one attempt per enabled channel; a failing channel is recorded and never stops the
+others. Nothing here sends real email or chat: the providers are fakes and the SMTP send is captured.
 """
 
 import uuid
@@ -16,12 +17,13 @@ import sqlalchemy as sa
 pytest.importorskip("marvin_integration_sdk", reason="integrations SDK not installed (optional feature)")
 
 from fastapi.testclient import TestClient  # noqa: E402
-from marvin_integration_sdk import INTEGRATION_REGISTRY, IntegrationProvider, ProviderAction  # noqa: E402
+from marvin_integration_sdk import INTEGRATION_REGISTRY, CredentialField, IntegrationProvider, ProviderAction  # noqa: E402
 
 from marvin.app import app  # noqa: E402
 from marvin.core.dependencies import get_current_user  # noqa: E402
 from marvin.db.models.users.roles import PlatformRole  # noqa: E402
 from marvin.services import platform_alerts as alerts  # noqa: E402
+from marvin.services import platform_connections  # noqa: E402
 from marvin.services.event_bus_service.event_bus_service import EventBusService  # noqa: E402
 from marvin.services.event_bus_service.event_types import EventBackupData, EventOperation, EventTypes  # noqa: E402
 from marvin.services.integrations import alert_routing  # noqa: E402
@@ -83,6 +85,32 @@ class _Pager(IntegrationProvider):
         return {}
 
 
+class _Apprise(IntegrationProvider):
+    """Stands in for the Apprise plugin: the URLs are the credential, one ``notify`` action, no extra inputs."""
+
+    slug = "apprise"
+    name = "Apprise Notifications"
+    description = "Fan out to many services."
+    category = "notify"
+    credentials = (CredentialField(key="apprise_url", label="Apprise URL(s)", help="One per line.", required=True),)
+    actions = (
+        ProviderAction(
+            key="notify",
+            label="Send notification",
+            capability="notify",
+            input_schema={"type": "object", "properties": {"title": {"type": "string"}, "body": {"type": "string"}}, "required": ["body"]},
+        ),
+    )
+    calls: list = []
+    fail_with: Exception | None = None
+
+    def run_action(self, key, args, ctx):
+        type(self).calls.append(SimpleNamespace(key=key, args=dict(args), secret=ctx.secret))
+        if type(self).fail_with is not None:
+            raise type(self).fail_with
+        return {"sent": True}
+
+
 class _Deploy(IntegrationProvider):
     """A destination with a text input: it must never be offered as an alert route."""
 
@@ -97,9 +125,9 @@ class _Deploy(IntegrationProvider):
 
 @pytest.fixture(autouse=True)
 def providers(monkeypatch):
-    for cls in (_Chat, _Pager, _Deploy):
+    for cls in (_Chat, _Pager, _Deploy, _Apprise):
         monkeypatch.setitem(INTEGRATION_REGISTRY, cls.slug, cls())
-    _Chat.calls, _Chat.fail_with, _Pager.calls = [], None, []
+    _Chat.calls, _Chat.fail_with, _Pager.calls, _Apprise.calls, _Apprise.fail_with = [], None, [], [], None
     yield
 
 
@@ -109,16 +137,15 @@ def providers(monkeypatch):
 def _clear_settings(session):
     from marvin.db.models.platform.platform_settings import PlatformSettingsModel
 
-    session.query(PlatformSettingsModel).filter(PlatformSettingsModel.key.in_([alerts.SETTINGS_KEY, alerts.STATUS_KEY])).delete(
-        synchronize_session=False
-    )
+    keys = [alerts.SETTINGS_KEY, alerts.STATUS_KEY, platform_connections.KEY]
+    session.query(PlatformSettingsModel).filter(PlatformSettingsModel.key.in_(keys)).delete(synchronize_session=False)
     session.commit()
 
 
 @pytest.fixture
 def world(db_session, monkeypatch):
-    """A platform workspace with chat, pager and deploy connections, another workspace with a chat
-    connection, two super admins and one ordinary user."""
+    """Platform channels (chat, pager and a deploy hook), another workspace with a chat integration of its own,
+    two super admins and one ordinary user. There is no platform workspace: nothing here is marked."""
     from marvin.db.models.groups import Groups
     from marvin.db.models.groups.integrations import IntegrationModel
     from marvin.db.models.platform.event_log import EventLogModel
@@ -127,25 +154,21 @@ def world(db_session, monkeypatch):
     _clear_settings(db_session)
     gid, other = uuid.uuid4(), uuid.uuid4()
     marker = gid.hex[:8]
-    groups = {}
-    for key, g_id in (("platform", gid), ("other", other)):
+    for g_id, key in ((gid, "home"), (other, "other")):
         group = Groups(session=db_session, name=f"pa-{key}-{marker}", slug=f"pa-{key}-{marker}")
         group.id = g_id
         db_session.add(group)
-        groups[key] = group
     db_session.flush()
 
-    def connection(group_id, provider, name, enabled=True):
-        row = IntegrationModel(
-            session=db_session, group_id=group_id, provider=provider, name=name, slug=f"{name.lower()}-{marker}", enabled=enabled, config={}
-        )
-        db_session.add(row)
-        return row
+    def channel(provider, name, enabled=True):
+        return platform_connections.PlatformConnection(id=str(uuid.uuid4()), provider=provider, name=name, enabled=enabled)
 
-    chat = connection(gid, "test_chat", "Ops")
-    pager = connection(gid, "test_pager", "Oncall")
-    deploy = connection(gid, "test_deploy", "Site")
-    foreign = connection(other, "test_chat", "Elsewhere")
+    chat, pager, deploy = channel("test_chat", "Ops"), channel("test_pager", "Oncall"), channel("test_deploy", "Site")
+    platform_connections._store(db_session, [chat, pager, deploy])
+    foreign = IntegrationModel(
+        session=db_session, group_id=other, provider="test_chat", name="Elsewhere", slug=f"elsewhere-{marker}", enabled=True, config={}
+    )
+    db_session.add(foreign)
     users = {}
     for name, role in (("ada", "SUPER_ADMIN"), ("bob", "SUPER_ADMIN"), ("cy", "NONE")):
         uid = uuid.uuid4()
@@ -164,7 +187,15 @@ def world(db_session, monkeypatch):
             )
         )
     db_session.commit()
-    monkeypatch.setattr(alerts, "_platform_workspace", lambda session: session.get(Groups, gid))
+
+    def change(conn, **fields):
+        """Change a stored platform channel in place (turn it off, give it a credential reference…)."""
+        items = platform_connections.load(db_session)
+        for item in items:
+            if item.id == conn.id:
+                for key, value in fields.items():
+                    setattr(item, key, value)
+        platform_connections._store(db_session, items)
 
     sent: list = []  # (to, subject, html) — the captured SMTP sends
     monkeypatch.setattr(alerts, "smtp_ready", lambda: True)
@@ -176,18 +207,24 @@ def world(db_session, monkeypatch):
         gid=gid,
         other=other,
         marker=marker,
-        chat=chat,
-        pager=pager,
-        deploy=deploy,
+        chat=SimpleNamespace(id=chat.id),
+        pager=SimpleNamespace(id=pager.id),
+        deploy=SimpleNamespace(id=deploy.id),
         foreign=foreign,
         users=users,
         emails={n: f"{n}-{marker}@example.test" for n in users},
         sent=sent,
+        change=change,
     )
 
     app.dependency_overrides.pop(get_current_user, None)
     db_session.rollback()
     _clear_settings(db_session)
+    from marvin.services.secrets.platform import delete_platform_secret
+
+    for conn in (chat, pager, deploy):
+        delete_platform_secret(platform_connections.secret_ref_for(conn.id))
+    db_session.commit()
     db_session.query(EventLogModel).filter(EventLogModel.integration_id.in_([SOURCE, "platform_settings"])).delete(synchronize_session=False)
     db_session.query(IntegrationModel).filter(IntegrationModel.group_id.in_([gid, other])).delete(synchronize_session=False)
     db_session.query(Users).filter(Users.id.in_(list(users.values()))).delete(synchronize_session=False)
@@ -271,30 +308,23 @@ def test_message_args_keep_the_workspace_alert_shapes():
     assert apprise.args("{{title}}", "{{summary}}") == {"title": "{{title}}", "body": "{{summary}}"}
 
 
-def test_targets_are_the_platform_workspace_message_actions(db_session, world):
-    found = {(t.integration_name, t.action.key) for t in alerts.targets(db_session, alerts._platform_workspace(db_session))}
-    assert found == {("Ops", "post"), ("Oncall", "page")}  # not the deploy hook, not another workspace's chat
+def test_targets_are_the_platform_channels_message_actions(db_session, world):
+    found = {(t.integration_name, t.action.key) for t in alerts.targets(db_session)}
+    assert found == {("Ops", "post"), ("Oncall", "page")}  # not the deploy hook, not a workspace's own chat
 
 
-def test_the_platform_workspace_is_found_in_one_place(db_session):
-    """Without the test's stand-in, ``_platform_workspace`` is the marked platform workspace, whatever its name."""
+def test_deleting_every_workspace_leaves_platform_alerts_working(db_session, world):
+    """Platform alerts need no workspace: the channels are the platform's own."""
     from marvin.db.models.groups import Groups
-    from marvin.services.group.platform_workspace import PlatformWorkspaceMissing, platform_workspace
+    from marvin.db.models.users.users import Users
 
-    created = None
-    try:
-        marked = platform_workspace(db_session)
-    except PlatformWorkspaceMissing:
-        name = f"Not-Default-{uuid.uuid4().hex[:6]}"
-        marked = created = Groups(session=db_session, name=name, slug=name.lower(), is_platform=True)
-        db_session.add(created)
-        db_session.commit()
-    try:
-        assert alerts._platform_workspace(db_session).id == marked.id
-    finally:
-        if created is not None:
-            db_session.delete(created)
-            db_session.commit()
+    _configure(db_session, world, recipients=[world.emails["ada"]], routes=[_chat_route(world)])
+    db_session.query(Users).filter(Users.id.in_(list(world.users.values()))).delete(synchronize_session=False)
+    db_session.query(Groups).filter(Groups.id.in_([world.gid, world.other])).delete(synchronize_session=False)
+    db_session.commit()
+
+    _backup("failed")
+    assert [c.args["channel"] for c in _Chat.calls] == ["#ops"]
 
 
 # ── which events alert ──────────────────────────────────────────────────────────
@@ -349,7 +379,7 @@ def test_email_without_smtp_is_recorded_not_sent(db_session, world, monkeypatch)
     _backup("failed")
     assert world.sent == []
     status = alerts.statuses(db_session)[alerts.EMAIL_CHANNEL]
-    assert status["outcome"] == "skipped" and "SMTP" in status["detail"] and status["event_type"] == "backup_failed"
+    assert status["outcome"] == "skipped" and "isn't set up (Admin → Email" in status["detail"] and status["event_type"] == "backup_failed"
 
 
 # ── integration routes ──────────────────────────────────────────────────────────
@@ -381,8 +411,7 @@ def test_a_disabled_route_is_skipped(db_session, world):
 
 def test_a_failing_route_never_stops_the_others(db_session, world, monkeypatch):
     monkeypatch.setattr("marvin.services.secrets.resolver.resolve_secret", lambda ref, group_id: FAKE_TOKEN)
-    world.chat.secret_ref = "OPS_TOKEN"
-    db_session.commit()
+    world.change(world.chat, secret_ref="OPS_TOKEN")
     _Chat.fail_with = ValueError(f"401 from chat: bad token {FAKE_TOKEN}")
     settings = _configure(
         db_session,
@@ -411,8 +440,7 @@ def test_messages_carry_no_secrets(db_session, world, monkeypatch):
 
 def test_a_route_through_a_connection_that_is_gone_reports_it(db_session, world):
     settings = _configure(db_session, world, email=False, routes=[_chat_route(world)])
-    world.chat.enabled = False
-    db_session.commit()
+    world.change(world.chat, enabled=False)
     _backup("failed")
     assert _Chat.calls == []
     status = alerts.statuses(db_session)[settings.routes[0].id]
@@ -429,7 +457,9 @@ def test_admin_api_lists_kinds_email_and_targets(db_session, world):
     assert {t["key"]: t["enabled"] for t in body["types"]}["storage_public_domain_changed"] is False
     assert body["email"]["enabled"] is True and body["email"]["recipients"] is None
     assert {world.emails["ada"], world.emails["bob"]} <= set(body["email"]["superAdminEmails"])
-    assert body["platformWorkspace"]["id"] == str(world.gid)
+    assert "platformWorkspace" not in body
+    assert {c["name"] for c in body["connections"]} == {"Ops", "Oncall", "Site"}
+    assert {c["name"]: c["routes"] for c in body["connections"]}["Ops"] == 0
     targets = {(t["integrationName"], t["action"]): t for t in body["targets"]}
     assert set(targets) == {("Ops", "post"), ("Oncall", "page")}
     assert targets[("Ops", "post")]["inputs"] == [{"key": "channel", "label": "Channel", "description": "", "required": True}]
@@ -540,14 +570,185 @@ def test_test_button_sends_the_test_message_through_one_channel(db_session, worl
     assert client.post(f"{API}/test", json={"channel": "no-such-route"}).status_code == 404
 
 
-def test_without_a_platform_workspace_routes_are_unavailable_and_email_still_works(db_session, world, monkeypatch):
-    _configure(db_session, world, recipients=[world.emails["ada"]], routes=[_chat_route(world)])
-    monkeypatch.setattr(alerts, "_platform_workspace", lambda session: None)
-    body = _admin(world).get(API).json()
-    assert body["platformWorkspace"] is None and body["targets"] == []
-    assert "no platform workspace" in body["routes"][0]["problem"]
-    res = _admin(world).put(API, json={"routes": [{"integrationId": str(world.chat.id), "action": "post", "args": {"channel": "#x"}}]})
-    assert res.status_code == 422
+def test_a_workspace_integration_cannot_carry_a_platform_alert(db_session, world):
+    res = _admin(world).put(API, json={"routes": [{"integrationId": str(world.foreign.id), "action": "post", "args": {"channel": "#x"}}]})
+    assert res.status_code == 422 and "can't carry alerts from the platform channels" in res.text
+
+
+def test_a_route_whose_channel_is_gone_reports_it_and_email_still_works(db_session, world):
+    settings = _configure(db_session, world, recipients=[world.emails["ada"]], routes=[_chat_route(world)])
+    client = _admin(world)
+    client.delete(f"{API}/connections/{world.chat.id}")  # removes its routes too
+    assert alerts.load(db_session).routes == [] and settings.routes
 
     _backup("failed")
     assert len(world.sent) == 1 and _Chat.calls == []
+
+
+def test_route_arguments_resolve_platform_secrets(db_session, world, monkeypatch):
+    from marvin.services.secrets.platform import delete_platform_secret, set_platform_secret
+
+    set_platform_secret("OPS_CHANNEL_PLATFORM", "#from-platform-secret")
+    try:
+        _configure(db_session, world, email=False, routes=[_chat_route(world, "{{OPS_CHANNEL_PLATFORM}}")])
+        _backup("failed")
+        assert [c.args["channel"] for c in _Chat.calls] == ["#from-platform-secret"]
+    finally:
+        delete_platform_secret("OPS_CHANNEL_PLATFORM")
+        db_session.commit()
+
+
+# ── platform channels (connections) ───────────────────────────────────────────────
+
+
+def _event_rows(db_session):
+    from marvin.db.models.platform.event_log import EventLogModel
+
+    db_session.expire_all()
+    return (
+        db_session.query(EventLogModel)
+        .filter(EventLogModel.event_type == "platform_settings_changed", EventLogModel.integration_id == "platform_settings")
+        .order_by(EventLogModel.created_at)
+        .all()
+    )
+
+
+def test_the_page_offers_apprise_first_and_only_message_plugins(db_session, world):
+    providers = _admin(world).get(API).json()["providers"]
+    assert [p["slug"] for p in providers][0] == "apprise"
+    slugs = {p["slug"] for p in providers}
+    # Real message plugins installed in this environment (e.g. slack) may be offered too; ours must be, and the
+    # deploy hook (no message action) must not.
+    assert {"apprise", "test_chat", "test_pager"} <= slugs and "test_deploy" not in slugs
+    apprise = providers[0]
+    assert apprise["credentialLabel"] == "Apprise URL(s)" and apprise["credentialRequired"] is True
+
+
+def test_adding_an_apprise_channel_stores_its_urls_as_a_platform_secret_and_never_returns_them(db_session, world):
+    from marvin.db.models.groups.secrets import WorkspaceSecret
+    from marvin.services.secrets.platform import get_platform_secret
+
+    client = _admin(world)
+    urls = "slack://tokenA/tokenB/tokenC\ndiscord://webhook-id/very-secret-token"
+    res = client.post(f"{API}/connections", json={"provider": "apprise", "name": "Phone pushes", "credential": urls})
+    assert res.status_code == 201, res.text
+    body = res.json()
+    (conn,) = [c for c in body["connections"] if c["name"] == "Phone pushes"]
+    assert conn["providerName"] == "Apprise Notifications" and conn["hasCredential"] and conn["available"] and conn["enabled"]
+    assert conn["needsRouteInputs"] is False
+    assert "very-secret-token" not in res.text and "very-secret-token" not in client.get(API).text
+    assert ("Phone pushes", "notify") in {(t["integrationName"], t["action"]) for t in body["targets"]}
+
+    ref = platform_connections.secret_ref_for(conn["id"])
+    assert get_platform_secret(ref) == urls
+    assert db_session.query(WorkspaceSecret).filter(WorkspaceSecret.slug == ref).one().group_id is None
+
+    changes = [c for row in _event_rows(db_session) for c in row.event_data["documentData"]["changes"]]
+    assert changes == ["Channel added: Phone pushes (apprise)"]
+    assert "very-secret-token" not in str([r.event_data for r in _event_rows(db_session)]) and _event_rows(db_session)[0].workspace_id is None
+    platform_connections.delete(db_session, conn["id"])
+
+
+def test_a_route_through_an_apprise_channel_delivers_with_its_urls(db_session, world):
+    client = _admin(world)
+    created = client.post(f"{API}/connections", json={"provider": "apprise", "name": "Phone", "credential": "slack://a/b/c"}).json()
+    cid = next(c["id"] for c in created["connections"] if c["name"] == "Phone")
+    _configure(db_session, world, email=False, routes=[{"integration_id": cid, "action": "notify", "args": {}}])
+
+    _backup("failed")
+    (call,) = _Apprise.calls
+    assert call.secret == "slack://a/b/c" and call.args["title"] == "Backup Failed" and "Backup r2: failed" in call.args["body"]
+    assert client.get(API).json()["connections"][-1]["routes"] == 1
+
+
+def test_test_button_on_a_channel_sends_through_it(db_session, world):
+    client = _admin(world)
+    cid = next(
+        c["id"]
+        for c in client.post(f"{API}/connections", json={"provider": "apprise", "name": "Phone", "credential": "slack://a/b/c"}).json()["connections"]
+        if c["name"] == "Phone"
+    )
+    res = client.post(f"{API}/connections/{cid}/test")
+    assert res.status_code == 200, res.text
+    assert res.json()["delivery"]["outcome"] == "sent" and res.json()["delivery"]["test"] is True
+    assert _Apprise.calls[0].args["title"] == alerts.TEST_TITLE
+
+    _Apprise.fail_with = ValueError("403 forbidden for slack://a/b/c")
+    delivery = client.post(f"{API}/connections/{cid}/test").json()["delivery"]
+    assert delivery["outcome"] == "failed" and "slack://a/b/c" not in delivery["detail"]  # the credential is redacted
+
+    # A channel that also needs a channel name is tested through a route.
+    assert client.post(f"{API}/connections/{world.chat.id}/test").status_code == 422
+    assert client.post(f"{API}/connections/{uuid.uuid4()}/test").status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("payload", "detail"),
+    [
+        ({"provider": "test_deploy", "name": "Site2"}, "isn't an installed plugin that can send messages"),
+        ({"provider": "nope", "name": "X"}, "isn't an installed plugin"),
+        ({"provider": "apprise", "name": "  "}, "Give the channel a name"),
+        ({"provider": "apprise", "name": "Phone"}, "needs Apprise URL(s)"),
+        ({"provider": "apprise", "name": "ops", "credential": "slack://a/b/c"}, "already a channel called"),  # case-insensitive, vs "Ops"
+    ],
+)
+def test_adding_a_channel_that_cannot_work_is_refused(db_session, world, payload, detail):
+    res = _admin(world).post(f"{API}/connections", json=payload)
+    assert res.status_code == 422 and detail in res.json()["detail"], res.text
+    assert {c.name for c in platform_connections.load(db_session)} == {"Ops", "Oncall", "Site"}
+
+
+def test_changing_a_channel_renames_toggles_and_rotates_without_returning_the_credential(db_session, world):
+    from marvin.services.secrets.platform import get_platform_secret
+
+    client = _admin(world)
+    cid = next(
+        c["id"]
+        for c in client.post(f"{API}/connections", json={"provider": "apprise", "name": "Phone", "credential": "slack://old/old/old"}).json()[
+            "connections"
+        ]
+        if c["name"] == "Phone"
+    )
+    res = client.put(f"{API}/connections/{cid}", json={"name": "Pager", "enabled": False, "credential": "slack://new/new/new"})
+    assert res.status_code == 200, res.text
+    (conn,) = [c for c in res.json()["connections"] if c["id"] == cid]
+    assert (conn["name"], conn["enabled"], conn["hasCredential"]) == ("Pager", False, True)
+    assert get_platform_secret(platform_connections.secret_ref_for(cid)) == "slack://new/new/new"
+    assert "slack://new" not in res.text
+
+    keep = client.put(f"{API}/connections/{cid}", json={"credential": ""})  # blank keeps
+    assert keep.status_code == 200 and get_platform_secret(platform_connections.secret_ref_for(cid)) == "slack://new/new/new"
+    changes = [c for row in _event_rows(db_session) for c in row.event_data["documentData"]["changes"]]
+    assert changes == ["Channel added: Phone (apprise)", "Channel renamed: Phone → Pager", "Channel Pager: off", "Channel Pager: credential changed"]
+    assert client.put(f"{API}/connections/{uuid.uuid4()}", json={"name": "x"}).status_code == 404
+    assert client.put(f"{API}/connections/{cid}", json={"name": "Ops"}).status_code == 422  # taken
+    platform_connections.delete(db_session, cid)
+
+
+def test_removing_a_channel_removes_its_credential_and_its_routes(db_session, world):
+    from marvin.services.secrets.platform import get_platform_secret
+
+    client = _admin(world)
+    cid = next(
+        c["id"]
+        for c in client.post(f"{API}/connections", json={"provider": "apprise", "name": "Phone", "credential": "slack://a/b/c"}).json()["connections"]
+        if c["name"] == "Phone"
+    )
+    _configure(db_session, world, routes=[{"integration_id": cid, "action": "notify", "args": {}}, _chat_route(world)])
+
+    res = client.delete(f"{API}/connections/{cid}")
+    assert res.status_code == 200, res.text
+    assert cid not in {c["id"] for c in res.json()["connections"]}
+    assert [r["label"] for r in res.json()["routes"]] == ["Ops → Post message"]
+    assert get_platform_secret(platform_connections.secret_ref_for(cid)) is None
+    changes = [c for row in _event_rows(db_session) for c in row.event_data["documentData"]["changes"]]
+    assert "Channel removed: Phone (apprise)" in changes and "1 route(s) that used it removed" in changes
+    assert client.delete(f"{API}/connections/{cid}").status_code == 404
+
+
+def test_channels_are_super_admin_only(world):
+    client = _admin(world, PlatformRole.NONE)
+    assert client.post(f"{API}/connections", json={"provider": "apprise", "name": "x", "credential": "slack://a/b/c"}).status_code == 403
+    assert client.put(f"{API}/connections/{world.chat.id}", json={"name": "x"}).status_code == 403
+    assert client.delete(f"{API}/connections/{world.chat.id}").status_code == 403
+    assert client.post(f"{API}/connections/{world.chat.id}/test").status_code == 403

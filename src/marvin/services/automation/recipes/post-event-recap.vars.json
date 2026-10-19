@@ -1,0 +1,45 @@
+{
+  "recipe": "post-event-recap",
+  "variables": {
+    "event_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type of events.",
+      "example": "event"
+    },
+    "event_date": {
+      "type": "entry_date",
+      "description": "The event's date: one of its date fields.",
+      "example": "data.date"
+    },
+    "send_at": {
+      "type": "text",
+      "description": "The time of day, the day after, the recap and messages are drafted (workspace time zone).",
+      "example": "10:00"
+    },
+    "rsvp_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type of RSVPs (one per guest, published once confirmed).",
+      "example": "rsvp"
+    },
+    "rsvp_event_field": {
+      "type": "field_key",
+      "description": "The RSVP's field naming its event (the event's slug).",
+      "example": "event"
+    },
+    "voice": {
+      "type": "text",
+      "description": "How the notes should sound.",
+      "example": "a warm, plain voice"
+    },
+    "draft_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type each note is drafted as.",
+      "example": "note"
+    },
+    "draft_body_field": {
+      "type": "field_key",
+      "description": "That type's text field.",
+      "example": "body"
+    }
+  }
+}

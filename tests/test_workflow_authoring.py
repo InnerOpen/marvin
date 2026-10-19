@@ -19,7 +19,7 @@ from pytest import fixture
 from marvin.db.models.groups.automations import WorkspaceAutomationModel
 from marvin.db.models.users.roles import WorkspaceRole
 from marvin.services.ai.tools import get_tool
-from marvin.services.automation.authoring import ON_REQUEST, SECTIONS, authoring_guide, draft_issues, guide_size
+from marvin.services.automation.authoring import INDEX_BUDGET, SECTION_BUDGET, SECTIONS, authoring_guide, draft_issues, guide_size
 from tests import test_content_role_gates as gates
 
 workspace = gates.workspace  # fixture: a workspace with a signed-in user (gates._sign_in)
@@ -117,33 +117,33 @@ def test_guide_lists_marvins_real_vocabulary(ws):
     from marvin.services.entries.query import SPEC_KEYS
     from marvin.services.events.event_catalog import TRIGGERABLE_EVENT_TYPES
 
-    guide = authoring_guide(ws.session, ws.gid)
-    assert set(guide) == {*SECTIONS, "more"} - set(ON_REQUEST)  # the media detail and editor labels come only by name
+    index = authoring_guide(ws.session, ws.gid)
+    assert set(index["sections"]) == set(SECTIONS) and set(index) == {"start", "step_kinds", "sections", "workspace"}  # where to look
+    assert ws.et["slug"] in index["workspace"]["entry_types"] and "draft_workflow" in index["start"]
+    guide = authoring_guide(ws.session, ws.gid, "events, triggers,actions,target,templates")  # several at once
+    assert set(guide) == {"events", "triggers", "actions", "target", "templates"}
     events = {e for names in guide["events"]["triggerable"].values() for e in names}
     assert events == TRIGGERABLE_EVENT_TYPES and "entry_published" in events
     assert set(guide["triggers"]) == set(TRIGGER_MODELS)
     assert set(guide["actions"]["kinds"]) == set(ACTION_MODELS)
     integration = guide["actions"]["kinds"]["integration"]
-    assert integration["required"] == ["integration"]  # plus `action`, or `capability` (notify) instead
+    assert list(integration["required"]) == ["integration"]  # plus `action`, or `capability` (notify) instead
     assert {"action", "capability"} <= set(integration["optional"]) and "capability" in integration["description"]
     assert set(guide["actions"]["entry_ops"]) == set(OP_SENDS)
-    assert guide["actions"]["entry_ops"]["unpublish"] == "status → draft"
+    assert guide["actions"]["entry_ops"]["unpublish"]["sets_status"] == "draft"
     assert set(guide["target"]["query"]) == set(SPEC_KEYS) and "has_images" in guide["target"]["query"]
     assert "${steps.<id>.output.<key>}" in guide["actions"]["step_id"] and "steps" in guide["templates"]["namespaces"]
 
 
 def test_guide_names_this_workspaces_references(ws):
-    work = authoring_guide(ws.session, ws.gid)["workspace"]
+    work = authoring_guide(ws.session, ws.gid, "workspace")["workspace"]
     assert "featured" in work["collections"]
-    assert ws.et["slug"] in work["entry_types"]
+    assert ws.et["slug"] in {t["slug"] for t in work["entry_types"]}
     shop = next(i for i in work["integrations"] if i["slug"] == "shop")
-    assert shop["actions"] == ["create_listing", "refund"]  # refund needs approval: listed, runnable after an approval step
-    assert "generate-summary" in work["operations"]
-    assert "request_site_rebuild" in work["handlers"]
-
-    detail = authoring_guide(ws.session, ws.gid, "workspace")["workspace"]
-    listing = next(i for i in detail["integrations"] if i["slug"] == "shop")["actions"][0]
-    assert listing["args"] == {"title": "string"} and listing["required"] == ["title"]
+    assert [a["action"] for a in shop["actions"]] == ["create_listing", "refund"]  # refund needs approval: listed, runnable after one
+    assert shop["actions"][0]["args"] == {"title": "string"} and shop["actions"][0]["required"] == ["title"]
+    assert "generate-summary" in {o["op"] for o in work["operations"]}
+    assert "request_site_rebuild" in {h["task"] for h in work["handlers"]}
 
 
 def test_guide_says_when_ai_operations_are_unavailable(ws):
@@ -151,7 +151,7 @@ def test_guide_says_when_ai_operations_are_unavailable(ws):
 
     ws.session.query(WorkspaceAISettingsModel).filter_by(group_id=ws.gid).update({"enabled": False})
     ws.session.commit()
-    assert "can't run" in authoring_guide(ws.session, ws.gid)["workspace"]["operations"]
+    assert "can't run" in authoring_guide(ws.session, ws.gid, "workspace")["workspace"]["operations"]
     issues = draft_issues(ws.session, ws.gid, {"trigger": {"type": "manual"}, "actions": [{"kind": "operation", "op": "generate-summary"}]})
     assert [i["path"] for i in issues] == ["actions[0]"]
 
@@ -162,12 +162,12 @@ def test_guide_stays_bounded_in_a_big_workspace(ws):
     for i in range(120):
         ws.session.add(Collections(session=ws.session, group_id=ws.gid, name=f"Collection {i:03}", slug=f"collection-{i:03}"))
     ws.session.commit()
-    overview = authoring_guide(ws.session, ws.gid)
-    assert len(overview["workspace"]["collections"]) == 50
-    assert guide_size(overview) < 16_000
+    index = authoring_guide(ws.session, ws.gid)
+    assert index["workspace"]["collections"] == 121 and guide_size(index) < INDEX_BUDGET  # the real count (featured + 120), not the capped list
+    assert len(authoring_guide(ws.session, ws.gid, "workspace")["workspace"]["collections"]) == 50
     for section in SECTIONS:
         part = authoring_guide(ws.session, ws.gid, section)
-        assert list(part) == [section] and guide_size(part) < 16_000, section
+        assert list(part) == [section] and guide_size(part) < SECTION_BUDGET, section
 
 
 def test_guide_tool_needs_admin_and_rejects_an_unknown_section(ws):
@@ -175,11 +175,27 @@ def test_guide_tool_needs_admin_and_rejects_an_unknown_section(ws):
     assert "events" in _tool(ws, "workflow_authoring_guide", {"section": "events"})
 
 
+def _submission_entry(ws):
+    """An entry of a submittable type — what the public form saves for a submission."""
+    from marvin.db.models.platform import EntryTypes
+    from marvin.db.models.platform.entries import Entries
+
+    ws.session.get(EntryTypes, ws.et["id"]).capabilities_json = {"submittable": True}
+    row = Entries(
+        session=ws.session, group_id=ws.gid, entry_type_id=ws.et["id"], title="Ada", slug=f"sub-{uuid.uuid4().hex[:6]}",
+        status="inbox", data_json={"message": "Hello"}, metadata_json={},
+    )  # fmt: skip
+    ws.session.add(row)
+    ws.session.commit()
+    return row
+
+
 def test_template_namespaces_are_what_a_run_can_read(ws):
     from marvin.db.models.platform import Assets, Resources
     from marvin.services.automation.engine import TEMPLATE_NAMESPACES, _entry_context, _item_context, match_context
 
     entry = gates._sign_in(ws.workspace, AD).post(f"{P}/entries", json={"entry_type_id": ws.et["id"], "title": "Soup", "status": "draft"}).json()
+    submission = _submission_entry(ws)
     photo = Assets(
         session=ws.session, group_id=ws.gid, slug=f"ns-{ws.gid.hex[:6]}", name="P", original_filename="p.png", filename="p.png",
         extension="png", file_size=1, mime_type="image/png", asset_type="image", checksum=uuid.uuid4().hex,
@@ -194,6 +210,8 @@ def test_template_namespaces_are_what_a_run_can_read(ws):
         {"event_type": "entry_updated", "entry_id": entry["id"]},
         {"event_type": "asset_uploaded", "asset_id": str(photo.id)},
         {"event_type": "resource_created", "resource_id": str(tool.id)},
+        {"event_type": "member_added", "entity_type": "member", "entity_id": str(ws.uid), "role": "EDITOR"},
+        {"event_type": "form_submission_received", "entry_id": str(submission.id), "submission_id": str(submission.id)},
     ):
         seen |= set(match_context(ws.session, ws.gid, event_ctx))
     # A run adds step outputs (`steps`), in on_failure steps the failure (`error`) and, in a manual run, its inputs
@@ -204,8 +222,13 @@ def test_template_namespaces_are_what_a_run_can_read(ws):
     for kind, row in (("asset", photo), ("resource", tool)):
         for key in _item_context(ws.session, ws.gid, kind, row.id):
             assert key in TEMPLATE_NAMESPACES[kind], (kind, key)
+    from marvin.services import form_submissions
+
+    for key in form_submissions.from_entry(submission):
+        assert key in TEMPLATE_NAMESPACES["form_submission"], key
     ws.session.delete(photo)
     ws.session.delete(tool)
+    ws.session.delete(submission)
     ws.session.commit()
 
 
@@ -284,7 +307,11 @@ def test_the_incidents_invented_json_is_refused_with_useful_issues(ws):
         ({**GOOD, "target": {"query": {"status": "drafts"}}}, "target.query.status", "draft"),
         ({**GOOD, "actions": [{"kind": "entry", "op": "add_to_collection", "collection_slug": "featurd"}]}, "actions[0].collection_slug", "featured"),
         ({**GOOD, "actions": [{"kind": "entry", "op": "publish", "entity_type": "asset"}]}, "actions[0].entity_type", "trash"),
-        ({**GOOD, "actions": [{"kind": "integration", "integration": "shop", "action": "refund"}]}, "actions[0].action", "put an Approval step before it"),
+        (
+            {**GOOD, "actions": [{"kind": "integration", "integration": "shop", "action": "refund"}]},
+            "actions[0].action",
+            "put an Approval step before it",
+        ),
         ({**GOOD, "actions": [{"kind": "integration", "integration": "square", "action": "x"}]}, "actions[0].integration", "shop"),
         ({**GOOD, "actions": [{"kind": "handler", "task": "prune_event_logs"}]}, "actions[0].task", "request_site_rebuild"),
         ({**GOOD, "actions": [{"kind": "operation", "op": "summarise"}]}, "actions[0].op", "generate-summary"),
@@ -483,9 +510,12 @@ def test_asking_marvin_for_the_incidents_workflow_creates_it_switched_off(ws, mo
     assert res.status_code == 200, res.text
     body = res.json()
 
-    # The model saw the rule and the tools; it read the guide before drafting.
+    # The model saw the rule and the tools — offered outright, or named in the load_tools groups when the agent starts
+    # lean (tools on demand); it read the guide before drafting.
     first = transport.requests[0]
-    assert "workflow_authoring_guide" in {t["name"] for t in first["tools"]} and "draft_workflow" in {t["name"] for t in first["tools"]}
+    offered = {t["name"] for t in first["tools"]}
+    loader = next((t["description"] for t in first["tools"] if t["name"] == "load_tools"), "")
+    assert all(name in offered or name in loader for name in ("workflow_authoring_guide", "draft_workflow"))
     assert any("Never say you can't create workflows" in (m.get("content") or "") for m in first["messages"] if m["role"] == "system")
     assert [s["tool"] for s in body["steps"]] == ["workflow_authoring_guide", "draft_workflow"]
 

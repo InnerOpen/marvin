@@ -1,0 +1,181 @@
+---
+/**
+ * The Assets and Resources search bar, styled like the Entries one: a name box, the types in use as buttons, and
+ * "Show search options" with rows of field | is | value (Beaker-style). Each field takes one value (the page reads
+ * plain `?field=value` parameters), so a field already in a row isn't offered again. Nothing runs until Search,
+ * which rebuilds the URL: the box (`q`), the rows' fields, and the named controls in the `extras` slot (sort,
+ * checkboxes); every other parameter, the type button's among them, is kept.
+ */
+
+interface Opt {
+  value: string;
+  label: string;
+}
+
+interface Props {
+  /** The page the search reloads. */
+  path: string;
+  q: string;
+  placeholder: string;
+  /** The type buttons: each links to the page with its type on (or off). */
+  pills: { label: string; href: string; on: boolean }[];
+  /** Field key (the URL parameter) → its label and choices. */
+  fields: Record<string, { label: string; options: Opt[] }>;
+  /** The filters on now, one row each. */
+  rows: { field: string; value: string }[];
+  /** Open the options at load (a row or an extra is set). */
+  open: boolean;
+  /** Something is filtered: show "Clear filters". */
+  filtered: boolean;
+}
+
+const { path, q, placeholder, pills, fields, rows, open, filtered } = Astro.props;
+---
+
+<div class="search-bar">
+  <form class="search-quick" id="quick-search" role="search">
+    <input type="search" id="q-text" class="search-text" placeholder={placeholder} value={q} aria-label={placeholder.replace("…", "")} />
+    <button type="submit" class="button">Search</button>
+  </form>
+  {pills.length > 0 && (
+    <div class="search-pills" role="group" aria-label="Filter by type">
+      <span class="search-label">Type:</span>
+      {pills.map((p) => <a class:list={["status-pill", { on: p.on }]} href={p.href} aria-pressed={p.on ? "true" : "false"}>{p.label}</a>)}
+    </div>
+  )}
+  <button type="button" class="search-toggle" id="toggle-options" aria-expanded={open ? "true" : "false"} aria-controls="search-options">
+    {open ? "Hide search options" : "Show search options"}
+  </button>
+  {filtered && <a href={path} class="search-clear">Clear filters</a>}
+</div>
+<form class="search-options" id="search-options" hidden={!open} data-path={path}>
+  <div class="search-row search-head" aria-hidden="true"><span>Field</span><span>Operation</span><span>Value</span><span></span></div>
+  <div id="search-rows"></div>
+  {Astro.slots.has("extras") && <div class="search-extras" id="search-extras"><slot name="extras" /></div>}
+  <div class="search-actions">
+    <button type="button" class="button secondary" id="row-add">+ Add</button>
+    <button type="submit" class="button">Search</button>
+  </div>
+</form>
+<script type="application/json" id="filter-search-data" set:html={JSON.stringify({ fields, rows })} />
+
+<script>
+  type Opt = { value: string; label: string };
+  const data = JSON.parse(document.getElementById('filter-search-data')?.textContent || '{}');
+  const fields: Record<string, { label: string; options: Opt[] }> = data.fields ?? {};
+  const rowsBox = document.getElementById('search-rows');
+  const optionsForm = document.getElementById('search-options') as HTMLFormElement | null;
+  const extras = document.getElementById('search-extras');
+  const option = (o: Opt, selected = false) => { const el = document.createElement('option'); el.value = o.value; el.textContent = o.label; el.selected = selected; return el; };
+  const usedFields = () => [...(rowsBox?.querySelectorAll<HTMLSelectElement>('.row-dim') ?? [])].map((d) => d.value);
+
+  function fillValue(row: HTMLElement, value = '') {
+    const sel = document.createElement('select');
+    sel.className = 'row-value';
+    sel.setAttribute('aria-label', 'Value');
+    const field = fields[row.querySelector<HTMLSelectElement>('.row-dim')!.value];
+    sel.replaceChildren(option({ value: '', label: 'Choose…' }), ...(field?.options ?? []).map((o) => option(o, o.value === value)));
+    row.querySelector('.row-value-cell')!.replaceChildren(sel);
+  }
+
+  function addRow(start?: { field: string; value: string }) {
+    const free = Object.keys(fields).filter((k) => !usedFields().includes(k));
+    const field = start?.field ?? free[0];
+    if (!rowsBox || !field) return null;
+    const row = document.createElement('div');
+    row.className = 'search-row';
+    row.innerHTML = '<select class="row-dim" aria-label="Field"></select><select class="row-op" aria-label="Operation"><option>is</option></select><span class="row-value-cell"></span><button type="button" class="row-remove">✕ Remove</button>';
+    const dimSel = row.querySelector<HTMLSelectElement>('.row-dim')!;
+    dimSel.replaceChildren(...Object.entries(fields).filter(([k]) => k === field || free.includes(k)).map(([k, f]) => option({ value: k, label: f.label }, k === field)));
+    rowsBox.append(row);
+    fillValue(row, start?.value);
+    dimSel.addEventListener('change', () => fillValue(row));
+    // A row the user touched counts: left without a value it stops the search instead of vanishing from it.
+    row.addEventListener('change', () => { row.dataset.touched = '1'; row.classList.remove('incomplete'); });
+    if (start) row.dataset.touched = '1';
+    row.querySelector('.row-remove')!.addEventListener('click', () => { row.remove(); if (!rowsBox.children.length) addRow(); });
+    return row;
+  }
+
+  // The next URL, or null while a touched row has no value (it's marked, and Search waits).
+  function nextHref(): string | null {
+    const params = new URLSearchParams(location.search);
+    const text = (document.getElementById('q-text') as HTMLInputElement | null)?.value.trim() ?? '';
+    if (text) params.set('q', text);
+    else params.delete('q');
+    for (const k of Object.keys(fields)) params.delete(k);
+    let incomplete = false;
+    for (const row of rowsBox?.querySelectorAll<HTMLElement>('.search-row') ?? []) {
+      const value = row.querySelector<HTMLSelectElement>('.row-value')?.value ?? '';
+      if (value) params.set(row.querySelector<HTMLSelectElement>('.row-dim')!.value, value);
+      else if (row.dataset.touched) { row.classList.add('incomplete'); incomplete = true; }
+    }
+    if (incomplete) {
+      rowsBox?.querySelector<HTMLElement>('.incomplete .row-value')?.focus();
+      return null;
+    }
+    // Extras: a checked box sets its value; a select sets its own unless it's the default (data-default).
+    for (const el of extras?.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[name]') ?? []) {
+      params.delete(el.name);
+      const on = el instanceof HTMLInputElement && el.type === 'checkbox' ? el.checked : el.value !== el.dataset.default;
+      if (on && el.value) params.set(el.name, el.value);
+    }
+    const qs = params.toString();
+    return `${optionsForm?.dataset.path ?? location.pathname}${qs ? `?${qs}` : ''}`;
+  }
+  const search = () => {
+    const href = nextHref();
+    if (href) window.location.href = href;
+  };
+
+  for (const r of data.rows ?? []) addRow(r);
+  if (rowsBox && !rowsBox.children.length) addRow();
+  document.getElementById('quick-search')?.addEventListener('submit', (e) => { e.preventDefault(); search(); });
+  optionsForm?.addEventListener('submit', (e) => { e.preventDefault(); search(); });
+  document.getElementById('row-add')?.addEventListener('click', () => addRow()?.querySelector('select')?.focus());
+  document.getElementById('toggle-options')?.addEventListener('click', (e) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    if (!optionsForm) return;
+    optionsForm.hidden = !optionsForm.hidden;
+    btn.textContent = optionsForm.hidden ? 'Show search options' : 'Hide search options';
+    btn.setAttribute('aria-expanded', String(!optionsForm.hidden));
+  });
+</script>
+
+<style>
+  .search-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 0 0 14px; }
+  .search-quick { display: flex; gap: 8px; flex: 1 1 320px; max-width: 520px; }
+  .search-text, .search-options :global(select) {
+    height: 38px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg);
+    color: var(--ink); font: inherit; font-size: 14px; min-width: 0;
+  }
+  .search-text { flex: 1; }
+  .search-text:focus, .search-options :global(select:focus) { outline: none; border-color: var(--accent); }
+  .search-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-left: 14px; border-left: 1px solid var(--line); }
+  .search-label { color: var(--muted); font-size: 14px; margin-right: 2px; }
+  .status-pill { padding: 7px 12px; border-radius: 6px; background: var(--panel-2, var(--panel)); color: var(--ink); font-size: 13px; text-decoration: none; border: 1px solid transparent; }
+  .status-pill:hover { border-color: var(--line); }
+  .status-pill.on { background: var(--accent); color: #fff; }
+  .search-toggle { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-size: 14px; cursor: pointer; }
+  .search-toggle:hover, .search-clear:hover { text-decoration: underline; }
+  .search-clear { color: var(--muted); font-size: 14px; text-decoration: none; }
+  .search-options { margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+  .search-options[hidden] { display: none; }
+  /* Rows are built in the browser: :global, or Astro's scoped styles never reach them. */
+  .search-options :global(.search-row) { display: grid; grid-template-columns: minmax(150px, 2fr) minmax(120px, 1.2fr) minmax(160px, 3fr) auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .search-head { margin-bottom: 4px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .search-options :global(.row-value-cell) { display: flex; }
+  .search-options :global(.row-value-cell > *) { flex: 1; }
+  .search-options :global(.row-remove) { height: 38px; padding: 0 14px; border: 1px solid var(--color-error, #dc2626); border-radius: 6px; background: var(--color-error, #dc2626); color: #fff; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .search-options :global(.row-remove:hover) { filter: brightness(1.1); }
+  .search-options :global(.search-row.incomplete .row-value) { border-color: var(--color-error, #dc2626); }
+  .search-options :global(.search-row.incomplete .row-value-cell::after) { content: "Pick a value"; align-self: center; margin-left: 8px; color: var(--color-error, #dc2626); font-size: 12px; white-space: nowrap; }
+  .search-extras { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin: 12px 0 10px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+  .search-extras :global(label) { display: inline-flex; align-items: center; gap: 8px; }
+  .search-actions { display: flex; gap: 8px; margin-top: 4px; }
+  @media (max-width: 640px) {
+    .search-pills { padding-left: 0; border-left: 0; }
+    .search-options :global(.search-row) { grid-template-columns: 1fr 1fr; }
+    .search-head { display: none; }
+  }
+</style>

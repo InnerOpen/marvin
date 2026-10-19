@@ -24,6 +24,7 @@ from marvin.db.models.groups.integration_event_subscriptions import IntegrationE
 from marvin.db.models.groups.integrations import IntegrationModel
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import refuse_platform_events, require_workspace_admin
+from marvin.routes._base.logo_response import logo_response
 from marvin.schemas.group.integration import (
     HandledFailurePage,
     IntegrationActionResult,
@@ -583,30 +584,13 @@ def _project_options(result, value_field: str, label_field: str) -> list[Integra
     return options
 
 
-def _logo_headers(logo) -> dict[str, str]:
-    return {
-        "ETag": logo.etag,
-        "Cache-Control": "public, max-age=3600",
-        "X-Content-Type-Options": "nosniff",
-        # The logo is ours to serve but not ours to trust: nothing in it may load, run or navigate,
-        # even when opened directly rather than through <img>.
-        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
-    }
-
-
 @public_router.get(
     "/providers/{slug}/logo", response_class=Response, responses={200: {"content": {"image/svg+xml": {}, "image/png": {}}}, 304: {}, 404: {}}
 )
 def provider_logo(slug: str, request: Request):
     """A provider's validated logo. Public: logos aren't secret, they're platform-wide rather than
     per-workspace, and an <img> can't send a Bearer header. 404 → the UI shows the provider's emoji."""
-    logo = logos.get_logo(slug)
-    if logo is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No logo.")
-    headers = _logo_headers(logo)
-    if logo.etag in [tag.strip() for tag in request.headers.get("if-none-match", "").split(",")]:
-        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
-    return Response(content=logo.data, media_type=logo.content_type, headers=headers)
+    return logo_response(logos.get_logo(slug), request)
 
 
 def _delete_secret_quietly(ref: str, group_id, session) -> None:

@@ -36,20 +36,6 @@ export const API_CLIENT_PERMISSIONS: readonly APIClientPermission[] = [
     isDefault: true,
   },
   {
-    key: "read:assets",
-    label: "Read Assets",
-    description: "Access uploaded media files",
-    group: "Content",
-    isDefault: true,
-  },
-  {
-    key: "read:resources",
-    label: "Read Resources",
-    description: "Access resource metadata",
-    group: "Content",
-    isDefault: false,
-  },
-  {
     key: "write:form_submissions",
     label: "Submit Forms",
     description: "Accept form submissions (newsletter sign-ups, contact forms) from the site",

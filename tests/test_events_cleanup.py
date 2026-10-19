@@ -216,7 +216,7 @@ def test_personal_token_routes_send_created_rotated_revoked_without_the_token(db
             data = call["document_data"]
             assert str(data.token_id) == token_id and data.token_name == "CI Deploy Token"
             assert data.user_id == world.ua and data.user_name == "Events Person" and data.token_prefix is None
-            assert call["user_id"] == world.ua and call["group_id"] == world.a and call["entity_type"] == "api_token"
+            assert call["user_id"] == world.ua and call["group_id"] is None and call["entity_type"] == "api_token"
             for secret in (first_value, rotated.json()["token"], *hashes):
                 assert secret not in _payload(call)
         assert "deleted" in calls[-1]["message"] and "revoked" in calls[-2]["message"]

@@ -8,10 +8,11 @@ enabling event history queries, entity timelines, and user activity tracking.
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from marvin.db.models import BaseMixins, SqlAlchemyBase
+from marvin.db.models._model_utils.datetime import AwareDateTime
 
 from .._model_utils.guid import GUID
 
@@ -37,7 +38,7 @@ class EventLogModel(SqlAlchemyBase, BaseMixins):
     event_type: Mapped[str] = mapped_column(String, index=True, nullable=False)
     """Event type (e.g., 'entry.published', 'asset.uploaded')."""
 
-    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(AwareDateTime, index=True, nullable=False)
     """Timestamp when the event occurred (UTC)."""
 
     # Core identifiers for filtering and relationships

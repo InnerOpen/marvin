@@ -153,7 +153,9 @@ def backfill(session, provider_type: str, model_id: str) -> int:
     )
     updated = 0
     for run in runs:
-        cost = estimate_cost(provider_type, model_id, run.prompt_tokens or 0, run.completion_tokens or 0)
+        cost = estimate_cost(
+            provider_type, model_id, run.prompt_tokens or 0, run.completion_tokens or 0, run.cached_prompt_tokens or 0, run.cache_write_tokens or 0
+        )
         if cost is None:
             return 0
         run.estimated_cost_usd = cost

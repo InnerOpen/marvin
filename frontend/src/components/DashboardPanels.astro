@@ -1,0 +1,630 @@
+---
+/**
+ * The dashboard's live panels, from GET /api/platform/stats/dashboard: a health strip, what waits on the member
+ * (approvals decided inline, parked runs, the triage counts with the age of the oldest item), what the next seven
+ * days hold, and workflow runs by day as a sparkline. It is also the page's frame: two column stacks (the left
+ * one wider) that the home page fills further through slots — `right-top` (before Coming up), `left` (after Pick
+ * up), `left-end` (after Published), `right` (after Content by type) — so every section flows in a column instead
+ * of pairing off into rows of uneven height. Slotted sections use the same `.panel` chrome (global here).
+ */
+import LocalTime from "@/components/LocalTime.astro";
+import { unpricedNotice } from "@/lib/aiUsage";
+
+interface Props {
+  dashboard: any;
+  /** GET /api/groups/ai-settings/usage — this month and today against the workspace's AI limits; null = not loaded. */
+  aiUsage?: any;
+}
+const { dashboard, aiUsage = null } = Astro.props;
+
+const attention = dashboard?.attention ?? {};
+const inbox: number = attention.inbox ?? 0;
+const drafts: number = attention.drafts ?? 0;
+const needsReview: number = attention.needsReview ?? attention.needs_review ?? 0;
+const aiSuggestions: number = attention.aiSuggestions ?? attention.ai_suggestions ?? 0;
+const failures: number = attention.failures ?? 0;
+const approvalsWaiting: number = attention.approvals ?? 0;
+const parkedRuns: number = attention.parkedRuns ?? attention.parked_runs ?? 0;
+const oldestDraftDays: number | null = attention.oldestDraftDays ?? attention.oldest_draft_days ?? null;
+const oldestInboxDays: number | null = attention.oldestInboxDays ?? attention.oldest_inbox_days ?? null;
+const attentionTotal = inbox + drafts + needsReview + aiSuggestions + failures + approvalsWaiting + parkedRuns;
+
+// The oldest few approvals, decided right here; the rest on the Approvals page.
+const approvals: any[] = dashboard?.approvals ?? [];
+// The next 7 days: scheduled publishes, waits that resume, scheduled tasks — soonest first.
+const upcoming: any[] = dashboard?.upcoming ?? [];
+const health: any = dashboard?.health ?? {};
+const runsByDay: { day: string; ok: number; failed: number }[] = (dashboard?.runsByDay ?? dashboard?.runs_by_day ?? []).map((d: any) => ({
+  day: d.day,
+  ok: d.ok ?? 0,
+  failed: d.failed ?? 0,
+}));
+const runsTotal = runsByDay.reduce((n, d) => n + d.ok + d.failed, 0);
+const runsFailed = runsByDay.reduce((n, d) => n + d.failed, 0);
+const runsPeak = Math.max(1, ...runsByDay.map((d) => d.ok + d.failed));
+// Sparkline geometry: one bar a day, failures stacked on top in red. Inline SVG, no chart library.
+const BAR = 8, GAP = 3, H = 44;
+const sparkWidth = Math.max(1, runsByDay.length * (BAR + GAP) - GAP);
+const bars = runsByDay.map((d, i) => {
+  const total = d.ok + d.failed;
+  const h = total ? Math.max(2, Math.round((total / runsPeak) * H)) : 1;
+  const hf = total ? Math.round((d.failed / total) * h) : 0;
+  return { x: i * (BAR + GAP), y: H - h, h, hf, label: `${d.day}: ${d.ok} ok, ${d.failed} failed` };
+});
+
+function relTime(iso?: string | null): string | null {
+  if (!iso) return null;
+  const secs = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (secs < 60) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return days < 7 ? `${days}d ago` : null;
+}
+function untilText(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const secs = Math.floor((new Date(iso).getTime() - Date.now()) / 1000);
+  if (secs < 3600) return "within the hour";
+  const hrs = Math.floor(secs / 3600);
+  if (hrs < 24) return `in ${hrs} h`;
+  const days = Math.round(hrs / 24);
+  return days <= 1 ? "tomorrow" : `in ${days} days`;
+}
+function ageText(days: number | null): string {
+  return days == null ? "" : days === 0 ? " · newest today" : ` · oldest ${days} day${days === 1 ? "" : "s"}`;
+}
+function upcomingHref(item: any): string | null {
+  if (item.kind === "publish" && (item.entityId ?? item.entity_id)) return `/workspace/entries/${item.entityId ?? item.entity_id}`;
+  if (item.kind === "resume") {
+    const wf = item.automationId ?? item.automation_id;
+    const run = item.executionId ?? item.execution_id;
+    return wf ? `/automation/workflows?workflow=${wf}${run ? `&run=${run}` : ""}` : "/automation/workflows";
+  }
+  if (item.kind === "task") return "/workspace/scheduled-tasks";
+  return null;
+}
+const UPCOMING_LABEL: Record<string, string> = { publish: "Publishes", resume: "Workflow", task: "Scheduled task" };
+
+// Pick up where you left off: the entries this member touched last.
+const recentForYou: any[] = dashboard?.recentForYou ?? dashboard?.recent_for_you ?? [];
+
+// Published per week by entry type, 12 weeks: stacked bars, one colour per type (the type's own colour when set).
+const publishing: any = dashboard?.publishing ?? {};
+const pubWeeks: { week: string; byType: Record<string, number> }[] = (publishing.weeks ?? []).map((w: any) => ({ week: w.week, byType: w.byType ?? w.by_type ?? {} }));
+const pubTypes: { slug: string; name: string; color?: string | null; icon?: string | null }[] = publishing.types ?? [];
+const pubTotal: number = publishing.total ?? 0;
+const PALETTE = ["#f97316", "#16a34a", "#2563eb", "#9333ea", "#db2777", "#0891b2", "#ca8a04", "#64748b"];
+const typeColor = (t: { color?: string | null }, i: number) => t.color || PALETTE[i % PALETTE.length];
+const pubPeak = Math.max(1, ...pubWeeks.map((w) => Object.values(w.byType).reduce((a, b) => a + b, 0)));
+const PB = 14, PG = 6, PH = 72;
+const pubWidth = Math.max(1, pubWeeks.length * (PB + PG) - PG);
+const pubBars = pubWeeks.map((w, i) => {
+  let y = PH;
+  const segs = pubTypes.map((t, ti) => {
+    const n = w.byType[t.slug] ?? 0;
+    const h = n ? Math.max(1, Math.round((n / pubPeak) * PH)) : 0;
+    y -= h;
+    return { y, h, color: typeColor(t, ti), n, name: t.name };
+  });
+  const total = Object.values(w.byType).reduce((a, b) => a + b, 0);
+  return { x: i * (PB + PG), segs, total, week: w.week };
+});
+const weekLabel = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+
+// Content by type: each entry type's pipeline.
+const byType: any[] = dashboard?.byType ?? dashboard?.by_type ?? [];
+const STAGES: [string, string][] = [["inbox", "Inbox"], ["draft", "Draft"], ["needsReview", "Review"], ["approved", "Approved"], ["published", "Published"]];
+const stageCount = (row: any, key: string): number => row[key] ?? row[key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)] ?? 0;
+const stageHref = (slug: string, key: string) => `/workspace/entries?type=${encodeURIComponent(slug)}&status=${key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)}`;
+
+// The health strip: each dot links to the page that explains it. Push is server-wide, so it has no page.
+const backupState: string | null = health.backupState ?? health.backup_state ?? null;
+const integrationsFailing: number = health.integrationsFailing ?? health.integrations_failing ?? 0;
+const integrationsTotal: number = health.integrationsTotal ?? health.integrations_total ?? 0;
+const webhookFailures: number = health.webhookFailures24h ?? health.webhook_failures_24h ?? 0;
+const workflowFailures: number = health.workflowFailures7d ?? health.workflow_failures_7d ?? 0;
+const emailReady: boolean = Boolean(health.emailReady ?? health.email_ready);
+const pushReady: boolean = Boolean(health.pushReady ?? health.push_ready);
+type Dot = { tone: "ok" | "warn" | "bad" | "off"; label: string; href: string | null };
+const dots: Dot[] = [];
+if (backupState) {
+  const tone = backupState === "ok" ? "ok" : backupState === "failed" || backupState === "overdue" ? "bad" : "warn";
+  dots.push({ tone, label: `Backups ${backupState}`, href: "/workspace/settings/backups" });
+}
+dots.push({
+  tone: integrationsTotal === 0 ? "off" : integrationsFailing ? "bad" : "ok",
+  label: integrationsTotal === 0 ? "No integrations" : integrationsFailing ? `${integrationsFailing} of ${integrationsTotal} integrations failing` : `${integrationsTotal} integrations ok`,
+  href: "/workspace/settings/integration-health",
+});
+dots.push({ tone: webhookFailures ? "bad" : "ok", label: webhookFailures ? `${webhookFailures} webhook deliveries failed (24 h)` : "Webhook deliveries ok", href: "/automation/webhooks/log" });
+dots.push({ tone: workflowFailures ? "warn" : "ok", label: workflowFailures ? `${workflowFailures} workflow runs failed (7 days)` : "Workflow runs ok", href: "/automation/workflows" });
+dots.push({ tone: emailReady ? "ok" : "off", label: emailReady ? "Email ready" : "Email not set up", href: "/workspace/settings/email" });
+dots.push({ tone: pushReady ? "ok" : "off", label: pushReady ? "Push ready" : "Push not set up", href: null });
+
+// AI usage against the limits (services/ai/budget.py): the same two meters as Settings → AI, read-only here.
+const usd = (n: number) => (n < 0.01 && n > 0 ? "<$0.01" : `$${n.toFixed(2)}`);
+const num = (n: number) => Number(n ?? 0).toLocaleString();
+const monthLimit: number | null = aiUsage?.limits?.maxCostPerMonthUsd ?? aiUsage?.limits?.max_cost_per_month_usd ?? null;
+const dayLimit: number | null = aiUsage?.limits?.maxRequestsPerDay ?? aiUsage?.limits?.max_requests_per_day ?? null;
+const monthCost: number = aiUsage?.monthCostUsd ?? aiUsage?.month_cost_usd ?? 0;
+const monthRuns: number = aiUsage?.monthRuns ?? aiUsage?.month_runs ?? 0;
+const monthTokens: number = aiUsage?.monthTokens ?? aiUsage?.month_tokens ?? 0;
+const todayRuns: number = aiUsage?.todayRuns ?? aiUsage?.today_runs ?? 0;
+const monthPercent: number | null = aiUsage?.monthPercent ?? aiUsage?.month_percent ?? null;
+const dayPercent: number | null = aiUsage?.dayPercent ?? aiUsage?.day_percent ?? null;
+const aiLevel: string = aiUsage?.level ?? "ok";
+const warnAt: number = aiUsage?.warningPercent ?? aiUsage?.warning_percent ?? 0;
+const resetsOn: string | null = aiUsage?.resetsOn ?? aiUsage?.resets_on ?? null;
+const resetsText = resetsOn ? new Date(`${resetsOn}T00:00:00Z`).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" }) : "";
+const unpriced = aiUsage ? unpricedNotice(aiUsage.unpricedRuns ?? aiUsage.unpriced_runs, aiUsage.unpricedModels ?? aiUsage.unpriced_models) : null;
+// Shown once AI has been used this month or a limit is set; a workspace with AI off and nothing run sees nothing.
+const showAi = Boolean(aiUsage) && (monthRuns > 0 || todayRuns > 0 || monthLimit != null || dayLimit != null);
+const meterLevel = (percent: number | null) => (percent == null ? "ok" : percent >= 100 ? "over" : warnAt > 0 && percent >= warnAt ? "warn" : "ok");
+if (showAi && (monthLimit != null || dayLimit != null)) {
+  const worst = Math.max(monthPercent ?? 0, dayPercent ?? 0);
+  dots.push({
+    tone: aiLevel === "over" ? "bad" : aiLevel === "warn" ? "warn" : "ok",
+    label: aiLevel === "over" ? "AI limit reached" : `AI usage ${Math.round(worst)}% of limit`,
+    href: "/workspace/settings/ai-workflow#usage-section",
+  });
+}
+---
+
+<div class="pulse">
+  {dashboard && (
+    <ul class="health-strip" aria-label="Workspace health">
+      {dots.map((d) => (
+        <li>
+          {d.href ? (
+            <a href={d.href} class={`health-dot tone-${d.tone}`}><span class="dot" aria-hidden="true"></span>{d.label}</a>
+          ) : (
+            <span class={`health-dot tone-${d.tone}`}><span class="dot" aria-hidden="true"></span>{d.label}</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  )}
+
+  <div class="pulse-columns">
+    <div class="pulse-stack">
+      {dashboard && (
+      <section class="panel">
+        <div class="panel-head">
+          <h3>Waiting on you</h3>
+          {approvalsWaiting > 0 && <a href="/automation/approvals" class="panel-link">Approvals →</a>}
+        </div>
+        {attentionTotal === 0 ? (
+          <p class="empty">All clear — nothing waiting on you. 🎉</p>
+        ) : (
+          <ul class="attention-list">
+            {approvals.map((a) => (
+              <li class="approval" data-id={a.id}>
+                <p class="approval-ask">{a.message}</p>
+                {(a.imageUrl ?? a.image_url) && <a href={a.imageUrl ?? a.image_url} target="_blank" rel="noopener"><img class="approval-pic" src={a.imageUrl ?? a.image_url} alt="" loading="lazy" /></a>}
+                <p class="approval-meta">
+                  {a.automationName ?? a.automation_name ?? "Workflow"}
+                  {(a.entryTitle ?? a.entry_title) && <> · {a.entryTitle ?? a.entry_title}</>}
+                  {(a.createdAt ?? a.created_at) && <> · asked {relTime(a.createdAt ?? a.created_at) ?? "a while ago"}</>}
+                </p>
+                <div class="approval-decide">
+                  {a.choices?.length ? (
+                    <>
+                      {a.choices.map((label: string) => (
+                        <button type="button" class="button js-decide" data-decision="approve" data-choice={label}>{label}</button>
+                      ))}
+                      <button type="button" class="button secondary js-decide" data-decision="deny">None of these</button>
+                    </>
+                  ) : (
+                    <>
+                      <button type="button" class="button js-decide" data-decision="approve">Approve</button>
+                      <button type="button" class="button secondary js-decide" data-decision="deny">Deny</button>
+                    </>
+                  )}
+                </div>
+                <p class="approval-result" hidden></p>
+              </li>
+            ))}
+            {approvalsWaiting > approvals.length && (
+              <li><a href="/automation/approvals" class="attention-item">
+                <span class="attention-count warn">{approvalsWaiting - approvals.length}</span>
+                <span class="attention-label">More approvals waiting</span>
+              </a></li>
+            )}
+            {parkedRuns > 0 && (
+              <li><a href="/automation/workflows" class="attention-item">
+                <span class="attention-count info">{parkedRuns}</span>
+                <span class="attention-label">Workflow runs waiting (on a wait or an approval)</span>
+              </a></li>
+            )}
+            {inbox > 0 && (
+              <li><a href="/workspace/entries?status=inbox" class="attention-item">
+                <span class="attention-count warn">{inbox}</span>
+                <span class="attention-label">In the inbox (form submissions, AI drafts){ageText(oldestInboxDays)}</span>
+              </a></li>
+            )}
+            {drafts > 0 && (
+              <li><a href="/workspace/entries?status=draft" class="attention-item">
+                <span class="attention-count warn">{drafts}</span>
+                <span class="attention-label">Drafts awaiting review{ageText(oldestDraftDays)}</span>
+              </a></li>
+            )}
+            {needsReview > 0 && (
+              <li><a href="/workspace/entries?status=needs_review" class="attention-item">
+                <span class="attention-count warn">{needsReview}</span>
+                <span class="attention-label">Needs review (flagged submissions, refused signups)</span>
+              </a></li>
+            )}
+            {aiSuggestions > 0 && (
+              <li><a href="/workspace/settings/ai-executions" class="attention-item">
+                <span class="attention-count info">{aiSuggestions}</span>
+                <span class="attention-label">Pending AI suggestions</span>
+              </a></li>
+            )}
+            {failures > 0 && (
+              <li><a href="/automation/events" class="attention-item">
+                <span class="attention-count danger">{failures}</span>
+                <span class="attention-label">Failed executions (last 7 days)</span>
+              </a></li>
+            )}
+          </ul>
+        )}
+      </section>
+      )}
+
+      {dashboard && recentForYou.length > 0 && (
+        <section class="panel">
+          <div class="panel-head">
+            <h3>Pick up where you left off</h3>
+          </div>
+          <ul class="pickup-list">
+            {recentForYou.map((e) => (
+              <li>
+                <a href={`/workspace/entries/${e.id}`} class="pickup-item">
+                  <span class="pickup-title">{e.title}</span>
+                  <span class="pickup-meta">
+                    {(e.typeSlug ?? e.type_slug) && <>{e.typeSlug ?? e.type_slug} · </>}{String(e.status).replace("_", " ")} · {relTime(e.touchedAt ?? e.touched_at) ?? "earlier"}
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <slot name="left" />
+
+      {dashboard && pubTotal > 0 && (
+        <section class="panel">
+          <div class="panel-head">
+            <h3>Published</h3>
+            <span class="panel-sub">last 12 weeks · {pubTotal} entries</span>
+          </div>
+          <svg class="pubchart" viewBox={`0 0 ${pubWidth} ${PH}`} preserveAspectRatio="none" role="img" aria-label={`Entries published per week, last 12 weeks: ${pubTotal}`}>
+            {pubBars.map((b) => (
+              <g>
+                <title>{`Week of ${weekLabel(b.week)}: ${b.total} published${b.segs.filter((s) => s.n).map((s) => ` · ${s.name} ${s.n}`).join("")}`}</title>
+                {b.segs.filter((s) => s.h).map((s) => <rect x={b.x} y={s.y} width={PB} height={s.h} fill={s.color} rx="1" />)}
+                {b.total === 0 && <rect x={b.x} y={PH - 1} width={PB} height="1" class="bar-empty" />}
+              </g>
+            ))}
+          </svg>
+          <div class="spark-axis"><span>{pubWeeks[0] && weekLabel(pubWeeks[0].week)}</span><span>this week</span></div>
+          <ul class="legend">
+            {pubTypes.map((t, i) => (
+              <li><span class="swatch" style={`background:${typeColor(t, i)}`}></span>{t.icon && <>{t.icon} </>}{t.name}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <slot name="left-end" />
+    </div>
+
+    <div class="pulse-stack">
+      <slot name="right-top" />
+
+      {dashboard && (
+      <>
+        <section class="panel">
+          <div class="panel-head">
+            <h3>Coming up</h3>
+            <span class="panel-sub">next 7 days</span>
+          </div>
+          {upcoming.length === 0 ? (
+            <p class="empty">Nothing scheduled for the week ahead.</p>
+          ) : (
+            <ul class="upcoming-list">
+              {upcoming.map((item) => {
+                const href = upcomingHref(item);
+                return (
+                  <li class="upcoming-item">
+                    <span class={`upcoming-kind kind-${item.kind}`}>{UPCOMING_LABEL[item.kind] ?? item.kind}</span>
+                    <div class="upcoming-body">
+                      {href ? <a class="upcoming-title" href={href}>{item.title}</a> : <span class="upcoming-title">{item.title}</span>}
+                      <span class="upcoming-when">
+                        <LocalTime iso={item.at} format="datetime" />
+                        {untilText(item.at) && <> · {untilText(item.at)}</>}
+                      </span>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h3>Workflow runs</h3>
+            <a href="/automation/workflows" class="panel-link">Workflows →</a>
+          </div>
+          {runsTotal === 0 ? (
+            <p class="empty">No workflow runs in the last 14 days.</p>
+          ) : (
+            <>
+              <p class="runs-summary">
+                <strong>{runsTotal}</strong> runs in 14 days
+                {runsFailed ? <>, <strong class="runs-failed">{runsFailed}</strong> failed</> : <>, none failed</>}
+              </p>
+              <svg class="sparkline" viewBox={`0 0 ${sparkWidth} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Workflow runs per day, last 14 days: ${runsTotal} runs, ${runsFailed} failed`}>
+                {bars.map((b) => (
+                  <g>
+                    <title>{b.label}</title>
+                    <rect class="bar-ok" x={b.x} y={b.y} width={BAR} height={b.h} rx="1" />
+                    {b.hf > 0 && <rect class="bar-failed" x={b.x} y={b.y} width={BAR} height={b.hf} rx="1" />}
+                  </g>
+                ))}
+              </svg>
+              <div class="spark-axis"><span>{runsByDay[0]?.day}</span><span>today</span></div>
+            </>
+          )}
+        </section>
+
+        {showAi && (
+          <section class="panel">
+            <div class="panel-head">
+              <h3>AI usage</h3>
+              <a href="/workspace/settings/ai-workflow#usage-section" class="panel-link">Limits →</a>
+            </div>
+            <div class="usage-meter">
+              <div class="usage-head"><span>This month</span><strong>{monthLimit != null ? `${usd(monthCost)} of ${usd(monthLimit)}` : `${usd(monthCost)} · no limit`}</strong></div>
+              {monthPercent != null && (
+                <div class="usage-bar" data-level={meterLevel(monthPercent)}><span class="usage-fill" style={`width:${Math.min(monthPercent, 100)}%`}></span></div>
+              )}
+              <span class="usage-detail">{num(monthRuns)} runs · {num(monthTokens)} tokens{resetsText && ` · resets ${resetsText}`}</span>
+            </div>
+            <div class="usage-meter">
+              <div class="usage-head"><span>Today</span><strong>{dayLimit != null ? `${num(todayRuns)} of ${num(dayLimit)} runs` : `${num(todayRuns)} runs · no limit`}</strong></div>
+              {dayPercent != null && (
+                <div class="usage-bar" data-level={meterLevel(dayPercent)}><span class="usage-fill" style={`width:${Math.min(dayPercent, 100)}%`}></span></div>
+              )}
+            </div>
+            {unpriced && <p class="usage-unpriced">{unpriced}</p>}
+          </section>
+        )}
+
+        {byType.length > 0 && (
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Content by type</h3>
+              <a href="/workspace/entry-types" class="panel-link">Entry types →</a>
+            </div>
+            <div class="table-scroll">
+              <table class="bytype">
+                <thead><tr><th>Type</th>{STAGES.map(([, label]) => <th>{label}</th>)}</tr></thead>
+                <tbody>
+                  {byType.map((row) => (
+                    <tr>
+                      <td class="bytype-name">{row.icon && <span aria-hidden="true">{row.icon} </span>}{row.name}</td>
+                      {STAGES.map(([key]) => {
+                        const n = stageCount(row, key);
+                        return <td class={n ? "" : "zero"}>{n ? <a href={stageHref(row.slug, key)}>{n}</a> : "·"}</td>;
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+      </>
+      )}
+
+      <slot name="right" />
+    </div>
+  </div>
+</div>
+
+
+<script>
+  import { decideApproval } from "@/lib/api/workflowApprovals";
+
+  // The same flow as the Approvals page, minus the note: a decision here is the quick kind.
+  document.querySelectorAll<HTMLButtonElement>(".approval .js-decide").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const card = btn.closest<HTMLElement>(".approval")!;
+      const result = card.querySelector<HTMLElement>(".approval-result")!;
+      card.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
+      try {
+        const out = await decideApproval(card.dataset.id!, btn.dataset.decision as "approve" | "deny", "", btn.dataset.choice ?? null);
+        result.textContent =
+          out.status === "stale"
+            ? "The entry changed after this was asked, so it went on as stale — nothing approved was applied."
+            : out.choice
+              ? `Approved: ${out.choice} — the workflow went on.`
+              : `${out.status === "approved" ? "Approved" : "Denied"} — the workflow went on.`;
+        card.querySelector(".approval-decide")!.remove();
+      } catch (e: any) {
+        result.textContent = e?.message ?? String(e);
+        card.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = false));
+      }
+      result.hidden = false;
+    }),
+  );
+</script>
+
+<style>
+  .pulse { display: grid; gap: 20px; }
+
+  /* Health strip: one dot per thing that can be wrong, each a link to the page that explains it. */
+  .health-strip {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+  }
+  .health-dot {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    color: var(--muted);
+    text-decoration: none;
+  }
+  a.health-dot:hover { color: var(--ink); }
+  .health-dot .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--line);
+    flex: none;
+  }
+  .tone-ok .dot { background: #16a34a; }
+  .tone-warn .dot { background: #d97706; }
+  .tone-bad .dot { background: var(--color-error, #dc2626); }
+  .tone-bad, .tone-warn { color: var(--ink); }
+  .tone-off { opacity: 0.7; }
+
+  .pulse-columns {
+    display: grid;
+    grid-template-columns: 1.25fr 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+  .pulse-stack { display: grid; gap: 20px; }
+  @media (max-width: 900px) {
+    .pulse-columns { grid-template-columns: 1fr; }
+  }
+
+  /* The panel chrome is global within the frame: the home page's slotted sections wear it too. */
+  .pulse :global(.panel) {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    min-width: 0;
+  }
+  .pulse :global(.panel-head) {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .pulse :global(.panel-head h3) { margin: 0; font-size: 16px; font-weight: 600; }
+  .pulse :global(.panel-link) { font-size: 13px; color: var(--accent); text-decoration: none; white-space: nowrap; }
+  .pulse :global(.panel-link:hover) { text-decoration: underline; }
+  .pulse :global(.panel-sub) { font-size: 12px; color: var(--muted); }
+  .pulse :global(.empty) { margin: 8px 0; color: var(--muted); font-size: 14px; }
+
+  .attention-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .attention-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .attention-item:hover { border-color: var(--accent); background: var(--panel-hover, rgb(0 0 0 / 0.02)); }
+  .attention-count { flex: none; min-width: 40px; text-align: center; font-size: 22px; font-weight: 700; color: var(--muted); }
+  .attention-count.warn { color: #d97706; }
+  .attention-count.info { color: var(--accent); }
+  .attention-count.danger { color: var(--color-error, #dc2626); }
+  .attention-label { font-size: 14px; color: var(--ink); }
+
+  /* Approvals decided inline. */
+  .approval {
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel-2, var(--panel));
+  }
+  .approval-ask { margin: 0 0 4px; font-weight: 600; font-size: 14px; }
+  .approval-pic { display: block; max-width: 100%; max-height: 220px; border-radius: var(--radius); border: 1px solid var(--line); margin: 0 0 8px; }
+  .approval-meta { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
+  .approval-decide { display: flex; flex-wrap: wrap; gap: 6px; }
+  .approval-decide .button { padding: 5px 11px; font-size: 13px; }
+  .approval-result { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+
+  .upcoming-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .upcoming-item { display: flex; gap: 12px; align-items: flex-start; }
+  .upcoming-kind {
+    flex: none;
+    min-width: 92px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--muted);
+    padding-top: 3px;
+  }
+  .kind-publish { color: #16a34a; }
+  .kind-resume { color: var(--accent); }
+  .upcoming-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .upcoming-title { font-size: 14px; color: var(--ink); text-decoration: none; overflow-wrap: anywhere; }
+  a.upcoming-title:hover { text-decoration: underline; }
+  .upcoming-when { font-size: 12px; color: var(--muted); }
+
+  .runs-summary { margin: 0 0 12px; font-size: 14px; color: var(--muted); }
+  .runs-summary strong { color: var(--ink); }
+  .runs-failed { color: var(--color-error, #dc2626) !important; }
+  .sparkline { display: block; width: 100%; height: 56px; }
+  .bar-ok { fill: var(--accent); opacity: 0.75; }
+  .bar-failed { fill: var(--color-error, #dc2626); }
+  .spark-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* AI usage: the two meters from Settings → AI, read-only. */
+  .usage-meter { display: grid; gap: 6px; margin-bottom: 12px; }
+  .usage-meter:last-of-type { margin-bottom: 0; }
+  .usage-head { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--muted); }
+  .usage-head strong { color: var(--ink); font-size: 14px; text-align: right; }
+  /* The same green bar as Settings → AI: amber past the warning percent, red at the limit. */
+  .usage-bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
+  .usage-fill { display: block; height: 100%; width: 0; background: var(--color-success, #16a34a); transition: width 0.3s; }
+  .usage-bar[data-level="warn"] .usage-fill { background: var(--color-warning, #d97706); }
+  .usage-bar[data-level="over"] .usage-fill { background: var(--color-error, #c0392b); }
+  .usage-detail { font-size: 12px; color: var(--muted); }
+  .usage-unpriced { margin: 10px 0 0; font-size: 12px; color: #d97706; }
+
+  /* Pick up where you left off. */
+  .pickup-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .pickup-item { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); text-decoration: none; color: inherit; }
+  .pickup-item:hover { border-color: var(--accent); }
+  .pickup-title { font-size: 14px; color: var(--ink); overflow-wrap: anywhere; }
+  .pickup-meta { font-size: 12px; color: var(--muted); text-transform: capitalize; }
+
+  /* Published per week, stacked by type. */
+  .pubchart { display: block; width: 100%; height: 96px; }
+  .bar-empty { fill: var(--line); }
+  .legend { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); }
+  .legend li { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+  /* Content by type. */
+  .bytype { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .bytype th { text-align: right; font-weight: 600; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+  .bytype th:first-child, .bytype td.bytype-name { text-align: left; }
+  .bytype td { text-align: right; padding: 6px; border-bottom: 1px solid var(--line); color: var(--ink); white-space: nowrap; }
+  .bytype tr:last-child td { border-bottom: none; }
+  .bytype td.zero { color: var(--line); }
+  .bytype td a { color: var(--ink); text-decoration: none; font-weight: 600; }
+  .bytype td a:hover { color: var(--accent); }
+</style>

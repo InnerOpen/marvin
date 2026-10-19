@@ -17,7 +17,6 @@ from pydantic import (  # Core Pydantic components
     UUID4,
     BaseModel,
     ConfigDict,
-    Field,
     StringConstraints,
     ValidationInfo,  # Added for validator context
     field_validator,
@@ -118,22 +117,6 @@ class LongLiveTokenRead(_MarvinModel):
         return [joinedload(LongLiveTokenSQLModel.user)]
 
 
-class LongLiveTokenSummary(_MarvinModel):
-    """
-    Schema for summarized token information in lists.
-    """
-
-    id: UUID4
-    """The unique identifier of the API token."""
-    name: str
-    """The user-defined name of the API token."""
-    enabled: bool
-    """Whether the token is currently active."""
-    last_used_at: datetime | None = None
-    """Timestamp (UTC) of when the token was last used."""
-    model_config = ConfigDict(from_attributes=True)
-
-
 class LongLiveTokenWithToken(_MarvinModel):
     """
     Schema for the response when a new token is created or rotated.
@@ -158,27 +141,6 @@ class LongLiveTokenWithToken(_MarvinModel):
     created_at: datetime | None = None
     """Timestamp (UTC) of when the token was created."""
     model_config = ConfigDict(from_attributes=True)
-
-
-class LongLiveTokenCreateResponse(_MarvinModel):
-    """
-    DEPRECATED: Use LongLiveTokenWithToken instead.
-    Schema for the response when a new long-lived API token is created.
-    """
-
-    token: str
-    """The generated API token string. This is sensitive and should be handled securely."""
-    model_config = ConfigDict(from_attributes=True)
-
-
-class LongLiveTokenPagination(PaginationBase):
-    """
-    Schema for paginated responses containing a list of tokens.
-    The items in the list are expected to conform to the `LongLiveTokenSummary` schema.
-    """
-
-    items: list[LongLiveTokenSummary]
-    """The list of groups for the current page, serialized as `LongLiveTokenSummary`."""
 
 
 class WorkspaceMembershipRead(_MarvinModel):
@@ -221,24 +183,6 @@ class WorkspaceMembershipSummary(_MarvinModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class TokenCreate(LongLiveTokenCreate):
-    """
-    DEPRECATED: Internal schema for creating a token record.
-    Repository now handles token generation and hashing directly.
-
-    This schema is kept for backward compatibility but should not be used
-    for new code. Use LongLiveTokenCreate instead.
-    """
-
-    user_id: UUID4
-    """The unique identifier of the user to whom this token belongs."""
-    token_hash: str
-    """The bcrypt hash of the token (not the plaintext token)."""
-    created_by: UUID4
-    """The unique identifier of the user who created this token."""
-    model_config = ConfigDict(from_attributes=True)
-
-
 class TokenResponseDelete(_MarvinModel):
     """
     Schema for the response after successfully deleting an API token.
@@ -258,8 +202,15 @@ class ChangePassword(_MarvinModel):
 
     current_password: str = ""  # Default to empty string, but should be required by API.
     """The user's current password, for verification."""
-    new_password: str = Field(..., min_length=8)  # `...` denotes a required field.
-    """The new password. Must be at least 8 characters long."""
+    new_password: str
+    """The new password: at least SECURITY_PASSWORD_MIN_LENGTH characters (8 by default)."""
+
+    @field_validator("new_password")
+    @classmethod
+    def new_password_long_enough(cls, value: str) -> str:
+        from .password_rules import check_password_length
+
+        return check_password_length(value)
 
 
 class _UserBase(_MarvinModel):
@@ -410,14 +361,14 @@ class UserRead(_UserBase):
     """The unique identifier of the user."""
     platform_role: PlatformRole
     """Platform-level role (NONE or SUPER_ADMIN)."""
-    group: str  # In UserCreate this was `str | None`. Here it's `str`. Might imply group is always resolved.
-    """The name of the group the user belongs to."""
-    group_id: UUID4
-    """The unique identifier of the group the user belongs to."""
-    group_slug: str  # Added based on original properties, likely from ORM.
-    """The slug of the group the user belongs to."""
+    group: str | None = None
+    """The name of the user's home workspace; None when they have none."""
+    group_id: UUID4 | None = None
+    """The unique identifier of the user's home workspace; None when they have none."""
+    group_slug: str | None = None
+    """The slug of the user's home workspace; None when they have none."""
     active_group_id: UUID4 | None = None
-    """The workspace currently active for this user (or None to use group_id)."""
+    """The workspace the user last switched to (None: the current workspace is resolved, see services.workspace.current)."""
     workspace_memberships: list[WorkspaceMembershipSummary] = []
     """List of workspaces this user is a member of with their roles."""
     # tokens: list[LongLiveTokenRead] | None = None # Commented out in original, might be populated conditionally.
@@ -494,8 +445,8 @@ class UserSummary(_MarvinModel):
 
     id: UUID4
     """The unique identifier of the user."""
-    group_id: UUID4
-    """The unique identifier of the group the user belongs to."""
+    group_id: UUID4 | None = None
+    """The unique identifier of the user's home workspace; None when they have none."""
     username: str | None = None  # Nullable to match UserSQLModel.username
     """
     The user's username.
@@ -520,16 +471,6 @@ class UserPagination(PaginationBase):
 
     items: list[UserRead]
     """The list of users for the current page, serialized as `UserRead`."""
-
-
-class UserSummaryPagination(PaginationBase):
-    """
-    Schema for paginated responses containing a list of user summaries.
-    Items are expected to conform to the `UserSummary` schema.
-    """
-
-    items: list[UserSummary]
-    """The list of user summaries for the current page."""
 
 
 class PrivateUser(UserRead):
@@ -579,11 +520,6 @@ class PrivateUser(UserRead):
         # Compare with current UTC time
         return lockout_expires_at > datetime.now(UTC)
 
-    @property
-    def effective_workspace_id(self) -> UUID4:
-        """Returns active workspace if set, otherwise falls back to group_id."""
-        return self.active_group_id or self.group_id
-
     def directory(self) -> Path:  # This method seems to imply a static method was intended or user-specific dir logic
         """
         Returns the directory path for this user.
@@ -614,23 +550,5 @@ class PrivateUser(UserRead):
             joinedload(UsersSQLModel.workspace_memberships),  # Eager load workspace memberships
         ]
 
-
-class LongLiveTokenRead_(TokenCreate):  # Underscore in name might indicate internal or special use.
-    """
-    Schema for reading a long-lived token, including the associated user's private details.
-    Extends `TokenCreate` (which has `user_id`, `token`, `name`, `integration_id`).
-
-    "Private" aspect likely comes from embedding the `PrivateUser` schema.
-    The name `LongLiveTokenRead_` with a trailing underscore is unusual and might
-    signify a specific internal purpose or differentiate it from another `LongLiveTokenRead`.
-    """
-
-    id: UUID4
-    """The unique identifier of the API token."""
-    user: PrivateUser  # Embeds the full PrivateUser object.
-    """The user object associated with this token, including private details."""
-
-    # Inherits user_id, token, name, integration_id from TokenCreate
-    model_config = ConfigDict(from_attributes=True)
     # No loader_options here, but if this schema is built from an ORM LongLiveTokenSQLModel,
     # the query fetching that model might use `LongLiveTokenRead.loader_options()` to load the user.

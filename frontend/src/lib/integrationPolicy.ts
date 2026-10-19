@@ -34,7 +34,7 @@ export interface PolicyRow {
   overridden: boolean;
 }
 
-export const FALLBACK = "*";
+const FALLBACK = "*";
 
 /**
  * One row per declared code (provider-wide codes first, then codes only an action names, "*" last).

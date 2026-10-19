@@ -120,7 +120,11 @@ def test_a_providers_own_price_wins_over_the_feed(db_session, monkeypatch):
 
     from marvin.services.ai import registry
 
-    own = SimpleNamespace(estimate_cost=lambda model, p, c: ModelPrice(9, 9).cost(p, c), self_hosted=False, prices={"gpt-6.1-sol": ModelPrice(9, 9)})
+    own = SimpleNamespace(
+        estimate_cost=lambda model, p, c, cached=0, written=0: ModelPrice(9, 9).cost(p, c, cached, written),
+        self_hosted=False,
+        prices={"gpt-6.1-sol": ModelPrice(9, 9)},
+    )
     monkeypatch.setattr(registry, "find_class", lambda slug: own if slug == "openai" else None)
     price_feed.set_url(db_session, "https://feed.test/prices.json")
     price_feed.refresh(db_session, _server())
@@ -179,3 +183,31 @@ def test_the_admin_sets_the_url_and_sees_the_status(db_session, world, monkeypat
     finally:
         mine.delete(synchronize_session=False)
         db_session.commit()
+
+
+def test_cache_rates_ride_along_when_the_feed_has_them():
+    """cache_read_input_token_cost / cache_creation_input_token_cost become the price's cache rates; a model without
+    them keeps the two-value row (and costs the input rate for cached tokens)."""
+    feed = {
+        "claude-sonnet-5": {
+            "litellm_provider": "anthropic",
+            "input_cost_per_token": 2e-6,
+            "output_cost_per_token": 1e-5,
+            "cache_read_input_token_cost": 2e-7,
+            "cache_creation_input_token_cost": 2.5e-6,
+        },
+        "gpt-6.1-sol": {
+            "litellm_provider": "openai",
+            "input_cost_per_token": 2e-6,
+            "output_cost_per_token": 1e-5,
+            "cache_read_input_token_cost": 2e-7,
+        },
+        "plain": {"litellm_provider": "openai", "input_cost_per_token": 1e-6, "output_cost_per_token": 1e-6},
+    }
+    table = price_feed.parse(feed)
+    assert table["anthropic"]["claude-sonnet-5"] == [2.0, 10.0, 0.2, 2.5]
+    assert table["openai"]["gpt-6.1-sol"] == [2.0, 10.0, 0.2]
+    assert table["openai"]["plain"] == [1.0, 1.0]
+    sonnet = price_feed._price(table["anthropic"]["claude-sonnet-5"])
+    assert sonnet.cost(1_000_000, 0, cached_prompt_tokens=1_000_000) == 0.2
+    assert price_feed._price(table["openai"]["plain"]).cost(1_000_000, 0, cached_prompt_tokens=1_000_000) == 1.0

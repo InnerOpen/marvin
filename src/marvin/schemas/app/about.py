@@ -94,51 +94,6 @@ class AppTheme(_MarvinModel):
     dark_error: str
 
 
-class FeatureStatus(_MarvinModel):
-    """Schema for feature status with enabled flag and optional description."""
-
-    enabled: bool
-    description: str | None = None
-
-
-class AppStartupInfo(_MarvinModel):
-    """
-    Schema for information relevant to the application's startup state.
-
-    Includes feature flags and configuration status for various integrations.
-    """
-
-    # SMTP / Email
-    smtp_enabled: bool
-    """Whether SMTP email is configured and enabled."""
-    smtp_feature: FeatureStatus | None = None
-    """Detailed SMTP feature status."""
-
-    # LDAP Authentication
-    ldap_enabled: bool = False
-    """Whether LDAP authentication is configured and enabled."""
-    ldap_feature: FeatureStatus | None = None
-    """Detailed LDAP feature status."""
-
-    # OIDC Authentication
-    oidc_enabled: bool = False
-    """Whether OIDC authentication is configured and enabled."""
-    oidc_feature: FeatureStatus | None = None
-    """Detailed OIDC feature status."""
-
-    # OpenAI Integration
-    openai_enabled: bool = False
-    """Whether OpenAI integration is configured and enabled."""
-    openai_feature: FeatureStatus | None = None
-    """Detailed OpenAI feature status."""
-
-    # Plugin System
-    plugin_enabled: bool = False
-    """Whether the plugin system is enabled."""
-    plugin_feature: FeatureStatus | None = None
-    """Detailed plugin feature status."""
-
-
 class AdminAboutInfo(AppInfo):  # Note: This extends the AppInfo defined *in this file*.
     """
     Schema for detailed application information, extending the local `AppInfo`.

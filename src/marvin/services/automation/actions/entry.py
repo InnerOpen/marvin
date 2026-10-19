@@ -91,8 +91,11 @@ REVIEW_REASONS_KEY = "review_reasons"
 CREATE_OPS = ("create",)
 CREATE_STATUSES = ("inbox", "draft")
 CREATED_KEY = "automation_created"
+# Attach an asset (by id or slug — a step's generated picture, say) to the entry in a role. Its own op so a run can
+# make a picture, show it at an approval, and attach it only once a person says yes.
+ATTACH_OPS = ("attach_asset",)
 
-ALL_OPS = (*ENTRY_OPS, *COLLECTION_OPS, *METADATA_OPS, *DATA_OPS, *REVIEW_OPS, *CREATE_OPS)
+ALL_OPS = (*ENTRY_OPS, *COLLECTION_OPS, *METADATA_OPS, *DATA_OPS, *REVIEW_OPS, *CREATE_OPS, *ATTACH_OPS)
 
 # What each op sends (through EntryService), from the entry's usual starting point: every write sends
 # entry_updated, a status op its transition too. The Events hub lists a workflow with these steps as a
@@ -110,6 +113,7 @@ OP_SENDS: dict[str, tuple[str, ...]] = {
     "set_data": ("entry_updated",),
     "request_review": ("entry_updated",),
     "create": ("entry_created",),
+    "attach_asset": ("asset_attached_to_entry",),  # the link, not an entry_updated (EntryService._emit_asset_link)
 }
 
 # Ops that also act on an asset or a resource (`entity_type`), and what each sends there — one event, no
@@ -168,6 +172,15 @@ def _json_ready(value):
 # quietly — for events that may concern no entry here (a newsletter reader who signed up elsewhere).
 # More than one match always fails: acting on a guess is worse than stopping.
 IF_NONE_SKIP = "skip"
+
+
+def _previewed_target(action: dict, context: dict) -> str | None:
+    """In a dry run, the entry a step names through an earlier step's output (`entity_id: ${steps.badge.output.entry_id}`)
+    when that step only previewed (a create makes nothing): where it comes from, instead of failing on an empty id."""
+    raw = action.get("entity_id")
+    if action.get("entity_query") or action.get("entity_slug") or not isinstance(raw, str) or not _STEP_REF.search(raw):
+        return None
+    return None if interpolate(raw, context) else f"‹{raw.strip()}›"
 
 
 def _resolve_target(session, group_id, action: dict, context: dict):
@@ -234,6 +247,8 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
     if entity_type != "entry":
         return _run_item_op(session, group_id, entity_type, op, action, context, user_id=user_id, dry_run=dry_run)
 
+    if dry_run and op in COLLECTION_OPS and (stand_in := _previewed_target(action, context)):
+        return {"dry_run": True, "kind": "entry", "op": op, "entity_id": stand_in, "collection": _resolve_collection_ref(action, context)}
     entity_id = _resolve_target(session, group_id, action, context)
     if entity_id is None:
         # A successful no-op: the run is green and the step's output says why nothing happened.
@@ -257,6 +272,8 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
         key = "metadata" if op in METADATA_OPS else "data"
         return _merge(session, group_id, entity_id, op, key, action, context, user_id=user_id, depth=depth, dry_run=dry_run)
 
+    if op in ATTACH_OPS:
+        return _attach_asset(session, group_id, entity_id, action, context, user_id=user_id, depth=depth, dry_run=dry_run)
     if op in REVIEW_OPS:
         return _request_review(session, group_id, entity_id, action, context, user_id=user_id, depth=depth, dry_run=dry_run)
 
@@ -506,3 +523,23 @@ def _resolve_item(session, group_id, kind: str, action: dict, context: dict):
     if row is None or row.group_id != group_id:
         raise AutomationActionError(f"{kind} {raw} not found in this workspace")
     return row
+
+
+def _attach_asset(session, group_id, entity_id, action: dict, context: dict, *, user_id, depth: int, dry_run: bool) -> dict:
+    """`{"kind": "entry", "op": "attach_asset", "asset": "${steps.cover.output.images.0.asset.id}", "role": "cover"}`:
+    the asset (id or slug; templates allowed) linked to the entry in `role`. Idempotent: an asset already in that
+    role is left as it is."""
+    from marvin.services.entries import EntryService
+
+    raw = action.get("asset")
+    ref = str(interpolate(raw, context) or "").strip() if raw not in (None, "") else ""
+    if not ref:
+        raise AutomationActionError("attach_asset needs `asset`: the asset's id or slug (a template such as ${steps.cover.output.images.0.asset.id})")
+    role = str(interpolate(action.get("role"), context) or "").strip() or None if action.get("role") else None
+    if dry_run:
+        return {"dry_run": True, "kind": "entry", "op": "attach_asset", "entity_id": str(entity_id), "asset": ref, "role": role}
+    svc = EntryService(session, group_id, actor_id=user_id, integration_id="automation")
+    result = svc.attach_asset(entity_id, ref, role=role, reaction_depth=depth)
+    if result is None:
+        raise AutomationActionError(f"entry {entity_id} or asset '{ref}' not found in this workspace")
+    return {"entry_id": str(entity_id), "op": "attach_asset", "asset": ref, "role": role, "result": result}

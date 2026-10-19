@@ -338,9 +338,10 @@ def test_admin_and_owner_can_read_and_change(workspace, role):
 def test_super_admin_passes_and_non_member_is_refused(workspace):
     assert _sign_in(workspace, None, PlatformRole.SUPER_ADMIN).get(URL).status_code == 200
     outsider = _sign_in(workspace, None)
-    assert outsider.get(URL).status_code == 403
-    assert outsider.patch(URL, json={"overrides": {ON: False}}).status_code == 403
-    assert outsider.get(f"{URL}/excluded").status_code == 403
+    # an outsider is a member of nothing, so in no workspace at all: 409 no_workspace, before the gate
+    assert outsider.get(URL).status_code == 409
+    assert outsider.patch(URL, json={"overrides": {ON: False}}).status_code == 409
+    assert outsider.get(f"{URL}/excluded").status_code == 409
 
 
 def test_any_member_reads_the_excluded_list(workspace):

@@ -146,11 +146,6 @@ are added by each caller. Keep in step with configmap.yaml / secret.yaml.
     configMapKeyRef:
       name: {{ include "marvin.fullname" . }}
       key: apiPort
-- name: API_HOST
-  valueFrom:
-    configMapKeyRef:
-      name: {{ include "marvin.fullname" . }}
-      key: apiHost
 - name: SCHEDULER_INTERVAL_SECONDS
   valueFrom:
     configMapKeyRef:
@@ -161,19 +156,31 @@ are added by each caller. Keep in step with configmap.yaml / secret.yaml.
     configMapKeyRef:
       name: {{ include "marvin.fullname" . }}
       key: corsOrigins
+{{- if or .Values.config.publicApiUrl (and .Values.route.enabled .Values.route.api.enabled .Values.route.api.host) }}
+- name: PUBLIC_API_URL
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: publicApiUrl
+{{- end }}
+{{- if or .Values.config.publicUiUrl (and .Values.route.enabled .Values.route.ui.enabled .Values.route.ui.host) }}
+- name: BASE_URL
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: publicUiUrl
+- name: FRONTEND_URL
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: publicUiUrl
+{{- end }}
 {{- if .Values.config.environmentLabel }}
 - name: ENVIRONMENT_LABEL
   valueFrom:
     configMapKeyRef:
       name: {{ include "marvin.fullname" . }}
       key: environmentLabel
-{{- end }}
-{{- if .Values.config.platformWorkspaceName }}
-- name: DEFAULT_GROUP
-  valueFrom:
-    configMapKeyRef:
-      name: {{ include "marvin.fullname" . }}
-      key: platformWorkspaceName
 {{- end }}
 - name: SMTP_HOST
   valueFrom:
@@ -229,12 +236,23 @@ backup.scheduledTasks.enabled, which also renders the Role that lets the backend
 {{- end -}}
 
 {{/*
-Database engine guard: only the two engines the app knows.
+Database engine guard: sqlite (a file on the data volume) or postgres. SQLite is one process writing one file, so
+it needs exactly one API replica and a persistent data volume; the chart refuses anything else rather than render
+a release that corrupts or loses its database.
 */}}
 {{- define "marvin.dbEngine" -}}
 {{- $engine := .Values.config.dbEngine | default "sqlite" -}}
 {{- if not (has $engine (list "sqlite" "postgres")) -}}
 {{- fail (printf "config.dbEngine must be sqlite or postgres, not %q" $engine) -}}
+{{- end -}}
+{{- if eq $engine "sqlite" -}}
+{{- $replicas := ternary (int .Values.split.backend.replicaCount) (int .Values.replicaCount) (eq .Values.mode "split") -}}
+{{- if gt $replicas 1 -}}
+{{- fail (printf "config.dbEngine=sqlite allows one API replica (SQLite is a single-writer file), not %d: set %s to 1, or use config.dbEngine=postgres" $replicas (ternary "split.backend.replicaCount" "replicaCount" (eq .Values.mode "split"))) -}}
+{{- end -}}
+{{- if not .Values.persistence.enabled -}}
+{{- fail "config.dbEngine=sqlite needs persistence.enabled=true: the database is a file on the data volume and would be lost with the pod" -}}
+{{- end -}}
 {{- end -}}
 {{- $engine -}}
 {{- end -}}
@@ -306,12 +324,16 @@ hooks and process exit. A run still going at the deadline is lost; the next proc
 update starts the new pod while the old one is still finishing its runs.
 */}}
 {{/*
-The API pod's update strategy: the split backend's own when set, else the shared `strategy`.
+The API pod's update strategy: the split backend's own when set, else the shared `strategy`; always Recreate on sqlite.
 */}}
 {{- define "marvin.apiStrategy" -}}
 {{- $s := .Values.strategy -}}
 {{- if and (eq .Values.mode "split") .Values.split.backend.strategy -}}
 {{- $s = .Values.split.backend.strategy -}}
+{{- end -}}
+{{- if eq (include "marvin.dbEngine" .) "sqlite" -}}
+{{- /* One writer to one file: the old pod stops before the new one starts, whatever strategy was asked for. */ -}}
+{{- $s = dict "type" "Recreate" -}}
 {{- end -}}
 {{- toYaml $s -}}
 {{- end -}}

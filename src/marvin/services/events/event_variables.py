@@ -47,6 +47,10 @@ def build_event_variables(event: Event) -> dict:
         raw = jsonable_encoder(event.document_data, exclude_none=True, by_alias=False)
         if isinstance(raw, dict):
             variables.update(raw)
+            # a custom event's fields read as {{ field }} like any other event's
+            if isinstance(raw.get("payload"), dict) and "event_name" in raw:
+                for key, value in raw["payload"].items():
+                    variables.setdefault(key, value)
 
     variables["event_type"] = event.event_type.name
     variables["timestamp"] = event.timestamp.isoformat() if event.timestamp else ""

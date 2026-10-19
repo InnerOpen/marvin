@@ -144,3 +144,14 @@ def test_private_collection_entries_stay_published_without_naming_it(db_session,
 
     assert [e.slug for e in listed] == [ws.entry_slug]
     assert listed[0].collections == [] and detail.collections == []
+
+
+def test_the_sidebar_switch_changes_only_the_sidebar_flag_and_not_what_sites_see(db_session, workspace):
+    ws = workspace
+    repo = get_repositories(db_session, group_id=ws.group.id).collections
+    assert repo.get_one(ws.coll_id).in_sidebar is True  # every collection starts in the sidebar
+
+    updated = repo.update(ws.coll_id, CollectionUpdate.model_validate({"inSidebar": False}))  # what the UI sends
+
+    assert (updated.in_sidebar, updated.name, updated.is_public) == (False, "Featured", True)
+    assert [c.slug for c in _list_collections(db_session, ws).data] == ["featured"]

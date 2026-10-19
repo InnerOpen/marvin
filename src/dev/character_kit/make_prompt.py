@@ -6,7 +6,7 @@
 The prompt is the same for every character (prompt.md) — only characters/<slug>/character.json fills it in — and its
 16 poses come from Marvin's character recipe (services/ai/character_recipe.json), in the order they are cut. The background is a flat colour
 picked to be far from the character's own (magenta unless the character is pink or purple…), or character.json's
-"background". Save the image the model returns as characters/<slug>/poses.png.
+"background". Upload the image the model returns in Admin → Character library: Marvin builds the pack.
 """
 
 from __future__ import annotations
@@ -130,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     sys.stdout.write(make_prompt(slug, new) + "\n")
     attach = [folder / "layout-guide.png"] if new else [reference, folder / "layout-guide.png"]
-    sys.stderr.write("\nAttach: " + "  +  ".join(str(a) for a in attach) + f"\nSave the result as: {folder / 'poses.png'}\n")
+    sys.stderr.write("\nAttach: " + "  +  ".join(str(a) for a in attach) + "\nUpload the sheet it returns in Admin → Character library.\n")
     return 0
 
 

@@ -9,7 +9,7 @@ export interface BubbleGateSettings {
 }
 
 /** The two Ask surfaces, each with its own invocation-source toggle. */
-export const ASK_SURFACES = ["bubble", "ask_page"] as const;
+const ASK_SURFACES = ["bubble", "ask_page"] as const;
 
 /**
  * Whether the invocation_sources policy leaves `key` on — the backend gate's rule (`source_allowed`):

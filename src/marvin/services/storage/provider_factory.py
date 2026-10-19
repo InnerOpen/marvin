@@ -33,6 +33,8 @@ from .local_provider import LocalStorageProvider
 
 logger = logging.getLogger(__name__)
 
+WORKSPACE_LOCATION_PREFIX = "ws:"
+"""``storage_provider`` of a row in a workspace's own bucket: ``ws:<connection id>`` (services/storage/workspace.py)."""
 UPLOAD_SETTING_KEY = "storage"
 """``platform_settings`` key of the admin's storage choice: ``{"upload_provider": "<slug>" | null}``."""
 CHOICE_TTL_SECONDS = 5.0
@@ -191,6 +193,12 @@ def provider_for(asset: Any) -> BaseStorageProvider:
     keep working); a row on another one gets that provider, built once and reused.
     """
     slug = asset if isinstance(asset, str) else getattr(asset, "storage_provider", None)
+    if slug and slug.startswith(WORKSPACE_LOCATION_PREFIX):  # a workspace's own bucket (services/storage/workspace.py)
+        from .workspace import provider_for_location
+
+        # A row is only ever read from its own workspace's bucket (a crafted import can't borrow another's keys).
+        group_id = None if isinstance(asset, str) else getattr(asset, "group_id", None) or getattr(asset, "_group_id", None)
+        return provider_for_location(slug, group_id=group_id)
     settings = _settings()
     if not slug or slug == upload_target(settings).effective:
         return get_storage_provider()
@@ -276,7 +284,8 @@ def public_url_for(slug: str | None, storage_key: str, group_id: Any = None, pro
     that builds URLs from ``STORAGE_REMOTE_PUBLIC_URL``. Local files always use the API host. If the
     domain can't be applied (the provider has no such setting, or fails to build), the provider's own
     URL is used and the reason logged once."""
-    base = workspace_public_bases().get(str(group_id)) if group_id is not None and slug and slug != registry.LOCAL else None
+    remote_platform = slug and slug != registry.LOCAL and not slug.startswith(WORKSPACE_LOCATION_PREFIX)  # own bucket: its own URL
+    base = workspace_public_bases().get(str(group_id)) if group_id is not None and remote_platform else None
     if base:
         try:
             return _provider_with_public_base(slug, base, _settings()).get_public_url(storage_key)
@@ -285,6 +294,10 @@ def public_url_for(slug: str | None, storage_key: str, group_id: Any = None, pro
             if (slug, reason) not in _domain_warned:
                 _domain_warned.add((slug, reason))
                 logger.error(f"storage: workspace {group_id} should be served from {base}, but {reason}; using the provider's own URL")
+    if provider is None and slug and slug.startswith(WORKSPACE_LOCATION_PREFIX):
+        from .workspace import provider_for_location
+
+        provider = provider_for_location(slug, group_id=group_id)
     return (provider or provider_for(slug)).get_public_url(storage_key)
 
 
@@ -326,3 +339,6 @@ def reset_provider_cache() -> None:
     _domain_warned.clear()
     reset_upload_choice()
     reset_workspace_public_bases()
+    from .workspace import reset_cache
+
+    reset_cache()

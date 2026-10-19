@@ -47,7 +47,7 @@ const NUMERIC_OPS = new Set(["gt", "gte", "lt", "lte"]);
 
 const UNIVERSAL_KEYS = ["tags", "created_within_days", "match"];
 /** The keys the builder owns for each target; everything else in the JSON is left alone. */
-export const BUILDER_KEYS: Record<TargetType, string[]> = {
+const BUILDER_KEYS: Record<TargetType, string[]> = {
   entry: ["entry_types", "statuses", "published_within_days", "where", ...UNIVERSAL_KEYS],
   asset: ["asset_types", "mime_types", "origins", "made_from", ...UNIVERSAL_KEYS],
   resource: ["resource_types", ...UNIVERSAL_KEYS],

@@ -26,6 +26,7 @@ from marvin.core.exceptions import (  # Core application exceptions
     VideoDownloadError,
 )
 from marvin.core.root_logger import get_logger  # Application logger
+from marvin.services.storage.workspace import WorkspaceStorageUnavailable  # a workspace bucket refusing uploads (503)
 
 # Initialize logger for this module
 logger = get_logger()
@@ -122,6 +123,7 @@ _EXCEPTION_HANDLER_MAP: dict[type[Exception], tuple[int, int, str]] = {
     UserLockedOut: (status.HTTP_423_LOCKED, logging.WARNING, "User account is locked"),
     MissingClaimException: (status.HTTP_401_UNAUTHORIZED, logging.WARNING, "Required authentication claim is missing"),
     VideoDownloadError: (status.HTTP_500_INTERNAL_SERVER_ERROR, logging.ERROR, "Failed to download video"),
+    WorkspaceStorageUnavailable: (status.HTTP_503_SERVICE_UNAVAILABLE, logging.WARNING, "This workspace's storage can't take uploads right now"),
 }
 
 

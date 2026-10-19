@@ -198,6 +198,9 @@ class _FakeQuery:
     def filter(self, *criteria):
         return self
 
+    def order_by(self, *criteria):
+        return self
+
     def all(self):
         return self._rows
 
@@ -344,7 +347,25 @@ class TestActionRegistry:
     def test_all_kinds_registered(self):
         from marvin.services.automation.actions import available_kinds
 
-        kinds = {"operation", "emit_event", "handler", "webhook", "entry", "integration", "approval", "media", "collect", "fetch", "wait", "repeat"}
+        kinds = {
+            "operation",
+            "emit_event",
+            "handler",
+            "webhook",
+            "entry",
+            "integration",
+            "approval",
+            "media",
+            "collect",
+            "fetch",
+            "schema_check",
+            "email",
+            "metric",
+            "snapshot",
+            "wait",
+            "repeat",
+            "parallel",
+        }
         assert set(available_kinds()) == kinds
 
     def test_unknown_kind_raises(self):
@@ -1594,6 +1615,61 @@ class TestChangedFieldConditions:
         }
         assert self._run([{"field": "event.before.status", "op": "eq", "value": "draft"}], ctx) == 1
         assert self._run([{"field": "event.changed_fields", "op": "contains", "value": "status"}], ctx) == 1
+
+
+class TestDataFieldChangeConditions:
+    """A type's own field in the diff: `data.<key>` in changed_fields, values under before.data / after.data."""
+
+    CTX = {
+        "event_type": "entry_updated",
+        "entry_id": uuid4(),
+        "user_id": None,
+        "changed_fields": ["data.price"],
+        "before": {"data": {"price": 5}},
+        "after": {"data": {"price": 7}},
+    }
+
+    def _matches(self, conditions, ctx=None):
+        return matcher.matches(conditions, {"event": ctx or self.CTX})
+
+    def test_changed_reads_the_data_key_whatever_the_prefix(self):
+        for field in ("entry.data.price", "data.price", "event.after.data.price"):
+            assert self._matches([{"field": field, "op": "changed"}])
+        assert not self._matches([{"field": "entry.data.sku", "op": "changed"}])
+
+    def test_changed_fields_contains(self):
+        assert self._matches([{"field": "event.changed_fields", "op": "contains", "value": "data.price"}])
+        assert not self._matches([{"field": "event.changed_fields", "op": "contains", "value": "data.sku"}])
+
+    def test_changed_from_and_to_compare_the_values(self):
+        assert self._matches([{"field": "entry.data.price", "op": "changed_from", "value": 5}])
+        assert self._matches([{"field": "entry.data.price", "op": "changed_to", "value": 7}])
+        assert not self._matches([{"field": "entry.data.price", "op": "changed_to", "value": 5}])
+
+    def test_a_data_field_named_like_a_tracked_one_is_not_mistaken_for_it(self):
+        ctx = {**self.CTX, "changed_fields": ["data.status"], "before": {"data": {"status": "x"}}, "after": {"data": {"status": "y"}}}
+        assert self._matches([{"field": "entry.data.status", "op": "changed_to", "value": "y"}], ctx)
+        assert not self._matches([{"field": "entry.status", "op": "changed"}], ctx)  # the entry's own status did not change
+
+    def test_templates_read_the_values(self):
+        ctx = {"event": self.CTX}
+        assert matcher.interpolate("was ${event.before.data.price}, now ${event.after.data.price}", ctx) == "was 5, now 7"
+        assert matcher.interpolate("${event.after.data.price}", ctx) == 7
+
+    def test_the_picker_offers_the_diff_fields(self):
+        from marvin.services.automation.validation import condition_field_catalog
+
+        offered = {f["field"] for f in condition_field_catalog()["event"]}
+        assert {"event.after.data.", "event.before.data.", "event.changed_fields", "entry.data."} <= offered
+
+    def test_a_workflow_fires_on_the_change(self):
+        auto = _automation(
+            trigger="entry_updated",
+            conditions=[{"field": "event.changed_fields", "op": "contains", "value": "data.price"}],
+            actions=[{"kind": "emit_event", "event": "noted"}],
+        )
+        ran = engine.run_automations_for_event(_FakeSession([auto]), "G", self.CTX, run_action=_recording_runner())
+        assert ran == 1
 
 
 # ── Target selector: the FROM clause (set-based fan-out) ───────────────────────

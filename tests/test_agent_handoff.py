@@ -16,6 +16,7 @@ from marvin.schemas.group.ai_execution import AIAgentRequest
 from marvin.services.ai.agents import AgentSpec
 from marvin.services.ai.operations.base import ROLE_AUTHOR
 from marvin.services.ai.tones import WorkspaceTones
+from tests._users import member_of
 
 MATERIALS = AgentSpec(slug="materials", name="Materials", description="stock", default_register="playful")
 CHAT_LIKE = AgentSpec(slug="talk", name="Talk", kind="model")
@@ -48,7 +49,7 @@ class _Core:
 def ctl(monkeypatch):
     c = oc.AIOperationsController.__new__(oc.AIOperationsController)
     c.session = object()
-    c.user = SimpleNamespace(id="u1", active_group_id="g1", group_id="g1")  # group_id is a property read off the user
+    c.user = SimpleNamespace(id="u1", active_group_id="g1", group_id="g1", **member_of("g1"))  # group_id is a property read off the user
     c._logger = None  # `logger` is a lazy property over _logger
     c.core = _Core()
     c.model_core = _Core({"answer": "plain", "steps": [], "threadId": None, "executionId": "ex-m", "totalTokens": 3})

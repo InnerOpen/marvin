@@ -1,8 +1,5 @@
 """Routes for AI operations — list, execute, and execution history."""
 
-import time
-from datetime import UTC, datetime
-
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from pydantic import UUID4
 
@@ -16,6 +13,7 @@ from marvin.routes._base.controller import controller
 from marvin.schemas.group.agent import (
     AgentCreate,
     AgentDefinitionPreviewRequest,
+    AgentLinesRequest,
     AgentPromptPreview,
     AgentPromptPreviewRequest,
     AgentRead,
@@ -36,6 +34,7 @@ from marvin.schemas.group.ai_settings import (
     AssistantCharacterAssign,
     AssistantCharacterLibraryChoice,
     AssistantCharacterUpload,
+    BubbleLines,
 )
 from marvin.schemas.group.ai_thread import AIThreadDetail, AIThreadMessageRead, AIThreadRead, AIThreadResumeRequest, AIThreadUpdate
 from marvin.services.ai.agents import ROUTER_SLUG
@@ -65,6 +64,30 @@ def _human_size(size: int | None) -> str:
     if size < 1024 * 1024:
         return f"{size // 1024} KB"
     return f"{size / (1024 * 1024):.1f} MB"
+
+
+def _own_character(spec, workspace_persona: str) -> str:
+    """The Character a named agent speaks with: its own when it has one, else the workspace's."""
+    return spec.persona_prompt or workspace_persona
+
+
+def _agent_columns(data, values: dict) -> dict:
+    """`values` (a create or update payload's fields) as the agent's columns store them: bubble lines cleaned
+    and marked edited, mood settings only as far as they're set, a blank Character as none."""
+    from marvin.services.ai.bubble_lines import SOURCE_EDITED, BubbleLinesError, clean_edited
+
+    if "persona_prompt" in values:
+        values["persona_prompt"] = (values["persona_prompt"] or "").strip() or None
+    if "bubble_lines" in values:
+        try:
+            lines = clean_edited(values["bubble_lines"]) if values["bubble_lines"] else None
+        except BubbleLinesError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+        values["bubble_lines"] = lines
+        values["bubble_lines_source"] = SOURCE_EDITED if lines else None
+    if "mood" in values:
+        values["mood"] = data.mood.stored() if data.mood else None
+    return values
 
 
 @controller(router)
@@ -98,19 +121,9 @@ class AIOperationsController(BaseUserController):
         """
         # MarvinMCP's direct calls follow Marvin's permission matrix (see `invoke_tool`), so what it
         # blocks isn't advertised. An "Ask first" tool stays listed: calling it says where it can run.
-        from marvin.services.ai.agents import POLICY_BLOCK, resolve_policy
-        from marvin.services.ai.tools import list_tools as _list_tools
-        from marvin.services.ai.tools.categories import category_of
+        from marvin.services.ai.tool_gateway import visible_tools
 
-        role = self._user_role()
-        marvin = self._agent_or_404(ROUTER_SLUG)
-        return [
-            t.info()
-            for t in _list_tools()
-            if "mcp" in t.sources
-            and role >= t.min_role
-            and resolve_policy(marvin, t.name, category_of(t.name, read_only=t.read_only), role)[0] != POLICY_BLOCK
-        ]
+        return [t.info() for t in visible_tools(self.session, self.group_id, self.user)]
 
     @router.get("/agent/tools", summary="List the agent's bound tools")
     def list_agent_tools(self) -> list[dict]:
@@ -159,62 +172,11 @@ class AIOperationsController(BaseUserController):
         JSON result. A provider is attached best-effort so tools that need one (semantic search)
         can use it; tools that don't simply ignore it.
         """
-        import json
+        # Every gate (role, source, Marvin's permission matrix, AI budget, bulk writes) lives in the shared
+        # gateway, which the remote MCP server goes through too.
+        from marvin.services.ai.tool_gateway import invoke_unattended
 
-        from marvin.services.ai.agents import unattended_refusal
-        from marvin.services.ai.factory import get_workspace_ai_provider
-        from marvin.services.ai.tools import ToolContext, bulk_writes, get_tool
-        from marvin.services.ai.tools.categories import category_of
-
-        try:
-            spec = get_tool(name)
-        except KeyError:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Tool '{name}' not found.") from None
-
-        if self._user_role() < spec.min_role:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role for this tool.")
-
-        # Invocation-source gate: tool's declared sources ∩ workspace policy.
-        self._check_invocation_source(body.source, spec.sources)
-
-        # A direct call stands in for the workspace's main agent, so it follows Marvin's permission matrix,
-        # resolved as an agent run resolves it: it runs only what Marvin may run unasked. Block and
-        # "Ask first" answer with a refusal (nobody can approve from here); Allow goes on to the bulk-write /
-        # ask-first gate below.
-        category = category_of(spec.name, read_only=spec.read_only)
-        refusal = unattended_refusal(self._agent_or_404(ROUTER_SLUG), spec.name, category, self._user_role())
-        if refusal is not None:
-            return refusal
-
-        provider = None
-        try:
-            provider = get_workspace_ai_provider(self.session, self.group_id)
-        except Exception:
-            provider = None  # read tools work without a provider; search reports it's unavailable
-
-        ctx = ToolContext(
-            session=self.session,
-            group_id=self.group_id,
-            user=self.user,
-            provider=provider,
-            logger=self.logger,
-        )
-        # A handler raising is not fatal (mirrors the agent loop, which surfaces tool errors to
-        # the model): roll back any poisoned transaction and return a structured error.
-        # Nobody can be asked from here, so a call the agent loop would park for approval — a big bulk
-        # write, or one an ask-first tool flags (archiving a published entry) — answers with its refusal
-        # instead of running.
-        try:
-            raw = bulk_writes.unattended(spec, ctx)(body.args or {})
-        except Exception as e:
-            self.session.rollback()
-            self.logger.warning("AI tool '%s' handler failed: %s", name, e)
-            return {"error": str(e)}
-        # Handlers return a JSON string; hand back a JSON object to the caller.
-        try:
-            return json.loads(raw)
-        except (TypeError, ValueError):
-            return {"result": raw}
+        return invoke_unattended(self.session, self.group_id, self.user, name, body.args, source=body.source, logger=self.logger)
 
     # ── Execute ────────────────────────────────────────────────────────
 
@@ -265,7 +227,7 @@ class AIOperationsController(BaseUserController):
         entity_id = self._resolve_entity_id(body.entity_type, body.entity_id)
 
         # Build context via ContextBuilder
-        from marvin.services.ai.context import ContextBuilder, resolve_prompt_messages
+        from marvin.services.ai.context import ContextBuilder
 
         builder = ContextBuilder(self.session, self.group_id).with_site_settings().with_variables()
         if body.entity_type == "entry" and entity_id:
@@ -285,100 +247,53 @@ class AIOperationsController(BaseUserController):
         # RAG operations retrieve semantically-similar workspace chunks for the question.
         if getattr(operation, "requires_retrieval", False):
             from marvin.core.config import get_app_settings
-            from marvin.services.ai.embeddings import default_embedding_model
+            from marvin.services.ai.embeddings import embedder_for
             from marvin.services.ai.embeddings_registry import indexable_types
 
-            emb_model = default_embedding_model(provider.provider_type)
+            embedder, emb_model = embedder_for(provider)
             query = body.input.get("question") or body.input.get("query") or ""
             if emb_model:
                 top_k = getattr(get_app_settings(), "AI_RAG_TOP_K", 5)
-                builder.with_semantic_search(query, provider, emb_model, limit=top_k, entity_types=indexable_types())
+                builder.with_semantic_search(query, embedder, emb_model, limit=top_k, entity_types=indexable_types())
         ctx = builder.build()
 
         # Workspace logging policy: whether to persist inputs/outputs on the execution.
         log_inputs, log_outputs = self._logging_policy()
 
-        # Create execution record (pending)
-        execution = AIExecutionModel(
-            session=self.session,
-            group_id=self.group_id,
-            operation_slug=slug,
-            provider_type=provider.provider_type,
-            model_id=model,
-            status="pending",
-            triggered_by=self.user.id,
-            trigger_type=body.source,
-            entity_type=body.entity_type,
-            entity_id=entity_id,
-            input_json=body.input if log_inputs else None,
-        )
-        self.session.add(execution)
-        self.session.commit()
-
-        # Run the operation
-        start = time.monotonic()
-        try:
-            execution.status = "running"
-            execution.started_at = datetime.now(UTC)
-            self.session.commit()
-
-            # Build prompt then resolve {{SLUG}} references
-            messages = operation.build_prompt(body.input, ctx)
-            messages = resolve_prompt_messages(messages, self.group_id, ctx.variables)
-
-            # execute_operation returns (parsed_dict, CompletionResult with token counts)
-            from marvin.core.config import get_app_settings
-            from marvin.services.ai.base import CompletionOptions
-
-            _app = get_app_settings()
-            opts = CompletionOptions(
-                temperature=_app.AI_DEFAULT_TEMPERATURE,
-                max_tokens=self._max_output_tokens(),
-            )
-            parsed, completion = provider.execute_operation(messages, model, operation.output_schema, opts)
-
-            # For retrieval ops, attach the actual sources (index → entity + title) so the UI can
-            # render clickable citations. IDs come from context, not the model, so they're authoritative.
+        def finish(parsed):
+            # For retrieval ops, attach the actual sources (index → entity + title) so the UI can render clickable
+            # citations. IDs come from context, not the model, so they're authoritative.
             if getattr(operation, "requires_retrieval", False) and ctx.retrieved:
-                parsed = {**(parsed or {}), "retrieved_sources": self._resolve_retrieved_sources(ctx.retrieved)}
+                return {**(parsed or {}), "retrieved_sources": self._resolve_retrieved_sources(ctx.retrieved)}
+            return parsed
 
-            from marvin.services.ai.pricing import estimate_cost
+        from marvin.services.ai.operations.execute import OperationFailed, run_operation
 
-            elapsed_ms = int((time.monotonic() - start) * 1000)
-            execution.status = "completed"
-            execution.completed_at = datetime.now(UTC)
-            execution.duration_ms = elapsed_ms
-            execution.output_json = parsed if log_outputs else None
-            execution.prompt_tokens = completion.prompt_tokens
-            execution.completion_tokens = completion.completion_tokens
-            execution.total_tokens = completion.total_tokens
-            execution.estimated_cost_usd = estimate_cost(
-                provider.provider_type,
-                model,
-                completion.prompt_tokens,
-                completion.completion_tokens,
-            )
-            self.session.commit()
-
-            # Write-back: apply or stage the output onto the entity per approval_mode.
-            # Record the outcome — without it a client cannot tell whether the entity was
-            # changed ("applied") or a suggestion is waiting ("staged"), and so cannot report
-            # honestly to the user. Also makes the distinction auditable after the fact.
+        try:
+            run = run_operation(
+                self.session, self.group_id, operation, slug=slug, op_input=body.input, ctx=ctx, provider=provider, model=model,
+                source=body.source, user_id=self.user.id, entity_type=body.entity_type, entity_id=entity_id,
+                log_inputs=log_inputs, log_outputs=log_outputs, finish=finish,
+            )  # fmt: skip
+        except OperationFailed as e:
+            self._emit_ai_event(e.execution, "failed", str(e.cause))
+            self._maybe_emit_quota(e.execution, str(e.cause))
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"AI call failed: {e.cause}") from e.cause
+        execution, parsed = run.execution, run.parsed
+        # Write-back: apply or stage the output onto the entity per approval_mode. Record the outcome — without it
+        # a client cannot tell whether the entity was changed ("applied") or a suggestion is waiting ("staged"),
+        # and so cannot report honestly to the user. Also makes the distinction auditable after the fact.
+        try:
             outcome = self._write_back(operation, body.entity_type, entity_id, parsed, execution.id)
             if outcome:
                 execution.metadata_json = {**(execution.metadata_json or {}), "writeback": outcome}
                 self.session.commit()
-
         except Exception as e:
             execution.status = "failed"
-            execution.completed_at = datetime.now(UTC)
-            execution.duration_ms = int((time.monotonic() - start) * 1000)
             execution.error_message = str(e)
             self.session.commit()
             self._emit_ai_event(execution, "failed", str(e))
-            self._maybe_emit_quota(execution, str(e))
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"AI call failed: {e}") from e
-
         self.session.refresh(execution)
         self._emit_ai_event(execution, "completed", None)
         self._emit_budget_thresholds(execution)
@@ -448,7 +363,7 @@ class AIOperationsController(BaseUserController):
 
     @router.post("/embeddings/reindex", summary="Reindex embeddings for semantic search / RAG")
     def reindex_embeddings(self, body: AIReindexRequest) -> dict:
-        from marvin.services.ai.embeddings import default_embedding_model, index_entity
+        from marvin.services.ai.embeddings import embedder_for, index_entity
         from marvin.services.ai.factory import AIDisabledError, get_workspace_ai_provider
         from marvin.services.ai.operations.base import ROLE_EDITOR
 
@@ -464,18 +379,13 @@ class AIOperationsController(BaseUserController):
 
         try:
             provider = get_workspace_ai_provider(self.session, self.group_id)
-        except AIDisabledError as e:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
-        if not getattr(provider, "supports_embeddings", False):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Provider '{provider.provider_type}' does not support embeddings.",
-            )
-        model = default_embedding_model(provider.provider_type)
+        except AIDisabledError:
+            provider = None  # Marvin's built-in embedding model needs none
+        embedder, model = embedder_for(provider)
         if not model:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="No default embedding model for this provider.",
+                detail=f"No embedding model: provider '{provider.provider_type}' has none and Marvin's built-in one is off.",
             )
 
         if body.scope == "workspace":
@@ -490,7 +400,7 @@ class AIOperationsController(BaseUserController):
         entities = chunks = 0
         for entity_type, entity_id, text in self._reindex_targets(body):
             try:
-                chunks += index_entity(self.session, self.group_id, entity_type, entity_id, text, provider, model)
+                chunks += index_entity(self.session, self.group_id, entity_type, entity_id, text, embedder, model)
                 entities += 1
             except Exception as e:
                 self.logger.warning("reindex failed for %s %s: %s", entity_type, entity_id, e)
@@ -914,7 +824,8 @@ class AIOperationsController(BaseUserController):
         if exists:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"An agent with slug '{data.slug}' already exists.")
         self._require_known_tone(data.default_register)
-        row = WorkspaceAgentModel(session=self.session, group_id=self.group_id, created_by=self.user.id, **data.model_dump())
+        columns = _agent_columns(data, data.model_dump())
+        row = WorkspaceAgentModel(session=self.session, group_id=self.group_id, created_by=self.user.id, **columns)
         self.session.add(row)
         self.session.commit()
         self.session.refresh(row)
@@ -932,7 +843,7 @@ class AIOperationsController(BaseUserController):
             return self._update_builtin_agent(slug, data)
         row = self._agent_row_or_404(slug)
         self._require_known_tone(data.default_register)
-        sent = data.model_dump(exclude_unset=True)
+        sent = _agent_columns(data, data.model_dump(exclude_unset=True))
         before = {k: getattr(row, k) for k in sent}
         for k, v in sent.items():
             setattr(row, k, v)
@@ -1078,9 +989,8 @@ class AIOperationsController(BaseUserController):
     def _character_store(self):
         from marvin.services.ai.character import WorkspaceAssetStore
         from marvin.services.assets.asset_storage_service import AssetStorageService
-        from marvin.services.storage.provider_factory import get_storage_provider
 
-        return WorkspaceAssetStore(AssetStorageService(self.repos, get_storage_provider()), self.group_id, self.user.id)
+        return WorkspaceAssetStore(AssetStorageService.for_workspace(self.repos), self.group_id, self.user.id)
 
     def _agent_character(self, spec, packs: dict | None = None) -> dict | None:
         from marvin.services.ai.character import describe
@@ -1130,18 +1040,64 @@ class AIOperationsController(BaseUserController):
 
     @router.put("/agents/{slug}/character/library", response_model=AssistantCharacter, summary="Give an agent a library character")
     def use_agent_library_character(self, slug: str, data: AssistantCharacterLibraryChoice) -> AssistantCharacter:
-        """The agent plays a library pack; its own uploaded character, if any, is deleted."""
+        """The agent plays a library pack and becomes that character: the pack's name, Character, bubble lines,
+        tone and icon are copied onto the agent, to edit from there. Its own uploaded character, if any, is deleted."""
         from marvin.services.ai.agents import spec_from_row
         from marvin.services.ai.character import CharacterError
-        from marvin.services.ai.character_library import library_reference
+        from marvin.services.ai.character_library import apply_pack_persona, get_pack, library_reference
 
         row = self._character_admin_row(slug)
         try:
             choice = library_reference(self.session, data.pack)
         except CharacterError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+        apply_pack_persona(row, get_pack(self.session, choice["library"]))
         self._save_agent_character(row, choice)
         return AssistantCharacter(**self._agent_character(spec_from_row(row)))
+
+    @router.post("/agents/{slug}/character/reset-persona", response_model=AgentRead, summary="Reset an agent's persona to its library character's")
+    def reset_agent_persona(self, slug: str) -> AgentRead:
+        """Copy the agent's library pack's persona in again — name, Character, bubble lines, tone and icon —
+        replacing the agent's edits. 409 when its character isn't a library pack, or the pack has none."""
+        from marvin.services.ai.agents import spec_from_row
+        from marvin.services.ai.character import library_ref
+        from marvin.services.ai.character_library import apply_pack_persona, get_pack, pack_persona
+
+        row = self._character_admin_row(slug)
+        ref = library_ref(row.character)
+        pack = get_pack(self.session, ref) if ref else None
+        if pack is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="This agent's character isn't from the library: there's nothing to reset to."
+            )
+        if pack_persona(pack) is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That library character has no persona to reset to.")
+        apply_pack_persona(row, pack)
+        self.session.commit()
+        spec = spec_from_row(row)
+        self._record_agent_change([f"agents.{spec.slug}.persona_prompt"], f"Agent reset to its character: {spec.name}")
+        return self._agent_read(spec, self._agent_character(spec))
+
+    @router.post("/agents/{slug}/bubble-lines/generate", response_model=BubbleLines, summary="Write an agent's bubble lines")
+    def generate_agent_lines(self, slug: str, data: AgentLinesRequest | None = None) -> BubbleLines:
+        """Write the agent's bubble lines from its Character with one model call, and return them unsaved — the
+        Edit form fills them in to edit and save. `personaPrompt` / `name` stand in for the stored ones."""
+        from marvin.services.ai.bubble_lines import NO_CHARACTER, BubbleLinesError, ready_to_write, write_lines
+
+        row = self._character_admin_row(slug)
+        sent = data.model_fields_set if data else set()
+        persona = (data.persona_prompt if "persona_prompt" in sent else row.persona_prompt) or ""
+        name = (data.name if "name" in sent else row.name) or row.name
+        if not persona.strip():
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=NO_CHARACTER)
+        if reason := ready_to_write(self.session, self.group_id):
+            code = status.HTTP_429_TOO_MANY_REQUESTS if reason.startswith("AI budget") else status.HTTP_422_UNPROCESSABLE_ENTITY
+            raise HTTPException(status_code=code, detail=reason)
+        try:
+            lines = write_lines(self.session, self.group_id, name.strip(), persona, self.user.id, source="ai_agents")
+        except BubbleLinesError as e:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from None
+        return BubbleLines(**lines)
 
     @router.delete("/agents/{slug}/character", status_code=status.HTTP_204_NO_CONTENT, summary="Remove an agent's bubble character")
     def delete_agent_character(self, slug: str) -> None:
@@ -1180,6 +1136,7 @@ class AIOperationsController(BaseUserController):
         from marvin.services.ai import tones as t
 
         assistant_name, persona_prompt = self._persona()
+        persona_prompt = _own_character(spec, persona_prompt)
         tones = self._tones()
         register = self._effective_register(None, spec)
         instructions = self._named_agent_instructions(spec, assistant_name)
@@ -1258,6 +1215,7 @@ class AIOperationsController(BaseUserController):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No model configured. Set a default model on the provider.")
 
         assistant_name, persona_prompt = self._persona()
+        persona_prompt = _own_character(spec, persona_prompt)
         register = self._effective_register(body.tone_register, spec)
         system = self._named_agent_instructions(spec, assistant_name) + self._register_clause(register, persona_prompt)
         if spec.kind == "model":
@@ -1287,15 +1245,22 @@ class AIOperationsController(BaseUserController):
     # Any future literal `/threads/<word>` route must be declared before `/threads/{thread_id}`.
 
     @router.get("/threads", response_model=list[AIThreadRead], summary="List my Ask threads (admins: every thread)")
-    def list_threads(self, agent: str | None = None, limit: int = 50, children: bool = False) -> list[AIThreadRead]:
+    def list_threads(self, agent: str | None = None, limit: int = 50, children: bool = False, q: str | None = None) -> list[AIThreadRead]:
         """Top-level threads, every agent's unless `agent` is given.
 
         `children=true` adds the specialist threads opened by hand-offs (each with `parentThreadId` and
         `parentTitle`) under the listed ones; `limit` counts the listed threads, not their children.
         With `agent`, that agent's hand-off threads count as listed too.
-        """
-        from marvin.services.ai.threads import list_threads
 
+        `q` searches instead: the threads whose title or any message contains it (case-insensitive, two characters
+        at least), hand-offs included, newest first, each with `match` — the words around the first hit in its
+        messages (null when only the title matched).
+        """
+        from marvin.services.ai.threads import list_threads, search_threads
+
+        if q is not None and q.strip():
+            found = search_threads(self.session, self.group_id, self.user.id, q, see_all=self._sees_all_threads(), agent_slug=agent, limit=limit)
+            return [AIThreadRead.model_validate(r) for r in found]
         rows = list_threads(
             self.session, self.group_id, self.user.id, see_all=self._sees_all_threads(), agent_slug=agent, limit=limit, include_children=children
         )
@@ -1515,6 +1480,7 @@ class AIOperationsController(BaseUserController):
                 max_steps=max_steps,
                 on_event=on_event,
                 resume=ResumeState(convo=deserialize_messages(pending.get("convo")), pending=calls, decisions=own, outputs=outputs),
+                load_on_demand=self._tools_on_demand(spec.slug),
             )
         except HTTPException:
             raise
@@ -1646,11 +1612,24 @@ class AIOperationsController(BaseUserController):
             return None
         return self._thread_or_404(body.thread_id, agent_slug=agent_slug)
 
-    def _run_history(self, body: AIAgentRequest, thread) -> list:
-        """History for the model: the thread's stored turns when there is one, else the client's replay."""
+    def _run_history(self, body: AIAgentRequest, thread, agent_slug: str) -> list:
+        """History for the model: the thread's stored turns when there is one, else the client's replay.
+
+        A conversation with no turns yet opens with the greeting the bubble showed, as the assistant's turn, when
+        the client names one that is really among that agent's greetings — so a "yes" to it means something. It is
+        the model's context for this run only; the thread stores the user's message and the answer, nothing more.
+        """
+        from marvin.services.ai.base import Message
+        from marvin.services.ai.bubble_lines import shown_greeting
+        from marvin.services.ai.budget import agent_limit
         from marvin.services.ai.threads import history_rows
 
-        return self._bounded_history(history_rows(thread) if thread is not None else body.history)
+        turns = agent_limit(self.session, self.group_id, "history_turns")
+        history = self._bounded_history(history_rows(thread, limit=turns) if thread is not None else body.history)
+        if history or not body.greeting:
+            return history
+        greeting = shown_greeting(self.session, self.group_id, agent_slug, body.greeting)
+        return [Message(role="assistant", content=greeting)] if greeting else history
 
     def _record_thread_turns(
         self,
@@ -1760,13 +1739,25 @@ class AIOperationsController(BaseUserController):
         except Exception as e:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"AI provider error: {e}") from e
 
+    def _tools_on_demand(self, agent_slug: str) -> bool:
+        """Whether this run starts with the everyday tools and loads the rest on demand: an agent bound to every tool
+        its role allows (no allowlist of its own), in a workspace that hasn't turned it off (AI Settings,
+        `load_tools_on_demand`). An agent with its own short list keeps all of it loaded."""
+        from marvin.services.ai.agents import resolve_agent
+        from marvin.services.ai.budget import tools_on_demand_enabled
+
+        spec = resolve_agent(self.session, self.group_id, agent_slug)
+        return spec is not None and spec.tool_allowlist is None and tools_on_demand_enabled(self.session, self.group_id)
+
     def _agent_max_steps(self, body: AIAgentRequest) -> int:
         from marvin.core.config import get_app_settings
         from marvin.services.ai.agent import DEFAULT_MAX_STEPS
+        from marvin.services.ai.budget import agent_limit
 
         _app = get_app_settings()
-        configured = int(body.max_steps or getattr(_app, "AI_AGENT_MAX_STEPS", DEFAULT_MAX_STEPS) or DEFAULT_MAX_STEPS)
-        return min(configured, 12)
+        # A request may ask for its own budget; otherwise the workspace's (AI Settings), else the platform's.
+        configured = int(body.max_steps or agent_limit(self.session, self.group_id, "agent_max_steps") or DEFAULT_MAX_STEPS)
+        return max(1, min(configured, _app.AI_AGENT_MAX_STEPS_CAP))
 
     def _agent_or_404(self, slug: str):
         from marvin.services.ai.agents import resolve_agent
@@ -1810,6 +1801,10 @@ class AIOperationsController(BaseUserController):
             is_system=spec.is_system,
             tool_policy_overridden=spec.tool_policy_overridden,
             character=character,
+            persona_prompt=spec.persona_prompt,
+            bubble_lines=spec.bubble_lines,
+            bubble_lines_source=spec.bubble_lines_source,
+            mood=spec.mood,
         )
 
     @staticmethod
@@ -1976,7 +1971,7 @@ class AIOperationsController(BaseUserController):
             system += self._attachments_block(attached, names)
         messages = [
             Message(role="system", content=system),
-            *self._run_history(body, thread),
+            *self._run_history(body, thread, agent_slug),
             Message(role="user", content=user_msg),
         ]
 
@@ -2024,7 +2019,16 @@ class AIOperationsController(BaseUserController):
                 chain=(*handoff_chain, agent_slug),
             )
         try:
-            result = run_agent_loop(provider, model, messages, tools, self._completion_opts(), max_steps=max_steps, on_event=on_event)
+            result = run_agent_loop(
+                provider,
+                model,
+                messages,
+                tools,
+                self._completion_opts(),
+                max_steps=max_steps,
+                on_event=on_event,
+                load_on_demand=self._tools_on_demand(agent_slug),
+            )
         except HTTPException as e:
             self._finish_progress(run_id, "failed", self._http_error_text(e))
             self._discard_empty_thread(thread if opened_here else None)
@@ -2125,13 +2129,15 @@ class AIOperationsController(BaseUserController):
         """Add a loop leg's tokens and wall time to the execution row (a resumed run keeps its row)."""
         import time
 
-        from marvin.services.ai.pricing import estimate_cost
+        from marvin.services.ai.pricing import cost_of
 
         execution.prompt_tokens = int(execution.prompt_tokens or 0) + int(result.prompt_tokens or 0)
         execution.completion_tokens = int(execution.completion_tokens or 0) + int(result.completion_tokens or 0)
         execution.total_tokens = int(execution.total_tokens or 0) + int(result.total_tokens or 0)
+        execution.cached_prompt_tokens = int(execution.cached_prompt_tokens or 0) + int(getattr(result, "cached_prompt_tokens", 0) or 0)
+        execution.cache_write_tokens = int(execution.cache_write_tokens or 0) + int(getattr(result, "cache_write_tokens", 0) or 0)
         execution.duration_ms = int(execution.duration_ms or 0) + int((time.monotonic() - start) * 1000)
-        execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, execution.prompt_tokens, execution.completion_tokens)
+        execution.estimated_cost_usd = cost_of(provider.provider_type, model, execution)
 
     def _finish_agent_run(
         self,
@@ -2418,6 +2424,7 @@ class AIOperationsController(BaseUserController):
                     meta["parent_thread_id"] = parent_id
                 child_on_event = self._via_listener(on_event, spec.slug)
                 assistant_name, persona_prompt = self._persona()
+                persona_prompt = _own_character(spec, persona_prompt)
                 register = self._effective_register(parent_body.tone_register, spec)
                 system = self._named_agent_instructions(spec, assistant_name) + self._register_clause(register, persona_prompt)
                 if spec.kind == "model":
@@ -2507,14 +2514,14 @@ class AIOperationsController(BaseUserController):
 
         from marvin.core.config import get_app_settings
         from marvin.services.ai.base import CompletionOptions, Message
-        from marvin.services.ai.pricing import estimate_cost
+        from marvin.services.ai.pricing import cost_of
         from marvin.services.ai.threads import create_thread
 
         _app = get_app_settings()
         thread = self._thread_for_run(body, spec.slug)
         messages = [
             Message(role="system", content=system),
-            *self._run_history(body, thread),
+            *self._run_history(body, thread, spec.slug),
             Message(role="user", content=body.message),
         ]
         # Opened before the completion for the same reason as in _run_agent_core: the id is known mid-run.
@@ -2556,7 +2563,9 @@ class AIOperationsController(BaseUserController):
         execution.prompt_tokens = result.prompt_tokens
         execution.completion_tokens = result.completion_tokens
         execution.total_tokens = result.total_tokens
-        execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, result.prompt_tokens, result.completion_tokens)
+        execution.cached_prompt_tokens = getattr(result, "cached_prompt_tokens", 0) or 0
+        execution.cache_write_tokens = getattr(result, "cache_write_tokens", 0) or 0
+        execution.estimated_cost_usd = cost_of(provider.provider_type, model, result)
         execution.output_json = {"answer": result.content} if log_outputs else None
         thread = self._record_thread_turns(
             thread, body, spec.slug, execution, result.content, [], [], result.total_tokens, parent_thread_id=parent_thread_id
@@ -2590,7 +2599,7 @@ class AIOperationsController(BaseUserController):
         from marvin.services.ai.base import CompletionOptions, Message
         from marvin.services.ai.factory import AIDisabledError, get_workspace_ai_provider
         from marvin.services.ai.operations.base import ROLE_VIEWER
-        from marvin.services.ai.pricing import estimate_cost
+        from marvin.services.ai.pricing import cost_of
 
         # VIEWER or higher — chat is read-only (it changes nothing).
         if self._user_role() < ROLE_VIEWER:
@@ -2652,12 +2661,9 @@ class AIOperationsController(BaseUserController):
         execution.prompt_tokens = result.prompt_tokens
         execution.completion_tokens = result.completion_tokens
         execution.total_tokens = result.total_tokens
-        execution.estimated_cost_usd = estimate_cost(
-            provider.provider_type,
-            model,
-            result.prompt_tokens,
-            result.completion_tokens,
-        )
+        execution.cached_prompt_tokens = getattr(result, "cached_prompt_tokens", 0) or 0
+        execution.cache_write_tokens = getattr(result, "cache_write_tokens", 0) or 0
+        execution.estimated_cost_usd = cost_of(provider.provider_type, model, result)
         execution.output_json = {"reply": result.content} if log_outputs else None
         self.session.commit()
 
@@ -2929,15 +2935,15 @@ class AIOperationsController(BaseUserController):
         return workspace_approval_mode(self.session, self.group_id)
 
     def _persona(self) -> tuple[str, str]:
-        """(assistant_name, persona_prompt) from the workspace AI settings.
+        """(assistant_name, persona_prompt) from the workspace AI settings. A named agent with a Character of its
+        own speaks with that instead (`_own_character`).
 
         Unset, the assistant is Marvin with Marvin's built-in voice — the "default voice" the AI settings
         page promises (see marvin.services.ai.persona). A workspace persona replaces it.
         """
-        from marvin.services.ai.persona import resolve_persona
+        from marvin.services.ai.agents import agent_persona
 
-        settings = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
-        return resolve_persona(settings.assistant_name if settings else None, settings.persona_prompt if settings else None)
+        return agent_persona(self.session, self.group_id)
 
     # Tones. Persona and tone are DIFFERENT axes and must not share one knob:
     #   persona = the CHARACTER: who the assistant is and how it speaks (workspace-level, user-authored)
@@ -3234,36 +3240,10 @@ class AIOperationsController(BaseUserController):
         return 0
 
     def _check_invocation_source(self, source: str, operation_sources) -> str:
-        """Gate a call by its invocation surface; returns the source it runs under.
+        """Gate a call by its invocation surface; returns the source it runs under (tool_gateway.check_invocation_source)."""
+        from marvin.services.ai.tool_gateway import check_invocation_source
 
-        Effective allow-list = the operation's declared sources ∩ the workspace's
-        invocation_sources policy. `source` is set by the calling infrastructure (the admin
-        editor sends "editor", the bubble "bubble", the Ask page "ask_page", MarvinMCP "mcp", …), so
-        this is surface/feature gating — the per-user authorization wall is min_role. The
-        workspace policy is an override map: a source is enabled unless explicitly set false,
-        so an unset/None policy allows everything (back-compat). The Ask surfaces are agent chat:
-        an operation declaring `agent` takes them, and past the gate they run as `agent`.
-        """
-        from marvin.services.ai.operations.base import INVOCATION_SOURCES, execution_source, source_allowed
-
-        if source not in INVOCATION_SOURCES:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unknown invocation source '{source}'. Valid: {', '.join(INVOCATION_SOURCES)}.",
-            )
-        runs_as = execution_source(source)
-        if runs_as not in operation_sources:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"This operation cannot be invoked from the '{source}' source.",
-            )
-        settings = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
-        if not source_allowed(settings.invocation_sources if settings else None, source):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"This workspace has disabled AI from the '{source}' source.",
-            )
-        return runs_as
+        return check_invocation_source(self.session, self.group_id, source, operation_sources)
 
     def _max_output_tokens(self) -> int | None:
         """Per-request output-token cap: the workspace's `max_tokens_per_request`, else the app default."""

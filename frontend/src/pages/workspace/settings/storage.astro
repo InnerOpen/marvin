@@ -1,0 +1,539 @@
+---
+/**
+ * Workspace → Storage: keep this workspace's files in its own bucket ("bring your own storage"), or the platform's.
+ * OWNERs change it; ADMINs see it. Keys are workspace secrets: picked from Workspace → Secrets, or typed here and
+ * saved there first. See services/storage/workspace_admin.py and docs/manual/workspace-storage.md.
+ */
+import LocalTime from "@/components/LocalTime.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
+
+type Field = { env: string; label: string; help: string; required: boolean; secret: boolean; fixed: boolean };
+type Provider = { slug: string; name: string; fields: Field[] };
+type Connection = {
+  id: string; pluginSlug: string; label: string | null; location: string; settings: Record<string, string>;
+  secretRefs: Record<string, string>; status: string; verifiedAt: string | null; lastCheckedAt: string | null;
+  lastError: string | null; retiredAt: string | null; files: number; purpose: string;
+};
+type Storage = {
+  policy: { allowed: boolean; endpointPolicy: string }; mode: string; activeConnectionId: string | null; bundleIncludesOwnBucket: boolean;
+  providers: Provider[]; connections: Connection[]; platformFiles: number; canEdit: boolean;
+  backupProviders: Provider[]; backupConnectionId: string | null; backupKeep: number;
+};
+
+const authToken = getAuthToken(Astro.cookies);
+let data: Storage | null = null;
+let error: string | null = null;
+let secretSlugs: string[] = [];
+try {
+  data = await fetchApi<Storage>("/api/groups/storage-settings", {}, authToken);
+  secretSlugs = await fetchApi<string[]>("/api/groups/secrets/slugs", {}, authToken).catch(() => []);
+} catch (e) {
+  error = e instanceof Error ? e.message : String(e);
+}
+
+const STATUS_LABEL: Record<string, string> = { ok: "Verified", unverified: "Not checked yet", failing: "Check failed", retired: "Retired" };
+const live = (data?.connections ?? []).filter((c) => c.status !== "retired");
+const isBackup = (c: Connection) => c.purpose === "backups";
+const verified = live.filter((c) => c.status === "ok" && !isBackup(c));
+const verifiedBackups = live.filter((c) => c.status === "ok" && isBackup(c));
+const active = data?.connections.find((c) => c.id === data?.activeConnectionId) ?? null;
+const usingOwn = data?.mode === "workspace" && active !== null;
+const canEdit = Boolean(data?.canEdit);
+const canChoose = canEdit && Boolean(data?.policy.allowed);
+const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fields.find((f) => f.env === env)?.label ?? env;
+---
+
+<AppLayout title="Storage" crumb="settings.storage">
+  <div class="toolbar">
+    <div>
+      <h2>Storage</h2>
+      <p>Where this workspace's files are kept: the platform's storage, or a bucket of your own.</p>
+    </div>
+  </div>
+
+  {error ? (
+    <div class="alert alert-error"><strong>Couldn't load storage settings:</strong> {error}</div>
+  ) : data && (
+    <div class="page-container" data-storage>
+      {!data.policy.allowed && (
+        <div class="info-banner">
+          The platform administrator hasn't allowed workspaces to use their own storage, so files go to the platform's.
+          {data.mode === "workspace" && <strong> Uploads are paused until it is allowed again or you switch back.</strong>}
+        </div>
+      )}
+      {!canEdit && <div class="info-banner">Only workspace owners can change storage.</div>}
+
+      <section class="section-card">
+        <div class="section-title">
+          <h3>New uploads go to</h3>
+          <p>Switching only changes where new files go. Files already stored stay where they are and keep working.</p>
+        </div>
+        <form id="mode-form" class="radio-group">
+          <label class:list={["radio-card", { selected: !usingOwn }]}>
+            <input type="radio" name="mode" value="platform" checked={!usingOwn} disabled={!canEdit} />
+            <div class="radio-content">
+              <strong>Platform storage</strong>
+              <span>Managed by the platform. {data.platformFiles.toLocaleString()} file{data.platformFiles === 1 ? "" : "s"} here.</span>
+            </div>
+          </label>
+          <label class:list={["radio-card", { selected: usingOwn, disabled: !canChoose || verified.length === 0 }]}>
+            <input type="radio" name="mode" value="workspace" checked={usingOwn} disabled={!canChoose || verified.length === 0} />
+            <div class="radio-content">
+              <strong>Your own bucket</strong>
+              <span>
+                {verified.length === 0 ? "Add a bucket below and check it first." : "Files go to the verified bucket you choose."}
+              </span>
+              {verified.length > 0 && (
+                <select name="connection_id" class="input" disabled={!canChoose}>
+                  {verified.map((c) => <option value={c.id} selected={c.id === data?.activeConnectionId}>{c.label || c.settings[Object.keys(c.settings)[0]]}</option>)}
+                </select>
+              )}
+            </div>
+          </label>
+          {canEdit && <div class="form-actions"><button type="submit" class="button">Save</button><span class="form-status" data-status></span></div>}
+        </form>
+      </section>
+
+      <section class="section-card">
+        <div class="section-title">
+          <h3>Your buckets</h3>
+          <p>A connection is one bucket. Its bucket, endpoint and prefix never change; another bucket is a new connection.</p>
+        </div>
+        {data.connections.length === 0 ? (
+          <p class="muted">No buckets yet.</p>
+        ) : (
+          <ul class="connections">
+            {data.connections.map((c) => {
+              const provider = (isBackup(c) ? data?.backupProviders : data?.providers)?.find((p) => p.slug === c.pluginSlug);
+              return (
+                <li class="connection" data-connection={c.id}>
+                  <div class="connection-head">
+                    <strong>{c.label || c.location}</strong>
+                    <span class:list={["pill", `status-${c.status}`]}>{STATUS_LABEL[c.status] ?? c.status}</span>
+                    {isBackup(c) && <span class="pill">Backups</span>}
+                    {c.id === data?.activeConnectionId && data?.mode === "workspace" && <span class="pill">In use</span>}
+                    {c.id === data?.backupConnectionId && <span class="pill">Backups go here</span>}
+                    {!isBackup(c) && <span class="muted">{c.files.toLocaleString()} file{c.files === 1 ? "" : "s"}</span>}
+                  </div>
+                  <dl class="connection-fields">
+                    {Object.entries(c.settings).map(([env, value]) => (<><dt>{fieldLabel(provider, env)}</dt><dd><code>{value}</code></dd></>))}
+                    {Object.entries(c.secretRefs).map(([env, slug]) => (<><dt>{fieldLabel(provider, env)}</dt><dd>secret <code>{slug}</code></dd></>))}
+                  </dl>
+                  <p class="muted">
+                    {c.lastCheckedAt ? <>Last checked <LocalTime iso={c.lastCheckedAt} /></> : "Never checked"}
+                    {c.lastError && <span class="error-text"> — {c.lastError}</span>}
+                  </p>
+                  {canEdit && c.status !== "retired" && (
+                    <div class="connection-actions">
+                      <button type="button" class="button small" data-check={c.id}>Check connection</button>
+                      {c.status === "ok" && !isBackup(c) && <button type="button" class="button secondary small" data-copy-plan={c.id}>Copy existing files here…</button>}
+                      {!(c.id === data?.activeConnectionId && data?.mode === "workspace") && (
+                        <button type="button" class="button secondary small" data-retire={c.id}>Retire</button>
+                      )}
+                    </div>
+                  )}
+                  <ol class="check-steps" data-steps={c.id} hidden></ol>
+                  <div class="copy-plan" data-copy-box={c.id} hidden></div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      <section class="section-card">
+        <div class="section-title">
+          <h3>Backups</h3>
+          <p>
+            The platform keeps its own backups of this workspace. You can also keep backups yourself, in a private bucket
+            of your own (not one your files are served from): the daily backup goes there too, and you can back up now.
+            Each is the same bundle as Admin → Backups makes, secrets encrypted under the workspace's backup key.
+          </p>
+        </div>
+        <form id="backup-form" class="backup-form">
+          <label class="form-field">
+            <span class="label">Back up to</span>
+            <select name="connection_id" class="input" disabled={!canChoose}>
+              <option value="">Only the platform's backups</option>
+              {verifiedBackups.map((c) => <option value={c.id} selected={c.id === data?.backupConnectionId}>{c.label || c.settings[Object.keys(c.settings)[0]]}</option>)}
+            </select>
+            {verifiedBackups.length === 0 && <small class="help">Add a backup bucket below and check it to choose it here.</small>}
+          </label>
+          <label class="form-field">
+            <span class="label">Keep the newest</span>
+            <input type="number" name="keep" class="input keep-input" min="1" max="90" value={data.backupKeep} disabled={!canEdit} />
+          </label>
+          {canEdit && (
+            <div class="form-actions">
+              <button type="submit" class="button">Save</button>
+              {data.backupConnectionId && <button type="button" class="button secondary" id="backup-now">Back up now</button>}
+              {data.backupConnectionId && <button type="button" class="button secondary" id="backup-list">Show backups</button>}
+              <span class="form-status" data-status></span>
+            </div>
+          )}
+          <ul class="backup-list" data-backup-list hidden></ul>
+        </form>
+        {data.connections.some((c) => !isBackup(c)) && (
+          <label class="bundle-row">
+            <input type="checkbox" id="bundle-include" checked={data.bundleIncludesOwnBucket} disabled={!canEdit} />
+            <span>Include the files in my own file bucket in this workspace's backup bundles (larger bundles)</span>
+            <span class="form-status" data-bundle-status></span>
+          </label>
+        )}
+      </section>
+
+      {canEdit && (data.providers.length > 0 || data.backupProviders.length > 0) && (
+        <section class="section-card">
+          <div class="section-title">
+            <h3>Add a bucket</h3>
+            <p>
+              Create the bucket and a key that can read and write only that bucket, and turn on public access (or a custom
+              domain) for it. Keys are saved as workspace secrets; pick one you already have, or type a new one.
+            </p>
+          </div>
+          <form id="add-form" class="add-form">
+            <label class="form-field">
+              <span class="label">For</span>
+              <select name="purpose" class="input">
+                <option value="assets">Files (served publicly)</option>
+                <option value="backups">Backups (a private bucket)</option>
+              </select>
+            </label>
+            <label class="form-field">
+              <span class="label">Storage</span>
+              <select name="plugin_slug" class="input">
+                {data.providers.map((p) => <option value={p.slug}>{p.name}</option>)}
+              </select>
+            </label>
+            <label class="form-field">
+              <span class="label">Name</span>
+              <input name="label" class="input" placeholder="e.g. Our R2 bucket" maxlength="80" />
+            </label>
+            {[...data.providers.map((p) => ({ ...p, purpose: "assets" })), ...data.backupProviders.map((p) => ({ ...p, purpose: "backups" }))].map((p, i) => (
+              <fieldset class="provider-fields" data-provider={`${p.purpose}:${p.slug}`} hidden={i !== 0}>
+                {p.fields.map((f) => f.secret ? (
+                  <label class="form-field">
+                    <span class="label">{f.label}{f.required && " *"}</span>
+                    <select name={`ref:${f.env}`} class="input" data-secret-select>
+                      <option value="">Type a new key…</option>
+                      {secretSlugs.map((slug) => <option value={slug}>Secret {slug}</option>)}
+                    </select>
+                    <input type="password" name={`new:${f.env}`} class="input" autocomplete="off" placeholder="New key (saved as a workspace secret)" />
+                    {f.help && <small class="help">{f.help}</small>}
+                  </label>
+                ) : (
+                  <label class="form-field">
+                    <span class="label">{f.label}{f.required && " *"}</span>
+                    <input name={`set:${f.env}`} class="input" autocomplete="off" />
+                    {f.help && <small class="help">{f.help}</small>}
+                  </label>
+                ))}
+              </fieldset>
+            ))}
+            <div class="form-actions"><button type="submit" class="button">Add bucket</button><span class="form-status" data-status></span></div>
+          </form>
+        </section>
+      )}
+    </div>
+  )}
+</AppLayout>
+
+<script>
+  import { fetchApi } from "@/lib/api/client";
+  import { getApiUrl } from "@/lib/api/config";
+
+  const BASE = "/api/groups/storage-settings";
+  const say = (form: Element | null, text: string, bad = false) => {
+    const el = form?.querySelector<HTMLElement>("[data-status]");
+    if (el) { el.textContent = text; el.classList.toggle("error-text", bad); }
+  };
+  const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+  document.querySelectorAll<HTMLInputElement>('#mode-form input[name="mode"]').forEach((input) =>
+    input.addEventListener("change", () => {
+      document.querySelectorAll("#mode-form .radio-card").forEach((c) => c.classList.remove("selected"));
+      input.closest(".radio-card")?.classList.add("selected");
+    }),
+  );
+
+  document.getElementById("mode-form")?.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const form = ev.currentTarget as HTMLFormElement;
+    const fd = new FormData(form);
+    say(form, "Saving…");
+    try {
+      await fetchApi(`${BASE}/mode`, { method: "PUT", body: JSON.stringify({ mode: fd.get("mode"), connectionId: fd.get("connection_id") || null }) });
+      location.reload();
+    } catch (e) {
+      say(form, message(e), true);
+    }
+  });
+
+  const addForm = document.getElementById("add-form") as HTMLFormElement | null;
+  const pluginSelect = addForm?.querySelector<HTMLSelectElement>('select[name="plugin_slug"]');
+  const purposeSelect = addForm?.querySelector<HTMLSelectElement>('select[name="purpose"]');
+  const showFields = () =>
+    addForm?.querySelectorAll<HTMLFieldSetElement>("fieldset[data-provider]").forEach(
+      (f) => (f.hidden = f.dataset.provider !== `${purposeSelect?.value}:${pluginSelect?.value}`),
+    );
+  pluginSelect?.addEventListener("change", showFields);
+  purposeSelect?.addEventListener("change", showFields);
+  showFields();
+  addForm?.querySelectorAll<HTMLSelectElement>("[data-secret-select]").forEach((select) => {
+    const typed = select.nextElementSibling as HTMLInputElement;
+    const sync = () => (typed.hidden = select.value !== "");
+    select.addEventListener("change", sync);
+    sync();
+  });
+
+  addForm?.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const plugin = pluginSelect?.value ?? "";
+    const purpose = purposeSelect?.value ?? "assets";
+    const fieldset = addForm.querySelector<HTMLFieldSetElement>(`fieldset[data-provider="${purpose}:${plugin}"]`);
+    const label = (addForm.querySelector<HTMLInputElement>('input[name="label"]')?.value ?? "").trim();
+    const settings: Record<string, string> = {};
+    const secretRefs: Record<string, string> = {};
+    say(addForm, "Saving…");
+    try {
+      for (const input of Array.from(fieldset?.querySelectorAll<HTMLInputElement>('input[name^="set:"]') ?? [])) {
+        if (input.value.trim()) settings[input.name.slice(4)] = input.value.trim();
+      }
+      for (const select of Array.from(fieldset?.querySelectorAll<HTMLSelectElement>("[data-secret-select]") ?? [])) {
+        const env = select.name.slice(4);
+        if (select.value) { secretRefs[env] = select.value; continue; }
+        const typed = (select.nextElementSibling as HTMLInputElement).value;
+        if (!typed) continue;
+        const base = `STORAGE_${(label || plugin).replace(/[^A-Za-z0-9]+/g, "_")}_${env.replace(/^(STORAGE|BACKUP)_/, "")}`.toUpperCase().slice(0, 60);
+        const created = await fetchApi<{ slug: string }>("/api/groups/secrets", {
+          method: "POST",
+          body: JSON.stringify({ name: `${label || plugin} ${env}`, slug: base, value: typed, description: "Workspace storage key (Workspace → Storage)" }),
+        });
+        secretRefs[env] = created.slug;
+      }
+      await fetchApi(`${BASE}/connections`, { method: "POST", body: JSON.stringify({ pluginSlug: plugin, purpose, label: label || null, settings, secretRefs }) });
+      location.reload();
+    } catch (e) {
+      say(addForm, message(e), true);
+    }
+  });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-check]").forEach((button) =>
+    button.addEventListener("click", async () => {
+      const id = button.dataset.check!;
+      const list = document.querySelector<HTMLOListElement>(`[data-steps="${id}"]`)!;
+      button.disabled = true;
+      button.textContent = "Checking…";
+      try {
+        const result = await fetchApi<{ ok: boolean; steps: { name: string; ok: boolean; ms: number; error: string | null }[] }>(
+          `${BASE}/connections/${id}/check`, { method: "POST" },
+        );
+        list.innerHTML = "";
+        for (const s of result.steps) {
+          const li = document.createElement("li");
+          li.className = s.ok ? "ok" : "bad";
+          li.textContent = `${s.ok ? "✓" : "✗"} ${s.name}${s.ok ? ` (${Math.round(s.ms)} ms)` : ` — ${s.error ?? "failed"}`}`;
+          list.appendChild(li);
+        }
+        list.hidden = false;
+        button.textContent = result.ok ? "Verified — reloading" : "Check again";
+        if (result.ok) setTimeout(() => location.reload(), 900);
+      } catch (e) {
+        button.textContent = "Check again";
+        list.innerHTML = `<li class="bad">${message(e).replace(/</g, "&lt;")}</li>`;
+        list.hidden = false;
+      } finally {
+        button.disabled = false;
+      }
+    }),
+  );
+
+  const mb = (bytes: number) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(2)} GB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`);
+  type CopyPlan = { files: number; bytes: number; entriesWithLinks: number; uploadsGoHere: boolean };
+
+  document.querySelectorAll<HTMLButtonElement>("[data-copy-plan]").forEach((button) =>
+    button.addEventListener("click", async () => {
+      const id = button.dataset.copyPlan!;
+      const box = document.querySelector<HTMLElement>(`[data-copy-box="${id}"]`)!;
+      box.hidden = false;
+      box.textContent = "Counting files…";
+      try {
+        const plan = await fetchApi<CopyPlan>(`${BASE}/connections/${id}/copy`);
+        box.innerHTML = "";
+        const p = document.createElement("p");
+        if (plan.files === 0) {
+          p.textContent = "Every file of this workspace is already in this bucket.";
+          box.appendChild(p);
+          return;
+        }
+        p.textContent =
+          `${plan.files.toLocaleString()} file${plan.files === 1 ? "" : "s"} (${mb(plan.bytes)}) would be copied here, each checked ` +
+          `before it moves. The originals stay where they are, so links already published keep working` +
+          (plan.entriesWithLinks ? ` (${plan.entriesWithLinks} entr${plan.entriesWithLinks === 1 ? "y links" : "ies link"} to them).` : ".") +
+          (plan.uploadsGoHere ? "" : " New uploads don't go to this bucket yet: switch above first, or files uploaded meanwhile stay behind.");
+        const start = document.createElement("button");
+        start.type = "button";
+        start.className = "button small";
+        start.textContent = "Start copying";
+        start.addEventListener("click", async () => {
+          start.disabled = true;
+          try {
+            const res = await fetchApi<{ message: string }>(`${BASE}/connections/${id}/copy`, { method: "POST" });
+            box.innerHTML = "";
+            const done = document.createElement("p");
+            done.textContent = `${res.message}. It runs in the background; its result is in `;
+            const link = document.createElement("a");
+            link.href = "/workspace/scheduled-tasks";
+            link.textContent = "Scheduled Tasks";
+            done.append(link, ". Reload this page to see the file counts.");
+            box.appendChild(done);
+          } catch (e) {
+            start.disabled = false;
+            p.textContent = message(e);
+          }
+        });
+        box.append(p, start);
+      } catch (e) {
+        box.textContent = message(e);
+      }
+    }),
+  );
+
+  const backupForm = document.getElementById("backup-form") as HTMLFormElement | null;
+  backupForm?.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(backupForm);
+    say(backupForm, "Saving…");
+    try {
+      await fetchApi(`${BASE}/backup-bucket`, { method: "PUT", body: JSON.stringify({ connectionId: fd.get("connection_id") || null, keep: Number(fd.get("keep")) || null }) });
+      location.reload();
+    } catch (e) {
+      say(backupForm, message(e), true);
+    }
+  });
+  document.getElementById("backup-now")?.addEventListener("click", async (ev) => {
+    const button = ev.currentTarget as HTMLButtonElement;
+    button.disabled = true;
+    try {
+      const res = await fetchApi<{ message: string }>(`${BASE}/backups`, { method: "POST" });
+      say(backupForm, `${res.message}. It runs in the background; "Show backups" lists it when done.`);
+    } catch (e) {
+      say(backupForm, message(e), true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  document.getElementById("backup-list")?.addEventListener("click", async () => {
+    const list = document.querySelector<HTMLUListElement>("[data-backup-list]")!;
+    list.hidden = false;
+    list.textContent = "Loading…";
+    try {
+      const backups = await fetchApi<{ key: string; name: string; size: number }[]>(`${BASE}/backups`);
+      list.textContent = backups.length ? "" : "No backups in the bucket yet.";
+      for (const b of backups) {
+        const li = document.createElement("li");
+        const link = document.createElement("button");
+        link.type = "button";
+        link.className = "link-button";
+        link.textContent = b.name;
+        link.addEventListener("click", async () => {
+          link.disabled = true;
+          try {
+            const res = await fetch(getApiUrl(`${BASE}/backups/download?key=${encodeURIComponent(b.key)}`), { credentials: "include" });
+            if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? `HTTP ${res.status}`);
+            const url = URL.createObjectURL(await res.blob());
+            const a = Object.assign(document.createElement("a"), { href: url, download: b.name.split("-").slice(1).join("-") || b.name });
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 10_000);
+          } catch (e) {
+            link.textContent = `${b.name} — ${message(e)}`;
+          } finally {
+            link.disabled = false;
+          }
+        });
+        li.append(link, ` (${mb(b.size)})`);
+        list.appendChild(li);
+      }
+    } catch (e) {
+      list.textContent = message(e);
+    }
+  });
+
+  const bundleBox = document.getElementById("bundle-include") as HTMLInputElement | null;
+  bundleBox?.addEventListener("change", async () => {
+    const status = document.querySelector<HTMLElement>("[data-bundle-status]");
+    bundleBox.disabled = true;
+    try {
+      await fetchApi(`${BASE}/bundle`, { method: "PUT", body: JSON.stringify({ include: bundleBox.checked }) });
+      if (status) status.textContent = "Saved";
+    } catch (e) {
+      bundleBox.checked = !bundleBox.checked;
+      if (status) status.textContent = message(e);
+    } finally {
+      bundleBox.disabled = false;
+    }
+  });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-retire]").forEach((button) =>
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await fetchApi(`${BASE}/connections/${button.dataset.retire}/retire`, { method: "POST" });
+        location.reload();
+      } catch (e) {
+        button.disabled = false;
+        button.textContent = message(e);
+      }
+    }),
+  );
+</script>
+
+<style>
+  .toolbar { margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+  .toolbar h2 { margin: 0; font-size: 24px; font-weight: 600; }
+  .toolbar p { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
+  .page-container { max-width: 900px; display: grid; gap: 20px; }
+  .info-banner { padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); font-size: 14px; }
+  .section-card { padding: 20px 24px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+  .section-title h3 { margin: 0; font-size: 16px; }
+  .section-title p { margin: 6px 0 16px; color: var(--muted); font-size: 13px; }
+  .radio-group { display: grid; gap: 10px; }
+  .radio-card { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer; }
+  .radio-card.selected { border-color: var(--accent); }
+  .radio-card.disabled { opacity: 0.6; cursor: default; }
+  .radio-content { display: grid; gap: 6px; min-width: 0; }
+  .radio-content span { color: var(--muted); font-size: 13px; }
+  .form-actions { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+  .form-status { font-size: 13px; color: var(--muted); }
+  .error-text { color: var(--color-error, #dc2626); }
+  .connections { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+  .connection { padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius); }
+  .connection-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .connection-head .muted { margin-left: auto; }
+  .connection-fields { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 10px 0; font-size: 13px; }
+  .connection-fields dt { color: var(--muted); }
+  .connection-fields dd { margin: 0; overflow-wrap: anywhere; }
+  .connection-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .backup-form { display: grid; gap: 12px; margin-bottom: 14px; }
+  .keep-input { max-width: 120px; }
+  .backup-list { margin: 0; padding-left: 18px; font-size: 13px; display: grid; gap: 4px; }
+  .link-button { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-align: left; }
+  .bundle-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; }
+  .copy-plan { margin-top: 10px; padding: 12px; border: 1px dashed var(--line); border-radius: var(--radius); font-size: 13px; display: grid; gap: 8px; justify-items: start; }
+  .copy-plan p { margin: 0; line-height: 1.5; }
+  .check-steps { margin: 10px 0 0; padding-left: 0; list-style: none; font-size: 13px; display: grid; gap: 4px; }
+  .check-steps .ok { color: #16a34a; }
+  .check-steps .bad { color: var(--color-error, #dc2626); }
+  .pill { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); }
+  .status-ok { border-color: #16a34a; color: #16a34a; }
+  .status-failing { border-color: var(--color-error, #dc2626); color: var(--color-error, #dc2626); }
+  .muted { color: var(--muted); font-size: 13px; }
+  .add-form { display: grid; gap: 14px; }
+  .provider-fields { border: 0; padding: 0; margin: 0; display: grid; gap: 14px; }
+  .form-field { display: grid; gap: 6px; }
+  .form-field .label { font-size: 13px; font-weight: 600; }
+  .help { color: var(--muted); font-size: 12px; }
+  .alert-error { padding: 16px; border: 1px solid var(--color-error); border-radius: var(--radius); color: var(--color-error); }
+  @media (max-width: 640px) { .connection-head .muted { margin-left: 0; } .connection-fields { grid-template-columns: 1fr; } }
+</style>

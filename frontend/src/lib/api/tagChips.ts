@@ -9,7 +9,7 @@
 
 import { createSdkClient } from "../sdk";
 
-export interface TagChip {
+interface TagChip {
   name: string;
   id?: string;
 }

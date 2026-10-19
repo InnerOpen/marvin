@@ -119,7 +119,7 @@ def test_a_connected_integrations_guide_reaches_the_authoring_guide(ws, chatter)
     _connect(ws)
 
     assert [i["has_guide"] for i in workspace_refs(ws.session, ws.gid).integrations] == [True]
-    assert "chatter" in authoring_guide(ws.session, ws.gid)["workspace"]["integration_guides"]
+    assert "chatter" in authoring_guide(ws.session, ws.gid, "workspace")["workspace"]["integration_guides"]
     assert authoring_guide(ws.session, ws.gid, "workspace")["workspace"]["integration_guides"] == {"chatter": GUIDE}
 
 

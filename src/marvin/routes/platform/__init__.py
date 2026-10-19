@@ -25,6 +25,7 @@ from . import (
     collections_controller,
     email_controller,
     entries_controller,
+    entry_snapshots_controller,
     entry_types_controller,
     event_connections_controller,
     events_controller,
@@ -46,6 +47,7 @@ router = UserAPIRouter()
 
 router.include_router(entry_types_controller.router, tags=["Platform: Entry Types"])
 router.include_router(entries_controller.router, tags=["Platform: Entries"])
+router.include_router(entry_snapshots_controller.router, tags=["Platform: Entries"])
 router.include_router(collections_controller.router, tags=["Platform: Collections"])
 router.include_router(tags_controller.router, tags=["Platform: Tags"])
 router.include_router(api_clients_controller.router, tags=["Platform: API Clients"])

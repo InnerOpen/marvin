@@ -507,6 +507,141 @@ class AuthoringService:
             "estimatedCostUsd": execution.estimated_cost_usd,
         }
 
+    # ── drafts written by the caller (no model of Marvin's) ─────────────────────
+    # An assistant connected over MCP (or Marvin's own agent, for an exact edit) writes the fields itself; these save
+    # them through the same steps compose and revise take after their model answers: the type's own fields only, tags
+    # find-or-created, resources reuse-only, the recipe's image roles, the completeness warnings, the events.
+
+    EDITABLE_STATUSES = ("inbox", "draft", "needs_review")
+
+    def _known_fields(self, entry_type, fields: dict | None) -> dict:
+        from marvin.schemas.platform.entry_type_schema import EntryTypeSchemaDefinition
+
+        allowed = EntryTypeSchemaDefinition.model_validate(entry_type.schema_json or {}).get_field_keys()
+        fields = dict(fields or {})
+        unknown = sorted(k for k in fields if k not in allowed)
+        if unknown:
+            raise ValueError(
+                f"{', '.join(unknown)} {'is not a field' if len(unknown) == 1 else 'are not fields'} of '{entry_type.slug}'. "
+                f"Its fields: {', '.join(sorted(allowed)) or '(none)'} (get_entry_type lists them with their types)."
+            )
+        return {k: v for k, v in fields.items() if v not in ("", None)}
+
+    def save_draft(self, *, entry_type, title: str, fields: dict | None = None, summary: str | None = None, tags=None, resources=None,
+                   asset_ids=()) -> dict:  # fmt: skip
+        """Create an inbox draft from fields the caller wrote. Raises ValueError on an unknown field or a bad value."""
+        title = (title or "").strip()
+        if not title:
+            raise ValueError("title is required")
+        data_json = self._known_fields(entry_type, fields)
+        attachments = self.recipe_asset_attachments(list(asset_ids), entry_type) if asset_ids else None
+        try:
+            entry = self.repos.entries.create(
+                {
+                    "title": title,
+                    "summary": summary,
+                    "entry_type_id": entry_type.id,
+                    "status": "inbox",  # a draft: a person reviews it before it is published
+                    "data_json": data_json,
+                    "asset_attachments": attachments,
+                    "created_by": getattr(self.user, "id", None),
+                }
+            )
+        except Exception as e:
+            self.session.rollback()
+            raise ValueError(f"the fields don't fit '{entry_type.slug}': {e}") from e
+        self.session.commit()
+        tag_list = [str(t).strip() for t in (tags or []) if str(t).strip()]
+        if tag_list:
+            self.repos.entries.apply_fields(entry.id, {"tags": tag_list})
+        attached = self._attach_existing_resources(entry.id, resources or [])
+        self.session.commit()
+        self._emit_entry_created(entry, entry_type)
+        self._run_media_enrichment(entry.id)
+        return {
+            "entryId": str(entry.id),
+            "status": entry.status,
+            "title": title,
+            "tags": tag_list,
+            "resources": attached,
+            "warnings": self._draft_warnings(entry.id, entry_type),
+            "editUrl": entry_edit_url(entry.id),
+            "reviewLink": entry_review_link(entry.id),
+        }
+
+    def update_draft(self, *, entry, title: str | None = None, summary: str | None = None, fields: dict | None = None, tags=None,
+                     resources=None) -> dict:  # fmt: skip
+        """Change the given fields of a draft (the rest stay), under the workspace's approval policy: applied, or staged
+        for review as revise does. A published or approved entry is refused."""
+        if entry.status not in self.EDITABLE_STATUSES:
+            raise ValueError(f"'{entry.title}' is {entry.status}: only inbox, draft and needs-review entries can be changed here")
+        entry_type = entry.entry_type
+        new_fields = self._known_fields(entry_type, fields) if entry_type else {}
+        tag_list = [str(t).strip() for t in (tags or []) if str(t).strip()]
+        resource_refs = [str(r).strip() for r in (resources or []) if str(r).strip()]
+        title = (title or "").strip() or None
+        if not (title or summary is not None or new_fields or tag_list or resource_refs):
+            raise ValueError("nothing to change: give title, summary, fields, tags or resources")
+
+        from marvin.services.ai.approval import may_apply
+
+        if may_apply(self._approval_mode(), "entry", entry.status):
+            update: dict = {}
+            if title:
+                update["title"] = title
+            if summary is not None:
+                update["summary"] = summary
+            if new_fields:
+                update["data_json"] = {**(entry.data_json or {}), **new_fields}  # merge, don't clobber
+            if update:
+                try:
+                    self.repos.entries.update(entry.id, update)
+                except Exception as e:
+                    self.session.rollback()
+                    raise ValueError(f"the fields don't fit '{entry_type.slug if entry_type else 'this entry'}': {e}") from e
+            if tag_list:
+                self.repos.entries.apply_fields(entry.id, {"tags": tag_list})
+            self._attach_existing_resources(entry.id, resource_refs)
+            self.session.commit()
+            self._emit_entry_updated(entry)
+            outcome = "applied"
+        else:
+            proposed: dict = {**({"title": title} if title else {}), **({"summary": summary} if summary is not None else {})}
+            proposed.update({f"data_json.{k}": v for k, v in new_fields.items()})
+            if tag_list:
+                proposed["tags"] = tag_list
+            if resource_refs:
+                proposed["resources"] = resource_refs
+            self.repos.entries.stage_suggestion(entry.id, {**proposed, "_meta": {"operation": "update-draft"}})
+            self.session.commit()
+            outcome = "staged"
+        return {
+            "entryId": str(entry.id),
+            "outcome": outcome,  # "applied", or "staged" for review (the workspace's approval policy)
+            "changed": {
+                "fields": sorted(new_fields),
+                "title": bool(title),
+                "summary": summary is not None,
+                "tags": tag_list,
+                "resources": resource_refs,
+            },
+            "warnings": self._draft_warnings(entry.id, entry_type) if outcome == "applied" and entry_type else [],
+            "editUrl": entry_edit_url(entry.id),
+            "reviewLink": entry_review_link(entry.id, "Review the entry"),
+        }
+
+    def _draft_warnings(self, entry_id, entry_type) -> list[str]:
+        """What would still block publishing (required fields, assets, resources, tags). Best-effort."""
+        try:
+            from marvin.db.models.platform.entries import Entries
+            from marvin.services.entries.completeness import evaluate_entry
+
+            orm = self.session.get(Entries, entry_id)
+            return evaluate_entry(orm, entry_type).blocking_messages() if orm is not None else []
+        except Exception as e:  # noqa: BLE001
+            self.logger.debug("draft completeness eval skipped: %s", e)
+            return []
+
     def _validate_recipe_assets(self, recipe, attachments) -> list[str]:
         """Warn when a composed draft doesn't satisfy the entry type's asset contract — the recipe
         expects a hero image but none was attached, or fewer images than the declared minimum.
@@ -832,23 +967,23 @@ class AuthoringService:
         so compose could never suggest an existing image to attach. Split, each kind always gets a
         fair share. The seed is embedded once and reused for both queries.
         """
-        if not (seed_text and self.provider and getattr(self.provider, "supports_embeddings", False)):
+        if not seed_text:
             return ""
-        from marvin.services.ai.embeddings import default_embedding_model, search_embeddings
+        from marvin.services.ai.embeddings import embedder_for, search_embeddings
         from marvin.services.ai.entity_resolve import resolve_retrieved_sources
 
-        emb = default_embedding_model(self.provider.provider_type)
+        embedder, emb = embedder_for(self.provider)
         if not emb:
             return ""
         try:
-            qvec = self.provider.embed([seed_text], emb)[0]
+            qvec = embedder.embed([seed_text], emb)[0]
         except Exception as e:  # grounding must never break authoring
             self.logger.warning(f"AuthoringService: RAG grounding embed failed: {e}")
             return ""
 
         def _titles(entity_type: str, limit: int) -> list[str]:
             try:
-                rows = search_embeddings(self.session, self.group_id, qvec, limit, [entity_type])
+                rows = search_embeddings(self.session, self.group_id, qvec, limit, [entity_type], model=emb)
                 srcs = resolve_retrieved_sources(self.session, rows or [])
             except Exception as e:
                 self.logger.warning(f"AuthoringService: RAG grounding ({entity_type}) failed: {e}")
@@ -878,7 +1013,7 @@ class AuthoringService:
         return workspace_approval_mode(self.session, self.group_id)
 
     def _complete_execution(self, execution, completion, start, *, entity_id, output: dict) -> None:
-        from marvin.services.ai.pricing import estimate_cost
+        from marvin.services.ai.pricing import cost_of
 
         execution.status = "completed"
         execution.completed_at = datetime.now(UTC)
@@ -889,12 +1024,9 @@ class AuthoringService:
         execution.prompt_tokens = completion.prompt_tokens
         execution.completion_tokens = completion.completion_tokens
         execution.total_tokens = completion.total_tokens
-        execution.estimated_cost_usd = estimate_cost(
-            self.provider.provider_type,
-            self.model,
-            completion.prompt_tokens,
-            completion.completion_tokens,
-        )
+        execution.cached_prompt_tokens = getattr(completion, "cached_prompt_tokens", 0) or 0
+        execution.cache_write_tokens = getattr(completion, "cache_write_tokens", 0) or 0
+        execution.estimated_cost_usd = cost_of(self.provider.provider_type, self.model, completion)
         self.session.commit()
 
     def _fail_execution(self, execution, message: str, start) -> None:

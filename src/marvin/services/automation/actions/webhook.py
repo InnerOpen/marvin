@@ -74,8 +74,6 @@ def _log_delivery(webhook_id, group_id, status, http_status, error, request_payl
 
 @register_action("webhook")
 def run_webhook(session, group_id, action, context, *, user_id=None, authorizer_role=None, dry_run=False) -> dict:
-    import httpx
-
     from ..authz import ROLE_OWNER, WEBHOOK_MIN_ROLE, require_role
     from ..matcher import interpolate
 
@@ -114,10 +112,16 @@ def run_webhook(session, group_id, action, context, *, user_id=None, authorizer_
         raise AutomationActionError("webhook action needs a webhook_id (or a raw url)")
 
     method = str(method).upper()
+    # An idempotency_key that already made this call within its window: nothing is sent, the earlier answer is reused.
+    from .. import idempotency
+
+    gate = idempotency.open_gate(session, group_id, action, context, destination=f"webhook:{webhook_id or url}", dry_run=dry_run)
+    if gate is not None and gate.duplicate and not dry_run:
+        return gate.skipped()
     if dry_run:
         # Preview the request WITHOUT sending it. Never resolve the secret value into the preview —
         # just note whether an auth header would be attached.
-        return {
+        preview = {
             "dry_run": True,
             "kind": "webhook",
             "method": method,
@@ -128,6 +132,23 @@ def run_webhook(session, group_id, action, context, *, user_id=None, authorizer_
             "authorized": bool(action.get("secret_ref")),
             "auth_scheme": (action.get("auth_scheme") or DEFAULT_AUTH_SCHEME) if action.get("secret_ref") else None,
         }
+        if gate is None:
+            return preview
+        return gate.skipped(preview) if gate.duplicate else {**preview, **gate.preview()}
+
+    try:
+        out = _send(method, url, body, headers, action, group_id, webhook_id)
+    except BaseException:
+        if gate is not None:
+            gate.release()  # a call that failed is made again by the retry, not skipped as a duplicate
+        raise
+    if gate is not None:
+        gate.complete(out)
+    return out
+
+
+def _send(method: str, url: str, body, headers: dict, action: dict, group_id, webhook_id) -> dict:
+    import httpx
 
     headers.update(_auth_header(action.get("secret_ref"), group_id, action.get("auth_scheme")))
     try:

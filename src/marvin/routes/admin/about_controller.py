@@ -15,7 +15,9 @@ from marvin.schemas.admin.about import (  # Pydantic schemas for response models
     AdminAboutInfo,
     AppStatistics,
     CheckAppConfig,
+    EmbeddingsInfo,
 )
+from marvin.services import platform_smtp
 from marvin.services.email.email_senders import email_ready
 
 # APIRouter for admin "about" section, prefixed with /about
@@ -45,13 +47,9 @@ class AdminAboutController(BaseAdminController):
         Returns:
             AdminAboutInfo: A Pydantic model containing various application details.
         """
-        from marvin.services.group.platform_workspace import PlatformWorkspaceMissing, platform_workspace
+        from marvin.services.ai.embeddings import embeddings_status
 
         settings = self.settings  # Access application settings via base controller property
-        try:
-            platform_name = platform_workspace(self.session).name
-        except PlatformWorkspaceMissing:  # uninitialised database: the name it will be created with
-            platform_name = settings.DEFAULT_GROUP
 
         # Construct and return the AdminAboutInfo response model
         return AdminAboutInfo(
@@ -64,14 +62,14 @@ class AdminAboutController(BaseAdminController):
             api_docs=settings.API_DOCS,
             db_type=settings.DB_ENGINE,
             db_url=settings.DB_URL_PUBLIC,  # Public (masked) database URL
-            default_group=platform_name,
             allow_signup=settings.ALLOW_SIGNUP,
             build_id=settings.GIT_COMMIT_HASH,  # Git commit hash for the build
             enable_oidc=settings.OIDC_AUTH_ENABLED,
             oidc_redirect=settings.OIDC_AUTO_REDIRECT,
             oidc_provider_name=settings.OIDC_PROVIDER_NAME,
             enable_openai=settings.OPENAI_ENABLED,
-            enable_openai_image_services=settings.OPENAI_ENABLED and settings.OPENAI_ENABLE_IMAGE_SERVICES,
+            enable_openai_image_services=settings.OPENAI_ENABLED,
+            embeddings=EmbeddingsInfo(**embeddings_status(self.session)),  # no model load
         )
 
     @router.get("/statistics", response_model=AppStatistics, summary="Get Application Statistics")
@@ -185,16 +183,15 @@ class AdminAboutController(BaseAdminController):
 
         # Add computed @property fields that aren't in model_dump
         # FeatureDetails is a NamedTuple, convert to dict with _asdict()
-        data["SMTP_ENABLED"] = settings.SMTP_ENABLED
-        data["SMTP_FEATURE"] = settings.SMTP_FEATURE._asdict() if settings.SMTP_FEATURE else None
+        smtp = platform_smtp.effective()  # the environment's SMTP_* with Admin → Email's per-field overrides
+        data["SMTP_ENABLED"] = smtp.ready
+        data["SMTP_FEATURE"] = {"enabled": smtp.ready, "description": smtp.problem}
         data["LDAP_ENABLED"] = settings.LDAP_ENABLED
         data["LDAP_FEATURE"] = settings.LDAP_FEATURE._asdict() if settings.LDAP_FEATURE else None
         data["OIDC_READY"] = settings.OIDC_READY
         data["OIDC_FEATURE"] = settings.OIDC_FEATURE._asdict() if settings.OIDC_FEATURE else None
         data["OPENAI_ENABLED"] = settings.OPENAI_ENABLED
         data["OPENAI_FEATURE"] = settings.OPENAI_FEATURE._asdict() if settings.OPENAI_FEATURE else None
-        data["PLUGIN_ENABLED"] = settings.PLUGIN_ENABLED
-        data["PLUGIN_FEATURE"] = settings.PLUGIN_FEATURE._asdict() if settings.PLUGIN_FEATURE else None
 
         # Convert keys to camelCase (lowercase first since env vars are SCREAMING_SNAKE_CASE)
         return {camelize(key.lower()): value for key, value in data.items()}
@@ -220,7 +217,7 @@ class AdminAboutController(BaseAdminController):
         is_up_to_date_status = APP_VERSION in ["develop", "nightly"] or get_latest_version(settings.GITHUB_VERSION_URL) == APP_VERSION
 
         return CheckAppConfig(
-            email_ready=email_ready(),  # SMTP settings, or the platform workspace's active SMTP profile
+            email_ready=email_ready(),  # the platform SMTP server (environment + Admin → Email overrides)
             ldap_ready=settings.LDAP_ENABLED,  # LDAP configured and enabled
             base_url_set=settings.BASE_URL != "http://localhost:8080",  # Base URL customized from default
             is_up_to_date=is_up_to_date_status,  # Application version is current

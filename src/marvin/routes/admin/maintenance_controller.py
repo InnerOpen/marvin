@@ -9,16 +9,15 @@ share its execution log, config and retention (services/scheduled_tasks/handlers
 It also includes a utility function for tailing log files (not exposed via HTTP).
 """
 
-from pathlib import Path  # For path manipulation
-
 from fastapi import APIRouter
 from pydantic import BaseModel  # For stats response model
 
 # Marvin specific imports
+from marvin.db.size import database_size_bytes
 from marvin.pkgs.stats import fs_stats  # Filesystem statistics utilities
 from marvin.routes._base import BaseAdminController, controller  # Base admin controller
 from marvin.schemas.admin import MaintenanceSummary  # Pydantic schema for maintenance summary
-from marvin.schemas.admin.maintenance import MaintenanceStorageDetails  # Schema for storage details
+from marvin.schemas.admin.maintenance import DatabaseReport, MaintenanceStorageDetails  # Schema for storage details
 
 # APIRouter for admin maintenance section, prefixed with /maintenance
 # All routes here will be under /admin/maintenance.
@@ -44,30 +43,6 @@ class SystemStats(BaseModel):
     data_dir_path: str
 
 
-def tail_log(log_file: Path, n: int) -> list[str]:
-    """
-    Reads the last N lines from a log file.
-
-    Args:
-        log_file (Path): The Path object pointing to the log file.
-        n (int): The number of lines to read from the end of the file.
-
-    Returns:
-        list[str]: A list of the last N lines from the file, or a list
-                   containing a "no log file found" message if the file
-                   does not exist.
-    """
-    try:
-        with open(log_file, encoding="utf-8") as f:  # Added encoding for robustness
-            lines = f.readlines()
-    except FileNotFoundError:
-        return [f"Log file not found: {log_file}"]  # More informative message
-    except Exception as e:  # Catch other potential read errors
-        return [f"Error reading log file {log_file}: {e}"]
-
-    return lines[-n:]  # Return the last n lines
-
-
 @controller(router)
 class AdminMaintenanceController(BaseAdminController):
     """
@@ -76,6 +51,15 @@ class AdminMaintenanceController(BaseAdminController):
     Provides endpoints for viewing storage statistics (cleanup runs as scheduled tasks).
     All operations require administrator privileges.
     """
+
+    @router.get("/database", response_model=DatabaseReport, summary="Database size, its largest tables and what trims each")
+    def get_database_report(self) -> DatabaseReport:
+        """The database's size, its largest tables (size, estimated rows, share of the whole) and, for each, the system
+        task that trims it with its retention and last/next run — or none, for a table that only grows. Also the
+        cleanup tasks that don't trim a table (temporary files, the planner's statistics)."""
+        from marvin.services.database_report import database_report
+
+        return database_report(self.session)
 
     @router.get("", response_model=MaintenanceSummary, summary="Get Maintenance Summary")
     def get_maintenance_summary(self) -> MaintenanceSummary:
@@ -150,9 +134,12 @@ class AdminMaintenanceController(BaseAdminController):
         assets_dir = dirs.DATA_DIR / "assets"
         assets_size = fs_stats.get_dir_size(assets_dir) if assets_dir.exists() else 0
 
-        # Database size - check the actual SQLite file
-        db_file = dirs.DATA_DIR / "marvin.db"
-        db_size = db_file.stat().st_size if db_file.exists() else 0
+        # Database size, as the engine counts it (0 when it can't say).
+        try:
+            db_size = database_size_bytes(self.session)
+        except Exception:  # noqa: BLE001 — a stat, never a failed page
+            self.session.rollback()
+            db_size = 0
 
         total_size = data_dir_size
 
@@ -164,7 +151,7 @@ class AdminMaintenanceController(BaseAdminController):
             api_tokens_count=api_tokens_count,
             webhooks_count=webhooks_count,
             database_size=fs_stats.pretty_size(db_size),
-            database_path=str(db_file),
+            database_path=self.session.get_bind().url.render_as_string(hide_password=True),
             assets_size=fs_stats.pretty_size(assets_size),
             assets_path=str(assets_dir),
             backups_size=fs_stats.pretty_size(backups_size),

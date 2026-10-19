@@ -1,4 +1,4 @@
-"""Platform workspace import/export/backup endpoints.
+"""Workspace import/export/backup endpoints.
 
 Export and backups are workspace-admin only: a bundle carries webhook URLs and headers, integration
 and SMTP config, variables, and secrets (wrapped by the backup key). Revealing the key and importing

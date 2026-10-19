@@ -68,7 +68,7 @@ backup:
       env: *assetsFromR2
 ```
 
-Upgrade (production through `promote-iwobble.sh`). The backend restarts; uploads still go to local. Check: **Admin → Storage** lists *S3-compatible* `s3` as available (no "unavailable" note), and the backend log has `Storage: new uploads go to 'local' (STORAGE_PROVIDER)`.
+Upgrade (production through `scripts/deploy/promote.sh <sha> marvin values-iwobble.yaml`). The backend restarts; uploads still go to local. Check: **Admin → Storage** lists *S3-compatible* `s3` as available (no "unavailable" note), and the backend log has `Storage: new uploads go to 'local' (STORAGE_PROVIDER)`.
 
 **3. Before switching:** run a backup (`oc -n marvin create job --from=cronjob/marvin-backup-r2 marvin-r2-pre-s3`, wait, check the summary line). Optional: look for asset URLs typed into content (they keep working through the redirect; this only tells you what the redirect is carrying):
 

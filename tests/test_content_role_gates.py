@@ -177,9 +177,11 @@ def test_the_role_below_the_gate_gets_403(workspace, route):
 
 
 @pytest.mark.parametrize("route", GATED, ids=_ids)
-def test_non_member_gets_403(workspace, route):
+def test_non_member_is_in_no_workspace(workspace, route):
+    """A user who is not a member of any workspace has no workspace to act in: 409 no_workspace, before the gate."""
     _gate, method, path, body = route
-    assert _call(_sign_in(workspace, None), method, path, body).status_code == 403
+    res = _call(_sign_in(workspace, None), method, path, body)
+    assert res.status_code == 409 and res.json()["detail"]["code"] == "no_workspace", res.text
 
 
 @pytest.mark.parametrize("route", GATED, ids=_ids)

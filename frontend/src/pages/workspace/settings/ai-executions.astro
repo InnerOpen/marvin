@@ -134,6 +134,7 @@ function formatDuration(ms: number | null): string {
             const modelId = getField(exec, 'modelId', 'model_id');
             const createdAt = getField(exec, 'createdAt', 'created_at');
             const totalTokens = getField(exec, 'totalTokens', 'total_tokens');
+            const cachedTokens = getField(exec, 'cachedPromptTokens', 'cached_prompt_tokens');
             const estimatedCost = getField(exec, 'estimatedCostUsd', 'estimated_cost_usd');
             const durationMs = getField(exec, 'durationMs', 'duration_ms');
             const outputJson = getField(exec, 'outputJson', 'output_json');
@@ -165,7 +166,7 @@ function formatDuration(ms: number | null): string {
                   <td>
                     <span class={`status-chip status-${statusClass(exec.status)}`}>{exec.status}</span>
                   </td>
-                  <td class="nowrap">{formatTokens(totalTokens)}</td>
+                  <td class="nowrap">{formatTokens(totalTokens)}{cachedTokens > 0 && <span class="cached" title="Prompt tokens the provider served from its prompt cache, billed at the cache rate">{" "}({formatTokens(cachedTokens)} cached)</span>}</td>
                   <td class="nowrap">{formatCost(estimatedCost)}</td>
                   <td class="nowrap">{formatDuration(durationMs)}</td>
                 </tr>
@@ -387,4 +388,5 @@ function formatDuration(ms: number | null): string {
   .status-failed { background: rgba(239, 68, 68, 0.1); color: var(--color-error); }
   .status-running { background: rgba(217, 119, 6, 0.1); color: #d97706; }
   .status-none { color: var(--muted); }
+  .cached { color: var(--muted); font-size: 12px; }
 </style>

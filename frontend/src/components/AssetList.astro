@@ -1,0 +1,116 @@
+---
+/**
+ * Assets as an inbox-style list, the same rows as EntryList: a dot (green: search and the assistants can find it; amber:
+ * a picture with no alt text or description, so they can't), a small picture (pictures only; other files show their
+ * kind), name, alt text or filename, badges, size and date. The whole row opens the asset; an asset in the Trash opens
+ * its page, where Restore and Delete forever live. Move to Trash (EDITOR+) takes the row out in place, keeping the
+ * filters; it's reversible, so it doesn't ask.
+ */
+import LocalTime from "@/components/LocalTime.astro";
+import { getMimeCategory } from "@/lib/assetCategory";
+import { decisionOf } from "@/lib/assetLineage";
+import { isUnsearchableImage } from "@/lib/assetLibraryView";
+
+interface Props {
+  assets: any[];
+  inTrash?: boolean;
+  /** EDITOR and above: Move to Trash on each row. */
+  canEdit?: boolean;
+  /** An asset's "N versions" link (the library filtered to what was made from it). */
+  versionsHref: (asset: any) => string;
+}
+
+const { assets, inTrash = false, canEdit = false, versionsHref } = Astro.props;
+const KIND_ICONS: Record<string, string> = { video: "🎬", audio: "🎵", document: "📄" };
+const KB = 1024;
+const size = (bytes?: number | null) => (!bytes ? "" : bytes < KB * KB ? `${Math.round(bytes / KB)} KB` : `${(bytes / KB / KB).toFixed(1)} MB`);
+---
+
+<ul class="inbox">
+  {assets.map((asset) => {
+    const href = inTrash ? `/workspace/assets/${asset.id}` : `/workspace/assets/${asset.id}/view`;
+    const category = getMimeCategory(asset.mimeType);
+    const decision = decisionOf(asset.metadataJson);
+    const sub = asset.altText || asset.originalFilename || asset.slug;
+    return (
+      <li class="inbox-row">
+        <a class="inbox-link" href={href}>
+          {isUnsearchableImage(asset)
+            ? <span class="search-dot unsearchable" title="Not searchable: no alt text or description"></span>
+            : <span class="search-dot" title="Searchable"></span>}
+          {asset.publicUrl && category === "image" ? (
+            <img class:list={["inbox-thumb", { dim: inTrash }]} src={asset.publicUrl} alt="" loading="lazy" style={`object-position: ${asset.focalPoint ?? "50% 50%"}`} />
+          ) : (
+            <span class="inbox-thumb file-kind" aria-hidden="true">{KIND_ICONS[category] ?? "📎"}</span>
+          )}
+          <span class="inbox-main">
+            <span class="inbox-title">{asset.name}</span>
+            {sub && <span class="inbox-summary">{sub}</span>}
+          </span>
+          <span class="inbox-meta">
+            {inTrash && <span class="badge">In the Trash</span>}
+            {asset.origin === "derived" && <span class="badge">Version</span>}
+            {asset.origin === "generated" && <span class="badge">Generated</span>}
+            {decision && <span class={`badge decision-${decision.decision}`} title={decision.note ?? undefined}>{decision.label}</span>}
+            <span class="inbox-type">{asset.width && asset.height ? `${asset.width}×${asset.height}` : asset.mimeType}</span>
+            {size(asset.fileSize) && <span class="inbox-type">{size(asset.fileSize)}</span>}
+            <span class="inbox-date"><LocalTime iso={asset.updateAt ?? asset.createdAt} format="short-date" fallback="" /></span>
+          </span>
+        </a>
+        {asset.versionsCount > 0 && (
+          <a class="versions-link" href={versionsHref(asset)}>{asset.versionsCount} {asset.versionsCount === 1 ? "version" : "versions"}</a>
+        )}
+        {canEdit && !inTrash && (
+          <button type="button" class="row-trash" data-asset-id={asset.id} title="Move to the Trash (restore it from there)">Move to Trash</button>
+        )}
+      </li>
+    );
+  })}
+</ul>
+
+<script>
+  import { createSdkClient } from '@/lib/sdk';
+  import { isForbidden } from '@/lib/workspaceRole';
+
+  document.querySelectorAll<HTMLButtonElement>('.row-trash[data-asset-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = 'Moving…';
+      try {
+        await createSdkClient().assets.delete(btn.dataset.assetId!);
+        btn.closest('li')?.remove();
+      } catch (error: any) {
+        btn.disabled = false;
+        btn.textContent = isForbidden(error) ? 'Not allowed' : 'Failed, try again';
+      }
+    });
+  });
+</script>
+
+<style>
+  .inbox { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--panel); }
+  .inbox-row { display: flex; align-items: center; }
+  .inbox-row + .inbox-row { border-top: 1px solid var(--line); }
+  .inbox-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.75rem; padding: 0.7rem 1rem; text-decoration: none; color: var(--ink); transition: background 0.12s; }
+  .inbox-link:hover { background: var(--panel-2); }
+  .search-dot { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; background: #16a34a; }
+  .search-dot.unsearchable { background: #d97706; }
+  .inbox-thumb { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 6px; object-fit: cover; background: var(--panel-2); }
+  .inbox-thumb.dim { opacity: 0.5; }
+  .file-kind { display: grid; place-items: center; font-size: 1.25rem; }
+  .inbox-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+  .inbox-title { font-weight: 600; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .inbox-summary { font-size: 0.8rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .inbox-meta { flex: 0 0 auto; display: flex; align-items: center; gap: 0.6rem; }
+  .inbox-type { font-size: 0.75rem; color: var(--muted); }
+  .inbox-date { font-size: 0.75rem; color: var(--muted); min-width: 3rem; text-align: right; }
+  .badge { font-size: 0.7rem; padding: 0.05rem 0.45rem; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); white-space: nowrap; }
+  .badge.decision-denied { color: var(--color-error); border-color: var(--color-error); }
+  .badge.decision-approved { color: var(--color-success, var(--accent)); }
+  .versions-link { flex: 0 0 auto; margin-right: 1rem; font-size: 0.75rem; color: var(--accent); white-space: nowrap; }
+  .row-trash { flex: 0 0 auto; margin-right: 1rem; padding: 0.25rem 0.6rem; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 0.75rem; cursor: pointer; white-space: nowrap; }
+  .row-trash:hover { color: var(--color-error, #dc2626); border-color: var(--color-error, #dc2626); }
+  @media (max-width: 640px) {
+    .inbox-meta .inbox-type, .inbox-meta .badge { display: none; }
+  }
+</style>

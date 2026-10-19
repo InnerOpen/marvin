@@ -10,13 +10,15 @@ key on publish quietly stopped firing.
 This service is the single seam. Every entry write goes through it, and it owns the emit — so status
 transitions (`entry_published` / `entry_unpublished` / `entry_archived` / `entry_trashed` / `entry_restored`) fire
 *by construction*, from any caller, and chaining becomes reliable. It's also the natural home for
-`changed_fields` / `before` / `after` (added next).
+`changed_fields` / `before` / `after`.
 
 The event shape is preserved exactly from the controller (same integration_id, document data,
 messages, and — importantly — the `entry_updated`-before-`entry_published` ordering the embedding
 reaction depends on). `reaction_depth` is threaded so an automation's write-back re-emits at
 `depth + 1`, keeping the loop-guard intact.
 """
+
+import re
 
 from fastapi import HTTPException
 
@@ -38,6 +40,18 @@ logger = get_logger("entry_service")
 # small and scalar — never body/content/metadata (large, and by-value content shouldn't land in the
 # audit log) or relationships. These are exactly the fields automation conditions key on.
 _TRACKED_FIELDS = ("status", "title", "slug")
+
+# Entry-type data fields join the diff as `data.<key>` in `changed_fields`, with their values under
+# `before.data` / `after.data` — so `changed_fields contains data.price` and `${event.before.data.price}` work.
+# The *names* of every changed field always show; the *values* stay bounded because an event outlives the
+# entry's own edits (it is kept in the audit log and sent to webhooks): only a short scalar is carried, and a
+# long text, a list or object, or a field whose name reads as a secret is replaced by ELIDED.
+DATA_DIFF_PREFIX = "data."
+ELIDED = "‹elided›"
+DATA_VALUE_MAX_CHARS = 160
+DATA_VALUES_MAX = 25  # changed fields whose values ride along; the rest are named only
+DATA_NAMES_MAX = 100
+_SECRET_KEY = re.compile(r"pass(word|wd)|secret|token|api[_-]?key|credential|private[_-]?key|authorization|(^|[_-])auth([_-]|$)", re.IGNORECASE)
 
 # The status-transition events: each one is a change of `status`, so its diff always names it.
 _TRANSITION_EVENTS = (
@@ -68,12 +82,34 @@ def _is_uuid(value: str) -> bool:
         return False
 
 
+def _shown(key: str, value):
+    """A data field's value as the event carries it: a short scalar as it is, anything else ELIDED."""
+    if value is None or isinstance(value, bool | int | float):
+        return value
+    if isinstance(value, str) and len(value) <= DATA_VALUE_MAX_CHARS and not _SECRET_KEY.search(key):
+        return value
+    return ELIDED
+
+
+def _data_of(entry) -> dict:
+    data = getattr(entry, "data_json", None)
+    return data if isinstance(data, dict) else {}
+
+
 def _diff(old, new) -> tuple[list[str], dict, dict]:
-    """(changed_fields, before, after) over the tracked scalar fields. before/after carry ONLY the
-    changed fields, so `event.after.status == X` reads as "status changed to X"."""
+    """(changed_fields, before, after) over the tracked scalar fields and the entry type's data fields.
+    before/after carry ONLY the changed fields, so `event.after.status == X` reads as "status changed to X";
+    a changed data field is `data.<key>` in changed_fields and `before.data.<key>` / `after.data.<key>` (bounded:
+    see ELIDED)."""
     changed = [f for f in _TRACKED_FIELDS if getattr(old, f, None) != getattr(new, f, None)]
     before = {f: getattr(old, f, None) for f in changed}
     after = {f: getattr(new, f, None) for f in changed}
+    old_data, new_data = _data_of(old), _data_of(new)
+    keys = sorted(k for k in old_data.keys() | new_data.keys() if old_data.get(k) != new_data.get(k))
+    if keys:
+        changed += [f"{DATA_DIFF_PREFIX}{k}" for k in keys[:DATA_NAMES_MAX]]
+        before["data"] = {k: _shown(k, old_data.get(k)) for k in keys[:DATA_VALUES_MAX]}
+        after["data"] = {k: _shown(k, new_data.get(k)) for k in keys[:DATA_VALUES_MAX]}
     return changed, before, after
 
 
@@ -327,7 +363,11 @@ class EntryService:
         if not entry:
             return False
         names = self._names(entry)
-        self._emit(entry, EventTypes.entry_deleted, EventOperation.delete, f"Entry '{entry.title}' deleted", names)
+        # The row is about to go, so the event carries what it was: a site-rebuild trigger needs to know a
+        # published entry left the site and a draft or trashed one did not.
+        self._emit(
+            entry, EventTypes.entry_deleted, EventOperation.delete, f"Entry '{entry.title}' deleted", names, diff=([], {"status": entry.status}, {})
+        )
         self.repos.entries.delete(entry_id)
         return True
 

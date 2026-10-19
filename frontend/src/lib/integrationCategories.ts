@@ -2,7 +2,7 @@
 // `category`), in one order. Pure, so `npm test` covers it (integrationCategories.test.mjs).
 
 /** The order the groups appear in: where alerts can go first, then where content goes, then the rest. */
-export const CATEGORY_ORDER = ["notify", "destination", "capability", "source"] as const;
+const CATEGORY_ORDER = ["notify", "destination", "capability", "source"] as const;
 
 export const CATEGORY_LABEL: Record<string, string> = {
   notify: "Notify",
@@ -12,7 +12,7 @@ export const CATEGORY_LABEL: Record<string, string> = {
 };
 
 /** A category a provider doesn't declare (or a connection whose plugin isn't installed). */
-export const OTHER = "other";
+const OTHER = "other";
 
 export interface CategoryGroup<T> {
   category: string;

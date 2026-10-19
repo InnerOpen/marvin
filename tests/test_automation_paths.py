@@ -98,3 +98,14 @@ def test_a_url_filter_makes_a_value_safe_in_a_link():
     assert interpolate("${entry.url | url}", ctx) == "https%3A%2F%2Fx.test%2Fa%3Fb%3D1"  # whole value, spaces allowed
     assert interpolate("${entry.missing|url}", ctx) == ""  # nothing there: empty, not "None"
     assert interpolate("${entry.url|shout}", ctx) is None  # an unknown filter resolves to nothing
+
+
+def test_length_conditions_count_characters_or_items():
+    from marvin.services.automation.matcher import matches
+
+    ctx = {"entry": {"data": {"body": "x" * 301, "tags": ["a", "b"]}, "title": None}}
+    assert matches([{"field": "entry.data.body", "op": "longer_than", "value": "300"}], ctx)
+    assert not matches([{"field": "entry.data.body", "op": "shorter_than", "value": 300}], ctx)
+    assert matches([{"field": "entry.data.tags", "op": "shorter_than", "value": 3}], ctx)  # a list: its items
+    assert matches([{"field": "entry.title", "op": "shorter_than", "value": 1}], ctx)  # nothing there is length 0
+    assert not matches([{"field": "entry.data.body", "op": "longer_than", "value": "lots"}], ctx)  # not a number: never

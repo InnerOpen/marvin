@@ -300,14 +300,16 @@ def describe_event(ctx: ToolContext, args: dict) -> str:
     integrations. Workspace-scope events only, plus platform events for a super admin (their reactions across
     workspaces, as on the admin Events page)."""
     from marvin.db.models.users.roles import PlatformRole
-    from marvin.services.events import connections
-    from marvin.services.events.event_catalog import CATALOG, canonical_event_type, get_catalog_entry
+    from marvin.services.events import connections, custom_events
+    from marvin.services.events.event_catalog import CATALOG, canonical_event_type, diff_fields, get_catalog_entry, operational_fields, workflow_reads
 
     user = ctx.user
     super_admin = getattr(user, "platform_role", None) == PlatformRole.SUPER_ADMIN or bool(getattr(user, "is_superuser", False))
+    # The workspace's own `custom.*` events come after Marvin's, with their fields.
     allowed = [e for e in CATALOG if not e.hidden and (e.scope == "workspace" or super_admin)]
+    allowed += custom_events.catalog_entries(ctx.session, ctx.group_id)
     asked = str(args.get("event") or "")
-    named = get_catalog_entry(canonical_event_type(_as_type(asked)))
+    named = custom_events.entry_for(ctx.session, ctx.group_id, canonical_event_type(_as_type(asked)))
     if named is not None and named not in allowed:  # a real type this caller can't ask about: say why, don't guess
         why = "nothing sends it" if named.hidden else "it's a platform event (super admins only)"
         return _dump({"found": False, "error": f"{named.event_type} isn't described here: {why}.", "eventTypes": [_ref(e) for e in allowed]})
@@ -323,6 +325,22 @@ def describe_event(ctx: ToolContext, args: dict) -> str:
         "category": entry.category,
         "scope": entry.scope,
     }
+    if custom_events.is_custom(entry.event_type):  # the workspace's own: what its payload carries (`event.payload.<field>`)
+        out["payload"] = {v.slug: v.type for v in entry.variables}
+    if fields := operational_fields(entry.event_type):  # a failure or shortfall a workflow can answer: `${event.<field>}`
+        out["workflowTrigger"] = {
+            "triggerable": True,
+            "fields": fields,
+            "note": "A workflow starting on this reads these as ${event.<field>}. It never runs for a failure its own run caused.",
+        }
+    elif fields := diff_fields(entry.event_type):  # an entry update's diff: `changed data.price` / ${event.before.data.price}
+        out["updateDiff"] = {
+            "fields": fields,
+            "note": "A workflow starting on this reads these as ${event.<field>}, or with the changed / changed_from / changed_to operators "
+            "(entry.data.price changed; event.changed_fields contains data.price).",
+        }
+    if reads := workflow_reads(entry.event_type):  # a form submission: what a run on it reads besides `event` and `entry`
+        out["workflowReads"] = reads
     if entry.scope == "workspace":
         detail = connections.detail(ctx.session, ctx.group_id, entry, limit=1, visible=_visible_events(ctx))
         out |= {

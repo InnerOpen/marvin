@@ -1,0 +1,49 @@
+{
+  "recipe": "agent-directory-intake",
+  "variables": {
+    "form_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The submittable entry type the agent form saves submissions as.",
+      "example": "agent-submission"
+    },
+    "document_url_field": {
+      "type": "field_key",
+      "description": "Its field holding the address of the agent's capability document (JSON).",
+      "example": "capabilities_url"
+    },
+    "capability_schema": {
+      "type": "object",
+      "description": "The JSON Schema a capability document must fit — what your directory requires of an agent (an object with `required` and `properties`).",
+      "example": {
+        "type": "object",
+        "required": [
+          "name",
+          "url",
+          "capabilities"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "url": {
+            "type": "string",
+            "pattern": "^https://"
+          },
+          "capabilities": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "notify_integration": {
+      "type": "integration_slug",
+      "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
+      "example": "alerts"
+    }
+  }
+}

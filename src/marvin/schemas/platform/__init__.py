@@ -31,15 +31,15 @@ from .entries import (
     AssetAttachment,
     CollectionAttachment,
     EntryCreate,
+    EntryQueryRequest,
+    EntryQueryResult,
     EntryRead,
-    EntrySummary,
     EntryUpdate,
     ResourceAttachment,
 )
 from .entry_types import (
     EntryTypeCreate,
     EntryTypeRead,
-    EntryTypeSummary,
     EntryTypeUpdate,
 )
 from .event_log import EventLogRead, EventLogSummary
@@ -94,11 +94,11 @@ __all__ = [
     "AssetAttachment",
     "EntryAssetRead",
     "EntryCreate",
+    "EntryQueryRequest",
+    "EntryQueryResult",
     "EntryRead",
-    "EntrySummary",
     "EntryTypeCreate",
     "EntryTypeRead",
-    "EntryTypeSummary",
     "EntryTypeUpdate",
     "EntryUpdate",
     "EventLogRead",
@@ -121,17 +121,7 @@ __all__ = [
     "TagUpdate",
     # CODE_GEN_ID: PLATFORM_SCHEMA_ALL
     # END: PLATFORM_SCHEMA_ALL
-    # Legacy aliases for backward compatibility
-    "SiteClientCreate",
-    "SiteClientRead",
-    "SiteClientUpdate",
 ]
-
-# Legacy aliases for backward compatibility with frontend
-SiteClientCreate = APIClientCreate
-SiteClientRead = APIClientRead
-SiteClientUpdate = APIClientUpdate
 
 # Rebuild models to resolve forward references after all schemas are imported
 EntryRead.model_rebuild()
-EntrySummary.model_rebuild()

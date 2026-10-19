@@ -18,6 +18,7 @@ from marvin.services.ai import agents as agents_mod
 from marvin.services.ai.agent import AgentResult, AgentTool, PendingCall
 from marvin.services.ai.base import Message, ToolCall
 from marvin.services.ai.operations.base import ROLE_ADMIN
+from tests._users import member_of
 
 READ = "search_content"  # entries_read: allow
 ALLOWED_WRITE = "compose_entry"  # entries_author: Marvin allows (drafts are the soft gate)
@@ -38,7 +39,7 @@ class _Loop:
         self.results: list = []
         self.tools: list[dict[str, AgentTool]] = []
 
-    def __call__(self, provider, model, messages, tools, options=None, max_steps=6, on_event=None, resume=None):
+    def __call__(self, provider, model, messages, tools, options=None, max_steps=6, on_event=None, resume=None, load_on_demand=False):
         self.tools.append({t.name: t for t in tools})
         return self.results.pop(0) if self.results else _done()
 
@@ -85,7 +86,7 @@ def ctl(db_session, monkeypatch):
 
     c = oc.AIOperationsController.__new__(oc.AIOperationsController)
     c.session = db_session
-    c.user = SimpleNamespace(id=uuid.uuid4(), admin=False, active_group_id=gid, group_id=gid, workspace_memberships=[])
+    c.user = SimpleNamespace(id=uuid.uuid4(), admin=False, active_group_id=gid, group_id=gid, **member_of(gid))
     c._logger = None
     c.event_bus = _Bus()
     c.loop = _Loop()

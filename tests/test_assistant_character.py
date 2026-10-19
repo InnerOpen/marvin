@@ -253,7 +253,14 @@ def test_a_lone_pose_sheet_becomes_every_animation_named_for_its_state():
     assert set(plan.states) == set(ch.CHARACTER_STATES)  # the four edge peeks too
     assert all(i.mime_type == "image/gif" for i in plan.images) and len(plan.images) == len(ch.CHARACTER_STATES)
     assert plan.states["greeting"].name == "waving.gif" and not plan.idle_guessed
-    assert plan.built_from == "16-pose sheet (height 108)" and plan.name is None  # a sheet's file name is no name
+    assert plan.built_from == "16-pose sheet (height 108)" and plan.name == "Mossy’s 16-pose magenta character grid"
+
+
+def test_only_a_lone_png_names_the_character_by_its_file_name():
+    assert plan_character([("Elvira.png", images.png_bytes(images.pose_sheet()))]).name == "Elvira"
+    gif = images.clean_gif()
+    assert plan_character([("waving.gif", gif)]).name is None  # a loose GIF is a state, not a name
+    assert plan_character([("Elvira.png", images.png_bytes(images.pose_sheet())), ("waving.gif", gif)]).name is None
 
 
 def test_a_pet_sheet_alone_in_a_zip_is_built_too_and_the_zip_names_it():

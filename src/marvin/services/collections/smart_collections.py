@@ -53,8 +53,6 @@ from marvin.core.root_logger import get_logger
 logger = get_logger(__name__)
 
 
-TARGET_TYPES = ("entry", "asset", "resource")
-
 _UNIVERSAL_KEYS = ("tags", "created_within_days", "match")
 RULE_KEYS = {
     "entry": ("entry_types", "statuses", "published_within_days", "where", *_UNIVERSAL_KEYS),

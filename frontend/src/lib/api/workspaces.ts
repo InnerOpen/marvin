@@ -12,11 +12,11 @@ import { createSdkClient } from "../sdk";
 import { canAuthorContent, canEditContent, canEditEntry, canManageWorkspace } from "../workspaceRole";
 
 /**
- * Get the user's currently active workspace
+ * Get the workspace the user is working in; null when they are in none (no home, no membership).
  */
-export async function getCurrentWorkspace(authToken: string): Promise<Workspace> {
+export async function getCurrentWorkspace(authToken: string): Promise<Workspace | null> {
   const sdk = createSdkClient(authToken);
-  return sdk.workspaces.getCurrent();
+  return (await sdk.workspaces.getCurrent()) ?? null;
 }
 
 /**
@@ -52,7 +52,12 @@ export interface ContentAccess {
 }
 
 /** Everything allowed: what a page assumes when the role can't be read, leaving the API to decide. */
-export const FULL_CONTENT_ACCESS: ContentAccess = { canManage: true, canEdit: true, canAuthor: true, canEditEntry: () => true };
+export const FULL_CONTENT_ACCESS: ContentAccess = {
+  canManage: true,
+  canEdit: true,
+  canAuthor: true,
+  canEditEntry: () => true,
+};
 
 /**
  * The caller's content access in the active workspace; FULL_CONTENT_ACCESS if it can't be read.
@@ -90,30 +95,4 @@ export async function createWorkspace(data: WorkspaceCreate, authToken: string):
   return sdk.workspaces.create(data);
 }
 
-/**
- * Delete a workspace (requires SUPER_ADMIN)
- */
-export async function deleteWorkspace(id: string, authToken: string, force: boolean = false): Promise<void> {
-  const sdk = createSdkClient(authToken);
-  return sdk.workspaces.delete(id, force);
-}
-
-/**
- * Get a single workspace by ID
- */
-export async function getWorkspace(id: string, authToken: string): Promise<Workspace> {
-  const sdk = createSdkClient(authToken);
-  return sdk.workspaces.get(id);
-}
-
-/**
- * Set the active workspace by slug
- */
-export async function setActiveWorkspace(slug: string, authToken: string): Promise<Workspace> {
-  const sdk = createSdkClient(authToken);
-  return sdk.workspaces.setActive(slug);
-}
-
-// Type re-exports for backward compatibility
-export type WorkspaceRead = Workspace;
 export type { WorkspaceCreate, WorkspaceUpdate };

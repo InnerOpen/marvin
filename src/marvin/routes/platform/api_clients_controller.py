@@ -4,11 +4,13 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Path, status
 from sqlalchemy.orm import Session
 
 from marvin.db.db_setup import generate_session
+from marvin.db.models.groups import Groups
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import require_workspace_admin
 from marvin.schemas.platform import APIClientCreate, APIClientRead, APIClientUpdate, APIClientWithToken
-from marvin.schemas.publishing import SiteConfiguration, WorkspaceInfo, WorkspaceSiteInfo
+from marvin.schemas.publishing import WorkspaceSiteInfo
 from marvin.services.event_bus_service.event_types import EventAPIClientData, EventOperation, EventTypes
+from marvin.services.publish_site import build_site_info
 
 router = APIRouter(prefix="/api-clients")
 
@@ -320,38 +322,8 @@ class APIClientsController(BaseUserController):
         if not api_client:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API client not found.")
 
-        # Get the workspace for this API client
-        from marvin.db.models.groups import GroupPreferencesModel, Groups
-
         group = session.query(Groups).filter(Groups.id == api_client.group_id).first()
         if not group:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found for this API client.")
 
-        # Get group preferences (includes site configuration)
-        prefs = session.query(GroupPreferencesModel).filter(GroupPreferencesModel.group_id == group.id).first()
-
-        # Build site configuration from preferences (with sensible defaults)
-        site_config = SiteConfiguration(
-            title=prefs.site_title if prefs and prefs.site_title else group.name,
-            tagline=prefs.site_tagline if prefs else None,
-            description=prefs.site_description if prefs else None,
-            canonical_url=prefs.site_canonical_url if prefs else None,
-            logo=prefs.site_logo if prefs else None,
-            favicon=prefs.site_favicon if prefs else None,
-            locale=prefs.site_locale if prefs and prefs.site_locale else "en-US",
-            timezone=prefs.site_timezone if prefs and prefs.site_timezone else "America/New_York",
-            contact_email=prefs.site_contact_email if prefs else None,
-            social=prefs.site_social_json if prefs else None,
-            metadata=prefs.site_metadata_json if prefs else None,
-        )
-
-        # Build workspace info
-        workspace_info = WorkspaceInfo(
-            slug=group.slug,
-            name=group.name,
-        )
-
-        return WorkspaceSiteInfo(
-            workspace=workspace_info,
-            site=site_config,
-        )
+        return build_site_info(session, group)

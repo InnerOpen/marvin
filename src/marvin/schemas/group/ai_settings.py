@@ -1,8 +1,9 @@
 """Pydantic schemas for per-workspace AI workflow policy settings."""
 
 from datetime import date, datetime
+from typing import Literal
 
-from pydantic import UUID4, ConfigDict
+from pydantic import UUID4, ConfigDict, Field, field_validator
 
 from marvin.schemas._marvin import _MarvinModel
 
@@ -18,11 +19,59 @@ class BubbleLines(_MarvinModel):
     emotes: list[str] = []
 
 
+# The Social Battery (a mood meter per character; Brain: "Marvin Agent Social Battery"). Only its settings
+# exist so far: stored on a library pack, a workspace and an agent, carried by pack downloads, and read by
+# nothing — the meter, when it's built, reads exactly these.
+MOOD_MAX_LINES = 20
+MOOD_MAX_CHARS = 200
+
+
+class MoodBandLines(_MarvinModel):
+    """What the bubble says in one mood band, in place of its usual greetings and taglines."""
+
+    greetings: list[str] = []
+    taglines: list[str] = []
+
+    @field_validator("greetings", "taglines")
+    @classmethod
+    def _tidy(cls, v: list[str]) -> list[str]:
+        kept = [" ".join(line.split()) for line in v if isinstance(line, str) and line.strip()]
+        if len(kept) > MOOD_MAX_LINES:
+            raise ValueError(f"at most {MOOD_MAX_LINES} lines per mood band")
+        if any(len(line) > MOOD_MAX_CHARS for line in kept):
+            raise ValueError(f"a mood line is at most {MOOD_MAX_CHARS} characters")
+        return kept
+
+
+class MoodSettings(_MarvinModel):
+    """How a character's mood meter works — each choice null until it's made. Not active yet."""
+
+    # What drains it: any use at all (Marvin's social battery), or only how it's treated (Ada's trust).
+    drains: Literal["use", "treatment"] | None = None
+    # Whether the person sees the meter, or only notices it through how the character behaves.
+    meter: Literal["visible", "hidden"] | None = None
+    # How long it remembers: it starts fresh each day, or builds over weeks.
+    memory: Literal["daily", "weeks"] | None = None
+    # After a long absence: it recharges ("You left. It was peaceful."), cools ("Well, look who remembered
+    # me.") or neither.
+    absence: Literal["recharges", "cools", "neutral"] | None = None
+    low: MoodBandLines | None = None
+    high: MoodBandLines | None = None
+
+    def stored(self) -> dict | None:
+        """As a JSON column keeps it: only what's set; None when nothing is."""
+        value = self.model_dump(exclude_none=True)
+        for band in ("low", "high"):
+            if band in value and not any(value[band].values()):
+                del value[band]
+        return value or None
+
+
 class BubbleLinesState(_MarvinModel):
     """The bubble lines as AI settings → Persona shows them."""
 
     bubble_lines: BubbleLines | None = None
-    bubble_lines_source: str | None = None  # "generated" | "edited"; None = the built-in lines
+    bubble_lines_source: str | None = None  # "generated" | "character" | "edited"; None = the built-in lines
     bubble_lines_updated_at: datetime | None = None
     bubble_lines_warning: str | None = None  # why the last generation failed (the previous lines were kept)
     bubble_lines_generating: bool = False
@@ -60,6 +109,8 @@ class WorkspaceAISettingsCreate(_MarvinModel):
     # Default tone for agent runs (axis B, separate from persona) — a tone slug, built-in ("auto" |
     # "professional" | "playful") or the workspace's own (GET /groups/ai-settings/tones). A per-call tone wins.
     default_register: str = "auto"
+    # The Social Battery's settings for the workspace's own assistant (not active yet).
+    mood: MoodSettings | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -86,26 +137,50 @@ class WorkspaceAISettingsUpdate(_MarvinModel):
     assistant_character: dict | None = None
     persona_prompt: str | None = None
     default_register: str | None = None
+    mood: MoodSettings | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+def _app_setting(name: str, fallback: int) -> int:
+    from marvin.core.config import get_app_settings
+
+    return int(getattr(get_app_settings(), name, fallback))
 
 
 class WorkspaceAISettingsRead(BubbleLinesState, WorkspaceAISettingsCreate):
     # Bubble lines (from BubbleLinesState) are read-only here: they're set through /bubble-lines.
     id: UUID4 | None = None
     group_id: UUID4 | None = None
+    agent_steps_default: int = Field(default_factory=lambda: _app_setting("AI_AGENT_MAX_STEPS", 6))
+    """The platform's steps per agent question when the workspace sets none (AI_AGENT_MAX_STEPS)."""
+    agent_steps_cap: int = Field(default_factory=lambda: _app_setting("AI_AGENT_MAX_STEPS_CAP", 12))
+    """The most steps a workspace may give its agents (AI_AGENT_MAX_STEPS_CAP); a higher value is trimmed to it."""
     # Read-only platform policy (from AppSettings), surfaced so the UI can gate the
     # "workspace" credential option. Not persisted on the workspace row.
     allow_workspace_credentials: bool = True
     # {agent slug: states} for agents with a bubble character of their own, so the bubble can swap on
     # `/use` and during hand-offs without another request. Not persisted on the workspace row.
     agent_characters: dict[str, dict[str, str]] = {}
+    # {agent slug: {name, bubble_lines}} for agents with a voice of their own (a Character or lines), so the
+    # bubble swaps its name and lines with the character. Not persisted on the workspace row.
+    agent_voices: dict[str, "AgentVoice"] = {}
     # {image URL: {top, right, bottom, left}}: the empty frame around each character image's drawing, as shares of
     # the frame, for the workspace's and its agents' characters — a tucked bubble lines up the drawing, not the
     # frame, with the screen edge. An image missing here was stored before it was measured.
     character_insets: dict[str, dict[str, float]] = {}
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AgentVoice(_MarvinModel):
+    """An agent's name and bubble lines, as the bubble shows them while it talks."""
+
+    name: str
+    bubble_lines: BubbleLines | None = None  # None → the workspace's lines
+
+
+WorkspaceAISettingsRead.model_rebuild()
 
 
 class ToneItem(_MarvinModel):
@@ -256,6 +331,33 @@ class AssistantCharacterLibraryChoice(_MarvinModel):
     pack: str  # a library pack's id or slug
 
 
+PERSONA_PROMPT_MAX_CHARS = 8000
+PACK_ICON_MAX_CHARS = 16
+
+
+class CharacterPackPersona(_MarvinModel):
+    """Who a library character is — its character sheet. Picking the pack copies it into the workspace's (or
+    the agent's) own fields, which are then theirs to edit; see services/ai/character_library.py."""
+
+    assistant_name: str | None = Field(default=None, max_length=120)  # unset → the pack's name
+    persona_prompt: str | None = Field(default=None, max_length=PERSONA_PROMPT_MAX_CHARS)  # the Character
+    bubble_lines: BubbleLines | None = None
+    # A built-in tone only ("auto" | "professional" | "playful"): custom tones belong to one workspace.
+    default_register: str | None = None
+    icon: str | None = Field(default=None, max_length=PACK_ICON_MAX_CHARS)  # an emoji, where no animation shows
+    mood: MoodSettings | None = None  # not active yet
+
+    @field_validator("default_register")
+    @classmethod
+    def _builtin_tone(cls, v: str | None) -> str | None:
+        from marvin.services.ai.tones import BUILTIN_SLUGS
+
+        v = (v or "").strip().lower() or None
+        if v is not None and v not in BUILTIN_SLUGS:
+            raise ValueError(f"a character's tone is one of {', '.join(BUILTIN_SLUGS)}")
+        return v
+
+
 class CharacterPackSummary(_MarvinModel):
     """A library pack as a workspace member sees it, to choose from."""
 
@@ -264,6 +366,7 @@ class CharacterPackSummary(_MarvinModel):
     name: str
     states: dict[str, str]
     missing: list[str] = []
+    persona: CharacterPackPersona | None = None  # None: animations only, nothing to copy
 
 
 class AssistantCharacterState(_MarvinModel):

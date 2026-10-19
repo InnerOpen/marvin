@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from marvin.core.root_logger import get_logger
 from marvin.db.db_setup import session_context
 from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
+from marvin.db.size import sqlite_file_bytes
 from marvin.repos.repository_factory import AllRepositories
 from marvin.services.event_bus_service.event_bus_service import EventBusService
 
@@ -479,11 +480,14 @@ class PruneRevokedTokensHandler(ScheduledTaskHandler):
         with session_context() as session:
             tokens = session.query(LongLiveToken).filter(LongLiveToken.revoked_at <= cutoff).delete(synchronize_session=False)
             clients = session.query(APIClients).filter(APIClients.revoked_at <= cutoff).delete(synchronize_session=False)
+            resets = _delete_expired_reset_tokens(session)
             session.commit()
 
-        if not tokens and not clients:
+        if not tokens and not clients and not resets:
             return None  # the usual daily answer; not worth a row
         summary = f"Deleted {tokens} revoked API token(s) and {clients} revoked site client(s) (revoked over {age_days} days ago)"
+        if resets:
+            summary += f", and {resets} expired password-reset link(s)"
         logger.info("Revoked token prune: %s", summary)
         return summary
 
@@ -513,11 +517,18 @@ class OptimizeDatabaseHandler(ScheduledTaskHandler):
         is_postgres = engine.dialect.name == "postgresql"
         size_sql = text("SELECT pg_database_size(current_database())")
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            before = conn.execute(size_sql).scalar() if is_postgres else None
-            conn.execute(text("VACUUM (ANALYZE)" if is_postgres else "VACUUM"))
-            if not is_postgres:
+            if is_postgres:
+                before = conn.execute(size_sql).scalar()
+                conn.execute(text("VACUUM (ANALYZE)"))
+                after = conn.execute(size_sql).scalar()
+            else:
+                before = sqlite_file_bytes(engine.url.database)
+                conn.execute(text("VACUUM"))
                 conn.execute(text("ANALYZE"))
-            after = conn.execute(size_sql).scalar() if is_postgres else None
+                # VACUUM rewrote the file through the write-ahead log: fold the log back in so the file is the size
+                # it will stay and the -wal does not keep the space the VACUUM meant to give back.
+                conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+                after = sqlite_file_bytes(engine.url.database)
 
         summary = "VACUUM + ANALYZE completed"
         if before is not None and after is not None:
@@ -527,13 +538,95 @@ class OptimizeDatabaseHandler(ScheduledTaskHandler):
 
 
 # Register handlers
+class PruneWorkflowRunsHandler(ScheduledTaskHandler):
+    """
+    Delete finished workflow runs older than the retention window, with their steps (platform-wide).
+
+    A run that is still running or waiting (on an approval or a wait) is never touched, whatever its age: its
+    resume needs it. Rows that point at a run (waits, approvals, integration retries) keep theirs as null. The same
+    pass drops the idempotency keys (webhook / integration steps) whose window has ended.
+
+    Configuration (task_config):
+    - retention_days: int - Delete runs that finished longer ago than this. Defaults to the
+      WORKFLOW_RUN_RETENTION_DAYS app setting. A value <= 0 disables pruning (keep forever).
+    """
+
+    name = "Prune Workflow Runs"
+    description = "Delete finished workflow runs (and their steps) older than the retention window (admin only)"
+    admin_only = True
+    config_schema = {
+        "type": "object",
+        "properties": {
+            "retention_days": {
+                "type": "integer",
+                "description": "Delete runs finished longer ago than this many days (<=0 disables). Defaults to WORKFLOW_RUN_RETENTION_DAYS.",
+            },
+        },
+    }
+
+    def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
+        if task.group_id:
+            return "Skipped: prune_workflow_runs is admin-only and cannot run in a workspace context"
+
+        from marvin.core.config import get_app_settings
+
+        # Idempotency keys whose window has ended go too, whatever the run retention is: a duplicate no longer finds them.
+        from marvin.services.automation.idempotency import purge_expired
+
+        with session_context() as session:
+            keys = purge_expired(session)
+            session.commit()
+        default_days = getattr(get_app_settings(), "WORKFLOW_RUN_RETENTION_DAYS", 90)
+        retention_days = task.task_config.get("retention_days", default_days)
+        if retention_days is None or retention_days <= 0:
+            return "Skipped: workflow run retention disabled (retention_days <= 0)"
+
+        with session_context() as session:
+            deleted = prune_workflow_runs(session, retention_days)
+            session.commit()
+        if not deleted and not keys:
+            return None  # the usual daily answer once caught up; not worth a row
+        summary = f"Deleted {deleted} finished workflow run{'s' if deleted != 1 else ''} older than {retention_days} days"
+        if keys:
+            summary += f" and {keys} expired idempotency key{'s' if keys != 1 else ''}"
+        logger.info("Workflow run prune: %s", summary)
+        return summary
+
+
+# A run in one of these may still be resumed; it is never pruned.
+_LIVE_RUN_STATUSES = ("running", "waiting")
+
+
+def prune_workflow_runs(session, retention_days: int) -> int:
+    """Delete finished runs that finished (or, without a finish time, started) more than ``retention_days`` ago. Their
+    steps go by the foreign key's cascade; references from waits, approvals and retries become null."""
+    import sqlalchemy as sa
+
+    from marvin.db.models.groups.automation_executions import AutomationExecutionModel as Run
+
+    cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+    ended = sa.func.coalesce(Run.finished_at, Run.started_at)
+    return session.query(Run).filter(Run.status.not_in(_LIVE_RUN_STATUSES), ended.isnot(None), ended < cutoff).delete(synchronize_session=False)
+
+
 TaskHandlerRegistry.register("cleanup_temp_files", CleanupTempFilesHandler)
 TaskHandlerRegistry.register("prune_expired_sessions", PruneExpiredSessionsHandler)
 TaskHandlerRegistry.register("prune_expired_invitations", PruneExpiredInvitationsHandler)
 TaskHandlerRegistry.register("remove_orphaned_assets", RemoveOrphanedAssetsHandler)
 TaskHandlerRegistry.register("prune_event_logs", PruneEventLogsHandler)
 TaskHandlerRegistry.register("prune_ai_executions", PruneAIExecutionsHandler)
+TaskHandlerRegistry.register("prune_workflow_runs", PruneWorkflowRunsHandler)
 TaskHandlerRegistry.register("prune_scheduled_task_executions", PruneScheduledTaskExecutionsHandler)
 TaskHandlerRegistry.register("resync_smart_collections", ResyncSmartCollectionsHandler)
 TaskHandlerRegistry.register("prune_revoked_tokens", PruneRevokedTokensHandler)
 TaskHandlerRegistry.register("optimize_database", OptimizeDatabaseHandler)
+
+
+def _delete_expired_reset_tokens(session) -> int:
+    """Password-reset links past SECURITY_PASSWORD_RESET_TOKEN_MINUTES (they are refused anyway; this keeps the table empty)."""
+    from marvin.db.models.users import PasswordResetModel
+    from marvin.services.platform_policy import security
+
+    minutes = max(1, security("SECURITY_PASSWORD_RESET_TOKEN_MINUTES"))
+    cutoff = (datetime.now(UTC) - timedelta(minutes=minutes)).replace(tzinfo=None)  # created_at is naive UTC
+    return session.query(PasswordResetModel).filter(PasswordResetModel.created_at <= cutoff).delete(synchronize_session=False)

@@ -72,11 +72,6 @@ def entry(recipe_id: str) -> dict:
     raise UnknownRecipe(recipe_id)
 
 
-def workflow_recipe_ids() -> list[str]:
-    """The recipes that are workflows with a definition file (not configuration-only, not ideas)."""
-    return [r["id"] for r in catalogue()["recipes"] if r["shape"] == "workflow"]
-
-
 def load_recipe(recipe_id: str) -> dict:
     """The recipe's whole workflow document ``{name, definition}``, placeholders included."""
     if recipe_id in (plugins := plugin_recipes()):
@@ -115,7 +110,8 @@ def instantiate(recipe_id: str, values: dict[str, Any]) -> dict:
 
 def missing_prerequisites(item: dict, refs: WorkspaceRefs) -> list[str]:
     """Why this workspace can't run the recipe as it stands: a provider it needs that isn't connected (and
-    enabled), an AI operation it can't run here, a job not on the allowlist. Empty: it is offered."""
+    enabled), a custom event it hasn't registered, an AI operation it can't run here, a job not on the allowlist.
+    Empty: it is offered."""
     reasons: list[str] = []
     connected = {i["provider"] for i in refs.integrations if i.get("enabled")}
     able = {c for i in refs.integrations if i.get("enabled") for c in (i.get("capabilities") or [])}
@@ -126,6 +122,14 @@ def missing_prerequisites(item: dict, refs: WorkspaceRefs) -> list[str]:
                 reasons.append(f"needs a connected integration that can {need['capability']} ({need.get('examples') or 'Slack or Apprise'})")
         elif need["provider"] not in connected:
             reasons.append(f"needs a connected {need['provider']} integration")
+    registered = {e["event_type"]: e["fields"] for e in refs.custom_events}
+    for need in (item.get("prerequisites") or {}).get("custom_events") or []:
+        # A workspace's own event the recipe starts on or sends: registered, with the fields the recipe reads.
+        have = registered.get(need["event_type"])
+        if have is None:
+            reasons.append(f"needs the custom event {need['event_type']} (Settings → Automation → Custom events)")
+        elif missing := [f for f in need.get("fields") or [] if f not in have]:
+            reasons.append(f"needs the custom event {need['event_type']} to carry the field(s) {', '.join(missing)}")
     requires = item.get("requires") or {}
     for op in requires.get("operations") or []:
         if refs.operations is None:

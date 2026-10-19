@@ -424,9 +424,8 @@ def _describe(op: str, args: dict) -> str:
 def _storage(session, group_id):
     from marvin.repos.all_repositories import get_repositories
     from marvin.services.assets.asset_storage_service import AssetStorageService
-    from marvin.services.storage.provider_factory import get_storage_provider
 
-    return AssetStorageService(get_repositories(session, group_id=group_id), get_storage_provider())
+    return AssetStorageService.for_workspace(get_repositories(session, group_id=group_id))
 
 
 def asset_ref(row) -> dict:
@@ -783,7 +782,7 @@ def log_vision_call(session, group_id, handler, src, output: dict, usage, starte
     """A media step's vision call in AI Executions, costed against the monthly budget like any workflow AI call."""
     from marvin.db.models.groups.ai_executions import AIExecutionModel
     from marvin.services.ai import budget
-    from marvin.services.ai.pricing import estimate_cost
+    from marvin.services.ai.pricing import cost_of
 
     from ..runner import AUTOMATION_SOURCE
 
@@ -807,7 +806,9 @@ def log_vision_call(session, group_id, handler, src, output: dict, usage, starte
         prompt_tokens=prompt,
         completion_tokens=completion,
         total_tokens=usage.total_tokens or prompt + completion,
-        estimated_cost_usd=estimate_cost(provider_type, handler.model, prompt, completion),
+        cached_prompt_tokens=getattr(usage, "cached_prompt_tokens", 0) or 0,
+        cache_write_tokens=getattr(usage, "cache_write_tokens", 0) or 0,
+        estimated_cost_usd=cost_of(provider_type, handler.model, usage),
     )
     session.add(row)
     session.commit()

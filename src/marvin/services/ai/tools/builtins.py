@@ -160,6 +160,7 @@ def _resolve_collection(ctx: ToolContext, ident: str):
 
 @register_tool(
     name="search_content",
+    uses_ai=True,
     description="Semantic search over workspace content (entries, resources, and assets). Returns the most relevant snippets with their entity ids/titles, and (for entry hits) lean image refs so results can show thumbnails. The index gives relevance + ids; call get_entry for the full record. Use this to ground answers.",  # noqa: E501
     input_schema={"type": "object", "properties": {"query": {"type": "string", "description": "what to search for"}}, "required": ["query"]},
 )
@@ -169,20 +170,18 @@ def search_content(ctx: ToolContext, args: dict) -> str:
     query = str(args.get("query") or "").strip()
     if not query:
         return json.dumps({"error": "query is required"})
-    if ctx.provider is None:
-        return json.dumps({"error": "semantic search unavailable (no AI provider configured)"})
     from marvin.core.config import get_app_settings
     from marvin.services.ai.context import ContextBuilder
-    from marvin.services.ai.embeddings import default_embedding_model
+    from marvin.services.ai.embeddings import embedder_for
     from marvin.services.ai.embeddings_registry import indexable_types
 
-    emb_model = default_embedding_model(ctx.provider.provider_type)
+    embedder, emb_model = embedder_for(ctx.provider)  # Marvin's built-in model: no AI provider needed
     if not emb_model:
         return json.dumps({"error": "semantic search unavailable (no embedding model configured)"})
     top_k = getattr(get_app_settings(), "AI_RAG_TOP_K", 5)
     built = (
         ContextBuilder(ctx.session, ctx.group_id)
-        .with_semantic_search(query, ctx.provider, emb_model, limit=top_k, entity_types=indexable_types())
+        .with_semantic_search(query, embedder, emb_model, limit=top_k, entity_types=indexable_types())
         .build()
     )
     retrieved = built.retrieved or []
@@ -237,7 +236,9 @@ def search_content(ctx: ToolContext, args: dict) -> str:
         r["assets"] = images_by_entry.get(r["entityId"], []) if r["entityType"] == "entry" else []
         if r["entityType"] == "entry":
             r.update(urls_by_entry.get(r["entityId"], {}))
-    return json.dumps({"results": results, "count": len(results)})
+    # Said here, not only in the description: Ask kept searching again for the rest of an entry instead of opening it.
+    note = "Each result is a snippet (at most 400 characters). For the full text, call get_entry (or get_asset / get_resource) with its entityId."
+    return json.dumps({"results": results, "count": len(results), "note": note})
 
 
 # Rows stay lean, so a larger page is affordable — enough to compare a field across a whole type in
@@ -262,8 +263,8 @@ from marvin.services.entries.query import WHERE_OPS  # noqa: E402 — the tool s
         "asc|desc} (fields sort numerically when number-like; position = the one collection's own order). group_by = a field "
         "key (or publish_status / entry_type) → counts per value over the whole match. "
         "include_fields / include_metadata = keys whose values to put on each row, so you can compare many entries in one "
-        "call instead of get_entry on each. Returns `count` (true total), `returned`, rows (default 10, max 200; use offset "
-        "to page) and `groups` when grouped. Use `count` to answer 'how many'. A row's `url`, when present, is the entry's "
+        "call instead of get_entry on each. Returns `count` (true total), `returned`, rows with updatedAt / publishedAt (default 10, max 200; "
+        "use offset to page) and `groups` when grouped. Use `count` to answer 'how many'. A row's `url`, when present, is the entry's "
         "page on the workspace's site — use it to link the entry."
     ),
     input_schema={
@@ -368,6 +369,9 @@ def find_entries(ctx: ToolContext, args: dict) -> str:
             "status": e.status,
             "entryType": e.entry_type.slug if e.entry_type else None,
             **_url_field(e, site_url),
+            # The dates a list is sorted and asked about by ("most recently updated", "published last week").
+            "updatedAt": e.update_at.isoformat() if e.update_at else None,
+            "publishedAt": e.published_at.isoformat() if e.published_at else None,
             "assets": assets_by_entry.get(e.id, []),
             "resources": resources_by_entry.get(e.id, []),
             "tags": tags_by_entry.get(e.id, []),

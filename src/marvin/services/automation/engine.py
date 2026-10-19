@@ -10,15 +10,16 @@ Actions dispatch through the action-executor registry (`actions.run_action`) —
 the engine is unit-testable without real executors.
 """
 
+import uuid
 from collections.abc import Callable
 from contextlib import contextmanager
-from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from time import monotonic, sleep
 from typing import Any
 from uuid import uuid4
 
-from marvin.services.event_bus_service.correlation import correlation_scope, current_correlation_id
+from marvin.services.event_bus_service.correlation import correlation_scope, current_correlation_id, workflows_running
 
 from .actions import AutomationActionError, IntegrationStepError
 from .actions import run_action as _registry_run_action
@@ -29,6 +30,37 @@ from .recorder import CollectingRecorder, NullRecorder
 from .summary import collapse, failed_step, handlings, run_handled, run_message, step_summary, trigger_ref
 
 MAX_ACTIONS = 10  # per-automation guardrail against a runaway pipeline
+MAX_ACTIONS_CAP = 25  # the most a workspace may raise it to (Settings → General → Workflows)
+DEFAULT_APPROVAL_HOURS = 72
+
+
+def _prefs_value(session, group_id, column: str):
+    from marvin.db.models.groups.preferences import GroupPreferencesModel
+
+    if session is None or group_id is None:
+        return None
+    return session.query(getattr(GroupPreferencesModel, column)).filter(GroupPreferencesModel.group_id == group_id).scalar()
+
+
+def _whole(value) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def workflow_max_steps(session, group_id) -> int:
+    """Steps a workflow runs before it stops in this workspace: its own setting (clamped to 1-25), else MAX_ACTIONS."""
+    value = _whole(_prefs_value(session, group_id, "workflow_max_steps"))
+    return max(1, min(value, MAX_ACTIONS_CAP)) if value else MAX_ACTIONS
+
+
+def approval_default_hours(session, group_id) -> int:
+    """Hours an approval waits when its step sets none: the workspace's setting (clamped to 1-720), else 72."""
+    value = _whole(_prefs_value(session, group_id, "approval_expires_hours"))
+    return max(1, min(value, 720)) if value else DEFAULT_APPROVAL_HOURS
+
+
 MAX_REACTION_DEPTH = 3  # how many automation/emit_event hops a single chain may span before we stop
 
 # The automations whose runs are on the current call stack: one reaction chain. What a run does — an
@@ -36,11 +68,26 @@ MAX_REACTION_DEPTH = 3  # how many automation/emit_event hops a single chain may
 # it, so an automation that finds its own id here would be reacting to its own work (or to a reaction
 # to it): it sits that event out. Other automations react as usual, and a later, independent event
 # (dispatched outside the run) triggers it again.
-_running: ContextVar[frozenset[str]] = ContextVar("automations_running", default=frozenset())
+_running = workflows_running
 
 
 def _run_key(automation) -> str:
     return str(getattr(automation, "id", None) or getattr(automation, "slug", ""))
+
+
+def _own_chain_workflows(event_ctx) -> set[str]:
+    """The workflows an operational event (a failed webhook delivery, a budget crossing, a connection needing
+    attention, a failed scheduled task) must not wake because their own work caused it. Normally that is the `_running`
+    guard: what a run does is dispatched inside it. This covers the cause that runs after the run — a webhook
+    delivery of an event the workflow sent — whose failure is announced with the workflows that sent that event
+    (`caused_by_workflows`, read when it was dispatched). The event says who caused it; nothing is looked up, so the
+    answer can't depend on which run has been recorded yet, or on which other workflows happened to run first in the
+    chain. A failure nobody's workflow caused names none and wakes every workflow that answers it."""
+    from marvin.services.events.event_catalog import OPERATIONAL_EVENT_TYPES
+
+    if event_ctx.get("event_type") not in OPERATIONAL_EVENT_TYPES:
+        return set()
+    return {str(key) for key in event_ctx.get("caused_by_workflows") or ()}
 
 
 @contextmanager
@@ -92,16 +139,14 @@ def _entry_turn(session, automation, entry_id, *, dry_run: bool = False, logger=
     if dry_run or automation_id is None or not entry_id:
         yield False
         return
-    import time
-
     holder = uuid4().hex
-    deadline = time.monotonic() + TURN_WAIT_SECONDS
+    deadline = monotonic() + TURN_WAIT_SECONDS
     waited = False
     try:
         held = _take_turn(session, automation_id, entry_id, holder)
-        while not held and time.monotonic() < deadline:
+        while not held and monotonic() < deadline:
             waited = True
-            time.sleep(TURN_POLL_SECONDS)
+            sleep(TURN_POLL_SECONDS)  # looked up here, so a test can stand in for the wait without touching time.sleep
             held = _take_turn(session, automation_id, entry_id, holder)
     except Exception as e:  # noqa: BLE001 — the turn guards against a race; it never stops a run
         rollback = getattr(session, "rollback", None)
@@ -245,7 +290,31 @@ def _item_contexts(session, group_id, event_ctx: dict) -> dict:
     for kind in ("asset", "resource"):
         if event_ctx.get(f"{kind}_id") and (ctx := _item_context(session, group_id, kind, event_ctx[f"{kind}_id"])):
             out[kind] = ctx
+    if event_ctx.get("entity_type") == "member" and event_ctx.get("entity_id") and (ctx := _member_context(session, event_ctx)):
+        out["member"] = ctx
+    if submission := _form_submission_context(session, group_id, event_ctx):
+        out["form_submission"] = submission
     return out
+
+
+def _member_context(session, event_ctx: dict) -> dict | None:
+    """`member` for a member event: the person it is about (its subject — not the admin who added them, who is the
+    event's user_id): id, username, name, email, and the role the event names."""
+    from marvin.db.models.users.users import Users
+
+    try:
+        user = session.get(Users, uuid.UUID(str(event_ctx["entity_id"])))
+    except ValueError:
+        return None
+    if user is None:
+        return None
+    return {
+        "id": str(user.id),
+        "username": user.username,
+        "name": user.full_name or user.username,
+        "email": user.email,
+        "role": event_ctx.get("role"),
+    }
 
 
 def _featured_image_url(entry) -> str | None:
@@ -275,16 +344,20 @@ def _featured_image_url(entry) -> str | None:
 
 def _site_context(session, group_id) -> dict:
     """The workspace's site, so a step can hand it on: `${site.url}` is the Canonical URL (None when unset)
-    — e.g. the base a newsletter integration makes an issue's relative links absolute against."""
+    — e.g. the base a newsletter integration makes an issue's relative links absolute against. `${site.app_url}` is
+    where the admin app lives (the configured FRONTEND_URL; None while it is the development default), for an email's
+    "open the workspace" link."""
     from marvin.services.entry_urls import site_base_url
+    from marvin.services.ui_links import ui_base_url
 
-    return {"url": site_base_url(session, group_id)}
+    return {"url": site_base_url(session, group_id), "app_url": ui_base_url()}
 
 
 # What a template (`${…}`) can read in a run, by namespace — the workflow authoring guide lists these
 # (services/automation/authoring.py); test_workflow_authoring checks them against the contexts built here.
 TEMPLATE_NAMESPACES: dict[str, str] = {
-    "each": "in a repeat: the item's index (from 0), number, count",
+    "each": "in a repeat: index (from 0), number, count",
+    "member": "a member event's person: id, username, name, email, role",
     "input": "a manual run's inputs, by name (the trigger's `inputs`: what the Run form, the API or run_workflow passed)",
     "event": (
         "the triggering event: event_type, entry_id, entity_type, entity_id, payload.<key> (an incoming webhook's body), "
@@ -299,9 +372,11 @@ TEMPLATE_NAMESPACES: dict[str, str] = {
     "derived_from (the id of the asset it was made from; None for an original), origin (upload | derived | generated)",
     "resource": "the resource the run acts on (a resource event's, or each resource-target match): id, name, slug, resource_type, "
     "description, url, external_id, tags, metadata.<key>, trashed",
+    "form_submission": "a form submission event's (or a submittable entry's) submission: id, form (its name), form_slug, "
+    "data.<field>, status, submitted_at, flagged (held for review by submission protection), review_reasons",
     "previous": "the previous step's output",
     "steps": "steps.<id>.output.<key>: an earlier step's output, by its `id` (or its position, from 0)",
-    "site": "site.url: the workspace's Canonical URL",
+    "site": "site.url: the workspace's Canonical URL; site.app_url: where the admin app is (for a link in an email)",
     "error": "on_failure steps only: error.message, error.code, error.step, error.kind, error.at",
 }
 
@@ -320,6 +395,23 @@ def match_context(session, group_id, event_ctx: dict) -> dict:
             context["entry"] = entry_ctx
     context.update(_item_contexts(session, group_id, event_ctx))
     return context
+
+
+def _form_submission_context(session, group_id, event_ctx: dict) -> dict | None:
+    """`form_submission` for a run on a submission: a form_submission_received event's (its `submission_id`: the entry
+    the public form made, or a legacy Forms row), or any run on an entry of a submittable type — read as it is now,
+    like `entry`. It is also what an operation step (classify-form-submission) is handed."""
+    from marvin.services import form_submissions
+
+    if event_ctx.get("event_type") == "form_submission_received" and event_ctx.get("submission_id"):
+        return form_submissions.load(session, group_id, event_ctx["submission_id"])
+    if event_ctx.get("entry_id"):  # an entry of a submittable type is a submission, whatever event woke the run
+        from marvin.db.models.platform.entries import Entries
+
+        entry = session.get(Entries, event_ctx["entry_id"])
+        if entry is not None and entry.group_id == group_id:
+            return form_submissions.from_entry(entry)
+    return None
 
 
 def run_automations_for_event(
@@ -357,6 +449,7 @@ def run_automations_for_event(
             # an old name a row still holds (stored before the alias migration) counts as the event
             WorkspaceAutomationModel.trigger_event.in_([event_type, *aliases_of(event_type)]),
         )
+        .order_by(WorkspaceAutomationModel.created_at, WorkspaceAutomationModel.id)  # the same order every time
         .all()
         if event_type
         else []
@@ -371,7 +464,7 @@ def run_automations_for_event(
     ran = 0
     # Open the triggering event's chain (or mint one) so every automation that reacts, and everything
     # they re-emit, threads under one correlation id.
-    running = _running.get()
+    running = _running.get() | _own_chain_workflows(event_ctx)
     with correlation_scope(event_ctx.get("correlation_id")):
         for automation in automations:
             if _run_key(automation) in running:
@@ -704,6 +797,7 @@ class _StepRunner:
             "index": action_index,
             "target": self.target_index,
             "on_failure": on_failure,
+            "automation_id": getattr(self.automation, "id", None),
             "workflow_slug": getattr(self.automation, "slug", None),
             "workflow_name": getattr(self.automation, "name", None),
             "author_id": getattr(self.automation, "created_by", None),
@@ -877,9 +971,10 @@ def _run_pipeline(
     """
     recorder = recorder or NullRecorder()
     defn = automation.definition or {}
-    actions = (defn.get("actions") or [])[:MAX_ACTIONS]
-    if logger and len(defn.get("actions") or []) > MAX_ACTIONS:
-        logger.warning("automation '%s' has %d steps; only the first %d run (MAX_ACTIONS)", automation.slug, len(defn["actions"]), MAX_ACTIONS)
+    step_limit = workflow_max_steps(session, group_id)
+    actions = (defn.get("actions") or [])[:step_limit]
+    if logger and len(defn.get("actions") or []) > step_limit:
+        logger.warning("automation '%s' has %d steps; only the first %d run (workflow step limit)", automation.slug, len(defn["actions"]), step_limit)
     # Fresh per-run scratch so pipelines don't leak. `steps` is addressable by position ("0") and by
     # an action's optional `id`; `previous` is the last step's output (an alias for the common case).
     context["previous"] = dict((resume_from or {}).get("previous") or {})
@@ -934,7 +1029,7 @@ def _run_on_failure(step: _StepRunner, handlers: list, error: AutomationActionEr
         "kind": action.get("kind"),
         "at": datetime.now(UTC).isoformat(timespec="seconds"),
     }
-    for offset, handler in enumerate(handlers[:MAX_ACTIONS]):
+    for offset, handler in enumerate(handlers[: workflow_max_steps(step.session, step.group_id)]):
         if step.run(handler, first_index + offset, on_failure=True) is not None:
             return
 
@@ -976,6 +1071,8 @@ def run_automation_now(
     }
     if entry_id and (entry_ctx := _entry_context(session, group_id, entry_id)):
         context["entry"] = entry_ctx
+        if submission := _form_submission_context(session, group_id, context["event"]):
+            context["form_submission"] = submission
     # A dry run captures the resolved plan in memory and persists nothing; a real run uses the caller's
     # recorder (or none).
     dry_recorder = CollectingRecorder() if dry_run else None
@@ -1093,7 +1190,7 @@ def run_retry(
         errors.release_retry(session, row)
         return "waiting"
     defn = automation.definition or {}
-    actions = (defn.get("actions") or [])[:MAX_ACTIONS]
+    actions = (defn.get("actions") or [])[: workflow_max_steps(session, group_id)]
     failed = actions[row.step_index] if row.step_index < len(actions) else {}
     # A step naming a capability (notify) has no action key of its own: the one it ran is the retry's.
     named = failed.get("action") or (row.action if failed.get("capability") else None)
@@ -1204,17 +1301,16 @@ def resume_after_approval(session, row, *, logger=None, run_action: Callable = _
     """Go on with a run that waited at an approval step, now settled (services/automation/approvals.py): rebuild it
     from its snapshot and the entry as it is now, give the step its output (decision, who, note) and run the steps
     after it — a new run pointing back at the one that parked. Conditions aren't checked again: a person decided.
-    Returns the run's status, or ``not resumed`` (the workflow is gone, switched off, or its steps changed)."""
+    Returns the run's status, or ``not resumed`` (the workflow is gone, switched off, or its approval step removed)."""
     from marvin.db.models.groups.automations import WorkspaceAutomationModel
 
     automation = session.get(WorkspaceAutomationModel, row.automation_id)
-    defn = (automation.definition or {}) if automation is not None else {}
-    actions = (defn.get("actions") or [])[:MAX_ACTIONS]
-    step = actions[row.step_index] if row.step_index < len(actions) else {}
-    if automation is None or not automation.enabled or step.get("kind") != "approval":
+    parked = _parked_step(automation, row, "approval")
+    if automation is None or not automation.enabled or parked is None:
         if logger:
-            logger.info("approval %s settled %s; its workflow is gone, off or changed — nothing more runs", row.id, row.status)
+            logger.info("approval %s settled %s; its workflow is gone, off or its step removed — nothing more runs", row.id, row.status)
         return "not resumed"
+    index, step = parked
     from marvin.db.models.users.users import Users
 
     decider = session.get(Users, row.decided_by) if row.decided_by else None
@@ -1226,6 +1322,9 @@ def resume_after_approval(session, row, *, logger=None, run_action: Callable = _
         "note": row.note,
         "approval_id": str(row.id),
     }
+    if row.choices:  # an approval with choices: the one picked (None unless approved)
+        output["choice"] = row.choice
+        output["choice_index"] = row.choices.index(row.choice) if row.choice in row.choices else None
     with _entry_turn(session, automation, row.entry_id, logger=logger):
         # An approved run may call integration actions that require approval (actions/integration.py) — only this one.
         user_id = row.decided_by or (row.snapshot or {}).get("event", {}).get("user_id")
@@ -1240,40 +1339,89 @@ def resume_after_approval(session, row, *, logger=None, run_action: Callable = _
             logger=logger,
             run_action=run_action,
             recorder=recorder,
+            step_index=index,
         )
 
 
 def resume_after_wait(session, row, *, logger=None, run_action: Callable = _registry_run_action, recorder=None) -> str:
     """Go on with a run that waited at a Wait step, its time come (services/automation/waits.py): rebuilt from its
-    snapshot and the entry as it is now, the steps after it run in a new run pointing back at the one that parked. A
-    workflow switched off or changed, or an entry gone to the Trash meanwhile, cancels it instead (``cancelled``)."""
+    snapshot and the entry as it is now, the steps after the Wait step *as the workflow is now* run in a new run
+    pointing back at the one that parked — so an edit made while it waited applies. The step is found by its id (a
+    step added or removed before it doesn't move it). A workflow switched off or its Wait step removed, or an entry
+    gone to the Trash meanwhile, cancels it instead (``cancelled``), and ``automation_failed`` says so."""
     from marvin.db.models.groups.automations import WorkspaceAutomationModel
     from marvin.db.models.platform.entries import Entries
 
     from . import waits
 
     automation = session.get(WorkspaceAutomationModel, row.automation_id)
-    defn = (automation.definition or {}) if automation is not None else {}
-    actions = (defn.get("actions") or [])[:MAX_ACTIONS]
-    step = actions[row.step_index] if row.step_index < len(actions) else {}
-    if automation is None or not automation.enabled or step.get("kind") != "wait":
-        waits.cancel(session, row, "the workflow was switched off or its steps changed while it waited")
+    parked = _parked_step(automation, row, "wait")
+    why = None
+    if automation is None or not automation.enabled:
+        why = "the workflow was switched off while it waited"
+    elif parked is None:
+        why = "its Wait step was removed from the workflow while it waited"
+    else:
+        entry = session.get(Entries, row.entry_id) if row.entry_id else None
+        if row.entry_id and (entry is None or entry.status == "trashed"):
+            why = "its entry was deleted or moved to the Trash while it waited"
+    if why:
+        waits.cancel(session, row, why)
+        _announce_cancelled(session, row, automation, why)
         return "cancelled"
-    entry = session.get(Entries, row.entry_id) if row.entry_id else None
-    if row.entry_id and (entry is None or entry.status == "trashed"):
-        waits.cancel(session, row, "its entry was deleted or moved to the Trash while it waited")
-        return "cancelled"
+    index, step = parked
     output = {"waited_until": row.resume_at.isoformat(), "resumed_at": waits.now().isoformat(), "wait_id": str(row.id)}
     with _entry_turn(session, automation, row.entry_id, logger=logger):
         user_id = (row.snapshot or {}).get("event", {}).get("user_id")
         return _resume_turn(
-            session, row, automation, step, output, approved=False, user_id=user_id, logger=logger, run_action=run_action, recorder=recorder
+            session,
+            row,
+            automation,
+            step,
+            output,
+            approved=False,
+            user_id=user_id,
+            logger=logger,
+            run_action=run_action,
+            recorder=recorder,
+            step_index=index,
         )
 
 
-def _resume_turn(session, row, automation, step: dict, output: dict, *, approved: bool, user_id, logger, run_action, recorder) -> str:
+def _parked_step(automation, row, kind: str) -> tuple[int, dict] | None:
+    """Where a parked run goes on from in the workflow as it is now: the step with the parked step's id (so a step
+    added or removed before it doesn't move it), else the one at its position — if that is still a `kind` step."""
+    actions = ((getattr(automation, "definition", None) or {}).get("actions") or [])[:MAX_ACTIONS_CAP]  # locate, not limit
+    if row.step_id:
+        for i, step in enumerate(actions):
+            if isinstance(step, dict) and step.get("id") == row.step_id and step.get("kind") == kind:
+                return i, step
+        return None
+    step = actions[row.step_index] if row.step_index < len(actions) else None
+    return (row.step_index, step) if isinstance(step, dict) and step.get("kind") == kind else None
+
+
+def _announce_cancelled(session, row, automation, why: str) -> None:
+    """A wait that couldn't go on: ``automation_failed`` (its message says why), so an admin alert or an on_error
+    workflow can react — nobody should find out from the Runs list alone."""
+    if automation is None:
+        return
+    snap = row.snapshot or {}
+    event = dict(snap.get("event") or {})
+    step = {"kind": "wait", "id": row.step_id}
+    log = [{**step_summary(session, step, error=why), "outcome": "cancelled"}]
+    context = {"event": event, "entry": snap.get("entry") or {}, "_error": why, "_step_log": log}
+    depth = int(event.get("reaction_depth", 0) or 0)
+    _announce(session, row.group_id, automation, False, depth, event.get("user_id"), context, run_id=row.execution_id)
+
+
+def _resume_turn(
+    session, row, automation, step: dict, output: dict, *, approved: bool, user_id, logger, run_action, recorder, step_index: int | None = None
+) -> str:
     """Go on from the step after a parked one (an approval or a wait), once it holds the entry's turn: the step's
-    `output` joins the earlier steps', and the steps after it run in a new run."""
+    `output` joins the earlier steps', and the steps after it run in a new run. `step_index`: where the parked step
+    is in the workflow now (it was `row.step_index` when it parked)."""
+    index = row.step_index if step_index is None else step_index
     from marvin.db.models.groups.automation_executions import AutomationExecutionModel
 
     from .recorder import ExecutionRecorder
@@ -1293,7 +1441,7 @@ def _resume_turn(session, row, automation, step: dict, output: dict, *, approved
         context["entry"] = entry_ctx
     context.update(_item_contexts(session, group_id, event))
     steps = dict(snap.get("steps") or {})
-    steps[str(row.step_index)] = {"output": output}
+    steps[str(index)] = {"output": output}
     if row.step_id:
         steps[str(row.step_id)] = {"output": output}
     context["_approved"] = approved
@@ -1313,7 +1461,7 @@ def _resume_turn(session, row, automation, step: dict, output: dict, *, approved
             exec_id,
             target_index=row.target_index,
             target_ref=snap.get("target_ref"),
-            action_index=row.step_index,
+            action_index=index,
             action=step,
             status="success",
             output=output,
@@ -1335,7 +1483,7 @@ def _resume_turn(session, row, automation, step: dict, output: dict, *, approved
             step_log=step_log,
             gated=bool(snap.get("gated", True)),
             trigger_kind=snap.get("trigger_kind"),
-            start_at=row.step_index + 1,
+            start_at=index + 1,
             resume_from={"steps": steps, "previous": output},
         )
         status = _run_status(ok, steps_ok + 1, int(context.pop("_parked", 0) or 0))

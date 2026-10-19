@@ -1,18 +1,23 @@
 ---
-// One value of an asset's metadata list. The ones that name other assets — `derived_from` (what a version was made
-// from), `rendered_from` (a render's pictures) — link to them, by name; anything else shows as text.
-import { assetRefs } from "@/lib/assetLineage";
+// One value of an asset's metadata list. The ones that name something else link to it: other assets — `derived_from`
+// (what a version was made from), `rendered_from` (a render's pictures) — by name; the entry a picture was made for
+// (`made_for_entry`) by title; the workflow that made it (`workflow_id`) by its slug, when the metadata has one.
+// Anything else shows as text.
+import { assetRefs, metaLink } from "@/lib/assetLineage";
+import { fetchApi } from "@/lib/api/client";
 import { createSdkClient } from "@/lib/sdk";
 
 interface Props {
   name: string;
   value: unknown;
   authToken: string | null | undefined;
+  /** The whole metadata, so a workflow id can be labelled with its sibling `workflow_slug`. */
+  metadata?: Record<string, unknown> | null;
 }
 
 const MAX_NAMED = 12; // a contact sheet may have 48 tiles: name the first dozen, the rest by short id
 
-const { name, value, authToken } = Astro.props;
+const { name, value, authToken, metadata } = Astro.props;
 const ids = assetRefs(name, value);
 const names = new Map<string, string>();
 if (ids.length && authToken) {
@@ -27,6 +32,19 @@ if (ids.length && authToken) {
     }),
   );
 }
+const link = ids.length ? null : metaLink(name, value);
+let linkLabel: string | null = null;
+if (link?.kind === "entry" && authToken) {
+  try {
+    linkLabel = (await fetchApi<{ title?: string }>(`/api/platform/entries/${value}`, {}, authToken)).title ?? null;
+  } catch {
+    linkLabel = null; // gone, or not readable here: the link keeps its short id
+  }
+} else if (link?.kind === "workflow") {
+  const slug = metadata?.workflow_slug;
+  linkLabel = typeof slug === "string" && slug ? slug : null;
+}
+const shortId = (id: string) => `${id.slice(0, 8)}…`;
 const text = typeof value === "object" ? JSON.stringify(value, null, 2) : String(value);
 ---
 
@@ -35,10 +53,12 @@ const text = typeof value === "object" ? JSON.stringify(value, null, 2) : String
     {ids.map((id, i) => (
       <>
         {i > 0 && ", "}
-        <a href={`/workspace/assets/${id}/view`}>{names.get(id) ?? `${id.slice(0, 8)}…`}</a>
+        <a href={`/workspace/assets/${id}/view`}>{names.get(id) ?? shortId(id)}</a>
       </>
     ))}
   </span>
+) : link ? (
+  <span class="asset-refs"><a href={link.href}>{linkLabel ?? shortId(String(value))}</a></span>
 ) : (
   text
 )}

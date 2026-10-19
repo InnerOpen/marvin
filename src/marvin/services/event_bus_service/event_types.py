@@ -28,24 +28,7 @@ if TYPE_CHECKING:
 INTERNAL_INTEGRATION_ID = "marvin_generic_user"
 
 
-class EventNameSpaceBase(Enum):
-    """
-    Abstract base class for event namespaces.
-    Subclasses should define actual namespace values.
-    """
-
-    ...  # Ellipsis indicates this is an abstract base intended for subclassing.
-
-
-class EventNameSpace(EventNameSpaceBase):
-    """
-    Enumeration defining namespaces for categorizing events.
-    Namespaces help in organizing and filtering events.
-    """
-
-    namespace = "core"
-    """The 'core' namespace, likely for fundamental application events."""
-    # Example: USER = "user_events", TASK = "task_events"
+# Example: USER = "user_events", TASK = "task_events"
 
 
 class EventTypeBase(Enum):
@@ -427,6 +410,25 @@ class EventTypes(EventTypeBase):
     """Event dispatched when storage quota is exceeded."""
     storage_provider_changed = auto()
     """Event dispatched when a platform admin changes where new asset uploads are stored."""
+    workspace_storage_copy_started = auto()
+    """Copying a workspace's existing files into its own bucket started: how many files and how much data."""
+    workspace_storage_copy_finished = auto()
+    """Copying into a workspace's own bucket finished: how many moved, were already there or failed (failures listed)."""
+    workspace_storage_unhealthy = auto()
+    """A workspace's own bucket failed its hourly check twice in a row and was marked failing: uploads stop."""
+    workspace_storage_recovered = auto()
+    """A workspace's own bucket that was failing passed its hourly check again: uploads go there again."""
+    workspace_backup_saved = auto()
+    """A workspace's backup bundle was saved to its own private backup bucket."""
+    workspace_backup_failed = auto()
+    """A workspace's backup couldn't be saved to its own backup bucket."""
+    mcp_connection_authorized = auto()
+    """A user approved an MCP client (claude.ai, ChatGPT, Claude Code…) to use Marvin as them in one workspace."""
+    mcp_connection_revoked = auto()
+    """An MCP client's access was revoked (by the user, an admin, or Marvin: membership lost, a reused token…)."""
+    mcp_token_reuse_detected = auto()
+    """An MCP client presented a refresh token that had already been used: a copy may be in someone else's hands. Its
+    access was revoked."""
     storage_public_domain_changed = auto()
     """Event dispatched when a platform admin changes the public domain a workspace's remote assets are served from."""
     platform_settings_changed = auto()
@@ -752,7 +754,8 @@ class EventEntryData(EventDocumentDataBase):
     changed_fields: list[str] = []
     """Names of the (tracked scalar) fields that changed on an update. Empty for create/delete."""
     before: dict = {}
-    """Prior scalar values for the changed fields (only)."""
+    """Prior scalar values for the changed fields (only). On `entry_deleted` — the row is gone — `before.status`
+    is the status the entry had when it was deleted (a published one was on the site, a trashed one was not)."""
     after: dict = {}
     """New scalar values for the changed fields (only)."""
 
@@ -931,6 +934,9 @@ class EventAssetData(EventDocumentDataBase):
     """The full name of the uploader."""
     role: str | None = None
     """On asset_attached_to_entry: the role the asset was attached in (hero, gallery…), if any."""
+    visible_to_sites: bool | None = None
+    """On asset_deleted: whether the publishing API was serving the asset when it went (not in the Trash and
+    attached to a published entry, in a public collection, or named by the site settings). None: not recorded."""
 
     @classmethod
     def from_schema(
@@ -1008,6 +1014,80 @@ class EventInvitationData(EventDocumentDataBase):
     """The email address of the invited user (if applicable)."""
     uses_left: int | None = None
     """The number of remaining uses for the invitation."""
+
+
+class EventWorkspaceStorageCopyData(EventDocumentDataBase):
+    """Data payload for `workspace_storage_copy_started` and `workspace_storage_copy_finished`: a workspace's existing
+    files copied into its own bucket. Counts only, plus each failed file (a short list, and the one to act on)."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    connection_id: str
+    """The bucket connection files go into."""
+    location: str
+    """What moved files now record: ``ws:<connection id>``."""
+    bucket_label: str | None = None
+    files: int = 0
+    """Files to copy (started)."""
+    bytes: int = 0
+    """Their size in bytes (started)."""
+    moved: int = 0
+    already_there: int = 0
+    """Files whose copy was already in the bucket (an earlier, interrupted run)."""
+    changed_meanwhile: int = 0
+    """Files changed or deleted while being copied (left as they were)."""
+    failed: int = 0
+    failures: list[dict] = []
+    """Each failed file: {asset_id, error}."""
+    copied_bytes: int = 0
+    started_by_name: str | None = None
+
+
+class EventWorkspaceStorageHealthData(EventDocumentDataBase):
+    """Data payload for `workspace_storage_unhealthy` and `workspace_storage_recovered`."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    connection_id: str
+    location: str
+    """``ws:<connection id>``."""
+    bucket_label: str | None = None
+    error: str | None = None
+    """Why the last check failed (unhealthy): the failing step and its plain explanation, never a key."""
+    consecutive_failures: int = 0
+
+
+class EventWorkspaceBackupData(EventDocumentDataBase):
+    """Data payload for `workspace_backup_saved` and `workspace_backup_failed`."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    bucket_label: str | None = None
+    key: str | None = None
+    """Where it was saved: ``marvin-backups/<workspace>/<stamp>-<bundle>.zip`` (saved)."""
+    size: int = 0
+    pruned: int = 0
+    """Older backups deleted to keep the workspace's chosen number (saved)."""
+    trigger: str = "scheduled"
+    """``scheduled`` (the daily bundles task) or ``manual`` (Back up now)."""
+    error: str | None = None
+    """Why it failed (failed): never a key."""
+
+
+class EventMcpConnectionData(EventDocumentDataBase):
+    """Data payload for `mcp_connection_authorized`, `mcp_connection_revoked` and `mcp_token_reuse_detected`. Never
+    a token, a hash or a client secret."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    grant_id: str
+    client_name: str
+    """What the client calls itself (unverified)."""
+    redirect_host: str
+    """Where the approval was sent back to (verified)."""
+    access: str
+    """``read`` or ``write``."""
+    workspace_id: str
+    workspace_name: str | None = None
+    user_name: str | None = None
+    reason: str | None = None
+    """Why it was revoked: user, admin, membership_lost, reuse_detected, code_reuse, client, dev_refresh."""
 
 
 class EventStorageProviderChangedData(EventDocumentDataBase):
@@ -1272,6 +1352,23 @@ class EventIncomingWebhookData(EventDocumentDataBase):
     """The workspace the webhook belongs to."""
 
 
+class EventCustomData(EventDocumentDataBase):
+    """Data payload for a workspace's own `custom.<name>` event (services/events/custom_events.py).
+
+    `payload` holds the fields the event was registered with, typed (string, number, boolean, date); a workflow
+    reads it as `$event.payload.*`, a subscription receives it in `documentData.payload`.
+    """
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    operation: EventOperationBase = EventOperation.info
+    event_name: str
+    """The event's name without the prefix (`milestone` for `custom.milestone`)."""
+    payload: dict = {}
+    """The registered fields' values; a field the sender left empty is left out."""
+    workspace_id: UUID4
+    """The workspace that registered the event."""
+
+
 class EventEntryTypeData(EventDocumentDataBase):
     """Data payload for entry type events."""
 
@@ -1308,6 +1405,9 @@ class EventResourceData(EventDocumentDataBase):
     """The human-readable name of the workspace."""
     url: str | None = None
     """The external URL of the resource."""
+    visible_to_sites: bool | None = None
+    """On resource_deleted: whether the publishing API was serving the resource when it went (not in the Trash and
+    attached to a published entry or in a public collection). None: not recorded."""
 
 
 class EventTrashEmptiedData(EventDocumentDataBase):
@@ -1373,6 +1473,8 @@ class EventScheduledTaskData(EventDocumentDataBase):
     """On a failure: how many runs in a row have now failed (1 = the first)."""
     transient: bool | None = None
     """On a failure: a network blip (a timeout, a dropped connection) rather than a real error."""
+    error_message: str | None = None
+    """On a failure: what went wrong (the first 500 characters), for a workflow's `${event.error_message}`."""
     alert_deferred: bool | None = None
     """On a failure: a blip not announced yet — failing for under ten minutes with the next run due within ten
     (services/scheduled_tasks/blips.py). Notifications and the bell skip it; the event log keeps it."""
@@ -1753,6 +1855,10 @@ class Event(_MarvinModel):
     """Id shared by every event + execution in one causal chain (see services/event_bus_service/
     correlation.py). Set by `dispatch` from the ambient correlation scope, so a whole reaction cascade
     threads under one id. None only for events built outside `dispatch`."""
+    caused_by_workflows: list[str] = Field(default_factory=list)
+    """The workflows (automation ids) whose runs sent this event, read by `dispatch` from the runs on the call stack
+    (correlation.workflows_running). Empty for what no workflow did. A failed delivery of this event can happen after
+    the run ended; it is announced with these, so the workflows that caused it don't answer it."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """

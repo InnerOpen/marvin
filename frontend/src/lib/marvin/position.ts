@@ -82,7 +82,7 @@ export type Tuck = {
 /** How much of a tucked bubble stays on screen. */
 export const TUCK_PEEK = 14;
 /** Share of the bubble that must be past an edge, on release, for it to tuck there. */
-export const TUCK_PAST = 0.5;
+const TUCK_PAST = 0.5;
 
 /** The edge a bubble released with its top-left at (left, top) tucks into, or null to rest normally. */
 export function tuckEdge(left: number, top: number, box: Size, viewport: Size): Edge | null {
@@ -106,9 +106,9 @@ export function tuckAt(edge: Edge, left: number, top: number, box: Size, viewpor
 
 /** How much of a tucked bubble shows while it peeks out: all of it — at half, a character drawn in the middle of its
  * frame played its peek behind the screen edge. */
-export const PEEK_SHARE = 1;
+const PEEK_SHARE = 1;
 /** Seconds between peeks unless BUBBLE_PEEK_SECONDS says otherwise (it was a random 45–75 s until 2026-10-09). */
-export const PEEK_EVERY_DEFAULT_S = 5;
+const PEEK_EVERY_DEFAULT_S = 5;
 
 /** The wait before the next peek, in ms: the configured seconds when positive, else the default. */
 export function peekEveryMs(configuredSeconds?: number | null): number {
@@ -128,7 +128,13 @@ const MAX_PEEK_INSET = 0.9;
 /** Top-left of a tucked bubble: TUCK_PEEK on screen (`peeking`: PEEK_SHARE of it), kept within the edge's length.
  * Peeking, the empty frame on the edge's side (`inset`) stays off screen, so the drawing — a peek's drawn ledge —
  * meets the edge instead of floating off it. */
-export function tuckedPosition(tuck: Tuck, box: Size, viewport: Size, peeking = false, inset?: Inset | null): { left: number; top: number } {
+export function tuckedPosition(
+  tuck: Tuck,
+  box: Size,
+  viewport: Size,
+  peeking = false,
+  inset?: Inset | null,
+): { left: number; top: number } {
   const across = tuck.edge === "left" || tuck.edge === "right" ? box.width : box.height;
   const margin = clamp(inset?.[tuck.edge] ?? 0, 0, MAX_PEEK_INSET);
   const shown = peeking ? Math.round(across * (PEEK_SHARE - margin)) : TUCK_PEEK;

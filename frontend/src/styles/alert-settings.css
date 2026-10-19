@@ -30,6 +30,13 @@
 .alert-settings .route { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; display: grid; gap: 8px; }
 .alert-settings .field { display: grid; gap: 4px; }
 .alert-settings .field input { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--ink); }
+.alert-settings .field textarea, .alert-settings .field select { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--ink); width: 100%; box-sizing: border-box; }
+.alert-settings .field textarea { font-family: var(--font-mono, ui-monospace, monospace); resize: vertical; }
+.alert-settings .channel-add { background: var(--panel-2); }
+.alert-settings .config-fields { display: grid; gap: 8px; }
+.alert-settings .config-fields:empty { display: none; }
+.alert-settings .muted.err { color: var(--color-error); }
+.alert-settings [hidden] { display: none !important; }
 .alert-settings .add-route { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .alert-settings .add-route select { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--ink); max-width: 100%; }
 .alert-settings .small-btn { padding: 4px 10px; font-size: 12px; }
@@ -45,5 +52,11 @@
   .alert-settings .card { padding: 16px; }
   .alert-settings .recipients label, .alert-settings .takes label, .alert-settings .switch { min-height: 32px; }
   .alert-settings .small-btn { min-height: 36px; }
+  /* One column: each channel's and route's buttons span the card, so a thumb can't miss them. */
+  .alert-settings .route .channel-foot { flex-direction: column; align-items: stretch; }
+  .alert-settings .route .channel-foot .button { width: 100%; }
+  .alert-settings .route .channel-foot .pill { align-self: flex-start; }
+  .alert-settings .channel-add .channel-foot .button, .alert-settings .add-route .button, .alert-settings .add-route select { width: 100%; }
+  .alert-settings .field input, .alert-settings .field textarea, .alert-settings .field select { font-size: 16px; }
   .alert-settings .reminder input { min-height: 36px; }
 }

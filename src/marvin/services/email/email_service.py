@@ -63,9 +63,18 @@ class EmailTemplate(BaseModel):
         tmpl_str = template_file.read_text(encoding="utf-8")  # Added encoding
         jinja_template = Template(tmpl_str)  # Create a Jinja2 Template object
 
-        # Render the template with the data from this EmailTemplate instance
-        # The template should expect a 'data' variable containing the model's fields.
-        return jinja_template.render(data=self.model_dump())
+        # The template sees this email's fields plus the platform's branding (Admin → Email → Branding):
+        # brand_name, brand_footer, brand_color.
+        from marvin.services.platform_policy import email_branding
+
+        brand = email_branding()
+        data = {
+            **self.model_dump(),
+            "brand_name": brand["product_name"],
+            "brand_footer": brand["footer_text"],
+            "brand_color": brand["accent_color"],
+        }
+        return jinja_template.render(data=data)
 
 
 class EmailService(BaseService):
@@ -112,8 +121,7 @@ class EmailService(BaseService):
         #  - explicit sender wins
         #  - otherwise, when scoped to a workspace, route through its active SMTP profile
         #    (WorkspaceEmailSender falls back to the platform's sender when none is active)
-        #  - unscoped uses the platform's sender: the platform SMTP settings, else the
-        #    platform workspace's active SMTP profile (email_senders.platform_sender)
+        #  - unscoped uses the platform's sender: the platform SMTP server (email_senders.platform_sender)
         if sender is not None:
             self.sender: ABCEmailSender = sender
         elif group_id:
@@ -130,8 +138,8 @@ class EmailService(BaseService):
         self.logger.info(f"EmailService initialized. Sender: {type(self.sender).__name__}. Locale: {locale or 'default'}.")
 
     def _can_send(self) -> bool:
-        """Whether email can be dispatched: global SMTP is configured, OR this service's workspace
-        or the platform workspace has an active SMTP profile (email_senders.email_ready)."""
+        """Whether email can be dispatched: the platform SMTP server is configured, OR this service's workspace
+        has an active SMTP profile (email_senders.email_ready)."""
         return email_ready(getattr(self.sender, "group_id", None))
 
     def send_email(self, email_to: str, email_data: EmailTemplate) -> bool:  # Renamed `data` to `email_data`

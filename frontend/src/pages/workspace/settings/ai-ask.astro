@@ -175,9 +175,10 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
   } from "@/lib/api/aiAgents";
   import { fetchApi } from "@/lib/api/client";
   import { argsPreview, groupPending, viaText } from "@/lib/approvals";
-  import { groupThreads, handOffNote } from "@/lib/askThreads";
+  import { groupThreads, handOffNote, highlight, SEARCH_MIN_CHARS } from "@/lib/askThreads";
   import { renderMarkdown } from "@/lib/marvin/capabilities";
   import { MAIN_AGENT } from "@/lib/marvin/cast";
+  import { referralQuestion } from "@/lib/marvin/referrals";
   import { createSdkClient } from "@/lib/sdk";
   import { assetName, assetSlug } from "@/lib/share";
   import {
@@ -192,6 +193,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
     withoutAttachment,
   } from "@/lib/marvin/attachments";
   import { createDictation, type Dictation, speechRecognition } from "@/lib/marvin/dictation";
+  import { rememberThread } from "@/lib/marvin/pending";
 
   const root = document.querySelector<HTMLElement>(".chat");
   if (root) {
@@ -230,6 +232,8 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
     // The conversation lives server-side: `threadId` is the thread this transcript continues (null =
     // the next send opens a new one). Reloading the page loses the view, not the thread.
     let threadId: string | null = null;
+    // An entity a page sent us to ask about (`?entity=entry:<id>`): the context of every question in this visit.
+    let linkedEntity: { entityType: string; entityId: string } | null = null;
     // Files attached to this conversation (@/lib/marvin/attachments): sent with every run until removed.
     let attachments: Attachment[] = [];
     const AGENT_KEY = "ask.agent";
@@ -349,14 +353,15 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       );
       return items.length ? `<span>Handed off:</span> ${items.join(" · ")}` : "";
     }
-    // A referral runs nothing: "Continue →" pre-fills the question for that agent, never sends it.
+    // A referral runs nothing itself: "Continue with <agent> →" sends its request (and what the referring agent found)
+    // to that agent in a fresh conversation, as the bubble's button does.
     function referralsHtml(referrals: Referral[] | undefined | null): string {
       return (referrals ?? [])
         .map((r) => {
           const name = esc(r.name || agentName(r.agent));
           const reason = r.reason ? ` — ${esc(r.reason)}` : "";
           const cont = agents.some((a) => a.slug === r.agent)
-            ? ` · <button type="button" class="meta-link" data-continue-agent="${esc(r.agent)}" data-question="${esc(r.question ?? "")}">Continue →</button>`
+            ? ` · <button type="button" class="meta-link" data-continue-agent="${esc(r.agent)}" data-question="${esc(referralQuestion(r))}">Continue with ${name} →</button>`
             : "";
           return `<span>Suggests asking ${name}</span>${reason}${cont}`;
         })
@@ -404,6 +409,11 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       syncAgent();
       questionEl.value = btn.dataset.question ?? "";
       questionEl.focus();
+      // Send it now, like the bubble (a click on "Continue with Marvin →" means do it). If a run is still in
+      // flight the text stays in the box for the user to send.
+      if (questionEl.value.trim() && !sendBtn.disabled) {
+        void send();
+      }
     });
     function resetConversation() {
       threadId = null;
@@ -431,9 +441,10 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       const d = new Date(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`);
       return Number.isNaN(d.getTime()) ? "" : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
     };
-    function threadRow(t: Thread, opts: { child?: boolean; showAgent?: boolean } = {}): string {
+    function threadRow(t: Thread, opts: { child?: boolean; showAgent?: boolean; search?: string } = {}): string {
       const active = t.id === threadId ? " active" : "";
-      const title = esc(t.title || "(untitled)");
+      const title = opts.search ? highlight(t.title || "(untitled)", opts.search) : esc(t.title || "(untitled)");
+      const match = opts.search && t.match ? `<span class="th-match">${highlight(t.match, opts.search)}</span>` : "";
       const meta = [
         !opts.child && opts.showAgent ? esc(agentLabel(t.agentSlug)) : "",
         esc(when(t.lastMessageAt || t.createdAt)),
@@ -444,6 +455,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
         <button type="button" class="th-open" title="Reopen this conversation">
           <span class="th-line">${opts.child ? `<span class="th-agent">↳ ${esc(agentLabel(t.agentSlug))} · </span>` : ""}<span class="th-title">${title}</span></span>
           <span class="th-when">${meta.join(" · ")}</span>
+          ${match}
         </button>
         <span class="th-actions">
           <button type="button" class="link-btn th-rename" title="Rename">✎</button>
@@ -456,13 +468,48 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       return `<div class="th-head"><span class="tp-title">${heading}</span>
         <label class="th-filter"><input type="checkbox" class="th-this-agent"${thisAgentOnly ? " checked" : ""} /> This agent only</label></div>`;
     }
+    // Search: a box above the list that stays put while the list under it reloads (so typing keeps focus);
+    // two characters or more ask the server for the conversations that mention them.
+    let threadSearch = "";
+    let searchTimer: ReturnType<typeof setTimeout> | undefined;
+    let threadsLoad = 0; // the newest load wins: a slow earlier answer never overwrites a later one
+    function threadsList(): HTMLElement {
+      let list = threadsPanel.querySelector<HTMLElement>(".th-list");
+      if (!list) {
+        threadsPanel.innerHTML = `<input class="input th-search-input" type="search" placeholder="Search conversations…" aria-label="Search conversations" />
+          <div class="th-list"></div>`;
+        list = threadsPanel.querySelector<HTMLElement>(".th-list")!;
+      }
+      return list;
+    }
+    async function searchThreads(a: Agent, list: HTMLElement, load: number) {
+      const agent = thisAgentOnly ? a.slug : null;
+      const rows = await listThreads({ ...(agent ? { agent } : {}), search: threadSearch, limit: THREADS_LIMIT });
+      if (load !== threadsLoad) return;
+      const heading = `${rows.length || "No"} conversation${rows.length === 1 ? "" : "s"} mention “${esc(threadSearch)}”${agent ? ` with <strong>${esc(agentName(a.slug))}</strong>` : ""}`;
+      list.innerHTML =
+        `<div class="th-head"><span class="tp-title">${heading}</span>
+          <label class="th-filter"><input type="checkbox" class="th-this-agent"${thisAgentOnly ? " checked" : ""} /> This agent only</label></div>` +
+        rows.map((t) => threadRow(t, { showAgent: !agent, search: threadSearch })).join("");
+    }
     async function loadThreads() {
       const a = current();
       if (!a) return;
-      threadsPanel.innerHTML = `<div class="tp-loading">Loading…</div>`;
+      const list = threadsList();
+      const load = ++threadsLoad;
+      list.innerHTML = `<div class="tp-loading">${threadSearch.length >= SEARCH_MIN_CHARS ? "Searching…" : "Loading…"}</div>`;
+      if (threadSearch.length >= SEARCH_MIN_CHARS) {
+        try {
+          await searchThreads(a, list, load);
+        } catch (e) {
+          if (load === threadsLoad) list.innerHTML = `<div class="tp-loading">Couldn't search: ${esc(e instanceof Error ? e.message : e)}</div>`;
+        }
+        return;
+      }
       try {
         const agent = thisAgentOnly ? a.slug : null;
         const rows = await listThreads({ ...(agent ? { agent } : {}), children: true, limit: THREADS_LIMIT });
+        if (load !== threadsLoad) return;
         const groups = groupThreads(rows, agent);
         const empty = agent
           ? `No saved conversations with ${esc(agentName(a.slug))} yet — send a message to start one.`
@@ -472,11 +519,23 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
               .map((g) => threadRow(g.thread, { showAgent: !agent }) + g.children.map((c) => threadRow(c, { child: true })).join(""))
               .join("")
           : `<div class="tp-loading">${empty}</div>`;
-        threadsPanel.innerHTML = threadsHeader(a) + body;
+        list.innerHTML = threadsHeader(a) + body;
       } catch (e) {
-        threadsPanel.innerHTML = `<div class="tp-loading">Couldn't load threads: ${esc(e instanceof Error ? e.message : e)}</div>`;
+        if (load === threadsLoad) list.innerHTML = `<div class="tp-loading">Couldn't load threads: ${esc(e instanceof Error ? e.message : e)}</div>`;
       }
     }
+    threadsPanel.addEventListener("input", (e) => {
+      const box = (e.target as HTMLElement).closest<HTMLInputElement>(".th-search-input");
+      if (!box) return;
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        const next = box.value.trim();
+        const was = threadSearch.length >= SEARCH_MIN_CHARS ? threadSearch : "";
+        threadSearch = next;
+        // One character doesn't search; reload only when that changes what's shown.
+        if ((next.length >= SEARCH_MIN_CHARS ? next : "") !== was) void loadThreads();
+      }, 250);
+    });
     async function openThread(id: string) {
       setStatus("Opening…");
       try {
@@ -894,6 +953,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
           ...(runId ? { clientRunId: runId } : {}),
           register,
           attachments: attachmentIds(attachments),
+          ...(linkedEntity ?? {}),
         });
         stopWatching();
         handleRunResult(res, placeholder, { refreshThreads: wasNew });
@@ -914,8 +974,22 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
 
     // `?thread=<id>` opens that conversation — how the Marvin bubble links here (e.g. to approve a
     // paused run, or to follow one it stopped waiting for).
-    const linkedThread = new URLSearchParams(location.search).get("thread");
-    if (linkedThread) void openThread(linkedThread);
+    // `?entity=entry:<id>&q=<question>` is a page's Ask Marvin button with the bubble switched off: the
+    // question is asked here, about that entity, in the bubble's own conversation when the tab has one
+    // (`thread`) — and a conversation started here is remembered for the bubble, so the two surfaces stay
+    // one thread.
+    const params = new URLSearchParams(location.search);
+    const linkedThread = params.get("thread");
+    const entityRef = /^([a-z_]+):([0-9a-f-]{36})$/i.exec(params.get("entity") ?? "");
+    if (entityRef) linkedEntity = { entityType: entityRef[1], entityId: entityRef[2] };
+    const linkedQuestion = params.get("q")?.trim();
+    void (async () => {
+      if (linkedThread) await openThread(linkedThread);
+      if (!linkedQuestion) return;
+      questionEl.value = linkedQuestion;
+      await send();
+      if (threadId) rememberThread(agentSel.value, threadId);
+    })();
 
     // ── Reindex (kept from the RAG page) ──
     // The index card: what the index holds, and a run in progress (it runs in the background — a
@@ -1009,6 +1083,9 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
   .threads-panel :global(.th-row.th-child.active) { padding-left: 26px; }
   .threads-panel :global(.th-child .th-line), .threads-panel :global(.th-child .th-title) { font-size: 13px; }
   .threads-panel :global(.th-agent) { color: var(--muted); }
+  .threads-panel :global(.th-search-input) { width: 100%; margin-bottom: 10px; }
+  .threads-panel :global(.th-match) { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .threads-panel :global(mark) { background: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--ink); border-radius: 2px; padding: 0 1px; }
   .threads-panel :global(.th-actions) { display: flex; gap: 6px; }
   .threads-panel :global(.th-actions .link-btn) { border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 13px; line-height: 1; padding: 2px 4px; }
   .threads-panel :global(.th-actions .link-btn:hover) { color: var(--ink); }

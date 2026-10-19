@@ -1,6 +1,6 @@
 # Postgres
 
-Marvin runs on SQLite or Postgres (`config.dbEngine`). On the iwobble cluster Postgres is a [CloudNativePG](https://cloudnative-pg.io) (CNPG) cluster per environment, rendered by the Helm chart. This page covers the `marvin-dev` environment, backups and restores, the SQLite → Postgres copy tool and the production cutover.
+Marvin uses Postgres when it is configured (`config.dbEngine: postgres`, or `DB_ENGINE=postgres` / `POSTGRES_SERVER` outside the chart); SQLite is the other supported engine and what a fresh install runs on (see [SQLite](sqlite.md)), and the copy tool below is the upgrade path from one to the other. On the iwobble cluster Postgres is a [CloudNativePG](https://cloudnative-pg.io) (CNPG) cluster per environment, rendered by the Helm chart. This page covers the `marvin-dev` environment, backups and restores, the SQLite → Postgres copy tool and the production cutover.
 
 What lives where once an environment is on Postgres:
 
@@ -28,7 +28,7 @@ backup:
   schedule: "0 * * * *"              # hourly
 ```
 
-The cluster can be enabled while `dbEngine` is still `sqlite` — that is how production gets its database ready before the cutover. The Cluster carries `helm.sh/resource-policy: keep`: `helm uninstall` leaves the database and its PVC alone; delete them by hand when you mean it. With `dbEngine: postgres` the backend may roll (`RollingUpdate`) instead of `Recreate`; keep one replica while assets are on the RWO data volume.
+The cluster can be enabled while `dbEngine` is still `sqlite`, which is how production got its database ready before its switch. The chart's own defaults are `dbEngine: sqlite` and `postgres.cluster.enabled: false`, so every environment's values file pins both (CI renders each one and fails if a pin is missing).
 
 Postgres 17 is used everywhere on purpose: the clusters, the CI test job and the backend image's `pg_dump` (Debian's `postgresql-client`). A `pg_dump` 17 archive does not restore cleanly into Postgres 16. Move all three together.
 
@@ -55,10 +55,10 @@ oc -n marvin-dev get cluster marvin-dev-pg -w          # until "Cluster in healt
 oc -n marvin-dev rollout status deploy/marvin-backend  # restarts until marvin-dev-pg-app exists
 ```
 
-On first start against the empty database the backend migrates and seeds the default group and admin. Then load production (`task dev:refresh`, below), take the first backup and test the restore ([Backups](#backups)). Dev follows `develop`: `oc -n marvin-dev rollout restart deploy/marvin-backend deploy/marvin-frontend` picks up the newest build.
+On first start against the empty database the backend migrates and creates the first admin (no workspace: sign in to Admin and create one). Then load production (`task dev:refresh`, below), take the first backup and test the restore ([Backups](#backups)). Dev follows `develop`: `oc -n marvin-dev rollout restart deploy/marvin-backend deploy/marvin-frontend` picks up the newest build.
 
 !!! warning "Production data in dev"
-    A copy of production brings real users, tokens, webhook URLs, workflows and scheduled tasks. Stored secrets stay unreadable (dev has its own `.secret`), but plain-text outgoing webhooks — a Cloudflare Pages deploy hook, for one — would fire. Dev therefore runs with the scheduler off **and** the copy is loaded with `--pause-outbound`, which switches off, in dev's database only, webhooks, integrations and their subscriptions, workflows, email subscriptions, SMTP profiles, MCP servers, scheduled tasks and auto site rebuilds. AI providers stay on (they only run when someone asks for an AI action). To test a feature, re-enable just what it needs: `--unpause webhook_urls` (the rows the pause switched off, nothing else), or in the UI.
+    A copy of production brings real users, tokens, webhook URLs, workflows and scheduled tasks. Dev holds production's `.secret`, so stored secrets (provider keys, integration credentials) decrypt there too, and plain-text outgoing webhooks — a Cloudflare Pages deploy hook, for one — would fire. Dev therefore runs with the scheduler off **and** the copy is loaded with `--pause-outbound`, which switches off, in dev's database only, webhooks, integrations and their subscriptions, workflows, email subscriptions, SMTP profiles, MCP servers, scheduled tasks and auto site rebuilds. AI providers stay on (they only run when someone asks for an AI action). To test a feature, re-enable just what it needs: `--unpause webhook_urls` (the rows the pause switched off, nothing else), or in the UI.
 
 ## Storage
 
@@ -193,7 +193,7 @@ Planned downtime of a few minutes; the SQLite file is never modified, so it is t
 **Days before**
 
 - [ ] The restore test passes on dev (above).
-- [ ] Enable the cluster while still on SQLite: in `values-iwobble.yaml` set `postgres.cluster.enabled: true`, `name: marvin-pg`, `storage.storageClass: managed-nfs-storage`; keep `config.dbEngine: sqlite`. Promote (`scripts/deploy/promote-iwobble.sh <sha>`). Check the cluster is healthy.
+- [ ] Enable the cluster while still on SQLite: in `values-iwobble.yaml` set `postgres.cluster.enabled: true`, `name: marvin-pg`, `storage.storageClass: managed-nfs-storage`; keep `config.dbEngine: sqlite`. Promote (`git fetch origin && scripts/deploy/promote.sh <sha> marvin values-iwobble.yaml`). Check the cluster is healthy.
 - [ ] Rehearse: copy a fresh production snapshot into `marvin-pg` with `--truncate` (the Job below with `--source` pointing at a snapshot, or locally through a port-forward). All tables `ok`. Note how long it took.
 - [ ] Pick the window; tell Grace.
 
@@ -240,7 +240,7 @@ Planned downtime of a few minutes; the SQLite file is never modified, so it is t
     ```
 
 - [ ] Verify: the summary line says `COPIED`, every table `ok`, `0 problem(s)`; counts match the rehearsal's order of magnitude. Anything else → stop here and roll back (below).
-- [ ] Switch: in `values-iwobble.yaml` set `config.dbEngine: postgres` and the backup hourly (`backup.schedule: "0 * * * *"`, `activeDeadlineSeconds: 2700`, `startingDeadlineSeconds: 900` as in `values-dev.yaml`; bucket stays `marvin-backups`). Keep `split.backend.strategy: Recreate` for this first deploy. Commit, and promote the **same** commit's image: `scripts/deploy/promote-iwobble.sh <sha>` (scales the backend back to 1). No `--pause-outbound` here: this is production.
+- [ ] Switch: in `values-iwobble.yaml` set `config.dbEngine: postgres` and the backup hourly (`backup.schedule: "0 * * * *"`, `activeDeadlineSeconds: 2700`, `startingDeadlineSeconds: 900` as in `values-dev.yaml`; bucket stays `marvin-backups`). Keep `split.backend.strategy: Recreate` for this first deploy. Commit, and promote the **same** commit's image: `scripts/deploy/promote.sh <sha> marvin values-iwobble.yaml` (scales the backend back to 1). No `--pause-outbound` here: this is production.
 - [ ] Smoke: log in; entries list; open an entry and save it; a workflow dry run; the site builds; an asset loads; backend log clean; `oc -n marvin create job --from=cronjob/marvin-offsite-backup marvin-postcutover` uploads a `postgres/` dump; run the restore test against it (bucket `marvin-backups`, live side `marvin-pg-1` in `marvin`).
 - [ ] Afterwards: drop the backend's `Recreate` (Postgres has no single-writer limit), delete the copy Job.
 

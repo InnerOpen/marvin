@@ -153,3 +153,14 @@ def test_an_admin_force_unlock_releases_refused_accounts(client, user, ip, event
     _fail(client, user["username"], ip, 5)
     assert lt.LoginThrottle(db_session).release_accounts() == 1
     assert _sign_in(client, user["username"], PASSWORD, ip).status_code == 200
+
+
+def test_a_successful_sign_in_is_stamped_and_listed_on_the_admin_overview(client, user, ip, events, db_session):
+    from marvin.db.models.users import Users
+    from marvin.services.admin_overview import overview
+
+    assert _sign_in(client, user["username"], PASSWORD, ip).status_code == 200
+    db_session.expire_all()
+    stamped = db_session.query(Users.last_login_at).filter_by(id=user["id"]).scalar()
+    assert stamped is not None and abs(stamped.replace(tzinfo=UTC) - datetime.now(UTC)) < timedelta(minutes=1)
+    assert overview(db_session).sign_ins[0].user_id == str(user["id"])  # the newest sign-in comes first

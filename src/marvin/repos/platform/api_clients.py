@@ -60,7 +60,6 @@ class APIClientsRepository(GroupRepositoryGeneric[APIClientRead, APIClients]):
             data_dict["permissions"] = {
                 "read:published_entries": True,
                 "read:collections": True,
-                "read:assets": True,
             }
 
         # Create the API client

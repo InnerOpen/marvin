@@ -7,8 +7,8 @@
 
 import { fetchApi } from "../client";
 
-export type BackupRunStatus = "ok" | "partial" | "failed" | "missed";
-export type BackupTargetState = "ok" | "partial" | "failed" | "overdue" | "unknown";
+type BackupRunStatus = "ok" | "partial" | "failed" | "missed";
+type BackupTargetState = "ok" | "partial" | "failed" | "overdue" | "unknown";
 
 export interface BackupRun {
   id: string;
@@ -35,7 +35,7 @@ export interface BackupRun {
   notifiedAt: string | null;
 }
 
-export interface BackupTarget {
+interface BackupTarget {
   name: string;
   type: string;
   state: BackupTargetState;

@@ -62,6 +62,8 @@ class CollectionUpdate(_MarvinModel):
     """Which entity type this collection groups: 'entry', 'asset', or 'resource'."""
     is_public: bool | None = None
     """Whether this collection is exposed via the publish API."""
+    in_sidebar: bool | None = None
+    """Whether the app sidebar lists this collection under Collections."""
     metadata_json: dict | None = None
     """Custom metadata for this collection."""
     entry_ids: list[UUID4] | None = None
@@ -95,6 +97,8 @@ class CollectionSummary(_MarvinModel):
     """System workflow collection — locked from edit/delete and internal-only."""
     is_public: bool = True
     """Whether this collection is exposed via the publish API."""
+    in_sidebar: bool = True
+    """Whether the app sidebar lists this collection under Collections."""
     entry_count: int | None = None
     """Number of entries in this collection (populated by the list endpoint)."""
     created_at: datetime | None = None
@@ -118,6 +122,14 @@ class CollectionRead(CollectionSummary):
     """Read-only "installed by": the integration whose blueprint created this (null: made by a person)."""
     source_blueprint: str | None = None
     """Read-only: the slug of the blueprint that created this, if one did."""
+    source_integration_name: str | None = None
+    """Read-only: that integration's name (the sidebar groups its collections under it)."""
+    source_integration_provider: str | None = None
+    """Read-only: that integration's provider slug (the sidebar shows its logo on the group)."""
+    source_integration_icon: str | None = None
+    """Read-only: the provider's emoji, for when it ships no logo."""
+    source_integration_has_logo: bool = False
+    """Read-only: whether the provider ships a logo (served by GET /api/groups/integrations/providers/{slug}/logo)."""
 
     model_config = ConfigDict(from_attributes=True)
 

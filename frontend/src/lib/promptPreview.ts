@@ -8,10 +8,10 @@
  * caller's box. The runtime import is relative so `node --test` can load this file (promptPreview.test.mjs).
  */
 
-import { type TonePreview, previewSections } from "./tones.ts";
+import { previewSections, type TonePreview } from "./tones.ts";
 
 /** One labelled piece of the prompt, in prompt order. */
-export interface PromptPart {
+interface PromptPart {
   /** Where the text comes from, e.g. "From this tone". */
   label: string;
   /** Linked words after the label, e.g. "Persona" → the Persona section. */
@@ -57,7 +57,7 @@ export interface AgentPromptPreview {
   toolCategories: { id: string; label: string; count: number }[];
 }
 
-export const PERSONA_HREF = "/workspace/settings/ai-workflow#persona-section";
+const PERSONA_HREF = "/workspace/settings/ai-workflow#persona-section";
 
 const esc = (s: unknown) =>
   String(s ?? "").replace(
@@ -69,7 +69,7 @@ const esc = (s: unknown) =>
  * The Character, tone and "which wins" parts of a tone preview. `toneLabel` says which tone this is where it is
  * shown; `characterHere` is for the Persona section itself, where "your Persona" would point at the same page.
  */
-export function toneParts(
+function toneParts(
   p: TonePreview,
   opts: { toneLabel: string; toneHint?: string; characterHere?: boolean },
 ): PromptPart[] {

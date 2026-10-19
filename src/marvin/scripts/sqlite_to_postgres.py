@@ -818,7 +818,7 @@ def main(argv: list[str] | None = None) -> int:
     from marvin.core.config import get_app_settings
 
     settings = get_app_settings()
-    if settings.DB_ENGINE != "postgres" or not settings.DB_URL:
+    if settings.DB_ENGINE != "postgres" or not settings.DB_URL:  # resolved engine: auto picks postgres when POSTGRES_SERVER is set
         log.error("DB_ENGINE must be postgres (with POSTGRES_* set): the target is the app's own database")
         return 2
     engine = sa.create_engine(settings.DB_URL, pool_pre_ping=True)

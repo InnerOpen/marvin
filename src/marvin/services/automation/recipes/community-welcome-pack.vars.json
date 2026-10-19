@@ -1,0 +1,25 @@
+{
+  "recipe": "community-welcome-pack",
+  "variables": {
+    "start_here_collection": {
+      "type": "collection_slug",
+      "description": "The collection of pieces a newcomer should read first (in its order).",
+      "example": "start-here"
+    },
+    "voice": {
+      "type": "text",
+      "description": "How the welcome should sound.",
+      "example": "a warm, plain voice"
+    },
+    "draft_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type the welcome is drafted as.",
+      "example": "note"
+    },
+    "draft_body_field": {
+      "type": "field_key",
+      "description": "That type's text field.",
+      "example": "body"
+    }
+  }
+}

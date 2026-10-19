@@ -97,6 +97,42 @@ def limits_for(budget_config: dict | None) -> Limits:
     )
 
 
+# How the workspace's agents behave, set beside its spend limits in budget_config (AI Settings → Usage & Limits):
+# key → (default, lowest, highest). A missing value is the default; one out of range is trimmed to the nearest bound
+# (asking for more steps than the platform allows gives the most it allows, never fewer). agent_max_steps defaults
+# to the platform's AI_AGENT_MAX_STEPS and its highest is AI_AGENT_MAX_STEPS_CAP.
+AGENT_LIMITS: dict[str, tuple[int | None, int, int]] = {
+    "agent_max_steps": (None, 1, 50),
+    "history_turns": (10, 2, 50),
+    "bulk_ask_threshold": (20, 1, 1000),
+}
+
+
+def agent_limit(session, group_id, key: str) -> int:
+    """One of AGENT_LIMITS for this workspace."""
+    from marvin.core.config import get_app_settings
+    from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+
+    default, low, high = AGENT_LIMITS[key]
+    app = get_app_settings()
+    if key == "agent_max_steps":
+        default, high = app.AI_AGENT_MAX_STEPS, min(high, app.AI_AGENT_MAX_STEPS_CAP)
+    row = session.query(WorkspaceAISettingsModel.budget_config).filter_by(group_id=group_id).scalar() if group_id else None
+    value = _positive((row or {}).get(key), int)
+    if value is None:
+        return min(int(default), high)
+    return max(low, min(value, high))
+
+
+def tools_on_demand_enabled(session, group_id) -> bool:
+    """Whether this workspace's all-tools agents load rarely used tools only when needed (budget_config
+    `load_tools_on_demand`, on unless set false). Off sends every tool with every question, as before."""
+    from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+
+    cfg = session.query(WorkspaceAISettingsModel.budget_config).filter_by(group_id=group_id).scalar() if group_id else None
+    return (cfg or {}).get("load_tools_on_demand") is not False
+
+
 def workspace_limits(session, group_id) -> Limits:
     from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
 

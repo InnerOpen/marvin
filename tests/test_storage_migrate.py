@@ -308,9 +308,11 @@ def test_backup_asset_providers_from_env(tmp_path, entry_points):  # noqa: F811
 
     entry_points.append(_EP("fake", FAKE_PLUGIN))
     (tmp_path / "assets").mkdir()
-    settings = eng.BackupSettings.from_env({"BACKUP_DATA_DIR": str(tmp_path), "BACKUP_ASSET_PROVIDERS": " fakes3, nowhere ,"})
+    settings = eng.BackupSettings.from_env(
+        {"DB_ENGINE": "postgres", "BACKUP_DATA_DIR": str(tmp_path), "BACKUP_ASSET_PROVIDERS": " fakes3, nowhere ,"}
+    )
     assert eng.asset_provider_slugs(settings) == ["local", "fakes3", "nowhere"]
     sources, problems = eng.open_asset_sources(settings, env={})
     assert [type(s).__name__ for s in sources] == ["LocalStorageProvider", "FakeRemote"]
     assert len(problems) == 1 and "nowhere" in problems[0]
-    assert eng.asset_provider_slugs(eng.BackupSettings.from_env({})) == ["local"]
+    assert eng.asset_provider_slugs(eng.BackupSettings.from_env({"DB_ENGINE": "postgres"})) == ["local"]

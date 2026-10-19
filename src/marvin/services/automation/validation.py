@@ -48,7 +48,22 @@ _ENTRY_FIELDS = [
     {
         "field": "event.changed_fields",
         "label": "Changed fields",
-        "description": "Which fields changed — use with 'contains' (e.g. contains 'status').",
+        "description": "Which fields changed — use with 'contains' (e.g. contains 'status', or 'data.price' for the type's own field).",
+    },
+    {
+        "field": "event.after.data.",
+        "label": "Type field changed to…",
+        "description": "New value of an entry-type field that changed (event.after.data.price); long text and secrets read ‹elided›.",
+    },
+    {
+        "field": "event.before.data.",
+        "label": "Type field changed from…",
+        "description": "Prior value of a type field that changed (event.before.data.price).",
+    },
+    {
+        "field": "entry.data.",
+        "label": "Type field",
+        "description": "A field of the entry's type, e.g. entry.data.price (op 'changed': did it change?).",
     },
 ]
 
@@ -175,7 +190,7 @@ def _issue(level: str, message: str, where: str, index: int | None = None) -> di
     return out
 
 
-def validate_definition(definition: dict | None) -> list[dict]:
+def validate_definition(definition: dict | None, max_steps: int | None = None) -> list[dict]:
     """Return advisory issues for a definition (never raises). Empty list = looks coherent.
 
     Each issue is ``{level: "warning"|"error", message, where, index?}``. The most valuable check is
@@ -245,14 +260,15 @@ def validate_definition(definition: dict | None) -> list[dict]:
     # ── Actions ───────────────────────────────────────────────────────────────
     from .engine import MAX_ACTIONS
 
+    step_limit = max_steps or MAX_ACTIONS  # the workspace's step limit when the caller knows it
     actions = definition.get("actions") or []
     if not actions:
         issues.append(_issue("warning", "This workflow has no steps, so it does nothing.", "action"))
-    elif len(actions) > MAX_ACTIONS:
+    elif len(actions) > step_limit:
         issues.append(
             _issue(
                 "warning",
-                f"This workflow has {len(actions)} steps, but only the first {MAX_ACTIONS} will run "
+                f"This workflow has {len(actions)} steps, but only the first {step_limit} will run "
                 f"(the rest are ignored). Split it into chained workflows.",
                 "action",
             )
@@ -260,10 +276,22 @@ def validate_definition(definition: dict | None) -> list[dict]:
 
     for i, act in enumerate(actions):
         issues.extend(_step_issues(act, i, "action", ttype, has_entry, subject))
+        if isinstance(act, dict) and act.get("kind") == "parallel":
+            held = len(inner_steps(act))
+            if held > step_limit:
+                issues.append(
+                    _issue(
+                        "warning",
+                        f"This parallel step's branches hold {held} steps, over this workspace's limit of {step_limit} "
+                        "steps per workflow — it will fail when it runs. Trim a branch or raise the limit.",
+                        "action",
+                        i,
+                    )
+                )
     # Steps that run when one above fails — same entry, same checks.
     on_failure = definition.get("on_failure") or []
-    if len(on_failure) > MAX_ACTIONS:
-        issues.append(_issue("warning", f"On failure has {len(on_failure)} steps, but only the first {MAX_ACTIONS} will run.", "on_failure"))
+    if len(on_failure) > step_limit:
+        issues.append(_issue("warning", f"On failure has {len(on_failure)} steps, but only the first {step_limit} will run.", "on_failure"))
     for i, act in enumerate(on_failure):
         issues.extend(_step_issues(act, i, "on_failure", ttype, has_entry, subject))
 
@@ -382,10 +410,28 @@ def _step_issues(act, i: int, where: str, ttype: str, has_entry: bool, subject: 
                 i,
             )
         )
-    if kind == "repeat":  # its inner steps get the same checks, reported at the repeat
-        for inner in act.get("steps") or []:
-            issues.extend(_step_issues(inner, i, where, ttype, has_entry, subject))
+    for _, inner in inner_steps(act):  # its inner steps get the same checks, reported at the repeat / parallel step
+        issues.extend(_step_issues(inner, i, where, ttype, has_entry, subject))
     return issues
+
+
+def inner_steps(act) -> list[tuple[str, dict]]:
+    """The steps a repeat step or a parallel step's branches hold, in order, each with its path inside the step
+    (``steps[0]``, ``branches[1].steps[0]``) — none for any other step."""
+    if not isinstance(act, dict):
+        return []
+    if act.get("kind") == "repeat":
+        held = [(f"steps[{j}]", s) for j, s in enumerate(act.get("steps") or [])]
+    elif act.get("kind") == "parallel":
+        held = [
+            (f"branches[{b}].steps[{j}]", s)
+            for b, branch in enumerate(act.get("branches") or [])
+            if isinstance(branch, dict)
+            for j, s in enumerate(branch.get("steps") or [])
+        ]
+    else:
+        return []
+    return [(path, s) for path, s in held if isinstance(s, dict)]
 
 
 # ── Queries and item targets ─────────────────────────────────────────────────

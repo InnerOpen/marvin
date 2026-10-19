@@ -10,7 +10,7 @@ function el(tag: string, className: string, text?: string): HTMLElement {
 }
 
 /** `<div class="metadata-preview">`: a title and a `<dl>` with one key/value item per entry. */
-export function metadataPreview(entries: [string, unknown][]): HTMLElement {
+function metadataPreview(entries: [string, unknown][]): HTMLElement {
   const list = el("dl", "metadata-preview-list");
   for (const [key, value] of entries) {
     const display = typeof value === "object" ? JSON.stringify(value, null, 2) : String(value);

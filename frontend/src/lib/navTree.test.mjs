@@ -82,6 +82,7 @@ describe("nav map", () => {
       }),
       [
         { label: "Settings", href: "/workspace/settings" },
+        { label: "Automation", href: "/workspace/settings?tab=automation" },
         { label: "Events", href: "/automation/events" },
         { label: "Entry published", href: "/automation/events/entry_published" },
       ],
