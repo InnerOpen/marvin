@@ -1,0 +1,11 @@
+---
+import ErrorPage from "@/components/ErrorPage.astro";
+
+export const prerender = false;
+
+// Astro passes the thrown error; it goes to the server log, never onto the page.
+const { error } = Astro.props;
+console.error("[500]", Astro.url.pathname, error);
+---
+
+<ErrorPage code={500} title="Something went wrong" message="Marvin hit an error showing this page. Try again in a moment; if it keeps happening, let your administrator know." retry />

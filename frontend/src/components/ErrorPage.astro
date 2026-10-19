@@ -1,0 +1,148 @@
+---
+// Marvin's own error page (pages/404.astro, pages/500.astro): the sign-in card's look, no API calls — it must render
+// when the API is what failed.
+import ThemeInit from "@/components/ThemeInit.astro";
+import "../styles/global.css";
+
+interface Props {
+  code: number;
+  title: string;
+  message: string;
+  /** "reload" for an error that may pass (a 500): offers Try again before Go to the dashboard. */
+  retry?: boolean;
+}
+
+const { code, title, message, retry = false } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <ThemeInit />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>{`${title} | Marvin`}</title>
+  </head>
+  <body class="error-page">
+    <main class="error-card">
+      <div class="brand-logo">
+        <strong>Marvin</strong>
+        <span>Content engine</span>
+      </div>
+      <p class="error-code">{code}</p>
+      <h1>{title}</h1>
+      <p class="error-message">{message}</p>
+      <div class="error-actions">
+        {retry && <button type="button" class="button primary" onclick="location.reload()">Try Again</button>}
+        <a href="/" class:list={["button", retry ? "secondary" : "primary"]}>Go to the Dashboard</a>
+        <button type="button" class="button secondary" onclick="history.length > 1 ? history.back() : (location.href = '/')">Go Back</button>
+      </div>
+    </main>
+  </body>
+</html>
+
+<style>
+  .error-page {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(135deg, #1e2725 0%, #2f4a47 100%);
+    padding: 2rem 1rem;
+    margin: 0;
+  }
+
+  .error-card {
+    width: 100%;
+    max-width: 26rem;
+    box-sizing: border-box;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 2.5rem;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    text-align: center;
+  }
+
+  .brand-logo {
+    display: grid;
+    gap: 4px;
+    margin-bottom: 1.5rem;
+  }
+
+  .brand-logo strong {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--ink);
+  }
+
+  .brand-logo span {
+    font-size: 14px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+  }
+
+  .error-code {
+    margin: 0;
+    font-size: 56px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--accent);
+  }
+
+  h1 {
+    margin: 0.75rem 0 0.5rem;
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .error-message {
+    margin: 0 0 1.75rem;
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  .error-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .button {
+    width: 100%;
+    padding: 0.875rem 1.5rem;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 15px;
+    cursor: pointer;
+    text-align: center;
+    text-decoration: none;
+    box-sizing: border-box;
+    font-family: inherit;
+  }
+
+  .button.primary {
+    background: var(--accent);
+    color: white;
+    border: none;
+  }
+
+  .button.secondary {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--line);
+  }
+
+  .button.secondary:hover {
+    background: var(--panel-2);
+    color: var(--ink);
+  }
+
+  @media (max-width: 480px) {
+    .error-card {
+      padding: 2rem 1.5rem;
+    }
+  }
+</style>
