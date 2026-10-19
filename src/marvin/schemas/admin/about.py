@@ -78,6 +78,17 @@ class EmbeddingsInfo(_MarvinModel):
     indexed_models: list[IndexedEmbeddingModel] = []  # Platform-wide, most chunks first; one that isn't `model` needs a reindex.
 
 
+class FeatureStatusRead(_MarvinModel):
+    """One row of Admin → Site Settings → Features Status: a feature as it is in force."""
+
+    key: str
+    label: str
+    enabled: bool  # In force now: the Admin setting where one exists, else the environment's; and able to run.
+    source: str  # Where that comes from: "admin" (set in the Admin UI), "environment" (env var / settings file) or "default".
+    reason: str | None = None  # Why it is off or can't run, when there is something to say.
+    manage_path: str | None = None  # The Admin page that changes it; None when only the environment can.
+
+
 class AdminAboutInfo(AppInfo):
     """
     Schema for detailed application information, extending `AppInfo` with

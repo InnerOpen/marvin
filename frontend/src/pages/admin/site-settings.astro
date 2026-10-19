@@ -43,25 +43,20 @@ const SETTING_NOTES: Record<string, string> = {
   corsOrigins: "Browser origins allowed to call the API from another host (the editor's public addresses).",
 };
 
+// Features as they are IN FORCE, and where each comes from. The settings dump below is only what the environment says;
+// remote MCP and the platform SMTP server are switched in Admin and stored in platform_settings.
+type FeatureStatus = { key: string; label: string; enabled: boolean; source: "admin" | "environment" | "default"; reason: string | null; managePath: string | null };
+const featureSettings: FeatureStatus[] = await fetchApi<FeatureStatus[]>("/api/admin/about/features-status", {}, authToken).catch(() => []);
+const SOURCE_LABELS: Record<FeatureStatus["source"], string> = { admin: "Set in Admin", environment: "From environment", default: "Default" };
+
 // Group settings by prefix
 const settingsGroups: Record<string, any> = {};
-const featureSettings: any[] = [];
 
 if (settings) {
   Object.entries(settings).forEach(([key, value]) => {
-    // Extract features (enabled/feature pairs)
-    if (key.endsWith("Enabled") || key.endsWith("Ready")) {
-      const baseName = key.replace(/Enabled$|Ready$/, "");
-      const featureKey = `${baseName}Feature`;
-      featureSettings.push({
-        name: baseName,
-        enabled: value,
-        feature: settings[featureKey],
-      });
+    // The features' flags and details are the Features Status card's (the effective list above), not this dump's.
+    if (key.endsWith("Enabled") || key.endsWith("Ready") || key.endsWith("Feature")) {
       return;
-    }
-    if (key.endsWith("Feature")) {
-      return; // Skip, handled above
     }
 
     // Group by prefix (first word before capital letter)
@@ -211,15 +206,17 @@ function toTitleCase(str: string) {
       {featureSettings.length > 0 && (
         <section class="card">
           <h3>Features Status</h3>
-          <p class="card-description">Enabled integrations and features</p>
+          <p class="card-description">What is in force now, and where each setting comes from</p>
           <div class="features-list">
-            {featureSettings.map(({name, enabled, feature}) => (
-              <div class="feature-item">
+            {featureSettings.map(({key, label, enabled, source, reason, managePath}) => (
+              <div class="feature-item" data-feature={key} data-source={source}>
                 <div class="feature-info">
-                  <span class="feature-name">{toTitleCase(name)}</span>
-                  {!enabled && feature?.description && (
-                    <span class="feature-note">{feature.description}</span>
-                  )}
+                  <span class="feature-name">{label}</span>
+                  <span class="feature-origin">
+                    {SOURCE_LABELS[source]}
+                    {managePath && <> · <a href={managePath}>Change</a></>}
+                  </span>
+                  {!enabled && reason && <span class="feature-note">{reason}</span>}
                 </div>
                 <span class={`feature-badge ${enabled ? 'enabled' : 'disabled'}`}>
                   {enabled ? '● Enabled' : '○ Disabled'}
@@ -484,6 +481,15 @@ function toTitleCase(str: string) {
   .feature-name {
     font-size: 14px;
     font-weight: 500;
+  }
+
+  .feature-origin {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .feature-origin a {
+    color: var(--accent);
   }
 
   .feature-note {

@@ -16,6 +16,7 @@ from marvin.schemas.admin.about import (  # Pydantic schemas for response models
     AppStatistics,
     CheckAppConfig,
     EmbeddingsInfo,
+    FeatureStatusRead,
 )
 from marvin.services import platform_smtp
 from marvin.services.email.email_senders import email_ready
@@ -195,6 +196,19 @@ class AdminAboutController(BaseAdminController):
 
         # Convert keys to camelCase (lowercase first since env vars are SCREAMING_SNAKE_CASE)
         return {camelize(key.lower()): value for key, value in data.items()}
+
+    @router.get("/features-status", response_model=list[FeatureStatusRead], summary="Features as they are in force (Admin)")
+    def get_features_status(self) -> list[FeatureStatusRead]:
+        """
+        Each feature's EFFECTIVE state, where it comes from and, when it is off, why.
+
+        `startup-info` is the raw settings dump (what the environment says). A feature an admin can switch in the UI
+        (remote MCP, the platform SMTP server) can differ from it, so the Features Status card reads this instead.
+        Accessible only by administrators.
+        """
+        from marvin.services.features_status import features_status_view
+
+        return [FeatureStatusRead(**row) for row in features_status_view(self.settings)]
 
     @router.get("/check", response_model=CheckAppConfig, summary="Check Application Configuration Status")
     def check_app_config(self) -> CheckAppConfig:
