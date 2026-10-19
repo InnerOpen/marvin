@@ -12,14 +12,18 @@ from fastapi import APIRouter, Depends, HTTPException, status  # Core FastAPI co
 from pydantic import UUID4  # For UUID type validation
 
 # Marvin specific schemas and services
+from marvin.db.models.groups import Groups
+from marvin.schemas.admin.workspace_deletion import WorkspaceDeletePreview, WorkspaceDeleteResult
 from marvin.schemas.group import GroupCreate, GroupPagination, GroupRead
 from marvin.schemas.group.group import GroupAdminUpdate  # Schema for updating group by admin
 from marvin.schemas.mapper import mapper  # Utility for mapping data between objects
 from marvin.schemas.response.pagination import PaginationQuery  # For handling pagination parameters
 from marvin.schemas.response.responses import ErrorResponse  # Standardized error response
+from marvin.services.group import workspace_deletion
 from marvin.services.group.group_purge import purge_group_dependents  # Clears non-cascading workspace rows
 from marvin.services.group.group_service import GroupService  # Service layer for group operations
 from marvin.services.group.workspace_rename import WorkspaceRenameError, rename_workspace
+from marvin.services.storage import deleted_workspaces
 
 # Base controller and mixin for CRUD helpers
 from .._base import BaseAdminController, controller
@@ -144,7 +148,6 @@ class AdminGroupManagementRoutes(BaseAdminController):
         # Get the underlying model instance for bootstrap
         from sqlalchemy import select
 
-        from marvin.db.models.groups import Groups
         from marvin.db.models.users.users import Users
 
         group_model = self.repos.session.execute(select(Groups).where(Groups.id == group.id)).scalar_one()
@@ -222,7 +225,6 @@ class AdminGroupManagementRoutes(BaseAdminController):
             HTTPException (404 Not Found): If the group or its preferences are not found.
             HTTPException (409 Conflict): The name or slug is taken (or was another workspace's slug).
         """
-        from marvin.db.models.groups.groups import Groups
         from marvin.db.models.groups.preferences import GroupPreferencesModel
 
         # Retrieve the existing group ORM model instance
@@ -284,31 +286,78 @@ class AdminGroupManagementRoutes(BaseAdminController):
 
         return result
 
-    @router.delete("/{item_id}", summary="Delete a Group")
-    def delete_one(self, item_id: UUID4, force: bool = False) -> dict:
+    @router.get("/{item_id}/delete-preview", response_model=WorkspaceDeletePreview, summary="Preview Deleting a Workspace")
+    def delete_preview(self, item_id: UUID4) -> WorkspaceDeletePreview:
+        """What deleting the workspace removes (members, entries, files and their size, integrations, scheduled tasks,
+        SMTP profiles, users whose home it is) and when its newest backup bundle was made. A delete needs a bundle from
+        the last 24 hours, or ``skip_backup=true``."""
+        group = self.session.get(Groups, item_id)
+        if group is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
+        data = workspace_deletion.preview(self.session, group, self.directories.BACKUP_DIR)
+        return WorkspaceDeletePreview(**data, storage_grace_days=deleted_workspaces.GRACE.days)
+
+    @router.delete("/{item_id}", response_model=WorkspaceDeleteResult, summary="Delete a Group")
+    def delete_one(
+        self,
+        item_id: UUID4,
+        confirm_name: str | None = None,
+        skip_backup: bool = False,
+        force: bool = False,
+    ) -> WorkspaceDeleteResult:
         """
         Deletes a workspace by its unique ID.
 
         Safety checks:
+        - ``confirm_name`` must equal the workspace's name (400 ``confirm_name_mismatch``)
+        - A backup bundle of it from the last 24 hours must exist (409 ``backup_required``) unless
+          ``skip_backup=true`` ("delete without a backup")
         - Cannot delete if workspace has workspace members (unless force=True)
         - Cannot delete if workspace has entries, collections, or assets (unless force=True)
+
+        The workspace's stored files are not deleted now: they are recorded and purged after a 30-day grace period
+        (Admin → Storage lists them; "purge now" or "keep"). Platform events that mention the workspace (sign-ins,
+        backups, storage changes) stay in the audit trail without a workspace; the rest of its events go with it.
+        ``workspace_deleted`` is sent after the delete, with no workspace and the workspace's name in its data.
 
         Accessible only by administrators.
 
         Args:
             item_id (UUID4): The ID of the workspace to delete.
+            confirm_name (str): The workspace's name, typed.
+            skip_backup (bool): Delete without a recent backup bundle.
             force (bool): If True, cascade delete all related content. Defaults to False.
 
         Raises:
             HTTPException (404 Not Found): If the workspace doesn't exist.
-            HTTPException (400 Bad Request): If workspace has content and force=False.
+            HTTPException (400 Bad Request): The name doesn't match, or the workspace has content and force=False.
+            HTTPException (409 Conflict): No backup bundle from the last 24 hours and skip_backup=false.
         """
-        from marvin.services.event_bus_service.event_types import EventTypes
+        from marvin.services.event_bus_service.event_types import EventOperation, EventTypes, EventWorkspaceData
 
-        # Retrieve the group to check for associated users
-        group_to_delete = self.repo.get_one(item_id)
+        group_to_delete = self.session.get(Groups, item_id)
         if not group_to_delete:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
+        name, slug = group_to_delete.name, group_to_delete.slug
+
+        if confirm_name is None or confirm_name.strip() != name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"code": "confirm_name_mismatch", "message": "Type the workspace's name exactly to confirm the delete."},
+            )
+
+        if not skip_backup:
+            last = workspace_deletion.latest_bundle_at(self.session, group_to_delete, self.directories.BACKUP_DIR)
+            if not workspace_deletion.has_recent_bundle(last):
+                hours = int(workspace_deletion.BACKUP_MAX_AGE.total_seconds() // 3600)
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "code": "backup_required",
+                        "message": f"Back up the workspace first (a bundle from the last {hours} hours), or delete without a backup.",
+                        "last_backup_at": last.isoformat() if last else None,
+                    },
+                )
 
         # Check for workspace content (if not force mode)
         if not force:
@@ -332,22 +381,34 @@ class AdminGroupManagementRoutes(BaseAdminController):
                     detail=ErrorResponse.respond(message=f"Workspace has {entry_count} entries. Use force=true to delete anyway."),
                 )
 
-        # Dispatch workspace.deleted event before deletion
-        self.event_bus.dispatch(
-            integration_id="workspace_management",
-            group_id=item_id,
-            event_type=EventTypes.workspace_deleted,
-            document_data=None,
-            message=f"Workspace '{group_to_delete.name}' deleted by {self.user.username}",
-        )
+        # Record its stored files first (the asset rows cascade away with the workspace), in the same transaction.
+        recorded = deleted_workspaces.record(self.session, group_to_delete)
 
         # `force` previously only skipped the checks above; the delete then hit a foreign key from
         # the workspace-scoped tables that don't cascade on their own, so it could never succeed.
         # Clear those first. Users are untouched: the ones with this as their home workspace lose it (users.group_id
-        # is ON DELETE SET NULL), memberships cascade.
+        # is ON DELETE SET NULL), memberships cascade. Platform events keep their audit rows, with no workspace.
         purge_group_dependents(self.repos.session, item_id)
 
         # Proceed with deletion
         self.mixins.delete_one(item_id)
         self.repos.session.commit()
-        return {"status": "ok", "message": "Workspace deleted successfully"}
+
+        # Sent after the delete, with no workspace: it is a platform event, and dispatching it for the workspace
+        # first would have purged it along with the workspace.
+        self.event_bus.dispatch(
+            integration_id="workspace_management",
+            group_id=None,
+            event_type=EventTypes.workspace_deleted,
+            document_data=EventWorkspaceData(operation=EventOperation.delete, workspace_id=item_id, workspace_name=name, workspace_slug=slug or ""),
+            message=f"Workspace '{name}' deleted by {self.user.username}" + (" without a backup" if skip_backup else ""),
+            user_id=self.user.id,
+            entity_id=item_id,
+            entity_type="workspace",
+        )
+        return WorkspaceDeleteResult(
+            status="ok",
+            message="Workspace deleted successfully",
+            storage_locations=len(recorded),
+            storage_purge_after=(recorded[0].deleted_at + deleted_workspaces.GRACE) if recorded else None,
+        )

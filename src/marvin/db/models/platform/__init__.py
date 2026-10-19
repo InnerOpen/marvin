@@ -9,6 +9,7 @@ from .character_packs import CharacterPackModel
 from .collection_assets import CollectionAssets
 from .collection_resources import CollectionResources
 from .collections import Collections
+from .deleted_workspace_storage import DeletedWorkspaceStorageModel
 from .entries import Entries
 from .entry_assets import EntryAssets
 from .entry_collections import EntryCollections
@@ -64,6 +65,7 @@ __all__ = [
     "ScheduledTaskModel",
     "SchedulerLockModel",
     "SiteRebuildRequestModel",
+    "DeletedWorkspaceStorageModel",
     "StorageKeyAliasModel",
     "SubmissionRateLimits",
     "AuthThrottleModel",

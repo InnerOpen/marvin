@@ -13,6 +13,7 @@ from pydantic import UUID4
 
 from marvin.routes._base import BaseAdminController, controller
 from marvin.schemas.admin.storage import StorageCheckResult, StorageSettingsRead, StorageSettingsUpdate, StorageWorkspaceUpdate
+from marvin.schemas.admin.workspace_deletion import DeletedWorkspaceStorageList, DeletedWorkspaceStorageRead
 from marvin.schemas.group.storage_settings import WorkspaceBucketRead, WorkspaceStoragePolicyRead, WorkspaceStoragePolicyUpdate
 from marvin.services.event_bus_service.event_types import (
     EventOperation,
@@ -134,6 +135,105 @@ class AdminStorageController(BaseAdminController):
                 entity_type="storage",
             )
         return WorkspaceStoragePolicyRead(allowed=stored["allowed"], endpoint_policy=stored["endpoint_policy"])
+
+    # ── files of deleted workspaces ──────────────────────────────────────────
+
+    def _deleted_row(self, row_id: UUID4):
+        from marvin.db.models.platform.deleted_workspace_storage import DeletedWorkspaceStorageModel
+
+        row = self.session.get(DeletedWorkspaceStorageModel, row_id)
+        if row is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No such deleted-workspace storage record.")
+        return row
+
+    @staticmethod
+    def _deleted_read(row) -> DeletedWorkspaceStorageRead:
+        from marvin.services.storage import deleted_workspaces
+
+        snapshot = row.connection
+        reachable = True
+        if row.location.startswith("ws:"):
+            reachable = bool(snapshot) and not snapshot.get("keys_missing")
+        return DeletedWorkspaceStorageRead(
+            id=row.id,
+            workspace_id=row.workspace_id,
+            workspace_name=row.workspace_name,
+            workspace_slug=row.workspace_slug,
+            location=row.location,
+            label=row.label,
+            object_count=row.object_count,
+            total_bytes=row.total_bytes,
+            deleted_at=row.deleted_at,
+            purge_after=deleted_workspaces.due_at(row),
+            state=row.state,
+            purged_objects=row.purged_objects,
+            can_purge=reachable,
+            last_error=row.last_error,
+        )
+
+    def _announce_deleted(self, row, what: str) -> None:
+        name = getattr(self.user, "full_name", None) or self.user.username
+        self.event_bus.dispatch(
+            integration_id="storage_settings",
+            group_id=None,  # a platform action: the workspace is gone
+            event_type=EventTypes.platform_settings_changed,
+            document_data=EventPlatformSettingsChangedData(
+                operation=EventOperation.update,
+                setting="deleted_workspace_storage",
+                changes=[f"{what} the files of deleted workspace '{row.workspace_name}' on {row.label or row.location}"],
+                changed_by_name=name,
+            ),
+            message=f"{what} the files of deleted workspace '{row.workspace_name}'",
+            user_id=self.user.id,
+            entity_type="storage",
+        )
+
+    @router.get("/deleted-workspaces", response_model=DeletedWorkspaceStorageList, summary="Admin: Files of Deleted Workspaces Awaiting a Purge")
+    def list_deleted_workspaces(self) -> DeletedWorkspaceStorageList:
+        """Where the files of deleted workspaces are: each is purged 30 days after the delete by the daily task, unless
+        kept. Purged records are not listed."""
+        from sqlalchemy import select
+
+        from marvin.db.models.platform.deleted_workspace_storage import STATE_PURGED, DeletedWorkspaceStorageModel
+        from marvin.services.storage import deleted_workspaces
+
+        rows = self.session.execute(
+            select(DeletedWorkspaceStorageModel)
+            .where(DeletedWorkspaceStorageModel.state != STATE_PURGED)
+            .order_by(DeletedWorkspaceStorageModel.deleted_at, DeletedWorkspaceStorageModel.workspace_name)
+        ).scalars()
+        return DeletedWorkspaceStorageList(items=[self._deleted_read(r) for r in rows], grace_days=deleted_workspaces.GRACE.days)
+
+    @router.post(
+        "/deleted-workspaces/{record_id}/purge", response_model=DeletedWorkspaceStorageRead, summary="Admin: Purge a Deleted Workspace's Files Now"
+    )
+    def purge_deleted_workspace(self, record_id: UUID4) -> DeletedWorkspaceStorageRead:
+        """Delete the recorded files now, without waiting out the grace period. They can't be recovered."""
+        from marvin.services.storage import deleted_workspaces
+
+        row = self._deleted_row(record_id)
+        if row.state == "kept":
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="These files were kept. They are not purged.")
+        try:
+            deleted_workspaces.purge(self.session, row)
+        except deleted_workspaces.PurgeError as e:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(e)) from None
+        self._announce_deleted(row, "Purged")
+        return self._deleted_read(row)
+
+    @router.post(
+        "/deleted-workspaces/{record_id}/keep", response_model=DeletedWorkspaceStorageRead, summary="Admin: Keep a Deleted Workspace's Files"
+    )
+    def keep_deleted_workspace(self, record_id: UUID4) -> DeletedWorkspaceStorageRead:
+        """Never purge these files: the daily task skips them, and they stay in storage as they are."""
+        from marvin.services.storage import deleted_workspaces
+
+        row = self._deleted_row(record_id)
+        if row.state == "purged":
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="These files were already purged.")
+        deleted_workspaces.keep(self.session, row)
+        self._announce_deleted(row, "Kept")
+        return self._deleted_read(row)
 
     @router.post("/providers/{slug}/test", response_model=StorageCheckResult, summary="Admin: Test a Storage Provider's Connection")
     def test_provider_connection(self, slug: str) -> StorageCheckResult:

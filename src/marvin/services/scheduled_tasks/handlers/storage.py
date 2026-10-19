@@ -181,3 +181,33 @@ class BackupToWorkspaceBucketHandler(ScheduledTaskHandler):
 
 
 TaskHandlerRegistry.register("backup_to_workspace_bucket", BackupToWorkspaceBucketHandler)
+
+
+class PurgeDeletedWorkspaceStorageHandler(ScheduledTaskHandler):
+    """
+    Purge the stored files of deleted workspaces whose 30-day grace period has passed. Deleting a workspace records
+    where its files are (Admin → Storage lists them with "purge now" and "keep"); this removes the ones nobody kept.
+    A location that can't be reached is retried the next day. Admin-only; runs daily.
+    """
+
+    name = "Purge Deleted Workspace Storage"
+    description = "Delete the stored files of workspaces deleted more than 30 days ago, unless an admin kept them (admin only)"
+    admin_only = True
+
+    def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
+        from marvin.db.db_setup import session_context
+        from marvin.services.storage import deleted_workspaces
+
+        if task.group_id:
+            return "Skipped: purge_deleted_workspace_storage is admin-only and cannot run in a workspace context"
+        with session_context() as session:
+            run = deleted_workspaces.purge_due(session)
+        if not (run.purged or run.failed):
+            return None  # nothing was due
+        return (
+            f"Purged {run.purged} location(s) ({run.objects} files); "
+            f"{run.failed} could not be reached and will be retried; {run.pending} still waiting"
+        )
+
+
+TaskHandlerRegistry.register("purge_deleted_workspace_storage", PurgeDeletedWorkspaceStorageHandler)

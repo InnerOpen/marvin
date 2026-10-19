@@ -51,6 +51,17 @@ SYSTEM_SCHEDULED_TASKS: list[SystemTaskDefinition] = [
         schedule_config={"interval_seconds": _HOURLY_SECONDS},
     ),
     SystemTaskDefinition(
+        slug="purge_deleted_workspace_storage",
+        name="Purge Deleted Workspace Storage",
+        task_type="purge_deleted_workspace_storage",
+        description=(
+            "Delete the stored files of workspaces deleted more than 30 days ago (platform storage and the workspace's own bucket), "
+            "unless an admin chose to keep them in Admin → Storage. Admin-only; runs daily."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _DAILY_SECONDS},
+    ),
+    SystemTaskDefinition(
         slug="prune_workflow_runs",
         name="Prune Workflow Runs",
         task_type="prune_workflow_runs",
