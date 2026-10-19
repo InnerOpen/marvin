@@ -1,5 +1,6 @@
 """AI providers as plugins (services/ai/registry.py): core ships none (slice 5, 2026-10-11) — every vendor is an
-installed `marvin.ai_providers` plugin (marvin-ai-openai, -anthropic, -google, -ollama), unknown slugs refused, and everything that reads the registry — the
+installed `marvin.ai_providers` plugin (marvin-ai-openai, -anthropic, -google, -ollama), unknown slugs refused, and
+everything that reads the registry — the
 factory's credential modes, prices, embedding and model defaults, the provider-types list, the admin
 Plugins page and the startup check. The fake provider is the SDK's (`marvin_integration_sdk.ai.fake`):
 no vendor, no network."""

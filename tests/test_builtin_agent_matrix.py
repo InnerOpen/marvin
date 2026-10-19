@@ -65,7 +65,9 @@ def test_only_persona_built_ins_have_an_editable_matrix():
 
 
 def test_stored_overrides_are_cleaned_on_read():
-    settings = SimpleNamespace(agent_tool_policies={"marvin": {"links": "block", "x": "maybe", "y": 3}, "chat": {"a": "allow"}, "ghost": {"a": "allow"}})
+    settings = SimpleNamespace(
+        agent_tool_policies={"marvin": {"links": "block", "x": "maybe", "y": 3}, "chat": {"a": "allow"}, "ghost": {"a": "allow"}}
+    )
     assert agents.builtin_policy_override(settings, "marvin") == {"links": "block"}
     assert agents.builtin_policy_override(settings, "chat") is None
     assert agents.builtin_policy_override(SimpleNamespace(agent_tool_policies="junk"), "marvin") is None
@@ -146,7 +148,15 @@ def test_overrides_are_per_agent_and_reset_separately(workspace):
 
 @pytest.mark.parametrize(
     "body",
-    [{"name": "Bob"}, {"systemPrompt": "x"}, {"modelOverride": "m"}, {"enabled": False}, {"allowWrites": False}, {"name": "Bob", "toolPolicy": {"links": "block"}}, {}],
+    [
+        {"name": "Bob"},
+        {"systemPrompt": "x"},
+        {"modelOverride": "m"},
+        {"enabled": False},
+        {"allowWrites": False},
+        {"name": "Bob", "toolPolicy": {"links": "block"}},
+        {},
+    ],
 )
 def test_only_the_matrix_of_a_built_in_is_editable(workspace, body):
     res = _patch(workspace, "marvin", body)
@@ -256,7 +266,9 @@ def test_bubble_and_ask_page_bind_the_stored_override(ctl):
 
 def test_a_delegated_child_runs_with_its_stored_override(ctl):
     _store(ctl, "ask", {"search_docs": "block"})
-    run = ctl._delegate_runner(parent_thread=None, parent_body=bub._body("ask_page", None), parent_execution=SimpleNamespace(id=uuid.uuid4()), on_event=None)
+    run = ctl._delegate_runner(
+        parent_thread=None, parent_body=bub._body("ask_page", None), parent_execution=SimpleNamespace(id=uuid.uuid4()), on_event=None
+    )
     res = run("ask", "what's in the workspace?")
     assert "error" not in res, res
     assert "search_docs" not in ctl.loop.tools[-1] and "search_content" in ctl.loop.tools[-1]
@@ -301,7 +313,9 @@ def test_the_bulk_gate_still_applies_under_a_stored_allow(db_session, ws):
     from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
 
     gid, ids = ws
-    db_session.add(WorkspaceAISettingsModel(session=db_session, group_id=gid, agent_tool_policies={"marvin": {"links": "allow", "attach_tag": "allow"}}))
+    db_session.add(
+        WorkspaceAISettingsModel(session=db_session, group_id=gid, agent_tool_policies={"marvin": {"links": "allow", "attach_tag": "allow"}})
+    )
     db_session.commit()
     try:
         assert agents.resolve_agent(db_session, gid, "marvin").tool_policy_overridden
