@@ -2,9 +2,9 @@ from logging import Logger
 
 from pydantic import ConfigDict
 
-from marvin.core.config import get_app_dirs, get_app_plugins, get_app_settings
+from marvin.core.config import get_app_dirs, get_app_settings
 from marvin.core.root_logger import get_logger
-from marvin.core.settings import AppPlugins, AppSettings
+from marvin.core.settings import AppSettings
 from marvin.core.settings.directories import AppDirectories
 
 
@@ -12,7 +12,6 @@ class BaseClient:
     _logger: Logger | None = None
     _settings: AppSettings | None = None
     _directories: AppDirectories | None = None
-    _plugins: AppPlugins | None = None
 
     @property
     def logger(self) -> Logger:
@@ -46,17 +45,6 @@ class BaseClient:
         if not self._directories:
             self._directories = get_app_dirs()
         return self._directories
-
-    @property
-    def plugins(self) -> AppPlugins:
-        """
-        Provides access to the Marvin application plugins.
-
-        Initializes plugins on first access.
-        """
-        if not self._plugins:
-            self._plugins = get_app_plugins()
-        return self._plugins
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
     """Pydantic model configuration to allow arbitrary types."""

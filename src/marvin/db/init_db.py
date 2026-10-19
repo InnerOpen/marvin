@@ -3,9 +3,8 @@ This module handles the initialization and migration of the Marvin database.
 
 It includes functions to:
 - Connect to the database.
-- Run Alembic migrations for the main application and any installed plugins.
+- Run Alembic migrations for the main application.
 - Initialize default data (e.g., default group and user).
-- Initialize plugin-specific database schemas.
 - Apply any necessary data fixes after migrations.
 """
 
@@ -21,7 +20,7 @@ from alembic.runtime import migration
 from sqlalchemy import engine, orm, text, update
 
 from marvin.core import root_logger
-from marvin.core.config import AppPlugins, get_app_plugins, get_app_settings
+from marvin.core.config import get_app_settings
 from marvin.db.db_setup import session_context
 from marvin.db.fixes.fix_migration_data import fix_migration_data
 from marvin.db.models.groups import Groups
@@ -38,33 +37,6 @@ from marvin.services.seeders.seeder_service import SeederService
 PROJECT_DIR = Path(__file__).parent.parent
 
 logger = root_logger.get_logger()
-
-
-def init_plugin_db(session: orm.Session, plugins: AppPlugins) -> None:
-    """
-    Initialize the database for all registered and enabled plugins.
-
-    This function is called after the main application database has been initialized
-    and migrated. It iterates through loaded plugins and calls their respective
-    `init_db` functions if they exist.
-
-    Args:
-        session (orm.Session): The active SQLAlchemy session.
-        plugins (AppPlugins): An AppPlugins instance containing loaded plugins.
-    """
-    settings = get_app_settings()
-    if settings.PLUGIN_ENABLED:
-        logger.info("-------Plugins: Init DB-------")
-        for plugin_name, plugin in plugins.LOADED_PLUGINS.items():
-            logger.debug(f"-------Initializing Plugin DB: {plugin_name}-------")
-            plugin_dir = Path(os.path.dirname(plugin.__file__ or ""))
-            plugin_db_path = str(plugin_dir / "db" / "init_db.py")
-
-            if os.path.isfile(plugin_db_path):
-                logger.debug(f"-------Loading Plugin DB: {plugin_name}-------")
-                plugin.init_db(session)
-            else:
-                logger.debug(f"-------Plugin: Init_db not found: {plugin_name}-------")
 
 
 def init_db(session: orm.Session) -> None:
@@ -176,12 +148,10 @@ def connect(session: orm.Session) -> bool:
 
 def include_name(name: str, type_: str, parent_names: dict[str, Any]) -> bool:
     """
-    Alembic include_name hook to filter tables during autogeneration.
+    Alembic include_name hook to filter tables during migration checks.
 
-    This function is used by Alembic to decide which database objects should be
-    considered when generating migration scripts. It ensures that tables not
-    defined in the main SQLAlchemy metadata or plugin metadata (identified by
-    a prefix) are ignored, preventing accidental dropping of unknown tables.
+    Only tables defined in the main SQLAlchemy metadata are considered, so unknown tables
+    are ignored rather than treated as drift.
 
     Args:
         name (str): The name of the database object (e.g., table name).
@@ -191,26 +161,10 @@ def include_name(name: str, type_: str, parent_names: dict[str, Any]) -> bool:
     Returns:
         bool: True if the object should be included, False otherwise.
     """
-    # TODO: This function relies on global `target_metadata` and `PLUGIN_PREFIX`
-    # which are not defined in this file. This might indicate a refactoring need
-    # or that these are expected to be globally available in the Alembic context.
-    # For now, assuming they are available in the execution scope of Alembic.
     if type_ == "table":
-        # Dynamically get target_metadata and PLUGIN_PREFIX if possible, or log a warning
-        try:
-            # This is a placeholder for how these might be accessed.
-            # The actual mechanism might be different in Alembic's execution context.
-            from marvin.db.models import SqlAlchemyBase as Base  # Assuming Base has the metadata
+        from marvin.db.models import SqlAlchemyBase as Base
 
-            target_metadata = Base.metadata
-            # PLUGIN_PREFIX would likely come from settings or another global config
-            settings = get_app_settings()
-            PLUGIN_PREFIX = settings.PLUGIN_PREFIX
-            return name in target_metadata.tables or name.startswith(PLUGIN_PREFIX or "")
-        except ImportError:
-            logger.warning("Could not import Base for target_metadata in include_name hook.")
-            # Fallback or stricter behavior might be needed
-            return False  # Or True, depending on desired safety if metadata can't be checked
+        return name in Base.metadata.tables
     return True
 
 
@@ -277,15 +231,13 @@ def main() -> None:
 
     This function performs the following steps:
     1. Waits for a successful database connection.
-    2. Gathers Alembic configuration paths for the main app and all plugins.
+    2. Gathers Alembic configuration paths for the main app.
     3. For each Alembic configuration:
-        - Sets up plugin-specific script locations and version tables if needed.
         - Checks if the database is at the latest revision.
         - If not, runs `alembic upgrade head`.
     4. Creates PostgreSQL extensions if using PostgreSQL.
     5. Applies any data fixes using `fix_migration_data`.
     6. If the database is new (no users), initializes it with `init_db`.
-    7. Initializes plugin databases using `init_plugin_db`.
 
     Raises:
         ConnectionError: If the database connection cannot be established after multiple retries.
@@ -312,29 +264,11 @@ def main() -> None:
 
         alembic_cfg_paths = {"main": os.getenv("ALEMBIC_CONFIG_FILE", default=str(PROJECT_DIR / "alembic.ini"))}
 
-        if settings.PLUGIN_ENABLED:
-            logger.info("-------Plugins Alembic Enabled-------")
-            plugins = get_app_plugins(settings.PLUGIN_PREFIX)
-            for plugin_name, plugin in plugins.LOADED_PLUGINS.items():
-                PLUGIN_DIR = Path(os.path.dirname(plugin.__file__ or ""))
-                plugin_alembic_path = str(PLUGIN_DIR / "alembic.ini")
-
-                if os.path.isfile(plugin_alembic_path):
-                    plugin_name = plugin.__meta__["name"]
-                    logger.debug(f"-------Adding Plugin Alembic: {plugin_name}-------")
-                    alembic_cfg_paths.update({f"{plugin.__meta__['name']}": plugin_alembic_path})
-
         for name, alembic_cfg_path in alembic_cfg_paths.items():
             if not os.path.isfile(alembic_cfg_path):
                 raise Exception("Provided alembic config path doesn't exist")
 
             alembic_cfg = Config(alembic_cfg_path)
-            if name != "main" and os.path.isdir(str(PLUGIN_DIR / "alembic")):
-                VERSION_TABLE = f"{name}_alembic_version"
-                alembic_cfg.set_main_option("script_location", str(PLUGIN_DIR / "alembic"))
-                alembic_cfg.set_main_option("version_table", VERSION_TABLE)
-                alembic_cfg.set_main_option("include_name", "include_name")
-
             if db_is_at_head(alembic_cfg):
                 logger.debug(f"Migration not needed for {name}.")
             elif not get_app_settings().AUTO_MIGRATE:
@@ -366,6 +300,3 @@ def main() -> None:
             logger.info("Main Database contains no users initializing...")
             init_db(session)
         log_name_hint(session, settings.DEFAULT_GROUP)
-
-        if settings.PLUGIN_ENABLED:
-            init_plugin_db(session, plugins)

@@ -132,12 +132,6 @@ class AppStartupInfo(_MarvinModel):
     openai_feature: FeatureStatus | None = None
     """Detailed OpenAI feature status."""
 
-    # Plugin System
-    plugin_enabled: bool = False
-    """Whether the plugin system is enabled."""
-    plugin_feature: FeatureStatus | None = None
-    """Detailed plugin feature status."""
-
 
 class AdminAboutInfo(AppInfo):  # Note: This extends the AppInfo defined *in this file*.
     """

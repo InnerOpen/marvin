@@ -740,34 +740,6 @@ class AppSettings(BaseSettings):
     """# Default identifier for integrations if not specified when creating an API token."""
 
     # ===============================================
-    # Plugin Configurtion
-
-    PLUGIN_PREFIX: str | None = "marvin_"
-
-    @property
-    def PLUGIN_ENABLED(self) -> bool:
-        """Indicates if Plugin is configured and enabled."""
-        return self.PLUGIN_FEATURE.enabled
-
-    @property
-    def PLUGIN_FEATURE(self) -> FeatureDetails:
-        """Details about the PLUGIN feature status"""
-        description = None
-        required = {
-            "PLUGIN_PREFIX": self.PLUGIN_PREFIX,
-        }
-
-        not_none = None not in required.values()
-        if not not_none and not description:
-            missing_values = [key for (key, value) in required.items() if value is None]
-            description = f"Missing required values for {missing_values}"
-
-        return FeatureDetails(
-            enabled=not_none,
-            description=description,
-        )
-
-    # ===============================================
     # Email Configuration
 
     EMAIL_TEMPLATE: str = "branded.html"

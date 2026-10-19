@@ -13,9 +13,6 @@ from pydantic import ConfigDict
 
 # Marvin core components for accessing application-wide configurations and utilities
 from marvin.core.config import AppDirectories, AppSettings, get_app_dirs, get_app_settings
-
-# get_app_plugins was imported but not used in BaseService.
-# from marvin.core.config import get_app_plugins
 from marvin.core.root_logger import get_logger  # For obtaining a logger instance
 
 

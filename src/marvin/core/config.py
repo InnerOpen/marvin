@@ -6,7 +6,7 @@ import dotenv
 
 from marvin.core.settings import app_plugin_settings_constructor, app_settings_constructor
 
-from .settings import AppDirectories, AppPlugins, AppSettings, PluginSettings
+from .settings import AppDirectories, AppSettings, PluginSettings
 
 CWD = Path(__file__).parent
 BASE_DIR = Path(os.getenv("BASE_DIR", CWD.parent.parent))
@@ -91,9 +91,3 @@ def get_app_plugin_settings(
         data_dir=determine_data_dir(),
         settings_class=settings_class,
     )
-
-
-@lru_cache
-def get_app_plugins(plugin_prefix: str) -> AppPlugins:
-    """Get the application plugins."""
-    return AppPlugins(determin_plugin_dir(), plugin_prefix)

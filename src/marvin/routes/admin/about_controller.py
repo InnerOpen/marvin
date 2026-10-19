@@ -196,8 +196,6 @@ class AdminAboutController(BaseAdminController):
         data["OIDC_FEATURE"] = settings.OIDC_FEATURE._asdict() if settings.OIDC_FEATURE else None
         data["OPENAI_ENABLED"] = settings.OPENAI_ENABLED
         data["OPENAI_FEATURE"] = settings.OPENAI_FEATURE._asdict() if settings.OPENAI_FEATURE else None
-        data["PLUGIN_ENABLED"] = settings.PLUGIN_ENABLED
-        data["PLUGIN_FEATURE"] = settings.PLUGIN_FEATURE._asdict() if settings.PLUGIN_FEATURE else None
 
         # Convert keys to camelCase (lowercase first since env vars are SCREAMING_SNAKE_CASE)
         return {camelize(key.lower()): value for key, value in data.items()}
