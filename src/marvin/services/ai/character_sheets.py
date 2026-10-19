@@ -14,7 +14,7 @@ Two kinds of sheet are recognised, strictly — anything else stays an ordinary 
 
 Either way the pack is fitted: built at the largest height (from the recipe's down) at which no frame is cut off.
 Each animation is a list of square RGBA frames named like the uploader's aliases (idle, waving, peek-left…), so
-encoded as GIFs (gif_bytes) they fill every state. The dev kit (src/dev/character_kit) is a command line over this.
+encoded as GIFs (gif_bytes) they fill every state. The dev kit (src/dev/character_kit) only writes the prompts for the sheets.
 """
 
 from __future__ import annotations

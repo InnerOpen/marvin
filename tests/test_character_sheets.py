@@ -1,6 +1,6 @@
 """services/ai/character_sheets.py: ONE character sheet — a 16-pose sheet on a flat colour, or a ChatGPT pet sheet —
 becomes a whole bubble-character pack, fitted to the frame; anything else is recognised as not a sheet. (The dev kit's
-command lines over it are tests/test_character_kit.py; an upload of a sheet is tests/test_assistant_character.py.)"""
+prompt writer is tests/test_character_kit.py; an upload of a sheet is tests/test_assistant_character.py.)"""
 
 import io
 
