@@ -1266,7 +1266,7 @@ plugins = [
     { name = "marvin-integration-openai-images", git = "https://github.com/InnerOpen/marvin-integration-openai-images?rev=v0.4.0" },
     { name = "marvin-integration-slack", git = "https://github.com/InnerOpen/marvin-integration-slack?rev=v0.5.0" },
     { name = "marvin-integration-square", git = "https://github.com/InnerOpen/marvin-integration-square?rev=v0.5.0" },
-    { name = "marvin-storage-s3", git = "https://github.com/InnerOpen/marvin-storage-s3?rev=v0.3.0" },
+    { name = "marvin-storage-s3", git = "https://github.com/InnerOpen/marvin-storage-s3?rev=v0.4.0" },
 ]
 vault = [{ name = "hvac", specifier = ">=2.0" }]
 
@@ -1378,8 +1378,8 @@ dependencies = [
 
 [[package]]
 name = "marvin-storage-s3"
-version = "0.3.0"
-source = { git = "https://github.com/InnerOpen/marvin-storage-s3?rev=v0.3.0#3505360394a277f9ba03fd41ef5d932ba489e58a" }
+version = "0.4.0"
+source = { git = "https://github.com/InnerOpen/marvin-storage-s3?rev=v0.4.0#ef9ef911a37a9fa5494764ca01a2abaf80a46b57" }
 dependencies = [
     { name = "boto3" },
     { name = "marvin-integration-sdk" },
