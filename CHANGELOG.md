@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.3 (2026-10-19)
+
+### Features
+
+- **workflows**: Call a web API step (request)
+  ([`3e06382`](https://github.com/InnerOpen/marvin/commit/3e06382c4fdafbe6c29aa3d74059e34f0b75c47f))
+
+- **workflows**: Template filters
+  ([`4ce0d5e`](https://github.com/InnerOpen/marvin/commit/4ce0d5eb0ae6bac76c01927f1fa17d1f877e6c13))
+
+
 ## v1.1.0-rc.2 (2026-10-19)
 
 ### Bug Fixes
