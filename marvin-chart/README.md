@@ -415,13 +415,13 @@ If data corruption or migration issues occur:
 # 1. Scale down application
 oc scale deployment/marvin --replicas=0
 
-# 2. Restore database backup (see ROLLBACK_PROCEDURES.md)
+# 2. Restore database backup (see docs/manual/reference/rollback-procedures.md)
 
 # 3. Rollback Helm release
 helm rollback marvin -n marvin-prod
 ```
 
-See `ROLLBACK_PROCEDURES.md` for detailed rollback instructions.
+See [docs/manual/reference/rollback-procedures.md](../docs/manual/reference/rollback-procedures.md) for detailed rollback instructions.
 
 ## Monitoring
 
@@ -539,8 +539,8 @@ helm package ./marvin-chart
 
 For issues and questions:
 - GitHub: https://github.com/InnerOpen/marvin/issues
-- Documentation: See `HELM_DEPLOYMENT_GUIDE.md`
-- Rollback procedures: See `ROLLBACK_PROCEDURES.md`
+- Documentation: See [docs/manual/reference/helm-deployment-guide.md](../docs/manual/reference/helm-deployment-guide.md)
+- Rollback procedures: See [docs/manual/reference/rollback-procedures.md](../docs/manual/reference/rollback-procedures.md)
 
 ## License
 

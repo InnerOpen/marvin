@@ -11,7 +11,7 @@ In scope:
   /api/platform/, /api/automations, /api/incoming-webhooks and /api/ai/;
 - every route, reads included, on the admin-only settings controllers (SETTINGS_MODULES). Their reads
   expose workspace configuration (webhook headers, SMTP hosts, invite tokens, backups, AI provider
-  keys, workflows), and docs/admin-model.md says they refuse lower roles for reads as well as writes.
+  keys, workflows), and docs/manual/reference/admin-model.md says they refuse lower roles for reads as well as writes.
 
 Each in-scope route must enforce a workspace role, or be listed in OPEN_ROUTES with a reason.
 
@@ -97,7 +97,7 @@ OPEN_ROUTES = {
     ("GET", "/api/groups/integrations/providers/{slug}/logo"): "provider logo on the public router: <img> tags can't send a token",
     ("GET", "/api/groups/webhooks/types"): "event-type list for pickers; no webhook config in it",
     ("GET", "/api/platform/scheduled-tasks/task-types"): "task-type catalog for pickers; admin_only types are refused on create",
-    ("GET", "/api/groups/secrets/slugs"): "slug names only, no values: {{SLUG}} autocomplete (docs/admin-model.md keeps it open)",
+    ("GET", "/api/groups/secrets/slugs"): "slug names only, no values: {{SLUG}} autocomplete (docs/manual/reference/admin-model.md keeps it open)",
     ("POST", "/api/platform/entries/query"): "a read sent as POST (the conditions are a JSON body): any member, as GET /api/platform/entries",
     # AI: member-level by design. Running agents and operations is gated per agent/operation/tool by the
     # permission matrix (min_role, invocation sources), which the inline checks and may_talk cover.

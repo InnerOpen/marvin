@@ -420,7 +420,7 @@ Site clients (API tokens for publishing) are:
 - Can only see published content
 - Cannot impersonate users or access admin APIs
 
-See: `docs/site-clients-and-publishing.md`
+See: [Publishing API](publishing-api.md) and [Publishing API (guide)](../whats-new/publishing-api.md)
 
 ## Migration Path
 
@@ -525,8 +525,7 @@ Status: `403 Forbidden`
 
 ## Related Documentation
 
-- `docs/marvin-platform-plan.md` - Platform architecture
-- `docs/site-clients-and-publishing.md` - Publishing API security model
-- `docs/platform-implementation-checklist.md` - Implementation phases
+- [Publishing API](../whats-new/publishing-api.md) - site clients and their permissions
+- [Sign-in and tokens](../auth-and-tokens.md) - roles, tokens and sign-in
 - `src/marvin/db/models/users/roles.py` - Role definitions and helper functions
 - `src/marvin/core/dependencies/dependencies.py` - Authorization dependencies

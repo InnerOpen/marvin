@@ -1,7 +1,7 @@
 # AI provider plugins — writing a model vendor for Marvin
 
 A model vendor (OpenAI, Anthropic, Google, Ollama…) is a **site-wide plugin**, like an integration
-(see INTEGRATIONS_PLUGIN_ARCHITECTURE.md) or a storage plugin. Only a platform admin installs one —
+(see [Integrations](../whats-new/integrations.md)) or a storage plugin. Only a platform admin installs one —
 in the container image or through the chart's `plugins.packages`. Every workspace can then choose it
 in **Settings → AI**, with the platform's credentials or its own. One package per vendor.
 

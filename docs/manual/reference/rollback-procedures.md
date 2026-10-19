@@ -7,7 +7,7 @@ Comprehensive rollback procedures for various failure scenarios when deploying M
 - [Quick Reference](#quick-reference)
 - [Rollback Decision Tree](#rollback-decision-tree)
 - [Procedure 1: Quick Helm Rollback (Code Only)](#procedure-1-quick-helm-rollback-code-only)
-- [Procedure 2: Full Rollback (Code + Database)](#procedure-2-full-rollback-code--database)
+- [Procedure 2: Full Rollback (Code + Database)](#procedure-2-full-rollback-code-database)
 - [Procedure 3: Emergency Rollback (Production Down)](#procedure-3-emergency-rollback-production-down)
 - [Procedure 4: Partial Rollback (Configuration Only)](#procedure-4-partial-rollback-configuration-only)
 - [Recovery Scenarios](#recovery-scenarios)
@@ -579,7 +579,7 @@ oc logs $NEW_POD | grep -i scheduler
 
 **Before production deployment, test rollback procedure:**
 
-### In Staging
+### In Dev
 
 ```bash
 # 1. Deploy to dev (marvin-dev)
@@ -744,7 +744,7 @@ Use this checklist during actual rollback:
 
 - **Helm Rollback Docs**: https://helm.sh/docs/helm/helm_rollback/
 - **OpenShift Rollback**: https://docs.openshift.com/container-platform/latest/applications/deployments/deployment-strategies.html
-- **Deployment Guide**: See `HELM_DEPLOYMENT_GUIDE.md`
+- **Deployment Guide**: [Helm deployment guide](helm-deployment-guide.md)
 - **Chart README**: See `marvin-chart/README.md`
 
 ---

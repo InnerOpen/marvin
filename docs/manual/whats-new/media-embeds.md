@@ -91,7 +91,7 @@ Both tools are in the permission matrix (`entries_author` and `entries_read`) an
 - a `link` fallback;
 - Marvin-built `html` in the site's mode.
 
-The `html` shapes and the facade's data attributes are documented in [`docs/publishing-api.md`](https://github.com/InnerOpen/marvin/blob/develop/docs/publishing-api.md#media-embeds). MarvinAstro's `renderMarkdown(source, { embeds })` swaps such paragraphs for the `html`, and its loader turns a click-to-load facade into the player.
+The `html` shapes and the facade's data attributes are documented in [Publishing API reference → Media embeds](../reference/publishing-api.md#media-embeds). MarvinAstro's `renderMarkdown(source, { embeds })` swaps such paragraphs for the `html`, and its loader turns a click-to-load facade into the player.
 
 **Entry type schema.** A markdown field takes `autoEmbed: false` to keep its links plain. The new `embed` field is `{ "key": "video", "label": "Video", "type": "embed", "providers": ["youtube", "vimeo"] }`, and its value is the link.
 

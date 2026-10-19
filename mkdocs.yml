@@ -74,6 +74,13 @@ nav:
   - A workspace's own storage: workspace-storage.md
   - SQLite: sqlite.md
   - Postgres: postgres.md
+  - Reference:
+      - Publishing API: reference/publishing-api.md
+      - Entry type fields: reference/entry-type-fields.md
+      - Roles and permissions: reference/admin-model.md
+      - Helm deployment guide: reference/helm-deployment-guide.md
+      - Rollback procedures: reference/rollback-procedures.md
+      - AI provider plugins: reference/ai-provider-plugins.md
   - Glossary: glossary.md
   - API Reference: api/index.md
   - SDK: https://inneropen.github.io/marvin/sdk/

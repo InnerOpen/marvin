@@ -44,9 +44,9 @@ Complete step-by-step guide for deploying Marvin to OpenShift using Helm.
 
 ### Database engine
 
-The chart's default is **SQLite**: a file (`marvin.db`) on the data volume, one API replica, no operator, no credentials. Deploys use the `Recreate` strategy, so they have a short downtime, and the data volume must be block storage, not NFS (see [SQLite](manual/sqlite.md)). The chart refuses more than one replica, or no persistence, with `config.dbEngine: sqlite`.
+The chart's default is **SQLite**: a file (`marvin.db`) on the data volume, one API replica, no operator, no credentials. Deploys use the `Recreate` strategy, so they have a short downtime, and the data volume must be block storage, not NFS (see [SQLite](../sqlite.md)). The chart refuses more than one replica, or no persistence, with `config.dbEngine: sqlite`.
 
-**Postgres** is what the environment values files use (`values-iwobble.yaml`, `values-dev.yaml`, `values-production.yaml`, `values-k8s.yaml`): each pins `config.dbEngine: postgres` and `postgres.cluster.enabled: true` (a CloudNativePG cluster; the operator must be installed first, see [Postgres](manual/postgres.md)). Use it for more than one replica, rolling deploys, or storage that cannot host SQLite. CI renders every values file and fails if one loses its Postgres pin, because an environment that falls back to the default would start on an empty SQLite file.
+**Postgres** is what the environment values files use (`values-iwobble.yaml`, `values-dev.yaml`, `values-production.yaml`, `values-k8s.yaml`): each pins `config.dbEngine: postgres` and `postgres.cluster.enabled: true` (a CloudNativePG cluster; the operator must be installed first, see [Postgres](../postgres.md)). Use it for more than one replica, rolling deploys, or storage that cannot host SQLite. CI renders every values file and fails if one loses its Postgres pin, because an environment that falls back to the default would start on an empty SQLite file.
 
 ---
 
@@ -103,10 +103,7 @@ oc cluster-info
 ### 3. Create Project Namespace
 
 ```bash
-# Development
-oc new-project marvin-dev
-
-# Staging
+# Development (also the pre-production environment: there is no separate staging)
 oc new-project marvin-dev
 
 # Production
@@ -208,9 +205,9 @@ helm upgrade --install marvin ./marvin-chart \
 oc get pods -w
 ```
 
-### Staging Deployment
+### Dev Deployment
 
-Staging deployment with git SHA tagging:
+Deploying to dev with git SHA tagging:
 
 ```bash
 # Switch to the dev project
@@ -679,7 +676,7 @@ oc apply -f backup-cronjob.yaml
 
 ## Troubleshooting
 
-See `ROLLBACK_PROCEDURES.md` for detailed troubleshooting and rollback procedures.
+See [Rollback procedures](rollback-procedures.md) for detailed troubleshooting and rollback procedures.
 
 ### Quick Fixes
 
@@ -715,8 +712,7 @@ helm uninstall marvin -n marvin-prod  # Nuclear option
 - **Helm Documentation**: https://helm.sh/docs/
 - **OpenShift Documentation**: https://docs.openshift.com/
 - **Chart README**: See `marvin-chart/README.md`
-- **Rollback Guide**: See `ROLLBACK_PROCEDURES.md`
-- **Implementation Details**: See `IMPLEMENTATION_SUMMARY.md`
+- **Rollback Guide**: [Rollback procedures](rollback-procedures.md)
 
 ---
 
@@ -727,4 +723,4 @@ For issues:
 2. Check Helm release: `helm status marvin`
 3. Check events: `oc get events --sort-by='.lastTimestamp'`
 4. Review migration logs: `oc logs job/$MIGRATION_JOB`
-5. Consult ROLLBACK_PROCEDURES.md if rollback needed
+5. Consult [Rollback procedures](rollback-procedures.md) if rollback needed

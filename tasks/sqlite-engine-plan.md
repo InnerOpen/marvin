@@ -101,7 +101,7 @@ up → down → up on a SQLite file.
 - `docs.yml:73`, `sdk.yml:70`: drop placeholder `POSTGRES_*` (done: the auto rule needs none; OpenAPI spec byte-identical under `DB_ENGINE=sqlite`, `postgres` and unset).
 - Docs: `postgres.md:3,31,130` ("used when configured"; copy tool = upgrade path); `operations.md:37,69,149`
   (`DB_ENGINE`, auto rule, single replica); `offsite-backup.md:15,178,240,244` (`sqlite/` live); new
-  `docs/manual/sqlite.md` (file, WAL, no NFS, one replica, backups, moving to Postgres); `HELM_DEPLOYMENT_GUIDE.md`;
+  `docs/manual/sqlite.md` (file, WAL, no NFS, one replica, backups, moving to Postgres); `docs/manual/reference/helm-deployment-guide.md`;
   brain notes.
 
 ## 7. Rollout, verification, rollback

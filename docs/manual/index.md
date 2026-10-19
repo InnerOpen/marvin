@@ -46,13 +46,15 @@ The admin sidebar shows **Dashboard**, **Ask**, **Content** (**Entries**, **Coll
 **Operators**
 
 - [Operations](operations.md): health probes, images, Helm chart, scheduler, storage, retention, backups, settings
+- [Helm deployment guide](reference/helm-deployment-guide.md) and [rollback procedures](reference/rollback-procedures.md): step-by-step deploys and recovery on OpenShift
 - [Auth and tokens](auth-and-tokens.md): sign-in providers, personal tokens, API clients, secrets
 - [Scheduled tasks](whats-new/scheduled-tasks.md)
 
 **Developers**
 
 - [API reference](api/index.md) (rendered from [`openapi.json`](openapi.json)), the [SDK](https://inneropen.github.io/marvin/sdk/) and the [CLI](https://inneropen.github.io/marvin/cli/)
-- [Publishing API](whats-new/publishing-api.md) and [Marvin as an MCP server](whats-new/marvin-as-mcp-server.md)
+- [Publishing API](whats-new/publishing-api.md) and its [endpoint reference](reference/publishing-api.md), and [Marvin as an MCP server](whats-new/marvin-as-mcp-server.md)
+- Reference: [entry type fields](reference/entry-type-fields.md), [roles and permissions](reference/admin-model.md), [AI provider plugins](reference/ai-provider-plugins.md)
 - [Workflows](whats-new/workflows.md), [incoming webhooks](whats-new/incoming-webhooks.md), [outgoing webhooks](whats-new/outgoing-webhooks.md), [integrations](whats-new/integrations.md), [blueprints](whats-new/blueprints.md)
 
 ## Repositories

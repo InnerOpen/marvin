@@ -1,4 +1,4 @@
-> **Superseded (2026-09-25):** this page predates the current API. See the manual — https://inneropen.github.io/marvin/whats-new/publishing-api/ — which follows the code.
+> The endpoint-by-endpoint reference (shapes, `expand=full`, media embeds, errors). For setup, site clients and permissions see [Publishing API](../whats-new/publishing-api.md).
 
 # Publishing API
 
@@ -429,18 +429,6 @@ Entry, collection, or asset not found or not published.
 }
 ```
 
-### 429 Too Many Requests
-
-Rate limited. Include `Retry-After` header.
-
-```json
-{
-  "error": "Too Many Requests",
-  "message": "Rate limit exceeded",
-  "retry_after": 60
-}
-```
-
 ## Response Guarantees
 
 Publishing API responses are boring and stable:
@@ -455,22 +443,11 @@ Asset responses separate reusable file metadata from entry-specific placement me
 
 This allows one uploaded asset to be reused differently across entries without duplicating the file record.
 
-## Rate Limiting
+## Rate limits and versioning
 
-Site clients are rate-limited:
-
-- Default: 1000 requests per hour per site client
-- Shared pool: Multiple tokens from same workspace share one pool
-- Header: `X-RateLimit-Remaining: 999`
-
-## Versioning
-
-API version is NOT in the URL. When breaking changes are needed:
-
-1. Add new endpoint: `/api/publish/v2/...`
-2. Keep v1 running for 6+ months
-3. Migrate site clients before deprecation
-4. Send email notifications before sunset
+The publishing read routes have no rate limit of their own (form submissions are limited per IP; see
+[Forms and submission protection](../whats-new/forms-and-submission-protection.md)), and the API has no version in its
+URL: changes to a response are listed in [What's new](../whats-new/index.md).
 
 ## Astro Integration Example
 
