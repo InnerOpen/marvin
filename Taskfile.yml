@@ -44,10 +44,9 @@ tasks:
       - rm -rf src/dev/data/.secret
 
   dev:generate:
-    desc: run code generators
+    desc: regenerate the schema package re-exports (src/marvin/schemas/*/__init__.py)
     cmds:
-      - uv run src/dev/code_generation/main.py
-      - task: py:format
+      - uv run python src/dev/code_generation/gen_py_schema_exports.py
 
   dev:refresh:
     desc: refresh marvin-dev from production's newest backup (database, outbound paused, missing assets)
@@ -72,7 +71,7 @@ tasks:
   docker:logs:
     desc: tail production stack logs
     cmds:
-      - docker compose -f docker/docker-compose.yml logs -f app
+      - docker compose -f docker/docker-compose.yml logs -f marvin
 
   docker:prod:
     desc: build and run the full production stack via compose
