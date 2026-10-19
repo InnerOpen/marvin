@@ -17,7 +17,7 @@ mp.setenv("EMBEDDINGS_BUILTIN_ENABLED", "False")
 # The suite runs on SQLite by default (decision 8 of tasks/sqlite-engine-plan.md): a file of its own per run under
 # tests/.temp, so nothing needs to be running and parallel runs never share a database. Export DB_ENGINE=postgres to run
 # it on Postgres instead: by default the dev container (docker/docker-compose.dev.yml, 127.0.0.1:5434) and its own
-# `marvin_test` database, made below if missing — so a checkout whose .env points at the real dev database never becomes
+# `marvin_test` database, made afresh below — so a checkout whose .env points at the real dev database never becomes
 # the target of a schema-dropping run (`task py:test` pins DB_ENGINE=sqlite for the same reason: it exports .env). This
 # must run before marvin.core.config is imported, since that folds .env into the environment; only already-exported
 # POSTGRES_* win (CI exports its service container's). The guard in _create_test_schema still requires a Postgres
@@ -54,16 +54,23 @@ else:
             mp.setenv(_key, _default)
     if "test" not in os.environ.get("POSTGRES_DB", "").lower():
         mp.setenv("POSTGRES_DB", "marvin_test")
-    if _XDIST_WORKER:  # a database each (made below if missing), or the workers drop each other's schema
+    if _XDIST_WORKER:  # a database each (made afresh below), or the workers drop each other's schema
         mp.setenv("POSTGRES_DB", f"{os.environ['POSTGRES_DB']}_{_XDIST_WORKER}")
 
 
-def _ensure_test_database() -> None:
-    """Create the test database on the server if it isn't there yet (a fresh dev container has only `marvin`)."""
+def _fresh_test_database() -> None:
+    """Start the run on an empty test database: drop it (whatever an earlier run left) and create it again.
+
+    Dropping the database takes no per-table locks. The schema fixture's drop_all takes one per table in one transaction,
+    and Postgres's lock table is shared by the whole server: twelve xdist workers each dropping ~200 tables at once ran
+    it out ("out of shared memory", increase max_locks_per_transaction), and the error, suppressed there, surfaced as
+    DuplicateTable when the migrations then ran on the tables still standing."""
     import psycopg2
     from psycopg2 import sql
 
     name = os.environ["POSTGRES_DB"]
+    if "test" not in name.lower():  # the guard in _create_test_schema, before anything is dropped
+        raise RuntimeError(f"refusing to recreate {name!r}: the suite only drops a database whose name says test")
     conn = psycopg2.connect(
         host=os.environ["POSTGRES_SERVER"], port=os.environ["POSTGRES_PORT"], user=os.environ["POSTGRES_USER"],
         password=os.environ["POSTGRES_PASSWORD"], dbname="postgres",
@@ -71,15 +78,14 @@ def _ensure_test_database() -> None:
     conn.autocommit = True
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (name,))
-            if cur.fetchone() is None:
-                cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+            cur.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(name)))
+            cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
     finally:
         conn.close()
 
 
 if _ENGINE == "postgres":
-    _ensure_test_database()
+    _fresh_test_database()
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -105,8 +111,9 @@ def _create_test_schema() -> Generator[None, None, None]:
             "at a dedicated DB (e.g. POSTGRES_DB=marvin_test)."
         )
 
-    with contextlib.suppress(Exception):
-        SqlAlchemyBase.metadata.drop_all(bind=engine)
+    # A no-op on the fresh database (or SQLite file) a run normally starts on; it clears an exported DB_SQLITE_PATH. Not
+    # suppressed: an error here is the real cause of whatever setup step would fail next.
+    SqlAlchemyBase.metadata.drop_all(bind=engine)
     with engine.begin() as conn:
         conn.exec_driver_sql("DROP TABLE IF EXISTS alembic_version")
 
