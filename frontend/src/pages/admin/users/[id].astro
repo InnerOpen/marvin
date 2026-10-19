@@ -242,7 +242,7 @@ const authMethods = [
             </div>
             <div class="info-item">
               <span class="info-label">Default Workspace</span>
-              <span class="info-value">{user.group || user.groupId}</span>
+              <span class={`info-value${user.groupId ? "" : " muted"}`}>{user.group || user.groupId || "No home workspace"}</span>
             </div>
             {user.lockedAt && (
               <div class="info-item">
@@ -495,6 +495,12 @@ const authMethods = [
   .info-value {
     font-size: 13px;
     font-family: monospace;
+  }
+
+  .info-value.muted {
+    color: var(--muted);
+    font-family: inherit;
+    font-style: italic;
   }
 
   .info-value.alert {

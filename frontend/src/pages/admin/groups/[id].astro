@@ -2,8 +2,7 @@
 import type { PlatformWorkspaceMember, Workspace } from "@inneropen/marvin-sdk/platform";
 import PlatformBadge from "@/components/PlatformBadge.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
-import { getAuthToken } from "@/lib/api/client";
-import { createSdkClient } from "@/lib/sdk";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
@@ -18,13 +17,11 @@ if (!id) {
   error = "Authentication required";
 } else {
   try {
-    const sdk = createSdkClient(authToken);
-
-    // Get workspace details
-    group = await sdk.workspaces.get(id);
-
-    // Get workspace members
-    members = await sdk.workspaceMembers.list(id);
+    // The admin endpoints: they work for a super admin who is in no workspace themselves.
+    [group, members] = await Promise.all([
+      fetchApi<Workspace>(`/api/admin/groups/${encodeURIComponent(id)}`, {}, authToken),
+      fetchApi<PlatformWorkspaceMember[]>(`/api/admin/workspaces/${encodeURIComponent(id)}/members`, {}, authToken),
+    ]);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
     console.error("[admin/groups] Failed to load:", error);

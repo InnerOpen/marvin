@@ -98,7 +98,7 @@ const groupMap = new Map(groups.map((g: any) => [g.id, g.name]));
                     });
                   }
 
-                  return allWorkspaces.length > 0 && (
+                  return allWorkspaces.length > 0 ? (
                     <div class="workspace-item">
                       <span class="workspace-label">Workspace Access ({allWorkspaces.length}):</span>
                       <div class="workspaces-grid">
@@ -114,6 +114,11 @@ const groupMap = new Map(groups.map((g: any) => [g.id, g.name]));
                           </div>
                         ))}
                       </div>
+                      {!user.groupId && <span class="no-home">No home workspace</span>}
+                    </div>
+                  ) : (
+                    <div class="workspace-item">
+                      <span class="no-home">No home workspace</span>
                     </div>
                   );
                 })()}
@@ -327,6 +332,14 @@ const groupMap = new Map(groups.map((g: any) => [g.id, g.name]));
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .no-home {
+    display: inline-block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--muted);
+    font-style: italic;
   }
 
   .default-indicator {

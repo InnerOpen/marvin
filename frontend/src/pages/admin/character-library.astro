@@ -43,6 +43,8 @@ const TONES = [
 ];
 
 let packs: Pack[] = [];
+// Writing bubble lines is an AI call billed to a workspace: the admin's current one, or — with none — one they pick.
+let billTo: { id: string; name: string }[] = [];
 let catalog: { key: string; aliases: string[] }[] = [];
 let error: string | null = null;
 try {
@@ -51,6 +53,11 @@ try {
     // The file names each state picks up, for the upload hint; only a hint, so a miss is fine.
     fetchApi<{ key: string; aliases: string[] }[]>("/api/groups/ai-settings/character/catalog", {}, authToken).catch(() => []),
   ]);
+  const current = await fetchApi<unknown>("/api/self/workspaces/current", {}, authToken).catch(() => undefined);
+  if (current === null) {
+    const all = await fetchApi<{ items?: { id: string; name: string }[] }>("/api/admin/groups", {}, authToken).catch(() => null);
+    billTo = all?.items ?? [];
+  }
 } catch (e) {
   console.error("[admin/character-library] Failed to load:", e);
   error = e instanceof Error ? e.message : String(e);
@@ -122,6 +129,15 @@ const nameOf = (p: Pack) => p.persona?.assistantName || p.name;
             <small class="hint">One line per row. Empty lists fall back to the bubble's own lines; <em>Write lines</em> fills them from the Character with one AI call (billed to your current workspace), for you to edit and save.</small>
             <Fragment set:html={linesFieldsHtml(p.persona?.bubbleLines, voiceFor(nameOf(p)))} />
           </div>
+          {billTo.length > 0 && (
+            <label class="form-field"><span class="label">Bill Write lines to</span>
+              <select class="input sheet-bill-to">
+                <option value="">Pick a workspace…</option>
+                {billTo.map((w) => <option value={w.id}>{w.name}</option>)}
+              </select>
+              <small class="hint">You aren't in a workspace, so pick the one the AI call is billed to.</small>
+            </label>
+          )}
           <Fragment set:html={moodFieldsHtml(p.persona?.mood)} />
           <div class="form-actions">
             <button type="button" class="button sheet-save">Save sheet</button>
@@ -220,6 +236,11 @@ const nameOf = (p: Pack) => p.persona?.assistantName || p.name;
     });
     sheet.querySelector('.sheet-generate')?.addEventListener('click', async (ev) => {
       const button = ev.currentTarget as HTMLButtonElement;
+      const billTo = sheet.querySelector<HTMLSelectElement>('.sheet-bill-to');
+      if (billTo && !billTo.value) {
+        sheetStatus.textContent = 'Pick a workspace to bill the AI call to.';
+        return;
+      }
       const current = readLines(sheet);
       if (current && !confirm('Replace the lines below with new ones written from the Character?')) return;
       sheetStatus.textContent = 'Writing lines from the Character…';
@@ -229,7 +250,11 @@ const nameOf = (p: Pack) => p.persona?.assistantName || p.name;
         const lines = await fetchApi<Record<string, string[]>>(`${API}/${id}/bubble-lines/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ assistantName: assistantName || name.value.trim(), personaPrompt: personaPrompt ?? '' }),
+          body: JSON.stringify({
+            assistantName: assistantName || name.value.trim(),
+            personaPrompt: personaPrompt ?? '',
+            ...(billTo ? { workspaceId: billTo.value } : {}),
+          }),
         });
         fillLines(sheet, lines);
         sheetStatus.textContent = 'Written — edit them, then Save sheet.';

@@ -6,8 +6,10 @@ import { getCurrentWorkspace, listWorkspaces } from "@/lib/api/workspaces";
 interface Props {
   /** Badge the platform (admin's) workspace — for platform super admins only. */
   showPlatformBadge?: boolean;
+  /** Whether the user is a platform super admin: with no workspace they can create one in Admin. */
+  isSuperAdmin?: boolean;
 }
-const { showPlatformBadge = false } = Astro.props;
+const { showPlatformBadge = false, isSuperAdmin = showPlatformBadge } = Astro.props;
 
 const authToken = getAuthToken(Astro.cookies);
 
@@ -31,6 +33,15 @@ try {
   <div class="workspace-switcher-error">
     <span class="error-icon">⚠</span>
     <span class="error-text">Workspace Error</span>
+  </div>
+) : !currentWorkspace && workspaces ? (
+  <div class="workspace-switcher no-workspace">
+    <span class="workspace-name no-workspace-name">No workspace</span>
+    {isSuperAdmin ? (
+      <a href="/admin/workspaces" class="create-workspace-link">+ Create workspace</a>
+    ) : (
+      <span class="no-workspace-hint">Waiting for an invite</span>
+    )}
   </div>
 ) : currentWorkspace && workspaces ? (
   <div class="workspace-switcher">
@@ -93,6 +104,26 @@ try {
 </script>
 
 <style>
+  .no-workspace {
+    display: grid;
+    gap: 6px;
+    padding: 10px 12px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+
+  .no-workspace-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--muted);
+  }
+
+  .no-workspace-hint {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
   .workspace-switcher {
     position: relative;
     width: 100%;

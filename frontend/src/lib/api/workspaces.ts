@@ -12,11 +12,11 @@ import { createSdkClient } from "../sdk";
 import { canAuthorContent, canEditContent, canEditEntry, canManageWorkspace } from "../workspaceRole";
 
 /**
- * Get the user's currently active workspace
+ * Get the workspace the user is working in; null when they are in none (no home, no membership).
  */
-export async function getCurrentWorkspace(authToken: string): Promise<Workspace> {
+export async function getCurrentWorkspace(authToken: string): Promise<Workspace | null> {
   const sdk = createSdkClient(authToken);
-  return sdk.workspaces.getCurrent();
+  return (await sdk.workspaces.getCurrent()) ?? null;
 }
 
 /**

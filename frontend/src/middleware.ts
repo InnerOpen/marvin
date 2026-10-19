@@ -2,6 +2,7 @@ import { defineMiddleware } from "astro:middleware";
 
 import { getCookieName, getServerApiBaseUrl } from "@/lib/api/config";
 import { expiredSessionRedirect, isExpired, sessionRejected } from "@/lib/session";
+import { needsWorkspace, noWorkspaceLanding } from "@/lib/workspaceGate";
 
 /** How long the session check may take before the page renders anyway (the API being slow isn't a sign-out). */
 const SESSION_CHECK_TIMEOUT_MS = 3000;
@@ -12,6 +13,28 @@ async function profileStatus(token: string): Promise<number> {
     signal: AbortSignal.timeout(SESSION_CHECK_TIMEOUT_MS),
   });
   return response.status;
+}
+
+/**
+ * Where a page view that needs a workspace goes when the user has none (lib/workspaceGate.ts): Admin for a super
+ * admin, else the waiting-for-an-invite page — or null to render the page as asked. One small API call, made only for
+ * pages that show a workspace's content; an API that can't answer never redirects anyone.
+ */
+async function noWorkspaceRedirect(method: string, url: URL, token: string): Promise<string | null> {
+  if ((method !== "GET" && method !== "HEAD") || !needsWorkspace(url.pathname)) return null;
+  const headers = { Authorization: `Bearer ${token}` };
+  try {
+    const current = await fetch(`${getServerApiBaseUrl()}/api/self/workspaces/current`, {
+      headers,
+      signal: AbortSignal.timeout(SESSION_CHECK_TIMEOUT_MS),
+    });
+    if (!current.ok || (await current.json()) !== null) return null;
+    const me = await fetch(`${getServerApiBaseUrl()}/api/self`, { headers, signal: AbortSignal.timeout(SESSION_CHECK_TIMEOUT_MS) });
+    const profile = me.ok ? ((await me.json()) as { platformRole?: string }) : null;
+    return noWorkspaceLanding(profile?.platformRole);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -37,6 +60,9 @@ export const onRequest = defineMiddleware(async (context, next) => {
     if (dead) {
       context.cookies.delete(getCookieName(), { path: "/" });
       if (login) return context.redirect(login, 302);
+    } else {
+      const landing = await noWorkspaceRedirect(context.request.method, context.url, token);
+      if (landing) return context.redirect(landing, 302);
     }
   }
   try {
