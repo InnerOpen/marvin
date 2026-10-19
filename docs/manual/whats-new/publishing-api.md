@@ -169,5 +169,5 @@ Endpoints predate rc.40. `data`/`description` on list items: rc.48 (`fadb3f52`).
 
 - [Collections](collections.md) — public and smart collections as served here.
 - [Media embeds](media-embeds.md) — `embeds` and `site.embeds`.
-- Design: [publishing-api.md](https://github.com/InnerOpen/marvin/blob/develop/docs/publishing-api.md), [site-clients-and-publishing.md](https://github.com/InnerOpen/marvin/blob/develop/docs/site-clients-and-publishing.md)
+- Design: [publishing-api.md](https://github.com/InnerOpen/marvin/blob/develop/docs/publishing-api.md), [site-clients-and-publishing.md](https://github.com/InnerOpen/marvin/blob/develop/docs/archive/site-clients-and-publishing.md)
 - [Glossary](../glossary.md)

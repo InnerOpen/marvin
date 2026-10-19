@@ -93,5 +93,5 @@ Builder, **Run Query**, `where` and `POST /preview`: rc.169. A scheduled publish
 - [Blueprints](blueprints.md) — the core catalog is six worked smart-rule examples.
 - [Publishing API](publishing-api.md) — how public collections are served.
 - [Integrations](integrations.md) — an integration can declare the smart collections it needs as blueprints.
-- Design: [smart-collections-explained.md](https://github.com/InnerOpen/marvin/blob/develop/docs/smart-collections-explained.md), `frontend/docs/smart-collections.md`.
+- Design: [smart-collections-explained.md](https://github.com/InnerOpen/marvin/blob/develop/docs/archive/smart-collections-explained.md), `frontend/docs/smart-collections.md`.
 - [Glossary](../glossary.md)

@@ -250,7 +250,7 @@ act push -W .github/workflows/test.yml --secret-file .env.secrets
 1. **Documentation**:
    - Read `.github/WORKFLOWS.md` for detailed explanations
    - Read `.github/SECRETS.md` for secret configuration
-   - Read `CI_CD_IMPLEMENTATION.md` for architecture overview
+   - Read `docs/archive/CI_CD_IMPLEMENTATION.md` for architecture overview
 
 2. **Workflow Logs**:
    - Go to Actions tab

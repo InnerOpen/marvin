@@ -159,4 +159,4 @@ act pull_request -W .github/workflows/pr-ci.yml
 - `.github/QUICKSTART.md` - 5-minute setup guide
 - `.github/SECRETS.md` - Detailed secrets documentation
 - `.github/WORKFLOWS.md` - Workflow explanations
-- `CI_CD_IMPLEMENTATION.md` - Complete implementation guide
+- `docs/archive/CI_CD_IMPLEMENTATION.md` - Complete implementation guide

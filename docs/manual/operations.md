@@ -39,7 +39,7 @@ The trade-off: a pod with a long run in flight takes that long to stop. Under th
 **Session signing key.** JWTs are signed with `DATA_DIR/.secret`, generated on first production start; the chart has no JWT setting. Keep `DATA_DIR` on a persistent volume or every restart invalidates sessions.
 
 !!! warning "Chart keys the app does not read"
-    `config.webhookRetryAttempts` and `config.webhookRetryDelay` land in the ConfigMap but nothing in `src/` reads them. `docs/HELM_DEPLOYMENT_GUIDE.md` and `docs/OPENSHIFT_DEPLOYMENT.md` predate this and are superseded on this point.
+    `config.webhookRetryAttempts` and `config.webhookRetryDelay` land in the ConfigMap but nothing in `src/` reads them. `docs/manual/reference/helm-deployment-guide.md` and `docs/archive/OPENSHIFT_DEPLOYMENT.md` predate this and are superseded on this point.
 
 ## Deploying
 
@@ -201,4 +201,4 @@ These are per-workspace content exports kept on the data volume. For the whole i
 | `AI_HANDOFF_MAX_DEPTH` | `1` | how deep agent hand-offs nest: `1` lets the main agent hand off to a specialist that cannot hand off further, `2` lets that specialist hand off once more; `0` turns hand-offs off. Each level runs inside the request of the level above |
 | `OIDC_*`, `LDAP_*`, `SECURITY_*`, `AUTH_COOKIE_NAME` | see [Auth and tokens](auth-and-tokens.md) | |
 
-The full list with docstrings is `src/marvin/core/settings/settings.py`; `docs/configuration-settings.md` in the repo is older and not checked against rc.186.
+The full list with docstrings is `src/marvin/core/settings/settings.py`; `docs/archive/configuration-settings.md` in the repo is older and not checked against rc.186.
