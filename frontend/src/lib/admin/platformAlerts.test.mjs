@@ -3,7 +3,17 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { buildUpdate, deliveryBadge, draftFrom, missingInputs, parseRecipients, targetKey } from "./platformAlerts.ts";
+import {
+  buildUpdate,
+  connectionPill,
+  countUrls,
+  deliveryBadge,
+  draftFrom,
+  dropRoutesOf,
+  missingInputs,
+  parseRecipients,
+  targetKey,
+} from "./platformAlerts.ts";
 
 describe("parseRecipients", () => {
   test("one per line or comma-separated, blanks dropped, repeats once", () => {
@@ -103,5 +113,29 @@ describe("routes", () => {
     assert.equal("push" in buildUpdate(base), false);
     assert.equal("push" in buildUpdate({ ...base, pushEnabled: null }), false);
     assert.deepEqual(buildUpdate({ ...base, pushEnabled: false }).push, { enabled: false });
+  });
+});
+
+describe("platform channels", () => {
+  test("a pill says on, off or plugin missing", () => {
+    assert.deepEqual(connectionPill({ available: true, enabled: true }), { label: "On", tone: "ok" });
+    assert.deepEqual(connectionPill({ available: true, enabled: false }), { label: "Off", tone: "muted" });
+    assert.deepEqual(connectionPill({ available: false, enabled: true }), { label: "Plugin missing", tone: "warn" });
+  });
+
+  test("Apprise URLs are counted one per line or comma-separated", () => {
+    assert.equal(countUrls("slack://a/b/c\n\ndiscord://x/y, tgram://t/1"), 3);
+    assert.equal(countUrls("  "), 0);
+  });
+
+  test("draft routes of a removed channel are dropped", () => {
+    const routes = [
+      { integrationId: "gone", action: "notify", args: {}, enabled: true },
+      { integrationId: "kept", action: "notify", args: {}, enabled: true },
+    ];
+    assert.deepEqual(
+      dropRoutesOf(routes, [{ id: "kept" }]).map((r) => r.integrationId),
+      ["kept"],
+    );
   });
 });

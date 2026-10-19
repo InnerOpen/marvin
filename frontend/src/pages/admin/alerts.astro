@@ -1,8 +1,8 @@
 ---
-// Admin → Platform alerts: which platform events (backups, storage, security) reach people outside
-// Marvin, and how. Email to super admins is built in; any message-capable integration action on a
-// connection in the platform workspace can be added as a route. Server strings render through Astro's
-// escaping ({...}); the script builds route rows with textContent only.
+// Admin → Alerts: which platform events (backups, storage, security) reach people outside Marvin, and how.
+// Email to super admins and push are built in; "Platform channels" are the platform's own connections (Apprise
+// first, belonging to no workspace) and any message-capable action on one can be added as a route. Server strings
+// render through Astro's escaping ({...}); the script builds channel and route rows with textContent only.
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import "@/styles/alert-settings.css";
 import { deliveryBadge } from "@/lib/admin/platformAlerts";
@@ -26,8 +26,6 @@ const email = data?.email;
 const emailBadge = deliveryBadge(email?.lastDelivery);
 const push = data?.push?.configured ? data.push : null;
 const pushBadge = deliveryBadge(push?.lastDelivery);
-const workspace = data?.platformWorkspace ?? null;
-const INTEGRATIONS_PATH = "/workspace/settings/integrations";
 ---
 
 <AdminLayout crumb="admin.alerts">
@@ -36,7 +34,7 @@ const INTEGRATIONS_PATH = "/workspace/settings/integrations";
       <h2>Platform Alerts</h2>
       <p>
         Platform events always show in a super admin's bell and on <a href="/admin/events">Events</a>. Choose which of them
-        also go out by email, push or through a chat integration, so a failed backup reaches someone who isn't looking at Marvin.
+        also go out by email, push or through a platform channel such as Apprise, so a failed backup reaches someone who isn't looking at Marvin.
         See <a href="/admin/backup-health">Backup health</a> for what the backup alerts mean.
       </p>
     </div>
@@ -69,15 +67,13 @@ const INTEGRATIONS_PATH = "/workspace/settings/integrations";
         </div>
         {email.smtpReady ? (
           <p class="lead">
-            Built in. Sent with the platform SMTP settings (<a href="/admin/email-settings">Email settings</a>), or,
-            when those aren't set, the platform workspace's active SMTP profile.
+            Built in. Sent through the platform SMTP server (<a href="/admin/email-settings">Email settings</a>): the
+            environment's settings, with anything an admin set there on top.
           </p>
         ) : (
           <p class="notice warn" role="status" data-testid="smtp-missing">
-            <strong>Email isn't set up,</strong> so email alerts are recorded as not sent. Set the platform SMTP
-            settings (<a href="/admin/email-settings">Email settings</a>), or turn on an SMTP profile in the platform
-            workspace (<a href="/workspace/settings/email/smtp">Settings → Email → SMTP</a> while in it), to start
-            sending them.
+            <strong>Email isn't set up,</strong> so email alerts are recorded as not sent. Set the platform SMTP server
+            on <a href="/admin/email-settings">Email settings</a> to start sending them.
           </p>
         )}
         <fieldset class="recipients">
@@ -123,49 +119,60 @@ const INTEGRATIONS_PATH = "/workspace/settings/integrations";
         </section>
       )}
 
-      <section class="card" data-testid="integration-routes">
-        <h3>Integrations</h3>
+      <section class="card" data-testid="platform-channels">
+        <h3>Platform channels</h3>
         {!data.integrationsAvailable ? (
-          <p class="lead">The integrations framework isn't installed on this server, so only email can carry platform alerts.</p>
-        ) : workspace === null ? (
-          <p class="notice warn" role="status">
-            There's no platform workspace, so platform alerts can't go through an integration. Email still works.
+          <p class="lead">The integrations framework isn't installed on this server, so only email and push can carry platform alerts.</p>
+        ) : data.providers.length === 0 ? (
+          <p class="notice warn" role="status" data-testid="no-providers">
+            No installed plugin can send messages. Install the Apprise integration plugin to add channels; email and push still work.
           </p>
         ) : (
           <>
             <p class="lead">
-              Integrations are connected per workspace; platform alerts use the connections in the{" "}
-              <strong>{workspace.name}</strong> workspace. Any action that can send a message — Slack's <em>Send message</em>,
-              Apprise's <em>Send notification</em>, or another plugin's — can be a route.
+              Where alerts go besides email and push. Add Apprise notification URLs — Slack, Discord, Telegram, ntfy and 100+ more — then
+              choose the channel in a route below. Channels belong to the platform, not to any workspace.
             </p>
-            {data.targets.length === 0 && (
-              <div class="notice" role="status" data-testid="no-targets">
-                <p>
-                  Connect Slack (or another messaging integration) in the <strong>{workspace.name}</strong> workspace to
-                  send platform alerts there.
-                </p>
-                {/* The form itself sits outside #pa-form: forms can't nest. */}
-                <button type="submit" form="pa-activate" class="button secondary" data-testid="open-platform-integrations">
-                  Open {workspace.name}'s Integrations
-                </button>
+            <ul id="pa-channels" class="routes" aria-label="Platform channels"></ul>
+            <div class="route channel-add" id="pa-channel-add" role="group" aria-label="Add a channel">
+              <strong>Add a channel</strong>
+              <label class="field" id="pa-ch-provider-wrap">
+                <span class="small">Type</span>
+                <select id="pa-ch-provider">
+                  {data.providers.map((p) => <option value={p.slug}>{p.name}</option>)}
+                </select>
+              </label>
+              <label class="field">
+                <span class="small">Name</span>
+                <input type="text" id="pa-ch-name" maxlength="100" placeholder="e.g. Phone pushes" autocomplete="off" />
+              </label>
+              <div id="pa-ch-config" class="config-fields"></div>
+              <label class="field" id="pa-ch-cred-wrap">
+                <span class="small" id="pa-ch-cred-label">Apprise URL(s)</span>
+                <textarea id="pa-ch-cred" rows="3" autocomplete="off" spellcheck="false" placeholder="slack://…  one per line"></textarea>
+                <span class="muted small" id="pa-ch-cred-help"></span>
+              </label>
+              <div class="channel-foot">
+                <button type="button" class="button" id="pa-ch-add">Add channel</button>
+                <span class="muted small" id="pa-ch-status" role="status"></span>
               </div>
-            )}
+            </div>
           </>
         )}
+      </section>
+
+      <section class="card" data-testid="integration-routes">
+        <h3>Routes</h3>
+        <p class="lead">
+          A route sends each alert through one platform channel — Apprise's <em>Send notification</em>, Slack's <em>Send message</em>, or
+          another plugin's message action. Adding a channel above adds its route here; save to start sending.
+        </p>
         <ul id="pa-routes" class="routes" aria-label="Integration routes"></ul>
-        {data.targets.length > 0 && (
-          <div class="add-route">
-            <label for="pa-add-target" class="small muted">Add a route</label>
-            <select id="pa-add-target">
-              {data.targets.map((t) => (
-                <option value={`${t.integrationId}:${t.action}`}>
-                  {t.integrationName} → {t.actionLabel} ({t.providerName}){t.connectionEnabled ? "" : " — connection off"}
-                </option>
-              ))}
-            </select>
-            <button type="button" class="button secondary" id="pa-add">Add</button>
-          </div>
-        )}
+        <div class="add-route" id="pa-add-wrap" hidden>
+          <label for="pa-add-target" class="small muted">Add a route</label>
+          <select id="pa-add-target"></select>
+          <button type="button" class="button secondary" id="pa-add">Add</button>
+        </div>
       </section>
 
       <div class="form-actions">
@@ -175,31 +182,32 @@ const INTEGRATIONS_PATH = "/workspace/settings/integrations";
     </form>
   )}
 
-  {workspace && (
-    <form id="pa-activate" method="POST" action="/api/workspace/activate" hidden>
-      <input type="hidden" name="workspace_id" value={workspace.id} />
-      <input type="hidden" name="next" value={INTEGRATIONS_PATH} />
-    </form>
-  )}
-
   <script is:inline type="application/json" id="pa-data" set:html={JSON.stringify(data ?? null).replace(/</g, "\\u003c")} />
 </AdminLayout>
 
 <script>
   import {
     buildUpdate,
+    connectionPill,
+    countUrls,
     deliveryBadge,
     draftFrom,
+    dropRoutesOf,
     missingInputs,
     type RouteDraft,
     targetKey,
   } from "@/lib/admin/platformAlerts";
   import {
+    createPlatformConnection,
+    deletePlatformConnection,
     type PlatformAlertDelivery,
     type PlatformAlerts,
     type PlatformAlertTarget,
+    type PlatformConnection,
     testPlatformAlert,
+    testPlatformConnection,
     updatePlatformAlerts,
+    updatePlatformConnection,
   } from "@/lib/api/admin/platformAlerts";
 
   const raw = document.getElementById("pa-data")?.textContent;
@@ -268,7 +276,7 @@ const INTEGRATIONS_PATH = "/workspace/settings/integrations";
           li.append(field);
         }
         if (target && target.inputs.length === 0) {
-          li.append(el("p", "muted small", "No settings: the connection decides where its messages go."));
+          li.append(el("p", "muted small", "No settings: the channel decides where its messages go."));
         }
 
         const foot = el("div", "channel-foot");
@@ -286,14 +294,240 @@ const INTEGRATIONS_PATH = "/workspace/settings/integrations";
         li.append(foot);
         list.append(li);
       });
-      if (routes.length === 0) list.append(el("li", "muted small", "No integration routes."));
+      if (routes.length === 0) list.append(el("li", "muted small", "No routes: alerts go out by email and push only."));
     }
 
+    // ── the add-a-route picker follows the platform channels ──────────────────────
+    const addWrap = document.getElementById("pa-add-wrap") as HTMLElement | null;
+    const addSelect = document.getElementById("pa-add-target") as HTMLSelectElement | null;
+    function renderTargetPicker() {
+      if (!addSelect || !addWrap || !state) return;
+      addSelect.replaceChildren(
+        ...state.targets.map((t) => {
+          const option = el("option", "", `${t.integrationName} → ${t.actionLabel} (${t.providerName})${t.connectionEnabled ? "" : " — channel off"}`);
+          option.value = targetKey(t);
+          return option;
+        }),
+      );
+      addWrap.hidden = state.targets.length === 0;
+    }
+
+    // ── platform channels ───────────────────────────────────────────────────────────
+    const channelList = document.getElementById("pa-channels") as HTMLUListElement | null;
+    const chStatus = document.getElementById("pa-ch-status");
+
+    /** A new state from a channel change: routes the server removed go from the drafts too. */
+    function applyState(next: PlatformAlerts) {
+      state = next;
+      const savedIds = new Set(next.routes.map((r) => r.id));
+      routes = dropRoutesOf(routes, next.connections).filter((r) => !r.id || savedIds.has(r.id));
+      renderChannels();
+      renderTargetPicker();
+      render();
+    }
+
+    function channelRow(c: PlatformConnection): HTMLLIElement {
+      const li = el("li", "route");
+      li.dataset.testid = "channel";
+      const head = el("div", "route-head");
+      const pillInfo = connectionPill(c);
+      const pill = el("span", `pill ${pillInfo.tone}`, pillInfo.label);
+      head.append(el("strong", "", c.name), pill);
+      li.append(head);
+      const bits = [c.providerName, c.hasCredential ? "credential saved" : "no credential", `used by ${c.routes} route${c.routes === 1 ? "" : "s"}`];
+      li.append(el("p", "muted small", bits.join(" · ")));
+
+      const result = el("div", "channel-foot");
+      const resultPill = el("span", "pill");
+      resultPill.hidden = true;
+      const resultText = el("span", "muted small");
+      const note = (text: string, tone = "") => {
+        resultPill.hidden = true;
+        resultText.textContent = text;
+        resultText.className = `muted small ${tone}`;
+      };
+
+      const actions = el("div", "channel-foot");
+      const test = el("button", "button secondary small-btn", "Send test");
+      test.type = "button";
+      if (!c.available) {
+        test.disabled = true;
+        test.title = "Its plugin isn't installed";
+      } else if (c.needsRouteInputs) {
+        test.disabled = true;
+        test.title = "It needs more than the message (a channel name): add a route, save, and test the route";
+      }
+      test.addEventListener("click", async () => {
+        test.disabled = true;
+        note("Sending…");
+        try {
+          const res = await testPlatformConnection(c.id);
+          const b = deliveryBadge(res.delivery);
+          resultPill.hidden = false;
+          resultPill.className = `pill ${b.tone}`;
+          resultPill.textContent = b.label;
+          resultText.textContent = b.detail;
+        } catch (err) {
+          note(`Test failed: ${err instanceof Error ? err.message : String(err)}`, "err");
+        } finally {
+          test.disabled = !c.available || c.needsRouteInputs;
+        }
+      });
+      const toggle = el("button", "button secondary small-btn", c.enabled ? "Turn off" : "Turn on");
+      toggle.type = "button";
+      toggle.addEventListener("click", async () => {
+        toggle.disabled = true;
+        try {
+          applyState(await updatePlatformConnection(c.id, { enabled: !c.enabled }));
+        } catch (err) {
+          note(`Not changed: ${err instanceof Error ? err.message : String(err)}`, "err");
+          toggle.disabled = false;
+        }
+      });
+      const rotate = el("button", "button secondary small-btn", c.hasCredential ? "Replace URLs" : "Add URLs");
+      rotate.type = "button";
+      const remove = el("button", "button secondary small-btn", "Remove");
+      remove.type = "button";
+      remove.addEventListener("click", async () => {
+        const used = c.routes ? ` Its ${c.routes} route${c.routes === 1 ? "" : "s"} will be removed too.` : "";
+        if (!window.confirm(`Remove “${c.name}” and its saved credential?${used}`)) return;
+        remove.disabled = true;
+        try {
+          applyState(await deletePlatformConnection(c.id));
+          if (statusEl) statusEl.textContent = `Removed ${c.name}.`;
+        } catch (err) {
+          note(`Not removed: ${err instanceof Error ? err.message : String(err)}`, "err");
+          remove.disabled = false;
+        }
+      });
+      actions.append(test, toggle, rotate, remove);
+      li.append(actions);
+
+      const editor = el("div", "field");
+      editor.hidden = true;
+      const area = el("textarea");
+      area.rows = 3;
+      area.autocomplete = "off";
+      area.spellcheck = false;
+      area.placeholder = "New URLs, one per line — the saved ones are never shown";
+      area.setAttribute("aria-label", `New credential for ${c.name}`);
+      const saveRotate = el("button", "button small-btn", "Save");
+      saveRotate.type = "button";
+      saveRotate.addEventListener("click", async () => {
+        if (!area.value.trim()) return;
+        saveRotate.disabled = true;
+        try {
+          applyState(await updatePlatformConnection(c.id, { credential: area.value }));
+          if (statusEl) statusEl.textContent = `Saved the new URLs for ${c.name}.`;
+        } catch (err) {
+          note(`Not saved: ${err instanceof Error ? err.message : String(err)}`, "err");
+          saveRotate.disabled = false;
+        }
+      });
+      editor.append(area, saveRotate);
+      rotate.addEventListener("click", () => {
+        editor.hidden = !editor.hidden;
+        if (!editor.hidden) area.focus();
+      });
+      li.append(editor);
+      result.append(resultPill, resultText);
+      li.append(result);
+      return li;
+    }
+
+    function renderChannels() {
+      if (!channelList || !state) return;
+      channelList.replaceChildren(...state.connections.map(channelRow));
+      if (state.connections.length === 0) channelList.append(el("li", "muted small", "No channels yet."));
+    }
+
+    // The add-a-channel form: the provider decides the credential's label and any other settings.
+    const provider = document.getElementById("pa-ch-provider") as HTMLSelectElement | null;
+    const chName = document.getElementById("pa-ch-name") as HTMLInputElement | null;
+    const chCred = document.getElementById("pa-ch-cred") as HTMLTextAreaElement | null;
+    const chConfig = document.getElementById("pa-ch-config") as HTMLElement | null;
+
+    function renderProviderFields() {
+      const p = state?.providers.find((x) => x.slug === provider?.value);
+      const credWrap = document.getElementById("pa-ch-cred-wrap");
+      if (!p || !chConfig || !credWrap) return;
+      credWrap.hidden = !p.credentialLabel;
+      const label = document.getElementById("pa-ch-cred-label");
+      if (label) label.textContent = (p.credentialLabel ?? "") + (p.credentialRequired ? "" : " (optional)");
+      const help = document.getElementById("pa-ch-cred-help");
+      if (help) help.textContent = p.credentialHelp;
+      chConfig.replaceChildren(
+        ...p.configFields.map((f) => {
+          const field = el("label", "field");
+          field.append(el("span", "small", f.label + (f.required ? " (required)" : "")));
+          const input = el("input");
+          input.type = "text";
+          input.name = f.key;
+          input.required = f.required;
+          input.placeholder = f.description || "";
+          field.append(input);
+          return field;
+        }),
+      );
+    }
+    provider?.addEventListener("change", renderProviderFields);
+
+    // Enter in the name box adds the channel; it must not submit the alert settings behind it.
+    chName?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        document.getElementById("pa-ch-add")?.click();
+      }
+    });
+    chCred?.addEventListener("input", () => {
+      if (chStatus && provider?.value === "apprise") chStatus.textContent = chCred.value.trim() ? `${countUrls(chCred.value)} URL(s)` : "";
+    });
+
+    document.getElementById("pa-ch-add")?.addEventListener("click", async () => {
+      if (!state || !provider || !chName || !chStatus) return;
+      const button = document.getElementById("pa-ch-add") as HTMLButtonElement;
+      const config: Record<string, string> = {};
+      chConfig?.querySelectorAll<HTMLInputElement>("input").forEach((i) => {
+        if (i.value.trim()) config[i.name] = i.value.trim();
+      });
+      const had = new Set(state.connections.map((c) => c.id));
+      button.disabled = true;
+      chStatus.textContent = "Adding…";
+      try {
+        const next = await createPlatformConnection({
+          provider: provider.value,
+          name: chName.value,
+          config,
+          credential: chCred?.value.trim() ? chCred.value : undefined,
+        });
+        const added = next.connections.find((c) => !had.has(c.id));
+        applyState(next);
+        // Its route is ready to save when the action needs nothing but the message.
+        const target = added ? next.targets.find((t) => t.integrationId === added.id) : undefined;
+        if (added && target && target.inputs.every((i) => !i.required)) {
+          routes.push({ integrationId: target.integrationId, action: target.action, args: {}, enabled: true });
+          render();
+          chStatus.textContent = `Added ${added.name}. Its route is ready below: save to start sending alerts through it.`;
+        } else {
+          chStatus.textContent = added ? `Added ${added.name}. Add a route for it below.` : "Added.";
+        }
+        chName.value = "";
+        if (chCred) chCred.value = "";
+        chConfig?.querySelectorAll("input").forEach((i) => (i.value = ""));
+      } catch (err) {
+        chStatus.textContent = `Not added: ${err instanceof Error ? err.message : String(err)}`;
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    renderChannels();
+    renderProviderFields();
+    renderTargetPicker();
     render();
 
     document.getElementById("pa-add")?.addEventListener("click", () => {
-      const select = document.getElementById("pa-add-target") as HTMLSelectElement | null;
-      const target = select ? targets().get(select.value) : undefined;
+      const target = addSelect ? targets().get(addSelect.value) : undefined;
       if (!target) return;
       routes.push({ integrationId: target.integrationId, action: target.action, args: {}, enabled: true });
       render();

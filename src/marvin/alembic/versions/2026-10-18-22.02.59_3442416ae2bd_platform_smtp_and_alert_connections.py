@@ -30,6 +30,7 @@ Revises: d6896d6a5e2e
 Create Date: 2026-10-18 22:02:59.614812
 
 """
+
 import re
 import uuid
 from collections.abc import Sequence
@@ -159,7 +160,9 @@ def _copy_secret(bind, secrets, group_id, slug: str, as_slug: str, name: str, ba
     """Copy a workspace secret's ciphertext into the platform scope under ``as_slug``. True when the platform scope
     holds it afterwards. Only the database backend stores values in this table; any other is logged."""
     if backend != "database":
-        logger.warning(f"platform secret {as_slug}: SECRET_BACKEND={backend}, so '{slug}' can't be copied from the migration — enter it again in Admin")
+        logger.warning(
+            f"platform secret {as_slug}: SECRET_BACKEND={backend}, so '{slug}' can't be copied from the migration — enter it again in Admin"
+        )
         return False
     if bind.execute(sa.select(secrets.c.id).where(secrets.c.slug == as_slug, secrets.c.group_id.is_(None))).first() is not None:
         return True  # already there: never overwritten

@@ -1,8 +1,8 @@
 /**
  * Admin Platform Alerts API — which platform events (backups, storage, security) reach people outside
- * Marvin, and how: email to super admins (built in) or a message-capable integration action on a
- * connection in the platform workspace. Browser calls go through the same-origin proxy (no token); SSR
- * passes the cookie token.
+ * Marvin, and how: email to super admins (built in), push, or a message-capable integration action on one
+ * of the platform's own channels (Apprise first). Browser calls go through the same-origin proxy (no
+ * token); SSR passes the cookie token.
  */
 
 import type { AlertDelivery, AlertKind, AlertTarget } from "../alerts";
@@ -46,13 +46,42 @@ export interface PlatformAlertRoute {
   lastDelivery: AlertDelivery | null;
 }
 
+/** A platform channel. The credential (Apprise URLs…) is never returned, only whether there is one. */
+export interface PlatformConnection {
+  id: string;
+  provider: string;
+  providerName: string;
+  name: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  hasCredential: boolean;
+  /** Its plugin is installed and still sends messages. */
+  available: boolean;
+  /** Every message action of it needs more than the message (a channel…): test it through a route. */
+  needsRouteInputs: boolean;
+  /** How many alert routes use it. */
+  routes: number;
+}
+
+/** An installed plugin that can carry a message: what a new channel can be (Apprise first). */
+export interface PlatformConnectionProvider {
+  slug: string;
+  name: string;
+  description: string;
+  credentialLabel: string | null;
+  credentialHelp: string;
+  credentialRequired: boolean;
+  configFields: { key: string; label: string; required: boolean; description: string }[];
+}
+
 export interface PlatformAlerts {
   types: AlertKind[];
   email: PlatformAlertEmail;
   push: PlatformAlertPush;
   routes: PlatformAlertRoute[];
   targets: AlertTarget[];
-  platformWorkspace: { id: string; name: string; slug: string | null } | null;
+  connections: PlatformConnection[];
+  providers: PlatformConnectionProvider[];
   integrationsAvailable: boolean;
 }
 
@@ -88,4 +117,44 @@ export async function testPlatformAlert(
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel }) },
     authToken,
   );
+}
+
+const json = { "Content-Type": "application/json" };
+
+/** Add a platform channel; `credential` is write-only (Apprise: the notification URLs, one per line). */
+export async function createPlatformConnection(
+  data: { provider: string; name: string; config?: Record<string, string>; credential?: string },
+  authToken?: string,
+): Promise<PlatformAlerts> {
+  return fetchApi<PlatformAlerts>(
+    `${PATH}/connections`,
+    { method: "POST", headers: json, body: JSON.stringify(data) },
+    authToken,
+  );
+}
+
+/** Rename, turn on or off, or rotate the credential of a channel (blank credential keeps the saved one). */
+export async function updatePlatformConnection(
+  id: string,
+  data: { name?: string; enabled?: boolean; config?: Record<string, string>; credential?: string },
+  authToken?: string,
+): Promise<PlatformAlerts> {
+  return fetchApi<PlatformAlerts>(
+    `${PATH}/connections/${id}`,
+    { method: "PUT", headers: json, body: JSON.stringify(data) },
+    authToken,
+  );
+}
+
+/** Remove a channel, its credential and the routes that used it. */
+export async function deletePlatformConnection(id: string, authToken?: string): Promise<PlatformAlerts> {
+  return fetchApi<PlatformAlerts>(`${PATH}/connections/${id}`, { method: "DELETE" }, authToken);
+}
+
+/** Send "Test alert from Marvin admin" through a channel (one whose action needs no extra input). */
+export async function testPlatformConnection(
+  id: string,
+  authToken?: string,
+): Promise<{ channel: string; delivery: AlertDelivery }> {
+  return fetchApi(`${PATH}/connections/${id}/test`, { method: "POST" }, authToken);
 }

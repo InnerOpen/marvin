@@ -74,6 +74,18 @@ one column, full-width buttons, no tables.
 `test_platform_smtp_api.py` (password never returned, audited); migration test on a scratch DB (Default's profile and
 routes copied).
 
+### Stage 1 status (2026-10-18, branch `wl/platform-stage1`; SDK regeneration left to the coordinator)
+
+- [x] Migration A `d6896d6a5e2e_platform_secrets` (down_revision `7a38989125da`): `workspace_secrets.group_id` nullable + partial unique index; `services/secrets/platform.py`; `test_platform_secrets.py` (workspace APIs never list/reveal/resolve platform rows).
+- [x] `services/platform_smtp.py`: key `smtp` = `{host, port, username, auth_strategy, from_name, from_email, password_ref}` (no `enabled`: decision 1 makes "any field set" the switch), merged per field over `SMTP_*`; a value equal to the environment's is stored as unset; password = platform secret `PLATFORM_SMTP_PASSWORD`; `email_senders` has no `is_platform` join; about/app_about readiness use the merged config.
+- [x] Admin API `GET/PUT/DELETE /admin/email/platform-smtp` + `POST …/test` (to the caller, shows the server's answer); `PlatformSMTPRead` has per-field `{value, envValue, source}`, `passwordSet`, `passwordSource`, `passwordMissing`, `canStorePassword`, `envAvailable`, `envSummary`; audited `platform_settings_changed`, `group_id=None`.
+- [x] Platform alert connections: `services/platform_connections.py` (key `platform_connections` = `{"connections": [...]}`, a dict because `PlatformSettingsService` stores documents), `ConnectionView` / `scope.connections()`, `_platform_workspace` deleted, `POST/PUT/DELETE /admin/alerts/connections[/{id}]` (+ `POST …/{id}/test`), `PlatformAlertsRead.connections` + `providers` replace `platform_workspace`.
+- [x] Migration B `3442416ae2bd_platform_smtp_and_alert_connections` (down_revision `d6896d6a5e2e`): see its docstring. SMTP is copied only when the environment is incomplete (with a complete one the environment won before, so copying would change behaviour), and only fields differing from the environment; passwords/credentials verbatim with `SECRET_BACKEND=database`, else logged. PostgreSQL and SQLite tested.
+- [x] UI: Admin → Email "Platform SMTP" (per-field hints, Save / Send test / Use environment settings); Admin → Alerts "Platform channels" + "Routes". Checked at 390 px (chromium iPhone emulation; WebKit can't launch here: missing system libraries) and desktop.
+- [x] Docs: `operations.md` (Platform SMTP and alert channels), `offsite-backup.md` (alerts).
+- [ ] SDK regeneration + SDK Quality Gate (coordinator).
+- [ ] Prod checks of §5 (`SECRET_BACKEND`, dump restore) (Jared).
+
 ## 3. Stage 2 — users without a home workspace; Admin with no current workspace
 
 **Migration C:** `users.group_id` nullable, FK recreated `ondelete=SET NULL` (existing homes kept).
