@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0 (2026-10-19)
+
+### Chores
+
+- **plugins**: Marvin-storage-s3 0.4.0 — its own object-storage logo
+  ([`579b91e`](https://github.com/InnerOpen/marvin/commit/579b91ed42460b290bd23c50d420a2121ced4b06))
+
+### Continuous Integration
+
+- **cli**: Delete the test workspace with --skip-backup
+  ([`4c037da`](https://github.com/InnerOpen/marvin/commit/4c037dac14365311913941c4d787cd28a415dfa4))
+
+
 ## v1.0.0-rc.384 (2026-10-19)
 
 ### Bug Fixes
