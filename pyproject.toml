@@ -196,7 +196,6 @@ select = [
 # Standalone CLI utilities: writing to stdout is their output, not a debug leftover, and
 # imports necessarily follow the sys.path.insert that makes `marvin` importable at all (E402).
 "scripts/*" = ["T201", "E402", "E501"]
-"docs/archive/verify_configuration.py" = ["T201"]
 "src/dev/code_generation/*" = ["T201"]
 
 [tool.ruff.format]

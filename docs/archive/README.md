@@ -36,7 +36,6 @@ Marvin works today: the manual (`docs/manual/`, published with mkdocs) is the so
 | `marvin-platform-plan.md` | 2026-07-04 | docs/ | The original platform plan (private content engine, separate public sites). |
 | `MARVIN_ROADMAP.md` | 2026-07-06 | docs/ | Early roadmap for the multi-workspace content and automation platform. |
 | `MIGRATION_CHECKLIST.md` | 2026-07-06 | frontend/ | Checklist for moving pages to the requireAuth helpers. |
-| `OPENSHIFT_DEPLOYMENT.md` | 2026-07-04 | docs/ | One-off deployment guide for the event-bus security migration; the Helm guide and chart README cover deploys now. |
 | `phase-3-publishing.md` | 2026-07-05 | docs/ | Phase 3 plan for the publishing API. |
 | `PHASE-6-COMPLETE.md` | 2026-07-05 | docs/ | Completion report for phase 6, resources and assets. |
 | `PHASE-7-TECH-DEBT-FIXES.md` | 2026-07-05 | docs/ | Completion report for phase 7, tech-debt fixes. |
@@ -55,6 +54,5 @@ Marvin works today: the manual (`docs/manual/`, published with mkdocs) is the so
 | `smart-collections-explained.md` | 2026-07-05 | docs/ | Design explainer for smart collections; the feature is in docs/manual/whats-new/collections.md. |
 | `SPRINT-COMPLETE.md` | 2026-07-05 | docs/ | Status of the first platform sprint. |
 | `TESTING_SUMMARY.md` | 2026-07-05 | repo root | Test and bug-fix log of the marvin-platform-plan branch. |
-| `verify_configuration.py` | 2026-07-05 | repo root | One-off script that checked the configuration upgrade (still runs from the repo root with uv). |
 | `WORKFLOW_STATE_REVIEW.md` | 2026-07-21 | docs/ | Review of what the automation (Flavor B) design had already built. |
 | `WORKFLOW_SUGGESTIONS.md` | 2026-07-21 | docs/ | Automation architecture review and design exercise that led to workflows. |

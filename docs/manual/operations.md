@@ -39,7 +39,7 @@ The trade-off: a pod with a long run in flight takes that long to stop. Under th
 **Session signing key.** JWTs are signed with `DATA_DIR/.secret`, generated on first production start; the chart has no JWT setting. Keep `DATA_DIR` on a persistent volume or every restart invalidates sessions.
 
 !!! warning "Chart keys the app does not read"
-    `config.webhookRetryAttempts` and `config.webhookRetryDelay` land in the ConfigMap but nothing in `src/` reads them. `docs/manual/reference/helm-deployment-guide.md` and `docs/archive/OPENSHIFT_DEPLOYMENT.md` predate this and are superseded on this point.
+    `config.webhookRetryAttempts` and `config.webhookRetryDelay` land in the ConfigMap but nothing in `src/` reads them. `docs/manual/reference/helm-deployment-guide.md` predates this and is superseded on this point.
 
 ## Deploying
 
