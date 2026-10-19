@@ -143,3 +143,35 @@ def test_the_env_backend_cannot_store_a_platform_secret(monkeypatch, slug):
     delete_platform_secret(slug)  # nothing of ours to remove, no error
     monkeypatch.setenv(slug, "from-env")
     assert get_platform_secret(slug) == "from-env"
+
+
+def test_migration_d6896d6a5e2e_runs_on_sqlite_and_keeps_the_platform_scope_unique():
+    """The schema change alone, on a scratch SQLite: nullable group, one platform secret per slug, and a downgrade that
+    drops platform rows before the column is NOT NULL again."""
+    import importlib.util
+    from pathlib import Path
+
+    import sqlalchemy as sa
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+
+    path = next((Path(__file__).resolve().parents[1] / "src" / "marvin" / "alembic" / "versions").glob("*_d6896d6a5e2e_*.py"))
+    spec = importlib.util.spec_from_file_location("platform_secrets_migration", path)
+    mig = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mig)
+
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.exec_driver_sql("CREATE TABLE workspace_secrets (id CHAR(32) PRIMARY KEY, group_id CHAR(32) NOT NULL, slug VARCHAR NOT NULL)")
+        conn.exec_driver_sql("INSERT INTO workspace_secrets VALUES ('a', 'g1', 'KEY')")
+        with Operations.context(MigrationContext.configure(conn)):
+            mig.upgrade()
+        conn.exec_driver_sql("INSERT INTO workspace_secrets VALUES ('b', NULL, 'KEY')")  # same slug, platform scope
+        with pytest.raises(sa.exc.IntegrityError):
+            conn.exec_driver_sql("INSERT INTO workspace_secrets VALUES ('c', NULL, 'KEY')")
+    with engine.begin() as conn:
+        with Operations.context(MigrationContext.configure(conn)):
+            mig.downgrade()
+        assert conn.exec_driver_sql("SELECT id FROM workspace_secrets").fetchall() == [("a",)]
+        with pytest.raises(sa.exc.IntegrityError):
+            conn.exec_driver_sql("INSERT INTO workspace_secrets VALUES ('d', NULL, 'X')")
