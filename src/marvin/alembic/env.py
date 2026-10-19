@@ -112,6 +112,10 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    # Deliberately NOT the app's engine (db/db_setup.py): that one turns `PRAGMA foreign_keys=ON` for SQLite, and
+    # a batch_alter_table rebuild (create new, copy, DROP the old table) with foreign keys enforced would
+    # cascade-delete the child rows of every table it rebuilds. This engine leaves SQLite's default (off).
+    # tests/test_sqlite_engine.py pins it.
     connectable = sa.engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

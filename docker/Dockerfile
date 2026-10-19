@@ -76,7 +76,7 @@ ENV UV_LINK_MODE=copy
 RUN --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv lock
 
-# The Postgres driver (psycopg2) is a core dependency: Marvin runs on Postgres only. --group plugins bakes in the site-wide
+# The Postgres driver (psycopg2) is a core dependency: the same image runs on SQLite (the default) or Postgres. --group plugins bakes in the site-wide
 # plugins (integrations, marvin-storage-s3, marvin-ai-openai) at the commits uv.lock pins, so a pod
 # never downloads them at start-up. Other backend groups (ldap, vault, bitwarden) stay opt-in — add
 # --group <name> here if a deployment needs them.

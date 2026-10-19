@@ -11,6 +11,7 @@ image:
 # Production configuration
 config:
   production: true
+  dbEngine: postgres  # pinned: the chart default is sqlite (one replica); production runs 2 on the cluster below
   allowSignup: false  # Restrict signups in production
   logLevel: INFO  # Production logging level
 
@@ -87,3 +88,8 @@ affinity:
                 values:
                   - marvin
           topologyKey: kubernetes.io/hostname
+
+# The chart's default is no database cluster (SQLite); production pins the CloudNativePG one.
+postgres:
+  cluster:
+    enabled: true

@@ -8,7 +8,7 @@ metadata:
 spec:
   replicas: {{ .Values.replicaCount }}
   strategy:
-    {{- toYaml .Values.strategy | nindent 4 }}
+    {{- include "marvin.apiStrategy" . | nindent 4 }}
   selector:
     matchLabels:
       {{- include "marvin.selectorLabels" . | nindent 6 }}

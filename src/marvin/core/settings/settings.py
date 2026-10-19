@@ -21,7 +21,7 @@ from dotenv import dotenv_values
 from pydantic import PlainSerializer, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .db_providers import AbstractDBProvider, db_provider_factory
+from .db_providers import SQLITE, AbstractDBProvider, db_provider_factory, engine_is_explicit, resolve_engine
 from .theme import Theme
 
 
@@ -100,6 +100,27 @@ def determine_secrets(data_dir: Path, production: bool) -> str:
             new_secret = secrets.token_hex(32)
             f.write(new_secret)
         return new_secret
+
+
+def guard_existing_install(data_dir: Path, db_path: Path) -> None:
+    """Refuse to start an existing install on a brand-new SQLite database.
+
+    An install that has run before has a `.secret` in its data directory. If the engine was left to the auto
+    rule, resolved to SQLite, and there is no database file, the install lost its database configuration (a
+    missing `DB_ENGINE` / `POSTGRES_*`): starting would quietly create an empty database next to the old
+    secrets and look like data loss.
+
+    Raises:
+        RuntimeError: `.secret` exists, `db_path` does not.
+    """
+    if data_dir.joinpath(".secret").is_file() and not db_path.exists():
+        raise RuntimeError(
+            f"{data_dir} holds a .secret from an earlier run but no database ({db_path}), and DB_ENGINE is not set "
+            "and no POSTGRES_SERVER / POSTGRES_URL_OVERRIDE is configured, so Marvin would start on an empty SQLite "
+            "database. If this install uses Postgres, restore its DB_ENGINE / POSTGRES_* settings. If it uses SQLite, "
+            "restore the database file or set DB_SQLITE_PATH. To start fresh on SQLite, remove the .secret too "
+            "(stored secrets encrypted with it become unreadable)."
+        )
 
 
 ENVIRONMENT_LABEL_MAX_LENGTH = 12
@@ -687,9 +708,19 @@ class AppSettings(BaseSettings):
     # ===============================================
     # Database Config
 
-    DB_ENGINE: str = "postgres"
-    """The database engine: Postgres. (SQLite was retired on 2026-10-13: a SQLite database is moved with
-    `python -m marvin.scripts.sqlite_to_postgres`.)"""
+    DB_ENGINE: str = ""
+    """The database engine, 'sqlite' or 'postgres'. Unset means auto: Postgres when `POSTGRES_SERVER` or
+    `POSTGRES_URL_OVERRIDE` is set, else SQLite (see `db_providers.resolve_engine`). `app_settings_constructor`
+    replaces the empty default with the resolved engine, so every reader sees one of the two names."""
+
+    DB_SQLITE_PATH: Path | None = None
+    """The SQLite database file. Unset, it is `marvin.db` in `DATA_DIR`."""
+
+    DB_SQLITE_WAL_MODE: bool = True
+    """Enable WAL journal mode for SQLite (allows concurrent reads during writes)."""
+
+    DB_SQLITE_BUSY_TIMEOUT_MS: int = 30000
+    """How long (ms) SQLite waits for another connection's write lock before failing with "database is locked"."""
 
     DB_POOL_SIZE: int = 5
     """SQLAlchemy connection pool size (number of persistent connections)."""
@@ -1091,6 +1122,13 @@ def app_settings_constructor(
         AppSettings: The configured application settings object.
     """
 
+    env = {**{k: v for k, v in dotenv_values(env_file).items() if v is not None}, **os.environ}
+    engine = resolve_engine(env)
+    sqlite_path = Path(env["DB_SQLITE_PATH"]) if env.get("DB_SQLITE_PATH") else None
+    if engine == SQLITE and not engine_is_explicit(env):
+        # Before determine_secrets: it would create the `.secret` this check reads.
+        guard_existing_install(data_dir, sqlite_path or data_dir / "marvin.db")
+
     app_settings = AppSettings(
         _env_file=env_file,  # type: ignore # pydantic-settings internal
         _env_file_encoding=env_encoding,  # type: ignore
@@ -1100,10 +1138,12 @@ def app_settings_constructor(
         **{"DATA_DIR": data_dir},
     )
 
+    app_settings.DB_ENGINE = engine
     app_settings.DB_PROVIDER = db_provider_factory(
-        app_settings.DB_ENGINE or "postgres",
+        engine,
         data_dir,
         env_file=env_file,
         env_encoding=env_encoding,
+        sqlite_path=app_settings.DB_SQLITE_PATH,
     )
     return app_settings

@@ -300,9 +300,14 @@ def test_the_s3_plugin_against_moto(s3):
 
 
 def _pg_env() -> dict[str, str]:
-    """The suite's Postgres as the backup job sees it: POSTGRES_* in the environment."""
+    """The suite's Postgres as the backup job sees it: POSTGRES_* in the environment.
+
+    The tests that use it run the Postgres job (pg_dump, a psycopg2 insert into the suite's own database), so there
+    is nothing for them to talk to when the suite runs on SQLite; the job's SQLite path has its own tests."""
     from marvin.db.db_setup import engine
 
+    if engine.dialect.name != "postgresql":
+        pytest.skip("the Postgres backup job records into a Postgres database; this suite runs on SQLite")
     url = engine.url
     return {
         "DB_ENGINE": "postgres",
@@ -369,7 +374,7 @@ def test_record_run_never_raises(tmp_path, caplog):
     rec = recorder.RunRecord("r2", "s3", "failed", NOW, NOW)
     assert not recorder.record_run(rec, {"DB_ENGINE": "postgres"})  # no connection settings
     assert "NOT recorded" in caplog.text
-    # SQLite is retired: nothing is written to a marvin.db any more, and the job's exit code never depends on it.
+    # SQLite is not recorded into by this job yet: nothing is written to a marvin.db, and the exit code never depends on it.
     assert not recorder.record_run(rec, {"DB_ENGINE": "sqlite", "BACKUP_DATA_DIR": str(tmp_path)})
     assert not (tmp_path / "marvin.db").exists()
     assert not recorder.record_run(rec, {"DB_ENGINE": "oracle"})

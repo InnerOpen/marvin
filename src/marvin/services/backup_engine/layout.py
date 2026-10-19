@@ -6,9 +6,9 @@ the history it left.
     assets/<storage key>                                incremental mirror, never deleted
     sqlite/marvin-<UTC YYYYmmddTHHMMSSZ>.db.gz          LEGACY: consistent SQLite snapshot (gzip)
 
-The ``sqlite/`` family is legacy (SQLite was retired): the engine never writes it and cannot restore it, but
-backups that still sit on NAS and R2 targets must keep listing, parsing a timestamp and aging out under the
-retention, so the key shape stays known here (``DB_PREFIX``, ``db_key``, ``key_timestamp``). To bring one over,
+The ``sqlite/`` family is not written or restored by the engine yet, but
+backups that sit on NAS and R2 targets must keep listing, parsing a timestamp and aging out under the
+retention, so the key shape is known here (``DB_PREFIX``, ``db_key``, ``key_timestamp``). To bring one over,
 see ``marvin.scripts.sqlite_to_postgres`` and docs/manual/postgres.md.
 
 Keeping the layout means a target can read and prune the history the old script left behind.

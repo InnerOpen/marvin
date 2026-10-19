@@ -32,7 +32,7 @@ config:
   publicApiUrl: https://api.iwobble.com
   production: true      # OpenShift's random UID can't write /app/dev (dev mode); prod uses DATA_DIR
   logLevel: INFO
-  dbEngine: postgres   # CloudNativePG cluster marvin-pg (below); SQLite file kept on marvin-data as the rollback
+  dbEngine: postgres   # pinned (the chart default is sqlite): CloudNativePG cluster marvin-pg below; the old SQLite file stays on marvin-data as the rollback
   # Split deploy: UI (marvin-marvin) and API (marvin-api-marvin) are on different hosts, so the
   # API must allow the UI origin for browser calls. Without this, production adds no CORS
   # middleware and the token page / client-side features fail with "Failed to fetch" (CORS).
@@ -70,7 +70,7 @@ readinessProbe:
   timeoutSeconds: 10
 
 # NFS-backed PVC (managed-nfs-storage). Single writer only: keep split.backend.replicaCount at 1 —
-# sqlite over NFS is unsafe with concurrent writers. For HA, move dbEngine to postgres instead.
+# SQLite over NFS is unsafe (WAL needs real locks and shared memory); this environment runs Postgres.
 persistence:
   enabled: true
   storageClass: managed-nfs-storage

@@ -31,6 +31,7 @@ import os
 import sys
 import tempfile
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import sqlalchemy as sa
@@ -103,8 +104,9 @@ def revoke_copied_mcp_grants(conn) -> int:
     inspector = sa.inspect(conn)
     if not inspector.has_table("oauth_grants"):
         return 0
-    revoked = conn.exec_driver_sql(
-        "UPDATE oauth_grants SET revoked_at = now() AT TIME ZONE 'utc', revoked_reason = 'dev_refresh' WHERE revoked_at IS NULL"
+    revoked = conn.execute(
+        sa.text("UPDATE oauth_grants SET revoked_at = :now, revoked_reason = 'dev_refresh' WHERE revoked_at IS NULL"),
+        {"now": datetime.now(UTC).replace(tzinfo=None)},  # the column holds naive UTC
     ).rowcount
     conn.exec_driver_sql("DELETE FROM oauth_tokens")
     if inspector.has_table("mcp_upload_links"):

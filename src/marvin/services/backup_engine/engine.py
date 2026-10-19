@@ -10,8 +10,8 @@ What a run backs up, and how:
 
 - the database: a ``pg_dump --format=custom`` checked with ``pg_restore --list``; the POSTGRES_*
   connection travels in PG* environment variables, never on a command line. Object metadata carries
-  ``sha256``; restore checks it. SQLite is retired: the engine no longer writes or restores the
-  ``sqlite/`` family (old ``.db.gz`` backups still list, a backup run never prunes them, ``prune`` ages them out; to bring one
+  ``sha256``; restore checks it. The engine does not yet write or restore the ``sqlite/`` family
+  (``.db.gz`` backups on a target still list, a backup run never prunes them, ``prune`` ages them out; to bring one
   over, see ``run_restore``).
 - the config archive: ``.secret`` (it decrypts every stored secret, so a target must stay private),
   ``scheduler_state.json``, ``templates/``.
@@ -47,6 +47,8 @@ from typing import Any
 
 from marvin_integration_sdk.storage import BackupTarget, StorageConfigError, StorageProvider, TargetObject, read_config
 
+from marvin.core.settings.db_providers import resolve_engine
+
 from .layout import (
     ASSETS_PREFIX,
     BUNDLES_PREFIX,
@@ -69,17 +71,17 @@ log = logging.getLogger("marvin.backup")
 
 PG_DUMP_NAME = "marvin.dump"
 POSTGRES = "postgres"
-_SQLITE_RETIRED = (
-    "SQLite was retired: the backup engine only backs up and restores Postgres. A `sqlite/` backup still on a target "
+_SQLITE_UNSUPPORTED = (
+    "The backup engine does not back up or restore SQLite yet; it handles Postgres only. A `sqlite/` backup on a target "
     "can be brought over by downloading the `.db.gz`, gunzipping it, and loading it with the copy tool "
     "`python -m marvin.scripts.sqlite_to_postgres` (see docs/manual/postgres.md)."
 )
 
 
 def check_engine(engine: str) -> str:
-    """`postgres`, or a ValueError saying where an old SQLite backup goes (the engine no longer reads it back)."""
+    """`postgres`, or a ValueError saying where an old SQLite backup goes (the engine does not read it back yet)."""
     if engine == "sqlite":
-        raise ValueError(_SQLITE_RETIRED)
+        raise ValueError(_SQLITE_UNSUPPORTED)
     if engine != POSTGRES:
         raise ValueError(f"unknown DB engine {engine!r}; the backup engine supports only {POSTGRES!r}")
     return engine
@@ -124,8 +126,8 @@ class BackupSettings:
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> BackupSettings:
-        """BACKUP_DATA_DIR (default `/app/data`), BACKUP_DB_ENGINE (default DB_ENGINE, else `postgres`; only
-        `postgres` is accepted),
+        """BACKUP_DATA_DIR (default `/app/data`), BACKUP_DB_ENGINE (default: the engine ``resolve_engine`` finds in the
+        environment; only `postgres` is accepted for now),
         BACKUP_PREFIX (else BACKUP_S3_PREFIX, so the old script's environment carries over),
         BACKUP_KEEP_HOURLY / _DAILY / _WEEKLY, STORAGE_PROVIDER + STORAGE_LOCAL_ROOT (where assets are
         read from), BACKUP_ASSET_PROVIDERS (comma-separated providers mirrored as well: an admin can send
@@ -135,7 +137,7 @@ class BackupSettings:
         data_dir = Path(env.get("BACKUP_DATA_DIR") or "/app/data")
         return cls(
             data_dir=data_dir,
-            engine=(env.get("BACKUP_DB_ENGINE") or env.get("DB_ENGINE") or POSTGRES).lower(),
+            engine=(env.get("BACKUP_DB_ENGINE") or resolve_engine(env)).lower(),
             prefix=normalize_prefix(env.get("BACKUP_PREFIX") or env.get("BACKUP_S3_PREFIX")),
             retention=Retention.from_env(env),
             asset_provider=env.get("STORAGE_PROVIDER") or "local",
@@ -667,7 +669,7 @@ def run_restore(
     Only Postgres is restored; engine="sqlite" (or a `sqlite/` key) raises ValueError, see `check_engine`."""
     check_engine(engine)
     if db and db.startswith(DB_PREFIX):
-        raise ValueError(_SQLITE_RETIRED)
+        raise ValueError(_SQLITE_UNSUPPORTED)
     into.mkdir(parents=True, exist_ok=True)
     db = None if skip_db else db or latest_key(target, PG_PREFIX)
     replaces = ([] if not db else [PG_DUMP_NAME]) + ([] if skip_config else [".secret"])

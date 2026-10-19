@@ -38,8 +38,9 @@ tasks:
       - cd frontend && npx --yes knip --no-exit-code
 
   dev:clean:
-    desc: remove local dev data (log, secret)
+    desc: remove local dev data (sqlite db, log, secret)
     cmds:
+      - rm -rf src/dev/data/marvin*.db src/dev/data/marvin*.db-wal src/dev/data/marvin*.db-shm
       - rm -rf src/dev/data/marvin.log
       - rm -rf src/dev/data/.secret
 
@@ -163,8 +164,10 @@ tasks:
   py:coverage:
     desc: run tests with coverage and open the HTML report
     env:
-      # tests/conftest.py points the suite at the dev container's own `marvin_test` database.
-      DB_ENGINE: postgres
+      # SQLite, a file per run (tests/conftest.py), so the .env loaded above can't aim a schema-dropping test run at a
+      # real Postgres database. An explicit `DB_ENGINE=postgres task py:test` still wins (the OS environment takes
+      # precedence over a task's env) and runs on the dev container's own `marvin_test` database.
+      DB_ENGINE: sqlite
     cmds:
       # --cov is what records the data; a bare `pytest` leaves the reporters below with nothing to
       # read. `--cov-report=` silences pytest-cov's own terminal report so the explicit reporters
@@ -227,8 +230,10 @@ tasks:
   py:test:
     desc: run python tests (args after '--')
     env:
-      # tests/conftest.py points the suite at the dev container's own `marvin_test` database.
-      DB_ENGINE: postgres
+      # SQLite, a file per run (tests/conftest.py), so the .env loaded above can't aim a schema-dropping test run at a
+      # real Postgres database. An explicit `DB_ENGINE=postgres task py:test` still wins (the OS environment takes
+      # precedence over a task's env) and runs on the dev container's own `marvin_test` database.
+      DB_ENGINE: sqlite
     cmds:
       - uv run pytest {{ .CLI_ARGS }}
 

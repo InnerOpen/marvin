@@ -29,6 +29,7 @@ from pathlib import Path
 
 from marvin_integration_sdk.storage import StorageConfigError
 
+from marvin.core.settings.db_providers import resolve_engine
 from marvin.services.backup_engine import engine, recorder
 from marvin.services.backup_engine.layout import BackupError
 from marvin.services.storage.healthcheck import check_target, explain, scrub
@@ -132,7 +133,7 @@ def run(target_type: str, name: str, dry_run: bool = False, env: dict[str, str] 
         finished_at=started_at,
         schedule=schedule,
         time_zone=time_zone,
-        db_engine=(env.get("BACKUP_DB_ENGINE") or env.get("DB_ENGINE") or "postgres").lower(),
+        db_engine=(env.get("BACKUP_DB_ENGINE") or resolve_engine(env)).lower(),
         settings=recorder.target_settings(target_type, env),
     )
 

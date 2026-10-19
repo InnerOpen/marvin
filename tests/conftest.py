@@ -1,6 +1,8 @@
 import contextlib
 import os
+import secrets
 from collections.abc import Generator
+from pathlib import Path
 
 from pytest import MonkeyPatch, fixture
 
@@ -12,18 +14,42 @@ mp.setenv("MEDIA_EMBEDS_FETCH_ENABLED", "False")  # no test may reach a media pr
 # put a fake in its place (tests/test_builtin_embeddings.py).
 mp.setenv("EMBEDDINGS_BUILTIN_ENABLED", "False")
 
-# The suite runs on Postgres (SQLite was retired 2026-10-13): by default the dev container
-# (docker/docker-compose.dev.yml, 127.0.0.1:5434) and its own `marvin_test` database, made below if missing — so a
-# checkout whose .env points at the real dev database never becomes the target of a schema-dropping test run. This
+# The suite runs on SQLite by default (decision 8 of tasks/sqlite-engine-plan.md): a file of its own per run under
+# tests/.temp, so nothing needs to be running and parallel runs never share a database. Export DB_ENGINE=postgres to run
+# it on Postgres instead: by default the dev container (docker/docker-compose.dev.yml, 127.0.0.1:5434) and its own
+# `marvin_test` database, made below if missing — so a checkout whose .env points at the real dev database never becomes
+# the target of a schema-dropping run (`task py:test` pins DB_ENGINE=sqlite for the same reason: it exports .env). This
 # must run before marvin.core.config is imported, since that folds .env into the environment; only already-exported
-# POSTGRES_* win (CI exports its service container's). The guard in _create_test_schema still requires a database
-# whose name says "test".
-mp.setenv("DB_ENGINE", "postgres")
-for _key, _default in (("POSTGRES_SERVER", "127.0.0.1"), ("POSTGRES_PORT", "5434"), ("POSTGRES_USER", "default"), ("POSTGRES_PASSWORD", "default")):
-    if _key not in os.environ:
-        mp.setenv(_key, _default)
-if "test" not in os.environ.get("POSTGRES_DB", "").lower():
-    mp.setenv("POSTGRES_DB", "marvin_test")
+# POSTGRES_* win (CI exports its service container's). The guard in _create_test_schema still requires a Postgres
+# database whose name says "test".
+_ENGINE = os.environ.get("DB_ENGINE", "").strip().lower() or "sqlite"
+if _ENGINE not in ("sqlite", "postgres"):
+    raise RuntimeError(f"DB_ENGINE={_ENGINE!r}: the suite runs on sqlite or postgres")
+mp.setenv("DB_ENGINE", _ENGINE)
+
+_SQLITE_TEST_FILE: Path | None = None
+if _ENGINE == "sqlite":
+    # A fresh file per run. An exported DB_SQLITE_PATH is honoured only when its name says "test" (the suite drops
+    # the schema it finds there, so a real database must never be the target — the Postgres guard's twin).
+    _exported = os.environ.get("DB_SQLITE_PATH", "")
+    _SQLITE_TEST_FILE = (
+        Path(_exported)
+        if "test" in Path(_exported).name.lower()
+        else Path(__file__).resolve().parent / ".temp" / f"marvin-test-{os.getpid()}-{secrets.token_hex(4)}.db"
+    )
+    _SQLITE_TEST_FILE.parent.mkdir(parents=True, exist_ok=True)
+    mp.setenv("DB_SQLITE_PATH", str(_SQLITE_TEST_FILE))
+else:
+    for _key, _default in (
+        ("POSTGRES_SERVER", "127.0.0.1"),
+        ("POSTGRES_PORT", "5434"),
+        ("POSTGRES_USER", "default"),
+        ("POSTGRES_PASSWORD", "default"),
+    ):
+        if _key not in os.environ:
+            mp.setenv(_key, _default)
+    if "test" not in os.environ.get("POSTGRES_DB", "").lower():
+        mp.setenv("POSTGRES_DB", "marvin_test")
 
 
 def _ensure_test_database() -> None:
@@ -46,8 +72,8 @@ def _ensure_test_database() -> None:
         conn.close()
 
 
-_ensure_test_database()
-from pathlib import Path
+if _ENGINE == "postgres":
+    _ensure_test_database()
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -81,6 +107,11 @@ def _create_test_schema() -> Generator[None, None, None]:
     cfg = Config(str(Path(__file__).resolve().parents[1] / "src" / "marvin" / "alembic.ini"))
     command.upgrade(cfg, "head")
     yield
+    if _SQLITE_TEST_FILE is not None:  # this run's own file (and its WAL side files) goes with it
+        engine.dispose()
+        for suffix in ("", "-wal", "-shm"):
+            with contextlib.suppress(OSError):
+                Path(f"{_SQLITE_TEST_FILE}{suffix}").unlink()
 
 
 @fixture(autouse=True)

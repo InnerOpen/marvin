@@ -3,7 +3,7 @@
 The job runs beside the live backend and must not build Marvin's settings or open the database through
 SQLAlchemy (see ``engine``), so this is one plain DB-API ``INSERT`` into the job's own database: Postgres
 through ``psycopg2`` with the POSTGRES_* connection the job already has for ``pg_dump`` (Postgres is the
-only engine; SQLite was retired).
+only engine the job records into for now).
 The backend reads the rows for Admin → Backup health, sends ``backup_completed`` / ``backup_failed`` from
 them, and notices a target that stops writing them (``services/backup_health``).
 
@@ -24,6 +24,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+
+from marvin.core.settings.db_providers import resolve_engine
 
 log = logging.getLogger("marvin.backup")
 
@@ -202,10 +204,10 @@ def record_run(record: RunRecord, env: Mapping[str, str] | None = None, now: dat
     from .engine import pg_env_from
 
     env = dict(os.environ if env is None else env)
-    engine = (env.get("BACKUP_DB_ENGINE") or env.get("DB_ENGINE") or "postgres").lower()
     record.host = record.host or env.get("HOSTNAME") or socket.gethostname()
     now = now or datetime.now(UTC)
     try:
+        engine = (env.get("BACKUP_DB_ENGINE") or resolve_engine(env)).lower()
         if engine == "postgres":
             pg_env = pg_env_from(env)
             if not all(pg_env.get(k) for k in ("PGHOST", "PGUSER", "PGDATABASE")):

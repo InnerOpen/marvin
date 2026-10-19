@@ -173,7 +173,7 @@ def test_settings_from_env():
     assert (s.asset_provider, s.assets_root) == ("local", Path("/data/assets"))
     assert s.pg_env == {"PGHOST": "pg", "PGUSER": "marvin", "PGPASSWORD": "pw", "PGDATABASE": "marvin"}
     assert "pw" not in repr(s)
-    assert eng.BackupSettings.from_env({"BACKUP_PREFIX": "nas", "BACKUP_S3_PREFIX": "dev"}).prefix == "nas/"
+    assert eng.BackupSettings.from_env({"DB_ENGINE": "postgres", "BACKUP_PREFIX": "nas", "BACKUP_S3_PREFIX": "dev"}).prefix == "nas/"
 
 
 # --- the local target -----------------------------------------------------------------------------

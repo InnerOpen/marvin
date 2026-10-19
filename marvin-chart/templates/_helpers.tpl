@@ -243,14 +243,23 @@ backup.scheduledTasks.enabled, which also renders the Role that lets the backend
 {{- end -}}
 
 {{/*
-Database engine guard: Postgres is the only engine (SQLite was retired 2026-10-13).
+Database engine guard: sqlite (a file on the data volume) or postgres. SQLite is one process writing one file, so
+it needs exactly one API replica and a persistent data volume; the chart refuses anything else rather than render
+a release that corrupts or loses its database.
 */}}
 {{- define "marvin.dbEngine" -}}
-{{- $engine := .Values.config.dbEngine | default "postgres" -}}
+{{- $engine := .Values.config.dbEngine | default "sqlite" -}}
+{{- if not (has $engine (list "sqlite" "postgres")) -}}
+{{- fail (printf "config.dbEngine must be sqlite or postgres, not %q" $engine) -}}
+{{- end -}}
 {{- if eq $engine "sqlite" -}}
-{{- fail "config.dbEngine=sqlite: SQLite was retired on 2026-10-13 — set config.dbEngine=postgres (the chart's CloudNativePG cluster, or postgres.existingSecret) and move the database with marvin.scripts.sqlite_to_postgres" -}}
-{{- else if ne $engine "postgres" -}}
-{{- fail (printf "config.dbEngine must be postgres, not %q" $engine) -}}
+{{- $replicas := ternary (int .Values.split.backend.replicaCount) (int .Values.replicaCount) (eq .Values.mode "split") -}}
+{{- if gt $replicas 1 -}}
+{{- fail (printf "config.dbEngine=sqlite allows one API replica (SQLite is a single-writer file), not %d: set %s to 1, or use config.dbEngine=postgres" $replicas (ternary "split.backend.replicaCount" "replicaCount" (eq .Values.mode "split"))) -}}
+{{- end -}}
+{{- if not .Values.persistence.enabled -}}
+{{- fail "config.dbEngine=sqlite needs persistence.enabled=true: the database is a file on the data volume and would be lost with the pod" -}}
+{{- end -}}
 {{- end -}}
 {{- $engine -}}
 {{- end -}}
@@ -322,12 +331,16 @@ hooks and process exit. A run still going at the deadline is lost; the next proc
 update starts the new pod while the old one is still finishing its runs.
 */}}
 {{/*
-The API pod's update strategy: the split backend's own when set, else the shared `strategy`.
+The API pod's update strategy: the split backend's own when set, else the shared `strategy`; always Recreate on sqlite.
 */}}
 {{- define "marvin.apiStrategy" -}}
 {{- $s := .Values.strategy -}}
 {{- if and (eq .Values.mode "split") .Values.split.backend.strategy -}}
 {{- $s = .Values.split.backend.strategy -}}
+{{- end -}}
+{{- if eq (include "marvin.dbEngine" .) "sqlite" -}}
+{{- /* One writer to one file: the old pod stops before the new one starts, whatever strategy was asked for. */ -}}
+{{- $s = dict "type" "Recreate" -}}
 {{- end -}}
 {{- toYaml $s -}}
 {{- end -}}
