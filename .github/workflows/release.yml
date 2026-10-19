@@ -78,11 +78,13 @@ jobs:
         # and drops a redundant second invocation with it.
         #
         # Exits 0 when no release is due, so an ordinary commit does not fail the job.
-        run: semantic-release version
+        # develop's prereleases (x.y.z-rc.N) get a tag but no GitHub Release, so the Releases page lists only real
+        # releases from main (the rc notes still go into CHANGELOG.md).
+        run: semantic-release version ${{ github.ref_name == 'develop' && '--no-vcs-release' || '' }}
 
       # Attaches build artifacts to the GitHub release, so it is only meaningful once one exists.
       - name: Publish release assets
-        if: steps.version.outputs.released == 'true'
+        if: steps.version.outputs.released == 'true' && steps.version.outputs.is_prerelease != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: semantic-release publish

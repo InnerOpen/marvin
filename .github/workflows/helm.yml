@@ -177,8 +177,14 @@ jobs:
             --namespace marvin-test \
             --timeout=300s
 
+      # `kubectl wait` fails at once ("no matching resources found") if no pod exists yet, which raced the
+      # SQLite install (no database to wait on first), so wait for the pods to appear before waiting on them.
       - name: Wait for pods to be ready
         run: |
+          for _ in $(seq 1 60); do
+            kubectl get pods -n marvin-test -l app.kubernetes.io/name=marvin -o name | grep -q . && break
+            sleep 5
+          done
           kubectl wait --for=condition=ready pod \
             --selector=app.kubernetes.io/name=marvin \
             --namespace marvin-test \
