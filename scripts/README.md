@@ -7,6 +7,7 @@ Utility scripts for deployment, dev environments and docs.
 | `deploy/` | Release promotion, rollback and smoke checks, called by the promote workflows |
 | `helm-check.sh` | Lint the chart, render every values file and check its database engine (`helm.yml`, `task helm:lint`) |
 | `dev-refresh.sh` | Refresh marvin-dev from production's newest backup (`task dev:refresh`) |
+| `pytest-workers.sh` | How many pytest-xdist workers to run: the container's CPU quota, else `auto` (`test.yml`) |
 | `render_workflow_library.py` | Render `docs/workflow-library/catalogue.md` from the recipe catalogue |
 | `server.py` | A very small HTTP server that logs the requests it receives |
 
