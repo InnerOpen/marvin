@@ -350,6 +350,13 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
             </div>
           )}
         </form>
+        {canManage && !isSystem && (
+          <form method="POST" action={`/api/entry-types/${id}/delete`} class="delete-form">
+            <button type="submit" class="button secondary danger" onclick="return confirm('Delete this entry type?')">
+              Delete entry type
+            </button>
+          </form>
+        )}
       </section>
     </>
   ) : null}
@@ -528,6 +535,20 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
     border-top: 1px solid var(--line);
   }
 
+  /* Delete lives here as well as (on desktop) in the list, so it is reachable on a phone, where the list rows just open
+     this page. Its own form: forms cannot nest. */
+  .delete-form {
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+  }
+  .button.danger {
+    color: var(--color-error);
+    border-color: var(--color-error);
+  }
+  .button.danger:hover {
+    background: var(--color-error-bg);
+  }
+
   /* Phones: less padding round the form (the schema cards inside need the width), 16px inputs so iOS does not zoom
      the page on focus, and tap-sized Save / Cancel. */
   @media (max-width: 640px) {
@@ -537,6 +558,7 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
     textarea,
     select { font-size: 16px; }
     .form-actions .button { flex: 1; min-height: 44px; }
+    .delete-form .button { width: 100%; min-height: 44px; }
   }
 </style>
 

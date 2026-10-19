@@ -70,19 +70,19 @@ function getRendering(type: EntryTypeRead) {
       {systemTypes.length > 0 && (
         <section>
           <h3 style="margin:0 0 1rem;font-size:1rem;color:var(--muted);">System Types</h3>
-          <table class="table stacks types">
+          <table class="table types">
             <thead>
               <tr>
                 <th>Icon</th>
                 <th>Name</th>
                 <th>Type</th>
-                <th>Slug</th>
-                <th>Rendered</th>
-                <th>Renderer</th>
-                <th>Package</th>
-                <th>Version</th>
-                <th>Entries</th>
-                <th>Sort Order</th>
+                <th class="col-wide">Slug</th>
+                <th class="col-render">Rendered</th>
+                <th class="col-render">Renderer</th>
+                <th class="col-render">Package</th>
+                <th class="col-render">Version</th>
+                <th class="col-wide">Entries</th>
+                <th class="col-render">Sort Order</th>
               </tr>
             </thead>
             <tbody>
@@ -95,7 +95,7 @@ function getRendering(type: EntryTypeRead) {
                     data-name={type.name.toLowerCase()}
                     data-slug={type.slug.toLowerCase()}
                     data-description={(type.description || '').toLowerCase()}>
-                    <td class="stack-lead">
+                    <td>
                       {type.icon && (
                         <span style={`font-size:1.5rem;${type.color ? `color:${type.color}` : ''}`}>
                           {type.icon}
@@ -104,19 +104,19 @@ function getRendering(type: EntryTypeRead) {
                     </td>
                     <td class="type-name"><strong>{type.name}</strong></td>
                     <td><span class="system-badge">System</span></td>
-                    <td class="slug"><code>{type.slug}</code></td>
-                    <td class="stack-hide">{type.isRendered ? <span class="rendered-badge">Yes</span> : '—'}</td>
-                    <td class="stack-hide">{renderer ? <code>{renderer}</code> : '—'}</td>
-                    <td class="stack-hide">{pkg ? <code>{pkg}</code> : '—'}</td>
-                    <td class="stack-hide">{version || '—'}</td>
-                    <td>
+                    <td class="col-wide"><code>{type.slug}</code></td>
+                    <td class="col-render">{type.isRendered ? <span class="rendered-badge">Yes</span> : '—'}</td>
+                    <td class="col-render">{renderer ? <code>{renderer}</code> : '—'}</td>
+                    <td class="col-render">{pkg ? <code>{pkg}</code> : '—'}</td>
+                    <td class="col-render">{version || '—'}</td>
+                    <td class="col-wide">
                       {count === 0 ? (
                         <span class="empty-badge">Empty</span>
                       ) : (
                         <span class="count-badge">{count}</span>
                       )}
                     </td>
-                    <td class="stack-hide">{type.sortOrder}</td>
+                    <td class="col-render">{type.sortOrder}</td>
                   </tr>
                 );
               })}
@@ -136,20 +136,20 @@ function getRendering(type: EntryTypeRead) {
       ) : (
         <section>
           <h3 style="margin:2rem 0 1rem;font-size:1rem;color:var(--muted);">Custom Types</h3>
-          <table class="table stacks types">
+          <table class="table types">
             <thead>
               <tr>
                 <th>Icon</th>
                 <th>Name</th>
                 <th>Type</th>
-                <th>Slug</th>
-                <th>Rendered</th>
-                <th>Renderer</th>
-                <th>Package</th>
-                <th>Version</th>
-                <th>Entries</th>
-                <th>Sort Order</th>
-                <th>Actions</th>
+                <th class="col-wide">Slug</th>
+                <th class="col-render">Rendered</th>
+                <th class="col-render">Renderer</th>
+                <th class="col-render">Package</th>
+                <th class="col-render">Version</th>
+                <th class="col-wide">Entries</th>
+                <th class="col-render">Sort Order</th>
+                <th class="col-wide">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -162,29 +162,29 @@ function getRendering(type: EntryTypeRead) {
                     data-name={type.name.toLowerCase()}
                     data-slug={type.slug.toLowerCase()}
                     data-description={(type.description || '').toLowerCase()}>
-                    <td class="stack-lead">
+                    <td>
                       {type.icon && (
                         <span style={`font-size:1.5rem;${type.color ? `color:${type.color}` : ''}`}>
                           {type.icon}
                         </span>
                       )}
                     </td>
-                    <td class="type-name"><strong>{type.name}</strong></td>
+                    <td class="type-name"><a class="row-link" href={`/workspace/entry-types/${type.id}`}><strong>{type.name}</strong></a></td>
                     <td><span class="custom-badge">Custom</span></td>
-                    <td class="slug"><code>{type.slug}</code></td>
-                    <td class="stack-hide">{type.isRendered ? <span class="rendered-badge">Yes</span> : '—'}</td>
-                    <td class="stack-hide">{renderer ? <code>{renderer}</code> : '—'}</td>
-                    <td class="stack-hide">{pkg ? <code>{pkg}</code> : '—'}</td>
-                    <td class="stack-hide">{version || '—'}</td>
-                    <td>
+                    <td class="col-wide"><code>{type.slug}</code></td>
+                    <td class="col-render">{type.isRendered ? <span class="rendered-badge">Yes</span> : '—'}</td>
+                    <td class="col-render">{renderer ? <code>{renderer}</code> : '—'}</td>
+                    <td class="col-render">{pkg ? <code>{pkg}</code> : '—'}</td>
+                    <td class="col-render">{version || '—'}</td>
+                    <td class="col-wide">
                       {count === 0 ? (
                         <span class="empty-badge">Empty</span>
                       ) : (
                         <span class="count-badge">{count}</span>
                       )}
                     </td>
-                    <td class="stack-hide">{type.sortOrder}</td>
-                    <td class="action">
+                    <td class="col-render">{type.sortOrder}</td>
+                    <td class="col-wide">
                       <div class="actions">
                         <a href={`/workspace/entry-types/${type.id}`} class="button secondary small">{canManage ? "Edit" : "View"}</a>
                         {canManage && (
@@ -278,21 +278,65 @@ function getRendering(type: EntryTypeRead) {
     overflow-wrap: anywhere;
   }
 
-  /* Phones: each entry type is a small card (the shared .table.stacks layout: icon down the left, then name, kind,
-     slug, entry count, actions) instead of an eleven-column table that scrolled sideways with Edit and Delete a
-     thousand pixels off-screen to the right. The rendering columns (renderer, package, version…) are dropped here;
-     they are on the edit page. */
-  @media (max-width: 640px) {
-    .types .actions .button,
-    .types .actions form {
-      flex: 1;
+  /* The whole row of a custom type opens its editor: the name is the real link (keyboard, screen reader) and its
+     ::after stretches over the row as the tap target. The desktop Edit / Delete controls sit above it. */
+  .types tr {
+    position: relative;
+  }
+  .types .row-link {
+    color: inherit;
+    text-decoration: none;
+  }
+  .types .row-link::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+  }
+  .types .row-link:focus-visible {
+    outline: none;
+  }
+  .types .row-link:focus-visible::after {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  .types tr:has(.row-link):hover {
+    background: rgba(79, 156, 132, 0.08);
+  }
+  .types .actions {
+    position: relative;
+  }
+  .types td .system-badge,
+  .types td .custom-badge {
+    white-space: nowrap;
+  }
+
+  /* Below desktop width the rendering columns (rendered, renderer, package, version, sort order) go: with them the
+     table overflows its box and the Actions column is clipped. */
+  @media (max-width: 1240px) {
+    .types .col-render {
+      display: none;
+    }
+    /* The name column takes the leftover width (and wraps a long name); with columns hidden the browser otherwise
+       leaves a gap at the table's right edge. */
+    .types th:nth-child(2) {
+      width: 100%;
+    }
+    .types td code {
+      overflow-wrap: break-word;
     }
     .types .actions .button {
-      width: 100%;
-      min-height: 44px;
+      white-space: nowrap;
     }
-    .types td.action {
-      margin-top: 4px;
+  }
+
+  /* Phones: compact rows with just the icon, name and kind, which fit without sideways scrolling (the eleven-column
+     table put Edit a thousand pixels off-screen); the rest is on the edit page. Tapping a row edits. */
+  @media (max-width: 640px) {
+    .types .col-wide {
+      display: none;
+    }
+    .types td {
+      vertical-align: middle;
     }
   }
 
