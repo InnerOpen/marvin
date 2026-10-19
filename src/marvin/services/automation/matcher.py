@@ -14,7 +14,6 @@ Conditions reference fields by dotted path (e.g. ``"event.entry_type"``); action
 
 import re
 from typing import Any
-from urllib.parse import quote
 
 # Supported condition operators. `changed*` key on an update's diff (event.changed_fields/before/
 # after); the field's last segment names the field (so `entry.status` → the "status" diff key; a type's own
@@ -91,18 +90,15 @@ def resolve_path(path: str, context: dict) -> Any:
     return cur
 
 
-# `${path|url}`: the value made safe to put in a link (a share link's text, a query string).
-FILTERS: dict[str, Any] = {"url": lambda v: quote(_stringify(v), safe="")}
-
-
 def _lookup(expr: str, context: dict) -> Any:
-    """A template's value: its path resolved, then its filter (``|url``) applied. An unknown filter gives None."""
-    path, bar, name = expr.partition("|")
-    value = resolve_path(path.strip(), context)
-    if not bar:
-        return value
-    apply = FILTERS.get(name.strip())
-    return apply(value) if apply else None
+    """A template's value: its path resolved, then its filters (``|date:"%d %b"|default:"—"``, filters.py) applied in
+    turn. An unknown filter gives None."""
+    if "|" not in expr:
+        return resolve_path(expr.strip(), context)
+    from .filters import apply_chain, split_expression
+
+    path, *chain = split_expression(expr)
+    return apply_chain(resolve_path(path, context), chain)
 
 
 def interpolate(value: Any, context: dict) -> Any:
@@ -115,7 +111,7 @@ def interpolate(value: Any, context: dict) -> Any:
       stringified value, result is a string (None → empty string).
 
     Non-template values pass through unchanged; unknown references resolve to None (or "" when embedded).
-    ``${path|url}`` URL-encodes the value (FILTERS).
+    ``${path|filter|filter:arg}`` turns the value first (filters.py: url, date, default, truncate…).
     """
     if isinstance(value, str):
         if "${" in value:
