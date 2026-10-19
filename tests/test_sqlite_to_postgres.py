@@ -185,7 +185,7 @@ def test_null_in_not_null_column_is_refused():
         (1, "bool"),
         ("2026-07-16 20:20:00.000000", "timestamp"),
         ("2026-07-16 20:20:00", "timestamptz"),
-        (uuid.uuid4().hex, "uuid"),
+        ("25d101e0d6174df48cc9664619e8a210", "uuid"),
         ("17", "int"),
         ("2.5", "float"),
         ("1.10", "numeric"),

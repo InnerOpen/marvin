@@ -26,6 +26,8 @@ _ENGINE = os.environ.get("DB_ENGINE", "").strip().lower() or "sqlite"
 if _ENGINE not in ("sqlite", "postgres"):
     raise RuntimeError(f"DB_ENGINE={_ENGINE!r}: the suite runs on sqlite or postgres")
 mp.setenv("DB_ENGINE", _ENGINE)
+# Under pytest-xdist (`pytest -n auto`, `task ci`) each worker is a process with its own database: "gw0", "gw1", …
+_XDIST_WORKER = os.environ.get("PYTEST_XDIST_WORKER", "")
 
 _SQLITE_TEST_FILE: Path | None = None
 if _ENGINE == "sqlite":
@@ -37,6 +39,8 @@ if _ENGINE == "sqlite":
         if "test" in Path(_exported).name.lower()
         else Path(__file__).resolve().parent / ".temp" / f"marvin-test-{os.getpid()}-{secrets.token_hex(4)}.db"
     )
+    if _XDIST_WORKER:  # the controller's path reaches every worker through the environment: a file each
+        _SQLITE_TEST_FILE = _SQLITE_TEST_FILE.with_name(f"{_SQLITE_TEST_FILE.stem}-{_XDIST_WORKER}{_SQLITE_TEST_FILE.suffix}")
     _SQLITE_TEST_FILE.parent.mkdir(parents=True, exist_ok=True)
     mp.setenv("DB_SQLITE_PATH", str(_SQLITE_TEST_FILE))
 else:
@@ -50,6 +54,8 @@ else:
             mp.setenv(_key, _default)
     if "test" not in os.environ.get("POSTGRES_DB", "").lower():
         mp.setenv("POSTGRES_DB", "marvin_test")
+    if _XDIST_WORKER:  # a database each (made below if missing), or the workers drop each other's schema
+        mp.setenv("POSTGRES_DB", f"{os.environ['POSTGRES_DB']}_{_XDIST_WORKER}")
 
 
 def _ensure_test_database() -> None:
@@ -107,11 +113,22 @@ def _create_test_schema() -> Generator[None, None, None]:
     cfg = Config(str(Path(__file__).resolve().parents[1] / "src" / "marvin" / "alembic.ini"))
     command.upgrade(cfg, "head")
     yield
-    if _SQLITE_TEST_FILE is not None:  # this run's own file (and its WAL side files) goes with it
+    _remove_sqlite_test_file()
+
+
+def _remove_sqlite_test_file() -> None:
+    """This run's own SQLite file (and its WAL side files) goes with it."""
+    if _SQLITE_TEST_FILE is not None:
         engine.dispose()
         for suffix in ("", "-wal", "-shm"):
             with contextlib.suppress(OSError):
                 Path(f"{_SQLITE_TEST_FILE}{suffix}").unlink()
+
+
+def pytest_unconfigure(config) -> None:
+    # Under xdist the controller imports the app (which opens its file) but runs no tests, so the session fixture
+    # above never removes it; a plain run has removed it already.
+    _remove_sqlite_test_file()
 
 
 @fixture(autouse=True)

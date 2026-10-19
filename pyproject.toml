@@ -74,6 +74,7 @@ dev = [
     "pylint>=3.3.7",
     "pytest>=8.3.5",
     "pytest-cov>=6.0.0",
+    "pytest-xdist>=3.8.0",
     "python-dateutil>=2.9.0.post0",
     "python-semantic-release>=9.17.0",
     "rich>=14.0.0",

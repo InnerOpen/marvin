@@ -314,7 +314,9 @@ def test_expanded_page_costs_the_same_queries_at_any_size(make_workspace, site, 
             body = _get(client, f"/api/publish/{ws.group.slug}/{path}", **params)
         entries = body["entries"] if isinstance(body, dict) and "entries" in body else body["data"] if isinstance(body, dict) else body
         assert len(entries) == n
-        counts.append(len(statements))
+        # Platform settings reads are left out: several services cache them per process for a few seconds, so whether a
+        # request pays for one depends on what ran before it (and on the clock, under xdist) — not on the page size.
+        counts.append(sum("FROM platform_settings" not in statement for statement in statements))
 
     assert counts[0] == counts[1], counts
     assert counts[1] <= 20, counts
