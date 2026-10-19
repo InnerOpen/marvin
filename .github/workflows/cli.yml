@@ -245,7 +245,7 @@ jobs:
           echo "✅ Collection deleted"
 
           echo "📝 Test: Delete workspace"
-          marvin admin groups delete "$WS_ID" --yes --force >/dev/null
+          marvin admin groups delete "$WS_ID" --yes --force --skip-backup >/dev/null
           echo "✅ Workspace deleted"
 
           echo "=== All CLI integration tests passed ==="
