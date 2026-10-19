@@ -6,6 +6,51 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.383 (2026-10-19)
+
+### Bug Fixes
+
+- **workflows**: Describe_event lists an entry update's diff under updateDiff, not workflowTrigger
+  ([`276244a`](https://github.com/InnerOpen/marvin/commit/276244a415fc2a5e758ee8a83c11ecdde01bf17b))
+
+- **workflows**: The guide's records section holds the metric, snapshot and schema check steps —
+  actions fits its budget again
+  ([`8f01cc0`](https://github.com/InnerOpen/marvin/commit/8f01cc0fbc794168606a2b5795721924f94c4f20))
+
+### Chores
+
+- **alembic**: Mcp_upload_links follows entry_snapshots
+  ([`592fac6`](https://github.com/InnerOpen/marvin/commit/592fac6ef8c17b949e32a8acae8f03209b44b83c))
+
+### Features
+
+- **agents**: A read-only agent hands the job to one that may do it — with what it found
+  ([`3e68fd1`](https://github.com/InnerOpen/marvin/commit/3e68fd15f7b44ec1741908c8af0776df1185092f))
+
+- **mcp**: MCP Apps image viewer for show_image
+  ([`b2ef7dc`](https://github.com/InnerOpen/marvin/commit/b2ef7dc74194b15c2d6a2972349797bba5898033))
+
+- **mcp**: Per-workspace connector URLs, /mcp/w/<slug>
+  ([`e29f3ff`](https://github.com/InnerOpen/marvin/commit/e29f3fff39237ff5af781d62cd7a576bfa8df0cd))
+
+- **mcp**: Photo upload links for chat assistants
+  ([`619bb34`](https://github.com/InnerOpen/marvin/commit/619bb344d7f845672b0b69b2cbcf001054d88986))
+
+- **workflows**: Classify a form submission — a workflow reads it as ${form_submission.*}, and
+  classify-form-submission works on it
+  ([`273f038`](https://github.com/InnerOpen/marvin/commit/273f03860db50821713779863f49d659d0b9383d))
+
+- **workflows**: Make a call once — idempotency keys on webhook and integration steps
+  ([`9706967`](https://github.com/InnerOpen/marvin/commit/97069676611b6297fa563d9fe44c20a62cdd4c8d))
+
+- **workflows**: React to a type field changing — changed_fields, before and after name it
+  ([`277aa7a`](https://github.com/InnerOpen/marvin/commit/277aa7a708242c6e92fb260d18f83570ade9490b))
+
+- **workflows**: Save and restore a version of an entry — a snapshot step and
+  /entries/{id}/snapshots
+  ([`21d1434`](https://github.com/InnerOpen/marvin/commit/21d1434c2c62241fad1309926ecf2f9aaee62104))
+
+
 ## v1.0.0-rc.382 (2026-10-18)
 
 ### Bug Fixes
