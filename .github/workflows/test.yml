@@ -9,6 +9,10 @@ on:
     branches:
       - main
       - develop
+  pull_request:
+    branches:
+      - main
+      - develop
   workflow_dispatch:
 
 concurrency:
@@ -20,6 +24,29 @@ permissions:
   checks: write # For test reporting
 
 jobs:
+  # Ruff from uv.lock, so CI, `task py:lint` and the pre-commit hook all run the same version. Part of the Test Suite
+  # promote waits on (scripts/deploy/wait-for-ci.sh), so a lint or format failure stops a deploy.
+  lint:
+    name: Python Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Ruff (lint)
+        run: uv run ruff check src/ tests/
+
+      - name: Ruff (format)
+        run: uv run ruff format --check src/ tests/
+
   # Job 1: Backend suite on SQLite. No services: the suite makes its own database file (tests/conftest.py), so it runs
   # on the self-hosted runner, in parallel with the Postgres job. Migrations go up → down → up on a file first.
   sqlite-tests:
@@ -44,7 +71,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --frozen
 
       # The file's name has to say "test": the suite drops the schema it finds in an exported DB_SQLITE_PATH.
       - name: Migration reversibility (up -> down -> up)
@@ -117,7 +144,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies (+ postgres driver)
-        run: uv sync
+        run: uv sync --frozen
 
       - name: Wait for PostgreSQL
         run: |
@@ -228,7 +255,7 @@ jobs:
           done
 
       - name: Install dependencies (+ vault client)
-        run: uv sync --group vault
+        run: uv sync --frozen --group vault
 
       - name: Run Vault secret + resolver tests
         run: uv run pytest tests/test_secrets_vault.py -q
@@ -304,6 +331,7 @@ jobs:
     name: Test Summary
     runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER || 'ubuntu-latest' }}
     needs:
+      - lint
       - sqlite-tests
       - postgres-tests
       - vault-tests
@@ -315,12 +343,16 @@ jobs:
         run: |
           echo "Test Summary"
           echo "==============="
+          echo "Lint & format:        ${{ needs.lint.result }}"
           echo "Backend (SQLite):     ${{ needs.sqlite-tests.result }}"
           echo "Backend (PostgreSQL): ${{ needs.postgres-tests.result }}"
           echo "Backend (Vault):      ${{ needs.vault-tests.result }}"
           echo "SDK:                  ${{ needs.sdk-tests.result }}"
           echo "CLI:                  ${{ needs.cli-tests.result }}"
           echo ""
+          if [[ "${{ needs.lint.result }}" != "success" ]]; then
+            echo "Python lint or format check failed"; exit 1
+          fi
           if [[ "${{ needs.sqlite-tests.result }}" != "success" ]]; then
             echo "Backend (SQLite) tests failed"; exit 1
           fi

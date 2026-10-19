@@ -64,7 +64,7 @@ jobs:
       # opens no database connection on import, so nothing else is needed to export the spec.
       - name: Install dependencies
         working-directory: marvin
-        run: uv sync
+        run: uv sync --frozen
 
       - name: Export OpenAPI spec
         working-directory: marvin
