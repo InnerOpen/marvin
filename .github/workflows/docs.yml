@@ -68,14 +68,8 @@ jobs:
 
       - name: Export OpenAPI spec
         working-directory: marvin
-        env:
-          # Importing the app builds its Postgres URL but opens no connection: placeholders suffice.
-          DB_ENGINE: postgres
-          POSTGRES_SERVER: localhost
-          POSTGRES_PORT: "5432"
-          POSTGRES_USER: docs
-          POSTGRES_PASSWORD: docs
-          POSTGRES_DB: docs
+        # No database settings: importing the app needs none (with no POSTGRES_SERVER the engine is SQLite, and the
+        # spec is the same on either engine).
         run: uv run python -c "import json; from marvin.app import app; json.dump(app.openapi(), open('docs/manual/openapi.json', 'w'), indent=2)"
 
       - name: Build core site

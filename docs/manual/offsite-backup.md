@@ -4,7 +4,7 @@ Marvin's own **Backups** (see [Operations → Backups](operations.md#backups)) e
 
 Production runs two targets: `r2` hourly to the R2 bucket `marvin-backups` (the off-site copy) and `nas-nightly` to the NAS. Dev runs `r2` hourly to `marvin-backups-dev`. Each target has its own schedule, retention, run and exit code, so a failing NAS never stops the R2 run and the other way round.
 
-The old single-target job (`marvin.scripts.offsite_backup`, CronJob `marvin-offsite-backup`, `backup.enabled`) is retired: the `r2` target replaced it in dev and production, writing the same objects into the same buckets (see [The old off-site job](#the-old-off-site-job)). It was removed from the image and chart in storage slice 7 (2026-10-10); the targets carry on its history.
+The old single-target job (`marvin.scripts.offsite_backup`, CronJob `marvin-offsite-backup`, `backup.enabled`) no longer exists: the `r2` target replaced it in dev and production, writing the same objects into the same buckets (see [The old off-site job](#the-old-off-site-job)). It was removed from the image and chart in storage slice 7 (2026-10-10); the targets carry on its history.
 
 ## What is backed up
 

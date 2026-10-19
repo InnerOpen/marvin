@@ -89,15 +89,16 @@ up → down → up on a SQLite file.
   bundle → counts, files, decrypted secrets. Known: import mints new workspace UUIDs.
 - `refresh_dev.py` / `task dev:refresh` stay Postgres-only.
 
-## 6. Stage 5 — CI and docs
+## 6. Stage 5 — CI and docs (DONE)
 - `test.yml`: restore "Backend Tests (SQLite)" (self-hosted `vars.CI_RUNNER`, no services; migrations up/down/up on a
   file; pytest; `check_name: Backend Test Results (SQLite)`); add to `test-summary` `needs:`; coverage stays on PG;
   parallel → no wall-time growth (Q3).
 - `conftest.py:21` honours exported `DB_ENGINE`; SQLite sets `DB_SQLITE_PATH=tests/.temp/marvin-test-<pid>-<rand>.db`
   before importing the app, deleted at session end (parallel runs stop colliding). Keep the PG guard at :69.
+- (built: the Kind job is a matrix, sqlite = plain install, postgres = CNPG operator + `--set config.dbEngine=postgres --set postgres.cluster.enabled=true`; a values-dev install on Kind needs its StorageClass, PriorityClass and image names, so dev is rendered and asserted, not installed.)
 - `helm.yml:44-75`: default render sqlite (Kind default install no CNPG; keep a CNPG install for `values-dev.yaml`);
   render `values-iwobble.yaml`; assert `dbEngine: "postgres"` + a CNPG `Cluster` for iwobble/dev/production.
-- `docs.yml:73`, `sdk.yml:70`: drop placeholder `POSTGRES_*`.
+- `docs.yml:73`, `sdk.yml:70`: drop placeholder `POSTGRES_*` (done: the auto rule needs none; OpenAPI spec byte-identical under `DB_ENGINE=sqlite`, `postgres` and unset).
 - Docs: `postgres.md:3,31,130` ("used when configured"; copy tool = upgrade path); `operations.md:37,69,149`
   (`DB_ENGINE`, auto rule, single replica); `offsite-backup.md:15,178,240,244` (`sqlite/` live); new
   `docs/manual/sqlite.md` (file, WAL, no NFS, one replica, backups, moving to Postgres); `HELM_DEPLOYMENT_GUIDE.md`;

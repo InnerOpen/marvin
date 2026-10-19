@@ -4,7 +4,6 @@ The case: Grace's re-list ran while the retries of an earlier, failed re-list we
 "Square: list for sale" on "Gathering Static 1" both read it unlisted and both created a Square item. Now the second
 waits for its turn, reads the entry again, finds it listed, and doesn't run."""
 
-import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -53,7 +52,9 @@ def _release_when_waited(ws, monkeypatch, then):  # noqa: F811
         ws.session.query(WorkflowEntryLockModel).filter_by(holder="other").delete()
         ws.session.commit()
 
-    monkeypatch.setattr(time, "sleep", finish_other_run)
+    # The engine's own `sleep` (not time.sleep: that is global, and any other thread or concurrent test calling it would
+    # run `then()` and delete the lock out from under this one).
+    monkeypatch.setattr(engine, "sleep", finish_other_run)
 
 
 def test_a_run_waits_for_its_turn_and_skips_an_entry_the_other_run_already_handled(ws, monkeypatch):  # noqa: F811

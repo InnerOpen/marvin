@@ -68,16 +68,54 @@ jobs:
             --debug \
             --output-dir /tmp/marvin-templates-dev
 
+      - name: Template Helm chart (iwobble values, Postgres)
+        run: |
+          helm template marvin marvin-chart/ \
+            --values marvin-chart/values-iwobble.yaml \
+            --api-versions route.openshift.io/v1 \
+            --debug \
+            --output-dir /tmp/marvin-templates-iwobble
+
+      # The chart's default is SQLite (a plain install needs no operator); every environment's values file
+      # pins Postgres and a CloudNativePG Cluster. A values file that loses its pin would deploy that environment
+      # onto an empty SQLite file, so each one is rendered and checked: engine in the ConfigMap, and the Cluster.
+      - name: Assert the database engine each values file renders
+        run: |
+          set -euo pipefail
+          render() { helm template marvin marvin-chart/ --api-versions route.openshift.io/v1 "$@"; }
+
+          render > /tmp/engine-default.yaml
+          grep -q 'dbEngine: "sqlite"' /tmp/engine-default.yaml
+          if grep -q 'apiVersion: postgresql.cnpg.io' /tmp/engine-default.yaml; then
+            echo "default values must not render a CloudNativePG Cluster"; exit 1
+          fi
+          echo "default: sqlite, no Cluster"
+
+          for env in iwobble dev production k8s; do
+            render --values "marvin-chart/values-$env.yaml" --set image.tag=latest > "/tmp/engine-$env.yaml"
+            grep -q 'dbEngine: "postgres"' "/tmp/engine-$env.yaml" \
+              || { echo "values-$env.yaml does not render dbEngine: \"postgres\""; exit 1; }
+            grep -q 'apiVersion: postgresql.cnpg.io' "/tmp/engine-$env.yaml" \
+              || { echo "values-$env.yaml does not render a CloudNativePG Cluster"; exit 1; }
+            echo "$env: postgres + CloudNativePG Cluster"
+          done
+
       - name: Upload rendered templates
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: helm-templates
           path: /tmp/marvin-templates*
 
+  # A default install runs on SQLite (no operator); the Postgres variant installs the CloudNativePG operator and
+  # asks for the cluster, as the environment values files do.
   integration-test:
-    name: Helm Integration Test (Kind)
+    name: Helm Integration Test (Kind, ${{ matrix.engine }})
     runs-on: ubuntu-latest
     needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [sqlite, postgres]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -93,9 +131,10 @@ jobs:
           cluster_name: marvin-test
           wait: 120s
 
-      # A default install renders a CloudNativePG Cluster (postgres.cluster.enabled; Postgres is the only
-      # engine), so the operator has to be in the cluster first — as on a real one (docs/manual/postgres.md).
+      # The Cluster the chart renders for Postgres needs the operator in the cluster first — as on a real one
+      # (docs/manual/postgres.md).
       - name: Install CloudNativePG operator
+        if: matrix.engine == 'postgres'
         run: |
           helm repo add cnpg https://cloudnative-pg.github.io/charts
           helm install cnpg cnpg/cloudnative-pg \
@@ -117,16 +156,22 @@ jobs:
 
       - name: Install Helm chart
         run: |
+          engine_args=()
+          if [[ "${{ matrix.engine }}" == "postgres" ]]; then
+            engine_args=(--set config.dbEngine=postgres --set postgres.cluster.enabled=true)
+          fi
           helm install marvin marvin-chart/ \
             --namespace marvin-test \
             --set image.repository=marvin \
             --set image.tag=test \
             --set image.pullPolicy=Never \
+            "${engine_args[@]}" \
             --debug
 
       # The app pods can't start until CNPG has bootstrapped the database and written the "<cluster>-app"
       # Secret they read their connection from, so wait for the Cluster first, then for the pods.
       - name: Wait for the database cluster
+        if: matrix.engine == 'postgres'
         run: |
           kubectl wait --for=condition=Ready cluster/marvin-pg \
             --namespace marvin-test \

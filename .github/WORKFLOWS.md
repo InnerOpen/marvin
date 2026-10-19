@@ -70,14 +70,18 @@ Marvin's CI/CD pipeline is designed around its multi-component architecture:
 
 **Jobs**:
 
+#### Backend Tests (SQLite)
+- No services: the suite makes its own database file per run
+- Alembic migration testing on a file (up, down, up)
+- Pytest, results published as "Backend Test Results (SQLite)"
+
 #### Backend Tests (PostgreSQL)
-- PostgreSQL 15 service
-- Redis 7 service
+- PostgreSQL 17 service
 - Alembic migration testing:
   - Upgrade all migrations
   - Downgrade all migrations
   - Re-upgrade (verify reversibility)
-- Pytest with coverage
+- Pytest with coverage (the coverage report comes from this job only)
 - Upload coverage reports
 
 #### SDK Tests

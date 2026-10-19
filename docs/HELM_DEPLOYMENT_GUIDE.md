@@ -40,7 +40,13 @@ Complete step-by-step guide for deploying Marvin to OpenShift using Helm.
 - CPU: 250m request, 1000m limit per pod
 - Memory: 512Mi request, 1Gi limit per pod
 - Storage: 50Gi
-- Replicas: 2 (for high availability)
+- Replicas: 2 (for high availability; needs Postgres, see below)
+
+### Database engine
+
+The chart's default is **SQLite**: a file (`marvin.db`) on the data volume, one API replica, no operator, no credentials. Deploys use the `Recreate` strategy, so they have a short downtime, and the data volume must be block storage, not NFS (see [SQLite](manual/sqlite.md)). The chart refuses more than one replica, or no persistence, with `config.dbEngine: sqlite`.
+
+**Postgres** is what the environment values files use (`values-iwobble.yaml`, `values-dev.yaml`, `values-production.yaml`, `values-k8s.yaml`): each pins `config.dbEngine: postgres` and `postgres.cluster.enabled: true` (a CloudNativePG cluster; the operator must be installed first, see [Postgres](manual/postgres.md)). Use it for more than one replica, rolling deploys, or storage that cannot host SQLite. CI renders every values file and fails if one loses its Postgres pin, because an environment that falls back to the default would start on an empty SQLite file.
 
 ---
 
@@ -261,7 +267,9 @@ helm history marvin -n marvin-prod
 POD=$(oc get pods -l app.kubernetes.io/name=marvin -o jsonpath='{.items[0].metadata.name}')
 echo "Current pod: $POD"
 
-# Backup database
+# Backup (with SQLite, a tar of a running /app/data can catch marvin.db mid-write: prefer the backup engine
+# (docs/manual/offsite-backup.md) or `sqlite3 /app/data/marvin.db ".backup '/tmp/copy.db'"`; with Postgres the
+# database is not in /app/data at all, use pg_dump or the backup engine)
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 echo "Creating backup: marvin-backup-$TIMESTAMP.tar.gz"
 oc exec $POD -- tar czf /tmp/backup-$TIMESTAMP.tar.gz /app/data
@@ -597,7 +605,8 @@ helm upgrade marvin ./marvin-chart \
   --namespace marvin-prod \
   --values marvin-chart/values-production.yaml
 
-# Or scale directly (temporary)
+# Or scale directly (temporary). More than one API replica needs config.dbEngine=postgres:
+# SQLite is one process writing one file, and the chart refuses a SQLite release with replicas > 1.
 oc scale deployment/marvin --replicas=3
 
 # Verify

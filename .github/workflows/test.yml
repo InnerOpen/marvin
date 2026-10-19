@@ -1,7 +1,8 @@
 name: Test Suite
 
-# Backend suite on SQLite (fast primary gate) + PostgreSQL compatibility (real driver +
-# service container, migration reversibility, full suite on PG), plus SDK/CLI builds.
+# The backend suite on both engines Marvin supports: SQLite (no services, a file per run; fresh installs and the
+# default) and PostgreSQL (real driver + service container, what the production clusters run; carries the coverage
+# report), plus the Vault, SDK and CLI jobs.
 
 on:
   push:
@@ -19,9 +20,54 @@ permissions:
   checks: write # For test reporting
 
 jobs:
-  # Job 1: Backend suite on SQLite — the primary gate. No services, fast.
-  # The backend suite on PostgreSQL (the only engine since 2026-10-13): service container, migration
-  # reversibility (up → down → up), then the full suite with coverage and published results.
+  # Job 1: Backend suite on SQLite. No services: the suite makes its own database file (tests/conftest.py), so it runs
+  # on the self-hosted runner, in parallel with the Postgres job. Migrations go up → down → up on a file first.
+  sqlite-tests:
+    name: Backend Tests (SQLite)
+    runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER || 'ubuntu-latest' }}
+    env:
+      TESTING: "true"
+      DB_ENGINE: sqlite
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync
+
+      # The file's name has to say "test": the suite drops the schema it finds in an exported DB_SQLITE_PATH.
+      - name: Migration reversibility (up -> down -> up)
+        working-directory: src/marvin
+        env:
+          DB_SQLITE_PATH: ${{ runner.temp }}/marvin-test-migrations.db
+        run: |
+          uv run alembic upgrade head
+          uv run alembic downgrade base
+          uv run alembic upgrade head
+
+      - name: Run pytest
+        run: uv run pytest tests/ --junitxml=junit-sqlite.xml
+
+      - name: Publish test results
+        uses: EnricoMi/publish-unit-test-result-action/linux@d0a4676d0e0b938bc201470d88276b7c74c712b3 # v2.24.0 (composite: no Docker, runs on self-hosted dind runners too)
+        if: always()
+        with:
+          files: junit-sqlite.xml
+          check_name: Backend Test Results (SQLite)
+
+  # Job 2: The backend suite on PostgreSQL: service container, migration reversibility (up → down → up), then the
+  # full suite with coverage and published results.
   postgres-tests:
     name: Backend Tests (PostgreSQL)
     # Always GitHub-hosted: the Postgres service container isn't reachable from the self-hosted dind runners.
@@ -111,13 +157,13 @@ jobs:
           check_name: Backend Test Results
 
   # Job 3: Vault secrets — real Vault dev service, SECRET_BACKEND=vault. Runs the vault-gated
-  # secret/resolver tests (they skip in the SQLite/Postgres jobs). DB stays SQLite here.
+  # secret/resolver tests (they skip in the SQLite/Postgres jobs). The database here is the Postgres service.
   vault-tests:
     name: Backend Tests (Vault secrets)
     runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER || 'ubuntu-latest' }}
 
     services:
-      # The suite's conftest opens Postgres (the only engine) before any test, the Vault ones included.
+      # The suite's conftest connects to the database before any test, the Vault ones included; Postgres here, as in production.
       postgres:
         image: postgres:17-alpine
         credentials:
@@ -220,7 +266,7 @@ jobs:
           name: sdk-bundle
           path: dist/
 
-  # Job 4: CLI build/test (separate repo)
+  # Job 5: CLI build/test (separate repo)
   cli-tests:
     name: CLI Tests
     runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER || 'ubuntu-latest' }}
@@ -253,11 +299,12 @@ jobs:
           name: cli-bundle
           path: dist/
 
-  # Test Summary — gates on the backend suites (PostgreSQL + Vault).
+  # Test Summary — gates on the backend suites (SQLite + PostgreSQL + Vault).
   test-summary:
     name: Test Summary
     runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER || 'ubuntu-latest' }}
     needs:
+      - sqlite-tests
       - postgres-tests
       - vault-tests
       - sdk-tests
@@ -268,11 +315,15 @@ jobs:
         run: |
           echo "Test Summary"
           echo "==============="
+          echo "Backend (SQLite):     ${{ needs.sqlite-tests.result }}"
           echo "Backend (PostgreSQL): ${{ needs.postgres-tests.result }}"
           echo "Backend (Vault):      ${{ needs.vault-tests.result }}"
           echo "SDK:                  ${{ needs.sdk-tests.result }}"
           echo "CLI:                  ${{ needs.cli-tests.result }}"
           echo ""
+          if [[ "${{ needs.sqlite-tests.result }}" != "success" ]]; then
+            echo "Backend (SQLite) tests failed"; exit 1
+          fi
           if [[ "${{ needs.postgres-tests.result }}" != "success" ]]; then
             echo "Backend (PostgreSQL) tests failed"; exit 1
           fi

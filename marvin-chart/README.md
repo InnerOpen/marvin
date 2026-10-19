@@ -10,7 +10,7 @@ Marvin is an event bus application with webhook delivery, scheduling, and state 
 - API and server-rendered web UI from a single image, exposed on separate ports
 - Multi-environment support (per-install values files)
 - OpenShift Route integration
-- Persistent storage for SQLite database
+- SQLite on the data volume by default (one replica), or Postgres through a CloudNativePG cluster (`config.dbEngine: postgres`)
 - Configurable resource limits
 - Health checks and readiness probes
 
@@ -18,7 +18,8 @@ Marvin is an event bus application with webhook delivery, scheduling, and state 
 
 - Kubernetes 1.19+ or OpenShift 4.x+
 - Helm 3.0+
-- PersistentVolume provisioner support (for SQLite data)
+- PersistentVolume provisioner support (the data volume: SQLite file, assets, `.secret`); block storage, not NFS, with SQLite
+- With `config.dbEngine: postgres` and `postgres.cluster.enabled`: the CloudNativePG operator installed in the cluster
 - Container registry access (for pulling Marvin image)
 
 ## Installation
@@ -75,8 +76,8 @@ config:
   platformWorkspaceName: ""  # name of the admin's workspace on a fresh install; empty = "Default"
   allowSignup: true          # Allow user signups
   logLevel: DEBUG            # Logging level (DEBUG, INFO, WARNING, ERROR)
-  dbEngine: sqlite           # Database engine
-  dataDir: /app/data         # Data directory for SQLite
+  dbEngine: sqlite           # sqlite (default: one replica, Recreate deploys) or postgres (set postgres.cluster.enabled too)
+  dataDir: /app/data         # Data directory (SQLite file, assets, .secret)
   apiPort: 8080              # API server port
   webhookRetryAttempts: 3    # Webhook retry count
   webhookTimeout: 30         # Webhook timeout in seconds
@@ -120,7 +121,7 @@ persistence:
 
 `backup.targets[]` (empty by default) runs the backup engine, `python -m marvin.scripts.backup`, as one
 CronJob `<release>-backup-<name>` per target, each with its own schedule, retention and exit code: the
-database (a consistent SQLite snapshot or a `pg_dump`), a config archive (`.secret`,
+database (a consistent SQLite snapshot with `dbEngine: sqlite`, a `pg_dump` with `postgres`), a config archive (`.secret`,
 `scheduler_state.json`, `templates/`) and an incremental mirror of `assets/`, from the backend image on
 the backend pod's node (the PVC is ReadWriteOnce). `type` is `local` (built in: a directory on a volume
 of its own) or a storage plugin's target slug, e.g. `s3` from `marvin-storage-s3` (from

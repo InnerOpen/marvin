@@ -54,7 +54,7 @@ jobs:
           - 6379:6379
 
     env:
-      # The backend runs on the job's Postgres service (Postgres is the only engine since 2026-10-13).
+      # The backend runs on the job's Postgres service (the engine production runs).
       DB_ENGINE: postgres
       POSTGRES_SERVER: localhost
       POSTGRES_PORT: "5432"

@@ -15,6 +15,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from time import monotonic, sleep
 from typing import Any
 from uuid import uuid4
 
@@ -138,16 +139,14 @@ def _entry_turn(session, automation, entry_id, *, dry_run: bool = False, logger=
     if dry_run or automation_id is None or not entry_id:
         yield False
         return
-    import time
-
     holder = uuid4().hex
-    deadline = time.monotonic() + TURN_WAIT_SECONDS
+    deadline = monotonic() + TURN_WAIT_SECONDS
     waited = False
     try:
         held = _take_turn(session, automation_id, entry_id, holder)
-        while not held and time.monotonic() < deadline:
+        while not held and monotonic() < deadline:
             waited = True
-            time.sleep(TURN_POLL_SECONDS)
+            sleep(TURN_POLL_SECONDS)  # looked up here, so a test can stand in for the wait without touching time.sleep
             held = _take_turn(session, automation_id, entry_id, holder)
     except Exception as e:  # noqa: BLE001 — the turn guards against a race; it never stops a run
         rollback = getattr(session, "rollback", None)
