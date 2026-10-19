@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.2 (2026-10-19)
+
+### Bug Fixes
+
+- **frontend**: The password reset link opens a page that sets the new password
+  ([`dd9ee8a`](https://github.com/InnerOpen/marvin/commit/dd9ee8a140d6abdc965931729535310b4c69af79))
+
+### Features
+
+- **frontend**: Marvin's own 404 and 500 pages
+  ([`2eb0a8c`](https://github.com/InnerOpen/marvin/commit/2eb0a8c4eb1e10f879c431407f478643457877b3))
+
+
 ## v1.1.0-rc.1 (2026-10-19)
 
 ### Continuous Integration
