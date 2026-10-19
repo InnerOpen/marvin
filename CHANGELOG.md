@@ -6,6 +6,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.1-rc.1 (2026-10-19)
+
+### Bug Fixes
+
+- **admin**: Features Status shows what is in force, and where it comes from
+  ([`6653379`](https://github.com/InnerOpen/marvin/commit/6653379114c4245c15b41e6c93750528d9f4bd66))
+
+- **frontend**: Custom entry types can be edited on a phone — Edit was ~1000px off-screen in an
+  11-column table
+  ([`df22ebd`](https://github.com/InnerOpen/marvin/commit/df22ebd212620c9f1621c9ac9d37075cc76d5538))
+
+### Continuous Integration
+
+- Develop prereleases get a tag but no GitHub Release; the SQLite Kind test waits for its pods to
+  exist
+  ([`d4b706a`](https://github.com/InnerOpen/marvin/commit/d4b706ae86bb1d3f5585fbd308fa497fc2177328))
+
+
 ## v1.0.0 (2026-10-19)
 
 ### Chores
