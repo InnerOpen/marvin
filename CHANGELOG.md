@@ -6,6 +6,132 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.384 (2026-10-19)
+
+### Bug Fixes
+
+- **frontend**: Connected apps can be disconnected on a phone — Disconnect was pushed off-screen
+  ([`4ac8ffd`](https://github.com/InnerOpen/marvin/commit/4ac8ffd946da261ab6d329a59e50a7dcb0e4642a))
+
+- **frontend**: The workspace page and its delete panel fit a 390 px screen
+  ([`03853d2`](https://github.com/InnerOpen/marvin/commit/03853d2ce3d0b6d741fad0c6c3d948b9eb25bfe6))
+
+### Chores
+
+- **alembic**: Users_group_id_nullable follows the platform SMTP/alerts migrations
+  ([`9eb42d4`](https://github.com/InnerOpen/marvin/commit/9eb42d4b80372ae107b183c9e58390deee5b5ec3))
+
+- **deploy**: Drop promote-iwobble.sh — promote.sh does the work
+  ([`f1e9d86`](https://github.com/InnerOpen/marvin/commit/f1e9d8688fb9facbc2e50ffcfe8eb9b45a396b7e))
+
+- **dev**: Slim the character kit — Marvin builds packs; keep prompts and references
+  ([`203225f`](https://github.com/InnerOpen/marvin/commit/203225f4dec20ef004011435ceaefc9247e3eb21))
+
+- **dev**: Task audit:dead — vulture + knip on demand
+  ([`57aeab1`](https://github.com/InnerOpen/marvin/commit/57aeab1fc55a56fe1cbaff69081f45aec4dbd6a3))
+
+- **scripts**: Drop stale manual test scripts
+  ([`312d0fc`](https://github.com/InnerOpen/marvin/commit/312d0fcb20f02163441d6723a2e17e3a4a0c53b1))
+
+- **scripts**: Drop the Mash & Burn seed script
+  ([`54302e2`](https://github.com/InnerOpen/marvin/commit/54302e247ecf9a72df4bf08ea7d5094b3d319152))
+
+### Documentation
+
+- First boot is Admin, workspaces delete safely, files wait out a grace period
+  ([`9e49601`](https://github.com/InnerOpen/marvin/commit/9e49601c898556dd978146bf2f07f596ac8bfbf8))
+
+- **tasks**: Plan — retire the platform workspace (decisions recorded)
+  ([`cf562a4`](https://github.com/InnerOpen/marvin/commit/cf562a4f73245259ae13e68ad817a1b116f4e05a))
+
+- **tasks**: Plan — SQLite back as the fresh-install default engine
+  ([`7c6d7aa`](https://github.com/InnerOpen/marvin/commit/7c6d7aa2544ea70b7496470a7d34a4d09213f407))
+
+- **tasks**: SQLite plan — decisions recorded (all as recommended)
+  ([`39b8217`](https://github.com/InnerOpen/marvin/commit/39b82178f582b36fe53dc83885e7200591bf4516))
+
+### Features
+
+- **admin**: Platform SMTP and Platform channels pages, docs, and stage 1 status
+  ([`a83ab07`](https://github.com/InnerOpen/marvin/commit/a83ab074f10573f4ecf0811ccc3f4ca23f971395))
+
+- **alerts**: Platform alert channels that belong to no workspace
+  ([`959da3a`](https://github.com/InnerOpen/marvin/commit/959da3acb408d91ab785779eef2b22893c1173c0))
+
+- **backup**: The backup engine backs up, records and restores SQLite again, beside Postgres
+  ([`e2c0c4b`](https://github.com/InnerOpen/marvin/commit/e2c0c4bff0bc4e59141e87dfb2daae48069bf9c5))
+
+- **ci**: The suite runs on SQLite and Postgres; docs say SQLite is back
+  ([`f14bc10`](https://github.com/InnerOpen/marvin/commit/f14bc103b6842c479f9384da4448cf9f719d027c))
+
+- **db**: Dashboard, admin and models run the same on SQLite and Postgres
+  ([`e82be71`](https://github.com/InnerOpen/marvin/commit/e82be71c5d63b9501e2cd05ca48338958a85e571))
+
+- **db**: Races that SQLite's single writer used to lose are closed
+  ([`ff5ef0a`](https://github.com/InnerOpen/marvin/commit/ff5ef0a47f226bcae97fa13198cfc9df1b3c7610))
+
+- **db**: SQLite is a supported engine again, and the fresh-install default
+  ([`521c33b`](https://github.com/InnerOpen/marvin/commit/521c33b1c4763676e930f1d11a3bdbe249666403))
+
+- **email**: Platform SMTP with per-field Admin overrides over the environment
+  ([`67df146`](https://github.com/InnerOpen/marvin/commit/67df1465f540e0f2f276f79d1dba4da4fe814564))
+
+- **frontend**: A user with no workspace is sent to Admin or a waiting-for-an-invite page
+  ([`d76f1e4`](https://github.com/InnerOpen/marvin/commit/d76f1e4bf9f411a9e67b3ce08384be589526d856))
+
+- **frontend**: Delete a workspace with a preview, a backup and the typed name; list files awaiting
+  a purge
+  ([`4ee205d`](https://github.com/InnerOpen/marvin/commit/4ee205dfb7412d898b69062b11727d2461e36a41))
+
+- **migration**: Copy the platform workspace's SMTP profile and alert integrations into platform
+  settings
+  ([`0df2fef`](https://github.com/InnerOpen/marvin/commit/0df2fefe9cd8a52b224fd0adadd15940933e5c55))
+
+- **secrets**: A platform secret scope (workspace_secrets.group_id NULL)
+  ([`1bdcaa6`](https://github.com/InnerOpen/marvin/commit/1bdcaa6a70085598a8f90fe17a823df08a0447ac))
+
+- **workspace**: Fresh installs create no workspace; retire the platform marker
+  ([`728e30b`](https://github.com/InnerOpen/marvin/commit/728e30b93b37db208698e17962eed534b3fd0d13))
+
+- **workspace**: Safer workspace deletion and a deferred purge of its stored files
+  ([`45e8eed`](https://github.com/InnerOpen/marvin/commit/45e8eed90809c9641dd332c7203332b44299f070))
+
+- **workspace**: Users can be in no workspace; Admin works without one
+  ([`3de164d`](https://github.com/InnerOpen/marvin/commit/3de164d8d2e46ab472322993bb3ff9565837cb8f))
+
+### Refactoring
+
+- Drop unused schemas and helpers
+  ([`727f56b`](https://github.com/InnerOpen/marvin/commit/727f56be1e2e694b26566bcd9ed0795994b15d8d))
+
+- Remove dead backend files and the broken Lambda entry
+  ([`859406c`](https://github.com/InnerOpen/marvin/commit/859406c7e9c0f95d10dcb0ef5dfa618c91d1e3ac))
+
+- Remove the legacy plugin loader (AppPlugins) — entry points are the plugin system
+  ([`ded6223`](https://github.com/InnerOpen/marvin/commit/ded622382c78eb099f9d28874b1eaf2cc740a80e))
+
+- **frontend**: Drop unused exports
+  ([`f4528d4`](https://github.com/InnerOpen/marvin/commit/f4528d4e4736c0401beb2ee6f340194e545d6c6c))
+
+- **frontend**: Drop unused files and the 0g dependency
+  ([`faa4a63`](https://github.com/InnerOpen/marvin/commit/faa4a631910cae1415a3a34eccbcadf0a3012183))
+
+### Testing
+
+- Keep a developer's .env SMTP out of the suite
+  ([`9598684`](https://github.com/InnerOpen/marvin/commit/95986847f94e785e33831808779af869c174d26e))
+
+- No-workspace fixture removes the member's API tokens before the user
+  ([`ac02dcc`](https://github.com/InnerOpen/marvin/commit/ac02dccdfb0ee2adaf61f3587f9a97ba0a518b7d))
+
+- Platform events have no workspace, so their fixtures clean up by user
+  ([`c902b6f`](https://github.com/InnerOpen/marvin/commit/c902b6f82d71abb148e0057154cabbc13f52c0c0))
+
+- **alerts**: The platform channels page test tolerates real message plugins installed alongside the
+  fakes
+  ([`1fddc8e`](https://github.com/InnerOpen/marvin/commit/1fddc8ea69b2752a1ecc4e5dd85fabb71074b570))
+
+
 ## v1.0.0-rc.383 (2026-10-19)
 
 ### Bug Fixes
