@@ -17,6 +17,9 @@ from marvin.schemas.admin.email import (
     EmailReady,
     EmailSuccess,
     EmailTest,
+    PlatformSMTPField,
+    PlatformSMTPRead,
+    PlatformSMTPUpdate,
 )  # Pydantic schemas for email responses/requests
 from marvin.schemas.group.email_template import (
     EmailTemplateCreate,
@@ -24,9 +27,15 @@ from marvin.schemas.group.email_template import (
     EmailTemplateSummary,
     EmailTemplateUpdate,
 )
+from marvin.services import platform_smtp
 from marvin.services.email import EmailService  # Service for handling email operations
-from marvin.services.email.email_senders import email_ready
-from marvin.services.event_bus_service.event_types import EventEmailTemplateData, EventOperation, EventTypes
+from marvin.services.email.email_senders import DefaultEmailSender, email_ready
+from marvin.services.event_bus_service.event_types import (
+    EventEmailTemplateData,
+    EventOperation,
+    EventPlatformSettingsChangedData,
+    EventTypes,
+)
 
 # APIRouter for admin "email" section, prefixed with /email
 # All routes in this controller will be under /admin/email.
@@ -111,6 +120,109 @@ class AdminEmailController(BaseAdminController):
             error_message = str(e)
 
         return EmailSuccess(success=email_sent_successfully, error=error_message)
+
+    # Platform SMTP — the environment's SMTP_* with the admin's per-field overrides (services/platform_smtp.py)
+
+    def _smtp_read(self) -> PlatformSMTPRead:
+        from marvin.core.config import get_app_settings
+
+        config = platform_smtp.effective()
+        env = platform_smtp.env_config()
+
+        def field(name: str) -> PlatformSMTPField:
+            value, env_value = getattr(config, name), getattr(env, name)
+            return PlatformSMTPField(
+                value=None if value is None else str(value),
+                env_value=None if env_value is None else str(env_value),
+                source=config.sources.get(name),
+            )
+
+        return PlatformSMTPRead(
+            ready=config.ready,
+            problem=config.problem,
+            source=config.source,
+            host=field("host"),
+            port=field("port"),
+            username=field("username"),
+            auth_strategy=field("auth_strategy"),
+            from_name=field("from_name"),
+            from_email=field("from_email"),
+            password_set=bool(config.password),
+            password_source=config.sources.get("password"),
+            password_missing=config.password_missing,
+            can_store_password=get_app_settings().SECRET_BACKEND.lower() != "env",
+            env_available=env.ready,
+            env_summary=platform_smtp.env_summary(env),
+        )
+
+    def _smtp_announce(self, changes: list[str]) -> None:
+        """platform_settings_changed (platform scope, always audited). The password never appears: only that it changed."""
+        if not changes:
+            return
+        name = getattr(self.user, "full_name", None) or self.user.username
+        self.logger.info(f"Platform SMTP changed by {name}: {'; '.join(changes)}")
+        self.event_bus.dispatch(
+            integration_id="platform_settings",
+            group_id=None,
+            event_type=EventTypes.platform_settings_changed,
+            document_data=EventPlatformSettingsChangedData(
+                operation=EventOperation.update, setting=platform_smtp.KEY, changes=changes, changed_by_name=name
+            ),
+            message=("Platform SMTP: " + "; ".join(changes))[:1000],
+            user_id=self.user.id,
+            entity_type="platform_settings",
+        )
+
+    @router.get("/platform-smtp", response_model=PlatformSMTPRead, summary="Admin: Get Platform SMTP Settings")
+    def get_platform_smtp(self) -> PlatformSMTPRead:
+        """The SMTP server platform mail goes through: the environment's settings, each field overridden by an
+        admin's value when one is set. The password is never returned, only whether one is in force."""
+        return self._smtp_read()
+
+    @router.put("/platform-smtp", response_model=PlatformSMTPRead, summary="Admin: Save Platform SMTP Settings")
+    def update_platform_smtp(self, data: PlatformSMTPUpdate) -> PlatformSMTPRead:
+        """Replace the admin's fields: a blank or missing one goes back to the environment's. The password is write-only
+        and left alone when blank (audited as ``platform_settings_changed``)."""
+        before = platform_smtp.stored_block(self.session)
+        try:
+            platform_smtp.save(
+                self.session,
+                data.model_dump(exclude={"password", "clear_password"}),
+                password=(data.password or None),
+                clear_password=data.clear_password,
+            )
+        except platform_smtp.SMTPSettingsError as e:
+            self.session.rollback()
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+        after = platform_smtp.stored_block(self.session)
+        self._smtp_announce(platform_smtp.describe_changes(before, "password_ref" in before, after, "password_ref" in after))
+        return self._smtp_read()
+
+    @router.delete("/platform-smtp", response_model=PlatformSMTPRead, summary="Admin: Use the Environment's SMTP Settings")
+    def reset_platform_smtp(self) -> PlatformSMTPRead:
+        """Clear every admin field and the admin password: the environment's settings apply again (audited)."""
+        before = platform_smtp.stored_block(self.session)
+        platform_smtp.reset(self.session)
+        self._smtp_announce(platform_smtp.describe_changes(before, "password_ref" in before, {}, False))
+        return self._smtp_read()
+
+    @router.post("/platform-smtp/test", response_model=EmailSuccess, summary="Admin: Send a Test Email Through the Platform SMTP")
+    def test_platform_smtp(self) -> EmailSuccess:
+        """Send a test email to the signed-in admin through the platform SMTP server as it is saved now, and say what the
+        server answered."""
+        to = getattr(self.user, "email", None)
+        if not to:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Your account has no email address to send the test to.")
+        config = platform_smtp.effective()
+        if not config.ready:
+            return EmailSuccess(success=False, error=config.problem)
+        try:
+            result = DefaultEmailSender(config).deliver(
+                to, "Test email from Marvin", "<p>This is a test of the platform SMTP settings. Nothing is wrong.</p>"
+            )
+        except Exception as e:  # noqa: BLE001 — the admin reads the reason
+            return EmailSuccess(success=False, error=str(e))
+        return EmailSuccess(success=result.success, error=None if result.success else result.message)
 
     # Email Template Management Endpoints
 

@@ -121,8 +121,7 @@ class EmailService(BaseService):
         #  - explicit sender wins
         #  - otherwise, when scoped to a workspace, route through its active SMTP profile
         #    (WorkspaceEmailSender falls back to the platform's sender when none is active)
-        #  - unscoped uses the platform's sender: the platform SMTP settings, else the
-        #    platform workspace's active SMTP profile (email_senders.platform_sender)
+        #  - unscoped uses the platform's sender: the platform SMTP server (email_senders.platform_sender)
         if sender is not None:
             self.sender: ABCEmailSender = sender
         elif group_id:
@@ -139,8 +138,8 @@ class EmailService(BaseService):
         self.logger.info(f"EmailService initialized. Sender: {type(self.sender).__name__}. Locale: {locale or 'default'}.")
 
     def _can_send(self) -> bool:
-        """Whether email can be dispatched: global SMTP is configured, OR this service's workspace
-        or the platform workspace has an active SMTP profile (email_senders.email_ready)."""
+        """Whether email can be dispatched: the platform SMTP server is configured, OR this service's workspace
+        has an active SMTP profile (email_senders.email_ready)."""
         return email_ready(getattr(self.sender, "group_id", None))
 
     def send_email(self, email_to: str, email_data: EmailTemplate) -> bool:  # Renamed `data` to `email_data`

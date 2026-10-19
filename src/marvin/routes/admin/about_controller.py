@@ -17,6 +17,7 @@ from marvin.schemas.admin.about import (  # Pydantic schemas for response models
     CheckAppConfig,
     EmbeddingsInfo,
 )
+from marvin.services import platform_smtp
 from marvin.services.email.email_senders import email_ready
 
 # APIRouter for admin "about" section, prefixed with /about
@@ -188,8 +189,9 @@ class AdminAboutController(BaseAdminController):
 
         # Add computed @property fields that aren't in model_dump
         # FeatureDetails is a NamedTuple, convert to dict with _asdict()
-        data["SMTP_ENABLED"] = settings.SMTP_ENABLED
-        data["SMTP_FEATURE"] = settings.SMTP_FEATURE._asdict() if settings.SMTP_FEATURE else None
+        smtp = platform_smtp.effective()  # the environment's SMTP_* with Admin → Email's per-field overrides
+        data["SMTP_ENABLED"] = smtp.ready
+        data["SMTP_FEATURE"] = {"enabled": smtp.ready, "description": smtp.problem}
         data["LDAP_ENABLED"] = settings.LDAP_ENABLED
         data["LDAP_FEATURE"] = settings.LDAP_FEATURE._asdict() if settings.LDAP_FEATURE else None
         data["OIDC_READY"] = settings.OIDC_READY
@@ -221,7 +223,7 @@ class AdminAboutController(BaseAdminController):
         is_up_to_date_status = APP_VERSION in ["develop", "nightly"] or get_latest_version(settings.GITHUB_VERSION_URL) == APP_VERSION
 
         return CheckAppConfig(
-            email_ready=email_ready(),  # SMTP settings, or the platform workspace's active SMTP profile
+            email_ready=email_ready(),  # the platform SMTP server (environment + Admin → Email overrides)
             ldap_ready=settings.LDAP_ENABLED,  # LDAP configured and enabled
             base_url_set=settings.BASE_URL != "http://localhost:8080",  # Base URL customized from default
             is_up_to_date=is_up_to_date_status,  # Application version is current
