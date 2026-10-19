@@ -21,7 +21,7 @@ from marvin.app import app
 from marvin.core.security import create_access_token
 from marvin.db.models.groups import Groups
 from marvin.db.models.platform.event_log import EventLogModel
-from marvin.db.models.users.users import Users
+from marvin.db.models.users.users import LongLiveToken, Users
 from marvin.db.models.users.workspace_members import WorkspaceMembers
 from marvin.services.workspace.current import current_workspace_id
 from tests._routes import api_routes
@@ -80,6 +80,7 @@ def world(db_session):
     db_session.rollback()
     ids = db_session.execute(select(Users.id).where(Users.username.like(f"nw-{marker}%"))).scalars().all()
     db_session.execute(sa.delete(EventLogModel).where(EventLogModel.user_id.in_(ids)))
+    db_session.execute(sa.delete(LongLiveToken).where(LongLiveToken.user_id.in_(ids)))
     db_session.execute(sa.delete(WorkspaceMembers).where(WorkspaceMembers.user_id.in_(ids)))
     db_session.execute(sa.delete(Users).where(Users.id.in_(ids)))
     for group in (alpha, beta):
