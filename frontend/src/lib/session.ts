@@ -11,7 +11,7 @@
 export const FALLBACK_COOKIE_SECONDS = 60 * 60 * 24 * 7;
 
 /** Pages that work signed out: an expired cookie there is just dropped, never sent to the login page. */
-const SIGNED_OUT_PAGES = ["/login", "/forgot", "/register"];
+const SIGNED_OUT_PAGES = ["/login", "/forgot", "/reset-password", "/register"];
 /** Not pages: API routes answer for themselves, and these are fetched by the browser, not visited. */
 const NOT_PAGES = ["/api/", "/_astro/", "/healthz", "/version.json", "/manifest.webmanifest", "/share-target"];
 

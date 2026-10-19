@@ -52,14 +52,12 @@ class ValidateResetToken(_MarvinModel):
 
 class ResetPassword(ValidateResetToken):  # Extends ValidateResetToken, so it also includes 'token'
     """
-    Schema for the actual password reset operation.
-    Requires the reset token, the user's email (for verification, though token
-    should be sufficient if unique and mapped to user), and the new password
-    with confirmation.
+    Schema for the actual password reset operation: the reset token (it names the user) and the new password with
+    confirmation.
     """
 
-    email: str  # Potentially redundant if token is securely mapped to a user already.
-    """The email address of the user. Used for additional verification during password reset."""
+    email: str | None = None
+    """Not checked (the token names the user); accepted so older clients that send it keep working."""
     password: str
     """The new password to set for the user."""
     passwordConfirm: str  # Field name uses camelCase, consistent with alias_generator in _MarvinModel

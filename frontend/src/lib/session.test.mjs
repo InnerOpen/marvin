@@ -64,6 +64,7 @@ describe("expiredSessionRedirect", () => {
       "/login",
       "/login?error=invalid",
       "/forgot",
+      "/reset-password/?token=abc",
       "/register",
       "/api/groups/ai-settings",
       "/healthz",

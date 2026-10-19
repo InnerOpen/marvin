@@ -76,6 +76,19 @@ def test_a_fresh_reset_link_still_works(db_session, user):
     assert _service(db_session).reset_password(token, "a brand new password", "a brand new password")
 
 
+def test_the_reset_endpoint_takes_the_token_and_passwords_without_an_email(db_session, user):
+    """What the /reset-password page (and the fixed SDK) send: the token names the user, so no email is asked for."""
+    from fastapi.testclient import TestClient
+
+    from marvin.app import app
+
+    token = _service(db_session).generate_reset_token(user["email"]).token
+    body = {"token": token, "password": "a brand new password", "passwordConfirm": "a brand new password"}
+    res = TestClient(app).post("/api/users/reset-password", json=body)
+    assert res.status_code == 200, res.text
+    assert TestClient(app).post("/api/users/reset-password", json=body).status_code == 400  # one use
+
+
 def test_the_daily_prune_deletes_expired_reset_links(db_session, user):
     from marvin.db.models.users import PasswordResetModel
     from marvin.services.scheduled_tasks.handlers.maintenance import _delete_expired_reset_tokens
