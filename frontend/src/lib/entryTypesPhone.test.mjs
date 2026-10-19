@@ -25,11 +25,22 @@ describe("entry types list", () => {
 
   test("on a phone only the icon, name and kind columns are left; the rest is hidden", () => {
     const phone = page.match(/@media \(max-width: 640px\) \{([\s\S]*?)\n {2}\}\n/)?.[1] ?? "";
-    assert.match(phone, /\.types \.col-wide \{\s*display: none;/);
-    // slug and entries (and actions, custom table only) are .col-wide, in the header and each row (10 cells); rendered, renderer, package, version and sort order are .col-render
-    assert.equal([...page.matchAll(/<(?:th|td) class="col-wide"/g)].length, 10);
-    assert.equal([...page.matchAll(/<(?:th|td) class="col-render"/g)].length, 5 * 4);
-    assert.match(page, /@media \(max-width: 1240px\) \{\s*\.types \.col-render \{\s*display: none;/);
+    assert.match(phone, /\.types \.col-wide,\s*\.types \.type-meta \{\s*display: none;/);
+    // slug, fields and entries (and actions, custom table only) are .col-wide, in the header and each row: 3 + 4 columns x 2 cells
+    assert.equal([...page.matchAll(/<(?:th|td) class="col-wide[ "]/g)].length, (3 + 4) * 2);
+  });
+
+  test("a desktop table has six short columns, not eleven: the rendering details are one line under the name (Jared, 2026-10-19)", () => {
+    assert.doesNotMatch(page, /col-render/);
+    for (const gone of ["Rendered", "Renderer", "Package", "Version", "Sort Order"]) {
+      assert.doesNotMatch(page, new RegExp(`<th[^>]*>${gone}</th>`));
+    }
+    assert.equal([...page.matchAll(/<small class="type-meta">/g)].length, 2);
+    assert.match(page, /Renders with \$\{renderer/);
+    // Fields goes and the slug moves under the name below 1100px (a 1024px content box is ~700px)
+    assert.match(page, /@media \(max-width: 1100px\) \{\s*\.types \.col-fields,\s*\.types \.col-slug \{\s*display: none;/);
+    // a long slug is cut with an ellipsis rather than broken letter by letter
+    assert.match(page, /\.types td \.slug \{[^}]*text-overflow: ellipsis;/);
   });
 
   test("a custom type's name is a real link to its editor, stretched over the row, with a visible focus ring", () => {
@@ -39,8 +50,9 @@ describe("entry types list", () => {
     assert.match(page, /\.types \.row-link:focus-visible::after \{\s*outline:/);
   });
 
-  test("the desktop Edit / Delete buttons stay (above the stretched link)", () => {
+  test("the desktop Edit / Delete buttons stay (above the stretched link) and never wrap onto separate lines", () => {
     assert.match(page, /\.types \.actions \{\s*position: relative;/);
+    assert.match(page, /\.types \.actions \{\s*flex-wrap: nowrap;\s*white-space: nowrap;/);
     assert.match(page, /action=\{`\/api\/entry-types\/\$\{type\.id\}\/delete`\}/);
   });
 });

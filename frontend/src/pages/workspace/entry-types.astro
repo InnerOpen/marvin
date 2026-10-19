@@ -38,13 +38,20 @@ const sortedTypes = entryTypes.sort((a, b) => a.sortOrder - b.sortOrder);
 const systemTypes = sortedTypes.filter((t) => t.isSystem);
 const customTypes = sortedTypes.filter((t) => !t.isSystem);
 
-function getRendering(type: EntryTypeRead) {
-  const rendering = type.renderingJson as Record<string, unknown> | undefined;
-  return {
-    renderer: rendering?.renderer as string | undefined,
-    package: rendering?.package as string | undefined,
-    version: rendering?.version as string | undefined,
-  };
+// How many fields the type's schema defines.
+function fieldCount(type: EntryTypeRead): number {
+  const fields = (type.schemaJson as { fields?: unknown } | undefined)?.fields;
+  return Array.isArray(fields) ? fields.length : 0;
+}
+
+// The rendering columns (rendered, renderer, package, version) made the table too wide for a desktop, so they are one
+// secondary line under the name; the edit page has the full settings.
+function renderLine(type: EntryTypeRead): string {
+  const rendering = (type.renderingJson ?? {}) as Record<string, unknown>;
+  const renderer = rendering.renderer as string | undefined;
+  const pkg = [rendering.package, rendering.version].filter(Boolean).join(" ");
+  const parts = [type.isRendered || renderer ? `Renders with ${renderer ?? "a renderer"}` : "", pkg];
+  return parts.filter(Boolean).join(" · ");
 }
 ---
 
@@ -76,20 +83,15 @@ function getRendering(type: EntryTypeRead) {
                 <th>Icon</th>
                 <th>Name</th>
                 <th>Type</th>
-                <th class="col-wide">Slug</th>
-                <th class="col-render">Rendered</th>
-                <th class="col-render">Renderer</th>
-                <th class="col-render">Package</th>
-                <th class="col-render">Version</th>
+                <th class="col-wide col-slug">Slug</th>
+                <th class="col-wide col-fields">Fields</th>
                 <th class="col-wide">Entries</th>
-                <th class="col-render">Sort Order</th>
               </tr>
             </thead>
             <tbody>
               {systemTypes.map((type) => {
                 const count = entryCounts.get(type.id) || 0;
-                const { renderer, package: pkg, version } = getRendering(type);
-                return (
+                                return (
                   <tr class={`entry-type-row ${count === 0 ? 'empty-type' : ''}`}
                     data-system="true"
                     data-name={type.name.toLowerCase()}
@@ -102,13 +104,10 @@ function getRendering(type: EntryTypeRead) {
                         </span>
                       )}
                     </td>
-                    <td class="type-name"><strong>{type.name}</strong></td>
+                    <td class="type-name"><strong>{type.name}</strong><small class="type-meta"><code class="meta-slug">{type.slug}</code>{renderLine(type) && <span class="meta-render">{renderLine(type)}</span>}</small></td>
                     <td><span class="system-badge">System</span></td>
-                    <td class="col-wide"><code>{type.slug}</code></td>
-                    <td class="col-render">{type.isRendered ? <span class="rendered-badge">Yes</span> : '—'}</td>
-                    <td class="col-render">{renderer ? <code>{renderer}</code> : '—'}</td>
-                    <td class="col-render">{pkg ? <code>{pkg}</code> : '—'}</td>
-                    <td class="col-render">{version || '—'}</td>
+                    <td class="col-wide col-slug"><code class="slug" title={type.slug}>{type.slug}</code></td>
+                    <td class="col-wide col-fields">{fieldCount(type)}</td>
                     <td class="col-wide">
                       {count === 0 ? (
                         <span class="empty-badge">Empty</span>
@@ -116,7 +115,6 @@ function getRendering(type: EntryTypeRead) {
                         <span class="count-badge">{count}</span>
                       )}
                     </td>
-                    <td class="col-render">{type.sortOrder}</td>
                   </tr>
                 );
               })}
@@ -142,21 +140,16 @@ function getRendering(type: EntryTypeRead) {
                 <th>Icon</th>
                 <th>Name</th>
                 <th>Type</th>
-                <th class="col-wide">Slug</th>
-                <th class="col-render">Rendered</th>
-                <th class="col-render">Renderer</th>
-                <th class="col-render">Package</th>
-                <th class="col-render">Version</th>
+                <th class="col-wide col-slug">Slug</th>
+                <th class="col-wide col-fields">Fields</th>
                 <th class="col-wide">Entries</th>
-                <th class="col-render">Sort Order</th>
                 <th class="col-wide">Actions</th>
               </tr>
             </thead>
             <tbody>
               {customTypes.map((type) => {
                 const count = entryCounts.get(type.id) || 0;
-                const { renderer, package: pkg, version } = getRendering(type);
-                return (
+                                return (
                   <tr class={`entry-type-row ${count === 0 ? 'empty-type' : ''}`}
                     data-system="false"
                     data-name={type.name.toLowerCase()}
@@ -169,13 +162,10 @@ function getRendering(type: EntryTypeRead) {
                         </span>
                       )}
                     </td>
-                    <td class="type-name"><a class="row-link" href={`/workspace/entry-types/${type.id}`}><strong>{type.name}</strong></a></td>
+                    <td class="type-name"><a class="row-link" href={`/workspace/entry-types/${type.id}`}><strong>{type.name}</strong></a><small class="type-meta"><code class="meta-slug">{type.slug}</code>{renderLine(type) && <span class="meta-render">{renderLine(type)}</span>}</small></td>
                     <td><span class="custom-badge">Custom</span></td>
-                    <td class="col-wide"><code>{type.slug}</code></td>
-                    <td class="col-render">{type.isRendered ? <span class="rendered-badge">Yes</span> : '—'}</td>
-                    <td class="col-render">{renderer ? <code>{renderer}</code> : '—'}</td>
-                    <td class="col-render">{pkg ? <code>{pkg}</code> : '—'}</td>
-                    <td class="col-render">{version || '—'}</td>
+                    <td class="col-wide col-slug"><code class="slug" title={type.slug}>{type.slug}</code></td>
+                    <td class="col-wide col-fields">{fieldCount(type)}</td>
                     <td class="col-wide">
                       {count === 0 ? (
                         <span class="empty-badge">Empty</span>
@@ -183,7 +173,6 @@ function getRendering(type: EntryTypeRead) {
                         <span class="count-badge">{count}</span>
                       )}
                     </td>
-                    <td class="col-render">{type.sortOrder}</td>
                     <td class="col-wide">
                       <div class="actions">
                         <a href={`/workspace/entry-types/${type.id}`} class="button secondary small">{canManage ? "Edit" : "View"}</a>
@@ -310,29 +299,66 @@ function getRendering(type: EntryTypeRead) {
     white-space: nowrap;
   }
 
-  /* Below desktop width the rendering columns (rendered, renderer, package, version, sort order) go: with them the
-     table overflows its box and the Actions column is clipped. */
-  @media (max-width: 1240px) {
-    .types .col-render {
-      display: none;
-    }
-    /* The name column takes the leftover width (and wraps a long name); with columns hidden the browser otherwise
-       leaves a gap at the table's right edge. */
-    .types th:nth-child(2) {
-      width: 100%;
-    }
-    .types td code {
+  /* Six short columns fit a 768px+ table: the name takes the leftover width (and wraps a long name), the slug is cut
+     with an ellipsis (full text in its title) rather than broken letter by letter, and Edit / Delete never wrap. */
+  .types th:nth-child(2) {
+    width: 100%;
+  }
+  .types td .slug {
+    display: inline-block;
+    max-width: 12rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
+  @media (min-width: 641px) {
+    .types td.type-name {
+      min-width: 13rem;
       overflow-wrap: break-word;
     }
-    .types .actions .button {
-      white-space: nowrap;
+  }
+  .types .meta-slug {
+    display: none;
+  }
+  .types .meta-render {
+    display: block;
+  }
+  .types .type-meta {
+    display: block;
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 0.8125rem;
+    font-weight: 400;
+  }
+  .types th,
+  .types td:not(.type-name) {
+    white-space: nowrap;
+  }
+  .types .actions {
+    flex-wrap: nowrap;
+    white-space: nowrap;
+  }
+  .types .actions form {
+    display: inline-flex;
+  }
+
+  /* Narrower desktops and tablets (the content box is only ~700px at 1024): Fields goes and Slug moves under the name. */
+  @media (max-width: 1100px) {
+    .types .col-fields,
+    .types .col-slug {
+      display: none;
+    }
+    .types .meta-slug {
+      display: inline-block;
     }
   }
 
   /* Phones: compact rows with just the icon, name and kind, which fit without sideways scrolling (the eleven-column
      table put Edit a thousand pixels off-screen); the rest is on the edit page. Tapping a row edits. */
   @media (max-width: 640px) {
-    .types .col-wide {
+    .types .col-wide,
+    .types .type-meta {
       display: none;
     }
     .types td {
