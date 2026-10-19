@@ -31,6 +31,12 @@ tasks:
       - task --list
     silent: true
 
+  audit:dead:
+    desc: print dead-code findings (backend vulture at 80%, frontend knip); never fails
+    cmds:
+      - uvx vulture src/marvin --min-confidence 80 || true
+      - cd frontend && npx --yes knip --no-exit-code
+
   dev:clean:
     desc: remove local dev data (log, secret)
     cmds:

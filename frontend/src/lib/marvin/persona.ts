@@ -7,7 +7,7 @@
  */
 
 /** Greetings shown when the panel first opens. */
-const GREETINGS: string[] = [
+export const GREETINGS: string[] = [
   "Marvin. Brain the size of a planet, and they plug me into a CMS. Ask away.",
   "Oh. It's you. I suppose you want something.",
   "I've been talking to the database. It hates you too. What do you need?",
