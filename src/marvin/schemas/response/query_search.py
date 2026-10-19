@@ -149,6 +149,9 @@ class SearchFilter:
         self.session: Session = session
 
         # Determine search type:
+        # Fuzzy search (pg_trgm) exists only on PostgreSQL. On SQLite every query is tokenized LIKE matching: terms
+        # must appear as substrings, so a misspelling finds nothing there. Accepted and documented
+        # (tasks/sqlite-engine-plan.md finding 12), not an FTS5 index.
         # Fuzzy search is preferred for PostgreSQL if the query is simple (no quoted literals).
         # Quoted literals imply the user wants exact phrase matching within those quotes,
         # which is better handled by tokenized search logic (e.g., using LIKE for literals).

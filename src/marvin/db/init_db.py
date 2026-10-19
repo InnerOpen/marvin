@@ -272,6 +272,8 @@ def main() -> None:
                 command.upgrade(alembic_cfg, "head")
 
             if session.get_bind().name == "postgresql":
+                # pg_trgm backs fuzzy search; SQLite has no equivalent and searches by tokenized LIKE instead
+                # (schemas/response/query_search.py).
                 session.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
 
         db = get_repositories(session, group_id=None)

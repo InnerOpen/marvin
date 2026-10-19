@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 
+import sqlalchemy as sa
 from sqlalchemy import func, or_, select
 
 from marvin.db.models.groups.automation_executions import AutomationExecutionModel
@@ -334,21 +335,22 @@ def published_by_week(session, group_id, now: datetime) -> PublishingPulse:
     """What was published in each of the last PUBLISHING_WEEKS weeks, by entry type — a row for every week."""
     monday = (now.date() - timedelta(days=now.weekday())) - timedelta(weeks=PUBLISHING_WEEKS - 1)
     weeks = {monday + timedelta(weeks=i): WeekPublished(week=monday + timedelta(weeks=i)) for i in range(PUBLISHING_WEEKS)}
-    week_col = func.date_trunc("week", Entries.published_at)
+    # Counted per day and bucketed into weeks here: date_trunc("week", ...) exists only on Postgres.
+    day_col = func.date(Entries.published_at, type_=sa.Date)
     try:
         rows = session.execute(
-            select(week_col, Entries.entry_type_id, func.count(Entries.id))
+            select(day_col, Entries.entry_type_id, func.count(Entries.id))
             .where(Entries.group_id == group_id, Entries.status == "published", Entries.published_at.isnot(None))
             .where(Entries.published_at >= datetime.combine(monday, datetime.min.time()))
-            .group_by(week_col, Entries.entry_type_id)
+            .group_by(day_col, Entries.entry_type_id)
         ).all()
     except Exception:
         session.rollback()
         return PublishingPulse(weeks=list(weeks.values()))
     types = _types(session, group_id, {type_id for _, type_id, _ in rows})
     total = 0
-    for week_start, type_id, count in rows:
-        week = week_start.date() if isinstance(week_start, datetime) else date.fromisoformat(str(week_start)[:10])
+    for day, type_id, count in rows:
+        week = day - timedelta(days=day.weekday())
         row, t = weeks.get(week), types.get(type_id)
         if row is None or t is None:
             continue

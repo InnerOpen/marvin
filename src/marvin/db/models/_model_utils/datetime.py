@@ -7,6 +7,8 @@ It includes:
   are stored in the database as naive (timezone-unaware) UTC and are converted
   back to timezone-aware UTC when retrieved. This standardizes datetime handling
   across different database backends.
+- `AwareDateTime`, for the columns that are timezone-aware on Postgres (`timestamptz`): SQLite stores no zone, so
+  it hands back naive values that fail against an aware `now`; this stores UTC and hands back aware UTC on both.
 """
 
 from datetime import UTC, datetime
@@ -51,4 +53,31 @@ class NaiveDateTime(TypeDecorator):
         except Exception:
             pass
 
+        return value
+
+
+class AwareDateTime(TypeDecorator):
+    """A `timestamptz` column on Postgres (the same DDL as `DateTime(timezone=True)`, so no migration), aware UTC on SQLite.
+
+    SQLite keeps the wall-clock text it is given and returns a naive datetime, which raises `TypeError` the first time
+    it is compared with an aware `datetime.now(UTC)`. Values are converted to UTC on the way in (a naive one is taken to
+    be UTC already, the convention everywhere in Marvin) and tagged UTC on the way out. Postgres already does both, so
+    its values pass through untouched.
+    """
+
+    impl = DateTime
+    cache_ok = True
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("timezone", True)
+        super().__init__(*args, **kwargs)
+
+    def process_bind_param(self, value: datetime | None, dialect):
+        if value is not None and dialect.name == "sqlite" and value.tzinfo is not None:
+            return value.astimezone(UTC).replace(tzinfo=None)
+        return value
+
+    def process_result_value(self, value: datetime | None, dialect):
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
         return value

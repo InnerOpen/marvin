@@ -6,6 +6,7 @@ modules. This allows Alembic migration scripts to refer to these custom types
 in a simpler way, without needing to import them from deeper module paths.
 """
 
+from marvin.db.models._model_utils.datetime import AwareDateTime as _aware_datetime
 from marvin.db.models._model_utils.datetime import NaiveDateTime as _naive_datetime
 from marvin.db.models._model_utils.datetime import datetime as _custom_datetime  # Alias to avoid naming conflict
 from marvin.db.models._model_utils.guid import GUID as _custom_guid  # Alias for clarity
@@ -19,6 +20,9 @@ DateTime = _custom_datetime
 
 NaiveDateTime = _naive_datetime
 """Alias for the naive datetime type used in Marvin models (stored as UTC without timezone info)."""
+
+AwareDateTime = _aware_datetime
+"""Alias for the timezone-aware datetime type (a `timestamptz` on Postgres, aware UTC on SQLite)."""
 
 HttpUrlType = _http_url_type
 """Alias for the HTTP URL type used in Marvin models (Pydantic HttpUrl stored as string)."""

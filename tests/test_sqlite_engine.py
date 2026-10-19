@@ -83,8 +83,17 @@ def test_postgres_settings_win_over_the_default(tmp_path, monkeypatch):
 
 def test_a_dotenv_that_names_a_postgres_server_picks_postgres(tmp_path, monkeypatch):
     """Local dev: `.env` carries POSTGRES_* (and often DB_ENGINE=postgres); the auto rule alone is enough."""
-    for key in ("DB_ENGINE", "POSTGRES_SERVER", "POSTGRES_URL_OVERRIDE", "DB_SQLITE_PATH"):
-        monkeypatch.delenv(key, raising=False)
+    for key in (
+        "DB_ENGINE",
+        "POSTGRES_SERVER",
+        "POSTGRES_PORT",
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+        "POSTGRES_DB",
+        "POSTGRES_URL_OVERRIDE",
+        "DB_SQLITE_PATH",
+    ):
+        monkeypatch.delenv(key, raising=False)  # the Postgres run exports its own: the file is what is under test
     env_file = tmp_path / ".env"
     env_file.write_text("POSTGRES_SERVER=127.0.0.1\nPOSTGRES_PORT=5434\nPOSTGRES_USER=default\nPOSTGRES_PASSWORD=default\nPOSTGRES_DB=marvin\n")
     settings = app_settings_constructor(data_dir=tmp_path, production=False, env_file=env_file, env_secrets=tmp_path / "no.secrets", secrets_dir=None)

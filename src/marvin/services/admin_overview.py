@@ -237,7 +237,7 @@ def _spend(session, now: datetime, days: int = SPEND_DAYS) -> list[SpendDay]:
 
     start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
     by_day = {(start + timedelta(days=i)).date(): SpendDay(day=(start + timedelta(days=i)).date()) for i in range(days)}
-    day = sa.func.date(Run.started_at)
+    day = sa.func.date(Run.started_at, type_=sa.Date)  # typed: SQLite returns the text, and `d in by_day` keys on dates
     q = (
         session.query(
             day,

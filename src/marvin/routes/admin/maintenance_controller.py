@@ -9,11 +9,11 @@ share its execution log, config and retention (services/scheduled_tasks/handlers
 It also includes a utility function for tailing log files (not exposed via HTTP).
 """
 
-import sqlalchemy as sa
 from fastapi import APIRouter
 from pydantic import BaseModel  # For stats response model
 
 # Marvin specific imports
+from marvin.db.size import database_size_bytes
 from marvin.pkgs.stats import fs_stats  # Filesystem statistics utilities
 from marvin.routes._base import BaseAdminController, controller  # Base admin controller
 from marvin.schemas.admin import MaintenanceSummary  # Pydantic schema for maintenance summary
@@ -134,9 +134,9 @@ class AdminMaintenanceController(BaseAdminController):
         assets_dir = dirs.DATA_DIR / "assets"
         assets_size = fs_stats.get_dir_size(assets_dir) if assets_dir.exists() else 0
 
-        # Database size, as Postgres counts it (0 when it can't say).
+        # Database size, as the engine counts it (0 when it can't say).
         try:
-            db_size = int(self.session.execute(sa.text("SELECT pg_database_size(current_database())")).scalar() or 0)
+            db_size = database_size_bytes(self.session)
         except Exception:  # noqa: BLE001 — a stat, never a failed page
             self.session.rollback()
             db_size = 0

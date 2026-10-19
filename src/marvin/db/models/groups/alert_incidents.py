@@ -16,7 +16,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from .. import BaseMixins, SqlAlchemyBase
 from .._model_utils.auto_init import auto_init
-from .._model_utils.datetime import DateTime
+from .._model_utils.datetime import AwareDateTime
 from .._model_utils.guid import GUID
 
 if TYPE_CHECKING:
@@ -38,8 +38,8 @@ class WorkspaceAlertIncidentModel(SqlAlchemyBase, BaseMixins):
     subject: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     """Its name when it failed, for the "working again" note."""
     count: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=1)
-    opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    opened_at: Mapped[datetime | None] = mapped_column(AwareDateTime, nullable=True)
+    last_at: Mapped[datetime | None] = mapped_column(AwareDateTime, nullable=True)
     channels: Mapped[list | None] = mapped_column(sa.JSON, nullable=True)
     """The channels the alert went out through (``email``, route ids)."""
 

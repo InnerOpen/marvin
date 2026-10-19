@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from marvin.core.root_logger import get_logger
 from marvin.db.db_setup import session_context
 from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
+from marvin.db.size import sqlite_file_bytes
 from marvin.repos.repository_factory import AllRepositories
 from marvin.services.event_bus_service.event_bus_service import EventBusService
 
@@ -516,11 +517,18 @@ class OptimizeDatabaseHandler(ScheduledTaskHandler):
         is_postgres = engine.dialect.name == "postgresql"
         size_sql = text("SELECT pg_database_size(current_database())")
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            before = conn.execute(size_sql).scalar() if is_postgres else None
-            conn.execute(text("VACUUM (ANALYZE)" if is_postgres else "VACUUM"))
-            if not is_postgres:
+            if is_postgres:
+                before = conn.execute(size_sql).scalar()
+                conn.execute(text("VACUUM (ANALYZE)"))
+                after = conn.execute(size_sql).scalar()
+            else:
+                before = sqlite_file_bytes(engine.url.database)
+                conn.execute(text("VACUUM"))
                 conn.execute(text("ANALYZE"))
-            after = conn.execute(size_sql).scalar() if is_postgres else None
+                # VACUUM rewrote the file through the write-ahead log: fold the log back in so the file is the size
+                # it will stay and the -wal does not keep the space the VACUUM meant to give back.
+                conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+                after = sqlite_file_bytes(engine.url.database)
 
         summary = "VACUUM + ANALYZE completed"
         if before is not None and after is not None:

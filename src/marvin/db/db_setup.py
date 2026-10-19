@@ -17,6 +17,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.session import Session
 
 from marvin.core.config import get_app_settings
+from marvin.db import length_check
 from marvin.db.locking import SQLITE_BEGIN_OPTION
 
 logger = logging.getLogger(__name__)
@@ -108,6 +109,7 @@ def sql_global_init(db_url: str) -> tuple[sessionmaker[Session], sa.engine.Engin
             max_overflow=settings.DB_MAX_OVERFLOW,
         )
         _configure_sqlite(engine)
+        length_check.install()  # SQLite ignores String(N); Postgres does not, so the suite must not either
         if engine.url.database:
             # Create the file now (a fresh install has none): the startup guard reads "no marvin.db" as a lost database.
             Path(engine.url.database).parent.mkdir(parents=True, exist_ok=True)

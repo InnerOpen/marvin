@@ -15,7 +15,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from .. import BaseMixins, SqlAlchemyBase
 from .._model_utils.auto_init import auto_init
-from .._model_utils.datetime import DateTime
+from .._model_utils.datetime import AwareDateTime
 from .._model_utils.guid import GUID
 
 if TYPE_CHECKING:
@@ -49,7 +49,7 @@ class WebhookExecutionLogModel(SqlAlchemyBase, BaseMixins):
 
     # Execution metadata
     executed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        AwareDateTime,
         default=lambda: datetime.now(UTC),
         index=True,
         doc="Timestamp when the webhook was executed (UTC).",

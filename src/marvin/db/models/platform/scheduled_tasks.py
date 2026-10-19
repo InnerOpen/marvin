@@ -8,10 +8,11 @@ enabling proactive automation by executing tasks on a schedule.
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from marvin.db.models import BaseMixins, SqlAlchemyBase
+from marvin.db.models._model_utils.datetime import AwareDateTime
 
 from .._model_utils.auto_init import auto_init
 from .._model_utils.guid import GUID
@@ -62,10 +63,10 @@ class ScheduledTaskModel(SqlAlchemyBase, BaseMixins, InstalledByMixin):
     """Schedule configuration (cron_expression, interval_seconds, timezone, etc.)."""
 
     # Execution state
-    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(AwareDateTime, nullable=True)
     """Timestamp of last execution (UTC)."""
 
-    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(AwareDateTime, nullable=True, index=True)
     """Timestamp of next scheduled execution (UTC)."""
 
     last_status: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -128,7 +129,7 @@ class ScheduledTaskExecutionLogModel(SqlAlchemyBase):
     """Workspace ID (denormalized from task for efficient queries)."""
 
     # Execution details
-    executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    executed_at: Mapped[datetime] = mapped_column(AwareDateTime, nullable=False, index=True)
     """Timestamp when execution started (UTC)."""
 
     status: Mapped[str] = mapped_column(String, nullable=False)

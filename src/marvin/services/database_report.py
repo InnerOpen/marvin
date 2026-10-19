@@ -2,16 +2,16 @@
 check — the system task that trims it, the retention it trims to, and when it last and next runs. A table nothing
 trims says so, which is the point: it's the one that grows forever.
 
-Postgres only (the only engine since 2026-10-13). Row counts are the planner's live-tuple estimates
-(pg_stat_user_tables), good to a few percent and free to read; sizes include indexes and TOAST.
+Either engine (db/size.py). On Postgres row counts are the planner's live-tuple estimates (pg_stat_user_tables),
+good to a few percent and free to read, and sizes include indexes and TOAST; on SQLite the database is its file and
+-wal, tables are sized from ``dbstat`` (indexes included) and rows counted exactly.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-import sqlalchemy as sa
-
+from marvin.db.size import database_size_bytes, largest_tables
 from marvin.schemas.admin.maintenance import CleanupTaskRead, DatabaseReport, DatabaseTableRead
 
 TABLES_SHOWN = 12
@@ -108,18 +108,13 @@ def _task_read(task, retention: str | None = None) -> CleanupTaskRead:
 def database_report(session) -> DatabaseReport:
     from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
 
-    size = int(session.execute(sa.text("SELECT pg_database_size(current_database())")).scalar() or 0)
-    rows = session.execute(
-        sa.text(
-            "SELECT relname, pg_total_relation_size(relid) AS bytes, n_live_tup FROM pg_stat_user_tables "
-            "ORDER BY pg_total_relation_size(relid) DESC LIMIT :n"
-        ),
-        {"n": TABLES_SHOWN},
-    ).all()
+    size = database_size_bytes(session)
+    rows = largest_tables(session, TABLES_SHOWN)
     tasks = {t.slug: t for t in session.query(ScheduledTaskModel).filter(ScheduledTaskModel.group_id.is_(None)).all()}
 
     tables = []
-    for name, nbytes, live in rows:
+    for table in rows:
+        name, nbytes, live = table.name, table.size_bytes, table.rows
         label, kept = TABLES.get(name, (None, None))
         task = tasks.get(kept.task) if kept else None
         tables.append(
