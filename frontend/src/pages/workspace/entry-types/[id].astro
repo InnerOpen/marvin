@@ -4,6 +4,7 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getEntryType } from "@/lib/api/entryTypes";
 import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
+import { usedBy } from "@/lib/entryTypeListing";
 import { splitRecipe } from "@/lib/recipeForm";
 import { ADMINS_ONLY } from "@/lib/workspaceRole";
 
@@ -36,6 +37,12 @@ const subStr = (k: string) => (submission[k] == null ? "" : String(submission[k]
 const schemaFields = ((entryType?.schemaJson as { fields?: { key?: string; label?: string; type?: string }[] } | null)?.fields ?? []);
 const matchFieldOptions = schemaFields.filter((f) => f.key && ["text", "number", "select"].includes(f.type ?? ""));
 const matchField = subStr("matchField");
+// Where the submissions go (the backend defaults to the Audience, also for a type that never stored it) and what they are.
+const destination = submission.destination === "entries" ? "entries" : "audience";
+const kind = submission.kind === "signup" ? "signup" : "message";
+// "Show in content lists" is the one internal flag (`listed`); the hint says what uses the type.
+const listed = capabilities.listed !== false;
+const usedByNow = usedBy({ slug: entryType?.slug, capabilitiesJson: capabilities });
 const recipe = (entryType?.recipeJson ?? {}) as Record<string, unknown>;
 // The authoring instructions and the drafts' voice (`enrichment.voice`) get their own boxes; the JSON textarea
 // holds the rest of the structured contract (lib/recipeForm).
@@ -207,10 +214,42 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
                   <input type="checkbox" id="cap_routable" checked={capabilities.routable !== false} />
                   Routable
                 </label>
+                <div class="form-group listed-switch">
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="cap_listed" checked={listed} />
+                    Show in content lists
+                  </label>
+                  <p class="form-help">
+                    Off means its entries are kept out of All entries, the status lists, counts, search and the AI index, while features that use them keep working.
+                    <span id="cap_listed_use" data-initial={usedByNow ?? ""}>{usedByNow ? ` Used by ${usedByNow}.` : ""}</span>
+                  </p>
+                </div>
 
                 <fieldset id="submission-settings" class="submission-settings" hidden={capabilities.submittable !== true}>
                   <legend>Submission settings</legend>
                   <p class="form-help">How public submissions to this type are accepted. Spam controls (domain lists, exempt IPs, surge) are set under Workspace Settings → Submission Protection.</p>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="sub_destination">Submissions go to</label>
+                      <select id="sub_destination" data-sub="destination">
+                        <option value="audience" selected={destination === "audience"}>Audience</option>
+                        <option value="entries" selected={destination === "entries"}>Entries</option>
+                      </select>
+                      <p class="form-help" id="sub_destination_help" data-audience="Audience: people writing to you, kept out of your content." data-entries="Entries: content to review and publish, e.g. testimonials.">
+                        {destination === "entries" ? "Entries: content to review and publish, e.g. testimonials." : "Audience: people writing to you, kept out of your content."}
+                      </p>
+                    </div>
+                    <div class="form-group" id="sub_kind_group" hidden={destination === "entries"}>
+                      <label for="sub_kind">A submission is a</label>
+                      <select id="sub_kind" data-sub="kind">
+                        <option value="message" selected={kind === "message"}>Message</option>
+                        <option value="signup" selected={kind === "signup"}>Signup</option>
+                      </select>
+                      <p class="form-help" id="sub_kind_help" data-message="Message: someone writing to you, listed under Submissions." data-signup="Signup: newsletter signups, listed under Subscribers.">
+                        {kind === "signup" ? "Signup: newsletter signups, listed under Subscribers." : "Message: someone writing to you, listed under Submissions."}
+                      </p>
+                    </div>
+                  </div>
                   <div class="form-group">
                     <label for="sub_successMessage">Success message</label>
                     <input type="text" id="sub_successMessage" data-sub="successMessage" value={subStr("successMessage")} placeholder="Thank you for your submission" />
@@ -595,10 +634,14 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
       const key = el.dataset.sub as string;
       if (el instanceof HTMLInputElement && el.type === 'checkbox') {
         out[key] = el.checked;
+      } else if (el.value.trim() === '') {
+        // A cleared box means the default: drop the key (a null is refused for the ones that aren't optional, like the
+        // honeypot field's name, so saving a form that never set it failed with a 422).
+        delete out[key];
       } else if (el.dataset.subType === 'number') {
-        out[key] = el.value.trim() === '' ? null : Number(el.value);
+        out[key] = Number(el.value);
       } else {
-        out[key] = el.value.trim() === '' ? null : el.value.trim();
+        out[key] = el.value.trim();
       }
     }
     return out;
@@ -613,6 +656,7 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
       publishable: (document.getElementById('cap_publishable') as HTMLInputElement).checked,
       submittable,
       routable: (document.getElementById('cap_routable') as HTMLInputElement).checked,
+      listed: (document.getElementById('cap_listed') as HTMLInputElement).checked,
     };
     if (submittable) next.submission = readSubmissionSettings();
     capabilitiesHidden.value = JSON.stringify(next);
@@ -635,6 +679,41 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
   document.getElementById('cap_publishable')?.addEventListener('change', syncCapabilitiesJson);
   document.getElementById('cap_submittable')?.addEventListener('change', syncCapabilitiesJson);
   document.getElementById('cap_routable')?.addEventListener('change', syncCapabilitiesJson);
+  // One line under each switch says what the choice does; a signup is an Audience thing, so the kind hides with Entries.
+  const destinationSelect = document.getElementById('sub_destination') as HTMLSelectElement | null;
+  const kindSelect = document.getElementById('sub_kind') as HTMLSelectElement | null;
+  function syncSubmissionHelp() {
+    const help = document.getElementById('sub_destination_help');
+    if (help && destinationSelect) help.textContent = help.dataset[destinationSelect.value === 'entries' ? 'entries' : 'audience'] ?? '';
+    const kindHelp = document.getElementById('sub_kind_help');
+    if (kindHelp && kindSelect) kindHelp.textContent = kindHelp.dataset[kindSelect.value === 'signup' ? 'signup' : 'message'] ?? '';
+    const group = document.getElementById('sub_kind_group');
+    if (group && destinationSelect) group.hidden = destinationSelect.value === 'entries';
+  }
+  // Choosing where a form's submissions go sets "Show in content lists" as a default (Audience: off, Entries: on), which can
+  // then be switched on its own; the server applies the same default, so this only shows it before saving.
+  const listedBox = document.getElementById('cap_listed') as HTMLInputElement | null;
+  const submittableBox = document.getElementById('cap_submittable') as HTMLInputElement | null;
+  const wasAudienceForm = (storedCapabilities.submittable === true) && ((storedSubmission.destination ?? 'audience') !== 'entries');
+  function applyDestinationDefault() {
+    if (!listedBox || !destinationSelect || !submittableBox) return;
+    if (submittableBox.checked) listedBox.checked = destinationSelect.value === 'entries';
+    else if (wasAudienceForm) listedBox.checked = true;
+    const use = document.getElementById('cap_listed_use');
+    if (use) {
+      const initial = use.dataset.initial ?? '';
+      const isForm = submittableBox.checked && destinationSelect.value !== 'entries';
+      const where = isForm ? (kindSelect?.value === 'signup' ? 'Audience › Subscribers' : 'Audience › Submissions') : initial.startsWith('Audience › Sub') ? '' : initial;
+      use.textContent = where ? ` Used by ${where}.` : '';
+    }
+    syncCapabilitiesJson();
+  }
+  destinationSelect?.addEventListener('change', applyDestinationDefault);
+  kindSelect?.addEventListener('change', applyDestinationDefault);
+  submittableBox?.addEventListener('change', applyDestinationDefault);
+  listedBox?.addEventListener('change', syncCapabilitiesJson);
+  destinationSelect?.addEventListener('change', syncSubmissionHelp);
+  kindSelect?.addEventListener('change', syncSubmissionHelp);
   for (const el of document.querySelectorAll('[data-sub]')) {
     el.addEventListener('input', syncCapabilitiesJson);
     el.addEventListener('change', syncCapabilitiesJson);

@@ -12,6 +12,7 @@ from marvin.repos.repository_generic import GroupRepositoryGeneric
 from marvin.schemas.platform import EntryTypeRead
 from marvin.schemas.platform.entry_type_rendering import KNOWN_CORE_RENDERERS, CapabilitiesDefinition, RenderingDefinition
 from marvin.schemas.platform.entry_type_schema import EntryTypeSchemaDefinition
+from marvin.services.entry_listing import is_listed_type, with_destination_default
 
 logger = get_logger(__name__)
 
@@ -282,6 +283,8 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
             self._validate_rendering_json(data_dict["rendering_json"])
         if "capabilities_json" in data_dict:
             self._validate_capabilities_json(data_dict["capabilities_json"])
+            if isinstance(data_dict["capabilities_json"], dict):  # a new form defaults to the Audience: unlisted
+                data_dict["capabilities_json"] = with_destination_default(None, data_dict["capabilities_json"])
         if "recipe_json" in data_dict:
             self._validate_recipe_json(data_dict["recipe_json"])
         self._validate_match_field(data_dict.get("schema_json"), data_dict.get("capabilities_json"))
@@ -325,6 +328,10 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
             self._validate_rendering_json(data_dict["rendering_json"])
         if "capabilities_json" in data_dict:
             self._validate_capabilities_json(data_dict["capabilities_json"])
+            if isinstance(data_dict["capabilities_json"], dict):  # changing a form's destination sets `listed` (a default)
+                data_dict["capabilities_json"] = with_destination_default(
+                    entry_type.capabilities if entry_type else None, data_dict["capabilities_json"]
+                )
         if "recipe_json" in data_dict:
             self._validate_recipe_json(data_dict["recipe_json"])
         if "schema_json" in data_dict or "capabilities_json" in data_dict:
@@ -338,10 +345,29 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
         warnings = self._check_renderer_warnings(data_dict)
         data_dict.pop("slug", None)
         data_dict.pop("group_id", None)
+        row = self._query_one(match_value=match_value, match_key=match_key)
+        was_listed = is_listed_type(row)
         result = super().update(match_value, data_dict, match_key=match_key)
+        if row is not None and is_listed_type(row) != was_listed:
+            self._follow_listing(row)
         if warnings:
             result.warnings = warnings
         return result
+
+    def _follow_listing(self, row: EntryTypes) -> None:
+        """The type became internal (a form now sends its submissions to the Audience) or listed again: its entries' derived
+        data follows at once — smart-collection membership (the Inbox folder's count) and, going internal, the AI index —
+        instead of waiting for the nightly smart-collection resync (services/entry_listing.py)."""
+        from marvin.services.ai.embeddings import purge_embeddings
+        from marvin.services.collections.smart_collections import sync_entry
+
+        entries = self.session.query(Entries).filter(Entries.entry_type_id == row.id).all()
+        for entry in entries:
+            sync_entry(self.session, entry.group_id, entry)
+            if not is_listed_type(row):
+                purge_embeddings(self.session, entry.group_id, "entry", entry.id)
+        if entries:
+            self.session.commit()
 
     def delete(self, value: Any, match_key: str | None = None) -> EntryTypeRead:
         # Check if this is a system entry type

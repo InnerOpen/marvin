@@ -12,6 +12,16 @@ An entry type with `capabilities.submittable: true` is a form: a public POST to 
 - **Surge detection**: a per-form counter emits `submission_surge_detected` exactly once, on the submission that makes the count equal `surge_threshold` inside `surge_window_minutes`.
 - The entry title comes from `titleTemplate` (Jinja over the submitted fields), else the first non-empty text value, else `<type name> submission <timestamp>`.
 - When `notify` is on (default), the scoped `form_submission_received` event fires; `entry_created` still fires from the entry service but is not the notification event.
+- **Where the submissions go** is a per-form setting, `destination`: **audience** (the default) lists them under Audience › Submissions and, as a default, unlists the type (*Show in content lists* off) so they stay out of your content; **entries** keeps them as ordinary entries to review and publish (see [Where a form's submissions go](#where-submissions-go)).
+
+### Where a form's submissions go {#where-submissions-go}
+
+Two settings under **Submission settings** (`capabilities.submission`):
+
+- `destination`: `audience` (default) or `entries`. **Audience**: people writing to you, kept out of your content. Choosing it sets `capabilities.listed` to false (the type's *Show in content lists* switch) as a default, so the entries stay out of All entries, the status lists (Inbox, Needs review, Archive…), their counts, search, the AI index, the dashboard pipeline and publishing (`services/entry_listing.py`), and are read under **Audience › Submissions**; the switch can be turned back on, and then they show in both. **Entries**: content to review and publish, e.g. testimonials, in Entries › Inbox as before (choosing it sets `listed` to true).
+- `kind`: `message` (default) or `signup`. **Message**: someone writing to you, listed under Submissions. **Signup**: newsletter signups, listed under Subscribers (next release); it only applies to the Audience destination.
+
+A form that stored neither gets both defaults, so existing forms are Audience message forms; a migration set `listed: false` on them. The submission itself is unchanged: an entry of the form's type, `inbox` or `needs_review`, with the same events, match field and notification, and a workflow or query that names the type (`entry_type: <slug>`) still finds it. An invalid value is refused on save (`422`). See [Audience](audience.md).
 
 ### One entry per person
 
@@ -37,11 +47,12 @@ Without `matchField` every submission creates an entry, as before. Saving an ent
 | Entry type editor, "Submission settings" fieldset (shown while **Submittable** is checked) | `/workspace/entry-types/{id}` |
 | Platform defaults (**Admin → Settings → Submission Protection**) | `/admin/submission-protection` |
 | Workspace override (**Settings → Publishing → Submission Protection**), with a per-field **Use platform default** checkbox | `/workspace/settings/submission-protection` |
-| Submissions | Entries list, status `inbox` or `needs_review` |
+| Submissions (destination **Audience**, the default) | Audience › Submissions, `/workspace/audience/submissions` |
+| Submissions (destination **Entries**) | Entries list, status `inbox` or `needs_review` |
 
 ## How to use
 
-1. Open the entry type, tick **Submittable**, and fill the submission settings (success message, honeypot, CAPTCHA secret ref, rate limit, title template, and **Same person = same …** for one entry per person).
+1. Open the entry type, tick **Submittable**, and fill the submission settings (where the submissions go, success message, honeypot, CAPTCHA secret ref, rate limit, title template, and **Same person = same …** for one entry per person).
 2. On the site, fetch the form definition and render it from `formSchema`. When `metadata.honeypotField` is non-null, include a hidden input with that name.
 3. POST the field values as a JSON object to the submit URL with an API client token that has `write:public_entries` (**Submit Public Entries** under **Forms** on the client's form; **Submit Forms**, `write:form_submissions`, is also accepted).
 4. React to `form_submission_received` in a workflow (see [Workflows](workflows.md)); the payload carries `flagged`, `review_reasons`, `status`, `ip_address` and `user_agent`, so a step can skip flagged entries or forward the IP.
@@ -79,6 +90,8 @@ Event payload `form_submission_received` (`EventFormSubmissionData`): `form_id`,
 | `notify` | `true` | Emit `form_submission_received`. |
 | `titleTemplate` | none | Jinja title for the created entry, e.g. `Contact from {{ name }}`. |
 | `matchField` | none | The field that identifies a submitter (e.g. `email`); a repeat updates their entry. See [One entry per person](#one-entry-per-person). |
+| `destination` | `audience` | `audience` or `entries`: where the submissions go. See [Where a form's submissions go](#where-submissions-go). |
+| `kind` | `message` | `message` or `signup`: what a submission is (Submissions or Subscribers). |
 
 Submission protection (platform defaults; every field overridable per workspace): `mode` (`review`), `blocked_domains`, `allowed_domains` (when non-empty, any other domain is flagged), `block_disposable_domains` (`true`), `block_personal_domains` (`false`), `capture_client_info` (`true`), `exempt_ips`, `surge_threshold` (off), `surge_window_minutes` (`10`). Domains are lower-cased and a leading `@` is stripped.
 

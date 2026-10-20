@@ -80,6 +80,11 @@ const NODES: NavNode[] = [
   { id: "workspace.social", label: "Social", href: "/workspace/social", title: "Social inbox" },
   { id: "workspace.social.network", label: "Network", href: "/workspace/social/[integration]", parent: "workspace.social" },
 
+  // Audience › Submissions: a fold under Audience in the sidebar (only while a form sends its submissions to the Audience), so it has
+  // no parent. Each such form has its own page under it.
+  { id: "workspace.audience.submissions", label: "Submissions", href: "/workspace/audience/submissions", title: "Audience submissions" },
+  { id: "workspace.audience.submissions.form", label: "Form", href: "/workspace/audience/submissions/[form]", parent: "workspace.audience.submissions" },
+
   // Workspace settings
   { id: "settings", label: "Settings", href: "/workspace/settings", title: "Workspace Settings" },
   // The hub's tabs that group pages of their own: a page under one shows it in the trail (Settings → Automation → …).

@@ -9,28 +9,91 @@ be restored (a trashed Social rule would otherwise be lost to its owner), and em
 They are still found by naming the type (``entry_type: social-auto-reply``) or the entry
 itself (``entries: [slug]``), so the pages and workflows that own them reach them.
 
-Two things make a type internal: the capability flag, and ``INTERNAL_SLUGS``, a core rule for the types of the Social
-engagement feature (the shared rule type, and the retired ``social-reply-log`` type, which a workspace that ran the
-engine early may still hold: the rule keeps those leftovers out of All entries without a data migration). It can't be
-switched off for them. Instagram's older ``ig-*`` types are not on the list: the plugin stopped shipping them and a
-migration removed them.
+One thing makes a type internal: ``capabilities_json.listed`` is false. It is a single, visible switch (the entry type editor's
+"Show in content lists", and an **Internal** badge on the Content model list), independent of whatever feature uses the type:
+
+* Social creates its rule type unlisted (``services/integrations/social_setup.py``); a migration set the flag on the older
+  ``social-auto-reply`` and ``social-reply-log`` types, so there is no slug rule any more.
+* A submittable type (a "form") has ``submission.destination``: ``audience`` (the default) shows its submissions under Audience ›
+  Submissions, ``entries`` handles them as ordinary entries to review and publish. Choosing the destination sets ``listed`` as a
+  convenience default (audience unlisted, entries listed; ``EntryTypesRepository``); after that ``listed`` is toggled on its own. A
+  form switched to listed shows its entries in both Audience and the content lists.
 
 Same shape as ``publish_visibility`` (which says what the publishing API serves): one answer to "is this type listed?".
 """
 
 from __future__ import annotations
 
-INTERNAL_SLUGS = frozenset({"social-auto-reply", "social-reply-log"})
-"""Entry types that are internal whatever their capabilities say."""
+
+def _caps(entry_type) -> dict:
+    caps = getattr(entry_type, "capabilities_json", None)
+    return caps if isinstance(caps, dict) else {}
+
+
+def submission_settings(entry_type) -> dict | None:
+    """The submission settings of a submittable type (``{}`` when it stores none), or None for a type that isn't a form."""
+    caps = _caps(entry_type)
+    if caps.get("submittable") is not True:
+        return None
+    submission = caps.get("submission")
+    return submission if isinstance(submission, dict) else {}
+
+
+def submission_destination(entry_type) -> str | None:
+    """``audience`` or ``entries`` for a submittable type (the default is audience), None for a type that isn't a form."""
+    submission = submission_settings(entry_type)
+    if submission is None:
+        return None
+    return "entries" if submission.get("destination") == "entries" else "audience"
+
+
+def submission_kind(entry_type) -> str | None:
+    """``message`` or ``signup`` for a submittable type (the default is message), None for a type that isn't a form."""
+    submission = submission_settings(entry_type)
+    if submission is None:
+        return None
+    return "signup" if submission.get("kind") == "signup" else "message"
+
+
+def with_destination_default(old_caps: dict | None, new_caps: dict) -> dict:
+    """``new_caps`` with ``listed`` set from the form's destination, when the destination is what changes.
+
+    The convenience default, applied on create and update of an entry type: choosing ``audience`` unlists the type (its
+    submissions are read under Audience › Submissions), choosing ``entries`` lists it, and a type that stops being a form after
+    being an Audience form is listed again. A new form that doesn't say is an Audience form (the default destination), so it is
+    unlisted. It never overrides a ``listed`` the caller set in the same request (on create: present; on update: different from the
+    stored one, since an editor always sends the stored value back), and never touches a type whose destination isn't changing.
+    After this, ``listed`` is toggled on its own.
+    """
+    old = old_caps if isinstance(old_caps, dict) else {}
+    old_dest = submission_destination(_Caps(old))
+    new_dest = submission_destination(_Caps(new_caps))
+    if new_dest == old_dest:
+        return new_caps
+    if old_caps is None:  # a new type: a `listed` in the request is the caller's own choice
+        if "listed" in new_caps:
+            return new_caps
+    elif "listed" in new_caps and new_caps["listed"] != old.get("listed", True):  # changed in this request: the caller's own choice
+        return new_caps
+    if new_dest == "audience":
+        return {**new_caps, "listed": False}
+    if new_dest == "entries":
+        return {**new_caps, "listed": True}
+    if old_dest == "audience":  # no longer a form
+        return {**new_caps, "listed": True}
+    return new_caps
+
+
+class _Caps:
+    def __init__(self, caps: dict) -> None:
+        self.capabilities_json = caps
 
 
 def is_listed_type(entry_type) -> bool:
     """False for an internal entry type. ``None`` (an entry whose type is unknown) counts as listed."""
     if entry_type is None:
         return True
-    caps = getattr(entry_type, "capabilities_json", None)
-    caps = caps if isinstance(caps, dict) else {}
-    return caps.get("listed") is not False and getattr(entry_type, "slug", None) not in INTERNAL_SLUGS
+    return _caps(entry_type).get("listed") is not False
 
 
 def unlisted_type_ids(session, group_id) -> list:

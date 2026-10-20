@@ -1,0 +1,17 @@
+/* Audience › Submissions: the few things the Social styles (social.css, imported beside this) don't cover. Compact rows on every
+   screen; tapping a row opens it; nothing is stacked into cards on a phone. */
+  .au-root .si-mark { font-size: 20px; line-height: 1; }
+  .au-root .au-form { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .au-fields { margin: 0; }
+  .au-fields dd a { color: var(--accent); }
+  .au-source { padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  .au-source dd { word-break: break-word; }
+  .au-verdict { margin: 0; padding: 8px 12px; border-left: 3px solid var(--line); border-radius: var(--radius); background: var(--panel-2); font-size: 14px; }
+  .au-verdict.good { border-left-color: var(--good); }
+  .au-verdict.warn { border-left-color: var(--warn); }
+  .au-alert { margin: 0; }
+  .au-root .si-badge[title] { cursor: help; }
+  @media (max-width: 640px) {
+    .au-root .si-kind.au-form { display: inline-block; max-width: 11ch; } /* the form's name stays on a phone, shortened */
+    .au-root .si-meta .si-badge.new { display: inline-block; } /* the status badge is part of the row's answer here */
+  }

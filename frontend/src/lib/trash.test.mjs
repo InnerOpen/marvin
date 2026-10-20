@@ -71,9 +71,9 @@ describe("restoresTo", () => {
 
 describe("internalTypeBadge", () => {
   test("a Social rule is marked in the Trash, another internal type by its name, an ordinary one not at all", () => {
-    assert.equal(internalTypeBadge({ slug: "social-auto-reply", name: "Social auto-reply" }), "Social rule");
+    assert.equal(internalTypeBadge({ slug: "social-auto-reply", name: "Social auto-reply", capabilitiesJson: { listed: false } }), "Social rule");
     assert.equal(internalTypeBadge({ slug: "secret", name: "Secret", capabilitiesJson: { listed: false } }), "Secret");
-    assert.equal(internalTypeBadge({ slug: "social-reply-log", name: "Social reply log" }), "Social reply log");
+    assert.equal(internalTypeBadge({ slug: "social-reply-log", name: "Social reply log", capabilitiesJson: { listed: false } }), "Social reply log");
     assert.equal(internalTypeBadge({ slug: "note", name: "Note" }), null);
     assert.equal(internalTypeBadge(null), null);
   });

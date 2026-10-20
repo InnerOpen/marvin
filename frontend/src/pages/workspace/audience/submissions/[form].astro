@@ -1,0 +1,53 @@
+---
+// Audience › Submissions › one form: that form's submissions, newest first, with the status and search filters. The form is the
+// entry type's slug in the path. Editors and above. Backend: routes/groups/audience_controller.py. Pure logic: lib/audience.ts.
+import AudienceSubmissions from "@/components/AudienceSubmissions.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getSummary, listSubmissions, type SubmissionList } from "@/lib/api/audience";
+import { getAuthToken } from "@/lib/api/client";
+import { apiQuery, type AudienceSummary, parseFilters, SUBMISSIONS_PATH } from "@/lib/audience";
+import { isForbidden } from "@/lib/workspaceRole";
+import "@/styles/social.css";
+import "@/styles/audience.css";
+
+const slug = Astro.params.form ?? "";
+const authToken = getAuthToken(Astro.cookies);
+const filters = parseFilters(Astro.url.searchParams, slug);
+let summary: AudienceSummary | null = null;
+let list: SubmissionList | null = null;
+let error: string | null = null;
+let restricted = false;
+try {
+  summary = await getSummary(authToken);
+  if (summary.submissions.forms.some((f) => f.slug === slug)) list = await listSubmissions(apiQuery(filters), authToken);
+} catch (e) {
+  if (isForbidden(e)) restricted = true;
+  else error = e instanceof Error ? e.message : String(e);
+}
+const form = summary?.submissions.forms.find((f) => f.slug === slug) ?? null;
+const gone = summary && !form;
+---
+
+<AppLayout
+  crumb="workspace.audience.submissions.form"
+  crumbLabels={{ "workspace.audience.submissions": "Submissions" }}
+  title={form?.name ?? "Submissions"}
+  restrictedNote={restricted ? "Audience is for editors and above." : null}
+>
+  <div class="social-page">
+    {error && <div class="si-alert">Could not load the submissions: {error}</div>}
+    {gone && (
+      <div class="si-empty">
+        <h3>That form doesn't send its submissions here</h3>
+        <p>There is no form called “{slug}” whose destination is the Audience. A form's destination is set under Entry types › the form › Submission settings.</p>
+        <p><a class="button secondary" href={SUBMISSIONS_PATH}>All submissions</a></p>
+      </div>
+    )}
+    {form && !error && (
+      <>
+        <p class="si-lede">What people sent through {form.name}, newest first.</p>
+        <AudienceSubmissions summary={summary} list={list} filters={filters} form={form} />
+      </>
+    )}
+  </div>
+</AppLayout>

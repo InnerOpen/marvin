@@ -21,12 +21,14 @@ import { createSdkClient } from "@/lib/sdk";
 import { listAssetTypes } from "@/lib/api/assets";
 import { listCollections } from "@/lib/api/collections";
 import { listResourceTypes } from "@/lib/api/resources";
+import { getSummary as getAudienceSummary } from "@/lib/api/audience";
 import { getSummary as getSocialInboxSummary } from "@/lib/api/socialInbox";
 import { getTrashCounts } from "@/lib/api/trash";
 import { listEntryTypes } from "@/lib/api/entryTypes";
 import { getContentAccess } from "@/lib/api/workspaces";
 import { logoUrl } from "@/lib/integrationLogo";
 import { listedTypes } from "@/lib/entryTypeListing";
+import { isSubmissionsPath, showAudienceGroup, submissionsNav } from "@/lib/audience";
 import { newBadgeText } from "@/lib/socialInbox";
 import { isSocialPath, socialNav } from "@/lib/socialSpace";
 import { ADMINS_ONLY } from "@/lib/workspaceRole";
@@ -121,6 +123,9 @@ if (authToken) {
 // The Social group under Audience, with how many comments are new. Drawn only when an enabled integration offers a `social.*`
 // capability (the summary's `show`); a member below EDITOR gets a 403 and no group. Best-effort, and asked alongside the Ask check below.
 const socialInbox = authToken ? getSocialInboxSummary(authToken).catch(() => null) : Promise.resolve(null);
+// Submissions, beside it: one child per form that sends its submissions to the Audience (the default for a form), with how many wait.
+// Drawn only while such a form exists; a member below EDITOR gets a 403 and no fold.
+const audienceInbox = authToken ? getAudienceSummary(authToken).catch(() => null) : Promise.resolve(null);
 
 // Ask link: hidden while the workspace has the Ask page invocation source switched off. Best-effort — a
 // failed read keeps the link (the page explains itself).
@@ -182,6 +187,9 @@ if (authToken) {
 const socialSummary = await socialInbox;
 const socialGroup = socialNav(socialSummary);
 const onSocial = isSocialPath(Astro.url.pathname);
+const submissionsGroup = submissionsNav(await audienceInbox);
+const onSubmissions = isSubmissionsPath(Astro.url.pathname);
+const showAudience = showAudienceGroup([socialGroup, submissionsGroup]);
 const hasFolder = (slug: string) => folders.some((c) => c.slug === slug);
 
 // Collections an integration installed fold under that integration ("n8n › In flight, Failed"); a person's own stay
@@ -393,10 +401,11 @@ function isActive(itemPath: string, currentPath: string): boolean {
             </details>
           </nav>
         </div>
-        {socialGroup && (
+        {showAudience && (
           <div class="nav-group">
             <div class="nav-group-label">Audience</div>
             <nav class="nav" aria-label="Audience">
+              {socialGroup && (
               <details class="nav-fold" open={onSocial}>
                 <summary class="nav-fold-row">
                   <span aria-hidden="true">💬</span><span>{socialGroup!.label}</span>
@@ -416,6 +425,27 @@ function isActive(itemPath: string, currentPath: string): boolean {
                   ))}
                 </div>
               </details>
+              )}
+              {submissionsGroup && (
+              <details class="nav-fold" open={onSubmissions}>
+                <summary class="nav-fold-row" data-aud-total>
+                  <span aria-hidden="true">✉️</span><span>{submissionsGroup!.label}</span>
+                  {submissionsGroup!.badge && <span class="nav-count attention" aria-label={submissionsGroup!.badgeLabel}>{submissionsGroup!.badge}</span>}
+                  <span class="nav-chevron" aria-hidden="true">›</span></summary>
+                <div class="nav nav-fold-items">
+                  {submissionsGroup!.children.map((c) => (
+                    <a href={c.href} data-aud-form={c.slug} aria-current={path === c.href ? "page" : undefined}>
+                      <span aria-hidden="true">{c.icon}</span>
+                      <span>{c.label}</span>
+                      {c.badge && <span class="nav-count attention" aria-label={c.badgeLabel}>{c.badge}</span>}
+                    </a>
+                  ))}
+                  {submissionsGroup!.children.length > 1 && (
+                    <a href={submissionsGroup!.href} class="nav-fold-all" aria-current={path === submissionsGroup!.href ? "page" : undefined}><span aria-hidden="true">✉️</span><span>All submissions</span></a>
+                  )}
+                </div>
+              </details>
+              )}
             </nav>
           </div>
         )}

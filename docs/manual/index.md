@@ -40,6 +40,7 @@ The admin sidebar shows **Dashboard**, **Ask**, **Content** (**Entries**, **Coll
 **Content teams**
 
 - [Forms and submission protection](whats-new/forms-and-submission-protection.md)
+- [Audience](whats-new/audience.md): Social, form submissions, and (next) subscribers
 - [Collections](whats-new/collections.md)
 - [Agents and Ask](whats-new/agents-and-ask.md)
 

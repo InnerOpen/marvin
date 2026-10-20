@@ -190,10 +190,10 @@ def test_upgrade_runs_the_clean_up_and_the_downgrade_is_a_no_op(conn):
     session.close()
 
 
-def test_the_migration_follows_the_replies_migration_and_is_the_only_head():
+def test_the_migration_follows_the_replies_migration_and_the_chain_has_one_head():
     assert (mig.revision, mig.down_revision) == ("b8d4e2f61a73", "ef911a9c1779")
     versions = Path(_PATH).parent
-    downs = {
-        line.split('"')[1] for p in versions.glob("*.py") for line in p.read_text().splitlines() if line.startswith("down_revision") and '"' in line
-    }
-    assert "b8d4e2f61a73" not in downs
+    lines = [line for p in versions.glob("*.py") for line in p.read_text().splitlines()]
+    downs = {line.split('"')[1] for line in lines if line.startswith("down_revision") and '"' in line}
+    revisions = {line.split('"')[1] for line in lines if line.startswith("revision") and '"' in line}
+    assert len(revisions - downs) == 1  # a single head: no branch

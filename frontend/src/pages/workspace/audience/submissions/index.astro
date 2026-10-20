@@ -1,0 +1,47 @@
+---
+// Audience › Submissions: what people sent through every form whose destination is the Audience (the default for a form), newest
+// first, with the form, status and search filters. Each form also has its own page (/workspace/audience/submissions/<form>). A
+// submission is an entry of an internal entry type, so it is read here and not among the workspace's content. Editors and above.
+// Backend: routes/groups/audience_controller.py. Pure logic: lib/audience.ts.
+import AudienceSubmissions from "@/components/AudienceSubmissions.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getSummary, listSubmissions, type SubmissionList } from "@/lib/api/audience";
+import { getAuthToken } from "@/lib/api/client";
+import { apiQuery, type AudienceSummary, emptyNotice, parseFilters } from "@/lib/audience";
+import { isForbidden } from "@/lib/workspaceRole";
+import "@/styles/social.css";
+import "@/styles/audience.css";
+
+const authToken = getAuthToken(Astro.cookies);
+const filters = parseFilters(Astro.url.searchParams);
+let summary: AudienceSummary | null = null;
+let list: SubmissionList | null = null;
+let error: string | null = null;
+let restricted = false;
+try {
+  summary = await getSummary(authToken);
+  if (summary.submissions.show) list = await listSubmissions(apiQuery(filters), authToken);
+} catch (e) {
+  if (isForbidden(e)) restricted = true;
+  else error = e instanceof Error ? e.message : String(e);
+}
+const none = summary && !summary.submissions.show ? emptyNotice(summary, false) : null;
+---
+
+<AppLayout crumb="workspace.audience.submissions" restrictedNote={restricted ? "Audience is for editors and above." : null}>
+  <div class="social-page">
+    <p class="si-lede">
+      What people send you through your forms, kept out of your content. Each form has its own page in the sidebar, under Audience
+      › Submissions. Open one to read it, mark it handled, clear it if it isn't spam, or delete it.
+    </p>
+    {error && <div class="si-alert">Could not load the submissions: {error}</div>}
+    {none && (
+      <div class="si-empty">
+        <h3>{none.title}</h3>
+        <p>{none.body}</p>
+        {none.link && <p><a class="button secondary" href={none.link.href}>{none.link.label}</a></p>}
+      </div>
+    )}
+    {summary?.submissions.show && !error && <AudienceSubmissions summary={summary} list={list} filters={filters} />}
+  </div>
+</AppLayout>

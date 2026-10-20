@@ -233,3 +233,11 @@ precedence, and conversion with a preview were agreed in conversation 2026-10-20
 - **Trash:** internal entries are now listed and counted in the Trash (the Trash collection holds them; the Trash page badges a Social
   rule) and restore like any entry (a published rule comes back as a draft). Every other list, count, search and index still hides them.
   A rule trashed before this change is in the Trash collection after the next smart-collection resync (the safety-net task), not at once.
+
+## Note, 2026-10-23: internal is the flag only (Audience phase 1)
+Jared's decision while building Audience: "internal" is one source of truth, `capabilities.listed: false`. The core slug rule
+(`INTERNAL_SLUGS` in `services/entry_listing.py` and `INTERNAL_TYPE_SLUGS` in `entryTypeListing.ts`) is gone. Migration `a1d7c35e9f20`
+sets `listed: false` on every stored `social-auto-reply` and `social-reply-log` type, and `social_setup` already created the rule type
+with it, so nothing reappeared. The flag is now visible: a **Show in content lists** switch on the entry type editor and an **Internal**
+badge on the Content model list. Switched on, the rules are listed among the entries, and Social still finds them by their type
+(the engine, the Rules tab, `list_rules`). The audit list above is unchanged (it keys off `is_listed_type`).

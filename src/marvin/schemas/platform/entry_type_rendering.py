@@ -1,5 +1,7 @@
 """Entry type rendering and capabilities definition models."""
 
+from typing import Literal
+
 from marvin.schemas._marvin import _MarvinModel
 
 KNOWN_CORE_RENDERERS: set[str] = {"page", "article", "faq", "navigation"}
@@ -40,6 +42,13 @@ class SubmissionConfig(_MarvinModel):
     # it looks like an email address) updates that entry instead of creating another. Unset = every
     # submission creates an entry. Must name a field of the type's schema (checked on save).
     match_field: str | None = None
+    # Where the submissions go. "audience" (the default) lists them under Audience › Submissions; "entries" handles them as
+    # ordinary entries to review and publish (Entries › Inbox), e.g. testimonials. Choosing it sets `listed` (audience: false,
+    # entries: true) as a default (services/entry_listing.py with_destination_default); `listed` is toggled on its own after that.
+    destination: Literal["audience", "entries"] = "audience"
+    # What a submission is. "message": someone writing to you (Audience › Submissions). "signup": a newsletter signup
+    # (Audience › Subscribers); it only means something with destination "audience".
+    kind: Literal["message", "signup"] = "message"
 
 
 class CapabilitiesDefinition(_MarvinModel):
@@ -48,9 +57,9 @@ class CapabilitiesDefinition(_MarvinModel):
     publishable: bool = True
     submittable: bool = False
     routable: bool = True
-    # False marks an internal type: helper content a feature owns and edits through its own pages (the Social
-    # auto-reply rules). Its entries stay out of every entry list, count, search and the AI index
-    # (services/entry_listing.py); a query that names the type, or the entry, still finds them.
+    # False marks an internal type ("Show in content lists" off): helper content a feature owns and edits through its own pages
+    # (the Social auto-reply rules, an Audience form's submissions). Its entries stay out of every entry list, count, search and
+    # the AI index (services/entry_listing.py); a query that names the type, or the entry, still finds them. The one source.
     listed: bool = True
     # Present only on submittable types; describes how public submissions are handled.
     submission: SubmissionConfig | None = None

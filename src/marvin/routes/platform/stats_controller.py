@@ -50,7 +50,7 @@ class RecentEvent(_MarvinModel):
 class AttentionCounts(_MarvinModel):
     # Counted apart because the panel links each to its own entries filter; a combined number linked to
     # ?status=draft showed 11 "drafts" over a list of 2.
-    inbox: int = 0  # entries in the inbox: form submissions and AI-written entries waiting for triage
+    inbox: int = 0  # entries in the inbox: submissions of forms that go to Entries, and AI-written entries waiting for triage
     drafts: int = 0  # entries in draft
     needs_review: int = 0  # entries in Needs review: flagged submissions, entries a workflow sent there (a refused signup)
     ai_suggestions: int = 0  # entities with a pending AI write-back (suggestion_json)
@@ -59,6 +59,7 @@ class AttentionCounts(_MarvinModel):
     parked_runs: int = 0  # workflow runs stopped at a wait or an approval
     oldest_draft_days: int | None = None  # age of the oldest draft / inbox entry — "4 drafts" reads differently from "a draft for 23 days"
     oldest_inbox_days: int | None = None
+    audience_new: int = 0  # new + suspicious submissions of the forms that go to the Audience (internal: not in the counts above); 0 below EDITOR
 
 
 class DashboardData(_MarvinModel):
@@ -136,6 +137,24 @@ class StatsController(BaseUserController):
             ai_cost_usd=float(_sum(session, AIExecutionModel, AIExecutionModel.estimated_cost_usd, workspace_id, since=month_start)),
         )
 
+    def _audience_new(self, gid) -> int:
+        """Submissions waiting in Audience › Submissions, for a member who may read it (EDITOR and above)."""
+        from fastapi import HTTPException
+
+        from marvin.db.models.users.roles import WorkspaceRole
+        from marvin.routes._base.checks import require_workspace_role
+        from marvin.services import audience
+
+        session = self.repos.session
+        try:
+            require_workspace_role(self.user, gid, WorkspaceRole.EDITOR)
+            return int(audience.summary(session, gid)["submissions"]["new"])
+        except HTTPException:
+            return 0
+        except Exception:  # a caller the role helpers can't read, or a failed count: the panel just leaves the line out
+            session.rollback()
+            return 0
+
     @router.get("/dashboard", response_model=DashboardData, summary="Dashboard activity + attention queue")
     def get_dashboard(self) -> DashboardData:
         """Recent workspace activity and the "needs attention" counts — draft entries awaiting
@@ -208,6 +227,7 @@ class StatsController(BaseUserController):
         except Exception:
             role, sees_backups = 0, False
         approvals_count, approvals = dash.approvals_waiting(session, gid, role)
+        audience_new = self._audience_new(gid)
         return DashboardData(
             recent_activity=recent,
             attention=AttentionCounts(
@@ -220,6 +240,7 @@ class StatsController(BaseUserController):
                 parked_runs=dash.parked_runs(session, gid),
                 oldest_draft_days=dash.oldest_entry_days(session, gid, "draft", now),
                 oldest_inbox_days=dash.oldest_entry_days(session, gid, "inbox", now),
+                audience_new=audience_new,
             ),
             approvals=approvals,
             upcoming=dash.upcoming(session, gid, now),

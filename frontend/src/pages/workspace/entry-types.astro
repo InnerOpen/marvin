@@ -5,6 +5,7 @@ import { getAuthToken } from "@/lib/api/client";
 import { type EntryRead, listEntries } from "@/lib/api/entries";
 import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
 import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
+import { internalReason } from "@/lib/entryTypeListing";
 
 const authToken = getAuthToken(Astro.cookies);
 // Everyone reads; creating, editing and deleting entry types is admin-only (if the role can't be read, let the API decide).
@@ -104,12 +105,14 @@ function renderLine(type: EntryTypeRead): string {
                         </span>
                       )}
                     </td>
-                    <td class="type-name"><strong>{type.name}</strong><small class="type-meta"><code class="meta-slug">{type.slug}</code>{renderLine(type) && <span class="meta-render">{renderLine(type)}</span>}</small></td>
+                    <td class="type-name"><strong>{type.name}</strong>{internalReason(type) && <span class="internal-badge" title={internalReason(type) ?? ""}>Internal</span>}<small class="type-meta"><code class="meta-slug">{type.slug}</code>{renderLine(type) && <span class="meta-render">{renderLine(type)}</span>}</small></td>
                     <td><span class="system-badge">System</span></td>
                     <td class="col-wide col-slug"><code class="slug" title={type.slug}>{type.slug}</code></td>
                     <td class="col-wide col-fields">{fieldCount(type)}</td>
                     <td class="col-wide">
-                      {count === 0 ? (
+                      {internalReason(type) ? (
+                        <span class="empty-badge" title="Not counted here: its entries are kept out of the content lists">—</span>
+                      ) : count === 0 ? (
                         <span class="empty-badge">Empty</span>
                       ) : (
                         <span class="count-badge">{count}</span>
@@ -162,12 +165,14 @@ function renderLine(type: EntryTypeRead): string {
                         </span>
                       )}
                     </td>
-                    <td class="type-name"><a class="row-link" href={`/workspace/entry-types/${type.id}`}><strong>{type.name}</strong></a><small class="type-meta"><code class="meta-slug">{type.slug}</code>{renderLine(type) && <span class="meta-render">{renderLine(type)}</span>}</small></td>
+                    <td class="type-name"><a class="row-link" href={`/workspace/entry-types/${type.id}`}><strong>{type.name}</strong></a>{internalReason(type) && <span class="internal-badge" title={internalReason(type) ?? ""}>Internal</span>}<small class="type-meta"><code class="meta-slug">{type.slug}</code>{renderLine(type) && <span class="meta-render">{renderLine(type)}</span>}</small></td>
                     <td><span class="custom-badge">Custom</span></td>
                     <td class="col-wide col-slug"><code class="slug" title={type.slug}>{type.slug}</code></td>
                     <td class="col-wide col-fields">{fieldCount(type)}</td>
                     <td class="col-wide">
-                      {count === 0 ? (
+                      {internalReason(type) ? (
+                        <span class="empty-badge" title="Not counted here: its entries are kept out of the content lists">—</span>
+                      ) : count === 0 ? (
                         <span class="empty-badge">Empty</span>
                       ) : (
                         <span class="count-badge">{count}</span>
@@ -296,6 +301,18 @@ function renderLine(type: EntryTypeRead): string {
   }
   .types td .system-badge,
   .types td .custom-badge {
+    white-space: nowrap;
+  }
+  .types .internal-badge {
+    display: inline-block;
+    margin-left: 0.5rem;
+    padding: 0 0.5rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font-size: 0.7rem;
+    line-height: 1.6;
+    color: var(--muted);
+    cursor: help;
     white-space: nowrap;
   }
 

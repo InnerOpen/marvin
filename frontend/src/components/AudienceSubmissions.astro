@@ -1,0 +1,282 @@
+---
+// Audience › Submissions: what people sent through the forms whose destination is the Audience, newest first. A row is compact on
+// every screen (who, an excerpt, the form, when, a status badge); tapping it opens the submission: every field, what the spam
+// protection made of it, where it came from, and the actions (Mark handled, Not spam / Reopen, Delete to the Trash) plus "Open as
+// entry". Used by the all-forms page (/workspace/audience/submissions) and each form's page (…/submissions/<form>).
+// Backend: routes/groups/audience_controller.py. Pure logic: lib/audience.ts (audience.test.mjs).
+import type { SubmissionList } from "@/lib/api/audience";
+import { type AudienceForm, type AudienceSummary, emptyNotice, type Filters, formOptions, hasFilters, STATES, submissionsPath } from "@/lib/audience";
+
+interface Props {
+  summary: AudienceSummary | null;
+  list: SubmissionList | null;
+  filters: Filters;
+  /** The form this page is limited to (its own page); none on the all-forms page, which offers a Form filter. */
+  form?: AudienceForm | null;
+}
+const { summary, list, filters, form = null } = Astro.props;
+const basePath = submissionsPath(form?.slug);
+const options = formOptions(summary);
+const empty = emptyNotice(summary, hasFilters(filters, Boolean(form)), form);
+const data = JSON.stringify({ summary, list, filters, basePath, form }).replace(/</g, "\\u003c");
+---
+
+<div class="social-inbox au-root">
+  <script type="application/json" id="au-data" is:inline set:html={data}></script>
+  <div class="si-bar">
+    <form class="si-filters" id="au-filters" method="get" action={basePath} role="search">
+      {!form && options.length > 1 && (
+        <label>Form
+          <select class="input" name="form">
+            <option value="">All forms</option>
+            {options.map((o) => <option value={o.value} selected={o.value === filters.form}>{o.label}</option>)}
+          </select>
+        </label>
+      )}
+      <label>Status
+        <select class="input" name="status">
+          <option value="">Any status</option>
+          {STATES.map((s) => <option value={s.value} selected={s.value === filters.status}>{s.label}</option>)}
+        </select>
+      </label>
+      <label class="grow">Search
+        <input class="input" type="search" name="q" value={filters.q} placeholder="Name, email or text" maxlength="200" />
+      </label>
+      <button class="button secondary" type="submit">Search</button>
+    </form>
+  </div>
+
+  <p class="au-alert si-result bad" id="au-error" role="alert" hidden></p>
+  <ul class="si-list" id="au-list" aria-label={form ? `${form.name} submissions` : "Submissions"}></ul>
+  <p class="si-muted si-count" id="au-count" hidden></p>
+  <button type="button" class="button secondary si-more" id="au-more" hidden>Show more</button>
+
+  <div class="si-empty" id="au-empty" hidden>
+    <h3 id="au-empty-title">{empty.title}</h3>
+    <p id="au-empty-body">{empty.body}</p>
+    <p id="au-empty-link">{empty.link && <a class="button secondary" href={empty.link.href}>{empty.link.label}</a>}</p>
+  </div>
+</div>
+
+<dialog id="au-dialog" class="si-dialog" aria-labelledby="au-d-title">
+  <div class="si-d-head">
+    <h3 id="au-d-title">Submission</h3>
+    <button type="button" class="si-d-close" data-close aria-label="Close">×</button>
+  </div>
+  <div class="si-d-body" id="au-d-body"></div>
+</dialog>
+
+<script>
+  import * as api from "@/lib/api/audience";
+  import {
+    type AudienceSummary,
+    actionButtons,
+    confirmText,
+    emptyNotice,
+    type Filters,
+    fieldText,
+    filtersToQuery,
+    hasFilters,
+    openAsEntryHref,
+    sourceLines,
+    type Submission,
+    apiQuery,
+    stateBadge,
+    submissionRow,
+    verdictText,
+    whoOf,
+  } from "@/lib/audience";
+  import { errorMessage, newBadgeText, timeAgo } from "@/lib/socialInbox";
+
+  const $ = (id: string): any => document.getElementById(id);
+  const esc = (s: unknown) =>
+    String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
+
+  const init = JSON.parse($("au-data").textContent || "{}");
+  let summary: AudienceSummary | null = init.summary ?? null;
+  const filters: Filters = init.filters;
+  const basePath: string = init.basePath;
+  const form = init.form ?? null;
+  const can = summary?.can ?? {};
+  let items: Submission[] = init.list?.items ?? [];
+  let total: number = init.list?.total ?? 0;
+  let openId: string | null = null;
+
+  const badge = (b: { label: string; tone: string; title?: string }) =>
+    `<span class="si-badge ${esc(b.tone)}"${b.title ? ` title="${esc(b.title)}"` : ""}>${esc(b.label)}</span>`;
+
+  function rowHtml(item: Submission): string {
+    const r = submissionRow(item);
+    return `<li><button type="button" class="si-row${r.unread ? " unread" : ""}" data-id="${esc(r.id)}" aria-haspopup="dialog">
+      <span class="si-mark" aria-hidden="true">${esc(r.formIcon)}</span>
+      <span class="si-main">
+        <span class="si-line"><strong class="si-author">${esc(r.who)}</strong><span class="si-kind au-form">${esc(r.form)}</span></span>
+        <span class="si-text">${esc(r.text)}</span>
+      </span>
+      <span class="si-meta"><time datetime="${esc(r.at)}" title="${esc(new Date(r.at).toLocaleString())}">${esc(timeAgo(r.at))}</time><span class="si-badges">${badge(r.badge)}</span></span>
+    </button></li>`;
+  }
+
+  function render() {
+    $("au-list").innerHTML = items.map(rowHtml).join("");
+    $("au-empty").hidden = items.length > 0;
+    if (items.length === 0) {
+      const notice = emptyNotice(summary, hasFilters(filters, Boolean(form)), form);
+      $("au-empty-title").textContent = notice.title;
+      $("au-empty-body").textContent = notice.body;
+      $("au-empty-link").innerHTML = notice.link ? `<a class="button secondary" href="${esc(notice.link.href)}">${esc(notice.link.label)}</a>` : "";
+    }
+    $("au-count").hidden = items.length === 0;
+    $("au-count").textContent = `${items.length} of ${total}`;
+    $("au-more").hidden = items.length >= total;
+  }
+
+  // ── filters: a change goes to the URL, so a view can be bookmarked ───────────────────────────────────────────────
+  const filterForm = $("au-filters") as HTMLFormElement | null;
+  filterForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const f = Object.fromEntries(new FormData(filterForm).entries()) as Record<string, string>;
+    location.href = `${basePath}${filtersToQuery({ form: form ? "" : (f.form ?? ""), status: (f.status ?? "") as Filters["status"], q: f.q ?? "" }, Boolean(form))}`;
+  });
+  filterForm?.querySelectorAll("select").forEach((select) => select.addEventListener("change", () => filterForm.requestSubmit()));
+
+  $("au-more").addEventListener("click", async () => {
+    const button = $("au-more") as HTMLButtonElement;
+    button.disabled = true;
+    try {
+      const more = await api.listSubmissions(apiQuery(filters, items.length));
+      items = [...items, ...more.items.filter((m) => !items.some((i) => i.id === m.id))];
+      total = more.total;
+      render();
+    } catch (e) {
+      $("au-count").hidden = false;
+      $("au-count").textContent = errorMessage(e);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  // ── the sidebar's counts follow an action (they were drawn when the page loaded) ─────────────────────────────────
+  async function refreshNav() {
+    try {
+      summary = await api.getSummary();
+    } catch {
+      return;
+    }
+    const set = (el: Element | null, n: number) => {
+      if (!el) return;
+      let count = el.querySelector(".nav-count");
+      const text = newBadgeText(n);
+      if (!text) return count?.remove();
+      if (!count) {
+        count = document.createElement("span");
+        count.className = "nav-count attention";
+        (el.querySelector(".nav-chevron") ?? null)?.before(count);
+        if (!count.parentElement) el.append(count);
+      }
+      count.textContent = text;
+      count.setAttribute("aria-label", `${n} new`);
+    };
+    for (const f of summary.submissions.forms) set(document.querySelector(`a[data-aud-form="${CSS.escape(f.slug)}"]`), f.new);
+    set(document.querySelector("[data-aud-total]"), summary.submissions.new);
+  }
+
+  // ── the submission ───────────────────────────────────────────────────────────────────────────────────────────────
+  const dialog = $("au-dialog") as HTMLDialogElement;
+  const body = $("au-d-body") as HTMLElement;
+  const current = () => items.find((i) => i.id === openId) ?? null;
+
+  function fieldHtml(f: Submission["fields"][number]): string {
+    const text = fieldText(f.value);
+    const value = f.type === "email" && /^[^@\s]+@[^@\s]+$/.test(text) ? `<a href="mailto:${esc(encodeURIComponent(text).replace(/%40/g, "@"))}">${esc(text)}</a>` : esc(text);
+    return `<dt>${esc(f.label)}</dt><dd>${value}</dd>`;
+  }
+
+  function dialogHtml(item: Submission): string {
+    const r = submissionRow(item);
+    const verdict = verdictText(item);
+    const source = sourceLines(item);
+    const buttons = actionButtons(item, can);
+    const returnTo = `${location.pathname}${location.search}`;
+    return `
+      <div class="si-d-who"><span class="si-mark" aria-hidden="true">${esc(r.formIcon)}</span><div><strong>${esc(r.who)}</strong>
+        <div class="si-muted si-small">${esc(r.form)} · <time title="${esc(new Date(r.at).toLocaleString())}">${esc(timeAgo(r.at))}</time></div></div>
+        <span class="si-badges">${badge(r.badge)}</span></div>
+      ${item.fields.length > 0 ? `<dl class="sr-facts au-fields">${item.fields.map(fieldHtml).join("")}</dl>` : `<p class="si-muted">Nothing was filled in.</p>`}
+      <p class="au-verdict ${verdict.tone}"><strong>Spam check:</strong> ${esc(verdict.text)}</p>
+      ${source.length > 0 ? `<dl class="sr-facts au-source">${source.map((l) => `<dt>${esc(l.label)}</dt><dd>${esc(l.value)}</dd>`).join("")}</dl>` : ""}
+      <div class="si-actions">
+        ${buttons.map((b) => `<button type="button" class="button${b.destructive ? " si-danger" : " secondary"} si-btn-sm" data-act="${b.key}" title="${esc(b.hint ?? "")}">${esc(b.label)}</button>`).join("")}
+        <a class="button secondary si-btn-sm" href="${esc(openAsEntryHref(item, returnTo))}">Open as entry</a>
+      </div>
+      <p class="si-result" id="au-result" role="status" hidden></p>`;
+  }
+
+  function showItem(item: Submission) {
+    openId = item.id;
+    $("au-d-title").textContent = whoOf(item);
+    body.innerHTML = dialogHtml(item);
+  }
+
+  function say(text: string, ok = true) {
+    const out = $("au-result");
+    if (!out) return;
+    out.hidden = false;
+    out.className = `si-result ${ok ? "ok" : "bad"}`;
+    out.textContent = text;
+  }
+
+  /** The submission came back changed: redraw it, and its row (or drop the row when the status filter no longer fits it). */
+  function update(next: Submission) {
+    const fits = !filters.status || filters.status === next.state;
+    if (fits) items = items.map((i) => (i.id === next.id ? next : i));
+    else {
+      items = items.filter((i) => i.id !== next.id);
+      total = Math.max(0, total - 1);
+    }
+    if (fits) showItem(next);
+    else dialog.close();
+    render();
+  }
+
+  $("au-list").addEventListener("click", (event: Event) => {
+    const row = (event.target as HTMLElement).closest<HTMLElement>(".si-row");
+    const item = row ? items.find((i) => i.id === row.dataset.id) : null;
+    if (!item) return;
+    showItem(item);
+    dialog.showModal();
+  });
+
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog || (event.target as HTMLElement).closest("[data-close]")) dialog.close();
+  });
+  dialog.addEventListener("close", () => {
+    openId = null;
+  });
+
+  body.addEventListener("click", async (event: Event) => {
+    const act = (event.target as HTMLElement).closest<HTMLElement>("[data-act]")?.dataset.act;
+    const item = current();
+    if (!act || !item) return;
+    if (act === "delete" && !confirm(confirmText("delete"))) return;
+    body.querySelectorAll("button").forEach((b: HTMLButtonElement) => (b.disabled = true));
+    try {
+      if (act === "delete") {
+        await api.remove(item.id);
+        items = items.filter((i) => i.id !== item.id);
+        total = Math.max(0, total - 1);
+        dialog.close();
+        render();
+      } else {
+        const out = await (act === "handled" ? api.markHandled(item.id) : api.reopen(item.id));
+        if (out.submission) update(out.submission);
+      }
+      await refreshNav();
+    } catch (e) {
+      body.querySelectorAll("button").forEach((b: HTMLButtonElement) => (b.disabled = false));
+      say(errorMessage(e), false);
+    }
+  });
+
+  render();
+</script>

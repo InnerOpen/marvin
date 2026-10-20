@@ -1,6 +1,6 @@
-"""Internal entry types (``capabilities.listed: false``, services/entry_listing.py): helper content a feature owns — the Social
-auto-reply rules — that stays out of every place entries are listed, counted, searched or indexed, and is still reached by naming
-its type (or the entry). One test per path the audit touched.
+"""Internal entry types (``capabilities.listed: false`` and nothing else, services/entry_listing.py): helper content a feature owns —
+the Social auto-reply rules, an Audience form's submissions — that stays out of every place entries are listed, counted, searched
+or indexed, and is still reached by naming its type (or the entry). One test per path the audit touched.
 """
 
 import pytest
@@ -25,7 +25,7 @@ from marvin.services.collections.smart_collections import matches_rules, sync_co
 from marvin.services.entries import trash as entry_trash  # noqa: E402
 from marvin.services.entries.entry_service import EntryService, count_by_status  # noqa: E402
 from marvin.services.entries.query import run as run_query  # noqa: E402
-from marvin.services.entry_listing import INTERNAL_SLUGS, is_listed_type, unlisted_entry_ids, unlisted_type_ids  # noqa: E402
+from marvin.services.entry_listing import is_listed_type, unlisted_entry_ids, unlisted_type_ids  # noqa: E402
 from marvin.services.publish_visibility import is_publishable_type  # noqa: E402
 from marvin.services.push_actions import inbox_count  # noqa: E402
 from tests import test_content_role_gates as gates  # noqa: E402
@@ -37,10 +37,11 @@ API = "/api/platform"
 
 @pytest.fixture
 def content(ws):
-    """The workspace with a normal type and entries, the rule type (internal), and the retired reply-log type with no flag at all."""
+    """The workspace with a normal type and entries, the rule type (internal), and the retired reply-log type (flagged by the migration)."""
     session, gid = ws.session, ws.gid
     note = EntryTypes(session=session, group_id=gid, slug="note", name="Note", schema_json={"fields": []})
-    legacy = EntryTypes(session=session, group_id=gid, slug="social-reply-log", name="Social reply log", schema_json={"fields": []})
+    legacy = EntryTypes(session=session, group_id=gid, slug="social-reply-log", name="Social reply log", schema_json={"fields": []},
+                        capabilities_json={"listed": False})  # fmt: skip
     session.add_all([note, legacy])
     session.commit()
     made = {}
@@ -73,14 +74,18 @@ NOTES = {"note_draft", "note_pub", "note_inbox"}
 # ── what makes a type internal ───────────────────────────────────────────────────────────────────────────────────
 
 
-def test_a_type_is_internal_by_the_flag_or_by_a_core_slug():
+def test_a_type_is_internal_by_the_flag_and_nothing_else():
     assert is_listed_type(None) is True
     assert is_listed_type(SimpleNamespace(slug="note", capabilities_json=None)) is True
     assert is_listed_type(SimpleNamespace(slug="note", capabilities_json={"publishable": False})) is True  # not publishable is not unlisted
     assert is_listed_type(SimpleNamespace(slug="note", capabilities_json={"listed": False})) is False
     assert is_listed_type(SimpleNamespace(slug="note", capabilities_json={"listed": True})) is True
-    for slug in ("social-auto-reply", "social-reply-log"):
-        assert slug in INTERNAL_SLUGS and is_listed_type(SimpleNamespace(slug=slug, capabilities_json=None)) is False  # legacy: no flag stored
+    for slug in ("social-auto-reply", "social-reply-log"):  # no slug rule any more: the migration set the flag on the stored types
+        assert is_listed_type(SimpleNamespace(slug=slug, capabilities_json=None)) is True
+        assert is_listed_type(SimpleNamespace(slug=slug, capabilities_json={"listed": False})) is False
+    form = {"submittable": True, "submission": {"destination": "audience"}}  # a form's destination is not the listing rule
+    assert is_listed_type(SimpleNamespace(slug="contact", capabilities_json=form)) is True
+    assert is_listed_type(SimpleNamespace(slug="contact", capabilities_json={**form, "listed": False})) is False
 
 
 def test_the_capabilities_schema_accepts_the_flag():
@@ -89,7 +94,7 @@ def test_the_capabilities_schema_accepts_the_flag():
     assert CapabilitiesDefinition(listed=False).listed is False and CapabilitiesDefinition().listed is True
 
 
-def test_the_unlisted_ids_cover_the_flag_and_the_slugs(content):
+def test_the_unlisted_ids_are_the_flagged_types(content):
     flagged = EntryTypes(session=content.session, group_id=content.gid, slug="secret", name="S", schema_json={"fields": []},
                          capabilities_json={"listed": False})  # fmt: skip
     content.session.add(flagged)
@@ -100,7 +105,7 @@ def test_the_unlisted_ids_cover_the_flag_and_the_slugs(content):
 
 def test_the_publishing_api_never_serves_an_internal_type_even_one_marked_publishable():
     assert is_publishable_type(SimpleNamespace(slug="x", capabilities_json={"publishable": True, "listed": False})) is False
-    assert is_publishable_type(SimpleNamespace(slug="social-reply-log", capabilities_json=None)) is False
+    assert is_publishable_type(SimpleNamespace(slug="social-reply-log", capabilities_json={"listed": False})) is False
     assert is_publishable_type(SimpleNamespace(slug="note", capabilities_json={})) is True
 
 
@@ -345,3 +350,47 @@ def test_the_assistants_search_content_drops_internal_entries(content, monkeypat
     ctx = ToolContext(session=content.session, group_id=content.gid, user=None, provider=None)
     out = json.loads(builtins.search_content(ctx, {"query": "anything"}))
     assert {r["entityId"] for r in out["results"]} <= {str(content.note_pub.id)}
+
+
+# ── listed is one switch: turning it on shows the entries everywhere, and what uses them keeps working ──────────────────────────
+
+
+def _list_the_rule_type(content):
+    rule_type = content.session.query(EntryTypes).filter_by(group_id=content.gid, slug="social-auto-reply").one()
+    rule_type.capabilities_json = {**(rule_type.capabilities_json or {}), "listed": True}
+    content.session.commit()
+
+
+def test_a_listed_rule_type_shows_its_entries_in_every_list_and_count(content, client):
+    _list_the_rule_type(content)
+    assert {e["slug"] for e in client.get(f"{API}/entries").json()} == NOTES | {"rule_draft", "rule_pub", "rule_inbox"}
+    assert client.get(f"{API}/entries/counts").json()["inbox"] == 2  # a note and a rule
+    assert {e.slug for e in run_query(content.session, content.gid, {"status": "inbox"}, limit=50).rows} == {"note_inbox", "rule_inbox"}
+    assert matches_rules(_entry(content, "rule_draft"), {"statuses": ["draft"]}) is True
+    assert REGISTRY["entry"].content_ok(_entry(content, "rule_pub")) is True
+    assert "social-auto-reply" in {r.slug for r in dashboard.by_type_status(content.session, content.gid)}
+
+
+def test_social_keeps_working_when_its_rule_type_is_listed(content):
+    from marvin.services.integrations import social_rule_entries
+
+    _list_the_rule_type(content)
+    assert {r.slug for r in social_rule_entries.list_rules(content.session, content.gid)} >= {
+        "rule_draft",
+        "rule_pub",
+    }  # found by type, listed or not
+    from marvin.services.integrations import social_setup
+
+    social_setup.ensure_rule_type(content.session, content.gid)  # finds the type as it is: still one, still listed
+    types = content.session.query(EntryTypes).filter_by(group_id=content.gid, slug="social-auto-reply").all()
+    assert len(types) == 1 and types[0].capabilities_json["listed"] is True
+
+
+def test_the_engine_still_answers_with_a_listed_rule_type(ws):
+    se.rule(ws, keywords="price", reply="Check the link in bio.")
+    rule_type = ws.session.query(EntryTypes).filter_by(group_id=ws.gid, slug="social-auto-reply").one()
+    rule_type.capabilities_json = {**rule_type.capabilities_json, "listed": True}
+    ws.session.commit()
+    ws.nets["mastodon"].feed = [se.item("c1", "What is the price?")]
+    se.run(ws)
+    assert [a["comment_id"] for a in ws.nets["mastodon"].sent()] == ["c1"]
