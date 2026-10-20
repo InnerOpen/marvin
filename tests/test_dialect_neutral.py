@@ -25,7 +25,11 @@ from marvin.db.models.users.users import Users
 from marvin.services import admin_overview, dashboard
 from tests.test_dashboard_panels import _entry, _run, _workflow, workspace, ws  # noqa: F401 — fixtures and seeding helpers
 
-NOW = datetime.now(UTC).replace(microsecond=0)
+# The seeded runs sit up to two hours before NOW and are counted by UTC day, so NOW must be at least that far into its
+# day: in the first hours after midnight it steps back to yesterday's last hour (never into the future, which other
+# rows compare against).
+_CLOCK = datetime.now(UTC).replace(microsecond=0)
+NOW = _CLOCK if _CLOCK.hour >= 3 else _CLOCK - timedelta(hours=_CLOCK.hour + 1)
 HOUR, DAY = timedelta(hours=1), timedelta(days=1)
 
 
