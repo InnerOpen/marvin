@@ -1541,17 +1541,31 @@ class IntegrationEventListener(EventListenerBase):
             ctx = IntegrationContext(config=sub["config"], secret=secret, logger=self.logger, http=build_http())
             args = self._template(sub["args"], ctx_data)
             try:
-                provider.run_action(sub["action"], args, ctx)
+                out = provider.run_action(sub["action"], args, ctx)
                 self.logger.info(f"integration '{sub['name']}' ran '{sub['action']}' on {event.event_type.name}")
             except Exception as e:  # noqa: BLE001 — one action failing must not affect the others
                 self.logger.warning(f"integration '{sub['name']}' action '{sub['action']}' failed: {e}")
-                if track:  # connection scope: the provider's notify only — no entry to review, nothing to retry
+                if track:
+                    # An action that hands work off (a site rebuild's deploy): the hand-off failed, which is what Results shows.
+                    self._record_hand_off(sub, provider, args, ctx_data, error=errors.redact(str(e), errors.secret_values(secret)))
+                    # Connection scope: the provider's notify only — no entry to review, nothing to retry.
                     errors.connection_failed(
                         self.group_id, sub.get("integration_id"), provider, sub["action"], e, source="subscription", secrets=(secret,)
                     )
                 continue
-            if track:
+            if track:  # an action that hands work off: it is in flight now, until the other side reports back
+                self._record_hand_off(sub, provider, args, ctx_data, out=out if isinstance(out, dict) else {})
                 errors.connection_succeeded(self.group_id, sub.get("integration_id"))
+
+    def _record_hand_off(self, sub: dict, provider, args: dict, ctx_data: dict, *, out: dict | None = None, error: str | None = None) -> None:
+        """Keep the hand-off an event subscription just made (Settings › Automation › Results), as a workflow's integration step does:
+        no workflow, and an entry only when the event is about one. Never raises."""
+        from marvin.services import automation_results
+
+        entry_id = ctx_data.get("entry_id") or (ctx_data.get("entity_id") if ctx_data.get("entity_type") == "entry" else None)
+        automation_results.track_direct(
+            self.group_id, sub.get("integration_id"), provider, sub["action"], args, out=out, error=error, event={"entry_id": entry_id}
+        )
 
     def _event_context(self, event: Event) -> dict:
         """Flatten the event into a dict of {{placeholder}} values for action args."""

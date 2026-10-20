@@ -51,6 +51,13 @@ class _Flow(IntegrationProvider):
             output_schema={"type": "object", "properties": {"run_id": {"type": "string"}, "run_url": {"type": "string"}}},
             hands_off=HandsOff(remote_id="run_id", remote_url="run_url", target="path", statuses=WORDS),
         ),
+        ProviderAction(
+            key="send",
+            label="Send or save",
+            input_schema={"type": "object", "properties": {"deliver": {"type": "boolean"}}},
+            output_schema={"type": "object", "properties": {"run_id": {"type": "string"}, "sent": {"type": "boolean"}}},
+            hands_off=HandsOff(remote_id="run_id", record_if="sent", statuses=WORDS),
+        ),
         ProviderAction(key="ping", label="Ping"),
     )
     calls: list = []
@@ -59,7 +66,8 @@ class _Flow(IntegrationProvider):
         _Flow.calls.append((key, args))
         if args.get("refuse"):
             raise ValueError(f"the flow refused it (credential {ctx.secret})")
-        return {"run_id": f"run-{len(_Flow.calls)}", "run_url": f"https://flow.example/runs/{len(_Flow.calls)}", "ok": True}
+        out = {"run_id": f"run-{len(_Flow.calls)}", "run_url": f"https://flow.example/runs/{len(_Flow.calls)}", "ok": True}
+        return {**out, "sent": bool(args.get("deliver"))} if key == "send" else out
 
 
 def _definition(**over):
@@ -237,6 +245,129 @@ def test_a_run_url_that_is_not_a_web_address_is_not_kept(flow, monkeypatch):
     assert (row.remote_id, row.remote_url) == ("r9", None)
 
 
+# ── an action that only sometimes hands off: record_if ──────────────────────────────────────────────────────────
+
+
+def _send(flow, **args):
+    step = {"kind": "integration", "integration": "hooks", "action": "send", "args": args}
+    return run_integration_action(flow.session, flow.gid, step, {"event": {}, "steps": {}, "depth": 0}, authorizer_role=ROLE_ADMIN)
+
+
+def test_a_call_whose_record_if_key_is_truthy_is_recorded_in_flight(flow):
+    _send(flow, deliver=True)
+
+    (row,) = _rows(flow)
+    assert (row.status, row.remote_id, row.action) == ("in_flight", "run-1", "send")
+
+
+def test_a_call_whose_record_if_key_is_false_is_not_a_hand_off_and_records_nothing(flow):
+    out = _send(flow, deliver=False)  # saved as a draft: the step still succeeded, and its output is still there
+
+    assert out["sent"] is False and out["run_id"] == "run-1"
+    assert _rows(flow) == []
+
+
+def test_a_call_that_fails_records_nothing_when_the_action_names_a_record_if_key_because_nothing_proves_it_was_a_hand_off(flow):
+    with pytest.raises(Exception, match="refused"):
+        _send(flow, deliver=True, refuse=True)
+
+    assert _rows(flow) == []
+
+
+# ── a hand-off core makes outside a workflow step: an event subscription ────────────────────────────────────────
+
+
+def _subscription(flow, action="start", **args):
+    """What ``IntegrationEventListener.get_subscribers`` snapshots for a connection's action subscribed to an event."""
+    return {
+        "integration_id": flow.connection.id,
+        "name": flow.connection.name,
+        "provider": _Flow.slug,
+        "config": {},
+        "secret_ref": "X",
+        "action": action,
+        "args": args,
+    }
+
+
+def _fire(flow, subscription, event_type="webhook_triggered", **event):
+    from marvin.services.event_bus_service.event_bus_listener import IntegrationEventListener
+    from marvin.services.event_bus_service.event_types import EventTypes
+
+    seen = SimpleNamespace(
+        event_type=EventTypes[event_type],
+        document_data=None,
+        entity_id=event.get("entity_id"),
+        entity_type=event.get("entity_type"),
+        message="",
+    )
+    IntegrationEventListener(flow.gid).publish_to_subscribers(seen, [subscription])
+
+
+def test_a_hands_off_action_run_by_an_event_subscription_is_recorded_in_flight_with_no_workflow_and_no_entry(flow):
+    _fire(flow, _subscription(flow, path="site/rebuild"))
+
+    (row,) = _rows(flow)
+    assert (row.status, row.remote_id, row.remote_url) == ("in_flight", "run-1", "https://flow.example/runs/1")
+    assert (row.target, row.action, row.integration_id) == ("site/rebuild", "start", flow.connection.id)
+    assert (row.workflow_id, row.entry_id, row.finished_at) == (None, None, None)
+
+
+def test_an_event_subscription_that_fails_records_a_failed_result_with_the_redacted_message(flow):
+    _fire(flow, _subscription(flow, path="site/rebuild", refuse=True))
+
+    (row,) = _rows(flow)
+    assert (row.status, row.remote_id, row.workflow_id) == ("failed", None, None)
+    assert "the flow refused it" in row.message and LOGIN not in row.message
+    assert row.finished_at is not None
+
+
+def test_an_event_subscription_about_an_entry_records_the_entry(flow):
+    _fire(flow, _subscription(flow, path="entry/hook"), "entry_published", entity_type="entry", entity_id=flow.a.id)
+
+    (row,) = _rows(flow)
+    assert row.entry_id == flow.a.id
+
+
+def test_an_event_subscription_about_something_else_records_no_entry(flow):
+    _fire(flow, _subscription(flow, path="site/rebuild"), entity_type="integration", entity_id=flow.connection.id)
+
+    (row,) = _rows(flow)
+    assert row.entry_id is None
+
+
+def test_an_event_subscription_honours_record_if(flow):
+    _fire(flow, _subscription(flow, "send", deliver=False))
+    assert _rows(flow) == []
+
+    _fire(flow, _subscription(flow, "send", deliver=True))
+    (row,) = _rows(flow)
+    assert (row.action, row.status) == ("send", "in_flight")
+
+
+def test_an_event_subscription_to_an_action_that_does_not_hand_off_records_nothing(flow):
+    _fire(flow, _subscription(flow, "ping"))
+
+    assert _rows(flow) == []
+
+
+def test_delivering_an_alert_through_a_subscription_records_no_hand_off(flow):
+    _fire(flow, _subscription(flow, path="alert"), "integration_attention_needed")
+
+    assert _rows(flow) == []
+
+
+def test_recording_a_hand_off_from_an_event_never_breaks_the_other_subscriptions(flow, monkeypatch):
+    def broken(*args, **kwargs):
+        raise RuntimeError("the results table is gone")
+
+    monkeypatch.setattr(results, "track", broken)
+
+    _fire(flow, _subscription(flow, path="site/rebuild"))  # does not raise
+
+    assert [c[0] for c in _Flow.calls] == ["start"]
+
+
 # ── the automation_result step settles it ───────────────────────────────────────────────────────────────────────
 
 
@@ -356,6 +487,26 @@ def test_a_report_on_a_plugins_own_webhook_reads_its_words_through_the_connectio
     assert report("results", "fresh-1")["status"] == "succeeded"  # nothing matched, yet the word is the connection's
     assert _rows(flow, remote_id="fresh-1")[0].integration_id == flow.connection.id
     assert report("other", "fresh-2")["status"] == "in_flight"  # a webhook no connection installed: only Marvin's words
+
+
+def test_a_late_started_report_never_reopens_a_hand_off_that_already_ended(flow):
+    _publish(flow)
+    _report(flow, "success", integration="hooks", remote_id="run-1")
+
+    out = _report(flow, "waiting", integration="hooks", remote_id="run-1")  # deliveries are not ordered
+
+    (row,) = _rows(flow)
+    assert (out["status"], row.status, row.finished_at is not None) == ("succeeded", "succeeded", True)  # the step reports the state it left
+
+
+def test_a_started_report_keeps_a_failed_hand_off_failed(flow):
+    _publish(flow)
+    _report(flow, "error", integration="hooks", remote_id="run-1", message="boom")
+
+    _report(flow, "waiting", integration="hooks", remote_id="run-1")
+
+    (row,) = _rows(flow)
+    assert (row.status, row.message) == ("failed", "boom")
 
 
 def test_a_failure_reported_again_asks_for_attention_again(flow):

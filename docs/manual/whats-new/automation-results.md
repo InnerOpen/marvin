@@ -14,6 +14,8 @@ A connection's action can declare that it **hands work off** (the integration SD
 | the call itself failed (the other system refused it, was unreachable, a credential was wrong) | **Failed**, with the connection's message (never a credential) |
 | the other side reported back | **Succeeded** or **Failed**, or still **In flight** if it says it is waiting |
 
+The same goes for a hands-off action Marvin runs **outside a workflow step**: an [event connection](integrations.md#hand-offs) such as the site rebuild's **Deploy** (Cloudflare Pages), which a [site rebuild](../operations.md#site-rebuilds) runs when it sends `webhook_triggered`. That record has no workflow and no entry. An action that only sometimes hands off (Buttondown's **Create issue email**: a send does, a draft does not) records only when it did.
+
 Each record keeps the entry the work was about, the connection, the Marvin workflow whose step made the call, what was asked of the other side (for an n8n workflow, its path), the run's id and a link to it on the other side, a message, when it was sent and finished, and the attempt (a retry of the same hand-off counts up; it does not add a record).
 
 The words are Marvin's: **In flight**, **Succeeded**, **Failed**. A connection turns its own words into these (n8n says `success`, `error` and `waiting`).
@@ -23,6 +25,8 @@ The words are Marvin's: **In flight**, **Succeeded**, **Failed**. A connection t
 A record still in flight a day after it was sent shows as **No reply**. It is not a status of its own and nothing is failed for you: it is the same record, flagged, so a lost report is visible. If the other side reports later, the record settles as usual.
 
 ## Reporting back: the Record an automation result step {#step}
+
+Reporting back is a step of the **plugin's own workflows** for the connections that ship them. Cloudflare Pages' three notification workflows settle the build (by its deployment id, in Cloudflare's own words); Buttondown's `buttondown-email-sent` settles a send when Buttondown posts `email.sent`. They name no connection: Marvin reads the other side's words through the connection that installed the incoming webhook. A late **started** never reopens a result that already succeeded or failed (deliveries are not ordered). A report that matches nothing (a build started by a git push, an email sent from Buttondown's own dashboard) is listed as a new result.
 
 The other side reports back however it can (typically a call to an [incoming webhook](incoming-webhooks.md) that starts a workflow). That workflow settles the record with a **Record an automation result** step; see [Workflows → Record an automation result](workflows.md#record-an-automation-result).
 
@@ -80,7 +84,7 @@ Until this release, the n8n plugin kept this in entry metadata (`n8n_status`, `n
 
 ## Since
 
-Automation results (`automation_results`, migration `d3b9f27a6c14`, the `automation_result` step, `/api/groups/automation-results`, the `prune_automation_results` system task, integration SDK 0.13.0 `hands_off`): 2026-10-25.
+Automation results (`automation_results`, migration `d3b9f27a6c14`, the `automation_result` step, `/api/groups/automation-results`, the `prune_automation_results` system task, integration SDK 0.13.0 `hands_off`): 2026-10-25. Builds and sends from Cloudflare Pages 0.3.0 and Buttondown 0.9.0, event connections recorded, `record_if` (integration SDK 0.14.0): 2026-10-26.
 
 ## Related
 

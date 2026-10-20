@@ -6,10 +6,14 @@ An integration action that hands work off declares it (``marvin_integration_sdk.
 * ``track`` — called by the integration step after the provider call. A call that succeeded writes the row **in flight**; one that
   failed writes it **failed** with the provider's (already redacted) message. A retry of the same hand-off (the error policy's, or a
   person's Retry) reuses the failed row and counts up ``attempt`` instead of starting another. Recording never breaks the step: it
-  runs in a savepoint and a fault is logged.
+  runs in a savepoint and a fault is logged. An action that only sometimes hands off names an output key (``HandsOff.record_if``):
+  the hand-off is recorded only when that key is truthy in the result, and a failed call (no result to read) records nothing.
+* ``track_direct`` — the same hook for an action core runs outside a workflow step (a site rebuild's deploy action wired to
+  ``webhook_triggered``): no workflow, and an entry only when the event is about one.
 * ``settle`` — what the ``automation_result`` step calls when the other side reports back: the row with that ``remote_id`` (on that
   connection, when named), else the newest in-flight row for that entry and connection. A report that matches nothing is kept as a
-  fresh row rather than dropped. A status the provider doesn't know leaves the row in flight with the word in its message.
+  fresh row rather than dropped. A status the provider doesn't know leaves the row in flight with the word in its message. A report
+  that says "in flight" never reopens a row that already succeeded or failed (a late "started").
 * **No reply** — a row still in flight 24 hours after it was sent. Computed from ``sent_at`` (``is_no_reply``), never a status, so a
   late reply settles it as usual. There is no automatic failure.
 * ``prune`` — the daily system task: settled and dismissed rows go after 30 days, in flight and undismissed failures after 180.
@@ -114,11 +118,36 @@ def track(session, group_id, row, declared, args: dict, context: dict, *, out: d
     hands_off = _declaration(declared)
     if hands_off is None:
         return
+    record_if = getattr(hands_off, "record_if", "")  # SDK 0.14.0; an older SDK's declaration always records
+    if record_if and (error is not None or not (out or {}).get(record_if)):
+        return
     try:
         with session.begin_nested():
             _track(session, group_id, row, declared, hands_off, args, context, out or {}, error)
     except Exception as e:  # noqa: BLE001 — the record is a convenience: the step that handed the work off has already done so
         logger.warning("automation results: could not record the hand-off of %s.%s: %s", getattr(row, "slug", "?"), declared.key, e)
+
+
+def track_direct(
+    group_id, integration_id, provider, action_key: str, args: dict, *, out: dict | None = None, error: str | None = None, event: dict | None = None
+) -> None:
+    """``track`` for an action core ran itself, outside a workflow step: in a session of its own (so the caller's transaction is never
+    touched), for the connection ``integration_id`` and the ``provider`` action ``action_key``. ``event`` may carry the ``entry_id`` the
+    run was about. Never raises."""
+    from marvin.db.db_setup import session_context
+
+    declared = next((a for a in getattr(provider, "actions", ()) or () if getattr(a, "key", None) == action_key), None)
+    if _declaration(declared) is None:
+        return
+    try:
+        with session_context() as session:
+            row = session.get(IntegrationModel, integration_id)
+            if row is None:
+                return
+            track(session, group_id, row, declared, args or {}, {"event": event or {}}, out=out, error=error)
+            session.commit()
+    except Exception as e:  # noqa: BLE001 — as in track: the work was handed off whether or not it is written down
+        logger.warning("automation results: could not record the hand-off of %s.%s: %s", getattr(provider, "slug", "?"), action_key, e)
 
 
 def _track(session, group_id, row, declared, hands_off, args: dict, context: dict, out: dict, error: str | None) -> None:
@@ -223,6 +252,8 @@ def settle(
         session.add(row)
         session.flush()
         return row, "none"
+    if status == IN_FLIGHT and row.status != IN_FLIGHT:
+        return row, matched  # a "started" that arrives after the end (deliveries aren't ordered) must not reopen a settled hand-off
     row.status = status
     row.finished_at = None if status == IN_FLIGHT else settled_at
     if message is not None or status != FAILED:
