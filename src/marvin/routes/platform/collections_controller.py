@@ -276,12 +276,14 @@ class CollectionsController(BaseUserController):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found.")
 
         from marvin.db.models.platform.entries import Entries
+        from marvin.services.entry_listing import hidden_type_ids
 
         entries = (
             self.session.query(Entries)
             .join(EntryCollections, Entries.id == EntryCollections.entry_id)
             .filter(EntryCollections.collection_id == item_id)
             .filter(trash.collection_entries_filter(collection))
+            .filter(Entries.entry_type_id.notin_(hidden_type_ids(self.session, self.group_id, collection)))
             .options(*EntryRead.loader_options())
             .order_by(
                 sa.case(

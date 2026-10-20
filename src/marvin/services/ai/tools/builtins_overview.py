@@ -35,6 +35,7 @@ from marvin.db.models.platform.resources import Resources
 from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
 from marvin.db.models.platform.tags import Tags
 from marvin.services.ai.operations.base import ROLE_ADMIN, ROLE_VIEWER
+from marvin.services.entry_listing import listed_clause
 
 from .base import ToolContext, caller_role, register_tool
 
@@ -63,7 +64,7 @@ def workspace_overview(ctx: ToolContext, _args: dict) -> str:
     for slug, name, status, n in (
         s.query(EntryTypes.slug, EntryTypes.name, Entries.status, func.count(Entries.id))
         .join(Entries, Entries.entry_type_id == EntryTypes.id)
-        .filter(Entries.group_id == g)
+        .filter(Entries.group_id == g, listed_clause(s, g))  # not the entries of an internal type (services/entry_listing.py)
         .group_by(EntryTypes.slug, EntryTypes.name, Entries.status)
         .all()
     ):

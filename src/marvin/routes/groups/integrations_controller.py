@@ -360,6 +360,7 @@ class IntegrationsController(BaseUserController):
 
         # Run an initial health check so the row lands with a real status.
         self._run_check(row)
+        _social_plumbing(self.session, self.group_id)
         return _to_read(row, errors.open_alerts(self.session, self.group_id).get(row.id))
 
     @router.patch("/{integration_id}", response_model=IntegrationRead)
@@ -399,6 +400,7 @@ class IntegrationsController(BaseUserController):
         self.session.refresh(row)
         if provider is not None:
             self._run_check(row)
+        _social_plumbing(self.session, self.group_id)
         return _to_read(row, errors.open_alerts(self.session, self.group_id).get(row.id))
 
     @router.delete("/{integration_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -410,6 +412,7 @@ class IntegrationsController(BaseUserController):
             _delete_secret_quietly(row.secret_ref, self.group_id, self.session)
         self.session.delete(row)
         self.session.commit()
+        _social_plumbing(self.session, self.group_id)
 
     # ---- health check ------------------------------------------------------------
 
@@ -591,6 +594,18 @@ def provider_logo(slug: str, request: Request):
     """A provider's validated logo. Public: logos aren't secret, they're platform-wide rather than
     per-workspace, and an <img> can't send a Bearer header. 404 → the UI shows the provider's emoji."""
     return logo_response(logos.get_logo(slug), request)
+
+
+def _social_plumbing(session, group_id) -> None:
+    """Social needs no setup: while a connected network offers `social.*` capabilities the rule type exists, and the engine's task runs
+    while one reads comments (services/integrations/social_setup.py). Best-effort: never fails the integration call."""
+    from marvin.services.integrations import social_setup
+
+    try:
+        social_setup.reconcile(session, group_id)
+    except Exception:  # noqa: BLE001
+        session.rollback()
+        logger.warning("social plumbing could not be reconciled for workspace %s", group_id, exc_info=True)
 
 
 def _delete_secret_quietly(ref: str, group_id, session) -> None:

@@ -123,8 +123,13 @@ def count_by_status(session, group_id) -> dict[str, int]:
 
     from marvin.db.models.platform import Entries
     from marvin.schemas.platform.entries import ENTRY_STATUSES
+    from marvin.services.entry_listing import only_listed
 
-    rows = session.query(Entries.status, func.count(Entries.id)).filter(Entries.group_id == group_id).group_by(Entries.status).all()
+    rows = (
+        only_listed(session, group_id, session.query(Entries.status, func.count(Entries.id)).filter(Entries.group_id == group_id))
+        .group_by(Entries.status)
+        .all()
+    )
     counts = dict.fromkeys(sorted(ENTRY_STATUSES), 0)
     for status_value, n in rows:
         counts[status_value] = int(n)

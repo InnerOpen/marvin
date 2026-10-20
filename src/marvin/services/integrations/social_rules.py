@@ -6,16 +6,17 @@ Moved from the Instagram plugin's ``matching.py`` and kept as it behaved, now ov
 * a keyword is matched case-insensitively as a whole word — "price" hits "What's the price?" but not "priceless" — and
   a multi-word keyword ("how much") works; keywords may be a list or a comma-separated string, lowered and stripped;
 * a rule needs at least one keyword and a reply, else it is unusable and ignored;
-* one reply per comment: a comment that matches several rules takes the first — rules for that comment's post before the
-  catch-all ones, then in the order the caller hands them over (Marvin hands them oldest first, so the rule written first
-  wins);
+* one reply per comment: a comment that matches several rules takes the most specific — a rule for that comment's post,
+  then a rule for this network, then a rule for every network, and within each the order the caller hands them over (Marvin
+  hands them oldest first, so the rule written first wins);
 * a comment is skipped when it was already answered, is older than ``max_age_days`` (default 7), or is the account's own.
 
-Beyond Instagram's, a rule says which networks it covers (``networks``: empty is any; else integration slugs or network
-names), how to answer (``reply_as``: private, public or both), whether to like the comment too (``also_like``) and which
-kinds of item it answers (``kinds``, default "comment, reply": answers on your own posts). A ``mention`` — someone
-tagging the account elsewhere — is answered only by a rule that lists it, so a keyword rule never replies to strangers
-unasked. (Networks differ: Instagram yields comment and reply, Mastodon reply and mention — never "comment".)
+Beyond Instagram's, a rule says which networks it covers (``networks``: empty is every network; else integration slugs — what
+a rule made from a network's page holds — or network names such as ``instagram``), how to answer (``reply_as``: private,
+public or both), whether to like the comment too (``also_like``) and which kinds of item it answers (``kinds``, default
+"comment, reply": answers on your own posts). A ``mention`` — someone tagging the account elsewhere — is answered only by a
+rule that lists it, so a keyword rule never replies to strangers unasked. (Networks differ: Instagram yields comment and
+reply, Mastodon reply and mention — never "comment".)
 
 A rule's source is either the shared ``social-auto-reply`` entry or, for Instagram's old ``ig-auto-reply`` entry (``post_id``,
 ``keywords``, ``reply``), the same rule read as one for network "instagram" that replies privately — see ``rule_from_entry``.
@@ -166,14 +167,26 @@ def covers(rule: SocialRule, item: dict, names: set[str]) -> bool:
     return not rule.post or _same_post(rule.post, item)
 
 
+def specificity(rule: SocialRule) -> tuple[int, int]:
+    """How specific a rule is, smaller first: one for a post before one for any post, and one that names networks before
+    one that covers every network. The caller's order (oldest first) breaks the rest of the ties."""
+    return (0 if rule.post else 1, 0 if rule.networks else 1)
+
+
 def match_item(item: dict, rules: list[SocialRule], names: set[str]) -> tuple[SocialRule, str] | None:
-    """The rule (and the keyword that hit) that answers this item, or None. Rules for the item's own post go before the
-    catch-all ones; within each, the caller's order — one reply per comment, so the first hit wins."""
+    """The rule (and the keyword that hit) that answers this item, or None. Precedence: a rule for the item's post, then a
+    rule for its network, then a rule for every network; within each, the caller's order — one reply per comment, so the
+    first hit wins."""
     applicable = [r for r in rules if r.published and covers(r, item, names)]
-    for rule in [r for r in applicable if r.post] + [r for r in applicable if not r.post]:
+    for rule in sorted(applicable, key=specificity):  # stable: the caller's order within a level
         if kw := keyword_hit(item.get("text") or "", rule.keywords):
             return rule, kw
     return None
+
+
+def rule_covers_integration(rule: SocialRule, slug: str, provider: str) -> bool:
+    """Whether a rule applies on this integration: it names no network, or names the integration's slug or its network."""
+    return not rule.networks or bool(rule.networks & {slug.lower(), provider.lower()})
 
 
 def parse_time(value) -> datetime | None:

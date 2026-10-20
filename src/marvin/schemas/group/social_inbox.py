@@ -1,7 +1,8 @@
-"""The Social inbox API (routes/groups/social_inbox_controller.py): the comments, replies and mentions the social engagement
-poll kept, what was replied, and what a person can do with each."""
+"""The Social API (routes/groups/social_inbox_controller.py): the comments, replies and mentions the social engagement poll kept,
+what was replied (recorded on the item), what a person can do with each, a network's rules and its auto-reply mode."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import UUID4, Field
 
@@ -15,18 +16,23 @@ class SocialInboxAuthor(_MarvinModel):
 
 
 class SocialInboxReplyRead(_MarvinModel):
-    """How an item was answered: by a rule (or a person) live, or in rehearsal (nothing was sent)."""
+    """How an item was answered: by a rule (or a person) live, or in rehearsal (nothing was sent). Recorded on the item."""
 
-    log_slug: str | None = None
-    log_entry_id: UUID4 | None = None
-    """The ``social-reply-log`` entry (open it at /workspace/entries/{id}); None when there is no log type to write one in."""
     mode: str | None = None
     """private | public | both."""
     rehearsal: bool = False
     reply_id: str | None = None
+    text: str | None = None
+    """What was sent, or would have been in a rehearsal."""
+    rule: str | None = None
+    """The slug of the rule entry that fired; empty for a person's reply."""
+    rule_entry_id: UUID4 | None = None
+    """That rule's entry (edit it at /workspace/entries/{id}); None for a person's reply or a rule since deleted."""
+    note: str | None = None
     at: datetime | None = None
     by: UUID4 | None = None
     """The person who replied from the inbox; None for a rule's reply."""
+    by_name: str | None = None
 
 
 class SocialInboxItemRead(_MarvinModel):
@@ -48,6 +54,7 @@ class SocialInboxItemRead(_MarvinModel):
     status: str
     """new | seen | replied | hidden | liked."""
     reply: SocialInboxReplyRead | None = None
+    """The reply recorded on the item (live or rehearsal); None while it has none."""
     actions: list[str] = Field(default_factory=list)
     """What this item's network offers for it: reply, like, hide, delete, message (hide and delete not for a mention)."""
     reply_modes: list[str] = Field(default_factory=list)
@@ -64,30 +71,32 @@ class SocialInboxList(_MarvinModel):
 
 
 class SocialInboxIntegration(_MarvinModel):
+    """A connected network (an enabled integration offering a ``social.*`` capability)."""
+
     slug: str
     name: str
+    provider: str
+    """The plugin's slug — what the logo is served under (``/api/groups/integrations/providers/{provider}/logo``)."""
     network: str
-
-
-class SocialInboxEngine(_MarvinModel):
-    """The scheduled task that fills the inbox."""
-
-    state: str
-    """missing (the Social engagement set isn't applied) | disabled | enabled."""
-    task_id: UUID4 | None = None
-    rehearsal: bool = True
-    """Replies are rehearsed, not sent, unless the task's config says ``rehearsal: false``."""
-    announce: bool = True
+    capabilities: list[str] = Field(default_factory=list)
+    reads_comments: bool = False
+    """It offers ``social.comments``: it has an inbox, and the engine reads it."""
+    can_reply: bool = False
+    """It offers ``social.reply``: auto-reply can be switched on."""
+    auto_reply: str = "off"
+    """off | rehearsal | on."""
+    new: int = 0
+    """Items of this network still new."""
 
 
 class SocialInboxSummary(_MarvinModel):
-    available: bool
-    """Whether the workspace has anything for an inbox: an integration that reads comments, or items already kept."""
+    show: bool
+    """Whether Social appears at all: an enabled integration offers a ``social.*`` capability."""
     new: int
+    """New items across the networks."""
     integrations: list[SocialInboxIntegration]
-    engine: SocialInboxEngine
     can: dict[str, bool]
-    """What the caller's role may do: seen, like, hide, rule, reply, delete, message."""
+    """What the caller's role may do: seen, like, hide, rule, rules, publish, reply, delete, message, auto_reply."""
 
 
 class SocialInboxSeen(_MarvinModel):
@@ -113,8 +122,6 @@ class SocialInboxReplyResult(_MarvinModel):
     private: bool
     reply_id: str | None = None
     url: str | None = None
-    logged: bool
-    """Whether it is in the social-reply-log (the engine then never answers this comment). False only when the log type isn't applied."""
     item: SocialInboxItemRead
 
 
@@ -145,3 +152,50 @@ class SocialInboxRuleResult(_MarvinModel):
     keywords: list[str]
     path: str
     """The entry editor: /workspace/entries/{id}. The rule is a draft; publishing it is the approval."""
+
+
+class SocialRuleRead(_MarvinModel):
+    """One auto-reply rule, as a network's Rules tab lists it."""
+
+    id: UUID4
+    """The rule entry's id (edit it at ``path``)."""
+    slug: str
+    title: str
+    status: str
+    """draft | inbox | needs_review | approved | published. Only a published rule answers."""
+    published: bool
+    keywords: list[str]
+    reply: str
+    networks: list[str]
+    """The integration slugs (or network names) it names; empty means every network."""
+    all_networks: bool
+    post: str
+    """A post id or URL; empty means any post."""
+    reply_as: str
+    also_like: bool
+    kinds: list[str]
+    legacy: bool
+    """Instagram's older ``ig-auto-reply`` entry, read as a rule for network instagram."""
+    path: str
+
+
+class SocialRuleList(_MarvinModel):
+    rules: list[SocialRuleRead]
+
+
+class SocialRuleNew(_MarvinModel):
+    integration: str | None = None
+    """The integration's slug to make the rule for; empty makes one for every network."""
+
+
+class SocialRulePublish(_MarvinModel):
+    published: bool = True
+
+
+class SocialAutoReplyUpdate(_MarvinModel):
+    mode: Literal["off", "rehearsal", "on"]
+
+
+class SocialAutoReplyResult(_MarvinModel):
+    integration: str
+    auto_reply: str

@@ -370,8 +370,9 @@ def _events(refs: WorkspaceRefs) -> dict:
             "fields": {e: {k: f["type"] for k, f in social_fields(e).items()} for e in groups[SOCIAL]},
             "note": (
                 "social_comment_received: a new comment, reply or mention on a connected network that offers social.comments, once per "
-                "item, from the Social engagement scheduled task's poll (it must be enabled; the engine's rehearsal setting doesn't "
-                "matter). Never the account's own, nothing older than 7 days, and the first poll announces no backlog. A workflow reads "
+                "item, from the Social engagement scheduled task's poll (Marvin makes and enables it itself while a network reads comments; "
+                "a network's auto-reply setting, even off, doesn't matter). Never the account's own, nothing older than 7 days, and the "
+                "first poll announces no backlog. A workflow reads "
                 "${event.id}, .kind, .text, .author.handle, .author.name, .post_url, .url, .network, .integration (the connection's "
                 "slug) and conditions key on them (event.kind eq mention, event.text contains refund). To answer, an integration "
                 'step takes the slug as a template: {"kind": "integration", "integration": "${event.integration}", "capability": '
@@ -550,7 +551,8 @@ SOCIAL_NOTE = (
     "before them like a post does; comments, like and hide don't. A workflow can start on a new comment: the event "
     "social_comment_received (see the events section) carries the comment, and its steps name the connection as a template, "
     '"integration": "${event.integration}", with "comment_id": "${event.id}". Automatic keyword replies are not a workflow: '
-    "they are the engagement engine's social-auto-reply rules (the Social engagement section of the integrations manual)."
+    "they are the engagement engine's social-auto-reply rules, switched on per network (off, rehearsal or on) under Social in the "
+    "sidebar (the Social page of the manual)."
 )
 SCHEMA_CHECK_NOTE = (
     "schema_check holds a JSON document against a JSON Schema: document: ${steps.page.output.json} (a fetch step's parsed "

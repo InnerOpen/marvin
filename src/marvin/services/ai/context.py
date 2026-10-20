@@ -94,6 +94,7 @@ class ContextBuilder:
 
         from marvin.db.models.platform.entries import Entries
         from marvin.db.models.platform.entry_collections import EntryCollections
+        from marvin.services.entry_listing import listed_clause
 
         collection_ids = self._session.execute(select(EntryCollections.collection_id).where(EntryCollections.entry_id == entry_id)).scalars().all()
 
@@ -110,6 +111,7 @@ class ContextBuilder:
                         Entries.id != entry_id,
                         Entries.group_id == self._group_id,
                         Entries.status != "trashed",
+                        listed_clause(self._session, self._group_id),
                     )
                 )
                 .limit(limit)

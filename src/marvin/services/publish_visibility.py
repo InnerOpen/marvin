@@ -4,9 +4,12 @@ so "can a site see this?" has one answer."""
 
 def is_publishable_type(entry_type) -> bool:
     """False only for an entry type whose capabilities say `publishable: false` — submissions (contact,
-    newsletter signups…) and other private records. Absent capabilities count as publishable."""
+    newsletter signups…) and other private records — or that is internal (`listed: false`, services/entry_listing.py).
+    Absent capabilities count as publishable."""
+    from marvin.services.entry_listing import is_listed_type
+
     caps = entry_type.capabilities_json if isinstance(entry_type.capabilities_json, dict) else {}
-    return caps.get("publishable") is not False
+    return caps.get("publishable") is not False and is_listed_type(entry_type)  # an internal type is never served
 
 
 def non_publishable_type_ids(entry_types) -> list:

@@ -1,22 +1,28 @@
-"""The social engagement engine: answers comments on every connected network under the workspace's published rules.
+"""The social engagement engine: reads comments on every connected network and answers them under the workspace's published rules.
 
-One run (the ``social_engagement`` scheduled task, every 5 minutes) does this for each enabled integration whose plugin offers
-``social.comments`` and ``social.reply``:
+One run (the ``social_engagement`` scheduled task, every 5 minutes; Marvin makes and switches it on while a network reads
+comments, ``social_setup.reconcile``) does this for each enabled integration whose plugin offers ``social.comments``:
 
-1. read the items since the integration's stored cursor (``IntegrationModel.state["social"]``; the cursor is the plugin's
-   own opaque string, passed back as ``since``);
-2. drop the account's own comments, items older than 7 days, and comments already answered (the ``social-reply-log`` — and
-   Instagram's old ``ig-reply-log`` — never answer a comment twice);
-3. match the published rules (``social_rules``): ``social-auto-reply`` entries, and Instagram's ``ig-auto-reply`` entries read as
-   rules for network instagram;
-4. reply in the rule's mode (private, public or both), like the comment too when the rule says so and the network can,
-   and write a ``social-reply-log`` entry.
+1. **read** the items since the integration's stored cursor (``IntegrationModel.state["social"]``; the cursor is the plugin's own
+   opaque string, passed back as ``since``), keep them for the Social inbox and announce each new one as a workflow event —
+   whatever the network's auto-reply mode;
+2. **reply**, when the network's auto-reply mode (``state["social"]["auto_reply"]``) is ``rehearsal`` or ``on``: drop the account's
+   own comments, items older than 7 days and comments already answered, match the published rules (``social_rules``:
+   ``social-auto-reply`` entries, and Instagram's ``ig-auto-reply`` entries read as rules for network instagram), reply in
+   the rule's mode (private, public or both), like the comment too when the rule says so and the network can, and record the
+   reply on the inbox item.
 
-**Rehearsal** is the default: the plugin is called with ``dry_run: true`` (it sends nothing), the log entry says
-``rehearsal: true``, and the rehearsal read cursor moves instead of the live one — so switching rehearsal off still answers
-what is within the window, and a rehearsal entry never counts as "answered". At most ``max_replies`` (20) per run; what
-the cap holds back, and what failed for a reason worth retrying, waits in ``state["social"]["pending"]`` for the next run
-(live only; at most 3 attempts).
+**Auto-reply is per network**: ``off`` (the default) reads and announces but never replies; ``rehearsal`` calls the plugin with
+``dry_run: true`` (it sends nothing), records the dry run on the item (``reply_rehearsal``) and moves the rehearsal read cursor
+instead of the live one — so switching to ``on`` still answers what is within the window, and a rehearsal never counts as
+"answered"; ``on`` sends. At most ``max_replies`` (20) per run; what the cap holds back, and what failed for a reason worth
+retrying, waits in ``state["social"]["pending"]`` for the next run (live only; at most 3 attempts).
+
+**The item is the reply log.** A reply is written on the inbox item (``social_inbox.record_reply``: mode, rehearsal, reply id,
+text, rule, when) — inserting the item first when the engine replies to one it hasn't stored — and a live reply on an item is what
+"answered" means: one comment, one reply. Older workspaces' ``social-reply-log`` and Instagram's ``ig-reply-log`` entries still
+count as answered (nothing is answered twice in the switch-over), but nothing writes them any more. The 30-day inbox prune keeps
+items with a live reply for 180 days, and the answer window is at most 90 days, so a pruned item is always too old to answer again.
 
 **The narrow approval path.** A workflow's ``social.reply`` needs an Approval step; a published rule *is* the approval of
 its text, so the engine sends without one — through exactly one door, ``_Network.call``:
@@ -31,24 +37,22 @@ its text, so the engine sends without one — through exactly one door, ``_Netwo
 The Social inbox has its own, separate door for a *person* acting on one item (``social_inbox_actions.py``): there the person's
 click is the approval, and the engine's door stays exactly as narrow as above.
 
-A plugin refusal (IntegrationError code ``unsupported``, or ``refused`` for bad arguments) skips that comment: no retry, no
-log entry, noted in the run summary. Any other failure is that network's failure for the run: the other networks go on.
+A plugin refusal (IntegrationError code ``unsupported``, or ``refused`` for bad arguments) skips that comment: no retry, nothing
+recorded, noted in the run summary. Any other failure is that network's failure for the run: the other networks go on.
 A plugin that rejects its cursor (``invalid_cursor``) has it dropped and is read again without one.
 
 Instagram: while the plugin's own ``auto_reply`` scheduled task is enabled for an integration the engine leaves that
-integration alone (two senders would answer twice); switch the plugin's task off to hand it over.
+integration's replies alone (two senders would answer twice); switch the plugin's task off to hand it over. Reading and
+announcing go on.
 
-**Keeping the items.** Every network read the poll makes — replying and announcing alike — is also written to ``social_inbox_items``
+**Keeping the items.** Every network read the poll makes is also written to ``social_inbox_items``
 (``social_inbox.persist_items``: one batch upsert per read, the account's own items skipped, older than 30 days never kept), so
-the Social inbox page can list them; a reply the engine logs points its item at the log entry (``social_inbox.mark_replied``).
-Neither can fail the poll.
+the Social inbox can list them. It can't fail the poll.
 
-**Announcing** (``announce``, on by default): the same poll also sends one ``social_comment_received`` event per new
-comment, reply or mention, so a workflow can start on it. It is a second job of the same run, with its own state, so replying
-and announcing never change one another:
+**Announcing**: the same poll sends one ``social_comment_received`` event per new comment, reply or mention, so a workflow can
+start on it. It is a second job of the same run, with its own state, so replying and announcing never change one another:
 
-* its own cursor, ``state["social"]["events_cursor"]`` — rehearsal and live reply cursors move independently of it, and it
-  moves in rehearsal and live alike (announcing is not sending);
+* its own cursor, ``state["social"]["events_cursor"]`` — rehearsal and live reply cursors move independently of it;
 * ``events_started_at`` marks the first poll, which announces nothing (no backlog): it only records the newest cursor and
   the ids it saw. After that an item is announced only when it was written after that moment and is within the 7-day
   window, so a cursor that lags, is dropped, or restarts at the newest items never replays the past;
@@ -56,8 +60,7 @@ and announcing never change one another:
   event in flight and never sends one twice;
 * the account's own items are never announced (the same check as replying), which is what stops a workflow's public reply
   from starting the workflow again;
-* it does not need a rule, a log type, or the integration's ``social.reply``: ``social.comments`` is enough. Instagram's
-  plugin-task skip applies to replying only; announcing still reads the network (one read serves both when the cursors agree).
+* it needs only ``social.comments`` — no rule, no ``social.reply``. One read serves both jobs when the cursors agree.
 """
 
 from __future__ import annotations
@@ -78,7 +81,6 @@ from .social_rules import (
     IG_NETWORK,
     IG_RULE_TYPE,
     ITEM_KINDS,
-    LOG_TYPE,
     PRIVATE,
     PUBLIC,
     REASON_ALREADY_REPLIED,
@@ -94,6 +96,7 @@ from .social_rules import (
     rule_from_data,
     too_old,
 )
+from .social_setup import OFF, REHEARSAL, get_mode
 
 logger = get_logger(__name__)
 
@@ -122,40 +125,32 @@ REASON_EVENT_OLD = "event_too_old"
 REASON_EVENT_BEFORE = "event_before_start"
 
 
-def _truthy(value, *, default: bool) -> bool:
-    if value is None:
-        return default
-    return value is not False and str(value).lower() not in ("false", "0", "no", "off")
-
-
 @dataclass(frozen=True)
 class Settings:
-    """What a run does, from the task's ``task_config``. ``rehearsal`` defaults to ON: nothing is sent until it is
-    explicitly ``false``."""
+    """What a run does, from the task's ``task_config``. Whether a network replies, rehearses or stays quiet is the network's own
+    setting (``social_setup.get_mode``), not the task's; an old ``rehearsal`` key here is mapped onto the networks once
+    (``social_setup.map_legacy_rehearsal``)."""
 
-    rehearsal: bool = True
     max_replies: int = DEFAULT_MAX_REPLIES
     max_age_days: int = DEFAULT_MAX_AGE_DAYS
     limit: int = DEFAULT_LIMIT
-    announce: bool = True
-    """Send ``social_comment_received`` for each new item (on unless the task says ``announce: false``)."""
 
     @classmethod
     def from_config(cls, config: dict | None) -> Settings:
         config = config or {}
 
-        def number(key: str, default: int) -> int:
+        def number(key: str, default: int, most: int | None = None) -> int:
             try:
-                return max(1, int(config.get(key) or default))
+                value = max(1, int(config.get(key) or default))
             except (TypeError, ValueError):
                 return default
+            return min(value, most) if most else value
 
         return cls(
-            rehearsal=config.get("rehearsal") is not False and str(config.get("rehearsal")).lower() not in ("false", "0", "no", "off"),
             max_replies=number("max_replies", DEFAULT_MAX_REPLIES),
-            max_age_days=number("max_age_days", DEFAULT_MAX_AGE_DAYS),
+            # never longer than an answered item is kept (see the module docstring)
+            max_age_days=number("max_age_days", DEFAULT_MAX_AGE_DAYS, social_inbox.MAX_ANSWER_WINDOW_DAYS),
             limit=number("limit", DEFAULT_LIMIT),
-            announce=_truthy(config.get("announce"), default=True),
         )
 
 
@@ -163,12 +158,13 @@ class Settings:
 class Report:
     """What a run did."""
 
-    rehearsal: bool = True
     integrations: list[str] = field(default_factory=list)
     checked: int = 0
     matched: int = 0
     sent: int = 0
-    """Replies sent (live) or logged as would-send (rehearsal)."""
+    """Replies sent (networks switched on)."""
+    rehearsed: int = 0
+    """Replies a rehearsing network would have sent (dry runs, recorded on the item)."""
     liked: int = 0
     announced: int = 0
     """``social_comment_received`` events sent."""
@@ -177,7 +173,7 @@ class Report:
     """Failures and refusals, one line each."""
     failed: int = 0
     message: str | None = None
-    """Why the run did nothing at all (no log type, no rules…)."""
+    """Why the run did nothing at all."""
 
     def note(self, text: str) -> None:
         self.notes.append(text)
@@ -189,8 +185,10 @@ class Report:
     def summary(self) -> str:
         if self.message:
             return f"Social engagement: {self.message}"
-        head = f"Social engagement{' (rehearsal)' if self.rehearsal else ''}: {len(self.integrations)} network(s)"
-        parts = [f"checked {self.checked}", f"matched {self.matched}", f"{'would reply' if self.rehearsal else 'replied'} {self.sent}"]
+        head = f"Social engagement: {len(self.integrations)} network(s)"
+        parts = [f"checked {self.checked}", f"matched {self.matched}", f"replied {self.sent}"]
+        if self.rehearsed:
+            parts.append(f"would reply {self.rehearsed}")
         if self.liked:
             parts.append(f"liked {self.liked}")
         if self.announced:
@@ -309,23 +307,25 @@ def load_rules(session, group_id) -> list[SocialRule]:
 
 
 def log_slug(integration: str, comment_id: str, *, rehearsal: bool) -> str:
-    """The log entry's slug — also the dedupe key: one per (integration, comment, live or rehearsal)."""
+    """The slug a legacy ``social-reply-log`` entry has: one per (integration, comment, live or rehearsal). Nothing writes these
+    any more; the engine only looks for them, so a comment answered before replies moved onto inbox items isn't answered again."""
     digest = hashlib.sha1(f"{integration}\0{comment_id}".encode(), usedforsecurity=False).hexdigest()[:20]
     return f"social-{'rehearsal' if rehearsal else 'reply'}-{digest}"
 
 
 def _answered(session, group_id, row, ids: list[str], rehearsal: bool, legacy: set[str] | None) -> set[str]:
-    """Which of these comment ids are already answered: a live ``social-reply-log`` entry (in rehearsal, a rehearsal entry
-    too — so it isn't logged every run), or, for Instagram, an ``ig-reply-log`` entry."""
+    """Which of these comment ids are already answered: a live reply on the inbox item (in rehearsal, a rehearsal's too, so a dry
+    run isn't recorded every poll), a legacy ``social-reply-log`` entry, or, for Instagram, an ``ig-reply-log`` entry."""
     from marvin.db.models.platform.entries import Entries
 
     if not ids:
         return set()
+    done = social_inbox.answered_ids(session, row, ids, rehearsal_counts=rehearsal)
     by_slug = {log_slug(row.slug, i, rehearsal=False): i for i in ids}
     if rehearsal:
         by_slug.update({log_slug(row.slug, i, rehearsal=True): i for i in ids})
     found = {r[0] for r in session.query(Entries.slug).filter(Entries.group_id == group_id, Entries.slug.in_(list(by_slug)))}
-    done = {by_slug[s] for s in found}
+    done |= {by_slug[s] for s in found}
     if legacy:
         done |= {i for i in ids if i in legacy}
     return done
@@ -338,78 +338,6 @@ def _legacy_answered(session, group_id) -> set[str]:
         for e, _ in _entries(session, group_id, (IG_LOG_TYPE,), published=False)
         if (e.data_json or {}).get("comment_id")
     }
-
-
-def _log_type_id(session, group_id):
-    from marvin.db.models.platform.entry_types import EntryTypes
-
-    row = session.query(EntryTypes.id).filter_by(group_id=group_id, slug=LOG_TYPE).first()
-    return row[0] if row else None
-
-
-def _write_log(session, group_id, type_id, row, item: dict, rule: SocialRule, keyword: str, *, mode: str, rehearsal: bool, outcome: dict) -> None:
-    """The engine's ``social-reply-log`` entry for a rule's reply."""
-    write_reply_log(
-        session, group_id, type_id, row, item, rule=rule.id, keyword=keyword, reply=rule.reply, mode=mode, rehearsal=rehearsal, outcome=outcome
-    )
-
-
-def write_reply_log(
-    session,
-    group_id,
-    type_id,
-    row,
-    item: dict,
-    *,
-    rule: str,
-    keyword: str,
-    reply: str,
-    mode: str,
-    rehearsal: bool,
-    outcome: dict,
-    by=None,
-    by_name: str | None = None,
-) -> str:
-    """One ``social-reply-log`` entry (committed at once: it is the dedupe), and the Social inbox's item pointed at it. ``rule`` is
-    the rule entry's slug, or ``inbox`` for a reply a person sent from the Social inbox, where ``by`` is that user (the entry's
-    creator, named ``by_name`` in the entry) and ``keyword`` is empty. Returns the entry's slug."""
-    from marvin.services.entries.entry_service import EntryService
-
-    author = item.get("author") or {}
-    who = author.get("handle") or author.get("name") or author.get("id") or "someone"
-    when = datetime.now(UTC)
-    data = {
-        "network": item.get("network") or row.provider,
-        "integration": row.slug,
-        "comment_id": str(item["id"]),
-        "rule": rule,
-        "mode": mode,
-        "rehearsal": rehearsal,
-        "reply_id": outcome.get("reply_id"),
-        "when": when.isoformat(),
-        "post_id": item.get("post_id"),
-        "author": who,
-        "keyword": keyword,
-        "comment": item.get("text"),
-        "reply": reply,
-        "url": outcome.get("url") or item.get("url"),
-        "liked": outcome.get("liked", False),
-        "public_reply_id": outcome.get("public_reply_id"),
-        "error": outcome.get("error"),
-        "by": by_name,
-    }
-    data = {k: v for k, v in data.items() if v is not None}
-    slug = log_slug(row.slug, str(item["id"]), rehearsal=rehearsal)
-    title = f"{'(rehearsal) ' if rehearsal else ''}{keyword or 'reply'} → {who} on {data['network']}"
-    fields = {"entry_type_id": type_id, "title": title, "slug": slug, "status": "published", "data_json": data}
-    if by:
-        fields["created_by"] = by
-    EntryService(session, group_id, integration_id=SOURCE_TAG, actor_id=by).create(fields)
-    social_inbox.mark_replied(
-        session, row, str(item["id"]), log_slug=slug, mode=mode, rehearsal=rehearsal, reply_id=outcome.get("reply_id"), when=when, by=by
-    )
-    session.commit()
-    return slug
 
 
 # ── one integration ───────────────────────────────────────────────────────────────────────────────────────────────
@@ -429,6 +357,12 @@ def _state(row) -> dict:
 
 
 def _save_state(session, row, state: dict) -> None:
+    # The auto-reply mode is an admin's setting, written from another request while a run is in flight: keep the stored one
+    # rather than the value this run read at its start.
+    session.refresh(row, ["state"])
+    stored = _state(row)
+    if "auto_reply" in stored:
+        state["auto_reply"] = stored["auto_reply"]
     row.state = {**(row.state or {}), STATE_KEY: state}
     session.commit()
 
@@ -459,10 +393,9 @@ class _Run:
     rules: list[SocialRule]
     report: Report
     now: datetime
-    log_type_id: object
     event_bus: object = None
     replying: bool = True
-    """Whether this run answers comments: there is a log type and at least one published rule."""
+    """Whether this run can answer comments: there is at least one published rule."""
     legacy: set[str] | None = None
     budget: int = 0
 
@@ -484,32 +417,30 @@ def _read_once(run: _Run, net: _Network, row, cursor: str | None, kinds: list[st
 
 
 def _engage(run: _Run, row, provider) -> None:
-    """One integration's pass: announce its new items (when asked to), then answer under the rules (when there are any and the
-    plugin can reply)."""
-    report, settings, session = run.report, run.settings, run.session
+    """One integration's pass: announce its new items, then answer under the rules when the network's auto-reply is rehearsal or on
+    (there are rules and the plugin can reply). An integration whose auto-reply is off is still read, for the inbox and the trigger."""
+    report, session = run.report, run.session
     net = _Network(session, run.group_id, row, provider)
     state = _state(row)
     cache: dict = {}
-    replying = run.replying and net.has(SOCIAL_REPLY)
+    mode = get_mode(row)
+    replying = run.replying and mode != OFF and net.has(SOCIAL_REPLY)
     if replying and _plugin_task_enabled(session, run.group_id, row.slug):
         report.skipped[REASON_PLUGIN_TASK] += 1
         report.note(f"{row.slug}: left to the plugin's own auto-reply task (switch it off to use the shared engine)")
         replying = False
-    if not replying and not settings.announce:
-        return
     report.integrations.append(row.slug)
-    if settings.announce:
-        _announce(run, net, row, state, cache, count=not replying)
+    _announce(run, net, row, state, cache, count=not replying)
     if replying:
-        _reply(run, net, row, state, cache)
+        _reply(run, net, row, state, cache, rehearsal=mode == REHEARSAL)
 
 
-def _reply(run: _Run, net: _Network, row, state: dict, cache: dict) -> None:
+def _reply(run: _Run, net: _Network, row, state: dict, cache: dict, *, rehearsal: bool) -> None:
     report, settings, session = run.report, run.settings, run.session
-    cursor_key = "rehearsal_cursor" if settings.rehearsal else "cursor"
+    cursor_key = "rehearsal_cursor" if rehearsal else "cursor"
     # Every kind is read (the Social inbox keeps mentions too); a rule's own ``kinds`` decide what it answers.
     items, cursor, dropped = _read_once(run, net, row, state.get(cursor_key), list(ITEM_KINDS), cache)
-    pending = [] if settings.rehearsal else [p for p in state.get("pending") or [] if isinstance(p, dict) and isinstance(p.get("item"), dict)]
+    pending = [] if rehearsal else [p for p in state.get("pending") or [] if isinstance(p, dict) and isinstance(p.get("item"), dict)]
     attempts = {str(p["item"]["id"]): int(p.get("attempts") or 0) for p in pending}
     fresh = {str(i["id"]) for i in items}
     candidates = [p["item"] for p in pending if str(p["item"]["id"]) not in fresh] + items
@@ -522,7 +453,7 @@ def _reply(run: _Run, net: _Network, row, state: dict, cache: dict) -> None:
         run.group_id,
         row,
         [str(i["id"]) for i in candidates],
-        settings.rehearsal,
+        rehearsal,
         run.legacy_answered() if row.provider == IG_NETWORK else None,
     )
     keep: list[dict] = []
@@ -542,13 +473,13 @@ def _reply(run: _Run, net: _Network, row, state: dict, cache: dict) -> None:
                 keep.append({"item": item, "attempts": attempts.get(cid, 0)})  # the cap held it back: next run
                 continue
             run.budget -= 1
-            if _answer(run, net, row, item, *hit):
+            if _answer(run, net, row, item, *hit, rehearsal=rehearsal):
                 tries = attempts.get(cid, 0) + 1
                 if tries < MAX_ATTEMPTS:
                     keep.append({"item": item, "attempts": tries})
                 else:
                     report.note(f"{row.slug}: gave up on comment {cid} after {tries} attempts")
-    if not settings.rehearsal:
+    if not rehearsal:
         state["pending"] = keep[-MAX_PENDING:]
     if cursor or dropped:
         state[cursor_key] = cursor
@@ -641,9 +572,9 @@ def _send_event(run: _Run, row, item: dict) -> None:
     run.report.announced += 1
 
 
-def _answer(run: _Run, net: _Network, row, item: dict, rule: SocialRule, keyword: str) -> bool:
-    """Reply to one matched item in the rule's mode. True when it should be retried next run."""
-    report, rehearsal = run.report, run.settings.rehearsal
+def _answer(run: _Run, net: _Network, row, item: dict, rule: SocialRule, keyword: str, *, rehearsal: bool) -> bool:
+    """Reply to one matched item in the rule's mode (a dry run when the network is rehearsing). True when it should be retried next run."""
+    report = run.report
     if not rehearsal and not _still_published(run.session, run.group_id, rule):
         report.note(f"{row.slug}: rule '{rule.id}' is no longer published; comment {item['id']} left unanswered")
         return False
@@ -667,8 +598,22 @@ def _answer(run: _Run, net: _Network, row, item: dict, rule: SocialRule, keyword
     mode = BOTH if len(done) == 2 else PRIVATE if True in done else PUBLIC
     if rule.also_like and net.has(SOCIAL_LIKE):
         _like(net, row, item, outcome, rehearsal, report)
-    _write_log(run.session, run.group_id, run.log_type_id, row, item, rule, keyword, mode=mode, rehearsal=rehearsal, outcome=outcome)
-    report.sent += 1
+    social_inbox.record_reply(
+        run.session,
+        row,
+        item,
+        mode=mode,
+        rehearsal=rehearsal,
+        reply_id=outcome.get("reply_id"),
+        text=rule.reply,
+        rule=rule.id,
+        note=outcome.get("error"),
+        when=datetime.now(UTC),
+    )
+    if rehearsal:
+        report.rehearsed += 1
+    else:
+        report.sent += 1
     return False
 
 
@@ -724,21 +669,13 @@ def _still_published(session, group_id, rule: SocialRule) -> bool:
 def run_engagement(session, group_id, settings: Settings | None = None, *, now: datetime | None = None, event_bus=None) -> Report:
     """One engine run for a workspace (see the module docstring). One integration failing never stops the others.
 
-    The poll runs when there is something to do with it: published rules to answer under, or ``settings.announce`` (workflows
-    waiting for ``social_comment_received``). With neither it reads nothing, so no cursor moves past comments a later rule would
-    answer. ``event_bus`` carries the announcements (the scheduler's own; a plain bus when none is given)."""
+    Every network that reads comments is read and announced; the ones whose auto-reply is rehearsal or on are also answered,
+    when there are published rules (with none, nothing is read for replying, so no reply cursor moves past comments a later
+    rule would answer). ``event_bus`` carries the announcements (the scheduler's own; a plain bus when none is given)."""
     settings = settings or Settings()
-    report = Report(rehearsal=settings.rehearsal)
-    type_id = _log_type_id(session, group_id)
-    rules = load_rules(session, group_id) if type_id is not None else []
-    if type_id is None and not settings.announce:
-        report.message = f"the '{LOG_TYPE}' entry type is missing — apply the Social engagement set (Settings → Integrations)"
-        return report
-    if type_id is None:
-        report.note(f"replies are off: the '{LOG_TYPE}' entry type is missing — apply the Social engagement set (Settings → Integrations)")
-    if not rules and not settings.announce:
-        return report  # nothing to answer with: read nothing, so no cursor moves past comments a later rule would answer
-    if event_bus is None and settings.announce:
+    report = Report()
+    rules = load_rules(session, group_id)
+    if event_bus is None:
         from marvin.services.event_bus_service.event_bus_service import EventBusService
 
         event_bus = EventBusService(bg_tasks=None)
@@ -749,7 +686,6 @@ def run_engagement(session, group_id, settings: Settings | None = None, *, now: 
         rules,
         report,
         now or datetime.now(UTC),
-        type_id,
         event_bus=event_bus,
         replying=bool(rules),
         budget=settings.max_replies,

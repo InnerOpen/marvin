@@ -427,6 +427,12 @@ def search_embeddings(
     if entity_types:
         q = q.filter(AIEmbeddingModel.entity_type.in_(entity_types))
     rows = q.all()
+    # Entries of an internal type (services/entry_listing.py) are never retrieved, whatever an older index still holds.
+    if rows and (not entity_types or "entry" in entity_types):
+        from marvin.services.entry_listing import unlisted_entry_ids
+
+        if hidden := {str(i) for i in unlisted_entry_ids(session, group_id)}:
+            rows = [r for r in rows if not (r.entity_type == "entry" and str(r.entity_id) in hidden)]
     if not rows:
         return []
 

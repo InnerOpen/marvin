@@ -11867,7 +11867,7 @@
           }
         ],
         "features": [
-          "the Social engagement scheduled task enabled (Settings → Scheduled tasks; Settings → Integrations → Social engagement sets it up, switched off) — it is what announces new comments",
+          "a connected network that reads comments: Marvin makes and enables the Social engagement scheduled task itself (Settings → Scheduled tasks), and it is what announces new comments",
           "AI on for workflows (Settings → AI)"
         ]
       },
@@ -11875,10 +11875,10 @@
         {
           "kind": "scheduled_task",
           "required": true,
-          "name": "The Social engagement task",
+          "name": "The Social engagement task (Marvin makes it)",
           "purpose": "Reads each connected network every 5 minutes and sends social_comment_received once per new comment, reply or mention.",
           "referenced_by": "trigger",
-          "create": "Settings → Integrations → Social engagement → Set up, then enable the task"
+          "create": "Nothing to do: it is created and enabled once a connected network reads comments (Social)"
         },
         {
           "kind": "integration_connection",

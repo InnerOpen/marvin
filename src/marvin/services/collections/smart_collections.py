@@ -49,6 +49,7 @@ The sync helpers never commit — the caller owns the transaction.
 from datetime import UTC, datetime, timedelta
 
 from marvin.core.root_logger import get_logger
+from marvin.services.entry_listing import is_listed_type
 
 logger = get_logger(__name__)
 
@@ -134,8 +135,13 @@ def matches_rules(item, rules: dict | None, target_type: str = "entry") -> bool:
         if getattr(item, "status", None) == "trashed" and "trashed" not in (rules.get("statuses") or []):
             return False
         entry_types = rules.get("entry_types")
+        # An entry of an internal type (services/entry_listing.py) belongs only to a collection that names its type: the
+        # status collections (Inbox, Drafts…) and the rest never hold it, whatever else the rules match.
+        item_type = getattr(item, "entry_type", None)
+        if not is_listed_type(item_type) and getattr(item_type, "slug", None) not in (entry_types or []):
+            return False
         if entry_types:
-            dimensions.append(getattr(getattr(item, "entry_type", None), "slug", None) in entry_types)
+            dimensions.append(getattr(item_type, "slug", None) in entry_types)
         statuses = rules.get("statuses")
         if statuses:
             dimensions.append(getattr(item, "status", None) in statuses)

@@ -12,9 +12,18 @@ announcing read alike, so the same item read twice is one row (unique on integra
 One SELECT finds which of a batch are already stored and one multi-row INSERT writes the rest, so a poll of 50 items
 costs two statements per network. A failure here is the inbox's alone: it is rolled back and logged, never the poll's.
 
-``status`` — new → seen → liked → replied, and hidden — moves only through ``next_status``; ``mark_replied`` is how a
-reply (the engine's, or a person's from the inbox) points the row at its ``social-reply-log`` entry. A daily system task
-(``prune_social_inbox_items``) calls ``prune``.
+``status`` — new → seen → liked → replied, and hidden — moves only through ``next_status``.
+
+**The item is the reply log.** ``record_reply`` is how a reply (the engine's, live or rehearsal, or a person's from the inbox)
+is written on its row — the mode, whether it was a rehearsal, the reply id, the text, the rule that fired, when, and who — and
+a reply to an item that isn't stored yet inserts the row first, so every reply has an item. A live reply on the row is what
+the engine reads as "answered" (``answered_ids``). A daily system task (``prune_social_inbox_items``) calls ``prune``.
+
+**Pruning can't cause a second answer.** The engine answers only items under ``DEFAULT_MAX_AGE_DAYS`` (7) old, and an item is
+pruned 30 days after it was written, so a pruned item is always too old to answer again. Two cases would break that, and each
+is covered: a window set longer than the retention (the engine clamps ``max_age_days`` to ``MAX_ANSWER_WINDOW_DAYS``, 90), and
+a network that gives an item no time (it counts as fresh forever). So ``prune`` keeps an item with a live reply for
+``REPLIED_RETENTION_DAYS`` (180, longer than any answer window) instead of 30; the unanswered rest follows the 30 days.
 """
 
 from __future__ import annotations
@@ -34,6 +43,10 @@ logger = get_logger(__name__)
 
 RETENTION_DAYS = 30
 """How long an item is kept (from when it was written); ``prune_social_inbox_items`` enforces it."""
+REPLIED_RETENTION_DAYS = 180
+"""How long an item with a live reply is kept: longer than the engine will ever answer, so a pruned item can't be answered again."""
+MAX_ANSWER_WINDOW_DAYS = 90
+"""The most the engine's ``max_age_days`` may be: it has to stay under ``REPLIED_RETENTION_DAYS``."""
 NEW, SEEN, REPLIED, HIDDEN, LIKED = "new", "seen", "replied", "hidden", "liked"
 STATUSES = (NEW, SEEN, LIKED, REPLIED, HIDDEN)
 EVENT_SEEN, EVENT_LIKED, EVENT_REPLIED, EVENT_HIDDEN, EVENT_UNHIDDEN = "seen", "liked", "replied", "hidden", "unhidden"
@@ -131,28 +144,67 @@ def _fresh(row, items: Iterable[dict], handles: set[str], ids: set[str], now: da
     return fresh
 
 
-def mark_replied(
-    session, row, item_id: str, *, log_slug: str | None, mode: str, rehearsal: bool, reply_id: str | None, when: datetime, by=None
-) -> bool:
-    """Point an item at the ``social-reply-log`` entry that records its reply. A real reply sets the status to replied and
-    replaces a rehearsal's pointer; a rehearsal records itself only on an item with no real reply, and leaves the status.
-    False when the item isn't stored (the reply predates the inbox, or the item is older than the retention window).
-    Never raises: the reply is already sent and logged."""
+def record_reply(
+    session,
+    row,
+    item: dict | Item,
+    *,
+    mode: str,
+    rehearsal: bool,
+    reply_id: str | None,
+    text: str | None,
+    rule: str | None = None,
+    note: str | None = None,
+    when: datetime,
+    by=None,
+) -> Item:
+    """Write a reply on its item (and commit: it is the dedupe). ``item`` is the plugin's normalised item (inserted first when it
+    isn't stored yet, of any age) or the stored row. A real reply sets the status to replied and replaces a rehearsal's record;
+    a rehearsal records itself only on an item with no real reply, and leaves the status. ``rule`` is the rule entry's slug (empty
+    for a person's reply, where ``by`` is the user). Raises on a database failure: the caller decides what an unrecorded reply means."""
+    stored = item if isinstance(item, Item) else _stored(session, row, item, when)
+    if rehearsal and has_live_reply(stored):
+        return stored
+    stored.reply_mode, stored.reply_rehearsal, stored.reply_id = mode, rehearsal, reply_id
+    stored.reply_text, stored.reply_rule, stored.reply_note = text, rule, note
+    stored.replied_at, stored.replied_by, stored.reply_log_slug = when, by, None
+    if not rehearsal:
+        stored.status = next_status(stored.status, EVENT_REPLIED)
+    session.commit()
+    return stored
+
+
+def _stored(session, row, item: dict, now: datetime) -> Item:
+    """The row for a plugin item, inserted when it isn't there. An item older than the retention window is stored as seen (a reply
+    to something that old isn't news for the badge)."""
+    found = session.query(Item).filter(Item.integration_id == row.id, Item.item_id == str(item["id"])).one_or_none()
+    if found is not None:
+        return found
+    posted = parse_time(item.get("created_at")) or now
+    mapping = _mapping(row, item, posted, now)
+    if posted < now - timedelta(days=RETENTION_DAYS):
+        mapping["status"] = SEEN
     try:
         with session.begin_nested():
-            item = session.query(Item).filter(Item.integration_id == row.id, Item.item_id == str(item_id)).one_or_none()
-            if item is None:
-                return False
-            if rehearsal and has_live_reply(item):
-                return True
-            item.reply_log_slug, item.reply_mode, item.reply_rehearsal = log_slug, mode, rehearsal
-            item.reply_id, item.replied_at, item.replied_by = reply_id, when, by
-            if not rehearsal:
-                item.status = next_status(item.status, EVENT_REPLIED)
-        return True
-    except Exception as e:  # noqa: BLE001
-        logger.warning("social inbox: could not record the reply to %s on %s: %s", item_id, row.slug, e)
-        return False
+            created = Item(session=session, **mapping)
+            session.add(created)
+            session.flush()
+        return created
+    except IntegrityError:  # a concurrent poll stored it first
+        session.rollback()
+        return session.query(Item).filter(Item.integration_id == row.id, Item.item_id == str(item["id"])).one()
+
+
+def answered_ids(session, row, ids: list[str], *, rehearsal_counts: bool) -> set[str]:
+    """Which of these item ids already have a reply: a live one, or — in rehearsal, so a dry run isn't recorded every poll — a
+    rehearsal's too."""
+    found: set[str] = set()
+    for chunk in _chunks(list(ids)):
+        q = session.query(Item.item_id).filter(Item.integration_id == row.id, Item.item_id.in_(chunk), Item.replied_at.isnot(None))
+        if not rehearsal_counts:
+            q = q.filter(Item.reply_rehearsal.is_(False))
+        found.update(r[0] for r in q)
+    return found
 
 
 def has_live_reply(item: Item) -> bool:
@@ -160,9 +212,14 @@ def has_live_reply(item: Item) -> bool:
     return item.replied_at is not None and not item.reply_rehearsal
 
 
-def prune(session, cutoff: datetime) -> int:
-    """Delete the items written before ``cutoff`` (all workspaces); returns how many."""
-    deleted = session.query(Item).filter(Item.posted_at < cutoff).delete(synchronize_session=False)
+def prune(session, cutoff: datetime, *, keep_replied_after: datetime | None = None) -> int:
+    """Delete the items written before ``cutoff`` (all workspaces) — except an item with a live reply written after
+    ``keep_replied_after``, which stays (see the module docstring). Returns how many."""
+    q = session.query(Item).filter(Item.posted_at < cutoff)
+    if keep_replied_after is not None:
+        live = sa.and_(Item.replied_at.isnot(None), Item.reply_rehearsal.is_(False))
+        q = q.filter(sa.not_(sa.and_(live, Item.posted_at >= keep_replied_after)))
+    deleted = q.delete(synchronize_session=False)
     session.commit()
     return deleted
 
@@ -179,6 +236,8 @@ def query(
     network: str | None = None,
     kind: str | None = None,
     status: Iterable[str] | None = None,
+    replied: bool | None = None,
+    rehearsal: bool | None = None,
     text: str | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
@@ -186,7 +245,8 @@ def query(
     offset: int = 0,
 ) -> tuple[list[Item], int]:
     """A workspace's items, newest first, filtered; ``(page, total matching)``. ``text`` searches the item's text and its
-    author's handle and name, case-insensitively; ``since`` / ``until`` bound the time it was written."""
+    author's handle and name, case-insensitively; ``since`` / ``until`` bound the time it was written. ``replied=True`` is the
+    Replies view: items with a reply, the latest reply first (``rehearsal`` narrows it to dry runs or to real replies)."""
     q = session.query(Item).filter(Item.group_id == group_id)
     if integration:
         q = q.filter(Item.integration_slug == integration)
@@ -194,6 +254,12 @@ def query(
         q = q.filter(sa.func.lower(Item.network) == network.lower())
     if kind:
         q = q.filter(Item.kind == kind)
+    if replied:
+        q = q.filter(Item.replied_at.isnot(None))
+        if rehearsal is not None:
+            q = q.filter(Item.reply_rehearsal.is_(rehearsal))
+    elif replied is False:
+        q = q.filter(Item.replied_at.is_(None))
     if wanted := [s for s in (status or []) if s]:
         q = q.filter(Item.status.in_(wanted))
     if text and text.strip():
@@ -204,12 +270,22 @@ def query(
     if until is not None:
         q = q.filter(Item.posted_at <= until)
     total = q.count()
-    return q.order_by(Item.posted_at.desc(), Item.id.desc()).limit(limit).offset(offset).all(), total
+    order = (Item.replied_at.desc(), Item.id.desc()) if replied else (Item.posted_at.desc(), Item.id.desc())
+    return q.order_by(*order).limit(limit).offset(offset).all(), total
 
 
-def new_count(session, group_id) -> int:
-    """How many items are still new — the nav badge (one count on the (group, status) index)."""
-    return session.query(sa.func.count(Item.id)).filter(Item.group_id == group_id, Item.status == NEW).scalar() or 0
+def new_count(session, group_id, integration: str | None = None) -> int:
+    """How many items are still new — the nav badge (one count on the (group, status) index), of one integration when named."""
+    q = session.query(sa.func.count(Item.id)).filter(Item.group_id == group_id, Item.status == NEW)
+    if integration:
+        q = q.filter(Item.integration_slug == integration)
+    return q.scalar() or 0
+
+
+def new_counts(session, group_id) -> dict[str, int]:
+    """New items per integration slug (what the sidebar shows beside each network)."""
+    rows = session.query(Item.integration_slug, sa.func.count(Item.id)).filter(Item.group_id == group_id, Item.status == NEW)
+    return dict(rows.group_by(Item.integration_slug).all())
 
 
 def get_item(session, group_id, item_id) -> Item | None:

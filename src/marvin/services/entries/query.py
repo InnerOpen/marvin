@@ -6,7 +6,9 @@ different subset of filters. They now share this one, so a filter added here wor
 
 A spec is a plain dict (all keys optional, unknown keys ignored):
 
-- ``entry_type`` / ``entry_types`` — type slug(s); `bench_note` and `bench-note` both match.
+- ``entry_type`` / ``entry_types`` — type slug(s); `bench_note` and `bench-note` both match. Entries of an internal type
+  (``capabilities.listed: false``, services/entry_listing.py) are found only when the spec names their type (or the
+  entries themselves with ``entries``).
 - ``status`` / ``statuses`` — the PUBLISH status (inbox, draft, needs_review, approved, published,
   archived, trashed). A value that isn't one (usually a field's value) yields a note instead of a silent 0.
   Entries in the Trash are left out unless ``trashed`` is asked for by name — so a workflow target
@@ -182,6 +184,13 @@ def build(session, group_id, spec: dict | None):
         q = q.filter(Entries.status.in_(statuses))
     if "trashed" not in statuses:
         q = q.filter(Entries.status != "trashed")
+
+    # Entries of an internal type (services/entry_listing.py) are found only by asking for the type (or the entries) by
+    # name: "all entries", a status or a text search never reach them, so a bulk action can't touch them by accident.
+    if not types and "entries" not in spec:
+        from marvin.services.entry_listing import only_listed
+
+        q = only_listed(session, group_id, q)
 
     text = spec.get("text") or spec.get("query")
     if text:

@@ -9,6 +9,7 @@ from marvin.routes._base.checks import editable_entry, require_can_create_entry,
 from marvin.schemas.platform import CollectionRead, EntryCreate, EntryQueryRequest, EntryQueryResult, EntryRead, EntryUpdate
 from marvin.services.entries import EntryService, trash
 from marvin.services.entries.entry_service import TRASHED, count_by_status, restore_status
+from marvin.services.entry_listing import unlisted_type_ids
 from marvin.services.entry_urls import entry_url, site_base_url
 
 router = APIRouter(prefix="/entries")
@@ -42,8 +43,10 @@ class EntriesController(BaseUserController):
 
     @router.get("", response_model=list[EntryRead], summary="List Entries")
     def list_entries(self) -> list[EntryRead]:
-        """Every entry but those in the Trash (the Trash collection lists those)."""
-        return [e for e in self.repos.entries.get_all(order_by="created_at") if e.status != TRASHED]
+        """Every entry but those in the Trash (the Trash collection lists those) and those of an internal entry type
+        (`capabilities.listed: false`, e.g. the Social auto-reply rules: their pages list them; fetch one by id)."""
+        hidden = set(unlisted_type_ids(self.session, self.group_id))
+        return [e for e in self.repos.entries.get_all(order_by="created_at") if e.status != TRASHED and e.entry_type_id not in hidden]
 
     @router.post("", response_model=EntryRead, status_code=status.HTTP_201_CREATED, summary="Create Entry")
     def create_entry(self, data: EntryCreate) -> EntryRead:
@@ -67,14 +70,18 @@ class EntriesController(BaseUserController):
 
     @router.get("/counts", summary="Entry counts by status")
     def entry_counts(self) -> dict[str, int]:
-        """`{inbox, draft, …, total}` for this workspace — what the sidebar badge reads. Declared before `/{item_id}`."""
+        """`{inbox, draft, …, total}` for this workspace — what the sidebar badge reads (entries of an internal type are
+        not counted). Declared before `/{item_id}`."""
         return count_by_status(self.session, self.group_id)
 
     @router.get("/trash", summary="Trash summary")
     def trash_summary(self) -> dict:
         """How many entries are in the Trash and how long it keeps them (`effective_days`, 0 = until
         emptied; the platform default and this workspace's override beside it). Declared before `/{item_id}`."""
-        return {"count": len(trash.trashed_ids(self.session, self.group_id)), **trash.auto_empty_status(self.session, self.group_id)}
+        return {
+            "count": len(trash.trashed_ids(self.session, self.group_id, listed_only=True)),
+            **trash.auto_empty_status(self.session, self.group_id),
+        }
 
     @router.post("/trash/empty", summary="Empty the Trash")
     def empty_trash(self) -> dict:

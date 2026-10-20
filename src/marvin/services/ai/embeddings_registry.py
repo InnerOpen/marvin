@@ -94,9 +94,18 @@ def _entry_should_index(entry, event_type, has_index: bool) -> bool:
     """Entries: always index on publish; on a bare update only re-embed a live, already-indexed
     entry. Skips draft/inbox/archived saves and avoids double-embedding the publish transition
     (which emits entry_updated *then* entry_published — the update no-ops before the first index)."""
+    if not _entry_listed(entry):
+        return False
     if event_type == EventTypes.entry_published:
         return True
     return getattr(entry, "status", None) == "published" and has_index
+
+
+def _entry_listed(entry) -> bool:
+    """An entry of an internal type (``capabilities.listed: false``, services/entry_listing.py) is never in the index."""
+    from marvin.services.entry_listing import is_listed_type
+
+    return is_listed_type(getattr(entry, "entry_type", None))
 
 
 # ── Default registrations ─────────────────────────────────────────────────────
@@ -115,7 +124,7 @@ def _register_defaults() -> None:
             delete_on=(EventTypes.entry_deleted, EventTypes.entry_unpublished, EventTypes.entry_archived, EventTypes.entry_trashed),
             should_index=_entry_should_index,
             # The same rule for the full reindex: drafts, inbox and archived entries are left out (and purged).
-            content_ok=lambda entry: getattr(entry, "status", None) == "published",
+            content_ok=lambda entry: getattr(entry, "status", None) == "published" and _entry_listed(entry),
         )
     )
     register_indexable(

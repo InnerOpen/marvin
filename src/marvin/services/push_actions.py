@@ -309,7 +309,10 @@ def inbox_count(session: Session, group_id) -> int | None:
     from marvin.db.models.platform.entries import Entries
 
     try:
-        return int(session.query(func.count(Entries.id)).filter(Entries.group_id == group_id, Entries.status == "inbox").scalar() or 0)
+        from marvin.services.entry_listing import only_listed
+
+        q = session.query(func.count(Entries.id)).filter(Entries.group_id == group_id, Entries.status == "inbox")
+        return int(only_listed(session, group_id, q).scalar() or 0)
     except Exception:  # noqa: BLE001 — the badge is a nicety
         session.rollback()
         return None

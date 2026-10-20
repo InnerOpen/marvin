@@ -19,6 +19,7 @@ from marvin.routes._base import BaseUserController, controller
 from marvin.schemas._marvin import _MarvinModel
 from marvin.services import dashboard as dash
 from marvin.services.dashboard import ApprovalBrief, EntryBrief, HealthStrip, PublishingPulse, RunsDay, TypeStatusRow, UpcomingItem
+from marvin.services.entry_listing import listed_clause
 
 router = APIRouter(prefix="/stats")
 
@@ -119,7 +120,8 @@ class StatsController(BaseUserController):
             members_count = 0
 
         return WorkspaceStats(
-            entries=_count(session, Entries, workspace_id, Entries.status != "trashed"),  # the Trash is out of sight
+            # the Trash is out of sight, and so are the entries of an internal type (services/entry_listing.py)
+            entries=_count(session, Entries, workspace_id, Entries.status != "trashed", listed_clause(session, workspace_id)),
             assets=_count(session, Assets, workspace_id, Assets.trashed_at.is_(None), Assets.scope == "library"),  # not Ask files
             collections=_count(session, Collections, workspace_id),
             webhooks=_count(session, GroupWebhooksModel, workspace_id),
@@ -172,17 +174,18 @@ class StatsController(BaseUserController):
             except Exception:
                 return 0
 
-        inbox = _c(select(func.count(Entries.id)).where(Entries.group_id == gid, Entries.status == "inbox"))
-        drafts = _c(select(func.count(Entries.id)).where(Entries.group_id == gid, Entries.status == "draft"))
-        needs_review = _c(select(func.count(Entries.id)).where(Entries.group_id == gid, Entries.status == "needs_review"))
+        listed = listed_clause(session, gid)
+        inbox = _c(select(func.count(Entries.id)).where(Entries.group_id == gid, Entries.status == "inbox", listed))
+        drafts = _c(select(func.count(Entries.id)).where(Entries.group_id == gid, Entries.status == "draft", listed))
+        needs_review = _c(select(func.count(Entries.id)).where(Entries.group_id == gid, Entries.status == "needs_review", listed))
 
-        suggestions = _c(select(func.count(Entries.id)).where(Entries.group_id == gid, Entries.suggestion_json.isnot(None)))
+        suggestions = _c(select(func.count(Entries.id)).where(Entries.group_id == gid, Entries.suggestion_json.isnot(None), listed))
         suggestions += sum(
             _c(select(func.count(m.id)).where(m.group_id == gid, m.suggestion_json.isnot(None), m.trashed_at.is_(None))) for m in (Assets, Resources)
         )
         # …but not a suggestion waiting on an entry in the Trash.
         trashed_suggestions = select(func.count(Entries.id)).where(
-            Entries.group_id == gid, Entries.suggestion_json.isnot(None), Entries.status == "trashed"
+            Entries.group_id == gid, Entries.suggestion_json.isnot(None), Entries.status == "trashed", listed
         )
         suggestions -= _c(trashed_suggestions)
 

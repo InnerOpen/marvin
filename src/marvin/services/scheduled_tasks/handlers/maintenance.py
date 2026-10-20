@@ -419,6 +419,8 @@ class PruneSocialInboxItemsHandler(ScheduledTaskHandler):
 
     Configuration (task_config):
     - retention_days: int (default: 30) - Delete items written (on the network) more than this many days ago. <= 0 disables.
+      An item with a live reply is kept for REPLIED_RETENTION_DAYS (180) instead: the reply on the item is what stops the
+      engine answering the comment again (services/integrations/social_inbox.py).
     """
 
     name = "Prune Social Inbox Items"
@@ -446,7 +448,12 @@ class PruneSocialInboxItemsHandler(ScheduledTaskHandler):
             return "Skipped: social inbox retention disabled (retention_days <= 0)"
 
         with session_context() as session:
-            deleted = social_inbox.prune(session, datetime.now(UTC) - timedelta(days=retention_days))
+            now = datetime.now(UTC)
+            deleted = social_inbox.prune(
+                session,
+                now - timedelta(days=retention_days),
+                keep_replied_after=now - timedelta(days=max(retention_days, social_inbox.REPLIED_RETENTION_DAYS)),
+            )
 
         if not deleted:
             return None

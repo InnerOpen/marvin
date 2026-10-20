@@ -17,18 +17,18 @@ from marvin_integration_sdk import INTEGRATION_REGISTRY, IntegrationError, Integ
 
 from marvin.db.models.groups.groups import Groups  # noqa: E402
 from marvin.db.models.groups.integrations import IntegrationModel  # noqa: E402
+from marvin.db.models.groups.social_inbox import SocialInboxItemModel as Item  # noqa: E402
 from marvin.db.models.platform.entries import Entries  # noqa: E402
 from marvin.db.models.platform.entry_types import EntryTypes  # noqa: E402
 from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel  # noqa: E402
 from marvin.db.models.users.users import Users  # noqa: E402
-from marvin.services.blueprints import apply_many  # noqa: E402
-from marvin.services.blueprints.social import SOCIAL_BLUEPRINTS  # noqa: E402
 from marvin.services.entries.entry_service import EntryService  # noqa: E402
 from marvin.services.integrations import social_engagement as engine  # noqa: E402
+from marvin.services.integrations import social_setup  # noqa: E402
 from marvin.services.integrations.social_engagement import EngineCallError, Settings, run_engagement  # noqa: E402
 from marvin.services.integrations.social_rules import SocialRule  # noqa: E402
 
-LIVE = Settings(rehearsal=False, announce=False)
+LIVE = Settings()
 
 # ── fakes ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -143,7 +143,13 @@ def ws(db_session, nets):
         )
     )  # fmt: skip
     for slug, provider in (("m-main", "mastodon"), ("b-main", "bluesky"), ("ig", "instagram")):
-        db_session.add(IntegrationModel(session=db_session, group_id=gid, provider=provider, name=slug, slug=slug, enabled=True, config={}))
+        # every network is switched on: the tests that rehearse or switch one off say so (`mode`)
+        db_session.add(
+            IntegrationModel(
+                session=db_session, group_id=gid, provider=provider, name=slug, slug=slug, enabled=True, config={},
+                state={"social": {"auto_reply": "on"}},
+            )
+        )  # fmt: skip
     db_session.commit()
     yield type("WS", (), {"gid": gid, "session": db_session, "uid": uid, "nets": nets})
     db_session.rollback()
@@ -158,10 +164,8 @@ def ws(db_session, nets):
 
 @pytest.fixture(autouse=True)
 def _types(ws):
-    """The workspace has applied core's social blueprints (the rule and log types, collections and the engine's task)."""
-    results = apply_many(ws.session, ws.gid, list(SOCIAL_BLUEPRINTS))
-    assert all(r.created for r in results), [(r.slug, r.detail) for r in results]
-    ws.session.commit()
+    """The workspace has the rule type (Marvin makes it on first need)."""
+    social_setup.ensure_rule_type(ws.session, ws.gid)
 
 
 def _entry(ws, type_slug, slug, data, *, status="published"):
@@ -182,13 +186,29 @@ def run(ws, settings=LIVE, **kw):
 
 
 def logs(ws, *, rehearsal=None):
+    """The replies recorded on inbox items, as plain dicts (the item is the reply log)."""
+    ws.session.expire_all()
     rows = [
-        e.data_json
-        for e in ws.session.query(Entries)
-        .join(EntryTypes, Entries.entry_type_id == EntryTypes.id)
-        .filter(Entries.group_id == ws.gid, EntryTypes.slug == "social-reply-log")
-    ]
+        {
+            "comment_id": i.item_id, "integration": i.integration_slug, "rule": i.reply_rule, "mode": i.reply_mode,
+            "rehearsal": i.reply_rehearsal, "reply_id": i.reply_id, "reply": i.reply_text, "note": i.reply_note, "by": i.replied_by,
+        }
+        for i in ws.session.query(Item).filter(Item.group_id == ws.gid, Item.replied_at.isnot(None)).order_by(Item.replied_at, Item.item_id)
+    ]  # fmt: skip
     return [r for r in rows if rehearsal is None or r["rehearsal"] is rehearsal]
+
+
+def mode(ws, value, *slugs):
+    """Set the auto-reply mode of these integrations (every one when none is named)."""
+    for slug in slugs or ("m-main", "b-main", "ig"):
+        social_setup.set_mode(ws.session, ws.session.query(IntegrationModel).filter_by(group_id=ws.gid, slug=slug).one(), value)
+
+
+def forget_cursor(ws, slug):
+    """Drop an integration's read cursors (its auto-reply mode stays)."""
+    row = ws.session.query(IntegrationModel).filter_by(group_id=ws.gid, slug=slug).one()
+    row.state = {"social": {"auto_reply": social_setup.get_mode(row)}}
+    ws.session.commit()
 
 
 def state(ws, slug):
@@ -199,24 +219,21 @@ def state(ws, slug):
 # ── the blueprints core ships ────────────────────────────────────────────────────────────────────────────────────
 
 
-def test_the_core_blueprints_make_the_types_collections_and_a_disabled_rehearsing_task(ws):
-    types = {t.slug: t for t in ws.session.query(EntryTypes).filter_by(group_id=ws.gid)}
-    rule_fields = {f["key"]: f for f in types["social-auto-reply"].schema_json["fields"]}
+def test_the_rule_type_is_internal_and_made_by_marvin_not_applied_from_a_blueprint(ws):
+    social_setup.ensure_rule_type(ws.session, ws.gid)  # idempotent
+    types = ws.session.query(EntryTypes).filter_by(group_id=ws.gid, slug="social-auto-reply").all()
+    assert len(types) == 1
+    rule_fields = {f["key"]: f for f in types[0].schema_json["fields"]}
     assert {"keywords", "reply", "networks", "post", "reply_as", "also_like", "kinds"} <= set(rule_fields)
     assert rule_fields["reply_as"]["options"] == ["private", "public", "both"]
-    assert {"network", "integration", "comment_id", "rule", "mode", "rehearsal", "reply_id", "when"} <= {
-        f["key"] for f in types["social-reply-log"].schema_json["fields"]
-    }
-    task = ws.session.query(ScheduledTaskModel).filter_by(group_id=ws.gid, slug="social-engagement").one()
-    assert (task.enabled, task.task_type, task.schedule_config) == (False, "social_engagement", {"interval_seconds": 300})
-    assert task.task_config["rehearsal"] is True and task.task_config["max_replies"] == 20
-    assert apply_many(ws.session, ws.gid, list(SOCIAL_BLUEPRINTS))[0].created is False  # applying twice changes nothing
+    assert types[0].capabilities_json == {"publishable": False, "submittable": False, "routable": False, "listed": False}
+    assert ws.session.query(EntryTypes).filter_by(group_id=ws.gid, slug="social-reply-log").first() is None  # no log type any more
 
 
-def test_rehearsal_is_the_default_until_explicitly_off():
-    assert Settings().rehearsal is True and Settings.from_config({}).rehearsal is True and Settings.from_config(None).rehearsal is True
-    assert Settings.from_config({"rehearsal": False}).rehearsal is False and Settings.from_config({"rehearsal": "false"}).rehearsal is False
-    assert Settings.from_config({"rehearsal": True, "max_replies": "5"}).max_replies == 5
+def test_the_task_settings_have_no_rehearsal_and_the_window_is_clamped():
+    assert Settings.from_config({"rehearsal": False, "max_replies": "5"}).max_replies == 5
+    assert not hasattr(Settings(), "rehearsal")
+    assert Settings.from_config({"max_age_days": 400}).max_age_days == 90 and Settings.from_config({}).max_age_days == 7
 
 
 # ── matching ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -232,11 +249,15 @@ def test_keywords_match_whole_words_in_any_case_and_multi_word_phrases(ws):
     assert report.skipped["no_match"] == 3 and report.matched == 2
 
 
-def test_a_draft_rule_never_fires_and_no_rules_means_nothing_is_read(ws):
+def test_a_draft_rule_never_fires_and_without_rules_no_reply_cursor_moves(ws):
     rule(ws, status="draft")
     ws.nets["mastodon"].feed = [item("c1")]
     run(ws)
-    assert ws.nets["mastodon"].calls == [] and logs(ws) == []
+    assert ws.nets["mastodon"].sent() == [] and logs(ws) == []
+    assert "cursor" not in state(ws, "m-main")["social"] and "rehearsal_cursor" not in state(ws, "m-main")["social"]  # a later rule still sees c1
+    rule(ws, "later")
+    run(ws)
+    assert [a["comment_id"] for a in ws.nets["mastodon"].sent()] == ["c1"]
 
 
 def test_a_rule_for_the_comments_post_beats_the_catch_all_and_the_oldest_rule_wins_otherwise(ws):
@@ -248,6 +269,39 @@ def test_a_rule_for_the_comments_post_beats_the_catch_all_and_the_oldest_rule_wi
     replies = {a["comment_id"]: a["text"] for a in ws.nets["mastodon"].sent()}
     assert replies == {"c1": "specific", "c2": "generic"}
     assert {r["comment_id"]: r["rule"] for r in logs(ws)} == {"c1": "one-post", "c2": "any"}
+
+
+def test_a_rule_for_this_network_beats_a_rule_for_every_network_whatever_their_age(ws):
+    rule(ws, "all-networks", reply="for everyone")  # oldest, no networks
+    rule(ws, "mastodon-only", reply="for mastodon", networks="m-main")
+    rule(ws, "mastodon-by-name", reply="by name", networks="mastodon")
+    ws.nets["mastodon"].feed = [item("c1")]
+    ws.nets["bluesky"].feed = [item("c1", network="bluesky")]
+    run(ws)
+    assert [a["text"] for a in ws.nets["mastodon"].sent()] == ["for mastodon"]  # the oldest network-specific rule
+    assert [a["text"] for a in ws.nets["bluesky"].sent()] == ["for everyone"]  # a rule for another network doesn't apply
+
+
+def test_the_full_precedence_post_then_network_then_all_networks_then_oldest():
+    from marvin.services.integrations.social_rules import match_item, rule_from_data
+
+    def make(rid, order, **data):
+        return rule_from_data({"keywords": "price", "reply": rid, **data}, id=rid, order=order)
+
+    rules = [
+        make("all-1", 0),
+        make("all-2", 1),
+        make("net-1", 2, networks="m-main"),
+        make("post-all", 3, post="p9"),
+        make("post-net", 4, post="p9", networks="m-main"),
+    ]
+    names = {"m-main", "mastodon", "x"}
+    hit = lambda item_: match_item(item_, rules, names)[0].id  # noqa: E731
+    assert hit({"text": "price", "post_id": "p9"}) == "post-net"  # the post, and the network's
+    assert hit({"text": "price", "post_id": "p1"}) == "net-1"  # not that post: the network's rule over every network's
+    assert hit({"text": "price", "post_id": "p9"}) == "post-net"
+    assert match_item({"text": "price", "post_id": "p1"}, rules[:2] + rules[3:4], names)[0].id == "all-1"  # all-networks: the oldest
+    assert match_item({"text": "price", "post_id": "p9"}, [rules[0], rules[3]], names)[0].id == "post-all"  # a post beats every-network
 
 
 def test_a_rule_names_a_post_by_id_or_url(ws):
@@ -298,9 +352,9 @@ def test_private_is_the_default_public_and_both_follow_the_rule(ws):
     assert sent == [("c1", True), ("c2", False), ("c3", True), ("c3", False)]
     by_comment = {r["comment_id"]: r for r in logs(ws)}
     assert {k: v["mode"] for k, v in by_comment.items()} == {"c1": "private", "c2": "public", "c3": "both"}
-    assert by_comment["c3"]["reply_id"] == "r-c3-p" and by_comment["c3"]["public_reply_id"] == "r-c3-pub"
+    assert by_comment["c3"]["reply_id"] == "r-c3-p"  # the private half's id is the one recorded
     assert all(v["rehearsal"] is False for v in by_comment.values())
-    assert by_comment["c1"]["integration"] == "m-main" and by_comment["c1"]["when"]
+    assert by_comment["c1"]["integration"] == "m-main"
 
 
 def test_also_like_likes_after_the_reply_when_the_network_can(ws):
@@ -311,7 +365,8 @@ def test_also_like_likes_after_the_reply_when_the_network_can(ws):
     assert [a["comment_id"] for a in ws.nets["mastodon"].sent("like")] == ["c1"]
     assert ws.nets["bluesky"].sent("like") == [] and len(ws.nets["bluesky"].sent()) == 1
     assert report.liked == 1
-    assert {r["integration"]: r["liked"] for r in logs(ws)} == {"m-main": True, "b-main": False}
+    assert {slug: len(ws.nets[name].sent("like")) for slug, name in (("m-main", "mastodon"), ("b-main", "bluesky"))} == {"m-main": 1, "b-main": 0}
+    assert {r["integration"] for r in logs(ws)} == {"m-main", "b-main"}
 
 
 def test_no_like_without_also_like_and_none_when_the_reply_failed(ws):
@@ -330,12 +385,11 @@ def test_no_like_without_also_like_and_none_when_the_reply_failed(ws):
 # ── dedupe, cursor, window, own account ─────────────────────────────────────────────────────────────────────────
 
 
-def test_a_comment_is_answered_once_the_log_is_the_dedupe(ws):
+def test_a_comment_is_answered_once_the_item_is_the_dedupe(ws):
     rule(ws)
     ws.nets["mastodon"].feed = [item("c1")]
     run(ws)
-    ws.session.query(IntegrationModel).filter_by(group_id=ws.gid, slug="m-main").update({"state": None})  # forget the cursor
-    ws.session.commit()
+    forget_cursor(ws, "m-main")
     report = run(ws)
     assert len(ws.nets["mastodon"].sent()) == 1 and report.skipped["already_replied"] == 1 and len(logs(ws)) == 1
 
@@ -361,6 +415,71 @@ def test_instagrams_reply_log_counts_as_answered_and_its_rules_are_read_for_inst
     assert [r["rule"] for r in logs(ws)] == ["ig-rule-1"]
 
 
+def test_an_existing_social_reply_log_entry_still_counts_as_answered(ws):
+    """A workspace that answered under the old engine has social-reply-log entries; nothing writes them now, but they stop a re-answer."""
+    ws.session.add(EntryTypes(session=ws.session, group_id=ws.gid, slug="social-reply-log", name="log", schema_json={"fields": []}))
+    ws.session.commit()
+    rule(ws)
+    _entry(ws, "social-reply-log", engine.log_slug("m-main", "c1", rehearsal=False), {"comment_id": "c1"})
+    _entry(ws, "social-reply-log", engine.log_slug("m-main", "c2", rehearsal=True), {"comment_id": "c2", "rehearsal": True})
+    ws.nets["mastodon"].feed = [item("c1"), item("c2"), item("c3")]
+    report = run(ws)
+    assert [a["comment_id"] for a in ws.nets["mastodon"].sent()] == ["c2", "c3"]  # a rehearsal entry never counts when sending live
+    assert report.skipped["already_replied"] == 1
+    assert ws.session.query(Entries).join(EntryTypes).filter(EntryTypes.slug == "social-reply-log").count() == 2  # none written
+
+
+def test_a_reply_to_an_item_not_stored_yet_inserts_it_first_and_the_item_is_the_log(ws):
+    rule(ws)
+    ws.nets["mastodon"].feed = [item("c1", age_hours=24 * 40)]  # the inbox never kept it (older than its 30 days)
+    run(ws, Settings(max_age_days=60))
+    [only] = ws.session.query(Item).filter_by(group_id=ws.gid).all()
+    assert (only.item_id, only.status, only.reply_rehearsal, only.reply_rule, only.reply_text) == (
+        "c1",
+        "replied",
+        False,
+        "r1",
+        "Check the link in bio.",
+    )
+    assert only.replied_at is not None and only.reply_mode == "private" and only.reply_id == "r-c1-p"
+    forget_cursor(ws, "m-main")
+    run(ws, Settings(max_age_days=60))
+    assert len(ws.nets["mastodon"].sent()) == 1  # answered once
+
+
+def test_pruning_never_lets_a_comment_be_answered_again(ws):
+    """A replied item outlives the 30-day prune (the engine's window is shorter, and a network with no timestamps counts as fresh)."""
+    from marvin.services.integrations import social_inbox
+
+    rule(ws)
+    no_time = item("c1")
+    no_time["created_at"] = None  # counts as fresh forever
+    ws.nets["mastodon"].feed = [no_time, item("c2")]
+    run(ws)
+    ws.session.query(Item).filter_by(group_id=ws.gid).update({"posted_at": NOW - timedelta(days=60)})  # long past retention
+    ws.session.commit()
+    pruned = social_inbox.prune(ws.session, NOW - timedelta(days=30), keep_replied_after=NOW - timedelta(days=180))
+    assert pruned == 0 and len(logs(ws)) == 2  # both replied: kept
+    forget_cursor(ws, "m-main")
+    run(ws)
+    assert len(ws.nets["mastodon"].sent()) == 2  # nothing answered again
+    ws.session.query(Item).filter_by(group_id=ws.gid).update({"posted_at": NOW - timedelta(days=200)})
+    ws.session.commit()
+    assert social_inbox.prune(ws.session, NOW - timedelta(days=30), keep_replied_after=NOW - timedelta(days=180)) == 2  # eventually pruned
+
+
+def test_prune_drops_unanswered_and_rehearsed_items_at_thirty_days(ws):
+    from marvin.services.integrations import social_inbox
+
+    rule(ws)
+    mode(ws, "rehearsal", "m-main")
+    ws.nets["mastodon"].feed = [item("c1"), item("c2", "nothing relevant")]
+    run(ws)  # c1 rehearsed, c2 stored with no reply
+    ws.session.query(Item).filter_by(group_id=ws.gid).update({"posted_at": NOW - timedelta(days=45)})
+    ws.session.commit()
+    assert social_inbox.prune(ws.session, NOW - timedelta(days=30), keep_replied_after=NOW - timedelta(days=180)) == 2
+
+
 def test_the_engine_leaves_an_integration_to_the_plugins_own_auto_reply_task_while_it_is_enabled(ws):
     rule(ws)
     ws.nets["instagram"].feed = [item("c1")]
@@ -371,7 +490,8 @@ def test_the_engine_leaves_an_integration_to_the_plugins_own_auto_reply_task_whi
     ws.session.add(task)
     ws.session.commit()
     report = run(ws)
-    assert ws.nets["instagram"].calls == [] and report.skipped["plugin_task_enabled"] == 1
+    assert [k for k, _ in ws.nets["instagram"].calls if k == "reply"] == [] and report.skipped["plugin_task_enabled"] == 1
+    assert "events_cursor" in state(ws, "ig")["social"] and "cursor" not in state(ws, "ig")["social"]  # still read: only replies are left alone
     task.enabled = False
     ws.session.commit()
     run(ws)
@@ -425,28 +545,90 @@ def test_the_accounts_own_comments_are_skipped_by_handle_or_id_whatever_the_case
 # ── rehearsal ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 
-def test_rehearsal_asks_the_plugin_for_a_dry_run_logs_it_and_sends_nothing(ws):
+def test_rehearsal_asks_the_plugin_for_a_dry_run_records_it_on_the_item_and_sends_nothing(ws):
     rule(ws, also_like=True)
+    mode(ws, "rehearsal")
     ws.nets["mastodon"].feed = [item("c1")]
-    report = run(ws, Settings(announce=False))
+    report = run(ws)
     [(key, args)] = [(k, a) for k, a in ws.nets["mastodon"].calls if k == "reply"]
     assert args["dry_run"] is True and ws.nets["mastodon"].sent() == [] and ws.nets["mastodon"].sent("like") == []
     [entry] = logs(ws)
-    assert (
-        entry["rehearsal"] is True and "reply_id" not in entry and report.sent == 1 and report.summary().startswith("Social engagement (rehearsal)")
-    )
-    run(ws, Settings(announce=False))
-    assert len(logs(ws)) == 1  # not logged again every run
+    assert entry["rehearsal"] is True and entry["reply_id"] is None and entry["rule"] == "r1" and entry["mode"] == "private"
+    assert report.rehearsed == 1 and report.sent == 0 and "would reply 1" in report.summary()
+    ws.session.expire_all()
+    assert ws.session.query(Item).filter_by(group_id=ws.gid, item_id="c1").one().status == "new"  # a dry run doesn't mark it replied
+    run(ws)
+    assert len(logs(ws)) == 1  # not recorded again every run
 
 
-def test_switching_rehearsal_off_still_answers_what_the_rehearsal_logged(ws):
+def test_switching_to_on_still_answers_what_the_rehearsal_recorded(ws):
     rule(ws)
+    mode(ws, "rehearsal")
     ws.nets["mastodon"].feed = [item("c1")]
-    run(ws, Settings(announce=False))
+    run(ws)
     assert state(ws, "m-main")["social"]["rehearsal_cursor"] == "1" and "cursor" not in state(ws, "m-main")["social"]
+    mode(ws, "on")
     run(ws)
     assert [a["comment_id"] for a in ws.nets["mastodon"].sent()] == ["c1"]
-    assert [r["rehearsal"] for r in sorted(logs(ws), key=lambda r: r["rehearsal"])] == [False, True]
+    [only] = logs(ws)  # the real reply replaced the rehearsal's record
+    assert only["rehearsal"] is False and only["reply_id"] == "r-c1-p"
+    ws.session.expire_all()
+    assert ws.session.query(Item).filter_by(group_id=ws.gid, item_id="c1").one().status == "replied"
+
+
+def test_off_is_the_default_the_network_is_read_for_the_inbox_and_the_trigger_but_never_answered(ws):
+    rule(ws)
+    mode(ws, "off")
+    ws.nets["mastodon"].feed = [item("c1")]
+    report = run(ws)
+    assert ws.nets["mastodon"].sent() == [] and [k for k, _ in ws.nets["mastodon"].calls if k == "reply"] == [] and logs(ws) == []
+    ws.session.expire_all()
+    assert ws.session.query(Item).filter_by(group_id=ws.gid, item_id="c1").one().status == "new"  # the inbox fills
+    assert state(ws, "m-main")["social"]["events_cursor"] == "1"  # and the new-comment trigger's cursor moves
+    assert "cursor" not in state(ws, "m-main")["social"] and report.checked == 1 and "m-main" in report.integrations
+    assert social_setup.get_mode(ws.session.query(IntegrationModel).filter_by(group_id=ws.gid, slug="m-main").one()) == "off"
+
+
+def test_an_integration_with_no_mode_set_is_off(ws):
+    row = ws.session.query(IntegrationModel).filter_by(group_id=ws.gid, slug="m-main").one()
+    row.state = None
+    ws.session.commit()
+    assert social_setup.get_mode(row) == "off"
+    row.state = {"social": {"auto_reply": "banana"}}
+    assert social_setup.get_mode(row) == "off"
+
+
+def test_the_mode_is_per_network(ws):
+    rule(ws)
+    mode(ws, "on", "m-main")
+    mode(ws, "rehearsal", "b-main")
+    mode(ws, "off", "ig")
+    for name, net in (("mastodon", "x"), ("bluesky", "x"), ("instagram", "instagram")):
+        ws.nets[name].feed = [item("c1", network=net)]
+    run(ws)
+    assert [a["comment_id"] for a in ws.nets["mastodon"].sent()] == ["c1"]
+    assert ws.nets["bluesky"].sent() == [] and [a["dry_run"] for k, a in ws.nets["bluesky"].calls if k == "reply"] == [True]
+    assert [k for k, _ in ws.nets["instagram"].calls if k == "reply"] == []
+    assert {r["integration"]: r["rehearsal"] for r in logs(ws)} == {"m-main": False, "b-main": True}
+
+
+def test_a_mode_set_while_a_run_is_in_flight_is_not_overwritten_by_the_run_saving_its_cursor(ws):
+    rule(ws)
+    ws.nets["mastodon"].feed = [item("c1")]
+    real = ws.nets["mastodon"].run_action
+
+    def switch_while_reading(key, args, ctx):
+        if key == "comments":  # another request switches the mode mid-run
+            from marvin.db.db_setup import session_context
+
+            with session_context() as other:
+                social_setup.set_mode(other, other.query(IntegrationModel).filter_by(group_id=ws.gid, slug="m-main").one(), "off")
+        return real(key, args, ctx)
+
+    ws.nets["mastodon"].run_action = switch_while_reading
+    run(ws)
+    ws.session.expire_all()
+    assert social_setup.get_mode(ws.session.query(IntegrationModel).filter_by(group_id=ws.gid, slug="m-main").one()) == "off"
 
 
 # ── the cap, failures, refusals ─────────────────────────────────────────────────────────────────────────────────
@@ -455,12 +637,12 @@ def test_switching_rehearsal_off_still_answers_what_the_rehearsal_logged(ws):
 def test_at_most_max_replies_a_run_the_rest_wait_for_the_next(ws):
     rule(ws)
     ws.nets["mastodon"].feed = [item(f"c{i}") for i in range(5)]
-    first = run(ws, Settings(announce=False, rehearsal=False, max_replies=2))
+    first = run(ws, Settings(max_replies=2))
     assert len(ws.nets["mastodon"].sent()) == 2 and first.sent == 2
     assert len(state(ws, "m-main")["social"]["pending"]) == 3
-    run(ws, Settings(announce=False, rehearsal=False, max_replies=2))
+    run(ws, Settings(max_replies=2))
     assert len(ws.nets["mastodon"].sent()) == 4
-    run(ws, Settings(announce=False, rehearsal=False, max_replies=2))
+    run(ws, Settings(max_replies=2))
     assert sorted(a["comment_id"] for a in ws.nets["mastodon"].sent()) == [f"c{i}" for i in range(5)]
     assert state(ws, "m-main")["social"]["pending"] == []
 
@@ -469,7 +651,7 @@ def test_the_cap_is_shared_across_networks(ws):
     rule(ws)
     for provider in ("mastodon", "bluesky"):
         ws.nets[provider].feed = [item("a"), item("b")]
-    run(ws, Settings(announce=False, rehearsal=False, max_replies=3))
+    run(ws, Settings(max_replies=3))
     assert len(ws.nets["bluesky"].sent()) + len(ws.nets["mastodon"].sent()) == 3
 
 
@@ -481,7 +663,7 @@ def test_one_network_failing_does_not_stop_the_others(ws):
     report = run(ws)
     assert [a["comment_id"] for a in ws.nets["mastodon"].sent()] == ["c2"] and len(ws.nets["instagram"].sent()) == 1
     assert report.failed == 1 and "bluesky is down" in report.summary()
-    assert "social" not in (state(ws, "b-main") or {})  # its cursor didn't move
+    assert state(ws, "b-main") == {"social": {"auto_reply": "on"}}  # its cursor didn't move
 
 
 def test_a_failed_reply_is_retried_next_run_then_given_up_after_three_attempts(ws):
@@ -524,13 +706,6 @@ def test_both_with_a_private_mode_the_network_refuses_still_replies_publicly(ws)
     run(ws)
     [entry] = logs(ws)
     assert entry["mode"] == "public" and [a["private"] for a in mastodon.sent()] == [False]
-
-
-def test_a_missing_log_type_is_said_not_guessed(ws):
-    ws.session.query(EntryTypes).filter_by(group_id=ws.gid, slug="social-reply-log").delete()
-    ws.session.commit()
-    report = run(ws)
-    assert "apply the Social engagement set" in report.summary() and ws.nets["mastodon"].calls == []
 
 
 # ── the narrow approval path ─────────────────────────────────────────────────────────────────────────────────────
@@ -596,12 +771,21 @@ def test_a_plugin_that_forgot_requires_approval_changes_nothing_for_the_engine(w
 # ── the scheduled task ───────────────────────────────────────────────────────────────────────────────────────────
 
 
-def _task_run(ws, config):
-    from types import SimpleNamespace
+def _task(ws, config):
+    """A real engine task row (the handler maps an old `rehearsal` setting on it)."""
+    task = ScheduledTaskModel(
+        session=ws.session, group_id=ws.gid, name="Social engagement", slug=f"social-engagement-{uuid.uuid4().hex[:6]}", enabled=True,
+        schedule_type="interval", schedule_config={"interval_seconds": 300}, task_type="social_engagement", task_config=config,
+    )  # fmt: skip
+    ws.session.add(task)
+    ws.session.commit()
+    return task
 
+
+def _task_run(ws, config):
     from marvin.services.scheduled_tasks.handlers.social import SocialEngagementHandler
 
-    task = SimpleNamespace(group_id=ws.gid, task_config=config)
+    task = _task(ws, config)
     return SocialEngagementHandler().execute(task, None)
 
 
@@ -612,21 +796,64 @@ def test_the_task_is_registered_for_workspaces_only_never_from_a_workflow():
     assert TaskHandlerRegistry.is_registered("social_engagement") and "social_engagement" not in AUTOMATION_ALLOWED_HANDLERS
 
 
-def test_the_task_rehearses_unless_its_config_says_otherwise(ws):
+def test_the_task_answers_only_the_networks_switched_on(ws):
     rule(ws)
+    mode(ws, "rehearsal")
     ws.nets["mastodon"].feed = [item("c1")]
     summary = _task_run(ws, {})
-    assert "(rehearsal)" in summary and ws.nets["mastodon"].sent() == []
-    ws.session.expire_all()
+    assert "would reply 1" in summary and ws.nets["mastodon"].sent() == []
     assert [r["rehearsal"] for r in logs(ws)] == [True]
-    live = _task_run(ws, {"rehearsal": False, "max_replies": 5})
-    assert "(rehearsal)" not in live and [a["comment_id"] for a in ws.nets["mastodon"].sent()] == ["c1"]
+    mode(ws, "on")
+    live = _task_run(ws, {"max_replies": 5})
+    assert "replied 1" in live and [a["comment_id"] for a in ws.nets["mastodon"].sent()] == ["c1"]
+
+
+def test_an_old_task_wide_rehearsal_setting_is_mapped_onto_the_networks_once(ws):
+    rule(ws)
+    for slug in ("m-main", "b-main", "ig"):
+        row = ws.session.query(IntegrationModel).filter_by(group_id=ws.gid, slug=slug).one()
+        row.state = {"social": {"polled_at": "x"}}  # no mode yet: the engine is as it was
+    row = ws.session.query(IntegrationModel).filter_by(group_id=ws.gid, slug="ig").one()
+    row.state = {"social": {"auto_reply": "off"}}  # one that was set stays
+    ws.session.commit()
+    ws.nets["mastodon"].feed = [item("c1")]
+    task = _task(ws, {"rehearsal": False, "max_replies": 5})
+    from marvin.services.scheduled_tasks.handlers.social import SocialEngagementHandler
+
+    SocialEngagementHandler().execute(task, None)
+    ws.session.expire_all()
+    modes = {r.slug: social_setup.get_mode(r) for r in ws.session.query(IntegrationModel).filter_by(group_id=ws.gid)}
+    assert modes == {"m-main": "on", "b-main": "on", "ig": "off"}
+    assert (
+        "rehearsal" not in ws.session.get(ScheduledTaskModel, task.id).task_config
+        and ws.session.get(ScheduledTaskModel, task.id).task_config["max_replies"] == 5
+    )
+    assert [a["comment_id"] for a in ws.nets["mastodon"].sent()] == ["c1"]  # the old setting was the live one
+    # mapped once: a network connected later starts off
+    row = IntegrationModel(session=ws.session, group_id=ws.gid, provider="mastodon", name="new", slug="m-new", enabled=True, config={})
+    ws.session.add(row)
+    ws.session.commit()
+    SocialEngagementHandler().execute(task, None)
+    ws.session.expire_all()
+    assert social_setup.get_mode(ws.session.query(IntegrationModel).filter_by(group_id=ws.gid, slug="m-new").one()) == "off"
+
+
+def test_a_legacy_rehearsing_task_maps_to_rehearsal(ws):
+    for slug in ("m-main", "b-main", "ig"):
+        ws.session.query(IntegrationModel).filter_by(group_id=ws.gid, slug=slug).one().state = None
+    ws.session.commit()
+    task = _task(ws, {"rehearsal": True})
+    assert social_setup.map_legacy_rehearsal(ws.session, ws.gid, task) is True
+    ws.session.expire_all()
+    assert {social_setup.get_mode(r) for r in ws.session.query(IntegrationModel).filter_by(group_id=ws.gid)} == {"rehearsal"}
+    assert social_setup.map_legacy_rehearsal(ws.session, ws.gid, task) is False  # nothing left to map
 
 
 def test_a_routine_run_with_nothing_to_answer_is_not_worth_a_log_row(ws):
     rule(ws)
     ws.nets["mastodon"].feed = [item("c1", "nothing relevant")]
-    assert _task_run(ws, {"rehearsal": False}) is None
+    first = _task_run(ws, {})
+    assert first is None
 
 
 # ── the pure rules ───────────────────────────────────────────────────────────────────────────────────────────────

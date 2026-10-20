@@ -36,9 +36,7 @@ from tests import test_social_engagement as se
 
 NOW, item, rule, logs = se.NOW, se.item, se.rule, se.logs
 ws, nets, _types = se.ws, se.nets, se._types
-LIVE = Settings(rehearsal=False, announce=False)
-REHEARSAL = Settings(rehearsal=True, announce=False)
-ANNOUNCE_ONLY = Settings(rehearsal=False, announce=True)
+LIVE, REHEARSAL, ANNOUNCE_ONLY = "on", "rehearsal", "off"  # the auto-reply mode every network is set to for a poll
 API = "/api/groups/social-inbox"
 ADMIN, EDITOR, VIEWER = WorkspaceRole.ADMIN, WorkspaceRole.EDITOR, WorkspaceRole.VIEWER
 
@@ -54,7 +52,8 @@ def by_id(ws, integration="m-main"):
 
 def poll(ws, feed, *, settings=LIVE, network="mastodon", now=NOW):
     ws.nets[network].feed = feed
-    return run_engagement(ws.session, ws.gid, settings, now=now)
+    se.mode(ws, settings)
+    return run_engagement(ws.session, ws.gid, Settings(), now=now)
 
 
 @pytest.fixture
@@ -100,14 +99,16 @@ def test_an_item_read_twice_is_one_row_and_a_later_read_changes_nothing(ws):
 def test_the_announce_and_the_reply_reads_of_one_poll_make_one_row_each(ws):
     rule(ws, keywords="price")
     ws.nets["mastodon"].feed = [item("c1", "price?"), item("c2", "price again?")]
-    run_engagement(ws.session, ws.gid, Settings(rehearsal=True), now=NOW)  # replying and announcing both on
+    se.mode(ws, "rehearsal")
+    run_engagement(ws.session, ws.gid, Settings(), now=NOW)  # replying and announcing both on
     assert sorted(by_id(ws)) == ["c1", "c2"]
     assert ws.session.query(Item).filter_by(group_id=ws.gid).count() == 2
 
 
 def test_an_announce_only_poll_keeps_items_with_no_rule_at_all(ws):
     ws.nets["mastodon"].feed = [item("c1")]
-    run_engagement(ws.session, ws.gid, ANNOUNCE_ONLY, now=NOW)
+    se.mode(ws, ANNOUNCE_ONLY)
+    run_engagement(ws.session, ws.gid, Settings(), now=NOW)
     assert list(by_id(ws)) == ["c1"]
 
 
@@ -144,11 +145,12 @@ def test_one_read_is_one_insert_however_many_items(ws):
 
 
 def test_a_failure_keeping_items_never_costs_the_poll_its_replies(ws, monkeypatch):
-    monkeypatch.setattr(social_inbox, "_mapping", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("disk on fire")))
+    monkeypatch.setattr(social_inbox, "_fresh", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("disk on fire")))
     rule(ws)
     report = poll(ws, [item("c1")])
     assert [a["comment_id"] for a in ws.nets["mastodon"].sent()] == ["c1"] and report.sent == 1
-    assert rows(ws) == []
+    [row] = rows(ws)  # the poll couldn't keep the item, but the reply inserted it: every reply has an item
+    assert (row.item_id, row.status, row.reply_rule) == ("c1", "replied", "r1")
 
 
 def test_the_same_item_id_on_two_integrations_is_two_rows(ws):
@@ -171,26 +173,26 @@ def test_the_unique_key_is_the_integration_and_the_item(ws):
 # ── what a reply does to the item ────────────────────────────────────────────────────────────────────────────────
 
 
-def test_a_live_reply_by_a_rule_marks_the_item_replied_and_points_at_the_log(ws):
+def test_a_live_reply_by_a_rule_is_recorded_on_the_item(ws):
     rule(ws, keywords="price")
     poll(ws, [item("c1", "price?"), item("c2", "nice")])
     stored = by_id(ws)
-    assert (stored["c1"].status, stored["c1"].reply_mode, stored["c1"].reply_rehearsal) == ("replied", "private", False)
-    assert stored["c1"].reply_log_slug == se.engine.log_slug("m-main", "c1", rehearsal=False) and stored["c1"].reply_id == "r-c1-p"
-    assert stored["c1"].replied_at is not None and stored["c1"].replied_by is None
-    assert (stored["c2"].status, stored["c2"].reply_log_slug) == ("new", None)
+    c1 = stored["c1"]
+    assert (c1.status, c1.reply_mode, c1.reply_rehearsal) == ("replied", "private", False)
+    assert (c1.reply_rule, c1.reply_text, c1.reply_id, c1.reply_log_slug) == ("r1", "Check the link in bio.", "r-c1-p", None)
+    assert c1.replied_at is not None and c1.replied_by is None
+    assert (stored["c2"].status, stored["c2"].replied_at, stored["c2"].reply_rule) == ("new", None, None)
 
 
-def test_a_rehearsal_points_at_its_entry_but_leaves_the_status_and_a_real_reply_replaces_it(ws):
+def test_a_rehearsal_is_recorded_but_leaves_the_status_and_a_real_reply_replaces_it(ws):
     rule(ws, keywords="price")
     poll(ws, [item("c1", "price?")], settings=REHEARSAL)
     row = by_id(ws)["c1"]
-    assert (row.status, row.reply_rehearsal) == ("new", True)
-    assert row.reply_log_slug == se.engine.log_slug("m-main", "c1", rehearsal=True)
+    assert (row.status, row.reply_rehearsal, row.reply_rule, row.reply_id) == ("new", True, "r1", None)
     poll(ws, [item("c1", "price?")])  # switched to live: the rehearsal never counted as answered
     row = by_id(ws)["c1"]
-    assert (row.status, row.reply_rehearsal, row.reply_log_slug) == ("replied", False, se.engine.log_slug("m-main", "c1", rehearsal=False))
-    poll(ws, [item("c1", "price?")], settings=REHEARSAL)  # a later rehearsal never takes the live pointer back
+    assert (row.status, row.reply_rehearsal, row.reply_id) == ("replied", False, "r-c1-p")
+    poll(ws, [item("c1", "price?")], settings=REHEARSAL)  # a later rehearsal never takes the live record back
     assert by_id(ws)["c1"].reply_rehearsal is False
 
 
@@ -386,21 +388,20 @@ def test_a_network_can_offer_one_reply_mode_only(ws, api, filled, nets):
     assert res.status_code == 422 and "private reply" in res.json()["detail"] and nets["mastodon"].sent() == []
 
 
-def test_the_summary_says_whether_there_is_an_inbox_how_many_are_new_and_the_task(ws, api):
+def test_the_summary_lists_the_networks_with_their_mode_and_new_count(ws, api):
     body = api(EDITOR).get(f"{API}/summary").json()
-    assert body["available"] is True and body["new"] == 0  # integrations that can read comments exist, nothing kept yet
-    assert {i["slug"] for i in body["integrations"]} == {"m-main", "b-main", "ig"}
-    assert body["engine"]["state"] == "disabled" and body["engine"]["rehearsal"] is True and body["engine"]["taskId"]
-    assert body["can"] == {"seen": True, "like": True, "hide": True, "rule": True, "reply": False, "delete": False, "message": False}
+    assert body["show"] is True and body["new"] == 0  # networks that offer social capabilities exist, nothing kept yet
+    by_slug = {i["slug"]: i for i in body["integrations"]}
+    assert set(by_slug) == {"m-main", "b-main", "ig"}
+    assert (by_slug["m-main"]["autoReply"], by_slug["m-main"]["readsComments"], by_slug["m-main"]["canReply"]) == ("on", True, True)
+    assert by_slug["m-main"]["provider"] == "mastodon" and "social.comments" in by_slug["m-main"]["capabilities"]
+    assert body["can"] == {
+        "seen": True, "like": True, "hide": True, "rule": True, "rules": True, "publish": True,
+        "auto_reply": False, "reply": False, "delete": False, "message": False,
+    }  # fmt: skip
     assert api(ADMIN).get(f"{API}/summary").json()["can"]["reply"] is True
-
-
-def test_the_summary_says_when_the_social_engagement_set_is_not_applied(ws, api):
-    from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
-
-    ws.session.query(ScheduledTaskModel).filter_by(group_id=ws.gid, task_type="social_engagement").delete()
-    ws.session.commit()
-    assert api(EDITOR).get(f"{API}/summary").json()["engine"]["state"] == "missing"
+    assert api(ADMIN).get(f"{API}/summary").json()["can"]["auto_reply"] is True
+    assert "engine" not in body
 
 
 # ── mark seen ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -426,21 +427,19 @@ def post(client, ws, cid, action, body=None, *, integration="m-main"):
     return client.post(f"{API}/{row.id}/{action}", json=body) if body is not None else client.post(f"{API}/{row.id}/{action}")
 
 
-def test_a_private_reply_is_sent_by_the_capability_logged_and_marks_the_item_replied(ws, api):
+def test_a_private_reply_is_sent_by_the_capability_recorded_on_the_item_and_marks_it_replied(ws, api):
     seed(ws, [item("c1", "What is the price?")])
     res = post(api(ADMIN), ws, "c1", "reply", {"text": "DM sent!"})
     assert res.status_code == 200, res.text
     body = res.json()
-    assert (body["replied"], body["private"], body["logged"], body["replyId"]) == (True, True, True, "r-c1-p")
+    assert (body["replied"], body["private"], body["replyId"]) == (True, True, "r-c1-p")
     assert body["item"]["status"] == "replied" and body["item"]["reply"]["rehearsal"] is False and body["item"]["reply"]["mode"] == "private"
     assert ws.nets["mastodon"].sent() == [{"comment_id": "c1", "text": "DM sent!", "private": True, "dry_run": False}]
     (entry,) = logs(ws, rehearsal=False)
-    assert (entry["comment_id"], entry["rule"], entry["mode"], entry["reply"], entry["rehearsal"]) == ("c1", "inbox", "private", "DM sent!", False)
-    assert entry["integration"] == "m-main" and entry["author"] == "alice" and entry["by"] == "GATE" and entry["reply_id"] == "r-c1-p"
-    log = ws.session.query(Entries).filter_by(group_id=ws.gid, slug=se.engine.log_slug("m-main", "c1", rehearsal=False)).one()
-    assert log.status == "published" and log.created_by == ws.uid and body["item"]["reply"]["logEntryId"] == str(log.id)
-    row = by_id(ws)["c1"]
-    assert row.replied_by == ws.uid and row.reply_log_slug == log.slug
+    assert (entry["comment_id"], entry["rule"], entry["mode"], entry["reply"], entry["rehearsal"]) == ("c1", None, "private", "DM sent!", False)
+    assert entry["integration"] == "m-main" and entry["by"] == ws.uid and entry["reply_id"] == "r-c1-p"
+    assert body["item"]["reply"]["text"] == "DM sent!" and body["item"]["reply"]["by"] == str(ws.uid) and body["item"]["reply"]["rule"] is None
+    assert ws.session.query(Entries).filter_by(group_id=ws.gid).filter(Entries.slug.like("social-reply-%")).count() == 0  # no log entry
 
 
 def test_a_reply_defaults_to_private_and_public_is_asked_for(ws, api):
@@ -455,36 +454,31 @@ def test_a_reply_defaults_to_private_and_public_is_asked_for(ws, api):
 def test_the_engine_never_answers_a_comment_a_person_replied_to(ws, api):
     rule(ws, keywords="price")
     ws.nets["mastodon"].feed = [item("c1", "price?")]
-    run_engagement(ws.session, ws.gid, Settings(rehearsal=True, announce=False), now=NOW)  # kept (a rehearsal entry is written)
+    se.mode(ws, "rehearsal")
+    run_engagement(ws.session, ws.gid, Settings(), now=NOW)  # kept (the rehearsal is recorded on the item)
     assert post(api(ADMIN), ws, "c1", "reply", {"text": "I'll take it from here"}).status_code == 200
     ws.nets["mastodon"].calls.clear()
     ws.nets["mastodon"].feed = [item("c1", "price?"), item("c2", "price too?")]
-    report = run_engagement(ws.session, ws.gid, LIVE, now=NOW)
+    se.mode(ws, "on")
+    report = run_engagement(ws.session, ws.gid, Settings(), now=NOW)
     sent = [a for a in ws.nets["mastodon"].sent() if a["text"] != "I'll take it from here"]
     assert [a["comment_id"] for a in sent] == ["c2"]
     assert report.skipped["already_replied"] >= 1
     assert by_id(ws)["c1"].replied_by == ws.uid  # the engine's pass left the person's reply on the item
 
 
-def test_a_comment_the_engine_already_answered_can_still_be_replied_to_without_a_second_log(ws, api):
+def test_a_comment_the_engine_already_answered_can_still_be_replied_to_and_the_record_follows_the_latest(ws, api):
     rule(ws, keywords="price")
     poll(ws, [item("c1", "price?")])
-    assert len(logs(ws, rehearsal=False)) == 1
+    assert len(logs(ws, rehearsal=False)) == 1 and logs(ws)[0]["rule"] == "r1"
     res = post(api(ADMIN), ws, "c1", "reply", {"text": "and a follow-up", "private": False})
-    assert res.status_code == 200 and res.json()["logged"] is True
-    assert len(logs(ws, rehearsal=False)) == 1 and len(ws.nets["mastodon"].sent()) == 2
-    assert by_id(ws)["c1"].replied_by == ws.uid
+    assert res.status_code == 200
+    [only] = logs(ws, rehearsal=False)
+    assert only["reply"] == "and a follow-up" and only["rule"] is None and only["by"] == ws.uid and only["mode"] == "public"
+    assert len(ws.nets["mastodon"].sent()) == 2
 
 
-def test_a_reply_is_still_sent_when_the_log_type_isnt_applied(ws, api):
-    seed(ws, [item("c1")])
-    ws.session.query(EntryTypes).filter_by(group_id=ws.gid, slug="social-reply-log").delete()
-    ws.session.commit()
-    res = post(api(ADMIN), ws, "c1", "reply", {"text": "hello"})
-    assert res.status_code == 200 and res.json()["logged"] is False and res.json()["item"]["status"] == "replied"
-
-
-def test_a_reply_the_network_refuses_or_fails_is_not_logged_and_changes_nothing(ws, api):
+def test_a_reply_the_network_refuses_or_fails_is_not_recorded_and_changes_nothing(ws, api):
     seed(ws, [item("c1"), item("c2"), item("c3")])
     net = ws.nets["mastodon"]
     net.refuse = {("c1", True): "unsupported"}
@@ -668,7 +662,7 @@ def test_make_a_rule_drafts_a_social_auto_reply_entry_from_the_item(ws, api):
     entry = ws.session.query(Entries).filter_by(id=body["id"]).one()
     assert (entry.status, entry.created_by, entry.slug) == ("draft", ws.uid, body["slug"])
     assert entry.data_json == {
-        "keywords": "price, blue, one", "reply": "Check the link in bio.", "networks": "instagram", "post": "", "reply_as": "private",
+        "keywords": "price, blue, one", "reply": "Check the link in bio.", "networks": "m-main", "post": "", "reply_as": "private",
         "also_like": False, "kinds": "comment, reply",
     }  # fmt: skip
     from marvin.services.integrations.social_engagement import load_rules
@@ -676,15 +670,16 @@ def test_make_a_rule_drafts_a_social_auto_reply_entry_from_the_item(ws, api):
     assert body["slug"] not in [r.id for r in load_rules(ws.session, ws.gid)]  # a draft never fires
 
 
-def test_make_a_rule_without_a_reply_leaves_it_for_the_editor_and_needs_the_type(ws, api):
+def test_make_a_rule_without_a_reply_leaves_it_for_the_editor_and_makes_the_type_when_missing(ws, api):
     seed(ws, [item("c1", "How much is shipping?")])
     body = post(api(EDITOR), ws, "c1", "rule").json()
     entry = ws.session.query(Entries).filter_by(id=body["id"]).one()
     assert entry.data_json["reply"] == "" and body["keywords"] == ["much", "shipping"]
     ws.session.query(EntryTypes).filter_by(group_id=ws.gid, slug="social-auto-reply").update({"slug": "renamed-away"})
     ws.session.commit()
-    res = post(api(EDITOR), ws, "c1", "rule")
-    assert res.status_code == 409 and "Social engagement set" in res.json()["detail"]
+    res = post(api(EDITOR), ws, "c1", "rule")  # the type is made on first need
+    assert res.status_code == 200
+    assert ws.session.query(EntryTypes).filter_by(group_id=ws.gid, slug="social-auto-reply").count() == 1
 
 
 @pytest.mark.parametrize(

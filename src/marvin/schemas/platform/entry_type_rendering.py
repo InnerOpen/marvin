@@ -48,5 +48,9 @@ class CapabilitiesDefinition(_MarvinModel):
     publishable: bool = True
     submittable: bool = False
     routable: bool = True
+    # False marks an internal type: helper content a feature owns and edits through its own pages (the Social
+    # auto-reply rules). Its entries stay out of every entry list, count, search and the AI index
+    # (services/entry_listing.py); a query that names the type, or the entry, still finds them.
+    listed: bool = True
     # Present only on submittable types; describes how public submissions are handled.
     submission: SubmissionConfig | None = None

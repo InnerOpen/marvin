@@ -23,6 +23,7 @@ from marvin.db.models.platform.entry_types import EntryTypes
 from marvin.db.models.platform.event_log import EventLogModel
 from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
 from marvin.schemas._marvin import _MarvinModel
+from marvin.services.entry_listing import is_listed_type, listed_clause
 
 UPCOMING_DAYS = 7
 UPCOMING_LIMIT = 8
@@ -172,7 +173,11 @@ def parked_runs(session, group_id) -> int:
 
 def oldest_entry_days(session, group_id, status: str, now: datetime) -> int | None:
     """How many days the oldest entry in `status` has been around (by creation), or None when there are none."""
-    oldest = _scalar(session, select(func.min(Entries.created_at)).where(Entries.group_id == group_id, Entries.status == status), None)
+    oldest = _scalar(
+        session,
+        select(func.min(Entries.created_at)).where(Entries.group_id == group_id, Entries.status == status, listed_clause(session, group_id)),
+        None,
+    )
     return _days_since(oldest, now)
 
 
@@ -185,7 +190,7 @@ def upcoming(session, group_id, now: datetime) -> list[UpcomingItem]:
         entries = session.execute(
             select(Entries.id, Entries.title, Entries.publish_at)
             .where(Entries.group_id == group_id, Entries.publish_at > naive_now, Entries.publish_at <= naive_until)
-            .where(Entries.status.notin_(NOT_PUBLISHABLE))
+            .where(Entries.status.notin_(NOT_PUBLISHABLE), listed_clause(session, group_id))
             .order_by(Entries.publish_at)
             .limit(UPCOMING_LIMIT)
         ).all()
@@ -341,7 +346,7 @@ def published_by_week(session, group_id, now: datetime) -> PublishingPulse:
         rows = session.execute(
             select(day_col, Entries.entry_type_id, func.count(Entries.id))
             .where(Entries.group_id == group_id, Entries.status == "published", Entries.published_at.isnot(None))
-            .where(Entries.published_at >= datetime.combine(monday, datetime.min.time()))
+            .where(Entries.published_at >= datetime.combine(monday, datetime.min.time()), listed_clause(session, group_id))
             .group_by(day_col, Entries.entry_type_id)
         ).all()
     except Exception:
@@ -388,6 +393,8 @@ def recent_for_you(session, group_id, user_id, now: datetime) -> list[EntryBrief
         if e is None or e.status == "trashed":
             continue
         t = types.get(e.entry_type_id)
+        if t is not None and not is_listed_type(t):  # an internal type's entries aren't "yours to pick up"
+            continue
         out.append(EntryBrief(id=str(e.id), title=e.title or "Untitled", status=e.status, type_slug=t.slug if t else None, touched_at=_utc(last)))
         if len(out) == RECENT_FOR_YOU:
             break
@@ -399,7 +406,7 @@ def by_type_status(session, group_id) -> list[TypeStatusRow]:
     try:
         counts = session.execute(
             select(Entries.entry_type_id, Entries.status, func.count(Entries.id))
-            .where(Entries.group_id == group_id, Entries.status.in_(PIPELINE_STATUSES))
+            .where(Entries.group_id == group_id, Entries.status.in_(PIPELINE_STATUSES), listed_clause(session, group_id))
             .group_by(Entries.entry_type_id, Entries.status)
         ).all()
     except Exception:
@@ -407,6 +414,7 @@ def by_type_status(session, group_id) -> list[TypeStatusRow]:
         counts = []
     # Every type of the workspace's own, and any system type its entries use.
     types = {**_types(session, group_id), **_types(session, group_id, {type_id for type_id, _, _ in counts})}
+    types = {k: t for k, t in types.items() if is_listed_type(t)}  # an internal type has no pipeline to show
     if not types:
         return []
     rows = {t.id: TypeStatusRow(**_brief(t).model_dump()) for t in types.values()}

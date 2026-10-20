@@ -10,8 +10,6 @@ unknown, and a blank entry-type schema is a blank page. Each blueprint below is 
 
 from marvin.schemas.platform.blueprints import Blueprint, BlueprintParameter
 
-from .social import SOCIAL_BLUEPRINTS
-
 CATEGORY_EDITORIAL = "Editorial"
 CATEGORY_MEDIA = "Media"
 
@@ -123,7 +121,7 @@ _COLLECTIONS = [
     ),
 ]
 
-CORE_BLUEPRINTS: tuple[Blueprint, ...] = (*_COLLECTIONS, *SOCIAL_BLUEPRINTS)
+CORE_BLUEPRINTS: tuple[Blueprint, ...] = tuple(_COLLECTIONS)
 
 
 def list_blueprints(*, kind: str | None = None, category: str | None = None, source: str | None = None) -> list[Blueprint]:

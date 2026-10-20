@@ -109,11 +109,23 @@ SYSTEM_SCHEDULED_TASKS: list[SystemTaskDefinition] = [
         task_type="prune_social_inbox_items",
         description=(
             "Delete Social inbox items (the comments, replies and mentions the social engagement task kept) written more than "
-            "30 days ago. Admin-only; runs daily."
+            "30 days ago; an item with a live reply is kept 180 days (the reply on it stops a comment being answered twice). "
+            "Admin-only; runs daily."
         ),
         schedule_type="interval",
         schedule_config={"interval_seconds": _DAILY_SECONDS},
         task_config={"retention_days": 30},
+    ),
+    SystemTaskDefinition(
+        slug="reconcile_social_engagement",
+        name="Reconcile Social Engagement",
+        task_type="reconcile_social_engagement",
+        description=(
+            "Make each workspace's Social plumbing match its connected networks: the engagement task created and enabled while an "
+            "integration reads comments, disabled when none does. Admin-only; runs hourly."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _HOURLY_SECONDS},
     ),
     SystemTaskDefinition(
         slug="resync_smart_collections",

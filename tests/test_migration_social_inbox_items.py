@@ -18,6 +18,7 @@ from marvin.db.models import SqlAlchemyBase
 from marvin.db.models.groups.social_inbox import SocialInboxItemModel
 
 TABLE = "social_inbox_items"
+LATER_COLUMNS = {"reply_rule", "reply_text", "reply_note"}  # added by ef911a9c1779 (tests/test_migration_social_replies.py)
 _PATH = next((Path(__file__).resolve().parents[1] / "src" / "marvin" / "alembic" / "versions").glob("*_7c3f9a1e5b82_*.py"))
 _spec = importlib.util.spec_from_file_location("social_inbox_items_migration", _PATH)
 mig = importlib.util.module_from_spec(_spec)
@@ -78,7 +79,7 @@ def _model_shape() -> dict:
     """What the model declares, in the same terms."""
     table = SocialInboxItemModel.__table__
     return {
-        "columns": {c.name: c.nullable for c in table.columns},
+        "columns": {c.name: c.nullable for c in table.columns if c.name not in LATER_COLUMNS},
         "unique": {c.name: tuple(col.name for col in c.columns) for c in table.constraints if isinstance(c, sa.UniqueConstraint)},
         "indexes": {i.name: tuple(c.name for c in i.columns) for i in table.indexes},
         "foreign_keys": {(fk.parent.name, fk.column.table.name, fk.ondelete) for fk in table.foreign_keys},

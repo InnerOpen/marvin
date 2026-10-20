@@ -10,7 +10,7 @@ inbox is the human approval those decisions ask for, and this module is the one 
 * it acts on one stored item of that workspace, on that item's own integration — the ``comment_id`` and the integration come from
   the stored row, never from the request, so the inbox can't be pointed at another comment or network;
 * the text is the person's, typed for that one item; nothing is templated or computed;
-* ``approved_by`` (the user's id) is required: no id, no call. A reply is then written to ``social-reply-log`` under that user, so
+* ``approved_by`` (the user's id) is required: no id, no call. A reply is then recorded on the item under that user, so
   the engine never answers the comment again.
 
 It is not a general bypass: no route takes a capability, an integration or a comment id from the caller.
@@ -27,7 +27,6 @@ from marvin.db.models.users.roles import WorkspaceRole
 
 from . import social_inbox
 from .social import (
-    SOCIAL_COMMENTS,
     SOCIAL_DELETE_COMMENT,
     SOCIAL_HIDE,
     SOCIAL_LIKE,
@@ -36,8 +35,9 @@ from .social import (
     SocialPostError,
     engagement_args,
 )
-from .social_engagement import EngineCallError, PluginCaller, log_slug, write_reply_log
-from .social_rules import KIND_MENTION, LOG_TYPE, PRIVATE, PUBLIC, RULE_TYPE, suggest_keywords
+from .social_engagement import EngineCallError, PluginCaller
+from .social_rules import KIND_MENTION, PRIVATE, PUBLIC, suggest_keywords
+from .social_setup import ensure_rule_type
 
 HUMAN_CAPABILITIES = frozenset({SOCIAL_REPLY, SOCIAL_LIKE, SOCIAL_HIDE, SOCIAL_DELETE_COMMENT, SOCIAL_MESSAGE})
 """The only capabilities a person's click can run. Reading comments and reposting have no way in."""
@@ -48,18 +48,22 @@ ACTION_ROLES: dict[str, WorkspaceRole] = {
     "like": WorkspaceRole.EDITOR,
     "hide": WorkspaceRole.EDITOR,
     "rule": WorkspaceRole.EDITOR,
+    "rules": WorkspaceRole.EDITOR,
+    "publish": WorkspaceRole.EDITOR,
+    "auto_reply": WorkspaceRole.ADMIN,
     "reply": WorkspaceRole.ADMIN,
     "delete": WorkspaceRole.ADMIN,
     "message": WorkspaceRole.ADMIN,
 }
 """The role each action needs. Reading, marking seen, liking and hiding are EDITOR's (easily undone moderation, as in a
 workflow, where like and hide need no Approval step); replying, deleting and messaging speak for the account or can't be undone,
-so they are ADMIN's — the role the workflow engine already asks of integration actions. Making a rule only drafts an entry."""
+so they are ADMIN's — the role the workflow engine already asks of integration actions. Making a rule only drafts an entry, listing
+a network's rules is EDITOR's, and publishing or unpublishing one is an EDITOR's too (it is the entry's own publish rule: a published
+rule approves its reply text). Switching a network's auto-reply (off, rehearsal, on) lets the engine speak for the account on its
+own, so it is ADMIN's."""
 
 REPLY, LIKE, HIDE, DELETE, MESSAGE = "reply", "like", "hide", "delete", "message"
 _CAPABILITY_OF = {REPLY: SOCIAL_REPLY, LIKE: SOCIAL_LIKE, HIDE: SOCIAL_HIDE, DELETE: SOCIAL_DELETE_COMMENT, MESSAGE: SOCIAL_MESSAGE}
-INBOX_RULE = "inbox"
-"""What the reply log's ``rule`` says for a reply a person sent from the inbox."""
 
 
 class InboxError(Exception):
@@ -181,8 +185,9 @@ def mark_seen(session, group_id, *, ids: list | None = None, integration: str | 
 
 
 def reply(session, group_id, item: Item, *, text: str, private: bool, user_id, user_name: str | None = None) -> dict:
-    """Send a reply to the item as ``user_id`` (their click is the approval) and record it: a ``social-reply-log`` entry (live, so
-    the engine never answers this comment) and the item's status. ``{replied, private, reply_id, url, logged}``."""
+    """Send a reply to the item as ``user_id`` (their click is the approval) and record it on the item (live, by that user, so the
+    engine never answers this comment, and the item becomes replied). A second reply to the same item replaces the record.
+    ``{replied, private, reply_id, url}``."""
     text = (text or "").strip()
     if not text:
         raise InboxError("say what to reply")
@@ -193,65 +198,11 @@ def reply(session, group_id, item: Item, *, text: str, private: bool, user_id, u
     out = _call(actor, SOCIAL_REPLY, {"comment_id": item.item_id, "text": text, "private": private}, user_id)
     if out.get("replied") is False:
         raise InboxError(f"{item.network} did not send the reply", 502)
-    outcome = {"reply_id": out.get("reply_id"), "url": out.get("url")}
-    slug, written = _log(session, group_id, actor.row, item, text, mode, outcome, user_id, user_name)
-    if not written:  # the log writer points the item at its entry; otherwise the item still has to learn of the reply
-        social_inbox.mark_replied(
-            session,
-            actor.row,
-            item.item_id,
-            log_slug=slug,
-            mode=mode,
-            rehearsal=False,
-            reply_id=outcome["reply_id"],
-            when=datetime.now(UTC),
-            by=user_id,
-        )
-    session.commit()
-    session.refresh(item)
-    return {"replied": True, "private": private, "reply_id": outcome["reply_id"], "url": outcome["url"], "logged": slug is not None}
-
-
-def _log(session, group_id, row, item: Item, text: str, mode: str, outcome: dict, user_id, user_name: str | None) -> tuple[str | None, bool]:
-    """``(log entry slug, whether this call wrote it)``. The entry is written unless there is none to write: the type isn't applied
-    (slug None), or this comment already has a live entry (its slug; one entry per comment, and it already stops the engine)."""
-    from marvin.db.models.platform.entries import Entries
-    from marvin.db.models.platform.entry_types import EntryTypes
-
-    type_id = session.query(EntryTypes.id).filter_by(group_id=group_id, slug=LOG_TYPE).scalar()
-    if type_id is None:
-        return None, False
-    live = log_slug(row.slug, item.item_id, rehearsal=False)
-    if session.query(Entries.id).filter(Entries.group_id == group_id, Entries.slug == live).first():
-        return live, False
-    slug = write_reply_log(
-        session,
-        group_id,
-        type_id,
-        row,
-        _as_item(item),
-        rule=INBOX_RULE,
-        keyword="",
-        reply=text,
-        mode=mode,
-        rehearsal=False,
-        outcome=outcome,
-        by=user_id,
-        by_name=user_name,
+    social_inbox.record_reply(
+        session, actor.row, item, mode=mode, rehearsal=False, reply_id=out.get("reply_id"), text=text, when=datetime.now(UTC), by=user_id
     )
-    return slug, True
-
-
-def _as_item(item: Item) -> dict:
-    """The stored item back in the plugin's shape (what the log writer takes)."""
-    return {
-        "id": item.item_id,
-        "network": item.network,
-        "post_id": item.post_id,
-        "text": item.text,
-        "url": item.url,
-        "author": {"id": item.author_id, "handle": item.author_handle, "name": item.author_name},
-    }
+    session.refresh(item)
+    return {"replied": True, "private": private, "reply_id": out.get("reply_id"), "url": out.get("url")}
 
 
 def like(session, group_id, item: Item, *, user_id) -> dict:
@@ -301,20 +252,18 @@ def message(session, group_id, item: Item, *, text: str, user_id) -> dict:
 
 
 def make_rule(session, group_id, item: Item, *, reply_text: str = "", user_id=None) -> dict:
-    """A draft ``social-auto-reply`` entry from this item: keywords suggested from its text, the item's network, private replies
+    """A draft ``social-auto-reply`` entry from this item: keywords suggested from its text, the item's integration (its slug in
+    ``networks``), private replies
     (the default), and ``reply_text`` as the reply when given. A draft never fires; publishing it is the approval. Returns the
     entry's ``id`` and ``slug``, the suggested ``keywords`` and the editor's path."""
-    from marvin.db.models.platform.entry_types import EntryTypes
     from marvin.services.entries.entry_service import EntryService
 
-    type_id = session.query(EntryTypes.id).filter_by(group_id=group_id, slug=RULE_TYPE).scalar()
-    if type_id is None:
-        raise InboxError("apply the Social engagement set first (Settings → Integrations): the rule type isn't in this workspace", 409)
+    type_id = ensure_rule_type(session, group_id)
     keywords = suggest_keywords(item.text)
     data = {
         "keywords": ", ".join(keywords),
         "reply": (reply_text or "").strip(),
-        "networks": item.network,
+        "networks": item.integration_slug,
         "post": "",
         "reply_as": PRIVATE,
         "also_like": False,
@@ -323,7 +272,7 @@ def make_rule(session, group_id, item: Item, *, reply_text: str = "", user_id=No
     slug = f"social-rule-{uuid.uuid4().hex[:8]}"
     fields = {
         "entry_type_id": type_id,
-        "title": f"Rule: {keywords[0] if keywords else 'new'} ({item.network})",
+        "title": f"Rule: {keywords[0] if keywords else 'new'} ({item.integration_slug})",
         "slug": slug,
         "status": "draft",
         "data_json": data,
@@ -333,34 +282,3 @@ def make_rule(session, group_id, item: Item, *, reply_text: str = "", user_id=No
     entry = EntryService(session, group_id, integration_id="social_inbox", actor_id=user_id).create(fields)
     session.commit()
     return {"id": entry.id, "slug": slug, "keywords": keywords, "path": f"/workspace/entries/{entry.id}"}
-
-
-def summary(session, group_id) -> dict:
-    """The nav's view of the inbox: ``available`` when an enabled integration can read comments or items are kept, ``new`` the
-    count still unseen, and the ``integrations`` (slug, name, network) the filter offers."""
-    from marvin.services.integrations import get_provider
-
-    rows = []
-    for row in session.query(IntegrationModel).filter_by(group_id=group_id, enabled=True).order_by(IntegrationModel.slug):
-        try:
-            provider = get_provider(row.provider)
-        except KeyError:
-            continue
-        if any(getattr(a, "capability", None) == SOCIAL_COMMENTS for a in getattr(provider, "actions", ()) or ()):
-            rows.append({"slug": row.slug, "name": row.name, "network": row.provider})
-    kept = bool(rows) or session.query(Item.id).filter(Item.group_id == group_id).first() is not None
-    return {"available": kept, "new": social_inbox.new_count(session, group_id), "integrations": rows}
-
-
-def engine_state(session, group_id) -> dict:
-    """The scheduled task that fills the inbox, as the page explains it: ``missing`` (the Social engagement set isn't applied),
-    ``disabled`` or ``enabled``, with whether replies are rehearsed and whether workflows are told of new comments."""
-    from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
-
-    from .social_engagement import TASK_TYPE, Settings
-
-    task = session.query(ScheduledTaskModel).filter_by(group_id=group_id, task_type=TASK_TYPE).order_by(ScheduledTaskModel.created_at).first()
-    if task is None:
-        return {"state": "missing", "task_id": None, "rehearsal": True, "announce": True}
-    settings = Settings.from_config(task.task_config)
-    return {"state": "enabled" if task.enabled else "disabled", "task_id": task.id, "rehearsal": settings.rehearsal, "announce": settings.announce}

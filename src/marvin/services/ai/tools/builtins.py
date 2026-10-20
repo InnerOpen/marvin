@@ -231,6 +231,10 @@ def search_content(ctx: ToolContext, args: dict) -> str:
         if ids:
             rows = ctx.session.query(model.id).filter(model.group_id == ctx.group_id, model.id.in_(_as_uuids(ids)), model.trashed_at.isnot(None))
             trashed.update(str(row[0]) for row in rows)
+    # Entries of an internal type (services/entry_listing.py) never answer a search, whatever an older index still holds.
+    from marvin.services.entry_listing import unlisted_entry_ids
+
+    trashed.update(str(i) for i in unlisted_entry_ids(ctx.session, ctx.group_id))
     results = [r for r in results if not (r["entityType"] in ("entry", "asset", "resource") and r["entityId"] in trashed)]
     for r in results:
         r["assets"] = images_by_entry.get(r["entityId"], []) if r["entityType"] == "entry" else []
@@ -617,11 +621,13 @@ def get_collection_entries(ctx: ToolContext, args: dict) -> str:
     if not col:
         return json.dumps({"error": "collection not found — pass its name or slug (e.g. 'inbox')"})
     from marvin.services.entries.trash import collection_entries_filter
+    from marvin.services.entry_listing import hidden_type_ids
 
     rows = (
         ctx.session.query(Entries)
         .join(EntryCollections, EntryCollections.entry_id == Entries.id)
         .filter(EntryCollections.collection_id == col.id, collection_entries_filter(col))
+        .filter(Entries.entry_type_id.notin_(hidden_type_ids(ctx.session, ctx.group_id, col)))
         .all()
     )
     site_url = site_base_url(ctx.session, ctx.group_id) if rows else None

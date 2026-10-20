@@ -11,7 +11,7 @@ import pytest
 
 pytest.importorskip("marvin_integration_sdk", reason="integrations SDK not installed (optional feature)")
 
-from datetime import timedelta  # noqa: E402
+from datetime import UTC, datetime, timedelta  # noqa: E402
 
 from fastapi.encoders import jsonable_encoder  # noqa: E402
 
@@ -28,7 +28,7 @@ from tests import test_social_engagement as se  # noqa: E402
 NOW, item, rule, state = se.NOW, se.item, se.rule, se.state
 ws, nets, _types = se.ws, se.nets, se._types  # the fake networks and the workspace, as the engine's own tests have them
 
-EVENTS_ONLY = Settings(rehearsal=False)  # announce is on by default
+EVENTS_ONLY = Settings()
 LATER = NOW + timedelta(minutes=10)
 
 
@@ -145,15 +145,16 @@ def test_every_connected_network_that_reads_comments_is_polled_each_with_its_own
 def test_announcing_has_its_own_cursor_in_rehearsal_and_live_alike(ws):
     rule(ws)
     net, bus = ws.nets["mastodon"], Bus()
-    rehearsal = Settings(rehearsal=True)
-    first_poll(ws, bus, rehearsal)
+    se.mode(ws, "rehearsal")
+    first_poll(ws, bus)
     net.feed = [fresh("n1", "price?"), fresh("n2", "nothing relevant")]
-    poll(ws, bus, rehearsal)
+    poll(ws, bus)
     assert bus.ids == ["n1", "n2"]  # rehearsal announces: announcing is not sending
     social = state(ws, "m-main")["social"]
     assert social["events_cursor"] == social["rehearsal_cursor"] == "2" and "cursor" not in social
 
     net.feed.append(fresh("n3", "price?"))
+    se.mode(ws, "on")
     poll(ws, bus)  # rehearsal off: the live cursor starts at the beginning, the events cursor goes on
     assert bus.ids == ["n1", "n2", "n3"]  # n1 and n2 are not announced again because the live reply cursor re-read them
     assert [a["comment_id"] for a in net.sent()] == ["n1", "n3"]  # the replies read their own cursor from the start: they answer n1 and n3
@@ -164,17 +165,17 @@ def test_announcing_has_its_own_cursor_in_rehearsal_and_live_alike(ws):
 def test_replying_does_not_depend_on_announcing_nor_the_other_way_round(ws):
     rule(ws)
     net, bus = ws.nets["mastodon"], Bus()
+    se.mode(ws, "off")  # announcing goes on with the replies off
+    first_poll(ws, bus)
     net.feed = [fresh("c1", "price?")]
-    replies_only = Settings(rehearsal=False, announce=False)
-    poll(ws, bus, replies_only)
-    assert bus.sent == [] and [a["comment_id"] for a in net.sent()] == ["c1"]
-    assert "events_cursor" not in state(ws, "m-main")["social"]
-    net.feed.append(fresh("c2", "price again?"))
-    poll(ws, bus)  # announcing on from here: the first announcing poll is the start (c1 and c2 already there)
-    assert bus.sent == []
-    net.feed.append(fresh("c3", "no keyword here", age_hours=-0.5))  # written after that start (at LATER)
+    poll(ws, bus)
+    assert bus.ids == ["c1"] and net.sent() == []
+    se.mode(ws, "on")
+    net.feed.append(fresh("c2", "no keyword here", age_hours=-0.5))
     poll(ws, bus, now=NOW + timedelta(hours=1))
-    assert bus.ids == ["c3"]
+    assert bus.ids == ["c1", "c2"] and [a["comment_id"] for a in net.sent()] == ["c1"]  # c1 is answered now; c2 matches nothing
+    social = state(ws, "m-main")["social"]
+    assert social["events_cursor"] == social["cursor"] == "2"
 
 
 def test_one_read_serves_both_jobs_when_their_cursors_agree(ws):
@@ -203,24 +204,22 @@ def test_a_dropped_cursor_rereads_the_newest_items_without_announcing_them_twice
 # ── when the poll runs ───────────────────────────────────────────────────────────────────────────────────────────
 
 
-def test_no_rules_and_announce_off_reads_nothing(ws):
+def test_no_rules_still_reads_and_announces_but_moves_no_reply_cursor(ws):
     net, bus = ws.nets["mastodon"], Bus()
+    first_poll(ws, bus)
     net.feed = [fresh("n1")]
-    report = poll(ws, bus, Settings(rehearsal=False, announce=False))
-    assert net.calls == [] and bus.sent == [] and report.integrations == []
+    report = poll(ws, bus)
+    assert bus.ids == ["n1"] and "m-main" in report.integrations
+    assert "cursor" not in state(ws, "m-main")["social"]  # a rule written later still sees what was waiting
 
 
-def test_announcing_needs_no_rule_no_log_type_and_no_reply_capability(ws):
-    from marvin.db.models.platform.entry_types import EntryTypes
-
-    ws.session.query(EntryTypes).filter_by(group_id=ws.gid, slug="social-reply-log").delete()
-    ws.session.commit()
+def test_announcing_needs_no_rule_and_no_reply_capability(ws):
     net, bus = ws.nets["bluesky"], Bus()
     net.actions = tuple(a for a in net.actions if a.key == "comments")  # a network that can read, not reply
     first_poll(ws, bus)
     net.feed = [fresh("b1", network="bluesky")]
-    report = poll(ws, bus)
-    assert bus.ids == ["b1"] and "replies are off" in report.summary()
+    poll(ws, bus)
+    assert bus.ids == ["b1"]
     assert [k for k, _ in net.calls] == ["comments", "comments"]
 
 
@@ -243,28 +242,25 @@ def test_an_instagram_plugin_task_stops_the_replies_but_not_the_announcing(ws):
     assert sum(1 for k, _ in net.calls if k == "comments") == 2  # one read per poll: the replies did not read it again
 
 
-def test_the_task_handler_passes_its_bus_and_reads_announce_from_its_config(ws):
-    from types import SimpleNamespace
-
+def test_the_task_handler_passes_its_bus_and_always_announces(ws):
     from marvin.services.scheduled_tasks.handlers.social import SocialEngagementHandler
 
     bus, net = Bus(), ws.nets["mastodon"]
-    task = lambda config: SimpleNamespace(group_id=ws.gid, task_config=config)  # noqa: E731
+    task = se._task(ws, {})
     handler = SocialEngagementHandler()
-    handler.execute(task({}), bus)
-    net.feed = [fresh("n1")]
-    summary = handler.execute(task({}), bus)
+    handler.execute(task, bus)
+
+    def written_after_the_first_poll(cid):  # the handler runs on the real clock, not NOW
+        made = fresh(cid)
+        made["created_at"] = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+        return made
+
+    net.feed = [written_after_the_first_poll("n1")]
+    summary = handler.execute(task, bus)
     assert bus.ids == ["n1"] and "announced 1" in summary
-    net.feed.append(fresh("n2"))
-    assert handler.execute(task({"announce": False}), bus) is None and bus.ids == ["n1"]  # quiet, and nothing announced
-    assert Settings.from_config({}).announce is True and Settings.from_config({"announce": "false"}).announce is False
-
-
-def test_the_blueprint_task_announces_and_starts_disabled():
-    from marvin.services.blueprints.social import SOCIAL_BLUEPRINTS
-
-    task = next(b for b in SOCIAL_BLUEPRINTS if b.kind == "scheduled_task")
-    assert task.payload["enabled"] is False and task.payload["task_config"]["announce"] is True and task.payload["task_config"]["rehearsal"] is True
+    net.feed.append(written_after_the_first_poll("n2"))
+    handler.execute(se._task(ws, {"announce": False}), bus)  # an old `announce: false` is ignored: the inbox and the trigger always run
+    assert bus.ids == ["n1", "n2"]
 
 
 # ── never the account's own, and the window ──────────────────────────────────────────────────────────────────────
