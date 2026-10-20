@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.6 (2026-10-20)
+
+### Features
+
+- **plugins**: Instagram 0.7.0 and Mastodon 0.2.0 — comments, replies and engagement
+  ([`38b2bfe`](https://github.com/InnerOpen/marvin/commit/38b2bfecb15faae83a92ae17b687b3f78444b34a))
+
+- **social**: Engage with comments on every connected network
+  ([`07adefb`](https://github.com/InnerOpen/marvin/commit/07adefbd3999274180acc19ac6271760cef47c42))
+
+
 ## v1.1.0-rc.5 (2026-10-20)
 
 ### Bug Fixes
