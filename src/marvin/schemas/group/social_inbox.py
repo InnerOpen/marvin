@@ -174,8 +174,6 @@ class SocialRuleRead(_MarvinModel):
     reply_as: str
     also_like: bool
     kinds: list[str]
-    legacy: bool
-    """Instagram's older ``ig-auto-reply`` entry, read as a rule for network instagram."""
     path: str
 
 

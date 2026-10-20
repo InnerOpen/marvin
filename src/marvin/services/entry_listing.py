@@ -8,16 +8,17 @@ answer of an entry query. They are still found by naming the type (``entry_type:
 itself (``entries: [slug]``), so the pages and workflows that own them reach them.
 
 Two things make a type internal: the capability flag, and ``INTERNAL_SLUGS``, a core rule for the types of the Social
-engagement feature (the shared rule and log types and Instagram's older ``ig-*`` pair). The rule is what covers a
-workspace that already has those types without a data migration, and one that applies the Instagram plugin's blueprints
-later; it can't be switched off for them.
+engagement feature (the shared rule type, and the retired ``social-reply-log`` type, which a workspace that ran the
+engine early may still hold: the rule keeps those leftovers out of All entries without a data migration). It can't be
+switched off for them. Instagram's older ``ig-*`` types are not on the list: the plugin stopped shipping them and a
+migration removed them.
 
 Same shape as ``publish_visibility`` (which says what the publishing API serves): one answer to "is this type listed?".
 """
 
 from __future__ import annotations
 
-INTERNAL_SLUGS = frozenset({"social-auto-reply", "social-reply-log", "ig-auto-reply", "ig-reply-log"})
+INTERNAL_SLUGS = frozenset({"social-auto-reply", "social-reply-log"})
 """Entry types that are internal whatever their capabilities say."""
 
 

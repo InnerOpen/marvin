@@ -12,7 +12,7 @@ the integration.
 (``replied_at`` set, ``reply_rehearsal`` false) is what stops the engine answering the comment again; a rehearsal's is a dry
 run that a real reply replaces. A reply to a comment not stored yet inserts the row first, so every reply has an item. Items
 with a live reply are kept longer than the rest (``social_inbox.REPLIED_RETENTION_DAYS``), which is what makes pruning safe.
-``reply_log_slug`` points at an older ``social-reply-log`` entry (written before replies moved here); nothing writes it now.
+``reply_log_slug`` points at an older ``social-reply-log`` entry (written before replies moved here); nothing reads or writes it now.
 """
 
 from datetime import datetime
@@ -57,7 +57,7 @@ class SocialInboxItemModel(SqlAlchemyBase, BaseMixins):
     """new | seen | replied | hidden | liked."""
 
     reply_log_slug: Mapped[str | None] = mapped_column(sa.String, nullable=True)
-    """A legacy ``social-reply-log`` entry (its slug) for the reply, from before replies were recorded on the item. Never written now."""
+    """A legacy ``social-reply-log`` entry (its slug) for the reply, from before replies were recorded on the item. Neither read nor written now."""
     reply_mode: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     """private | public | both."""
     reply_rehearsal: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False, server_default=sa.false())

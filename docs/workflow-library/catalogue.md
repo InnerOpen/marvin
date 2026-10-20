@@ -236,7 +236,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - Blocked by: `social-adapters` (a poll-capable provider)
 - `reply-drafting-desk` — **Reply drafting desk** · needs-engine-capability · `comment_added`  
   New comment → classify intent → suggest reply → wait for approval
-  - Instagram comments: the Instagram plugin's `auto_reply` runs from a scheduled task with its own rules; its reply actions are requires_approval and cannot run from a workflow.
+  - Instagram comments: Social in Marvin reads and answers them (keyword rules per network, auto-reply per network); a workflow replies with `social.reply` after an approval step.
   - Blocked by: `comments` (no comment events are ever sent)
 - `campaign-scoreboard` — **Campaign scoreboard** · needs-adapter · `schedule`  
   After campaign → collect supported metrics → compare against baseline

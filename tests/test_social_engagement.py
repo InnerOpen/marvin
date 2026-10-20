@@ -394,39 +394,22 @@ def test_a_comment_is_answered_once_the_item_is_the_dedupe(ws):
     assert len(ws.nets["mastodon"].sent()) == 1 and report.skipped["already_replied"] == 1 and len(logs(ws)) == 1
 
 
-def test_instagrams_reply_log_counts_as_answered_and_its_rules_are_read_for_instagram_only(ws):
-    # Instagram's own types, as its plugin's blueprints make them
-    for slug in ("ig-auto-reply", "ig-reply-log"):
+def test_old_instagram_and_reply_log_entries_are_not_read_dedupe_is_the_inbox_items_only(ws):
+    """Jared's decision (2026-10-21): no legacy compatibility. Instagram's ig-auto-reply entries are not rules, and neither
+    ig-reply-log nor social-reply-log entries stop an answer: only a live reply on the inbox item does."""
+    for slug in ("ig-auto-reply", "ig-reply-log", "social-reply-log"):
         ws.session.add(EntryTypes(session=ws.session, group_id=ws.gid, slug=slug, name=slug, schema_json={"fields": []}))
     ws.session.commit()
-    _entry(ws, "ig-auto-reply", "ig-rule-1", {"post_id": "*", "keywords": "Price, cost", "reply": "DM sent!"})
-    _entry(ws, "ig-auto-reply", "ig-rule-draft", {"post_id": "*", "keywords": "free", "reply": "no"}, status="draft")
+    _entry(ws, "ig-auto-reply", "ig-rule-1", {"post_id": "*", "keywords": "free", "reply": "never sent"})
     _entry(ws, "ig-reply-log", "ig-reply-c1", {"comment_id": "c1", "keyword": "price"})
-    ws.nets["instagram"].feed = [
-        item("c1", network="instagram"),
-        item("c2", "the COST?", network="instagram"),
-        item("c3", "free?", network="instagram"),
-    ]
-    ws.nets["mastodon"].feed = [item("c2", "the COST?")]  # an Instagram rule never answers on another network
+    _entry(ws, "social-reply-log", "social-reply-c1", {"comment_id": "c1"})
+    rule(ws)
+    ws.nets["instagram"].feed = [item("c1", network="instagram"), item("c3", "free?", network="instagram")]
     report = run(ws)
     sent = ws.nets["instagram"].sent()
-    assert [(a["comment_id"], a["text"], a["private"]) for a in sent] == [("c2", "DM sent!", True)]
-    assert ws.nets["mastodon"].sent() == [] and report.skipped["already_replied"] == 1
-    assert [r["rule"] for r in logs(ws)] == ["ig-rule-1"]
-
-
-def test_an_existing_social_reply_log_entry_still_counts_as_answered(ws):
-    """A workspace that answered under the old engine has social-reply-log entries; nothing writes them now, but they stop a re-answer."""
-    ws.session.add(EntryTypes(session=ws.session, group_id=ws.gid, slug="social-reply-log", name="log", schema_json={"fields": []}))
-    ws.session.commit()
-    rule(ws)
-    _entry(ws, "social-reply-log", engine.log_slug("m-main", "c1", rehearsal=False), {"comment_id": "c1"})
-    _entry(ws, "social-reply-log", engine.log_slug("m-main", "c2", rehearsal=True), {"comment_id": "c2", "rehearsal": True})
-    ws.nets["mastodon"].feed = [item("c1"), item("c2"), item("c3")]
-    report = run(ws)
-    assert [a["comment_id"] for a in ws.nets["mastodon"].sent()] == ["c2", "c3"]  # a rehearsal entry never counts when sending live
-    assert report.skipped["already_replied"] == 1
-    assert ws.session.query(Entries).join(EntryTypes).filter(EntryTypes.slug == "social-reply-log").count() == 2  # none written
+    assert [(a["comment_id"], a["text"]) for a in sent] == [("c1", "Check the link in bio.")]  # c1 had old log entries: still answered
+    assert report.skipped["already_replied"] == 0 and report.skipped["no_match"] == 1  # the ig rule never answers "free?"
+    assert [r["rule"] for r in logs(ws)] == ["r1"]
 
 
 def test_a_reply_to_an_item_not_stored_yet_inserts_it_first_and_the_item_is_the_log(ws):
@@ -480,19 +463,14 @@ def test_prune_drops_unanswered_and_rehearsed_items_at_thirty_days(ws):
     assert social_inbox.prune(ws.session, NOW - timedelta(days=30), keep_replied_after=NOW - timedelta(days=180)) == 2
 
 
-def test_the_engine_leaves_an_integration_to_the_plugins_own_auto_reply_task_while_it_is_enabled(ws):
+def test_an_enabled_plugin_auto_reply_task_no_longer_holds_the_engine_back(ws):
+    """The old 'leave it to the plugin's own task' check is gone (Jared, 2026-10-21): the engine answers by the network's mode."""
     rule(ws)
     ws.nets["instagram"].feed = [item("c1")]
-    task = ScheduledTaskModel(
+    ws.session.add(ScheduledTaskModel(
         session=ws.session, group_id=ws.gid, name="IG", slug="instagram-auto-reply", enabled=True, schedule_type="interval",
         schedule_config={"interval_seconds": 120}, task_type="run_integration_action", task_config={"integration": "ig", "action": "auto_reply"},
-    )  # fmt: skip
-    ws.session.add(task)
-    ws.session.commit()
-    report = run(ws)
-    assert [k for k, _ in ws.nets["instagram"].calls if k == "reply"] == [] and report.skipped["plugin_task_enabled"] == 1
-    assert "events_cursor" in state(ws, "ig")["social"] and "cursor" not in state(ws, "ig")["social"]  # still read: only replies are left alone
-    task.enabled = False
+    ))  # fmt: skip
     ws.session.commit()
     run(ws)
     assert len(ws.nets["instagram"].sent()) == 1
@@ -867,20 +845,6 @@ def test_a_rule_reads_keywords_as_a_list_or_a_comma_separated_string_and_ignores
     assert rule_from_data({"keywords": "", "reply": "Hi"}, id="r") is None and rule_from_data({"keywords": "a", "reply": "  "}, id="r") is None
     odd = rule_from_data({"keywords": "a", "reply": "x", "reply_as": "shout", "post": "*", "networks": "@Mastodon, b-main"}, id="r")
     assert (odd.reply_as, odd.post, odd.networks) == ("private", "", frozenset({"mastodon", "b-main"}))
-
-
-def test_an_instagram_rule_is_read_as_a_private_rule_for_instagram():
-    from marvin.services.integrations.social_rules import rule_from_data
-
-    legacy = rule_from_data({"post_id": "178", "keywords": "size, sizing", "reply": "S-XL"}, id="ig-1", legacy=True)
-    assert (legacy.post, legacy.networks, legacy.reply_as, legacy.also_like, legacy.legacy) == (
-        "178",
-        frozenset({"instagram"}),
-        "private",
-        False,
-        True,
-    )
-    assert rule_from_data({"post_id": "*", "keywords": "a", "reply": "b"}, id="ig-2", legacy=True).post == ""
 
 
 def test_the_window_counts_an_unreadable_time_as_fresh_and_reads_z_suffixed_times():

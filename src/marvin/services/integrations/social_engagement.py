@@ -8,9 +8,8 @@ comments, ``social_setup.reconcile``) does this for each enabled integration who
    whatever the network's auto-reply mode;
 2. **reply**, when the network's auto-reply mode (``state["social"]["auto_reply"]``) is ``rehearsal`` or ``on``: drop the account's
    own comments, items older than 7 days and comments already answered, match the published rules (``social_rules``:
-   ``social-auto-reply`` entries, and Instagram's ``ig-auto-reply`` entries read as rules for network instagram), reply in
-   the rule's mode (private, public or both), like the comment too when the rule says so and the network can, and record the
-   reply on the inbox item.
+   ``social-auto-reply`` entries), reply in the rule's mode (private, public or both), like the comment too when the rule says
+   so and the network can, and record the reply on the inbox item.
 
 **Auto-reply is per network**: ``off`` (the default) reads and announces but never replies; ``rehearsal`` calls the plugin with
 ``dry_run: true`` (it sends nothing), records the dry run on the item (``reply_rehearsal``) and moves the rehearsal read cursor
@@ -20,8 +19,7 @@ retrying, waits in ``state["social"]["pending"]`` for the next run (live only; a
 
 **The item is the reply log.** A reply is written on the inbox item (``social_inbox.record_reply``: mode, rehearsal, reply id,
 text, rule, when) — inserting the item first when the engine replies to one it hasn't stored — and a live reply on an item is what
-"answered" means: one comment, one reply. Older workspaces' ``social-reply-log`` and Instagram's ``ig-reply-log`` entries still
-count as answered (nothing is answered twice in the switch-over), but nothing writes them any more. The 30-day inbox prune keeps
+"answered" means: one comment, one reply. The 30-day inbox prune keeps
 items with a live reply for 180 days, and the answer window is at most 90 days, so a pruned item is always too old to answer again.
 
 **The narrow approval path.** A workflow's ``social.reply`` needs an Approval step; a published rule *is* the approval of
@@ -40,10 +38,6 @@ click is the approval, and the engine's door stays exactly as narrow as above.
 A plugin refusal (IntegrationError code ``unsupported``, or ``refused`` for bad arguments) skips that comment: no retry, nothing
 recorded, noted in the run summary. Any other failure is that network's failure for the run: the other networks go on.
 A plugin that rejects its cursor (``invalid_cursor``) has it dropped and is read again without one.
-
-Instagram: while the plugin's own ``auto_reply`` scheduled task is enabled for an integration the engine leaves that
-integration's replies alone (two senders would answer twice); switch the plugin's task off to hand it over. Reading and
-announcing go on.
 
 **Keeping the items.** Every network read the poll makes is also written to ``social_inbox_items``
 (``social_inbox.persist_items``: one batch upsert per read, the account's own items skipped, older than 30 days never kept), so
@@ -65,7 +59,6 @@ start on it. It is a second job of the same run, with its own state, so replying
 
 from __future__ import annotations
 
-import hashlib
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -77,9 +70,6 @@ from .social import SOCIAL_COMMENTS, SOCIAL_LIKE, SOCIAL_REPLY
 from .social_rules import (
     BOTH,
     DEFAULT_MAX_AGE_DAYS,
-    IG_LOG_TYPE,
-    IG_NETWORK,
-    IG_RULE_TYPE,
     ITEM_KINDS,
     PRIVATE,
     PUBLIC,
@@ -113,9 +103,6 @@ TASK_TYPE = "social_engagement"
 CODES_NO_RETRY = frozenset({"unsupported", "refused"})
 """Plugin refusals that skip a comment for good: the network can't do it, or the arguments are wrong."""
 INVALID_CURSOR = "invalid_cursor"
-PLUGIN_TASK_ACTION = "auto_reply"
-REASON_PLUGIN_TASK = "plugin_task_enabled"
-IG_REPLY_SLUG_PREFIX = "ig-reply-"
 MAX_NOTES = 5  # failures / refusals a run summary names
 EVENT_SOURCE = "social_engagement"
 MAX_SEEN = 500
@@ -281,74 +268,36 @@ class _Network(PluginCaller):
 # ── rules and the log ─────────────────────────────────────────────────────────────────────────────────────────────
 
 
-def _entries(session, group_id, type_slugs, *, published: bool):
+def _rule_entries(session, group_id):
+    """The workspace's published rule entries, oldest first."""
     from marvin.db.models.platform.entries import Entries
     from marvin.db.models.platform.entry_types import EntryTypes
 
-    q = (
-        session.query(Entries, EntryTypes.slug)
+    return (
+        session.query(Entries)
         .join(EntryTypes, Entries.entry_type_id == EntryTypes.id)
-        .filter(Entries.group_id == group_id, EntryTypes.slug.in_(list(type_slugs)))
+        .filter(Entries.group_id == group_id, EntryTypes.slug == RULE_TYPE, Entries.status == "published")
+        .order_by(Entries.created_at.asc(), Entries.id.asc())
     )
-    if published:
-        q = q.filter(Entries.status == "published")
-    return q.order_by(Entries.created_at.asc(), Entries.id.asc())
 
 
 def load_rules(session, group_id) -> list[SocialRule]:
-    """The published rules, oldest first: ``social-auto-reply`` entries and Instagram's ``ig-auto-reply`` entries (read as
-    shared rules for network instagram). Drafts never fire."""
+    """The published ``social-auto-reply`` rules, oldest first. Drafts never fire."""
     rules = []
-    for entry, type_slug in _entries(session, group_id, (RULE_TYPE, IG_RULE_TYPE), published=True):
-        rule = rule_from_data(entry.data_json or {}, id=entry.slug, legacy=type_slug == IG_RULE_TYPE, order=len(rules))
+    for entry in _rule_entries(session, group_id):
+        rule = rule_from_data(entry.data_json or {}, id=entry.slug, order=len(rules))
         if rule is not None:
             rules.append(rule)
     return rules
 
 
-def log_slug(integration: str, comment_id: str, *, rehearsal: bool) -> str:
-    """The slug a legacy ``social-reply-log`` entry has: one per (integration, comment, live or rehearsal). Nothing writes these
-    any more; the engine only looks for them, so a comment answered before replies moved onto inbox items isn't answered again."""
-    digest = hashlib.sha1(f"{integration}\0{comment_id}".encode(), usedforsecurity=False).hexdigest()[:20]
-    return f"social-{'rehearsal' if rehearsal else 'reply'}-{digest}"
-
-
-def _answered(session, group_id, row, ids: list[str], rehearsal: bool, legacy: set[str] | None) -> set[str]:
+def _answered(session, row, ids: list[str], rehearsal: bool) -> set[str]:
     """Which of these comment ids are already answered: a live reply on the inbox item (in rehearsal, a rehearsal's too, so a dry
-    run isn't recorded every poll), a legacy ``social-reply-log`` entry, or, for Instagram, an ``ig-reply-log`` entry."""
-    from marvin.db.models.platform.entries import Entries
-
-    if not ids:
-        return set()
-    done = social_inbox.answered_ids(session, row, ids, rehearsal_counts=rehearsal)
-    by_slug = {log_slug(row.slug, i, rehearsal=False): i for i in ids}
-    if rehearsal:
-        by_slug.update({log_slug(row.slug, i, rehearsal=True): i for i in ids})
-    found = {r[0] for r in session.query(Entries.slug).filter(Entries.group_id == group_id, Entries.slug.in_(list(by_slug)))}
-    done |= {by_slug[s] for s in found}
-    if legacy:
-        done |= {i for i in ids if i in legacy}
-    return done
-
-
-def _legacy_answered(session, group_id) -> set[str]:
-    """Every comment id Instagram's own task has already answered (``ig-reply-log`` entries' ``comment_id``)."""
-    return {
-        str(e.data_json["comment_id"])
-        for e, _ in _entries(session, group_id, (IG_LOG_TYPE,), published=False)
-        if (e.data_json or {}).get("comment_id")
-    }
+    run isn't recorded every poll)."""
+    return social_inbox.answered_ids(session, row, ids, rehearsal_counts=rehearsal) if ids else set()
 
 
 # ── one integration ───────────────────────────────────────────────────────────────────────────────────────────────
-
-
-def _plugin_task_enabled(session, group_id, slug: str) -> bool:
-    """Whether an enabled scheduled task of the integration's own ``auto_reply`` action (Instagram's plugin task) is running for it."""
-    from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
-
-    tasks = session.query(ScheduledTaskModel).filter_by(group_id=group_id, task_type="run_integration_action", enabled=True)
-    return any((t.task_config or {}).get("integration") == slug and (t.task_config or {}).get("action") == PLUGIN_TASK_ACTION for t in tasks)
 
 
 def _state(row) -> dict:
@@ -396,13 +345,7 @@ class _Run:
     event_bus: object = None
     replying: bool = True
     """Whether this run can answer comments: there is at least one published rule."""
-    legacy: set[str] | None = None
     budget: int = 0
-
-    def legacy_answered(self) -> set[str]:
-        if self.legacy is None:
-            self.legacy = _legacy_answered(self.session, self.group_id)
-        return self.legacy
 
 
 def _read_once(run: _Run, net: _Network, row, cursor: str | None, kinds: list[str], cache: dict) -> tuple[list[dict], str | None, bool]:
@@ -425,10 +368,6 @@ def _engage(run: _Run, row, provider) -> None:
     cache: dict = {}
     mode = get_mode(row)
     replying = run.replying and mode != OFF and net.has(SOCIAL_REPLY)
-    if replying and _plugin_task_enabled(session, run.group_id, row.slug):
-        report.skipped[REASON_PLUGIN_TASK] += 1
-        report.note(f"{row.slug}: left to the plugin's own auto-reply task (switch it off to use the shared engine)")
-        replying = False
     report.integrations.append(row.slug)
     _announce(run, net, row, state, cache, count=not replying)
     if replying:
@@ -448,14 +387,7 @@ def _reply(run: _Run, net: _Network, row, state: dict, cache: dict, *, rehearsal
 
     handles, ids = own_identities(row.config)
     names = {row.slug.lower(), row.provider.lower()}
-    answered = _answered(
-        session,
-        run.group_id,
-        row,
-        [str(i["id"]) for i in candidates],
-        rehearsal,
-        run.legacy_answered() if row.provider == IG_NETWORK else None,
-    )
+    answered = _answered(session, row, [str(i["id"]) for i in candidates], rehearsal)
     keep: list[dict] = []
     for item in candidates:
         cid = str(item["id"])

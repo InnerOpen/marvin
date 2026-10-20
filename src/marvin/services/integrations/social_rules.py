@@ -18,8 +18,8 @@ public or both), whether to like the comment too (``also_like``) and which kinds
 rule that lists it, so a keyword rule never replies to strangers unasked. (Networks differ: Instagram yields comment and
 reply, Mastodon reply and mention — never "comment".)
 
-A rule's source is either the shared ``social-auto-reply`` entry or, for Instagram's old ``ig-auto-reply`` entry (``post_id``,
-``keywords``, ``reply``), the same rule read as one for network "instagram" that replies privately — see ``rule_from_entry``.
+A rule's source is the shared ``social-auto-reply`` entry. (Instagram's old ``ig-auto-reply`` entries are no longer read: the
+plugin stopped shipping them and a migration removed the leftovers.)
 """
 
 from __future__ import annotations
@@ -32,10 +32,6 @@ ALL_POSTS = "*"
 DEFAULT_MAX_AGE_DAYS = 7
 
 RULE_TYPE = "social-auto-reply"
-LOG_TYPE = "social-reply-log"
-IG_RULE_TYPE = "ig-auto-reply"
-IG_LOG_TYPE = "ig-reply-log"
-IG_NETWORK = "instagram"
 
 PRIVATE, PUBLIC, BOTH = "private", "public", "both"
 REPLY_MODES = (PRIVATE, PUBLIC, BOTH)
@@ -67,8 +63,6 @@ class SocialRule:
     """Which item kinds the rule answers (comment, reply, mention)."""
     published: bool = True
     """False for a draft: never fires. The engine only loads published entries, and re-checks this before it sends."""
-    legacy: bool = False
-    """Read from an Instagram ``ig-auto-reply`` entry."""
     order: int = field(default=0, compare=False)
 
 
@@ -80,26 +74,22 @@ def _words(value) -> list[str]:
     return [str(i).strip() for i in items if str(i).strip()]
 
 
-def rule_from_data(data: dict, *, id: str, published: bool = True, legacy: bool = False, order: int = 0) -> SocialRule | None:
-    """A rule from an entry's data (``social-auto-reply`` fields, or Instagram's ``ig-auto-reply``: ``post_id`` for ``post``,
-    and always network instagram, private). None when it has no usable keywords or reply."""
+def rule_from_data(data: dict, *, id: str, published: bool = True, order: int = 0) -> SocialRule | None:
+    """A rule from a ``social-auto-reply`` entry's data. None when it has no usable keywords or reply."""
     if not isinstance(data, dict):
         return None
     keywords = tuple(k.lower() for k in _words(data.get("keywords")))
     reply = str(data.get("reply") or "").strip()
     if not keywords or not reply:
         return None
-    post = str(data.get("post_id" if legacy else "post") or "").strip()
+    post = str(data.get("post") or "").strip()
     if post == ALL_POSTS:
         post = ""
-    if legacy:
-        networks, reply_as, also_like, kinds = frozenset({IG_NETWORK}), PRIVATE, False, DEFAULT_KINDS
-    else:
-        networks = frozenset(n.lower().lstrip("@") for n in _words(data.get("networks")))
-        mode = str(data.get("reply_as") or PRIVATE).strip().lower()
-        reply_as = mode if mode in REPLY_MODES else PRIVATE
-        also_like = data.get("also_like") in (True, "true", "True", 1, "1", "yes")
-        kinds = frozenset(k.lower() for k in _words(data.get("kinds")) if k.lower() in ITEM_KINDS) or DEFAULT_KINDS
+    networks = frozenset(n.lower().lstrip("@") for n in _words(data.get("networks")))
+    mode = str(data.get("reply_as") or PRIVATE).strip().lower()
+    reply_as = mode if mode in REPLY_MODES else PRIVATE
+    also_like = data.get("also_like") in (True, "true", "True", 1, "1", "yes")
+    kinds = frozenset(k.lower() for k in _words(data.get("kinds")) if k.lower() in ITEM_KINDS) or DEFAULT_KINDS
     return SocialRule(
         id=id,
         keywords=keywords,
@@ -110,7 +100,6 @@ def rule_from_data(data: dict, *, id: str, published: bool = True, legacy: bool 
         also_like=also_like,
         kinds=kinds,
         published=published,
-        legacy=legacy,
         order=order,
     )
 

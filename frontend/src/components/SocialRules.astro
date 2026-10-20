@@ -99,7 +99,6 @@ const data = JSON.stringify({ network, rules: ordered, can }).replace(/</g, "\\u
         ${action ? `<button type="button" class="button${action.publish ? "" : " secondary"} si-btn-sm" data-publish="${action.publish}">${esc(action.label)}</button>` : ""}
       </div>
       ${action?.note ? `<p class="si-muted si-small">${esc(action.note)}</p>` : ""}
-      ${rule.legacy ? `<p class="si-muted si-small">Instagram's older auto-reply rule: it still answers, and is edited the same way.</p>` : ""}
       <p class="si-result" id="sr-result" role="status" hidden></p>`;
   }
 

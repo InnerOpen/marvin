@@ -166,7 +166,6 @@ export interface Rule {
   replyAs: string;
   alsoLike: boolean;
   kinds: string[];
-  legacy: boolean;
   path: string;
 }
 
@@ -190,18 +189,12 @@ export function ruleScope(rule: Pick<Rule, "allNetworks" | "networks" | "post">,
   return rule.post ? `${where} · one post` : where;
 }
 
-export function ruleBadges(rule: Pick<Rule, "published" | "legacy" | "allNetworks">): Badge[] {
+export function ruleBadges(rule: Pick<Rule, "published" | "allNetworks">): Badge[] {
   const badges: Badge[] = [
     rule.published
       ? { label: "Published", tone: "good", title: "Answers comments under it" }
       : { label: "Draft", tone: "muted", title: "Does nothing until it is published" },
   ];
-  if (rule.legacy)
-    badges.push({
-      label: "Instagram rule",
-      tone: "neutral",
-      title: "Instagram's older auto-reply rule; it still answers",
-    });
   return badges;
 }
 

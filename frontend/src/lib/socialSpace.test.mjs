@@ -174,7 +174,6 @@ const rule = (extra = {}) => ({
   replyAs: "private",
   alsoLike: false,
   kinds: ["comment"],
-  legacy: false,
   path: "/workspace/entries/1",
   ...extra,
 });
@@ -203,7 +202,7 @@ describe("rules", () => {
     assert.equal(ruleScope(rule({ post: "p1" }), null), "All networks · one post");
   });
 
-  test("a published rule and a draft are told apart; an Instagram rule is marked", () => {
+  test("a published rule and a draft are told apart", () => {
     assert.deepEqual(
       ruleBadges(rule()).map((b) => [b.label, b.tone]),
       [["Published", "good"]],
@@ -211,10 +210,6 @@ describe("rules", () => {
     assert.deepEqual(
       ruleBadges(rule({ published: false })).map((b) => b.label),
       ["Draft"],
-    );
-    assert.deepEqual(
-      ruleBadges(rule({ legacy: true })).map((b) => b.label),
-      ["Published", "Instagram rule"],
     );
   });
 

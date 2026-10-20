@@ -27,7 +27,7 @@ Providers published so far, all under `https://github.com/InnerOpen/marvin-integ
 | `marvin-integration-slack` | `slack` | notify | `send_message`; declares an "Announce published entries" event subscription |
 | `marvin-integration-apprise` | `apprise` | notify | `notify` (capability `notify`) |
 | `marvin-integration-openai-images` | `openai_images` | capability | `generate` (capability `image.generate`) |
-| `marvin-integration-instagram` | `instagram` | destination | `list_recent_comments`, `send_private_reply` (DM a comment's author), `auto_reply` (keyword rules, dry-run by default), `refresh_token`; declares its own entry types, collections and scheduled tasks |
+| `marvin-integration-instagram` | `instagram` | destination | `comments`, `reply`, `hide`, `delete_comment` (Social's capabilities), `post`, `publish_media`, `refresh_token`; declares the token-refresh scheduled task. Its own keyword auto-reply was replaced by [Social](social.md) in 0.8.0 |
 | `marvin-integration-square` | `square` | destination | `list_locations`, `create_listing`, `close_listing` (sell one-of-a-kind items through a Square checkout link); declares fields on an item type, an incoming webhook with its own `square` signature scheme, and workflows |
 | `marvin-integration-cloudflare-pages` | `cloudflare_pages` | destination | `list_deployments`, `build_log` (the likely failure line from a deployment's build log), `connect_notifications` (sets up Cloudflare's deploy notifications to post to Marvin), `deploy`; contributes a `cloudflare` token signature scheme and declares an incoming webhook plus workflows that turn deploy started / succeeded / failed notifications into site deployment events, with the build-log reason on failure |
 | `marvin-integration-buttondown` | `buttondown` | destination | `subscribe`, `lookup_subscriber`, `create_issue_email`, `connect_webhooks` (**Connect Buttondown webhooks**); contributes a `buttondown` signature scheme and declares an incoming webhook plus workflows that run a site's newsletter through Buttondown (see [Newsletter with Buttondown](#newsletter-with-buttondown)) |
@@ -257,6 +257,6 @@ Note: `docs/archive/INTEGRATIONS_DESIGN.md` and the plugin architecture doc pred
 
 - [Blueprints](blueprints.md) — the content a provider declares.
 - [Incoming webhooks](incoming-webhooks.md) — where integration signature presets appear.
-- [Collections](collections.md) — the smart collections Instagram declares.
+- [Collections](collections.md) — smart collections providers declare.
 - Design: [INTEGRATIONS_PLUGIN_ARCHITECTURE.md](https://github.com/InnerOpen/marvin/blob/develop/docs/archive/INTEGRATIONS_PLUGIN_ARCHITECTURE.md)
 - [Glossary](../glossary.md)

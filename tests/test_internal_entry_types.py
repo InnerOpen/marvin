@@ -37,10 +37,10 @@ API = "/api/platform"
 
 @pytest.fixture
 def content(ws):
-    """The workspace with a normal type and entries, the rule type (internal), and a legacy Instagram type with no flag at all."""
+    """The workspace with a normal type and entries, the rule type (internal), and the retired reply-log type with no flag at all."""
     session, gid = ws.session, ws.gid
     note = EntryTypes(session=session, group_id=gid, slug="note", name="Note", schema_json={"fields": []})
-    legacy = EntryTypes(session=session, group_id=gid, slug="ig-reply-log", name="IG Reply Log", schema_json={"fields": []})
+    legacy = EntryTypes(session=session, group_id=gid, slug="social-reply-log", name="Social reply log", schema_json={"fields": []})
     session.add_all([note, legacy])
     session.commit()
     made = {}
@@ -48,7 +48,7 @@ def content(ws):
     for key, type_slug, status in (
         ("note_draft", "note", "draft"), ("note_pub", "note", "published"), ("note_inbox", "note", "inbox"),
         ("rule_draft", "social-auto-reply", "draft"), ("rule_pub", "social-auto-reply", "published"),
-        ("rule_inbox", "social-auto-reply", "inbox"), ("iglog_pub", "ig-reply-log", "published"),
+        ("rule_inbox", "social-auto-reply", "inbox"), ("iglog_pub", "social-reply-log", "published"),
     ):  # fmt: skip
         type_id = session.query(EntryTypes.id).filter_by(group_id=gid, slug=type_slug).scalar()
         data = {"keywords": "price", "reply": "hi"} if type_slug == "social-auto-reply" else {}
@@ -79,7 +79,7 @@ def test_a_type_is_internal_by_the_flag_or_by_a_core_slug():
     assert is_listed_type(SimpleNamespace(slug="note", capabilities_json={"publishable": False})) is True  # not publishable is not unlisted
     assert is_listed_type(SimpleNamespace(slug="note", capabilities_json={"listed": False})) is False
     assert is_listed_type(SimpleNamespace(slug="note", capabilities_json={"listed": True})) is True
-    for slug in ("social-auto-reply", "social-reply-log", "ig-auto-reply", "ig-reply-log"):
+    for slug in ("social-auto-reply", "social-reply-log"):
         assert slug in INTERNAL_SLUGS and is_listed_type(SimpleNamespace(slug=slug, capabilities_json=None)) is False  # legacy: no flag stored
 
 
@@ -95,12 +95,12 @@ def test_the_unlisted_ids_cover_the_flag_and_the_slugs(content):
     content.session.add(flagged)
     content.session.commit()
     slugs = {t.slug for t in content.session.query(EntryTypes).filter(EntryTypes.id.in_(unlisted_type_ids(content.session, content.gid)))}
-    assert slugs == {"social-auto-reply", "ig-reply-log", "secret"}
+    assert slugs == {"social-auto-reply", "social-reply-log", "secret"}
 
 
 def test_the_publishing_api_never_serves_an_internal_type_even_one_marked_publishable():
     assert is_publishable_type(SimpleNamespace(slug="x", capabilities_json={"publishable": True, "listed": False})) is False
-    assert is_publishable_type(SimpleNamespace(slug="ig-auto-reply", capabilities_json=None)) is False
+    assert is_publishable_type(SimpleNamespace(slug="social-reply-log", capabilities_json=None)) is False
     assert is_publishable_type(SimpleNamespace(slug="note", capabilities_json={})) is True
 
 
@@ -131,7 +131,7 @@ def test_a_query_names_an_internal_type_to_find_it_and_never_reaches_it_otherwis
     assert found({"entry_type": "social-auto-reply", "status": "published"}) == {"rule_pub"}
     assert found({"entry_types": ["note", "social-auto-reply"]}) == NOTES | {"rule_draft", "rule_pub", "rule_inbox"}
     assert found({"entries": ["rule_pub"]}) == {"rule_pub"}  # the entry itself, by name
-    assert found({"entry_type": "ig-reply-log"}) == {"iglog_pub"}  # a legacy type, internal by its slug
+    assert found({"entry_type": "social-reply-log"}) == {"iglog_pub"}  # a legacy type, internal by its slug
 
 
 def test_the_entries_search_route_and_the_assistants_find_entries_agree(content, client):
@@ -206,11 +206,11 @@ def test_a_collection_page_lists_internal_entries_only_when_its_rules_name_the_t
 
 def test_the_dashboard_pipeline_and_ages_leave_out_internal_types(content):
     rows = {r.slug: r for r in dashboard.by_type_status(content.session, content.gid)}
-    assert "note" in rows and "social-auto-reply" not in rows and "ig-reply-log" not in rows
+    assert "note" in rows and "social-auto-reply" not in rows and "social-reply-log" not in rows
     assert (rows["note"].draft, rows["note"].published, rows["note"].inbox) == (1, 1, 1)
     assert dashboard.oldest_entry_days(content.session, content.gid, "draft", datetime.now(UTC)) is not None
     week = dashboard.published_by_week(content.session, content.gid, datetime.now(UTC))
-    assert "social-auto-reply" not in week.model_dump_json() and "ig-reply-log" not in week.model_dump_json()
+    assert "social-auto-reply" not in week.model_dump_json() and "social-reply-log" not in week.model_dump_json()
     assert sum(sum(w.by_type.values()) for w in week.weeks) == 1  # the one published note, not the two published internal entries
 
 
@@ -232,7 +232,7 @@ def test_the_assistants_overview_counts_only_listed_content(content):
 
     ctx = ToolContext(session=content.session, group_id=content.gid, user=None, provider=None)
     out = json.loads(builtins_overview.workspace_overview(ctx, {}))
-    assert "social-auto-reply" not in json.dumps(out) and "ig-reply-log" not in json.dumps(out)
+    assert "social-auto-reply" not in json.dumps(out) and "social-reply-log" not in json.dumps(out)
     assert out["entries"]["total"] == 3 and [t["slug"] for t in out["entries"]["byType"]] == ["note"]
 
 

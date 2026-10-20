@@ -12,5 +12,5 @@ Utility scripts for deployment, dev environments and docs.
 | `server.py` | A very small HTTP server that logs the requests it receives |
 
 > The Instagram integration used to be seeded by `seed_instagram_auto_reply.py`. It now declares its
-> own content (entry types, collections, scheduled tasks) through the SDK, and the workspace applies
-> it from the blueprint catalog after review — see `services/blueprints/`.
+> own content (the token-refresh task) through the SDK, and the workspace applies it from the
+> blueprint catalog after review — see `services/blueprints/`. Its keyword auto-reply was replaced by Social.

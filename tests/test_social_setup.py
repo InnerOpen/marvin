@@ -249,18 +249,15 @@ def test_a_network_lists_its_rules_plus_the_all_network_ones(ws, api):
     assert one["masto"]["keywords"] == ["price"] and one["masto"]["path"] == f"/workspace/entries/{one['masto']['id']}"
 
 
-def test_a_trashed_rule_is_not_listed_and_instagrams_older_rules_are_marked(ws, api):
+def test_a_trashed_rule_is_not_listed_and_instagrams_older_rule_type_is_not_read(ws, api):
     se.rule(ws, "gone")
     ws.session.query(Entries).filter_by(group_id=ws.gid, slug="gone").update({"status": "trashed"})
-    for slug in ("ig-auto-reply",):
-        ws.session.add(EntryTypes(session=ws.session, group_id=ws.gid, slug=slug, name=slug, schema_json={"fields": []}))
+    ws.session.add(EntryTypes(session=ws.session, group_id=ws.gid, slug="ig-auto-reply", name="ig", schema_json={"fields": []}))
     ws.session.commit()
     se._entry(ws, "ig-auto-reply", "old-ig", {"post_id": "*", "keywords": "cost", "reply": "DM sent"})
     client = api(EDITOR)
-    assert "gone" not in rules_of(client, "ig")
-    old = rules_of(client, "ig")["old-ig"]
-    assert (old["legacy"], old["networks"], old["allNetworks"], old["replyAs"]) == (True, ["instagram"], False, "private")
-    assert "old-ig" not in rules_of(client, "m-main")
+    assert "gone" not in rules_of(client, "ig") and "old-ig" not in rules_of(client, "ig")
+    assert all("legacy" not in r for r in rules_of(client).values())
 
 
 def test_a_rule_made_from_a_networks_page_defaults_to_that_network_as_a_draft(ws, api):

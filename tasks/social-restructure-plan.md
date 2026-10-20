@@ -61,13 +61,11 @@ Collections   v
    - The core "Social" blueprint set and its collections (`social-auto-reply-rules`, `social-replies`) are retired from
      view. The `social-reply-log` type is no longer needed for new data. Keep or hide the existing ones; never delete
      content.
-6. **Instagram clean-up:**
-   - Convert `ig-auto-reply` rules to `social-auto-reply` rules for that Instagram integration. Preview first, then
-     apply on Jared's OK.
-   - Mark the `ig-*` types internal like the shared ones (so `IG Reply Log` leaves All entries and Published).
-   - Disable the plugin's own auto-reply task once Instagram's mode is set.
-   - The plugin stops shipping the "Social —" named collections and `ig-*` types on new installs (a plugin release;
-     legacy reading stays in core).
+6. **Instagram clean-up** (changed 2026-10-21, see the phase 2 review: Jared dropped the conversion):
+   - ~~Convert `ig-auto-reply` rules to `social-auto-reply` rules, preview then apply.~~ Dropped.
+   - ~~Mark the `ig-*` types internal; keep reading them.~~ Dropped.
+   - The plugin stops shipping the `ig-*` types, the "Social —" collections and its auto-reply task (a plugin release), and core
+     removes the leftovers and its legacy reading.
 
 ## UI
 - Sidebar: the Social group under Collections, with the Inbox badge (count of new) on Social and on Inbox.
@@ -92,8 +90,8 @@ Collections   v
 ## Phases
 1. Core: the internal flag and its audit, per-network modes, reply log on inbox items, precedence, automatic plumbing,
    sidebar/Social pages, Integrations card removed. Ship.
-2. Instagram: conversion (preview → apply on OK), legacy types internal, the plugin release dropping its own
-   collections/types.
+2. Instagram: the plugin release dropping its own collections/types/task, and core dropping its legacy reading plus a
+   one-off clean-up migration (no conversion; see the phase 2 review).
 
 ## Decisions for Jared
 (none open: the shape, rules-as-internal-entries, the log on inbox items, per-network rules with all-network rules and
@@ -177,3 +175,51 @@ precedence, and conversion with a preview were agreed in conversation 2026-10-20
   - There is no "this network's rules" shortcut on the editor.
   - A person's second reply to an item replaces the first record.
   - An integration recreated with the same slug loses its replied items, because dedupe keys on the integration id (only the 7-day window protects it).
+
+## Review, phase 2 (2026-10-22)
+- **Scope change, Jared 2026-10-21:** "nothing is live or important... [no] need to worry about existing content". The planned
+  conversion (preview, apply on OK, the API pair, the network-page notice and dialog) was **dropped before it was built**, and so
+  were "never delete" and "keep as history" for the old Instagram data. **Legacy compatibility was removed by Jared's decision**:
+  core no longer reads anything of the plugin's own auto-reply, and the leftovers are deleted.
+- **Core, removed:**
+  - `ig-auto-reply` entries are no longer rules (`social_rules.rule_from_data` has no legacy mode, `SocialRule.legacy` is gone,
+    `load_rules` reads `social-auto-reply` only, `social_rule_entries` lists only that type, `GET /rules` has no `legacy` field).
+  - Dedupe is **inbox items only**. `ig-reply-log` and, by my choice, `social-reply-log` entries are no longer read (`log_slug`,
+    `_legacy_answered` and the `legacy` argument are gone). `social-reply-log` was droppable because the phase 1 migration copied what
+    the replies view needs onto the items, and items answered under the old log already carry `replied_at`.
+  - The "skip replies while the plugin's own `auto_reply` task is enabled" check is gone (`plugin_task_enabled` no longer exists).
+    An enabled leftover task no longer holds the engine back.
+  - `INTERNAL_SLUGS` is now `social-auto-reply` and `social-reply-log`. The `ig-*` slugs are dropped (the migration removes those
+    entries); `social-reply-log` stays so leftover entries of a workspace that ran the early engine don't reappear in All entries.
+    The frontend list (`entryTypeListing.ts`) matches, and the Rules tab no longer marks "Instagram rule" rows.
+  - Kept, not Instagram: `social_setup.map_legacy_rehearsal` (the old task-wide `rehearsal` setting) and the `reply_log_slug` column
+    (unused now; dropping it is a schema change not worth making here).
+- **Core, the clean-up: a data migration** (`b8d4e2f61a73`, after `ef911a9c1779`), not an admin command. It must happen once, for every
+  workspace, on the deploy that stops reading these types, and a command would have to be remembered. It uses plain table statements
+  (so no model drift, same style as `ef911a9c1779`), is idempotent, and its downgrade does nothing (no schema change, nothing to rebuild).
+  It removes only:
+  - the entries of the exact types `ig-auto-reply` / `ig-reply-log` with their tag, asset, resource, snapshot and collection links and
+    embeddings, then the two types;
+  - the collections `social-auto-responses` / `social-sent`, only when each is a smart collection over its own `ig-*` type (the
+    sidebar's "Instagram" group is drawn from the collections an integration installed, so it disappears with them);
+  - the scheduled task `instagram-auto-reply`, only a `run_integration_action` task whose action is `auto_reply`, with its run log.
+    `instagram-token-refresh` and every other task, collection, entry and type are untouched.
+  - Tested on PostgreSQL and SQLite (exact removal in two workspaces, a second run changes nothing, lookalikes left alone, a workspace
+    without them untouched, upgrade/downgrade/upgrade, single head).
+- **What happens to an existing workspace when the plugin stops shipping blueprints.** Blueprints are not stored: the catalogue is read live
+  from the installed providers' `content` (`blueprints/catalog.py`), and applying one creates ordinary rows stamped with
+  `source_integration_id` / `source_blueprint`. A blueprint that disappears from a provider just stops being offered; nothing checks or
+  removes what it made, the `required` flag is only used while listing, and `update_blueprint` / `get_blueprint` for the old slug
+  find nothing. So a workspace on the new plugin keeps whatever it had until this migration removes it.
+- **Instagram plugin 0.8.0** (own repo, committed, not tagged): ships only the token-refresh blueprint; the `auto_reply`,
+  `list_recent_comments` and `send_private_reply` actions and `matching.py` are **removed**, not deprecated, because nothing in core,
+  the recipes, the catalogue or the docs used them (the catalogue note and docs that named them are updated); README, guide and tests
+  updated.
+- **Open:**
+  - Core's `pyproject.toml` still pins `marvin-integration-instagram@v0.7.0`. It stays until v0.8.0 is tagged and pushed, then the pin
+    and `uv.lock` need bumping.
+  - Until that bump the baked-in plugin is 0.7.0, which still offers the old blueprints and actions; core ignores what they make.
+  - A deployment that applies the old blueprints again after the migration gets leftovers the migration won't remove a second time (it
+    runs once); update the plugin first.
+  - The phase 1 open points are unchanged (the editor's Back link, no per-network rules shortcut on the editor, a second reply replaces the
+    first record, an integration recreated with the same slug loses its replied items).

@@ -3,7 +3,7 @@
 // filter), and their entries stay out of every list. A type is internal by `capabilities.listed: false`, and the backend's core rule
 // also makes these slugs internal whatever their capabilities say. Pure, so `npm test` covers it (entryTypeListing.test.mjs).
 
-export const INTERNAL_TYPE_SLUGS = ["social-auto-reply", "social-reply-log", "ig-auto-reply", "ig-reply-log"];
+export const INTERNAL_TYPE_SLUGS = ["social-auto-reply", "social-reply-log"];
 
 export interface TypeLike {
   slug?: string | null;

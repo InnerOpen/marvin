@@ -223,7 +223,7 @@ def test_announcing_needs_no_rule_and_no_reply_capability(ws):
     assert [k for k, _ in net.calls] == ["comments", "comments"]
 
 
-def test_an_instagram_plugin_task_stops_the_replies_but_not_the_announcing(ws):
+def test_an_instagram_plugin_task_no_longer_stops_the_replies_or_the_announcing(ws):
     from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
 
     rule(ws, networks="instagram")
@@ -237,8 +237,8 @@ def test_an_instagram_plugin_task_stops_the_replies_but_not_the_announcing(ws):
     net, bus = ws.nets["instagram"], Bus()
     first_poll(ws, bus)
     net.feed = [fresh("i1", "price?", network="instagram")]
-    report = poll(ws, bus)
-    assert bus.ids == ["i1"] and net.sent() == [] and report.skipped["plugin_task_enabled"] == 1
+    poll(ws, bus)
+    assert bus.ids == ["i1"] and len(net.sent()) == 1
     assert sum(1 for k, _ in net.calls if k == "comments") == 2  # one read per poll: the replies did not read it again
 
 

@@ -238,7 +238,7 @@ class SocialInboxController(BaseUserController):
             None, description="An integration's slug: its rules plus the rules for every network. Empty lists every rule."
         ),
     ):
-        """The rules (the internal `social-auto-reply` entries, and Instagram's older `ig-auto-reply` ones) that apply to the
+        """The rules (the internal `social-auto-reply` entries) that apply to the
         network — those naming it and those naming no network (`all_networks`) — oldest first. Edit one with the entry editor at
         its `path`. EDITOR and above."""
         require_workspace_role(self.user, self.group_id, ACTION_ROLES["rules"])

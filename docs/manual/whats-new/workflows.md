@@ -880,8 +880,8 @@ They **Approve** or **Deny**, optionally with a note, and the run goes on from t
   gather `{"entity": "asset", "query": {"decision": "denied", "created_before": "-30d"}}` to trash them later.
 - **Stale:** approving an entry that has changed since the question was asked gives `stale`, not `approved` — what was
   approved is not what would be acted on.
-- **Actions that need approval:** an integration action that requires approval (OpenAI image generation, Instagram's
-  private reply) can run in a workflow only after an approval step, and only when it was approved; the editor refuses it
+- **Actions that need approval:** an integration action that requires approval (OpenAI image generation, or a network's
+  `social.reply`) can run in a workflow only after an approval step, and only when it was approved; the editor refuses it
   elsewhere.
 - The run that waited shows ⏸ and **waiting** in its steps, then **resumed**; what happens after the decision is a new
   run linked to it, starting with the decision.
