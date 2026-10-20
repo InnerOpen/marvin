@@ -1,3 +1,3 @@
 """Marvin CMS - Headless CMS with workspace roles and invitations."""
 
-__version__ = "1.1.0-rc.17"
+__version__ = "1.1.0-rc.18"

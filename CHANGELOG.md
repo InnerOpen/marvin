@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.18 (2026-10-20)
+
+### Features
+
+- **audience**: A signup a person archived in Marvin reads "Archived in Marvin", not Unsubscribed
+  ([`30452bd`](https://github.com/InnerOpen/marvin/commit/30452bd652b085428e3e3e158261c50060de6610))
+
+
 ## v1.1.0-rc.17 (2026-10-20)
 
 ### Features
