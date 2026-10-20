@@ -1,0 +1,130 @@
+/* Social: the inbox list, the Rules and Replies lists, the dialogs and the network page's header. Imported by the pages under
+   /workspace/social. Compact rows everywhere; tapping a row opens it; nothing is stacked into cards on a phone. */
+  .social-inbox [hidden], .si-dialog [hidden] { display: none !important; }
+  .social-inbox { display: grid; gap: 14px; }
+  .si-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; justify-content: space-between; }
+  .si-lede { margin: 4px 0 0; color: var(--muted); max-width: 70ch; }
+  .si-lede a, .si-notice a { color: var(--accent); }
+  .si-notice { padding: 10px 14px; border: 1px solid var(--line); border-left: 3px solid var(--gold); border-radius: var(--radius); background: var(--panel); font-size: 14px; }
+  .si-alert { padding: 10px 14px; border-radius: var(--radius); color: var(--color-error); background: var(--color-error-bg); }
+
+  .si-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; flex: 1 1 auto; }
+  .si-filters label { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); min-width: 130px; }
+  .si-filters label.grow { flex: 1 1 200px; }
+
+  .si-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
+  .si-list:empty { display: none; }
+  .si-list li + li { border-top: 1px solid var(--line); }
+  .si-row {
+    display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%;
+    padding: 10px 12px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  }
+  .si-row:hover { background: var(--panel-2); }
+  .si-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .si-mark { display: grid; place-items: center; }
+  .si-main { display: grid; gap: 2px; min-width: 0; }
+  .si-line { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+  .si-author { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+  .unread .si-author { font-weight: 800; }
+  .unread .si-author::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--accent); }
+  .si-kind { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .si-text { color: var(--muted); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .unread .si-text { color: var(--ink); }
+  .si-meta { display: grid; gap: 4px; justify-items: end; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .si-badges { display: inline-flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+
+  .si-badge { display: inline-block; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); font-size: 11.5px; line-height: 1.6; color: var(--muted); background: var(--panel); }
+  .si-badge.new { color: white; background: var(--accent); border-color: var(--accent); }
+  .si-badge.good { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--line)); }
+  .si-badge.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+  .si-badge-link { text-decoration: none; }
+  .si-count { margin: 0; font-size: 13px; }
+  .si-more { justify-self: start; }
+  .si-empty { padding: 24px; border: 1px dashed var(--line); border-radius: var(--radius); text-align: center; }
+  .si-empty h3 { margin: 0 0 6px; }
+  .si-empty p { margin: 6px auto; max-width: 60ch; color: var(--muted); }
+
+  .si-dialog { width: min(640px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--ink); box-shadow: 0 8px 32px rgb(0 0 0 / 0.18); }
+  .si-dialog[open] { display: flex; flex-direction: column; }
+  .si-dialog::backdrop { background: rgb(0 0 0 / 0.5); }
+  .si-d-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .si-d-head h3 { margin: 0; flex: 1; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .si-d-close { background: none; border: 0; font-size: 24px; line-height: 1; color: var(--muted); cursor: pointer; padding: 2px 8px; }
+  .si-d-body { overflow-y: auto; padding: 14px 16px 18px; display: grid; gap: 12px; }
+  .si-d-who { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+  .si-full { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 1.5; }
+  .si-links { margin: 0; }
+  .si-links a { color: var(--accent); }
+  .si-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .button.si-btn-sm { min-height: 34px; padding: 6px 10px; font-size: 13px; }
+  .button.si-danger { background: var(--panel); color: var(--color-error); border-color: color-mix(in srgb, var(--color-error) 50%, var(--line)); }
+  .si-form { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
+  .si-form[hidden] { display: none; }
+  .si-form label { font-size: 13px; font-weight: 600; }
+  .si-form textarea { resize: vertical; }
+  .si-modes { display: flex; flex-wrap: wrap; gap: 14px; border: 0; margin: 0; padding: 0; }
+  .si-modes label { font-weight: 400; display: inline-flex; gap: 6px; align-items: center; }
+  .si-form-actions { display: flex; gap: 8px; }
+  .si-form p { margin: 0; }
+  .si-result { margin: 0; padding: 8px 12px; border-radius: var(--radius); font-size: 13.5px; }
+  .si-result.ok { background: color-mix(in srgb, var(--good) 12%, transparent); }
+  .si-result.bad { background: var(--color-error-bg); color: var(--color-error); }
+  .si-result a { color: var(--accent); }
+  .si-small { font-size: 12.5px; }
+  .si-muted { color: var(--muted); }
+  .si-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* A phone: the same compact rows (mark, who and what, when), the badges under the text, and the dialog full width. Tapping
+     a row opens it; nothing is stacked into cards. */
+  @media (max-width: 640px) {
+    .si-row { grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; padding: 9px 10px; min-height: 52px; }
+    .si-text { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; }
+    .si-meta { align-self: start; }
+    .si-kind { display: none; }
+    .si-meta .si-badge.new { display: none; } /* the dot and the bold name already say new */
+    .si-filters label { min-width: calc(50% - 5px); flex: 1 1 calc(50% - 5px); }
+    .si-filters label.grow { flex-basis: 100%; }
+    .si-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 24px); }
+    .si-d-who { grid-template-columns: auto minmax(0, 1fr); }
+    .si-d-who .si-badges { grid-column: 1 / -1; justify-content: flex-start; }
+  }
+
+  /* The Social pages: the page, a network's header (name, logo, the auto-reply switch), its tabs, and the Rules and Replies rows. */
+  .social-page { display: grid; gap: 14px; max-width: 960px; }
+  .sp-head { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: flex-start; justify-content: space-between; }
+  .sp-name { display: flex; gap: 10px; align-items: center; min-width: 0; }
+  .sp-name strong { font-size: 18px; }
+  .sp-auto { display: grid; gap: 6px; max-width: 460px; }
+  .sp-auto-label { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+  .sp-switch { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; width: fit-content; }
+  .sp-opt { padding: 7px 14px; border: 0; border-left: 1px solid var(--line); background: var(--panel); color: var(--ink); font: inherit; font-size: 13.5px; cursor: pointer; min-height: 36px; }
+  .sp-opt:first-child { border-left: 0; }
+  .sp-opt.on { background: var(--accent); color: white; font-weight: 600; }
+  .sp-opt:disabled { cursor: default; opacity: 0.85; }
+  .sp-opt:not(.on):disabled { opacity: 0.55; }
+  .sp-help, .sp-auto p { margin: 0; }
+  .sp-err { color: var(--color-error); }
+  .sp-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+  .sp-tabs a { padding: 8px 14px; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; font-size: 14.5px; }
+  .sp-tabs a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+  .si-lede { margin: 0; color: var(--muted); max-width: 70ch; font-size: 14px; }
+  .sr-new { display: flex; gap: 8px; flex-wrap: wrap; }
+  .sr-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .sp-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .sr-draft .si-author { font-weight: 500; }
+  .sr-scope { font-size: 12px; color: var(--muted); max-width: 22ch; overflow: hidden; text-overflow: ellipsis; }
+  .sr-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; font-size: 14px; }
+  .sr-facts dt { color: var(--muted); }
+  .sr-facts dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .sr-d-badges { margin: 0; justify-content: flex-start; }
+  .sr-reply { padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--panel-2); border-radius: var(--radius); }
+  .social-page [hidden] { display: none !important; }
+  @media (max-width: 640px) {
+    .sp-tabs a { padding: 8px 10px; flex: 1; text-align: center; }
+    .sr-new .button { flex: 1 1 100%; }
+    .sr-scope { max-width: 14ch; }
+    .sp-opt { flex: 1; padding: 7px 10px; }
+    .sp-switch { width: 100%; }
+    .sr-facts { grid-template-columns: 1fr; gap: 0; }
+    .sr-facts dd { margin-bottom: 8px; }
+  }

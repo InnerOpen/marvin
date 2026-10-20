@@ -1,102 +1,87 @@
 ---
-// Social inbox: the comments, replies and mentions the Social engagement task kept (30 days) across every connected network,
-// what was replied (rehearsal or sent), and what to do with each: reply (private by default), like, hide, delete, message the
-// author, make an auto-reply rule from it, open it on its network. Editors read, like and hide; admins reply, delete and message
-// (the API's `can` says which). A row is compact on every screen; tapping it opens the item with its actions.
+// The inbox list of Social: the comments, replies and mentions the engagement poll kept (30 days), what was replied (rehearsal or
+// sent, recorded on the item), and what to do with each: reply (private by default), like, hide, delete, message the author,
+// make an auto-reply rule from it, open it on its network. Editors read, like and hide; admins reply, delete and message (the
+// API's `can` says which). A row is compact on every screen; tapping it opens the item with its actions. Used by the all-networks
+// page (/workspace/social) and by each network's Inbox tab (/workspace/social/<integration>).
 // Backend: routes/groups/social_inbox_controller.py. Pure logic: lib/socialInbox.ts (socialInbox.test.mjs).
-import AppLayout from "@/layouts/AppLayout.astro";
-import { getAuthToken } from "@/lib/api/client";
-import { getSummary, type InboxList, listItems } from "@/lib/api/socialInbox";
-import { emptyNotice, engineNote, hasFilters, type InboxSummary, integrationOptions, KINDS, parseFilters, STATUSES } from "@/lib/socialInbox";
-import { isForbidden } from "@/lib/workspaceRole";
+import type { InboxList } from "@/lib/api/socialInbox";
+import {
+  emptyNotice,
+  type Filters,
+  hasFilters,
+  type InboxSummary,
+  integrationOptions,
+  KINDS,
+  type SocialNetwork,
+  STATUSES,
+} from "@/lib/socialInbox";
 
-const authToken = getAuthToken(Astro.cookies);
-const filters = parseFilters(Astro.url.searchParams);
-let summary: InboxSummary | null = null;
-let list: InboxList | null = null;
-let error: string | null = null;
-let restricted = false;
-try {
-  [summary, list] = await Promise.all([getSummary(authToken), listItems(filters, 0, authToken)]);
-} catch (e) {
-  if (isForbidden(e)) restricted = true;
-  else error = e instanceof Error ? e.message : String(e);
+interface Props {
+  summary: InboxSummary | null;
+  list: InboxList | null;
+  filters: Filters;
+  /** The page's own path: where a filter change goes. */
+  basePath: string;
+  /** The network this inbox is limited to (its own page); none on the all-networks page, which offers a Network filter. */
+  network?: SocialNetwork | null;
 }
+const { summary, list, filters, basePath, network = null } = Astro.props;
 const options = summary ? integrationOptions(summary.integrations) : [];
-const note = engineNote(summary?.engine);
-const empty = emptyNotice(summary, hasFilters(filters));
-const data = JSON.stringify({ summary, list, filters }).replace(/</g, "\\u003c");
+const empty = emptyNotice(summary, hasFilters({ ...filters, integration: "" }), network);
+const data = JSON.stringify({ summary, list, filters, basePath, network }).replace(/</g, "\u003c");
 ---
 
-<AppLayout crumb="workspace.social" restrictedNote={restricted ? "The Social inbox is for editors and above." : null}>
-  <div class="social-page">
-    <script type="application/json" id="si-data" is:inline set:html={data}></script>
-    <div class="toolbar">
-      <div>
-        <h2>Social inbox</h2>
-        <p class="si-lede">
-          Recent comments, replies and mentions from your connected networks, and what was answered. It fills from the
-          {" "}<a href="/workspace/settings/integrations#social-engagement">Social engagement</a> task, which checks every 5 minutes and keeps 30 days.
-        </p>
-      </div>
-      <button type="button" class="button secondary" id="si-mark-all" hidden>Mark all seen</button>
-    </div>
-
-    {error && <div class="si-alert">Could not load the inbox: {error}</div>}
-
-    {note && (
-      <div class="si-notice" id="si-note">
-        <strong>{note.title}.</strong> {note.body}
-        {note.link && <> <a href={note.link.href}>{note.link.label}</a></>}
-      </div>
-    )}
-
-    {!error && (
-      <form class="si-filters" id="si-filters" method="get" action="/workspace/social" role="search">
+<div class="social-inbox">
+  <script type="application/json" id="si-data" is:inline set:html={data}></script>
+  <div class="si-bar">
+    <form class="si-filters" id="si-filters" method="get" action={basePath} role="search">
+      {!network && (
         <label>Network
           <select class="input" name="integration">
             <option value="">All networks</option>
             {options.map((o) => <option value={o.value} selected={o.value === filters.integration}>{o.label}</option>)}
           </select>
         </label>
-        <label>Kind
-          <select class="input" name="kind">
-            <option value="">All kinds</option>
-            {KINDS.map((k) => <option value={k.value} selected={k.value === filters.kind}>{k.label}</option>)}
-          </select>
-        </label>
-        <label>Status
-          <select class="input" name="status">
-            <option value="">Any status</option>
-            {STATUSES.map((s) => <option value={s.value} selected={s.value === filters.status}>{s.label}</option>)}
-          </select>
-        </label>
-        <label class="grow">Search
-          <input class="input" type="search" name="q" value={filters.q} placeholder="Text, @handle or name" maxlength="200" />
-        </label>
-        <button class="button secondary" type="submit">Search</button>
-      </form>
-    )}
-
-    <ul class="si-list" id="si-list" aria-label="Social inbox"></ul>
-    <p class="si-muted si-count" id="si-count" hidden></p>
-    <button type="button" class="button secondary si-more" id="si-more" hidden>Show more</button>
-
-    <div class="si-empty" id="si-empty" hidden>
-      <h3 id="si-empty-title">{empty.title}</h3>
-      <p id="si-empty-body">{empty.body}</p>
-      <p id="si-empty-link">{empty.link && <a class="button secondary" href={empty.link.href}>{empty.link.label}</a>}</p>
-    </div>
+      )}
+      <label>Kind
+        <select class="input" name="kind">
+          <option value="">All kinds</option>
+          {KINDS.map((k) => <option value={k.value} selected={k.value === filters.kind}>{k.label}</option>)}
+        </select>
+      </label>
+      <label>Status
+        <select class="input" name="status">
+          <option value="">Any status</option>
+          {STATUSES.map((s) => <option value={s.value} selected={s.value === filters.status}>{s.label}</option>)}
+        </select>
+      </label>
+      <label class="grow">Search
+        <input class="input" type="search" name="q" value={filters.q} placeholder="Text, @handle or name" maxlength="200" />
+      </label>
+      <button class="button secondary" type="submit">Search</button>
+    </form>
+    <button type="button" class="button secondary" id="si-mark-all" hidden>Mark all seen</button>
   </div>
 
-  <dialog id="si-dialog" class="si-dialog" aria-labelledby="si-d-title">
-    <div class="si-d-head">
-      <h3 id="si-d-title">Item</h3>
-      <button type="button" class="si-d-close" data-close aria-label="Close">×</button>
-    </div>
-    <div class="si-d-body" id="si-d-body"></div>
-  </dialog>
-</AppLayout>
+  <ul class="si-list" id="si-list" aria-label="Social inbox"></ul>
+  <p class="si-muted si-count" id="si-count" hidden></p>
+  <button type="button" class="button secondary si-more" id="si-more" hidden>Show more</button>
+
+  <div class="si-empty" id="si-empty" hidden>
+    <h3 id="si-empty-title">{empty.title}</h3>
+    <p id="si-empty-body">{empty.body}</p>
+    <p id="si-empty-link">{empty.link && <a class="button secondary" href={empty.link.href}>{empty.link.label}</a>}</p>
+  </div>
+</div>
+
+<dialog id="si-dialog" class="si-dialog" aria-labelledby="si-d-title">
+  <div class="si-d-head">
+    <h3 id="si-d-title">Item</h3>
+    <button type="button" class="si-d-close" data-close aria-label="Close">×</button>
+  </div>
+  <div class="si-d-body" id="si-d-body"></div>
+</dialog>
 
 <script>
   import * as api from "@/lib/api/socialInbox";
@@ -120,7 +105,7 @@ const data = JSON.stringify({ summary, list, filters }).replace(/</g, "\\u003c")
     replyBadge,
     replyForm,
     replyText,
-    SOCIAL_INBOX_PATH,
+    type SocialNetwork,
     statusBadge,
     timeAgo,
     errorMessage,
@@ -133,6 +118,8 @@ const data = JSON.stringify({ summary, list, filters }).replace(/</g, "\\u003c")
   const init = JSON.parse($("si-data").textContent || "{}");
   const summary: InboxSummary | null = init.summary ?? null;
   const filters: Filters = init.filters;
+  const basePath: string = init.basePath;
+  const network: SocialNetwork | null = init.network ?? null;
   const can: Can = summary?.can ?? {};
   let items: InboxItem[] = init.list?.items ?? [];
   let total: number = init.list?.total ?? 0;
@@ -142,15 +129,13 @@ const data = JSON.stringify({ summary, list, filters }).replace(/</g, "\\u003c")
   const badge = (b: { label: string; tone: string; title?: string }) =>
     `<span class="si-badge ${esc(b.tone)}"${b.title ? ` title="${esc(b.title)}"` : ""}>${esc(b.label)}</span>`;
 
-  const mark = (network: string) => markHtml({ slug: network, icon: "💬", hasLogo: true });
+  // The logo is served under the plugin's slug: the integration's provider, else the network the item names (the same word).
+  const providerOf = (integration: string, fallback: string) => summary?.integrations.find((n) => n.slug === integration)?.provider ?? fallback;
+  const mark = (item: InboxItem) => markHtml({ slug: providerOf(item.integration, item.network), icon: "💬", hasLogo: true });
 
   function badgesHtml(item: InboxItem): string {
     const replied = replyBadge(item.reply);
-    const repliedHtml = replied
-      ? replied.href
-        ? `<a class="si-badge-link" href="${esc(replied.href)}" title="Open the reply log entry">${badge(replied)}</a>`
-        : badge(replied)
-      : "";
+    const repliedHtml = replied ? badge(replied) : "";
     const status = item.status === "replied" && replied ? "" : badge(statusBadge(item.status));
     return `${status}${repliedHtml}`;
   }
@@ -158,7 +143,7 @@ const data = JSON.stringify({ summary, list, filters }).replace(/</g, "\\u003c")
   function rowHtml(item: InboxItem): string {
     const unread = item.status === "new";
     return `<li><button type="button" class="si-row${unread ? " unread" : ""}" data-id="${esc(item.id)}" aria-haspopup="dialog">
-      <span class="si-mark">${mark(item.network)}</span>
+      <span class="si-mark">${mark(item)}</span>
       <span class="si-main">
         <span class="si-line"><strong class="si-author">${esc(authorLabel(item.author))}</strong><span class="si-kind">${esc(kindLabel(item.kind))}</span></span>
         <span class="si-text">${esc(excerpt(item.text))}</span>
@@ -168,11 +153,11 @@ const data = JSON.stringify({ summary, list, filters }).replace(/</g, "\\u003c")
   }
 
   function render() {
-    const filtered = hasFilters(filters);
+    const filtered = hasFilters({ ...filters, integration: "" });
     $("si-list").innerHTML = items.map(rowHtml).join("");
     $("si-empty").hidden = items.length > 0;
     if (items.length === 0) {
-      const notice = emptyNotice(summary, filtered);
+      const notice = emptyNotice(summary, filtered, network);
       $("si-empty-title").textContent = notice.title;
       $("si-empty-body").textContent = notice.body;
       $("si-empty-link").innerHTML = notice.link ? `<a class="button secondary" href="${esc(notice.link.href)}">${esc(notice.link.label)}</a>` : "";
@@ -189,7 +174,7 @@ const data = JSON.stringify({ summary, list, filters }).replace(/</g, "\\u003c")
   form?.addEventListener("submit", (event) => {
     event.preventDefault();
     const f = Object.fromEntries(new FormData(form).entries()) as Record<string, string>;
-    location.href = `${SOCIAL_INBOX_PATH}${filtersToQuery({ integration: f.integration ?? "", kind: f.kind ?? "", status: f.status ?? "", q: f.q ?? "" })}`;
+    location.href = `${basePath}${filtersToQuery({ integration: network ? "" : (f.integration ?? ""), kind: f.kind ?? "", status: f.status ?? "", q: f.q ?? "" })}`;
   });
   form?.querySelectorAll("select").forEach((select) => select.addEventListener("change", () => form.requestSubmit()));
 
@@ -213,7 +198,8 @@ const data = JSON.stringify({ summary, list, filters }).replace(/</g, "\\u003c")
     const button = $("si-mark-all") as HTMLButtonElement;
     button.disabled = true;
     try {
-      await api.markSeen({ all: true, ...(filters.integration ? { integration: filters.integration } : {}) });
+      const integration = network?.slug ?? filters.integration;
+      await api.markSeen({ all: true, ...(integration ? { integration } : {}) });
       location.reload();
     } catch (e) {
       button.disabled = false;
@@ -239,11 +225,11 @@ const data = JSON.stringify({ summary, list, filters }).replace(/</g, "\\u003c")
     const reply = buttons.some((b) => b.key === "reply") ? replyForm(item.replyModes) : null;
     const canMessage = buttons.some((b) => b.key === "message");
     return `
-      <div class="si-d-who">${mark(item.network)}<div><strong>${esc(authorLabel(item.author))}</strong>${item.author.name && item.author.handle ? ` <span class="si-muted">${esc(item.author.name)}</span>` : ""}
+      <div class="si-d-who">${mark(item)}<div><strong>${esc(authorLabel(item.author))}</strong>${item.author.name && item.author.handle ? ` <span class="si-muted">${esc(item.author.name)}</span>` : ""}
         <div class="si-muted si-small">${esc(kindLabel(item.kind))} on ${esc(item.network)}${item.integration && item.integration !== item.network ? ` (${esc(item.integration)})` : ""} · <time title="${esc(new Date(item.createdAt).toLocaleString())}">${esc(timeAgo(item.createdAt))}</time></div></div>
         <span class="si-badges">${badgesHtml(item)}</span></div>
       <p class="si-full">${esc(item.text)}</p>
-      <p class="si-muted si-small si-links">${item.postUrl ? `<a href="${esc(item.postUrl)}" target="_blank" rel="noopener noreferrer">The post</a>` : ""}${open ? `${item.postUrl ? " · " : ""}<a href="${esc(open)}" target="_blank" rel="noopener noreferrer">Open on ${esc(item.network)}</a>` : ""}${replied?.href ? ` · <a href="${esc(replied.href)}">Reply log entry</a>` : ""}</p>
+      <p class="si-muted si-small si-links">${item.postUrl ? `<a href="${esc(item.postUrl)}" target="_blank" rel="noopener noreferrer">The post</a>` : ""}${open ? `${item.postUrl ? " · " : ""}<a href="${esc(open)}" target="_blank" rel="noopener noreferrer">Open on ${esc(item.network)}</a>` : ""}${item.reply?.ruleEntryId ? ` · <a href="/workspace/entries/${esc(item.reply.ruleEntryId)}">The rule that answered</a>` : ""}</p>
       <div class="si-actions">${buttons.map(buttonHtml).join("")}</div>
       ${
         reply
@@ -257,7 +243,7 @@ const data = JSON.stringify({ summary, list, filters }).replace(/</g, "\\u003c")
                   : `<p class="si-muted si-small">${reply.mode === "private" ? "Sent privately to them." : "Sent publicly in the thread."}</p>`
               }
               <div class="si-form-actions"><button class="button si-btn-sm" type="submit">Send reply</button><button class="button secondary si-btn-sm" type="button" data-cancel>Cancel</button></div>
-              <p class="si-muted si-small">Your pressing Send is the approval: it is sent as you and logged in the reply log, so no rule answers it again.</p>
+              <p class="si-muted si-small">Your pressing Send is the approval: it is sent as you and recorded on this comment, so no rule answers it again.</p>
             </form>`
           : ""
       }
@@ -390,7 +376,7 @@ const data = JSON.stringify({ summary, list, filters }).replace(/</g, "\\u003c")
         const mode = (formEl.querySelector<HTMLInputElement>('input[name="si-mode"]:checked')?.value ?? replyForm(item.replyModes).mode) as string;
         const out = await api.reply(item.id, text, mode === "private");
         update(out.item);
-        say(`${out.private ? "Private" : "Public"} reply sent${out.logged ? " and logged" : " (the reply log isn't set up, so it wasn't logged)"}.`);
+        say(`${out.private ? "Private" : "Public"} reply sent.`);
       } else {
         const out = await api.message(item.id, text);
         update(out.item!);
@@ -401,93 +387,3 @@ const data = JSON.stringify({ summary, list, filters }).replace(/</g, "\\u003c")
 
   render();
 </script>
-
-<style is:global>
-  .social-page [hidden], .si-dialog [hidden] { display: none !important; }
-  .social-page { display: grid; gap: 14px; max-width: 960px; }
-  .si-lede { margin: 4px 0 0; color: var(--muted); max-width: 70ch; }
-  .si-lede a, .si-notice a { color: var(--accent); }
-  .si-notice { padding: 10px 14px; border: 1px solid var(--line); border-left: 3px solid var(--gold); border-radius: var(--radius); background: var(--panel); font-size: 14px; }
-  .si-alert { padding: 10px 14px; border-radius: var(--radius); color: var(--color-error); background: var(--color-error-bg); }
-
-  .si-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
-  .si-filters label { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); min-width: 130px; }
-  .si-filters label.grow { flex: 1 1 200px; }
-
-  .si-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
-  .si-list:empty { display: none; }
-  .si-list li + li { border-top: 1px solid var(--line); }
-  .si-row {
-    display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%;
-    padding: 10px 12px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
-  }
-  .si-row:hover { background: var(--panel-2); }
-  .si-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-  .si-mark { display: grid; place-items: center; }
-  .si-main { display: grid; gap: 2px; min-width: 0; }
-  .si-line { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
-  .si-author { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
-  .unread .si-author { font-weight: 800; }
-  .unread .si-author::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--accent); }
-  .si-kind { font-size: 12px; color: var(--muted); white-space: nowrap; }
-  .si-text { color: var(--muted); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .unread .si-text { color: var(--ink); }
-  .si-meta { display: grid; gap: 4px; justify-items: end; font-size: 12px; color: var(--muted); white-space: nowrap; }
-  .si-badges { display: inline-flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
-
-  .si-badge { display: inline-block; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); font-size: 11.5px; line-height: 1.6; color: var(--muted); background: var(--panel); }
-  .si-badge.new { color: white; background: var(--accent); border-color: var(--accent); }
-  .si-badge.good { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--line)); }
-  .si-badge.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
-  .si-badge-link { text-decoration: none; }
-  .si-count { margin: 0; font-size: 13px; }
-  .si-more { justify-self: start; }
-  .si-empty { padding: 24px; border: 1px dashed var(--line); border-radius: var(--radius); text-align: center; }
-  .si-empty h3 { margin: 0 0 6px; }
-  .si-empty p { margin: 6px auto; max-width: 60ch; color: var(--muted); }
-
-  .si-dialog { width: min(640px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--ink); box-shadow: 0 8px 32px rgb(0 0 0 / 0.18); }
-  .si-dialog[open] { display: flex; flex-direction: column; }
-  .si-dialog::backdrop { background: rgb(0 0 0 / 0.5); }
-  .si-d-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
-  .si-d-head h3 { margin: 0; flex: 1; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .si-d-close { background: none; border: 0; font-size: 24px; line-height: 1; color: var(--muted); cursor: pointer; padding: 2px 8px; }
-  .si-d-body { overflow-y: auto; padding: 14px 16px 18px; display: grid; gap: 12px; }
-  .si-d-who { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; }
-  .si-full { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 1.5; }
-  .si-links { margin: 0; }
-  .si-links a { color: var(--accent); }
-  .si-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-  .button.si-btn-sm { min-height: 34px; padding: 6px 10px; font-size: 13px; }
-  .button.si-danger { background: var(--panel); color: var(--color-error); border-color: color-mix(in srgb, var(--color-error) 50%, var(--line)); }
-  .si-form { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
-  .si-form[hidden] { display: none; }
-  .si-form label { font-size: 13px; font-weight: 600; }
-  .si-form textarea { resize: vertical; }
-  .si-modes { display: flex; flex-wrap: wrap; gap: 14px; border: 0; margin: 0; padding: 0; }
-  .si-modes label { font-weight: 400; display: inline-flex; gap: 6px; align-items: center; }
-  .si-form-actions { display: flex; gap: 8px; }
-  .si-form p { margin: 0; }
-  .si-result { margin: 0; padding: 8px 12px; border-radius: var(--radius); font-size: 13.5px; }
-  .si-result.ok { background: color-mix(in srgb, var(--good) 12%, transparent); }
-  .si-result.bad { background: var(--color-error-bg); color: var(--color-error); }
-  .si-result a { color: var(--accent); }
-  .si-small { font-size: 12.5px; }
-  .si-muted { color: var(--muted); }
-  .si-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-
-  /* A phone: the same compact rows (mark, who and what, when), the badges under the text, and the dialog full width. Tapping
-     a row opens it; nothing is stacked into cards. */
-  @media (max-width: 640px) {
-    .si-row { grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; padding: 9px 10px; min-height: 52px; }
-    .si-text { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; }
-    .si-meta { align-self: start; }
-    .si-kind { display: none; }
-    .si-meta .si-badge.new { display: none; } /* the dot and the bold name already say new */
-    .si-filters label { min-width: calc(50% - 5px); flex: 1 1 calc(50% - 5px); }
-    .si-filters label.grow { flex-basis: 100%; }
-    .si-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 24px); }
-    .si-d-who { grid-template-columns: auto minmax(0, 1fr); }
-    .si-d-who .si-badges { grid-column: 1 / -1; justify-content: flex-start; }
-  }
-</style>

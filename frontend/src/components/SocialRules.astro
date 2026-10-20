@@ -1,0 +1,159 @@
+---
+// A network's Rules tab: its auto-reply rules, then the ones for every network (marked). A row is compact on every screen and
+// opens the rule: its keywords, reply and scope, "Edit rule" (the normal entry editor) and Publish / Unpublish. New rule starts a
+// draft for this network (or, the second button, for every network) and opens it in the editor. A draft does nothing; publishing a
+// rule approves its reply text. Backend: routes/groups/social_inbox_controller.py. Pure logic: lib/socialSpace.ts.
+import type { Can, SocialNetwork } from "@/lib/socialInbox";
+import { NEW_RULE_ALL_LABEL, NEW_RULE_LABEL, orderRules, type Rule, rulesEmpty, rulesLede } from "@/lib/socialSpace";
+
+interface Props {
+  network: SocialNetwork;
+  rules: Rule[];
+  can: Can;
+}
+const { network, rules, can } = Astro.props;
+const ordered = orderRules(rules);
+const empty = rulesEmpty(network, can);
+const data = JSON.stringify({ network, rules: ordered, can }).replace(/</g, "\\u003c");
+---
+
+<div class="social-inbox" id="sr-root">
+  <script type="application/json" id="sr-data" is:inline set:html={data}></script>
+  <div class="si-bar">
+    <p class="si-lede">{rulesLede(network)}</p>
+    {can.rule === true && (
+      <div class="sr-new">
+        <button type="button" class="button" id="sr-new">{NEW_RULE_LABEL}</button>
+        <button type="button" class="button secondary" id="sr-new-all">{NEW_RULE_ALL_LABEL}</button>
+      </div>
+    )}
+  </div>
+  <p class="si-result bad" id="sr-error" role="alert" hidden></p>
+  <ul class="si-list" id="sr-list" aria-label={`Rules for ${network.name}`}></ul>
+  <div class="si-empty" id="sr-empty" hidden>
+    <h3>{empty.title}</h3>
+    <p>{empty.body}</p>
+  </div>
+</div>
+
+<dialog id="sr-dialog" class="si-dialog" aria-labelledby="sr-d-title">
+  <div class="si-d-head">
+    <h3 id="sr-d-title">Rule</h3>
+    <button type="button" class="si-d-close" data-close aria-label="Close">×</button>
+  </div>
+  <div class="si-d-body" id="sr-d-body"></div>
+</dialog>
+
+<script>
+  import * as api from "@/lib/api/socialInbox";
+  import { errorMessage } from "@/lib/socialInbox";
+  import { publishAction, type Rule, ruleBadges, ruleReplyLine, ruleScope, ruleTitle } from "@/lib/socialSpace";
+
+  const $ = (id: string): any => document.getElementById(id);
+  const esc = (s: unknown) =>
+    String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
+
+  const init = JSON.parse($("sr-data").textContent || "{}");
+  const slug: string = init.network.slug;
+  const can = init.can ?? {};
+  let rules: Rule[] = init.rules ?? [];
+  let openId: string | null = null;
+
+  const badge = (b: { label: string; tone: string; title?: string }) =>
+    `<span class="si-badge ${esc(b.tone)}"${b.title ? ` title="${esc(b.title)}"` : ""}>${esc(b.label)}</span>`;
+
+  function rowHtml(rule: Rule): string {
+    return `<li><button type="button" class="si-row sr-row${rule.published ? "" : " sr-draft"}" data-id="${esc(rule.id)}" aria-haspopup="dialog">
+      <span class="si-main">
+        <span class="si-line"><strong class="si-author">${esc(ruleTitle(rule))}</strong></span>
+        <span class="si-text">${esc(ruleReplyLine(rule))}</span>
+      </span>
+      <span class="si-meta"><span class="sr-scope">${esc(ruleScope(rule, slug))}</span><span class="si-badges">${ruleBadges(rule).map(badge).join("")}</span></span>
+    </button></li>`;
+  }
+
+  function render() {
+    $("sr-list").innerHTML = rules.map(rowHtml).join("");
+    $("sr-empty").hidden = rules.length > 0;
+  }
+
+  const dialog = $("sr-dialog") as HTMLDialogElement;
+  const body = $("sr-d-body") as HTMLElement;
+  const current = () => rules.find((r) => r.id === openId) ?? null;
+
+  function dialogHtml(rule: Rule): string {
+    const action = publishAction(rule, can);
+    const line = (label: string, value: string) => `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`;
+    return `
+      <div class="si-badges sr-d-badges">${ruleBadges(rule).map(badge).join("")}</div>
+      <dl class="sr-facts">
+        ${line("Keywords", rule.keywords.join(", ") || "none yet")}
+        ${line("Reply", rule.reply || "not written yet")}
+        ${line("Applies to", ruleScope(rule, slug))}
+        ${line("Reply as", rule.replyAs + (rule.alsoLike ? ", and like the comment" : ""))}
+        ${line("Answers", rule.kinds.join(", "))}
+        ${rule.post ? line("Post", rule.post) : ""}
+      </dl>
+      <div class="si-actions">
+        <a class="button secondary si-btn-sm" href="${esc(rule.path)}">Edit rule</a>
+        ${action ? `<button type="button" class="button${action.publish ? "" : " secondary"} si-btn-sm" data-publish="${action.publish}">${esc(action.label)}</button>` : ""}
+      </div>
+      ${action?.note ? `<p class="si-muted si-small">${esc(action.note)}</p>` : ""}
+      ${rule.legacy ? `<p class="si-muted si-small">Instagram's older auto-reply rule: it still answers, and is edited the same way.</p>` : ""}
+      <p class="si-result" id="sr-result" role="status" hidden></p>`;
+  }
+
+  function show(rule: Rule) {
+    openId = rule.id;
+    $("sr-d-title").textContent = ruleTitle(rule);
+    body.innerHTML = dialogHtml(rule);
+  }
+
+  $("sr-list").addEventListener("click", (event: Event) => {
+    const row = (event.target as HTMLElement).closest<HTMLElement>(".sr-row");
+    const rule = row ? rules.find((r) => r.id === row.dataset.id) : null;
+    if (!rule) return;
+    show(rule);
+    dialog.showModal();
+  });
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog || (event.target as HTMLElement).closest("[data-close]")) dialog.close();
+  });
+  dialog.addEventListener("close", () => (openId = null));
+
+  body.addEventListener("click", async (event: Event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-publish]");
+    const rule = current();
+    if (!button || !rule) return;
+    button.disabled = true;
+    try {
+      const next = await api.setRulePublished(rule.id, button.dataset.publish === "true");
+      rules = rules.map((r) => (r.id === next.id ? next : r));
+      show(next);
+      render();
+    } catch (e) {
+      const out = $("sr-result");
+      out.hidden = false;
+      out.className = "si-result bad";
+      out.textContent = errorMessage(e);
+      button.disabled = false;
+    }
+  });
+
+  async function startRule(forAll: boolean, button: HTMLButtonElement) {
+    button.disabled = true;
+    try {
+      const made = await api.createRule(forAll ? null : slug);
+      location.href = made.path; // the normal entry editor
+    } catch (e) {
+      const out = $("sr-error");
+      out.hidden = false;
+      out.textContent = errorMessage(e);
+      button.disabled = false;
+    }
+  }
+  $("sr-new")?.addEventListener("click", (e: Event) => startRule(false, e.currentTarget as HTMLButtonElement));
+  $("sr-new-all")?.addEventListener("click", (e: Event) => startRule(true, e.currentTarget as HTMLButtonElement));
+
+  render();
+</script>

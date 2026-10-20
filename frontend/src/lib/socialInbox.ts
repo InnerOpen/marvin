@@ -3,21 +3,29 @@
 // fetch, so `npm test` covers it (socialInbox.test.mjs). The API: routes/groups/social_inbox_controller.py.
 
 export const SOCIAL_INBOX_PATH = "/workspace/social";
-/** The Social engagement card on Settings → Integrations (where the task that fills the inbox is set up). */
-export const SETTINGS_CARD_HREF = "/workspace/settings/integrations#social-engagement";
+/** Where a workspace connects a network (Social has no setup of its own). */
+export const INTEGRATIONS_HREF = "/workspace/settings/integrations";
 
 export type ItemKind = "comment" | "reply" | "mention";
 export type ItemStatus = "new" | "seen" | "replied" | "hidden" | "liked";
 export type ActionKey = "reply" | "like" | "hide" | "delete" | "message";
 
+/** The reply recorded on an item (the item is the reply log): a rule's or a person's, live or rehearsal. */
 export interface InboxReply {
-  logSlug?: string | null;
-  logEntryId?: string | null;
   mode?: string | null;
   rehearsal?: boolean;
   replyId?: string | null;
+  /** What was sent, or would have been in a rehearsal. */
+  text?: string | null;
+  /** The rule entry's slug that fired; none for a person's reply. */
+  rule?: string | null;
+  /** That rule's entry (the editor is /workspace/entries/{id}). */
+  ruleEntryId?: string | null;
+  note?: string | null;
   at?: string | null;
+  /** The person who replied from the inbox; none for a rule's reply. */
   by?: string | null;
+  byName?: string | null;
 }
 
 export interface InboxItem {
@@ -39,20 +47,35 @@ export interface InboxItem {
 }
 
 /** What the caller's role may do (the API's `can`). */
-export type Can = Partial<Record<"seen" | "like" | "hide" | "rule" | "reply" | "delete" | "message", boolean>>;
+export type Can = Partial<
+  Record<
+    "seen" | "like" | "hide" | "rule" | "rules" | "publish" | "auto_reply" | "reply" | "delete" | "message",
+    boolean
+  >
+>;
 
-export interface InboxEngine {
-  state: "missing" | "disabled" | "enabled" | string;
-  taskId?: string | null;
-  rehearsal?: boolean;
-  announce?: boolean;
+export type AutoReplyMode = "off" | "rehearsal" | "on";
+
+/** A connected social network: an enabled integration that offers a `social.*` capability. */
+export interface SocialNetwork {
+  slug: string;
+  name: string;
+  /** The plugin's slug: what its logo is served under. */
+  provider: string;
+  network: string;
+  capabilities?: string[];
+  readsComments?: boolean;
+  canReply?: boolean;
+  autoReply: AutoReplyMode | string;
+  /** Items of this network still new. */
+  new: number;
 }
 
 export interface InboxSummary {
-  available: boolean;
+  /** Whether Social appears at all (an enabled integration offers a `social.*` capability). */
+  show: boolean;
   new: number;
-  integrations: { slug: string; name: string; network: string }[];
-  engine: InboxEngine;
+  integrations: SocialNetwork[];
   can: Can;
 }
 
@@ -131,29 +154,17 @@ export function statusBadge(status: string): Badge {
   return STATUS_BADGE[status] ?? { label: status, tone: "neutral" };
 }
 
-export interface ReplyBadge extends Badge {
-  /** The social-reply-log entry in the entry editor, when there is one. */
-  href: string | null;
-}
-
 /** How an item was answered: sent (a rule's or a person's) or only rehearsed. None when it wasn't. */
-export function replyBadge(reply: InboxReply | null | undefined): ReplyBadge | null {
-  if (!reply || (!reply.at && !reply.logSlug)) return null;
+export function replyBadge(reply: InboxReply | null | undefined): Badge | null {
+  if (!reply || !reply.at) return null;
   const mode = reply.mode ? ` (${reply.mode})` : "";
-  const href = reply.logEntryId ? `/workspace/entries/${reply.logEntryId}` : null;
   if (reply.rehearsal) {
-    return {
-      label: `Rehearsal${mode}`,
-      tone: "warn",
-      title: "Logged as a reply it would send; nothing was sent",
-      href,
-    };
+    return { label: `Rehearsal${mode}`, tone: "warn", title: "Recorded as a reply it would send; nothing was sent" };
   }
   return {
     label: `Sent${mode}`,
     tone: "good",
     title: reply.by ? "Sent by a person from the inbox" : "Sent under a rule",
-    href,
   };
 }
 
@@ -300,7 +311,7 @@ export function integrationOptions(integrations: InboxSummary["integrations"]): 
   }));
 }
 
-// ── the empty state and the task note ─────────────────────────────────────────────────────────────────────────────
+// ── the empty state ───────────────────────────────────────────────────────────────────────────────────────────────
 
 export interface Notice {
   title: string;
@@ -308,51 +319,28 @@ export interface Notice {
   link?: { href: string; label: string };
 }
 
-const REHEARSAL =
-  "Replies start in rehearsal: the task logs what it would send and sends nothing until you switch rehearsal off.";
-
-/** What the page says when there is nothing to list: the inbox fills from the Social engagement task, which starts disabled and
- *  in rehearsal, so the words depend on whether that task exists, is on, or has just not found anything yet. */
-export function emptyNotice(summary: InboxSummary | null, filtered: boolean): Notice {
+/** What the page says when there is nothing to list. Social has no setup: the inbox fills on its own (about every 5 minutes) from
+ *  every connected network that reads comments, whatever its auto-reply is set to. With no connected network the words send the
+ *  workspace to Integrations; for one network they say whether it can be read. */
+export function emptyNotice(summary: InboxSummary | null, filtered: boolean, network?: SocialNetwork | null): Notice {
   if (filtered)
     return { title: "Nothing matches these filters", body: "Clear a filter or change the search to see more." };
-  const engine = summary?.engine;
-  if (summary && !summary.available) {
+  if (summary && !summary.show) {
     return {
       title: "No social network is connected",
-      body: "The inbox shows comments, replies and mentions from your connected networks. Connect Instagram, Facebook, Mastodon or Bluesky first.",
-      link: { href: "/workspace/settings/integrations", label: "Open Integrations" },
+      body: "Social shows the comments, replies and mentions of your connected networks. Connect Instagram, Facebook, Mastodon or Bluesky and it appears.",
+      link: { href: INTEGRATIONS_HREF, label: "Open Integrations" },
     };
   }
-  if (engine?.state === "missing") {
+  if (network && network.readsComments === false) {
     return {
-      title: "Set up Social engagement first",
-      body: `This inbox fills from the Social engagement task, which isn't in this workspace yet. ${REHEARSAL}`,
-      link: { href: SETTINGS_CARD_HREF, label: "Open the Social engagement card" },
-    };
-  }
-  if (engine?.state === "disabled") {
-    return {
-      title: "The Social engagement task is switched off",
-      body: `This inbox fills from the Social engagement task, which checks your networks every 5 minutes, and it is disabled. ${REHEARSAL}`,
-      link: { href: SETTINGS_CARD_HREF, label: "Open the Social engagement card" },
+      title: `${network.name} can't be read for comments`,
+      body: "This network can post, but its plugin doesn't offer reading comments, so there is no inbox to fill.",
     };
   }
   return {
     title: "Nothing here yet",
-    body: `New comments, replies and mentions appear within about 5 minutes of the Social engagement task's next check. ${
-      engine?.rehearsal === false ? "Replies are being sent." : REHEARSAL
-    }`,
-  };
-}
-
-/** A line above the list when items exist but nothing new will arrive (the task is off or missing); null when all is well. */
-export function engineNote(engine: InboxEngine | null | undefined): Notice | null {
-  if (!engine || engine.state === "enabled") return null;
-  return {
-    title: engine.state === "missing" ? "Social engagement isn't set up" : "The Social engagement task is switched off",
-    body: "These are the items it kept earlier; nothing new arrives until it runs.",
-    link: { href: SETTINGS_CARD_HREF, label: "Open the Social engagement card" },
+    body: "New comments, replies and mentions appear within about 5 minutes of the next check, and stay for 30 days.",
   };
 }
 

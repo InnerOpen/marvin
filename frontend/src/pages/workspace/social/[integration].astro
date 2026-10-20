@@ -1,0 +1,139 @@
+---
+// Social › a network: its page, Inbox · Rules · Replies, with the auto-reply switch (off · rehearsal · on) in the header. The inbox
+// is that network's items; Rules are its rules plus the ones for every network (marked), edited with the normal entry editor;
+// Replies are the comments it answered, live or rehearsed. A network with auto-reply off still shows its inbox. Admins switch the
+// auto-reply; editors read and write rules. Backend: routes/groups/social_inbox_controller.py. Pure logic: lib/socialSpace.ts.
+import SocialInbox from "@/components/SocialInbox.astro";
+import SocialReplies from "@/components/SocialReplies.astro";
+import SocialRules from "@/components/SocialRules.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { getSummary, type InboxList, listItems, listReplies, listRules } from "@/lib/api/socialInbox";
+import { logoUrl } from "@/lib/integrationLogo";
+import { emptyNotice, type InboxSummary, parseFilters, SOCIAL_INBOX_PATH } from "@/lib/socialInbox";
+import { autoReplySwitch, findNetwork, networkPath, parseReplyFilter, parseTab, repliesQuery, type Rule, tabLinks } from "@/lib/socialSpace";
+import { isForbidden } from "@/lib/workspaceRole";
+import "@/styles/social.css";
+
+const slug = Astro.params.integration ?? "";
+const authToken = getAuthToken(Astro.cookies);
+const tab = parseTab(Astro.url.searchParams);
+const filters = { ...parseFilters(Astro.url.searchParams), integration: slug };
+const replyFilter = parseReplyFilter(Astro.url.searchParams);
+let summary: InboxSummary | null = null;
+let items: InboxList | null = null;
+let replies: InboxList | null = null;
+let rules: Rule[] = [];
+let error: string | null = null;
+let restricted = false;
+try {
+  summary = await getSummary(authToken, true);
+  const found = findNetwork(summary, slug);
+  if (found) {
+    if (tab === "inbox") items = await listItems(filters, 0, authToken);
+    else if (tab === "rules") rules = (await listRules(slug, authToken)).rules;
+    else replies = await listReplies(repliesQuery(slug, replyFilter), authToken);
+  }
+} catch (e) {
+  if (isForbidden(e)) restricted = true;
+  else error = e instanceof Error ? e.message : String(e);
+}
+const network = findNetwork(summary, slug);
+const none = summary && !summary.show ? emptyNotice(summary, false) : null;
+const gone = summary?.show && !network;
+const sw = network && summary ? autoReplySwitch(network, summary.can) : null;
+const tabs = tabLinks(slug, tab);
+const data = JSON.stringify({ slug, mode: network?.autoReply ?? "off" }).replace(/</g, "\\u003c");
+---
+
+<AppLayout
+  crumb="workspace.social.network"
+  crumbLabels={{ "workspace.social": "Social" }}
+  title={network?.name ?? "Social"}
+  restrictedNote={restricted ? "Social is for editors and above." : null}
+>
+  <div class="social-page">
+    {error && <div class="si-alert">Could not load this network: {error}</div>}
+    {none && (
+      <div class="si-empty">
+        <h3>{none.title}</h3>
+        <p>{none.body}</p>
+        {none.link && <p><a class="button secondary" href={none.link.href}>{none.link.label}</a></p>}
+      </div>
+    )}
+    {gone && (
+      <div class="si-empty">
+        <h3>That network isn't connected</h3>
+        <p>There is no enabled integration called “{slug}” that works with Social.</p>
+        <p>The networks that are connected are in the sidebar, under Collections › Social, and in the <a href={SOCIAL_INBOX_PATH}>Social inbox</a>.</p>
+      </div>
+    )}
+
+    {network && sw && !error && (
+      <>
+        <header class="sp-head">
+          <div class="sp-name">
+            <span class="int-mark nav-int-mark" data-emoji="💬"><img class="int-mark-img" src={logoUrl(network.provider)} alt="" height="32" decoding="async" /></span>
+            <div>
+              <strong>{network.name}</strong>
+              <div class="si-muted si-small">{network.network}{network.new > 0 ? ` · ${network.new} new` : ""}</div>
+            </div>
+          </div>
+          <div class="sp-auto" id="sp-auto" data-editable={sw.editable ? "1" : undefined}>
+            <span class="sp-auto-label" id="sp-auto-label">Auto-reply</span>
+            <div class="sp-switch" role="radiogroup" aria-labelledby="sp-auto-label">
+              {sw.options.map((o) => (
+                <button type="button" role="radio" class:list={["sp-opt", { on: o.value === sw.value }]} aria-checked={o.value === sw.value ? "true" : "false"} data-mode={o.value} disabled={!sw.editable}>{o.label}</button>
+              ))}
+            </div>
+            <p class="si-muted si-small sp-help" id="sp-help" aria-live="polite">{sw.help}</p>
+            {sw.note && <p class="si-muted si-small">{sw.note}</p>}
+            <p class="si-small sp-err" id="sp-err" role="alert" hidden></p>
+          </div>
+        </header>
+
+        <nav class="sp-tabs" aria-label={`${network.name} sections`}>
+          {tabs.map((t) => <a href={t.href} aria-current={t.current ? "page" : undefined}>{t.label}</a>)}
+        </nav>
+
+        {tab === "inbox" && <SocialInbox summary={summary} list={items} filters={filters} basePath={networkPath(slug)} network={network} />}
+        {tab === "rules" && <SocialRules network={network} rules={rules} can={summary!.can} />}
+        {tab === "replies" && replies && <SocialReplies network={network} list={replies} filter={replyFilter} />}
+        <script type="application/json" id="sp-auto-data" is:inline set:html={data}></script>
+      </>
+    )}
+  </div>
+</AppLayout>
+
+<script>
+  import { setAutoReply } from "@/lib/api/socialInbox";
+  import { errorMessage } from "@/lib/socialInbox";
+  import { modeHelp } from "@/lib/socialSpace";
+
+  const box = document.getElementById("sp-auto");
+  const info = JSON.parse(document.getElementById("sp-auto-data")?.textContent || "{}");
+  if (box?.dataset.editable === "1") {
+    box.querySelectorAll<HTMLButtonElement>(".sp-opt").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const mode = button.dataset.mode as "off" | "rehearsal" | "on";
+        const err = document.getElementById("sp-err")!;
+        err.hidden = true;
+        box.querySelectorAll<HTMLButtonElement>(".sp-opt").forEach((b) => (b.disabled = true));
+        try {
+          await setAutoReply(info.slug, mode);
+          box.querySelectorAll<HTMLButtonElement>(".sp-opt").forEach((b) => {
+            const on = b.dataset.mode === mode;
+            b.classList.toggle("on", on);
+            b.setAttribute("aria-checked", on ? "true" : "false");
+          });
+          document.getElementById("sp-help")!.textContent = modeHelp(mode);
+        } catch (e) {
+          err.hidden = false;
+          err.textContent = errorMessage(e);
+        } finally {
+          box.querySelectorAll<HTMLButtonElement>(".sp-opt").forEach((b) => (b.disabled = false));
+        }
+      }),
+    );
+  }
+</script>

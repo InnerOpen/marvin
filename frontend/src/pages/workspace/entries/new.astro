@@ -5,6 +5,7 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { createEntry } from "@/lib/api/entries";
 import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
+import { listedTypes } from "@/lib/entryTypeListing";
 import { getContentAccess } from "@/lib/api/workspaces";
 import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
@@ -79,7 +80,7 @@ try {
   console.error("[NewEntry] Failed to load entry types:", error);
 }
 
-const sortedTypes = entryTypes.sort((a, b) => a.sortOrder - b.sortOrder);
+const sortedTypes = listedTypes(entryTypes).sort((a, b) => a.sortOrder - b.sortOrder);
 
 // Get pre-selected entry type schema if available
 const preSelectedType = preSelectedTypeId ? entryTypes.find((t) => t.id === preSelectedTypeId) : null;

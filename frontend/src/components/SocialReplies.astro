@@ -1,0 +1,139 @@
+---
+// A network's Replies tab: the comments that were answered — by a rule, live or in rehearsal, or by a person from the inbox —
+// latest first, with what was sent, who or which rule sent it, and when. The reply is recorded on the inbox item itself. A row is
+// compact on every screen and opens the comment with its reply. Backend: GET /api/groups/social-inbox/replies.
+// Pure logic: lib/socialSpace.ts.
+import type { InboxList } from "@/lib/api/socialInbox";
+import type { SocialNetwork } from "@/lib/socialInbox";
+import { REPLY_FILTERS, type ReplyFilter, repliesEmpty } from "@/lib/socialSpace";
+
+interface Props {
+  network: SocialNetwork;
+  list: InboxList;
+  filter: ReplyFilter;
+}
+const { network, list, filter } = Astro.props;
+const empty = repliesEmpty(network);
+const data = JSON.stringify({ network, list, filter }).replace(/</g, "\\u003c");
+---
+
+<div class="social-inbox">
+  <script type="application/json" id="sp-data" is:inline set:html={data}></script>
+  <div class="si-bar">
+    <p class="si-lede">What was answered on {network.name}: sent or rehearsed, by which rule or person, and when.</p>
+    <form class="si-filters" method="get" action={`/workspace/social/${encodeURIComponent(network.slug)}`} id="sp-filter">
+      <input type="hidden" name="tab" value="replies" />
+      <label>Show
+        <select class="input" name="show">
+          {REPLY_FILTERS.map((f) => <option value={f.value} selected={f.value === filter}>{f.label}</option>)}
+        </select>
+      </label>
+    </form>
+  </div>
+  <ul class="si-list" id="sp-list" aria-label={`Replies on ${network.name}`}></ul>
+  <p class="si-muted si-count" id="sp-count" hidden></p>
+  <button type="button" class="button secondary si-more" id="sp-more" hidden>Show more</button>
+  <div class="si-empty" id="sp-empty" hidden>
+    <h3>{empty.title}</h3>
+    <p>{empty.body}</p>
+  </div>
+</div>
+
+<dialog id="sp-dialog" class="si-dialog" aria-labelledby="sp-d-title">
+  <div class="si-d-head">
+    <h3 id="sp-d-title">Reply</h3>
+    <button type="button" class="si-d-close" data-close aria-label="Close">×</button>
+  </div>
+  <div class="si-d-body" id="sp-d-body"></div>
+</dialog>
+
+<script>
+  import * as api from "@/lib/api/socialInbox";
+  import { authorLabel, errorMessage, excerpt, type InboxItem, timeAgo } from "@/lib/socialInbox";
+  import { repliesQuery, type ReplyFilter, replyRow } from "@/lib/socialSpace";
+
+  const $ = (id: string): any => document.getElementById(id);
+  const esc = (s: unknown) =>
+    String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
+
+  const init = JSON.parse($("sp-data").textContent || "{}");
+  const slug: string = init.network.slug;
+  const filter: ReplyFilter = init.filter;
+  let items: InboxItem[] = init.list?.items ?? [];
+  let total: number = init.list?.total ?? 0;
+
+  const badge = (b: { label: string; tone: string; title?: string }) =>
+    `<span class="si-badge ${esc(b.tone)}"${b.title ? ` title="${esc(b.title)}"` : ""}>${esc(b.label)}</span>`;
+  const when = (iso: string | null) => (iso ? `<time datetime="${esc(iso)}" title="${esc(new Date(iso).toLocaleString())}">${esc(timeAgo(iso))}</time>` : "");
+
+  function rowHtml(item: InboxItem): string {
+    const row = replyRow(item)!;
+    return `<li><button type="button" class="si-row sp-row" data-id="${esc(item.id)}" aria-haspopup="dialog">
+      <span class="si-main">
+        <span class="si-line"><strong class="si-author">${esc(row.who)}</strong>${badge(row.badge)}</span>
+        <span class="si-text">${esc(row.line)}</span>
+      </span>
+      <span class="si-meta">${when(row.at)}<span class="sr-scope">${esc(row.by)}</span></span>
+    </button></li>`;
+  }
+
+  function render() {
+    const shown = items.filter((i) => replyRow(i));
+    $("sp-list").innerHTML = shown.map(rowHtml).join("");
+    $("sp-empty").hidden = shown.length > 0;
+    $("sp-count").hidden = shown.length === 0;
+    $("sp-count").textContent = `${shown.length} of ${total}`;
+    $("sp-more").hidden = items.length >= total;
+  }
+
+  $("sp-filter").querySelector("select").addEventListener("change", () => $("sp-filter").requestSubmit());
+
+  $("sp-more").addEventListener("click", async () => {
+    const button = $("sp-more") as HTMLButtonElement;
+    button.disabled = true;
+    try {
+      const more = await api.listReplies(repliesQuery(slug, filter, items.length));
+      items = [...items, ...more.items.filter((m) => !items.some((i) => i.id === m.id))];
+      total = more.total;
+      render();
+    } catch (e) {
+      $("sp-count").hidden = false;
+      $("sp-count").textContent = errorMessage(e);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  const dialog = $("sp-dialog") as HTMLDialogElement;
+  function dialogHtml(item: InboxItem): string {
+    const row = replyRow(item)!;
+    const reply = item.reply!;
+    const line = (label: string, value: string) => `<dt>${esc(label)}</dt><dd>${value}</dd>`;
+    return `
+      <div class="si-badges sr-d-badges">${badge(row.badge)}</div>
+      <p class="si-muted si-small">${esc(authorLabel(item.author))} wrote${item.createdAt ? ` · ${esc(timeAgo(item.createdAt))}` : ""}</p>
+      <p class="si-full">${esc(excerpt(item.text, 600))}</p>
+      <p class="si-muted si-small">${esc(row.by)}${reply.at ? ` · ${esc(new Date(reply.at).toLocaleString())}` : ""}</p>
+      <p class="si-full sr-reply">${esc(reply.text ?? "(no text recorded)")}</p>
+      <dl class="sr-facts">
+        ${line("Sent as", esc(reply.mode ?? "private"))}
+        ${reply.rehearsal ? line("Nothing was sent", "This was a dry run.") : ""}
+        ${reply.note ? line("Note", esc(reply.note)) : ""}
+      </dl>
+      <p class="si-muted si-small si-links">${item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">Open on ${esc(item.network)}</a>` : ""}${row.ruleHref ? `${item.url ? " · " : ""}<a href="${esc(row.ruleHref)}">The rule</a>` : ""}</p>`;
+  }
+
+  $("sp-list").addEventListener("click", (event: Event) => {
+    const row = (event.target as HTMLElement).closest<HTMLElement>(".sp-row");
+    const item = row ? items.find((i) => i.id === row.dataset.id) : null;
+    if (!item) return;
+    $("sp-d-title").textContent = `${authorLabel(item.author)} · reply`;
+    $("sp-d-body").innerHTML = dialogHtml(item);
+    dialog.showModal();
+  });
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog || (event.target as HTMLElement).closest("[data-close]")) dialog.close();
+  });
+
+  render();
+</script>

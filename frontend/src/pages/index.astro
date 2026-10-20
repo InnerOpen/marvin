@@ -1,6 +1,7 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import { listedTypes } from "@/lib/entryTypeListing";
 import { listCollections } from "@/lib/api/collections";
 import { listEntries } from "@/lib/api/entries";
 import { listEntryTypes } from "@/lib/api/entryTypes";
@@ -51,6 +52,7 @@ if (!authToken) {
     ]);
     siteClients = clients ?? [];
     canSeeClients = clients !== null;
+    entryTypes = listedTypes(entryTypes); // not the internal ones (the Social auto-reply rules): Quick Create and the empty-type nudges skip them
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
     console.error("[Dashboard] Failed to load data:", error);

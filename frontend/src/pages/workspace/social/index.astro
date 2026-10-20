@@ -1,0 +1,46 @@
+---
+// Social › Inbox: every connected network's comments, replies and mentions in one list (filter by network, kind, status or
+// text). Social isn't an integration and has no setup: it is here because an enabled integration offers a social capability.
+// With none, this page says so and links to Integrations. Each network has its own page (/workspace/social/<integration>:
+// Inbox · Rules · Replies and the auto-reply switch). Backend: routes/groups/social_inbox_controller.py.
+import SocialInbox from "@/components/SocialInbox.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { getSummary, type InboxList, listItems } from "@/lib/api/socialInbox";
+import { emptyNotice, type InboxSummary, parseFilters, SOCIAL_INBOX_PATH } from "@/lib/socialInbox";
+import { isForbidden } from "@/lib/workspaceRole";
+import "@/styles/social.css";
+
+const authToken = getAuthToken(Astro.cookies);
+const filters = parseFilters(Astro.url.searchParams);
+let summary: InboxSummary | null = null;
+let list: InboxList | null = null;
+let error: string | null = null;
+let restricted = false;
+try {
+  summary = await getSummary(authToken, true);
+  if (summary.show) list = await listItems(filters, 0, authToken);
+} catch (e) {
+  if (isForbidden(e)) restricted = true;
+  else error = e instanceof Error ? e.message : String(e);
+}
+const none = summary && !summary.show ? emptyNotice(summary, false) : null;
+---
+
+<AppLayout crumb="workspace.social" restrictedNote={restricted ? "Social is for editors and above." : null}>
+  <div class="social-page">
+    <p class="si-lede">
+      Recent comments, replies and mentions from your connected networks, and what was answered. Each network has its own page
+      (in the sidebar, under Collections › Social) with its rules, its replies and its auto-reply switch.
+    </p>
+    {error && <div class="si-alert">Could not load Social: {error}</div>}
+    {none && (
+      <div class="si-empty">
+        <h3>{none.title}</h3>
+        <p>{none.body}</p>
+        {none.link && <p><a class="button secondary" href={none.link.href}>{none.link.label}</a></p>}
+      </div>
+    )}
+    {summary?.show && !error && <SocialInbox summary={summary} list={list} filters={filters} basePath={SOCIAL_INBOX_PATH} />}
+  </div>
+</AppLayout>

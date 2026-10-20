@@ -1,12 +1,14 @@
 /**
- * The Social inbox (routes/groups/social_inbox_controller.py): the comments, replies and mentions the Social engagement task
- * kept, and a person's actions on them. Reading, marking seen, like, hide and "Make a rule" are EDITOR and above; reply,
- * delete and message are ADMIN and above (the summary's `can` says which of them the caller may use). Plain fetchApi until the
- * SDK release carries them. Pass authToken in SSR (from Astro.cookies); omit it in the browser.
+ * Social (routes/groups/social_inbox_controller.py): the comments, replies and mentions the engagement poll kept, a person's
+ * actions on them, a network's rules and replies, and its auto-reply switch. Reading, marking seen, like, hide, rules and "Make a
+ * rule" are EDITOR and above; reply, delete, message and the auto-reply switch are ADMIN and above (the summary's `can` says which
+ * of them the caller may use). Plain fetchApi until the SDK release carries them. Pass authToken in SSR (from Astro.cookies); omit
+ * it in the browser.
  */
 
-import type { Filters, InboxItem, InboxSummary } from "../socialInbox";
+import type { AutoReplyMode, Filters, InboxItem, InboxSummary } from "../socialInbox";
 import { apiQuery } from "../socialInbox";
+import type { Rule } from "../socialSpace";
 import { fetchApi } from "./client";
 
 const BASE = "/api/groups/social-inbox";
@@ -32,8 +34,6 @@ export interface ReplyResult {
   private: boolean;
   replyId?: string | null;
   url?: string | null;
-  /** In the social-reply-log, so the poll never answers this comment. */
-  logged: boolean;
   item: InboxItem;
 }
 
@@ -48,7 +48,9 @@ export interface RuleResult {
 const post = <T>(path: string, body?: unknown) =>
   fetchApi<T>(`${BASE}${path}`, { method: "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 
-export const getSummary = (authToken?: string) => fetchApi<InboxSummary>(`${BASE}/summary`, {}, authToken);
+/** `visit`: a Social page asks, so the workspace's Social plumbing (the rule type, the engine's task) is made first. */
+export const getSummary = (authToken?: string, visit = false) =>
+  fetchApi<InboxSummary>(`${BASE}/summary${visit ? "?visit=true" : ""}`, {}, authToken);
 
 export const listItems = (filters: Filters, offset = 0, authToken?: string) =>
   fetchApi<InboxList>(`${BASE}?${apiQuery(filters, offset)}`, {}, authToken);
@@ -69,3 +71,31 @@ export const message = (id: string, text: string) => post<ActionResult>(`/${enco
 
 export const makeRule = (id: string, replyText = "") =>
   post<RuleResult>(`/${encodeURIComponent(id)}/rule`, { reply: replyText });
+
+export const listReplies = (query: string, authToken?: string) =>
+  fetchApi<InboxList>(`${BASE}/replies?${query}`, {}, authToken);
+
+export const listRules = (integration: string | null, authToken?: string) =>
+  fetchApi<{ rules: Rule[] }>(
+    `${BASE}/rules${integration ? `?integration=${encodeURIComponent(integration)}` : ""}`,
+    {},
+    authToken,
+  );
+
+/** A new blank rule as a draft, for a network (its slug goes in `networks`) or, with null, for every network. */
+export const createRule = (integration: string | null) => post<Rule>("/rules", { integration });
+
+export const setRulePublished = (id: string, published: boolean) =>
+  fetchApi<Rule>(`${BASE}/rules/${encodeURIComponent(id)}/published`, {
+    method: "PUT",
+    body: JSON.stringify({ published }),
+  });
+
+export const setAutoReply = (slug: string, mode: AutoReplyMode) =>
+  fetchApi<{ integration: string; autoReply: AutoReplyMode }>(
+    `${BASE}/integrations/${encodeURIComponent(slug)}/auto-reply`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ mode }),
+    },
+  );

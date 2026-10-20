@@ -9,15 +9,14 @@ import {
   authorLabel,
   confirmText,
   emptyNotice,
-  engineNote,
   errorMessage,
   excerpt,
   filtersToQuery,
   hasFilters,
   integrationOptions,
   kindLabel,
-  newBadgeText,
   NO_FILTERS,
+  newBadgeText,
   openHref,
   parseFilters,
   replyAgainText,
@@ -30,7 +29,18 @@ import {
 
 const NOW = new Date("2026-10-20T12:00:00Z");
 const ALL = ["reply", "like", "hide", "delete", "message"];
-const ADMIN = { seen: true, like: true, hide: true, rule: true, reply: true, delete: true, message: true };
+const ADMIN = {
+  seen: true,
+  like: true,
+  hide: true,
+  rule: true,
+  rules: true,
+  publish: true,
+  auto_reply: true,
+  reply: true,
+  delete: true,
+  message: true,
+};
 const EDITOR = { seen: true, like: true, hide: true, rule: true, reply: false, delete: false, message: false };
 
 describe("a row", () => {
@@ -96,29 +106,15 @@ describe("replied badges", () => {
     assert.equal(replyBadge({ rehearsal: false }), null);
   });
 
-  test("a rehearsal says nothing was sent, a real reply says sent, each with its mode and a link to the log entry", () => {
-    const rehearsal = replyBadge({
-      rehearsal: true,
-      mode: "private",
-      logSlug: "social-rehearsal-1",
-      logEntryId: "e1",
-      at: "2026-10-20T10:00:00Z",
-    });
-    assert.deepEqual(
-      [rehearsal.label, rehearsal.tone, rehearsal.href],
-      ["Rehearsal (private)", "warn", "/workspace/entries/e1"],
-    );
+  test("a rehearsal says nothing was sent, a real reply says sent, each with its mode", () => {
+    const rehearsal = replyBadge({ rehearsal: true, mode: "private", at: "2026-10-20T10:00:00Z" });
+    assert.deepEqual([rehearsal.label, rehearsal.tone], ["Rehearsal (private)", "warn"]);
     assert.match(rehearsal.title, /nothing was sent/);
-    const sent = replyBadge({
-      rehearsal: false,
-      mode: "public",
-      logSlug: "s",
-      logEntryId: "e2",
-      at: "2026-10-20T10:00:00Z",
-    });
-    assert.deepEqual([sent.label, sent.tone, sent.href], ["Sent (public)", "good", "/workspace/entries/e2"]);
-    assert.equal(replyBadge({ rehearsal: false, mode: "both", at: "2026-10-20T10:00:00Z" }).href, null); // no log type: no entry to link
+    const sent = replyBadge({ rehearsal: false, mode: "public", at: "2026-10-20T10:00:00Z" });
+    assert.deepEqual([sent.label, sent.tone], ["Sent (public)", "good"]);
+    assert.equal(replyBadge({ rehearsal: false, mode: "both", at: "2026-10-20T10:00:00Z" }).label, "Sent (both)");
     assert.match(replyBadge({ rehearsal: false, at: "x", by: "u1" }).title, /by a person/);
+    assert.match(replyBadge({ rehearsal: false, at: "x", rule: "r1" }).title, /under a rule/);
   });
 
   test("replying again to a sent reply asks first; a rehearsal or no reply does not", () => {
@@ -244,50 +240,33 @@ describe("filters", () => {
 });
 
 describe("the empty state", () => {
-  const summary = (engine, available = true) => ({ available, new: 0, integrations: [], engine, can: {} });
+  const summary = (show = true) => ({ show, new: 0, integrations: [], can: {} });
 
   test("filters say so first", () => {
-    assert.equal(emptyNotice(summary({ state: "enabled" }), true).title, "Nothing matches these filters");
+    assert.equal(emptyNotice(summary(), true).title, "Nothing matches these filters");
   });
 
-  test("no social integration: connect one", () => {
-    const n = emptyNotice(summary({ state: "missing" }, false), false);
+  test("no social integration: say so and link to Integrations", () => {
+    const n = emptyNotice(summary(false), false);
     assert.equal(n.title, "No social network is connected");
     assert.equal(n.link.href, "/workspace/settings/integrations");
   });
 
-  test("a disabled task links to the Social engagement card and says it starts in rehearsal", () => {
-    const n = emptyNotice(summary({ state: "disabled", rehearsal: true }), false);
-    assert.match(n.title, /switched off/);
-    assert.equal(n.link.href, "/workspace/settings/integrations#social-engagement");
-    assert.match(n.body, /fills from the Social engagement task/);
-    assert.match(n.body, /start in rehearsal/);
+  test("a connected network with nothing yet says when to expect items; there is nothing to set up", () => {
+    const n = emptyNotice(summary(), false);
+    assert.equal(n.title, "Nothing here yet");
+    assert.equal(n.link, undefined);
+    assert.match(n.body, /5 minutes/);
+    assert.doesNotMatch(n.body, /set up|rehearsal/i);
   });
 
-  test("a workspace without the set is sent to the card too", () => {
-    const n = emptyNotice(summary({ state: "missing" }), false);
-    assert.match(n.title, /Set up Social engagement/);
-    assert.equal(n.link.href, "/workspace/settings/integrations#social-engagement");
-  });
-
-  test("an enabled task that has found nothing yet says when to expect items, and whether replies are rehearsed", () => {
-    const rehearsing = emptyNotice(summary({ state: "enabled", rehearsal: true }), false);
-    assert.equal(rehearsing.link, undefined);
-    assert.match(rehearsing.body, /5 minutes/);
-    assert.match(rehearsing.body, /start in rehearsal/);
-    assert.match(emptyNotice(summary({ state: "enabled", rehearsal: false }), false).body, /Replies are being sent/);
+  test("a network whose plugin can't read comments says there is no inbox for it", () => {
+    const n = emptyNotice(summary(), false, { name: "Poster", readsComments: false });
+    assert.match(n.title, /Poster can't be read/);
   });
 
   test("no summary yet (it failed to load) still says something useful", () => {
     assert.equal(emptyNotice(null, false).title, "Nothing here yet");
-  });
-
-  test("the note above a list appears only when the task is off or missing", () => {
-    assert.equal(engineNote({ state: "enabled" }), null);
-    assert.equal(engineNote(null), null);
-    assert.match(engineNote({ state: "disabled" }).title, /switched off/);
-    assert.match(engineNote({ state: "missing" }).title, /isn't set up/);
-    assert.equal(engineNote({ state: "disabled" }).link.href, "/workspace/settings/integrations#social-engagement");
   });
 });
 
