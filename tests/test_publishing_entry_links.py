@@ -152,5 +152,7 @@ def test_a_page_costs_the_same_queries_at_any_size(db_session, make_workspace, s
         with count_queries() as statements:
             items = client.get(f"/api/publish/{ws.group.slug}/entries", params={"limit": 100}).json()["data"]
         assert len(items) == n
-        counts.append(len(statements))
+        # Platform settings reads are left out, as in test_publishing_expand: they're cached per process for a few seconds,
+        # so whether a request pays for one depends on the clock, not on the page size.
+        counts.append(sum("FROM platform_settings" not in statement for statement in statements))
     assert counts[0] == counts[1], counts
