@@ -6,6 +6,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.5 (2026-10-20)
+
+### Bug Fixes
+
+- **workflows**: An approved run stays approved after a Wait or a retry
+  ([`d76279f`](https://github.com/InnerOpen/marvin/commit/d76279f9bdf7b69a4f40680a2a363911b17df1b4))
+
+### Features
+
+- **plugins**: Facebook, Bluesky and Mastodon plugins; Instagram 0.6.0
+  ([`89373c3`](https://github.com/InnerOpen/marvin/commit/89373c3573e6f9c277e22c6bd4f236f0d2659cbc))
+
+- **workflows**: Post to social networks — social.post, approval-gated, every connected network
+  ([`50bb808`](https://github.com/InnerOpen/marvin/commit/50bb80885a31e9b81f428f07d3c6ac0090c39afe))
+
+
 ## v1.1.0-rc.4 (2026-10-20)
 
 ### Bug Fixes
