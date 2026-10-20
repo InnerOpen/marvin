@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.13 (2026-10-20)
+
+### Features
+
+- **plugins**: Facebook and Bluesky 0.3.0 — "Post to … when published" recipes
+  ([`08c222b`](https://github.com/InnerOpen/marvin/commit/08c222b2193aa9e870f5f5a597da42be1138a681))
+
+
 ## v1.1.0-rc.12 (2026-10-20)
 
 ### Features
