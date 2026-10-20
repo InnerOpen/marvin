@@ -6,6 +6,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.9 (2026-10-20)
+
+### Documentation
+
+- **social**: A Social manual page, the plan's phase 1 review, workflow and scheduled-task docs
+  ([`0910e74`](https://github.com/InnerOpen/marvin/commit/0910e74421720bb1b8fa30a0df7daa9b2948350d))
+
+### Features
+
+- **social**: Social as its own space — internal entry types, per-network rules and auto-reply,
+  replies on inbox items, automatic plumbing
+  ([`baa4b8f`](https://github.com/InnerOpen/marvin/commit/baa4b8fef724397a211e817e90516bce9e25ca75))
+
+- **social**: Social pages — sidebar group under Collections, network pages with Inbox/Rules/Replies
+  and the auto-reply switch
+  ([`7411dc8`](https://github.com/InnerOpen/marvin/commit/7411dc8623d010d15366d3395f5e9220f2cb2b9a))
+
+
 ## v1.1.0-rc.8 (2026-10-20)
 
 ### Features
