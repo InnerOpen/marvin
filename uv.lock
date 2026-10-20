@@ -3,7 +3,7 @@ revision = 5
 requires-python = "==3.12.*"
 
 [manifest]
-overrides = [{ name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.12.0" }]
+overrides = [{ name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.13.0" }]
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -1217,7 +1217,7 @@ requires-dist = [
     { name = "isodate", specifier = ">=0.7.2" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "jsonschema", specifier = ">=4.26,<5" },
-    { name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.12.0" },
+    { name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.13.0" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.28.1,<2" },
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "pillow", specifier = ">=11.1.0" },
@@ -1399,8 +1399,8 @@ dependencies = [
 
 [[package]]
 name = "marvin-integration-sdk"
-version = "0.12.0"
-source = { git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.12.0#edb5192c216e4c0dd08dc177cfcdaa5c338fc83c" }
+version = "0.13.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.13.0#c7efc3ea4128bc3caff725b76654b6c595c1dcc8" }
 
 [[package]]
 name = "marvin-integration-slack"
