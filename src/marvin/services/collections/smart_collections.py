@@ -136,9 +136,11 @@ def matches_rules(item, rules: dict | None, target_type: str = "entry") -> bool:
             return False
         entry_types = rules.get("entry_types")
         # An entry of an internal type (services/entry_listing.py) belongs only to a collection that names its type: the
-        # status collections (Inbox, Drafts…) and the rest never hold it, whatever else the rules match.
+        # status collections (Inbox, Drafts…) and the rest never hold it, whatever else the rules match. The one other
+        # place is the Trash, so a trashed Social rule can be restored from there.
         item_type = getattr(item, "entry_type", None)
-        if not is_listed_type(item_type) and getattr(item_type, "slug", None) not in (entry_types or []):
+        in_trash = getattr(item, "status", None) == "trashed"  # (and the rules ask for trashed entries: checked above)
+        if not is_listed_type(item_type) and getattr(item_type, "slug", None) not in (entry_types or []) and not in_trash:
             return False
         if entry_types:
             dimensions.append(getattr(item_type, "slug", None) in entry_types)

@@ -18,6 +18,8 @@ interface Props {
   assets: AssetRead[];
   resources: ResourceRead[];
   typeMap: Map<string, string>;
+  /** Entry type id → badge, for the types the rest of the app hides (a Social rule): the Trash is where they can be restored. */
+  internalBadges?: Map<string, string>;
   /** Per entry: may the caller restore it / delete it forever (the entry page's own rule). */
   mayChange: (entry: EntryRead) => boolean;
   /** EDITOR and above: may restore / delete forever assets and resources (their pages' own rule). */
@@ -29,7 +31,7 @@ interface Props {
   autoEmpty: TrashAutoEmpty | null;
 }
 
-const { entries, assets, resources, typeMap, mayChange, mayChangeItems, canEmpty, canConfigure, autoEmpty } = Astro.props;
+const { entries, assets, resources, typeMap, internalBadges = new Map<string, string>(), mayChange, mayChangeItems, canEmpty, canConfigure, autoEmpty } = Astro.props;
 const label = (status: string) => status.replace("_", " ");
 const metaOf = (entry: EntryRead) => (entry.metadataJson ?? null) as Record<string, unknown> | null;
 const trashedOn = (item: unknown) => ((item as { trashedAt?: string | null }).trashedAt ?? null) as string | null;
@@ -41,6 +43,8 @@ interface Row {
   /** A small picture: an asset that is one, an entry's featured / hero image (else its first). None otherwise. */
   image?: string | null;
   sub: string[];
+  /** A marker beside the title (an entry of an internal type: "Social rule"). */
+  badge?: string;
   /** When it went to the Trash (ISO), shown as a local date after `sub`. */
   trashed: string | null;
   allowed: boolean;
@@ -66,7 +70,8 @@ const tabs: Tab[] = [
         title: entry.title || "Untitled",
         href: `/workspace/entries/${entry.id}`,
         image: ((entry as any).assets?.find((a: any) => a.role === "featured" || a.role === "hero") ?? (entry as any).assets?.[0])?.publicUrl ?? null,
-        sub: [typeMap.get(entry.entryTypeId) ?? "", `Restores to ${label(restoresTo(meta))}`],
+        sub: [internalBadges.has(entry.entryTypeId) ? "" : typeMap.get(entry.entryTypeId) ?? "", `Restores to ${label(restoresTo(meta))}`],
+        badge: internalBadges.get(entry.entryTypeId),
         trashed: when ?? null,
         allowed: mayChange(entry),
       };
@@ -173,7 +178,7 @@ const countOf = (key: string) => tabs.find((tab) => tab.key === key)?.rows.lengt
               <input type="checkbox" class="trash-pick" value={row.id} disabled={!row.allowed} aria-label={`Select ${row.title}`} />
               {row.image && <img class="trash-thumb" src={row.image} alt="" loading="lazy" />}
               <a class="trash-main" href={row.href}>
-                <span class="trash-title">{row.title}</span>
+                <span class="trash-title">{row.title}{row.badge && <span class="trash-badge">{row.badge}</span>}</span>
                 <span class="trash-sub">{row.sub.filter(Boolean).map((part) => <span>{part}</span>)}{row.trashed && <span>Trashed <LocalTime iso={row.trashed} format="date" /></span>}</span>
               </a>
               {row.allowed && (
@@ -421,6 +426,17 @@ const countOf = (key: string) => tabs.find((tab) => tab.key === key)?.rows.lengt
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .trash-badge {
+    margin-left: 0.5rem;
+    padding: 0.05rem 0.45rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--panel-2);
+    color: var(--muted);
+    font-size: 0.7rem;
+    font-weight: 500;
+    vertical-align: 1px;
   }
   .trash-sub {
     display: flex;

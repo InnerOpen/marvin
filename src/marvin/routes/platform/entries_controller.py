@@ -79,7 +79,7 @@ class EntriesController(BaseUserController):
         """How many entries are in the Trash and how long it keeps them (`effective_days`, 0 = until
         emptied; the platform default and this workspace's override beside it). Declared before `/{item_id}`."""
         return {
-            "count": len(trash.trashed_ids(self.session, self.group_id, listed_only=True)),
+            "count": len(trash.trashed_ids(self.session, self.group_id)),
             **trash.auto_empty_status(self.session, self.group_id),
         }
 

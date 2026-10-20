@@ -1,6 +1,6 @@
 ---
 // A network's Rules tab: its auto-reply rules, then the ones for every network (marked). A row is compact on every screen and
-// opens the rule: its keywords, reply and scope, "Edit rule" (the normal entry editor) and Publish / Unpublish. New rule starts a
+// opens the rule: its keywords, reply and scope, "Edit rule" (the normal entry editor, which comes back to this tab) and Publish / Unpublish. New rule starts a
 // draft for this network (or, the second button, for every network) and opens it in the editor. A draft does nothing; publishing a
 // rule approves its reply text. Backend: routes/groups/social_inbox_controller.py. Pure logic: lib/socialSpace.ts.
 import type { Can, SocialNetwork } from "@/lib/socialInbox";
@@ -46,6 +46,7 @@ const data = JSON.stringify({ network, rules: ordered, can }).replace(/</g, "\\u
 
 <script>
   import * as api from "@/lib/api/socialInbox";
+  import { ruleEditorHref } from "@/lib/entryBack";
   import { errorMessage } from "@/lib/socialInbox";
   import { publishAction, type Rule, ruleBadges, ruleReplyLine, ruleScope, ruleTitle } from "@/lib/socialSpace";
 
@@ -95,7 +96,7 @@ const data = JSON.stringify({ network, rules: ordered, can }).replace(/</g, "\\u
         ${rule.post ? line("Post", rule.post) : ""}
       </dl>
       <div class="si-actions">
-        <a class="button secondary si-btn-sm" href="${esc(rule.path)}">Edit rule</a>
+        <a class="button secondary si-btn-sm" href="${esc(ruleEditorHref(rule.path, slug))}">Edit rule</a>
         ${action ? `<button type="button" class="button${action.publish ? "" : " secondary"} si-btn-sm" data-publish="${action.publish}">${esc(action.label)}</button>` : ""}
       </div>
       ${action?.note ? `<p class="si-muted si-small">${esc(action.note)}</p>` : ""}
@@ -143,7 +144,7 @@ const data = JSON.stringify({ network, rules: ordered, can }).replace(/</g, "\\u
     button.disabled = true;
     try {
       const made = await api.createRule(forAll ? null : slug);
-      location.href = made.path; // the normal entry editor
+      location.href = ruleEditorHref(made.path, slug); // the normal entry editor, which comes back to this tab
     } catch (e) {
       const out = $("sr-error");
       out.hidden = false;

@@ -105,14 +105,13 @@ def trashed_at(entry) -> datetime | None:
     return when if when.tzinfo else when.replace(tzinfo=UTC)
 
 
-def trashed_ids(session, group_id, *, listed_only: bool = False) -> list:
-    """The ids of the workspace's trashed entries. ``listed_only`` leaves out those of an internal entry type: that is
-    what the Trash's count shows, while emptying the Trash deletes them all."""
+def trashed_ids(session, group_id) -> list:
+    """The ids of the workspace's trashed entries, those of an internal entry type included: the Trash lists, counts,
+    restores and empties them all (a trashed Social rule can be restored from there)."""
     from marvin.db.models.platform.entries import Entries
-    from marvin.services.entry_listing import only_listed
 
     q = session.query(Entries.id).filter(Entries.group_id == group_id, Entries.status == TRASHED)
-    return [row[0] for row in (only_listed(session, group_id, q) if listed_only else q).all()]
+    return [row[0] for row in q.all()]
 
 
 def delete_forever(session, group_id, entry_ids, *, actor_id=None, event_bus=None, integration_id: str = "entry_management") -> int:

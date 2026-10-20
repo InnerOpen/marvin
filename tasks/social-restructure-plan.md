@@ -223,3 +223,13 @@ precedence, and conversion with a preview were agreed in conversation 2026-10-20
     runs once); update the plugin first.
   - The phase 1 open points are unchanged (the editor's Back link, no per-network rules shortcut on the editor, a second reply replaces the
     first record, an integration recreated with the same slug loses its replied items).
+
+## Follow-up fixes (2026-10-23)
+
+- **Back link:** the editor's Back, after-save and Move to Trash go to `?return=<same-site path>` (`safeReturnPath` rules, plus control
+  characters refused); the network's Rules tab passes it on "Edit rule" and on a new rule (`lib/entryBack.ts`, `ruleEditorHref`). With no
+  return path a Social rule goes back to Social (its network's Rules tab when `networks` names exactly one), anything else to All entries.
+  The save form posts to the same URL (so the query survives) and carries the default in a hidden `_back` field, validated the same way.
+- **Trash:** internal entries are now listed and counted in the Trash (the Trash collection holds them; the Trash page badges a Social
+  rule) and restore like any entry (a published rule comes back as a draft). Every other list, count, search and index still hides them.
+  A rule trashed before this change is in the Trash collection after the next smart-collection resync (the safety-net task), not at once.

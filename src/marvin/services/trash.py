@@ -261,7 +261,7 @@ def delete_forever(session, group_id, kind: str, item_ids, *, actor_id=None, eve
 def counts(session, group_id) -> dict:
     """``{entries, assets, resources, total}`` in the workspace's Trash."""
     n = {
-        "entries": len(entry_trash.trashed_ids(session, group_id, listed_only=True)),
+        "entries": len(entry_trash.trashed_ids(session, group_id)),
         "assets": len(trashed_ids(session, group_id, ASSET)),
         "resources": len(trashed_ids(session, group_id, RESOURCE)),
     }

@@ -2,6 +2,8 @@
  * Wording for the Trash (pure, so `npm test` covers it). The API calls live in lib/api/trash.ts.
  */
 
+import { isListedType, type TypeLike } from "./entryTypeListing.ts";
+
 /** The auto-empty choices, in days; 0 = never (kept until someone empties the Trash). */
 export const AUTO_EMPTY_CHOICES = [0, 7, 30, 90] as const;
 
@@ -59,4 +61,13 @@ export function restoresTo(metadataJson: Record<string, unknown> | null | undefi
 export function trashedAt(metadataJson: Record<string, unknown> | null | undefined): string | null {
   const record = (metadataJson?.trash ?? null) as { trashed_at?: unknown } | null;
   return typeof record?.trashed_at === "string" ? record.trashed_at : null;
+}
+
+/**
+ * The badge a trashed entry of an internal type wears in the Trash (they are listed nowhere else, so the Trash says what it is):
+ * "Social rule" for an auto-reply rule, else the type's name. Null for an ordinary type.
+ */
+export function internalTypeBadge(type: (TypeLike & { name?: string | null }) | null | undefined): string | null {
+  if (!type || isListedType(type)) return null;
+  return type.slug === "social-auto-reply" ? "Social rule" : type.name?.trim() || "Internal";
 }

@@ -60,7 +60,7 @@ The reply is recorded **on the inbox item**: the item is the reply log. It store
 
 ## Internal entry types {#internal-entry-types}
 
-Rules are entries (drafts, publish to activate, history, the normal editor) but they are helper content, so their type is **internal**: `capabilities.listed: false`. An internal type's entries stay out of **All entries** and the status lists (Inbox, Drafts, Needs review, Approved, Published, Archive, Trash) and their counts, the sidebar and dashboard counts, search (keyword and semantic), the AI content index, the collections' contents, MCP `search` / `find_entries`, and the publishing API. They are still found by naming the type (`entry_type: social-auto-reply`) or the entry (`entries: […]`), which is how Social's own pages and a workflow that means them reach them; an unqualified "all entries" query, a status or a text search never does, so a bulk action can't touch them by accident. A type is also internal by a core rule keyed on its slug, which covers `social-auto-reply` and the retired `social-reply-log` (leftover entries of a workspace that ran the early engine stay out of All entries). The schema editor keeps the flag when it saves a type; entry events still fire (a workflow triggered on "entry published" with no type filter sees a published rule).
+Rules are entries (drafts, publish to activate, history, the normal editor) but they are helper content, so their type is **internal**: `capabilities.listed: false`. An internal type's entries stay out of **All entries** and the status lists (Inbox, Drafts, Needs review, Approved, Published, Archive) and their counts, the sidebar and dashboard counts, search (keyword and semantic), the AI content index, the collections' contents, MCP `search` / `find_entries`, and the publishing API. They are still found by naming the type (`entry_type: social-auto-reply`) or the entry (`entries: […]`), which is how Social's own pages and a workflow that means them reach them; an unqualified "all entries" query, a status or a text search never does, so a bulk action can't touch them by accident. The one exception is the **Trash**: a trashed rule is listed there (marked *Social rule*) and counted, and Restore brings it back to its network's Rules tab, as a draft if it was published (like any entry), so a rule deleted by mistake is not lost. Emptying the Trash deletes it like the rest. A type is also internal by a core rule keyed on its slug, which covers `social-auto-reply` and the retired `social-reply-log` (leftover entries of a workspace that ran the early engine stay out of All entries). The schema editor keeps the flag when it saves a type; entry events still fire (a workflow triggered on "entry published" with no type filter sees a published rule).
 
 ## The capabilities (what a plugin implements) {#capabilities}
 
@@ -147,7 +147,7 @@ An action the item's network doesn't offer (or the integration is switched off, 
 
 ## Not covered {#not-covered}
 
-A rule moved to the Trash leaves the Trash list too (internal entries are in no status list), so it can't be restored from there; unpublish a rule instead of deleting it. Items answered by Instagram's old plugin task have no reply on them.
+A rule moved to the Trash shows in the Trash, marked *Social rule*, and can be restored from there (a rule that was published comes back as a draft: publish it again). Items answered by Instagram's old plugin task have no reply on them.
 
 ## Moving from the Instagram plugin's own auto-reply
 

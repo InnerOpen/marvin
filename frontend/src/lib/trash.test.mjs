@@ -9,6 +9,7 @@ import {
   autoEmptyNote,
   deleteForeverPrompt,
   emptyTrashPrompt,
+  internalTypeBadge,
   restoreFailedMessage,
   restoresTo,
   trashedAt,
@@ -65,5 +66,15 @@ describe("restoresTo", () => {
   test("trashedAt reads the record", () => {
     assert.equal(trashedAt({ trash: { trashed_at: "2026-10-07T10:00:00+00:00" } }), "2026-10-07T10:00:00+00:00");
     assert.equal(trashedAt({}), null);
+  });
+});
+
+describe("internalTypeBadge", () => {
+  test("a Social rule is marked in the Trash, another internal type by its name, an ordinary one not at all", () => {
+    assert.equal(internalTypeBadge({ slug: "social-auto-reply", name: "Social auto-reply" }), "Social rule");
+    assert.equal(internalTypeBadge({ slug: "secret", name: "Secret", capabilitiesJson: { listed: false } }), "Secret");
+    assert.equal(internalTypeBadge({ slug: "social-reply-log", name: "Social reply log" }), "Social reply log");
+    assert.equal(internalTypeBadge({ slug: "note", name: "Note" }), null);
+    assert.equal(internalTypeBadge(null), null);
   });
 });

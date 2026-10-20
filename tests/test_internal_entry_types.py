@@ -201,7 +201,7 @@ def test_a_collection_page_lists_internal_entries_only_when_its_rules_name_the_t
     assert {e["slug"] for e in json.loads(builtins.get_collection_entries(ctx, {"collection": "mixed"}))["entries"]} == {"note_pub"}
 
 
-# ── the dashboard, the Trash, the overview ───────────────────────────────────────────────────────────────────────
+# ── the dashboard, the Trash (lists them, so a rule can be restored), the overview ──────────────────────────────────────────
 
 
 def test_the_dashboard_pipeline_and_ages_leave_out_internal_types(content):
@@ -214,17 +214,85 @@ def test_the_dashboard_pipeline_and_ages_leave_out_internal_types(content):
     assert sum(sum(w.by_type.values()) for w in week.weeks) == 1  # the one published note, not the two published internal entries
 
 
-def test_the_trash_counts_leave_out_internal_entries_but_emptying_it_removes_them(content):
-    svc = EntryService(content.session, content.gid, integration_id="test")
-    svc.trash(content.note_pub.id)
-    svc.trash(content.rule_pub.id)
+def _seed_trash(content):
+    """The workspace's system collections (the Trash is one), with the current entries materialized."""
+    from marvin.services.collections.system_collections import seed_system_workflow_collections
+
+    seed_system_workflow_collections(content.session, content.gid)
     content.session.commit()
-    assert len(entry_trash.trashed_ids(content.session, content.gid)) == 2
-    assert len(entry_trash.trashed_ids(content.session, content.gid, listed_only=True)) == 1
+
+
+def _sync(content, *keys):
+    from marvin.services.collections.smart_collections import sync_entry
+
+    for key in keys:
+        content.session.refresh(_entry(content, key))
+        sync_entry(content.session, content.gid, _entry(content, key))
+    content.session.commit()
+
+
+def _trash_page(content, client) -> set[str]:
+    """What the Trash page lists: the entries of the system `trash` collection."""
+    from marvin.db.models.platform.collections import Collections
+
+    trash_id = content.session.query(Collections.id).filter_by(group_id=content.gid, slug="trash").scalar()
+    return {e["slug"] for e in client.get(f"{API}/collections/{trash_id}/entries").json()}
+
+
+def test_the_trash_lists_and_counts_internal_entries_and_emptying_it_removes_them(content, client):
+    _seed_trash(content)
+    svc = EntryService(content.session, content.gid, integration_id="test")
+    for key in ("note_pub", "rule_pub", "iglog_pub"):
+        svc.trash(getattr(content, key).id)
+    content.session.commit()
+    _sync(content, "note_pub", "rule_pub", "iglog_pub")
+    assert len(entry_trash.trashed_ids(content.session, content.gid)) == 3
     from marvin.services import trash
 
-    assert trash.counts(content.session, content.gid)["entries"] == 1
-    assert entry_trash.empty_trash(content.session, content.gid) == 2  # nothing is left behind in a hidden corner
+    assert trash.counts(content.session, content.gid)["entries"] == 3
+    assert client.get(f"{API}/entries/trash").json()["count"] == 3
+    assert _trash_page(content, client) == {"note_pub", "rule_pub", "iglog_pub"}
+    # every other list, count and search still leaves them out
+    assert {e["slug"] for e in client.get(f"{API}/entries").json()} == NOTES - {"note_pub"}
+    assert client.get(f"{API}/entries/counts").json()["total"] == 2
+    assert {e.slug for e in run_query(content.session, content.gid, {"status": "trashed"}, limit=100).rows} == {"note_pub"}
+    assert entry_trash.empty_trash(content.session, content.gid) == 3  # nothing is left behind in a hidden corner
+
+
+def test_a_trashed_rule_is_in_no_collection_but_the_trash(content, client):
+    from marvin.db.models.platform.collections import Collections
+    from marvin.db.models.platform.entry_collections import EntryCollections
+
+    _seed_trash(content)
+    _sync(content, "rule_draft")
+    EntryService(content.session, content.gid, integration_id="test").trash(content.rule_draft.id)
+    content.session.commit()
+    _sync(content, "rule_draft")
+    by_id = {c.id: c.slug for c in content.session.query(Collections).filter_by(group_id=content.gid)}
+    held = {by_id[r.collection_id] for r in content.session.query(EntryCollections).filter_by(entry_id=content.rule_draft.id)}
+    assert held == {"trash"}
+    # the Trash shows it (and its sidebar count); the other status collections never listed it
+    counts = {c["slug"]: c["entryCount"] for c in client.get(f"{API}/collections").json()}
+    assert counts["trash"] == 1 and counts["drafts"] == 1  # the draft is note_draft
+
+
+def test_restoring_a_trashed_rule_puts_it_back_among_the_rules_unpublished(content, client):
+    _seed_trash(content)
+    svc = EntryService(content.session, content.gid, integration_id="test")
+    svc.trash(content.rule_pub.id)
+    svc.trash(content.rule_draft.id)
+    content.session.commit()
+    _sync(content, "rule_pub", "rule_draft")
+    assert client.post(f"{API}/entries/{content.rule_pub.id}/restore").json()["status"] == "draft"  # published comes back as a draft
+    assert client.post(f"{API}/entries/{content.rule_draft.id}/restore").json()["status"] == "draft"  # the others as they were
+    content.session.expire_all()
+    assert _trash_page(content, client) == set()
+    assert client.get(f"{API}/entries/trash").json()["count"] == 0
+    # back where its page looks for rules (by naming the type), and still out of All entries
+    named = {e.slug for e in run_query(content.session, content.gid, {"entry_type": "social-auto-reply", "status": "draft"}, limit=100).rows}
+    assert {"rule_pub", "rule_draft"} <= named
+    assert {e["slug"] for e in client.get(f"{API}/entries").json()} == NOTES
+    assert client.post(f"{API}/entries/{content.rule_pub.id}/restore").status_code == 409  # not in the Trash any more
 
 
 def test_the_assistants_overview_counts_only_listed_content(content):

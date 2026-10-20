@@ -1,6 +1,6 @@
 // Internal entry types (backend: services/entry_listing.py): helper content a feature owns, like the Social auto-reply rules, edited
 // from that feature's own pages. They aren't offered where a person picks a type to write (the New menu, Quick Create, the type
-// filter), and their entries stay out of every list. A type is internal by `capabilities.listed: false`, and the backend's core rule
+// filter), and their entries stay out of every list but the Trash (so a trashed Social rule can be restored). A type is internal by `capabilities.listed: false`, and the backend's core rule
 // also makes these slugs internal whatever their capabilities say. Pure, so `npm test` covers it (entryTypeListing.test.mjs).
 
 export const INTERNAL_TYPE_SLUGS = ["social-auto-reply", "social-reply-log"];

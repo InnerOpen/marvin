@@ -10,6 +10,7 @@ import { getAssets } from "@/lib/api/platform";
 import { listResources } from "@/lib/api/resources";
 import { createTag, listTags, type TagRead } from "@/lib/api/tags";
 import { keysHint } from "@/lib/disclosure";
+import { ENTRIES_PATH, entryBackPath, returnPathOf } from "@/lib/entryBack";
 import { viewOnSite, withSubmittedValues } from "@/lib/entryForm";
 import { integrationErrors, reviewReasons } from "@/lib/reviewReasons";
 import { shareLinks } from "@/lib/shareLinks";
@@ -185,7 +186,10 @@ if (Astro.request.method === "POST" && id && authToken) {
     if (tagIds !== undefined) updateData.tag_ids = tagIds;
 
     await updateEntry(id, updateData, authToken);
-    return Astro.redirect("/workspace/entries");
+    // Back where the editor was opened from (`?return=`, which the form posts to), else where Back points (a hidden field).
+    return Astro.redirect(
+      returnPathOf(Astro.url.searchParams.get("return")) ?? returnPathOf(formData.get("_back") as string | null) ?? ENTRIES_PATH,
+    );
   } catch (e) {
     console.error("[Entry] Failed to update entry:", e);
     saveError = describeSaveError(e);
@@ -231,6 +235,13 @@ const canEditThis = mayChangeEntry && !inTrash;
 const trashCollectionId = collections.find((c: any) => c.isSystem && c.slug === "trash")?.id ?? null;
 const restoresToLabel = inTrash ? restoresTo(entry?.metadataJson as Record<string, unknown> | null).replace("_", " ") : "";
 const canPublish = access.canEdit;
+// Back: the page that opened the editor (`?return=`, same-site only), else Social for a Social rule, else All entries.
+const returnTo = Astro.url.searchParams.get("return");
+const backHref = entryBackPath({
+  returnTo,
+  typeSlug: entryTypes.find((t) => t.id === entry?.entryTypeId)?.slug,
+  data: (entry?.dataJson ?? null) as Record<string, unknown> | null,
+});
 
 // The page title, slug lock and "not live yet" note follow what's stored, not a failed save.
 const storedStatus = entry?.status;
@@ -360,7 +371,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
   {error ? (
     <div class="error-banner">
       <p><strong>Error loading entry:</strong> {error}</p>
-      <a href="/workspace/entries" class="button secondary">Back to Entries</a>
+      <a href={entryBackPath({ returnTo })} class="button secondary">Back</a>
     </div>
   ) : entry ? (
     <>
@@ -377,11 +388,11 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
               data-prompt={ASK_PROMPT} data-bubble={aiBubbleOn ? "1" : undefined} data-ask-href={aiBubbleOn ? undefined : askHref}>✨ Ask {aiAssistantName}</button>
           )}
           {canEditThis && (
-            <button type="button" id="delete-entry-button" class="button secondary" title="Move this entry to the Trash. You can restore it from there.">
+            <button type="button" id="delete-entry-button" class="button secondary" title="Move this entry to the Trash. You can restore it from there." data-back={backHref !== ENTRIES_PATH ? backHref : undefined}>
               Move to Trash
             </button>
           )}
-          <a class="button secondary" href="/workspace/entries">Back</a>
+          <a class="button secondary" href={backHref}>Back</a>
         </div>
       </div>
 
@@ -435,6 +446,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
       <div class="editor-layout">
         <section class="main-editor">
           <form id="entry-form" method="POST" class="form">
+            <input type="hidden" name="_back" value={backHref} />
             {/* Read-only for a caller who can't change this entry; display:contents keeps the layout. */}
             <fieldset disabled={!canEditThis} style="display:contents;">
             <div class="form-group">
@@ -2385,7 +2397,8 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
       try {
         const entryId = window.location.pathname.split('/').pop()!;
         await moveToTrash(entryId);
-        window.location.href = `/workspace/entries?trashed=${encodeURIComponent(entryId)}`;
+        // Back to where it was opened from (a Social rule: its Rules tab, restorable from the Trash); else the list, which offers Undo.
+        window.location.href = deleteButton.dataset.back || `/workspace/entries?trashed=${encodeURIComponent(entryId)}`;
       } catch (error: any) {
         const message = isForbidden(error) ? "You don't have permission to do this." : error?.message || error?.detail || 'Failed to move the entry to the Trash';
         alert(message);

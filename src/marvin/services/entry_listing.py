@@ -3,8 +3,10 @@
 An internal entry type (``capabilities_json.listed: false``) holds helper content that a feature of Marvin owns and edits
 through its own pages: the Social auto-reply rules are the example. Its entries are real entries (they have the normal
 editor, history and workflow events), but they stay out of All entries, the status lists (Inbox, Drafts, Needs review,
-Approved, Published, Archive, Trash), the sidebar and dashboard counts, search, the AI content index and the default
-answer of an entry query. They are still found by naming the type (``entry_type: social-auto-reply``) or the entry
+Approved, Published, Archive), the sidebar and dashboard counts, search, the AI content index and the default
+answer of an entry query. The one exception is the Trash: a trashed internal entry is listed and counted there, so it can
+be restored (a trashed Social rule would otherwise be lost to its owner), and emptying the Trash deletes it like any other.
+They are still found by naming the type (``entry_type: social-auto-reply``) or the entry
 itself (``entries: [slug]``), so the pages and workflows that own them reach them.
 
 Two things make a type internal: the capability flag, and ``INTERNAL_SLUGS``, a core rule for the types of the Social
@@ -63,8 +65,12 @@ def unlisted_entry_ids(session, group_id) -> set:
 
 def hidden_type_ids(session, group_id, collection=None) -> list:
     """The internal type ids to leave out of a collection's listing: all of them, except the ones its smart rules name
-    (a collection that asks for a type by name lists it)."""
+    (a collection that asks for a type by name lists it). None for the Trash, which lists its internal entries too."""
     from marvin.db.models.platform.entry_types import EntryTypes
+    from marvin.services.entries.trash import is_trash_collection
+
+    if collection is not None and is_trash_collection(collection):
+        return []
 
     excluded = unlisted_type_ids(session, group_id)
     named = ((getattr(collection, "smart_rules", None) or {}).get("entry_types") or []) if collection is not None else []
