@@ -89,8 +89,11 @@ def ws(db_session, nets):
     db_session.commit()
     yield type("WS", (), {"gid": gid, "session": db_session, "uid": uid, "nets": nets})
     db_session.rollback()
+    from marvin.services.group.group_purge import purge_group_dependents
+
     db_session.query(Assets).filter(Assets.group_id == gid).delete()
     db_session.query(IntegrationModel).filter(IntegrationModel.group_id == gid).delete()
+    purge_group_dependents(db_session, gid)  # what a test's run left behind: the workflow, its approval, wait and run rows
     db_session.execute(Users.__table__.delete().where(Users.id == uid))
     db_session.query(Groups).filter(Groups.id == gid).delete()
     db_session.commit()
@@ -443,3 +446,35 @@ def test_the_authoring_guide_has_a_social_section_and_the_index_points_to_it(ws)
     assert "social" in authoring_guide(ws.session, ws.gid)["sections"]
     note = authoring_guide(ws.session, ws.gid, "social")["social"]["note"]
     assert "Approval step must come before it" in note and "per_network" in note and "every connected network" in note
+
+
+# ── approved, then a Wait: still approved when it goes on ────────────────────
+
+
+def test_an_approved_run_that_waits_still_posts_when_its_time_comes(ws):
+    """Approve now, post at 9 tomorrow: the approval is kept in the wait's snapshot, so the post after the Wait runs."""
+    from datetime import timedelta
+
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+    from marvin.services.automation import approvals, waits
+    from marvin.services.automation.authz import ROLE_OWNER
+    from marvin.services.automation.engine import run_automation_now
+    from marvin.services.automation.recorder import ExecutionRecorder
+
+    row = WorkspaceAutomationModel(
+        session=ws.session, group_id=ws.gid, name="Later post", slug=f"later-post-{uuid.uuid4().hex[:6]}", enabled=True,
+        definition={"trigger": {"type": "manual"}, "actions": [
+            {"kind": "approval", "id": "ok", "message": "Post it?"},
+            {"kind": "wait", "for": "1h"},
+            {**POST, "id": "post", "args": {"text": "Open studio"}},
+        ]},
+    )  # fmt: skip
+    ws.session.add(row)
+    ws.session.commit()
+    run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, recorder=ExecutionRecorder(ws.session, ws.gid))
+    (waiting,) = approvals.pending(ws.session, ws.gid, ROLE_OWNER)
+    approvals.decide(ws.session, ws.gid, waiting.id, "approve", user_id=ws.uid, role=ROLE_OWNER)
+    assert ws.nets["bluesky"].calls == []  # parked at the Wait
+    assert waits.resume_due(ws.session, now_=waits.now() + timedelta(hours=2)) == 1
+    assert [c["text"] for c in ws.nets["bluesky"].calls] == ["Open studio"]
+    assert [c["dry_run"] for c in ws.nets["mastodon"].calls] == [False]

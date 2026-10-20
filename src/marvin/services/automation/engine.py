@@ -1234,6 +1234,7 @@ def _run_retry_turn(session, group_id, row, automation, defn, *, logger, run_act
     user_id = event.get("user_id")
     step_log: list[dict] = []
     context["_step_log"] = step_log
+    context["_approved"] = bool(snap.get("approved"))  # approved before it failed: still approved on the retry
     context["_retry"] = {
         "id": str(row.id),
         "step_index": row.step_index,
@@ -1379,7 +1380,7 @@ def resume_after_wait(session, row, *, logger=None, run_action: Callable = _regi
             automation,
             step,
             output,
-            approved=False,
+            approved=bool((row.snapshot or {}).get("approved")),
             user_id=user_id,
             logger=logger,
             run_action=run_action,

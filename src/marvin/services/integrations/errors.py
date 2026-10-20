@@ -603,6 +603,9 @@ def _snapshot(context: dict, run: dict) -> dict | None:
             "target_ref": run.get("target_ref"),
             "gated": bool(run.get("gated", True)),
             "trigger_kind": run.get("trigger_kind"),
+            # A run that a person approved stays approved when it resumes after a Wait or is retried: the steps after
+            # the Approval step (a social post, an approval-gated integration action) may still run.
+            **({"approved": True} if context.get("_approved") else {}),
         }
     )
     return snap if len(json.dumps(snap)) <= MAX_SNAPSHOT_BYTES else None
