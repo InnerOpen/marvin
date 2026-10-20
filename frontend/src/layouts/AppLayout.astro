@@ -118,7 +118,7 @@ if (authToken) {
   }
 }
 
-// The Social group under Collections, with how many comments are new. Drawn only when an enabled integration offers a `social.*`
+// The Social group under Audience, with how many comments are new. Drawn only when an enabled integration offers a `social.*`
 // capability (the summary's `show`); a member below EDITOR gets a 403 and no group. Best-effort, and asked alongside the Ask check below.
 const socialInbox = authToken ? getSocialInboxSummary(authToken).catch(() => null) : Promise.resolve(null);
 
@@ -179,7 +179,8 @@ if (authToken) {
     newTypes = [];
   }
 }
-const socialGroup = socialNav(await socialInbox);
+const socialSummary = await socialInbox;
+const socialGroup = socialNav(socialSummary);
 const onSocial = isSocialPath(Astro.url.pathname);
 const hasFolder = (slug: string) => folders.some((c) => c.slug === slug);
 
@@ -200,12 +201,6 @@ const integrationGroups = [
       return groups.set(c.integrationId!, group);
     }, new Map<string, { id: string; name: string; mark: { slug: string | null; icon: string | null; hasLogo: boolean }; items: typeof collections }>())
     .values(),
-].sort((a, b) => a.name.localeCompare(b.name));
-// Social sits among them in the same alphabetical order (not pinned first), and only while a network is connected.
-type FoldGroup = { kind: "integration"; name: string; g: (typeof integrationGroups)[number] } | { kind: "social"; name: string };
-const foldGroups: FoldGroup[] = [
-  ...integrationGroups.map((g) => ({ kind: "integration" as const, name: g.name, g })),
-  ...(socialGroup ? [{ kind: "social" as const, name: socialGroup.label }] : []),
 ].sort((a, b) => a.name.localeCompare(b.name));
 const withinGroup = (name: string, group: string) => {
   const rest = name.toLowerCase().startsWith(`${group.toLowerCase()}:`) ? name.slice(group.length + 1).trim() : name;
@@ -241,6 +236,8 @@ const SETTINGS_TABS: { tab: string; label: string; icon: string; paths: string[]
   { tab: "publishing", label: "Publishing", icon: "🚀", paths: ["/publishing", "/workspace/settings/submission-protection"] },
   { tab: "automation", label: "Automation", icon: "⚡", paths: ["/automation", "/workspace/events", "/workspace/scheduled-tasks"], badge: Math.max(0, appBadge - inboxCount) },
   { tab: "ai", label: "AI", icon: "✨", paths: ["/workspace/settings/ai-"] },
+  // Only once a connected network works with Social (the summary's `show`), like the sidebar's Social group.
+  ...(socialSummary?.show ? [{ tab: "social", label: "Social", icon: "💬", paths: ["/workspace/settings/social"] }] : []),
   { tab: "integrations", label: "Integrations", icon: "🔌", paths: ["/workspace/settings/integrations"] },
 ];
 const ASK_PATH = "/workspace/settings/ai-ask";
@@ -339,7 +336,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
           <div class="nav-group-label">Content</div>
           <nav class="nav" aria-label="Content">
             <a href="/workspace/entries" aria-current={onEntries ? "page" : undefined}><span aria-hidden="true">📄</span><span>All entries</span></a>
-            <details class="nav-fold" open={onCollections || onSocial}>
+            <details class="nav-fold" open={onCollections}>
               <summary class="nav-fold-row" aria-current={onCollections ? "page" : undefined}>
                 <span aria-hidden="true">📚</span><span>Collections</span><span class="nav-chevron" aria-hidden="true">›</span>
               </summary>
@@ -347,38 +344,18 @@ function isActive(itemPath: string, currentPath: string): boolean {
                 {ownCollections.map((c) => (
                   <a href={`/workspace/collections/${c.id}`} aria-current={path === `/workspace/collections/${c.id}` ? "page" : undefined}><span aria-hidden="true">{c.icon || "📁"}</span><span>{c.name}</span></a>
                 ))}
-                {foldGroups.map((fg) => fg.kind === "social" ? (
-                  <details class="nav-fold nav-subfold" open={onSocial}>
+                {integrationGroups.map((g) => (
+                  <details class="nav-fold nav-subfold" open={g.items.some((c) => path === `/workspace/collections/${c.id}`)}>
                     <summary class="nav-fold-row">
-                      <span aria-hidden="true">💬</span><span>{socialGroup!.label}</span>
-                      {socialGroup!.badge && <span class="nav-count attention" aria-label={`${socialGroup!.badge} new`}>{socialGroup!.badge}</span>}
-                      <span class="nav-chevron" aria-hidden="true">›</span></summary>
-                    <div class="nav nav-fold-items">
-                      {socialGroup!.children.map((c) => (
-                        <a href={c.href} aria-current={path === c.href ? "page" : c.provider && path.startsWith(`${c.href}/`) ? "page" : undefined}>
-                          {c.provider ? (
-                            <span class="int-mark nav-int-mark" data-emoji="💬"><img class="int-mark-img" src={logoUrl(c.provider)} alt="" decoding="async" /></span>
-                          ) : (
-                            <span aria-hidden="true">📬</span>
-                          )}
-                          <span>{c.label}</span>
-                          {c.badge && <span class="nav-count attention" aria-label={c.badgeLabel}>{c.badge}</span>}
-                        </a>
-                      ))}
-                    </div>
-                  </details>
-                ) : (
-                  <details class="nav-fold nav-subfold" open={fg.g.items.some((c) => path === `/workspace/collections/${c.id}`)}>
-                    <summary class="nav-fold-row">
-                      {fg.g.mark.slug && fg.g.mark.hasLogo ? (
-                        <span class="int-mark nav-int-mark" data-emoji={fg.g.mark.icon || "🔌"}><img class="int-mark-img" src={logoUrl(fg.g.mark.slug)} alt="" decoding="async" /></span>
+                      {g.mark.slug && g.mark.hasLogo ? (
+                        <span class="int-mark nav-int-mark" data-emoji={g.mark.icon || "🔌"}><img class="int-mark-img" src={logoUrl(g.mark.slug)} alt="" decoding="async" /></span>
                       ) : (
-                        <span aria-hidden="true">{fg.g.mark.icon || "🔌"}</span>
+                        <span aria-hidden="true">{g.mark.icon || "🔌"}</span>
                       )}
-                      <span>{fg.g.name}</span><span class="nav-chevron" aria-hidden="true">›</span></summary>
+                      <span>{g.name}</span><span class="nav-chevron" aria-hidden="true">›</span></summary>
                     <div class="nav nav-fold-items">
-                      {fg.g.items.map((c) => (
-                        <a href={`/workspace/collections/${c.id}`} aria-current={path === `/workspace/collections/${c.id}` ? "page" : undefined}><span aria-hidden="true">{c.icon || "📁"}</span><span>{withinGroup(c.name, fg.g.name)}</span></a>
+                      {g.items.map((c) => (
+                        <a href={`/workspace/collections/${c.id}`} aria-current={path === `/workspace/collections/${c.id}` ? "page" : undefined}><span aria-hidden="true">{c.icon || "📁"}</span><span>{withinGroup(c.name, g.name)}</span></a>
                       ))}
                     </div>
                   </details>
@@ -416,6 +393,32 @@ function isActive(itemPath: string, currentPath: string): boolean {
             </details>
           </nav>
         </div>
+        {socialGroup && (
+          <div class="nav-group">
+            <div class="nav-group-label">Audience</div>
+            <nav class="nav" aria-label="Audience">
+              <details class="nav-fold" open={onSocial}>
+                <summary class="nav-fold-row">
+                  <span aria-hidden="true">💬</span><span>{socialGroup!.label}</span>
+                  {socialGroup!.badge && <span class="nav-count attention" aria-label={`${socialGroup!.badge} new`}>{socialGroup!.badge}</span>}
+                  <span class="nav-chevron" aria-hidden="true">›</span></summary>
+                <div class="nav nav-fold-items">
+                  {socialGroup!.children.map((c) => (
+                    <a href={c.href} aria-current={path === c.href ? "page" : c.provider && path.startsWith(`${c.href}/`) ? "page" : undefined}>
+                      {c.provider ? (
+                        <span class="int-mark nav-int-mark" data-emoji="💬"><img class="int-mark-img" src={logoUrl(c.provider)} alt="" decoding="async" /></span>
+                      ) : (
+                        <span aria-hidden="true">📬</span>
+                      )}
+                      <span>{c.label}</span>
+                      {c.badge && <span class="nav-count attention" aria-label={c.badgeLabel}>{c.badge}</span>}
+                    </a>
+                  ))}
+                </div>
+              </details>
+            </nav>
+          </div>
+        )}
         {finalNavGroups.slice(1).map((group) => (
           <div class="nav-group">
             {group.label && (

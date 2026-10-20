@@ -1,0 +1,140 @@
+---
+// Settings › Social: every connected network with its auto-reply switch (off · rehearsal · on) and a link to its page, and how
+// long Social keeps comments. An overview beside the network pages (Audience › Social › <network>), not a second place for
+// rules or the inbox. Shown in Settings only once a connected network works with Social (the summary's `show`), like the
+// sidebar's Social group. The switch is the network page's (lib/socialSpace.ts autoReplySwitch); admins change it.
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { getSummary } from "@/lib/api/socialInbox";
+import { logoUrl } from "@/lib/integrationLogo";
+import { navHref } from "@/lib/navTree";
+import { type InboxSummary, SOCIAL_INBOX_PATH } from "@/lib/socialInbox";
+import { autoReplySwitch, networkPath } from "@/lib/socialSpace";
+import { isForbidden } from "@/lib/workspaceRole";
+import "@/styles/social.css";
+
+const authToken = getAuthToken(Astro.cookies);
+let summary: InboxSummary | null = null;
+let error: string | null = null;
+let restricted = false;
+try {
+  summary = await getSummary(authToken, true);
+} catch (e) {
+  if (isForbidden(e)) restricted = true;
+  else error = e instanceof Error ? e.message : String(e);
+}
+const networks = (summary?.integrations ?? []).map((n) => ({ ...n, sw: autoReplySwitch(n, summary!.can) }));
+---
+
+<AppLayout crumb="settings.social" restrictedNote={restricted ? "Social is for editors and above." : null}>
+  <div class="social-page">
+    <header class="ss-head">
+      <h2>Social</h2>
+      <p class="si-muted">
+        The networks connected in <a href={navHref("settings.integrations")}>Integrations</a> that work with Social. Each one's
+        comments, rules and replies are on its own page under Audience › Social in the sidebar.
+      </p>
+    </header>
+
+    {error && <div class="si-alert">Could not load Social: {error}</div>}
+
+    {summary && !summary.show && (
+      <div class="si-empty">
+        <h3>No social network is connected</h3>
+        <p>Connect Instagram, Facebook, Bluesky or Mastodon in Integrations and it appears here and in the sidebar.</p>
+        <p><a class="button secondary" href={navHref("settings.integrations")}>Open Integrations</a></p>
+      </div>
+    )}
+
+    {summary?.show && (
+      <>
+        <section class="ss-card" aria-labelledby="ss-networks">
+          <h3 id="ss-networks">Networks and auto-reply</h3>
+          <p class="si-muted si-small">
+            Off: nothing is sent. Rehearsal: published rules run as a dry run, recorded on each comment, nothing sent. On: published rules
+            reply. Comments still come into the inbox, and start workflows, whatever the setting.
+          </p>
+          <ul class="ss-list">
+            {networks.map((n) => (
+              <li class="ss-row" data-slug={n.slug} data-editable={n.sw.editable ? "1" : undefined}>
+                <a class="ss-net" href={networkPath(n.slug)}>
+                  <span class="int-mark nav-int-mark" data-emoji="💬"><img class="int-mark-img" src={logoUrl(n.provider)} alt="" height="28" decoding="async" /></span>
+                  <span>
+                    <strong>{n.name}</strong>
+                    <span class="si-muted si-small ss-sub">{n.network}{n.new > 0 ? ` · ${n.new} new` : ""}{n.canReply === false ? " · reads only" : ""}</span>
+                  </span>
+                </a>
+                <div class="ss-auto">
+                  <div class="sp-switch" role="radiogroup" aria-label={`${n.name} auto-reply`}>
+                    {n.sw.options.map((o) => (
+                      <button type="button" role="radio" class:list={["sp-opt", { on: o.value === n.sw.value }]} aria-checked={o.value === n.sw.value ? "true" : "false"} data-mode={o.value} disabled={!n.sw.editable}>{o.label}</button>
+                    ))}
+                  </div>
+                  {n.sw.note && <p class="si-muted si-small">{n.sw.note}</p>}
+                  <p class="si-small sp-err" role="alert" hidden></p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section class="ss-card" aria-labelledby="ss-keep">
+          <h3 id="ss-keep">What Social keeps</h3>
+          <ul class="ss-facts si-small">
+            <li>The inbox keeps each comment, reply and mention for <strong>30 days</strong>; one that was answered for <strong>180 days</strong>, so it's never answered twice.</li>
+            <li>Every connected network is checked for new comments <strong>every 5 minutes</strong>. Marvin runs that check itself while a network can read comments.</li>
+            <li>Rules are entries kept out of your content lists: find them on each network's Rules tab.</li>
+          </ul>
+          <p><a href={SOCIAL_INBOX_PATH}>Open the Social inbox</a></p>
+        </section>
+      </>
+    )}
+  </div>
+</AppLayout>
+
+<script>
+  import { setAutoReply } from "@/lib/api/socialInbox";
+  import { errorMessage } from "@/lib/socialInbox";
+
+  document.querySelectorAll<HTMLLIElement>(".ss-row[data-editable='1']").forEach((row) => {
+    const buttons = row.querySelectorAll<HTMLButtonElement>(".sp-opt");
+    buttons.forEach((button) =>
+      button.addEventListener("click", async () => {
+        const mode = button.dataset.mode as "off" | "rehearsal" | "on";
+        const err = row.querySelector<HTMLElement>(".sp-err")!;
+        err.hidden = true;
+        buttons.forEach((b) => (b.disabled = true));
+        try {
+          await setAutoReply(row.dataset.slug!, mode);
+          buttons.forEach((b) => {
+            const on = b.dataset.mode === mode;
+            b.classList.toggle("on", on);
+            b.setAttribute("aria-checked", on ? "true" : "false");
+          });
+        } catch (e) {
+          err.hidden = false;
+          err.textContent = errorMessage(e);
+        } finally {
+          buttons.forEach((b) => (b.disabled = false));
+        }
+      }),
+    );
+  });
+</script>
+
+<style>
+  .ss-head h2 { margin: 0 0 4px; }
+  .ss-head { margin-bottom: 16px; }
+  .ss-card { border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; background: var(--panel); }
+  .ss-card h3 { margin: 0 0 6px; font-size: 16px; }
+  .ss-list { list-style: none; margin: 12px 0 0; padding: 0; }
+  .ss-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .ss-net { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; min-width: 0; }
+  .ss-net:hover strong { text-decoration: underline; }
+  .ss-sub { display: block; }
+  .ss-auto { display: grid; gap: 4px; justify-items: end; }
+  .ss-facts { margin: 8px 0 12px; padding-left: 18px; display: grid; gap: 6px; }
+  @media (max-width: 640px) {
+    .ss-auto { justify-items: start; width: 100%; }
+  }
+</style>

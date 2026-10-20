@@ -7,6 +7,7 @@ import { listWorkspaceMembers } from "@/lib/api/workspaceMembers";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
 import { navHref, navTitle } from "@/lib/navTree";
 import { nullIfForbidden } from "@/lib/workspaceRole";
+import { getSummary as getSocialSummary } from "@/lib/api/socialInbox";
 
 const authToken = getAuthToken(Astro.cookies);
 const currentTab = Astro.url.searchParams.get("tab") || "general";
@@ -66,6 +67,9 @@ if (currentTab === "statistics" && workspace?.id) {
   }
 }
 
+// Social appears only once a connected network works with it (as in the sidebar).
+const socialSummary = await getSocialSummary(authToken!).catch(() => null);
+
 const tabs = [
   { id: "general", label: "General", icon: "⚙" },
   { id: "members", label: "Members", icon: "👥" },
@@ -74,6 +78,7 @@ const tabs = [
   { id: "publishing", label: "Publishing", icon: "🌐" },
   { id: "automation", label: "Automation", icon: "⚡" },
   { id: "ai", label: "AI", icon: "✨" },
+  ...(socialSummary?.show ? [{ id: "social", label: "Social", icon: "💬" }] : []),
   { id: "integrations", label: "Integrations", icon: "🔌" },
   { id: "statistics", label: "Statistics", icon: "📊" },
 ];
@@ -299,6 +304,23 @@ const tabs = [
         </div>
       )}
 
+      {currentTab === 'social' && socialSummary?.show && (
+        <div class="content-section">
+          <h2>Social</h2>
+          <p class="section-description">Your connected networks' comments, rules and auto-replies</p>
+          <div class="quick-links">
+            <a href={navHref("settings.social")} class="link-card">
+              <strong>{navTitle("settings.social")}</strong>
+              <p>Each network's auto-reply (off, rehearsal or on), and how long comments are kept</p>
+            </a>
+            <a href={navHref("workspace.social")} class="link-card">
+              <strong>{navTitle("workspace.social")}</strong>
+              <p>Every network's comments, replies and mentions, and what was answered</p>
+            </a>
+          </div>
+        </div>
+      )}
+
       {currentTab === 'integrations' && (
         <div class="content-section">
           <h2>Integrations</h2>
@@ -418,14 +440,15 @@ const tabs = [
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: var(--radius);
-    overflow-x: auto;
+    /* Wraps rather than scrolls on a desktop, so every tab stays in view; a phone keeps one swipeable row (below). */
+    flex-wrap: wrap;
   }
 
   .tab {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
+    gap: 6px;
+    padding: 10px 14px;
     background: transparent;
     border: none;
     border-radius: calc(var(--radius) - 2px);
@@ -455,6 +478,13 @@ const tabs = [
 
   .tab-content {
     min-height: 400px;
+  }
+
+  @media (max-width: 640px) {
+    .tabs {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+    }
   }
 
   .content-section h2 {

@@ -6,10 +6,12 @@ There is nothing to set up. The rule type and the engine's task are made by Marv
 
 ## Where it is {#where}
 
-In the sidebar, under **Collections**, a **Social** group sits among the collections (in their alphabetical order, not pinned first), with a count of the items still new. It folds open to:
+In the sidebar, under **Audience** (after Content; Collections hold only entries and content), a **Social** group with a count of the items still new. The Audience heading is drawn only while a connected network works with Social. Social folds open to:
 
 - **Inbox**: every network's items (`/workspace/social`), with the new count;
 - **one entry per connected network**, with its logo and name (`/workspace/social/<integration slug>`), and its own new count.
+
+**Settings › Social** (`/workspace/settings/social`, also only while a network is connected) lists every network with its auto-reply switch and says how long Social keeps comments. It's the overview beside the network pages.
 
 A network's page has the **auto-reply switch** in its header and three tabs: **Inbox** (that network's items), **Rules** and **Replies** (`?tab=rules`, `?tab=replies`). Editors and above can open Social; admins change the switch.
 

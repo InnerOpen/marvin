@@ -1,4 +1,4 @@
-// Social as its own space: the pure logic of the sidebar group (Collections › Social), the network pages
+// Social as its own space: the pure logic of the sidebar group (Audience › Social), the network pages
 // (/workspace/social/<integration>: Inbox · Rules · Replies, with the auto-reply switch in the header), a network's rules and its
 // replies. No DOM and no fetch, so `npm test` covers it (socialSpace.test.mjs). The API: routes/groups/social_inbox_controller.py;
 // the inbox's own logic: socialInbox.ts.
@@ -71,7 +71,7 @@ export interface SocialNav {
   children: SocialNavChild[];
 }
 
-/** The sidebar's Social group under Collections, or null — nothing is drawn — unless an enabled integration offers a `social.*`
+/** The sidebar's Social group under Audience, or null — nothing is drawn — unless an enabled integration offers a `social.*`
  *  capability. Children: the all-networks Inbox with its new count, then one entry per connected network. */
 export function socialNav(summary: InboxSummary | null | undefined): SocialNav | null {
   if (!summary?.show || summary.integrations.length === 0) return null;
