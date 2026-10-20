@@ -127,7 +127,7 @@ def test_guide_lists_marvins_real_vocabulary(ws):
     assert set(guide["triggers"]) == set(TRIGGER_MODELS)
     assert set(guide["actions"]["kinds"]) == set(ACTION_MODELS)
     integration = guide["actions"]["kinds"]["integration"]
-    assert list(integration["required"]) == ["integration"]  # plus `action`, or `capability` (notify) instead
+    assert list(integration["required"]) == []  # `action` (with an `integration`), or `capability`: notify, social.post for every network
     assert {"action", "capability"} <= set(integration["optional"]) and "capability" in integration["description"]
     assert set(guide["actions"]["entry_ops"]) == set(OP_SENDS)
     assert guide["actions"]["entry_ops"]["unpublish"]["sets_status"] == "draft"

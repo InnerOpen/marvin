@@ -43,7 +43,7 @@ def _target(session, action: dict) -> str | None:
     if kind == "handler":
         return action.get("task")
     if kind == "integration":
-        return f"{action.get('integration')}.{action.get('action')}"
+        return f"{action.get('integration') or 'every integration'}.{action.get('action') or action.get('capability')}"
     return None
 
 

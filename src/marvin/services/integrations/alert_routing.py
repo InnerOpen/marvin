@@ -10,8 +10,15 @@ inputs — a channel, a priority — are the route's arguments.
 
 from dataclasses import dataclass, field
 
+from .social import SOCIAL_POST
+
 MESSAGE_CAPABILITY = "notify"
 """The capability (and provider category) that says "this sends a message / notification"."""
+GATED_CAPABILITIES = frozenset({SOCIAL_POST})
+"""Capabilities that publish publicly, so their actions always need a person's approval. Capability routing (a step that
+names the capability) skips an approval-gated action — nobody is there to approve an unattended run — except for these,
+which it accepts once the run is past an Approval step (``approved``). Marvin treats every action declaring one as gated,
+whether or not the plugin said ``requires_approval``."""
 BODY_FIELDS = ("text", "body", "message", "content")
 """Input names, in preference order, that carry a message's text."""
 TITLE_FIELDS = ("title", "subject")
@@ -64,21 +71,25 @@ def message_actions(provider) -> list[MessageAction]:
 
 
 def capabilities_of(provider) -> set[str]:
-    """The capabilities a provider offers to unattended callers (a workflow step): those its actions declare, and
-    ``notify`` when it has a message action — what a recipe's ``{"capability": …}`` prerequisite is matched against."""
+    """The capabilities a provider offers to unattended callers (a workflow step): those its actions declare — an
+    approval-gated action's only for a capability that is gated by design (``social.post``, usable after an Approval
+    step) — and ``notify`` when it has a message action: what a recipe's ``{"capability": …}`` prerequisite is matched against."""
     found = {
-        a.capability for a in getattr(provider, "actions", ()) or () if getattr(a, "capability", None) and not getattr(a, "requires_approval", False)
+        a.capability
+        for a in getattr(provider, "actions", ()) or ()
+        if getattr(a, "capability", None) and (a.capability in GATED_CAPABILITIES or not getattr(a, "requires_approval", False))
     }
     if any(not _needs_approval(provider, m.key) for m in message_actions(provider)):
         found.add(MESSAGE_CAPABILITY)
     return found
 
 
-def capability_action(provider, capability: str, args: dict) -> tuple[str, dict] | None:
+def capability_action(provider, capability: str, args: dict, *, approved: bool = False) -> tuple[str, dict] | None:
     """For a step that names a capability instead of an action: the provider's action for it and the step's
     arguments in that action's terms, or None when the provider has none. ``notify`` takes the standard ``title``
     and ``body`` and maps them onto the message action's own fields (Slack's ``text``, Apprise's ``body``…); any
-    other argument passes through. Other capabilities pass the arguments as they are."""
+    other argument passes through. Other capabilities pass the arguments as they are. An approval-gated action is
+    skipped, except for a capability in ``GATED_CAPABILITIES`` when the run is ``approved`` (past an Approval step)."""
     if capability == MESSAGE_CAPABILITY:
         action = next((m for m in message_actions(provider) if not _needs_approval(provider, m.key)), None)
         if action is None:
@@ -88,10 +99,16 @@ def capability_action(provider, capability: str, args: dict) -> tuple[str, dict]
         carried = action.args(title, body) if title else {action.body_field: body}
         return action.key, {**rest, **carried}
     for declared in getattr(provider, "actions", ()) or ():
-        if getattr(declared, "capability", None) == capability and not getattr(declared, "requires_approval", False):
+        if getattr(declared, "capability", None) == capability and (not needs_approval(declared) or (approved and capability in GATED_CAPABILITIES)):
             return declared.key, dict(args)
     return None
 
 
+def needs_approval(action) -> bool:
+    """Whether a person must approve a run before this provider action runs: it says so (``requires_approval``), or it
+    declares a capability that publishes publicly (``GATED_CAPABILITIES``)."""
+    return bool(getattr(action, "requires_approval", False) or getattr(action, "capability", None) in GATED_CAPABILITIES)
+
+
 def _needs_approval(provider, key: str) -> bool:
-    return any(getattr(a, "key", None) == key and getattr(a, "requires_approval", False) for a in getattr(provider, "actions", ()) or ())
+    return any(getattr(a, "key", None) == key and needs_approval(a) for a in getattr(provider, "actions", ()) or ())

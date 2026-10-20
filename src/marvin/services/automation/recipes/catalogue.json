@@ -15,7 +15,7 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 104,
+    "verified-current": 105,
     "needs-adapter": 3,
     "needs-engine-capability": 1,
     "supported-after-configuration": 8
@@ -91,7 +91,7 @@
       "name": "Social publishing adapters",
       "priority": "P1",
       "capabilities_md": "Provider adapters",
-      "acceptance": "Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry)."
+      "acceptance": "Publishing delivered 2026-10-19: the social.post capability (text, images, alt, link, dry_run → posted, post_id, url, network), always behind an Approval step, an integration step with no `integration` posts to every connected network, `per_network` overrides the arguments for one, and a library asset becomes its public URL; each network is its own plugin (Instagram, Facebook Page, Bluesky, Mastodon). Left: drafts and polls as a provider action (poll-companion) and metrics actions that collect numbers from a network (campaign-scoreboard) — no plugin offers either yet."
     },
     "comments": {
       "name": "Comment events",
@@ -2635,11 +2635,13 @@
           "capability": "social-adapters",
           "name": "Social publishing adapters",
           "priority": "P1",
-          "acceptance": "Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry).",
+          "acceptance": "Publishing delivered 2026-10-19: the social.post capability (text, images, alt, link, dry_run → posted, post_id, url, network), always behind an Approval step, an integration step with no `integration` posts to every connected network, `per_network` overrides the arguments for one, and a library asset becomes its public URL; each network is its own plugin (Instagram, Facebook Page, Bluesky, Mastodon). Left: drafts and polls as a provider action (poll-companion) and metrics actions that collect numbers from a network (campaign-scoreboard) — no plugin offers either yet.",
           "why": "a poll-capable provider"
         }
       ],
-      "notes": [],
+      "notes": [
+        "Publishing to social networks exists (the social.post capability, 2026-10-19); what is missing is a provider action that creates a poll (social-adapters)."
+      ],
       "verification": {
         "level": "none",
         "mocked": [],
@@ -2746,12 +2748,12 @@
           "capability": "social-adapters",
           "name": "Social publishing adapters",
           "priority": "P1",
-          "acceptance": "Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry).",
+          "acceptance": "Publishing delivered 2026-10-19: the social.post capability (text, images, alt, link, dry_run → posted, post_id, url, network), always behind an Approval step, an integration step with no `integration` posts to every connected network, `per_network` overrides the arguments for one, and a library asset becomes its public URL; each network is its own plugin (Instagram, Facebook Page, Bluesky, Mastodon). Left: drafts and polls as a provider action (poll-companion) and metrics actions that collect numbers from a network (campaign-scoreboard) — no plugin offers either yet.",
           "why": "metrics actions"
         }
       ],
       "notes": [
-        "Recording and listing the numbers exists (the `metric` step, 2026-10-18); what is missing is a provider that collects them from a network (social-adapters)."
+        "Recording and listing the numbers exists (the `metric` step, 2026-10-18), and so does posting (social.post, 2026-10-19); what is missing is a provider action that collects the numbers from a network (social-adapters)."
       ],
       "verification": {
         "level": "none",
@@ -11676,6 +11678,112 @@
           "webhook:httpx"
         ],
         "test": "tests/test_workflow_library.py::TestExecution::test_asset_upload_announcement"
+      },
+      "brief": null
+    },
+    {
+      "id": "share-published-entry",
+      "title": "Share a published entry everywhere",
+      "outcome": "An AI-drafted post for each published entry; once approved, it goes to every connected social network.",
+      "category": "Social and community",
+      "category_slug": "social",
+      "tags": [
+        "ai",
+        "social",
+        "approval"
+      ],
+      "target_entity": "entry",
+      "trigger": {
+        "type": "event",
+        "event": "entry_published",
+        "custom_event": false,
+        "builtin_event": true
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "share-published-entry.json",
+      "vars": "share-published-entry.vars.json",
+      "setup_variables": [
+        {
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type whose published entries are shared.",
+          "example": "article"
+        },
+        {
+          "name": "voice",
+          "type": "text",
+          "description": "How the post should sound.",
+          "example": "warm, plain and a little dry"
+        }
+      ],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "operation",
+          "approval",
+          "integration"
+        ],
+        "entry_ops": [],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [
+          "social.post"
+        ],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {
+        "integrations": [
+          {
+            "capability": "social.post",
+            "examples": "Instagram, a Facebook Page, Bluesky or Mastodon",
+            "note": "Any connected integration that offers the social.post capability. The step names no integration, so it posts to every connected one, one after another."
+          }
+        ],
+        "features": [
+          "AI on for workflows (Settings → AI)"
+        ]
+      },
+      "supporting_objects": [
+        {
+          "kind": "integration_connection",
+          "required": true,
+          "name": "A social network integration (Instagram, Facebook Page, Bluesky, Mastodon…)",
+          "purpose": "Each connected one receives the post.",
+          "referenced_by": "actions[2] (no integration: every one that can)",
+          "create": "Settings → Integrations → connect a network"
+        }
+      ],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per published entry of the type."
+        },
+        {
+          "kind": "external_post",
+          "description": "Once approved, posts publicly to every connected social network. A post can't be quietly undone."
+        }
+      ],
+      "cost_notes": "One text AI call per published entry, from the workspace's monthly AI budget.",
+      "failure_behaviour": "Denied or expired: nothing is posted. Approved: each network is its own call, one after another; one that refuses (too long, an Instagram post needs a picture) or fails doesn't stop the others, and the run then fails naming it. The idempotency key (share-<entry id>, kept 30 days) makes a re-run of the step post only to the networks that haven't got it.",
+      "dependencies": [],
+      "notes": [
+        "Every social post needs a person's approval: the Approval step before the post step is required (a workflow without one is refused when saved).",
+        "The draft is kept under 280 characters so it fits Bluesky (300) and Mastodon (500). Add per_network to the post step to give one network its own text, e.g. {\"instagram\": {\"text\": \"${entry.summary}\"}}.",
+        "The entry's main picture is attached (${entry.image}); an entry without one posts text only, and Instagram refuses that."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "integration:social.post"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_share_published_entry"
       },
       "brief": null
     }

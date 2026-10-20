@@ -375,13 +375,17 @@ class IntegrationAction(_StepBase):
     `source` (an image.* action that works on a picture, e.g. image.edit) is that picture, as a media step's source: it
     is passed as image_b64 and the result is kept as a version of it. `idempotency_key` (a template, e.g.
     handoff-${entry.id}) makes the call once: the same key for this action within `idempotency_window_hours` (default 24)
-    calls nothing and reuses the first call's output; a failed call doesn't count, so a retry still makes it."""
+    calls nothing and reuses the first call's output; a failed call doesn't count, so a retry still makes it.
+    `capability: "social.post"` posts to social networks and needs an Approval step before it; with no `integration` it
+    posts to every connected network (see the guide's `social` section)."""
 
     kind: Literal["integration"]
-    integration: str  # the workspace integration's slug
+    integration: str | None = None  # the workspace integration's slug; left out only by a capability step, for every integration that can
     action: str | None = None  # the provider action key…
     capability: str | None = None  # …or a capability it offers (`notify`), whatever the provider
     args: dict[str, Any] = Field(default_factory=dict)  # values may be templates; result → $steps.<id>.output
+    per_network: dict[str, dict[str, Any]] | None = None  # social.post: arguments for one network, over `args` ({"bluesky": {"text": …}})
+    fail_on_error: bool = True  # on every integration: false = a failed network is output (failed_count), not a failed step
     # An image.* action's pictures are kept as assets (output `images: [{asset}]`); attach_as links them to the run's
     # entry in this role.
     attach_as: str | None = None
@@ -395,6 +399,8 @@ class IntegrationAction(_StepBase):
     def _action_or_capability(self):
         if not (self.action or self.capability):
             raise ValueError("an integration step needs `action` (the provider action key) or `capability` (e.g. notify)")
+        if not self.integration and self.action:
+            raise ValueError("an integration step needs `integration` (the integration's slug); only a `capability` step may leave it out")
         return self
 
 

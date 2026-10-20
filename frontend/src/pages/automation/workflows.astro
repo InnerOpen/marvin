@@ -843,7 +843,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     wrap.innerHTML = `
       <div class="a-int-head">
         <span class="a-int-mark"></span>
-        <input class="input a-integration" list="wf-integrations" placeholder="integration slug, e.g. square" value="${esc(a.integration ?? "")}" />
+        <input class="input a-integration" list="wf-integrations" placeholder="${a.capability ? `blank: every connected integration that can ${esc(a.capability)}` : "integration slug, e.g. square"}" value="${esc(a.integration ?? "")}" />
       </div>
       <input class="input a-int-action" list="${listId}" placeholder="${a.capability ? `capability: ${esc(a.capability)} (or pick an action)` : "action, e.g. create_listing"}" value="${esc(a.action ?? "")}" />
       <datalist id="${listId}"></datalist>
@@ -856,6 +856,11 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         <input class="input a-int-attach" placeholder="leave blank to only keep them in Assets" value="${esc(a.attach_as ?? "")}" /></label>
       <label class="tf"><span>Tag them <span class="muted">(actions that make images; comma-separated)</span></span>
         <input class="input a-int-tags" placeholder="e.g. generated, cover-ideas" value="${esc((a.tags ?? []).join(", "))}" /></label>
+      ${a.capability ? `<span class="hint small">A <b>${esc(a.capability)}</b> step: leave the integration blank to run it on every connected integration that offers it, one after another${a.capability === "social.post" ? " (a person must approve first: put an Approval step before it)" : ""}.</span>
+      <label class="tf"><span>Per network <span class="muted">(JSON: arguments for one network over the ones above, keyed by integration slug or network name, e.g. {"bluesky": {"text": "\${entry.title|truncate:280}"}})</span></span>
+        <textarea class="input mono a-int-pernet" rows="2" spellcheck="false" placeholder='{"bluesky": {"text": "…"}}'>${esc(a.per_network && Object.keys(a.per_network).length ? JSON.stringify(a.per_network, null, 2) : "")}</textarea></label>
+      <label class="tf"><span>If a network fails</span>
+        <select class="input a-int-failerr"><option value="">fail the step (after trying the rest)</option><option value="no"${a.fail_on_error === false ? " selected" : ""}>carry on and report it (failed_count)</option></select></label>` : ""}
       ${idempotencyHtml(a)}`;
     const slugInput = wrap.querySelector(".a-integration") as HTMLInputElement;
     const actionInput = wrap.querySelector(".a-int-action") as HTMLInputElement;
@@ -1697,9 +1702,15 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     if (kind === "integration") {
       const integration = field(".a-integration")!.value.trim();
       const key = field(".a-int-action")!.value.trim();
-      if (!integration || !(key || step.capability)) return null;
-      step.integration = integration;
+      // A capability step may leave the integration blank: it runs on every connected integration that offers it.
+      if (!(key || step.capability) || (!integration && !(step.capability && !key))) return null;
+      setOrDrop("integration", integration);
       if (key) step.action = key; // else it names a capability (notify), kept from the JSON
+      if (step.capability && !key) {
+        const rawPerNet = field(".a-int-pernet")?.value.trim();
+        setOrDrop("per_network", rawPerNet ? parseJsonObject(rawPerNet, `Step ${i + 1} per network`) : null);
+        if (field(".a-int-failerr")?.value === "no") step.fail_on_error = false; else delete step.fail_on_error;
+      }
       setOrDrop("attach_as", field(".a-int-attach")?.value.trim());
       setOrDrop("source", field(".a-int-source")?.value.trim());
       const intTags = (field(".a-int-tags")?.value ?? "").split(",").map((t) => t.trim()).filter(Boolean);

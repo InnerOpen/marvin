@@ -40,6 +40,7 @@ SECTIONS = (
     "media",
     "email",
     "records",
+    "social",
     "templates",
     "workspace",
     "examples",
@@ -63,6 +64,7 @@ SECTION_GUIDE: dict[str, str] = {
     ),
     "email": "the email step in full: who it may write to, sending once, links by role, what a dry run shows · when a step writes to a member",
     "records": "the metric, snapshot and schema_check steps in full · when counting, keeping versions or checking JSON",
+    "social": "social.post: posting to networks, approval, per_network · when posting to social media",
     "templates": (
         "the ${…} names a step can read (event, entry, asset, steps, input, member…) and how they resolve · when a step reads the "
         "entry or an earlier step"
@@ -73,7 +75,7 @@ SECTION_GUIDE: dict[str, str] = {
     "examples": "the Library recipes this workspace can run; recipe=<id> shows one in full · first, to start from one instead of writing",
     "editor": "the workflow editor's own labels for each part · when telling a person what to click",
 }
-INDEX_BUDGET = 4_000  # characters: the index is read on every request
+INDEX_BUDGET = 4_200  # characters: the index is read on every request
 SECTION_BUDGET = 16_000
 
 # Workspace lists are capped, like workspace_overview's structure: the guide must stay one tool result.
@@ -166,6 +168,7 @@ def _integration_actions(provider_slug: str) -> list[dict] | None:
     if not INTEGRATIONS_AVAILABLE:
         return None
     from marvin.services.integrations import get_provider
+    from marvin.services.integrations.alert_routing import needs_approval
 
     try:
         provider = get_provider(provider_slug)
@@ -183,7 +186,7 @@ def _integration_actions(provider_slug: str) -> list[dict] | None:
                 "args": {k: (v.get("type") if isinstance(v, dict) else None) or "any" for k, v in props.items()},
                 "required": list(schema.get("required") or []),
                 "capability": getattr(a, "capability", None),
-                **({"requires_approval": True} if getattr(a, "requires_approval", False) else {}),
+                **({"requires_approval": True} if needs_approval(a) else {}),
             }
         )
     return out
@@ -508,6 +511,20 @@ REQUEST_NOTE = (
     "idempotency_key (e.g. airtable-${entry.id}) when a re-run must not add the row twice. {{SLUG}} resolves in headers "
     "and secret_ref, not the url. Needs an admin's role."
 )
+SOCIAL_NOTE = (
+    "social posting is an integration step with capability: social.post (Instagram, a Facebook Page, Bluesky, Mastodon — "
+    "whichever are connected). args: text (required), images (asset ids or slugs, ${steps.<id>.output.rows}, ${entry.image} "
+    "or public https URLs — Marvin hands each network the asset's public URL and refuses a missing, trashed or private one), "
+    "alt (one per image; defaults to the assets' alt text), link. Posting is public, so an Approval step must come before it "
+    '(refused at save otherwise): a person approves the post text, e.g. message: "Post? ${steps.draft.output.post}". '
+    "Leave `integration` out to post to every connected network, one after another; the output is results [{integration, "
+    "network, posted, url, post_id, error}], posted_count, failed_count, and one failing doesn't stop the others — the step "
+    "fails at the end unless fail_on_error: false. Add an idempotency_key (e.g. share-${entry.id}) so a re-run posts only "
+    "where it hasn't. Name an `integration` to post to that one only. per_network overrides args for one network, keyed by "
+    'the integration\'s slug or its network\'s name — {"bluesky": {"text": "${entry.title|truncate:280}"}} — because each '
+    "network has its own limit (a network refuses a post that is too long or lacks a picture it needs, naming why; a dry "
+    "run shows each one's answer and sends nothing)."
+)
 SCHEMA_CHECK_NOTE = (
     "schema_check holds a JSON document against a JSON Schema: document: ${steps.page.output.json} (a fetch step's parsed "
     "body; a string holding JSON is read as JSON text) and schema: {…} inline, or schema_resource: <resource id or slug> "
@@ -718,6 +735,8 @@ def authoring_guide(session, group_id, section: str | None = None, recipe: str |
             "snapshot": {**_step_doc("snapshot"), "note": SNAPSHOT_NOTE},
             "schema_check": {**_step_doc("schema_check"), "note": SCHEMA_CHECK_NOTE},
         }
+    if "social" in want:
+        out["social"] = {"note": SOCIAL_NOTE}
     if "templates" in want:
         out["templates"] = _templates()
     if "workspace" in want or "examples" in want:
@@ -988,12 +1007,16 @@ def _step_issues(
     elif kind == "integration":
         slug, key, capability = step.get("integration"), step.get("action"), step.get("capability")
         row = next((i for i in refs.integrations if i["slug"] == slug), None)
-        if row is None:
+        if not slug and capability and not key:
+            _every_integration_issues(capability, refs, bad, after_approval)
+        elif row is None:
             bad("integration", f"No integration “{slug}” here. Integrations: {_close(str(slug), [i['slug'] for i in refs.integrations])}.")
         elif not key and capability:
             if row.get("capabilities") is not None and capability not in row["capabilities"]:
                 able = ", ".join(i["slug"] for i in refs.integrations if capability in (i.get("capabilities") or [])) or "(none here)"
                 bad("capability", f"“{slug}” can't {capability}. Integrations that can: {able}.")
+            else:
+                _gated_capability_issue(capability, after_approval, bad)
         elif row["actions"] is not None and key not in {a["action"] for a in row["actions"]}:
             actions = ", ".join(a["action"] for a in row["actions"]) or "(none)"
             bad("action", f"“{slug}” has no action “{key}” a workflow can run. Actions: {actions}.")
@@ -1012,6 +1035,24 @@ def _step_issues(
         _request_step_issues(step, bad)
     elif kind == "email":
         _email_step_issues(step, bad)
+
+
+def _gated_capability_issue(capability: str, after_approval: bool, bad) -> None:
+    """A capability that publishes publicly (social.post) runs only once a person approved the run: an Approval step before it."""
+    from marvin.services.integrations.alert_routing import GATED_CAPABILITIES
+
+    if capability in GATED_CAPABILITIES and not after_approval:
+        bad("capability", f"“{capability}” posts publicly and needs a person's approval: put an Approval step before it (it runs once approved).")
+
+
+def _every_integration_issues(capability: str, refs: WorkspaceRefs, bad, after_approval: bool) -> None:
+    """A capability step with no `integration` runs on every connected integration that offers it: at least one must, and a
+    gated capability needs its Approval step."""
+    able = [i for i in refs.integrations if i.get("enabled") and capability in (i.get("capabilities") or [])]
+    known = all(i.get("capabilities") is not None for i in refs.integrations)
+    if not able and known:
+        bad("capability", f"No connected integration can {capability} (Settings → Integrations): connect one, or name an `integration`.")
+    _gated_capability_issue(capability, after_approval, bad)
 
 
 def _filter_issues(step: dict, bad) -> None:

@@ -12,6 +12,14 @@ A step may name a `capability` instead of an `action` — `notify` sends through
 Slack or Apprise alike (services/integrations/alert_routing.py: capability_action), with the standard `title`
 and `body` arguments; the Workflow Library's notification recipes are written that way.
 
+`capability: "social.post"` posts to social networks (services/integrations/social.py): `images` may be library assets
+(resolved to their public URLs), `per_network` overrides the arguments for one network, and it runs only after a person
+approved the run — an Approval step earlier in the workflow (`approved_in_run`). With no `integration` it posts to every
+enabled integration in the workspace that offers it, one after another by slug: output `results` (one entry per
+network: integration, network, posted, url, post_id, error), `posted_count`, `failed_count`. One failing doesn't stop
+the others; the step fails at the end when any failed, unless `fail_on_error: false`. A dry run asks each plugin what it
+would post (`dry_run: true` in its arguments) and sends nothing.
+
 A provider failure is raised as :class:`IntegrationStepError`, carrying the provider's error code and
 its resolved error policy, which the engine applies (`services/integrations/errors.py`): review, retry,
 notify, or carry on.
@@ -33,17 +41,27 @@ def _declared_action(provider, key: str):
     return None
 
 
+def approved_in_run(context: dict, dry_run: bool = False) -> bool:
+    """Whether a person has approved this run — what lets an approval-gated action run. The engine resumes a run past an
+    Approval step as ``_approved`` (engine.resume_after_approval); a dry run goes on as if approved once it has passed an
+    Approval step (``_approval_ahead``, set by the approval step's preview)."""
+    return context.get("_approved") is True or bool(dry_run and context.get("_approval_ahead"))
+
+
 @register_action("integration")
 def run_integration_action(session, group_id, action: dict, context: dict, *, user_id=None, authorizer_role=None, dry_run=False) -> dict:
     from ..authz import INTEGRATION_ACTION_MIN_ROLE, ROLE_OWNER, require_role
 
     slug, key, capability = action.get("integration"), action.get("action"), action.get("capability")
-    if not slug or not (key or capability):
+    if not (key or capability) or not (slug or (capability and not key)):
         raise AutomationActionError(
-            "integration action needs `integration` (the integration's slug) and `action` (the provider action key) or `capability`"
+            "integration action needs `integration` (the integration's slug) and `action` (the provider action key) or `capability` "
+            "(only a `capability` step may leave `integration` out, to run on every integration that offers it)"
         )
     require_role(
-        ROLE_OWNER if authorizer_role is None else authorizer_role, INTEGRATION_ACTION_MIN_ROLE, f"integration action '{slug}.{key or capability}'"
+        ROLE_OWNER if authorizer_role is None else authorizer_role,
+        INTEGRATION_ACTION_MIN_ROLE,
+        f"integration action '{slug or 'every integration'}.{key or capability}'",
     )
 
     from marvin.services.integrations import INTEGRATIONS_AVAILABLE
@@ -52,13 +70,23 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
         raise AutomationActionError("integrations are not available on this install (SDK not installed)")
 
     from marvin.db.models.groups.integrations import IntegrationModel
-    from marvin.services.integrations import get_provider
 
+    if not slug:
+        return _fan_out(session, group_id, action, context, user_id=user_id, dry_run=dry_run)
     row = session.query(IntegrationModel).filter_by(group_id=group_id, slug=slug).first()
     if row is None:
         raise AutomationActionError(f"integration '{slug}' not found in this workspace")
     if not row.enabled:
         raise AutomationActionError(f"integration '{slug}' is disabled")
+    return _run_on(session, group_id, row, action, context, user_id=user_id, dry_run=dry_run)
+
+
+def _run_on(session, group_id, row, action: dict, context: dict, *, user_id, dry_run) -> dict:
+    """The step's action on one integration (a row of this workspace, enabled): its output."""
+    from marvin.services.integrations import get_provider
+    from marvin.services.integrations.social import SOCIAL_POST
+
+    slug, key, capability = row.slug, action.get("action"), action.get("capability")
     try:
         provider = get_provider(row.provider)
     except KeyError as e:
@@ -67,20 +95,30 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
     args = interpolate(action.get("args") or {}, context)
     if not isinstance(args, dict):
         raise AutomationActionError("integration action `args` must be an object")
+    approved = approved_in_run(context, dry_run)
     if not key:  # a capability: this provider's action for it, with the arguments in its terms
         from marvin.services.integrations.alert_routing import capability_action
 
-        found = capability_action(provider, capability, args)
+        found = capability_action(provider, capability, args, approved=approved)
         if found is None:
+            if approved is False and capability_action(provider, capability, args, approved=True) is not None:
+                raise AutomationActionError(
+                    f"'{row.provider}' needs a person's approval to {capability}: put an Approval step before it (it runs once approved)"
+                )
             raise AutomationActionError(f"'{slug}' ({row.provider}) can't {capability}: it has no action for that")
         key, args = found
+    social = capability == SOCIAL_POST and not action.get("action")  # a step that names the action passes that action's own arguments
+    if social:
+        args = _social_args(session, group_id, row, action, args, context, dry_run)
 
     declared = _declared_action(provider, key)
     if declared is None:
         raise AutomationActionError(f"provider '{row.provider}' has no action '{key}'")
     # An action that needs a person's approval runs only in a run resumed `approved` at an approval step (a dry run
     # previews it after one) — services/automation/approvals.py.
-    if getattr(declared, "requires_approval", False) and not (context.get("_approved") is True or (dry_run and context.get("_approval_ahead"))):
+    from marvin.services.integrations.alert_routing import needs_approval
+
+    if needs_approval(declared) and not approved:
         raise AutomationActionError(f"'{row.provider}.{key}' requires approval: put an Approval step before it (it runs once approved)")
     from .media import returns_images
 
@@ -100,6 +138,11 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
             preview["keeps_images_as_assets"] = True
             if action.get("attach_as"):
                 preview["attach_as"] = interpolate(action["attach_as"], context)
+        if social and (gate is None or not gate.duplicate):
+            # A social post: the plugin is asked what it would post (args.dry_run; it sends nothing) so the preview shows
+            # its answer — and its refusal, e.g. a text too long for the network.
+            answer = _call_provider(session, group_id, row, provider, key, args, src, keeps_images, action, context, user_id, dry_run=True)
+            preview = {**answer, **preview}
         if gate is None:
             return preview
         return gate.skipped(preview) if gate.duplicate else {**preview, **gate.preview()}
@@ -114,14 +157,89 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
     return out
 
 
-def _call_provider(session, group_id, row, provider, key, args, src, keeps_images, action, context, user_id) -> dict:
+def _social_args(session, group_id, row, action: dict, args: dict, context: dict, dry_run: bool) -> dict:
+    """A social.post call's arguments for this integration: the step's, with its `per_network` entry (matched by the
+    provider's name, then the integration's slug) over them, `images` as public URLs, and `dry_run` set by the run alone
+    (a `dry_run` typed into the arguments is ignored: it would make a real post a quiet no-op that an idempotency key then remembers)."""
+    from marvin.services.integrations.social import SocialPostError, post_args
+
+    try:
+        merged = post_args(session, group_id, args, interpolate(action.get("per_network"), context), row.provider, row.slug)
+    except SocialPostError as e:
+        raise AutomationActionError(f"{row.slug}: {e}") from e
+    return {**merged, "dry_run": bool(dry_run)}
+
+
+def _fan_out(session, group_id, action: dict, context: dict, *, user_id, dry_run) -> dict:
+    """A capability step with no `integration`: the action on every enabled integration that offers the capability, one
+    after another by slug. Each is its own call (its own idempotency claim, its own failure): the output lists them, and
+    the step fails at the end if any failed, unless `fail_on_error: false`."""
+    from marvin.db.models.groups.integrations import IntegrationModel
+    from marvin.services.integrations import get_provider
+    from marvin.services.integrations.alert_routing import GATED_CAPABILITIES, capability_action
+
+    capability = action["capability"]
+    if capability in GATED_CAPABILITIES and not approved_in_run(context, dry_run):
+        # Everything is refused up front, before the first network: a post goes out only once a person approved it.
+        raise AutomationActionError(f"'{capability}' needs a person's approval: put an Approval step before it (it runs once approved)")
+    rows = []
+    for row in session.query(IntegrationModel).filter_by(group_id=group_id, enabled=True).order_by(IntegrationModel.slug).all():
+        try:
+            provider = get_provider(row.provider)
+        except KeyError:
+            continue
+        if capability_action(provider, capability, {}, approved=True) is not None:
+            rows.append((row, provider))
+    if not rows:
+        raise AutomationActionError(f"no connected integration can {capability}: connect one in Settings → Integrations")
+    results = [_fan_out_one(session, group_id, row, provider, action, context, user_id, dry_run) for row, provider in rows]
+    failed = [r for r in results if r["error"]]
+    out = {
+        "results": results,
+        "posted_count": sum(1 for r in results if r["posted"]),
+        "failed_count": len(failed),
+    }
+    if dry_run:
+        return {"dry_run": True, "kind": "integration", "capability": capability, **out}
+    if failed and action.get("fail_on_error", True):
+        said = "; ".join(f"{r['integration']}: {r['error']}" for r in failed)
+        done = ", ".join(r["integration"] for r in results if r["posted"])
+        raise AutomationActionError(
+            f"{len(failed)} of {len(results)} failed to {capability} — {said}" + (f" (posted to {done})" if done else " (nothing was posted)"),
+            code="partial_failure" if done else None,
+        )
+    return out
+
+
+def _fan_out_one(session, group_id, row, provider, action: dict, context: dict, user_id, dry_run) -> dict:
+    """One integration's entry in a fan-out's `results`: the call's outcome, or why it failed."""
+    entry = {"integration": row.slug, "network": row.provider, "posted": False, "url": None, "post_id": None, "error": None}
+    try:
+        out = _run_on(session, group_id, row, action, context, user_id=user_id, dry_run=dry_run)
+    except Exception as e:  # noqa: BLE001 — one network failing never stops the others; it is this entry's error
+        entry["error"] = str(e) or type(e).__name__
+        return entry
+    entry["network"] = out.get("network") or row.provider
+    entry["url"], entry["post_id"] = out.get("url"), out.get("post_id")
+    if dry_run:
+        entry["would_post"] = out.get("would_post")
+        return entry
+    entry["posted"] = bool(out.get("posted", True))
+    if not entry["posted"]:
+        entry["error"] = str(out.get("error") or "the network did not post it")
+    if (out.get("idempotency") or {}).get("duplicate"):
+        entry["duplicate"] = True
+    return entry
+
+
+def _call_provider(session, group_id, row, provider, key, args, src, keeps_images, action, context, user_id, *, dry_run=False) -> dict:
     """Make the provider call with the workspace's credentials and keep what it returns (the step's output)."""
     from marvin.services.integrations import IntegrationContext, build_http
     from marvin.services.secrets.resolver import resolve_secret
 
     from .media import keep_generated_images
 
-    slug = action.get("integration")
+    slug = row.slug
     from marvin.services.integrations.arg_secrets import MissingSecretError, resolve_arg_secrets
 
     try:
@@ -167,7 +285,8 @@ def _call_provider(session, group_id, row, provider, key, args, src, keeps_image
             retry_after=errors.error_retry_after(e),
             seed=seed,
         ) from e
-    errors.action_succeeded(session, group_id, row.id, key, context)
+    if not dry_run:  # a dry run asked the plugin what it would do: nothing was spent, nothing is proven to work
+        errors.action_succeeded(session, group_id, row.id, key, context)
     out = result if isinstance(result, dict) else {}
     if keeps_images:
         made_by = f"{row.provider}.{key}"

@@ -1,0 +1,67 @@
+{
+  "name": "Share a published entry everywhere",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "draft",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "“${entry.title}” was just published. Write a social post announcing it in this voice: {{voice}}. Ground it only in what the entry says (no invented facts), plain text, under 280 characters, and leave out the link (it is attached separately).",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "post": {
+              "type": "string",
+              "minLength": 20,
+              "maxLength": 280
+            }
+          },
+          "required": [
+            "post"
+          ]
+        }
+      },
+      {
+        "kind": "approval",
+        "id": "ok",
+        "message": "Post “${entry.title}” to every connected social network?\n\n${steps.draft.output.post}",
+        "image": "${entry.image}",
+        "approvers": "editor",
+        "expires_in_hours": 72
+      },
+      {
+        "kind": "integration",
+        "id": "post",
+        "capability": "social.post",
+        "args": {
+          "text": "${steps.draft.output.post}",
+          "images": [
+            "${entry.image}"
+          ],
+          "link": "${entry.url}"
+        },
+        "idempotency_key": "share-${entry.id}",
+        "idempotency_window_hours": 720,
+        "when": {
+          "field": "steps.ok.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      }
+    ]
+  }
+}

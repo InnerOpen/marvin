@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-116 recipes: **104** verified-current, **8** supported-after-configuration, **3** needs-adapter, **1** needs-engine-capability.
+117 recipes: **105** verified-current, **8** supported-after-configuration, **3** needs-adapter, **1** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -122,6 +122,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [trash-unattached-images](../../src/marvin/services/automation/recipes/trash-unattached-images.json) — Trash every unattached image | verified-current | `manual` | — | content mutation |
 | [restore-trashed-resources](../../src/marvin/services/automation/recipes/restore-trashed-resources.json) — Restore all resources in the Trash | verified-current | `manual` | — | content mutation |
 | [asset-upload-announcement](../../src/marvin/services/automation/recipes/asset-upload-announcement.json) — Post new uploads to a chat channel | verified-current | `asset_uploaded` | outgoing webhook | external post |
+| [share-published-entry](../../src/marvin/services/automation/recipes/share-published-entry.json) — Share a published entry everywhere | verified-current | `entry_published` | an integration that can social.post (Instagram, a Facebook Page, Bluesky or Mastodon); AI on for workflows (Settings → AI) | external post, paid call |
 
 ## Waiting on a capability or an adapter
 
@@ -230,6 +231,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - A custom AI step (`op: "custom"`): its own prompt and output fields; the answer is checked against them.
 - `poll-companion` — **Poll companion** · needs-adapter · `entry_published`  
   Article → propose poll options → create poll draft
+  - Publishing to social networks exists (the social.post capability, 2026-10-19); what is missing is a provider action that creates a poll (social-adapters).
   - Blocked by: `social-adapters` (a poll-capable provider)
 - `reply-drafting-desk` — **Reply drafting desk** · needs-engine-capability · `comment_added`  
   New comment → classify intent → suggest reply → wait for approval
@@ -237,7 +239,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - Blocked by: `comments` (no comment events are ever sent)
 - `campaign-scoreboard` — **Campaign scoreboard** · needs-adapter · `schedule`  
   After campaign → collect supported metrics → compare against baseline
-  - Recording and listing the numbers exists (the `metric` step, 2026-10-18); what is missing is a provider that collects them from a network (social-adapters).
+  - Recording and listing the numbers exists (the `metric` step, 2026-10-18), and so does posting (social.post, 2026-10-19); what is missing is a provider action that collects the numbers from a network (social-adapters).
   - Blocked by: `social-adapters` (metrics actions)
 - [social-experiment-log](../../src/marvin/services/automation/recipes/social-experiment-log.json) — **Social experiment log** · verified-current · `manual`  
   Run it on a post: an AI writes two versions that differ in one element, each drafted as an entry marked with the experiment id and its variant; run it again with what you observed for each and the numbers are recorded for the window (a repeat of the same window replaces the number, never adds), and a plain list of what was observed — not a verdict — is kept on the post.
@@ -296,6 +298,11 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   The day after an event, a recap post is drafted from its RSVPs (counts, no names) and each guest who RSVP'd gets a personal thank-you message drafted on their RSVP, asking for photos.
   - The run waits (Wait step) until the day after the event's date, in the workspace's time zone.
   - RSVPs are entries of their own (one per guest, published once confirmed) naming their event by slug; messages are drafted on them, not sent — guests' details never reach the public recap.
+- [share-published-entry](../../src/marvin/services/automation/recipes/share-published-entry.json) — **Share a published entry everywhere** · verified-current · `entry_published`  
+  An AI-drafted post for each published entry; once approved, it goes to every connected social network.
+  - Every social post needs a person's approval: the Approval step before the post step is required (a workflow without one is refused when saved).
+  - The draft is kept under 280 characters so it fits Bluesky (300) and Mastodon (500). Add per_network to the post step to give one network its own text, e.g. {"instagram": {"text": "${entry.summary}"}}.
+  - The entry's main picture is attached (${entry.image}); an entry without one posts text only, and Instagram refuses that.
 
 ### Images and files
 
@@ -597,7 +604,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | Id | Capability | Priority | Recipes blocked | Acceptance |
 |---|---|---|---|---|
 | `create-entry` | Create-entry action | P0 | 3 | Delivered 2026-10-11: an entry step `op: "create"` (entry_type slug, title, data, metadata, status inbox|draft) makes a schema-validated entry, returns entry_id/slug, sends entry_created at depth+1, previews in a dry run, and makes it once per event (key: correlation id + workflow + target + step, kept in metadata.automation_created). |
-| `social-adapters` | Social publishing adapters | P1 | 2 | Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry). |
+| `social-adapters` | Social publishing adapters | P1 | 2 | Publishing delivered 2026-10-19: the social.post capability (text, images, alt, link, dry_run → posted, post_id, url, network), always behind an Approval step, an integration step with no `integration` posts to every connected network, `per_network` overrides the arguments for one, and a library asset becomes its public URL; each network is its own plugin (Instagram, Facebook Page, Bluesky, Mastodon). Left: drafts and polls as a provider action (poll-companion) and metrics actions that collect numbers from a network (campaign-scoreboard) — no plugin offers either yet. |
 | `collection-scope` | Collection-scoped steps | P1 | 1 | A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup). Partly delivered 2026-10-12: a `collect` step reads a collection's entries in its own order (`collection` + sort `position`) for one step to use; with an AI or `repeat` step over its rows, that is the roundup (2026-10-12/13); left only: `${collection.entries}` bound directly on collection events (a `collect` step reads the same set today). |
 | `comments` | Comment events | P2 | 1 | comment_added/updated/deleted have an emitter that carries entry_id and the comment text, are triggerable, and hydrate `entry.*`. |
 | `custom-operation` | Free-form AI operation | P0 | 1 | Delivered 2026-10-11: an operation step `op: "custom"` carries its own prompt (${…} templates) and output_schema (a JSON Schema object); `see` adds the item, its attachments, images, the workspace persona; the answer is checked (one retry) and is the step output; write_back maps it onto the entry (summary, tags, metadata.<key>), asset or resource; budget, approval mode and min_role apply as for built-in operations. Named, reusable workspace operations are a later phase. |

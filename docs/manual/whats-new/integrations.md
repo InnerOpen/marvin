@@ -140,7 +140,7 @@ On `/automation/events/[type]` choose **+ Connect an integration action**, pick 
 
 ### Run an action from a workflow
 
-A workflow's **Run integration** step calls one action of one integration with templated args and hands the result to later steps as `$steps.<id>.output`. In a definition, `integration` is the **connection's** slug, the one in the card's footer (made from the name you gave the connection, so "n8n production" is `n8n_production`), not the provider's slug. See [Workflows](workflows.md).
+A workflow's **Run integration** step calls one action of one integration with templated args and hands the result to later steps as `$steps.<id>.output`. A step that names a `capability` (`notify`, `social.post`) instead of an action uses whichever action of that connection offers it; `social.post` with no `integration` posts to every connected network (see [Posting to social networks](#posting-to-social-networks-socialpost)). In a definition, `integration` is the **connection's** slug, the one in the card's footer (made from the name you gave the connection, so "n8n production" is `n8n_production`), not the provider's slug. See [Workflows](workflows.md).
 
 ### When an integration fails
 
@@ -203,6 +203,12 @@ Setup, a worked example and the full code table: [n8n](n8n.md). The package's [R
 ### Capability routing
 
 An action that declares a `capability` (currently `image.generate`, `image.edit`, `image.describe`, `image.search`, `image.upscale`) is discoverable by kind rather than by provider. `integrations_providing(kind, group_id)` returns pre-authorised handlers from every enabled integration in the workspace, highest `priority` first; `src/marvin/services/ai/media/capability.py` consumes it. Each invocation is logged as an `ai_executions` row and an `ai_operation_executed` (or `ai_operation_failed`) event, so paid capability spend shows in the event log.
+
+### Posting to social networks (`social.post`)
+
+A network's plugin (Instagram, a Facebook Page, Bluesky, Mastodon) declares one action with `capability="social.post"` and `requires_approval=True`. It takes `text` (required), `images` (0–10 public https URLs; Marvin has already turned library assets into their public URLs), `alt` (one text per picture), `link` and `dry_run`, and returns `posted`, `post_id`, `url` (the permalink), `network` and, on a dry run, `would_post`. A network refuses what it can't do (a text too long, no picture where one is required) by raising its normal action error with the reason; the workflow shows it against that network.
+
+A workflow reaches it with a **Run integration** step naming the capability: `capability: "social.post"` with an `integration` posts to that connection, and without one posts to every enabled connection that offers it, one after another. Unlike other capabilities, whose approval-gated actions are skipped, a `social.post` action is accepted once the run is past a **Wait for approval** step, and never before: posting is public. Recipes can require it with `{"capability": "social.post"}` as a prerequisite. See [Workflows → Post to social networks](workflows.md#post-to-social-networks).
 
 ## API
 

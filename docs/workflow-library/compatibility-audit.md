@@ -72,7 +72,7 @@ Installed-plugin actions (origin/main of each MarvinIntegration* repo): Buttondo
 `trigger_workflow`, `list_workflows`, `list_webhooks`, `get_execution`; Cloudflare Pages `list_deployments`,
 `build_log`, `connect_notifications`, `deploy`; Square `list_locations`, `create_listing`, `close_listing`;
 Instagram `list_recent_comments`, `refresh_token` (+2 approval-only); OpenAI Images `generate` (approval-only).
-No TTS or social-publishing adapters exist. (2026-10-12→14: image processing, OCR/PDF, zip, rendering and watermarks are the `media` step, background removal and picture edits go through an `image.edit` integration action, `image.*` output is kept as assets, and a `fetch` step checks web addresses; TTS and social publishing still don't exist.)
+No TTS adapter exists, and the social-publishing core is built (2026-10-19: the `social.post` capability — see roadmap row 9) but no network plugin ships with core. (2026-10-12→14: image processing, OCR/PDF, zip, rendering and watermarks are the `media` step, background removal and picture edits go through an `image.edit` integration action, `image.*` output is kept as assets, and a `fetch` step checks web addresses; TTS still doesn't exist.)
 
 ## Supporting objects
 

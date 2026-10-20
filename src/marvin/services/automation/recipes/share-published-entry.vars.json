@@ -1,0 +1,15 @@
+{
+  "recipe": "share-published-entry",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type whose published entries are shared.",
+      "example": "article"
+    },
+    "voice": {
+      "type": "text",
+      "description": "How the post should sound.",
+      "example": "warm, plain and a little dry"
+    }
+  }
+}

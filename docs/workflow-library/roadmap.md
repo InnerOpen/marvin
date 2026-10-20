@@ -4,7 +4,7 @@ Gaps ranked by how many of the 104 recipes catalogued when this was written name
 is what `catalogue.json` says today (`dependencies[]` of the recipes that are not runnable yet, plus the
 configuration recipes that would become workflows). The acceptance criteria are the ones the catalogue carries
 (`capabilities` section). CAPABILITIES.md rows from the brief are mapped in the last column. Audited against the code
-2026-10-17: **10 done, 3 partly, 11 open.**
+2026-10-17: **10 done, 4 partly, 10 open.**
 
 | # | Gap (id) | Named by | Priority | Acceptance (summary) | Still waiting | CAPABILITIES.md |
 |---|---|---|---|---|---|---|
@@ -16,7 +16,7 @@ configuration recipes that would become workflows). The acceptance criteria are 
 | 6 | Iterate / aggregate (`iterate-aggregate`) | 12 | P1 | ~~reduce a set into one output, bounded~~ done 2026-10-12 (`891a1fc5`: a `collect` step); ~~linked items in a query~~ done 2026-10-12 (`8246d379`); ~~one AI step fanned out over the rows~~ done 2026-10-13 (`0e7c993b`: `repeat`, ≤ 25 items, no wait/approval inside) | — | Iteration / aggregation |
 | 7 | Relative dates + cron (`relative-dates`) | 6 | P1 | ~~`updated_before: "-30d"`~~ done 2026-10-12 (`891a1fc5`; every query date key; `-7d`, `-12h`, `-2w`, `now`, `today`); ~~cron computes `next_run_at` with timezone~~ done (`services/cron.py`) | — | Scheduling and waits / Queries |
 | 8 | Conditional steps (`branches`) | 6 | P0 | ~~`when` on a step against `steps.*`; skipped ≠ failed; dry run shows the branch~~ done 2026-10-11 (`0962dafa`) | — | Branches |
-| 9 | Social adapters (`social-adapters`) | 6 | P1 | draft/publish/metrics providers, publish `requires_approval` by default. **Open**: no social provider exists | poll-companion, campaign-scoreboard | Provider adapters |
+| 9 | Social adapters (`social-adapters`) | 6 | P1 | draft/publish/metrics providers, publish `requires_approval` by default. ~~publish~~ done 2026-10-19 (core): the `social.post` capability (`text`, `images`, `alt`, `link`, `dry_run` → `posted`, `post_id`, `url`, `network`, `would_post`); an Approval step must come before it (refused at save, and at run time unless the run was approved); an integration step with no `integration` posts to every connected network, one after another, with `results`, `posted_count`, `failed_count` and `fail_on_error`; `per_network` overrides the arguments for one network; a library asset in `images` becomes its public URL (a private, trashed or missing one is refused). Recipe: share-published-entry. The networks are plugins (Instagram, Facebook Page, Bluesky, Mastodon), one repo each. **Partly: left is drafts/polls as a provider action and metrics actions that collect numbers from a network** | poll-companion (a poll provider), campaign-scoreboard (metrics actions) | Provider adapters |
 | 10 | Collection-scoped steps (`collection-scope`) | 4 | P1 | ~~`collect` reads a collection in its own order~~ done 2026-10-12 (`891a1fc5`), and an AI or `repeat` step over its rows gives the roundup (`0e7c993b`). **Partly: left is `${collection.entries}` bound on collection events** (nothing waits on it) | — | Queries / relationships |
 | 11 | HTTP fetch step (`fetch`) | 4 | P1 | ~~SSRF-guarded GET/HEAD with status/body output; link-check~~ done 2026-10-12 (`8246d379`: a `fetch` step, `url` + `find`, or `links`) | — | Provider adapters |
 | 12 | Durable waits (`waits`) | 4 | P1 | ~~`{"kind":"wait","for"\|"until":…}` persisted, time-zone/DST-aware, cancellable, resumes once~~ done 2026-10-13 (`37d59e9e`, `d1db9209`) | — | Scheduling and waits |

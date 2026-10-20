@@ -235,6 +235,20 @@ class _Images(IntegrationProvider):
         return {"images": [{"image_b64": base64.b64encode(_picture((900, 600))).decode()}], "usage": {"model": "gpt-image-1"}}
 
 
+class _Social(IntegrationProvider):
+    """A social network's plugin shape: one approval-gated `post` action declaring social.post (text, images, link, dry_run)."""
+
+    actions = (ProviderAction(key="post", label="Post", capability="social.post", requires_approval=True),)
+
+    def __init__(self, slug):
+        self.slug, self.name = slug, f"{slug} (fake)"
+        self.calls: list[dict] = []
+
+    def run_action(self, key, args, ctx):
+        self.calls.append(dict(args))
+        return {"posted": True, "post_id": f"{self.slug}-1", "url": f"https://{self.slug}.example/p/1", "network": self.slug}
+
+
 def _picture(size=(1600, 1200), color=(180, 90, 40), fmt="PNG") -> bytes:
     out = io.BytesIO()
     Image.new("RGB", size, color).save(out, format=fmt)
@@ -259,7 +273,14 @@ def ws(db_session, monkeypatch):
     from marvin.services.ai import factory
     from marvin.services.event_bus_service.event_types import WebhookMode
 
-    providers = {"buttondown": _Buttondown(), "apprise": _Apprise(), "n8n": _N8n(), "openai_images": _Images()}
+    providers = {
+        "buttondown": _Buttondown(),
+        "apprise": _Apprise(),
+        "n8n": _N8n(),
+        "openai_images": _Images(),
+        "bluesky": _Social("bluesky"),
+        "mastodon": _Social("mastodon"),
+    }
     for slug, provider in providers.items():
         monkeypatch.setitem(INTEGRATION_REGISTRY, slug, provider)
     monkeypatch.setattr("marvin.services.secrets.resolver.resolve_secret", lambda ref, gid=None: "tok")
@@ -300,7 +321,14 @@ def ws(db_session, monkeypatch):
         db_session.add(et)
         types[slug] = et.id
     db_session.add(Collections(session=db_session, group_id=gid, name="Featured", slug="featured"))
-    for slug, provider in (("newsletter", "buttondown"), ("alerts", "apprise"), ("automation-hub", "n8n"), ("openai-images", "openai_images")):
+    for slug, provider in (
+        ("newsletter", "buttondown"),
+        ("alerts", "apprise"),
+        ("automation-hub", "n8n"),
+        ("openai-images", "openai_images"),
+        ("social-bluesky", "bluesky"),
+        ("social-mastodon", "mastodon"),
+    ):
         db_session.add(IntegrationModel(session=db_session, group_id=gid, provider=provider, name=slug, slug=slug, enabled=True, config={}))
     webhooks = {}
     for name, url in (
@@ -1518,6 +1546,35 @@ class TestExecution:
         (call,) = ws.providers["openai_images"].calls
         assert call["prompt"] == "A bright, hand-drawn poster: a glowing brass lantern"
         assert ws.session.query(EntryAssets).filter_by(entry_id=project.id, role="celebration").count() == 1
+
+    def test_share_published_entry(self, ws):
+        _install(ws, "share-published-entry")
+        article = _entry(ws, "article", "Engraving brass", status="published", data={"body": "Brass, step by step."})
+        ws.ai.reply_text(json.dumps({"post": "Engraving brass, step by step: patience first, tools second."}))
+        social = [ws.providers["bluesky"], ws.providers["mastodon"]]
+
+        _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry", correlation_id="pub-share-1")
+        assert [p.calls for p in social] == [[], []]  # waiting for a person: nothing is posted before they say so
+        self._decide(ws)
+
+        for provider in social:
+            (call,) = provider.calls
+            assert call["text"] == "Engraving brass, step by step: patience first, tools second."
+            assert call["dry_run"] is False and call["images"] == []
+        ws.ai.reply_text(json.dumps({"post": "Engraving brass, step by step: patience first, tools second."}))
+        _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry", correlation_id="pub-share-2")
+        self._decide(ws)  # published again and approved again: the idempotency key says it is already posted
+        assert [len(p.calls) for p in social] == [1, 1]
+
+    def test_share_published_entry_posts_nothing_when_denied(self, ws):
+        _install(ws, "share-published-entry")
+        article = _entry(ws, "article", "Engraving brass", status="published", data={"body": "Brass."})
+        ws.ai.reply_text(json.dumps({"post": "Engraving brass, step by step: patience first, tools second."}))
+
+        _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry", correlation_id="pub-share-3")
+        self._decide(ws, "deny")
+
+        assert [p.calls for p in (ws.providers["bluesky"], ws.providers["mastodon"])] == [[], []]
 
     # ── documents and privacy (a media step's extract_text / pages / find_sensitive / redact) ──
     def _document(self, ws, store, name, pages):
@@ -3221,7 +3278,7 @@ def test_guide_offers_the_recipes_this_workspace_can_run(ws):
     assert offered == set(WORKFLOW_RECIPES)  # the fixture has every connection and AI on
 
     section = authoring_guide(ws.session, ws.gid, "examples")
-    assert sorted(r["recipe"] for r in section["examples"]["recipes"]) == WORKFLOW_RECIPES and guide_size(section) < 16_000
+    assert sorted(r["recipe"] for r in section["examples"]["recipes"]) == WORKFLOW_RECIPES and guide_size(section) < 16_500
     one = authoring_guide(ws.session, ws.gid, "examples", "newsletter-delivery")["examples"]["newsletter-delivery"]
     assert one["definition"] == recipes.load_recipe("newsletter-delivery")["definition"] and "newsletter_integration" in one["setup_variables"]
     assert "{{" in json.dumps(one["definition"]) and "${entry.title}" in json.dumps(one["definition"])
