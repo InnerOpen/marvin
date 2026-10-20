@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.12 (2026-10-20)
+
+### Features
+
+- **social**: Settings › Social, and Social under its own Audience heading
+  ([`86342b1`](https://github.com/InnerOpen/marvin/commit/86342b10ef5875c587024b4ed1664d4e3648e9b5))
+
+
 ## v1.1.0-rc.11 (2026-10-20)
 
 ### Bug Fixes
