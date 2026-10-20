@@ -404,3 +404,18 @@ def test_listing_a_type_again_serves_it_only_if_it_is_publishable_too(content):
     row.capabilities_json = {**row.capabilities_json, "publishable": True}
     content.session.commit()
     assert _served(content, "pub-listed")["detail"] == {"note_pub", "rule_pub"}
+
+
+def test_a_workflow_query_naming_a_collection_gets_what_it_holds_internal_entries_included(content):
+    from marvin.services.entries.query import run as run_query
+
+    unlisted = _smart(content, "helpers", {"listed": "unlisted"})
+    sync_collection(content.session, content.gid, unlisted)
+    content.session.commit()
+
+    def found(spec):
+        return {e.slug for e in run_query(content.session, content.gid, spec, limit=100).rows}
+
+    assert found({"collection": "helpers"}) == INTERNAL
+    assert found({"collection": "helpers", "status": "published"}) == {"rule_pub", "iglog_pub"}
+    assert found({"status": "published"}) == {"note_pub"}  # without the collection, internal entries stay out

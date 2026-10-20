@@ -190,3 +190,10 @@ network for Social.
   - The OpenAPI spec changed (new routes and schemas, `AudienceSignupsSummary`, dashboard `audienceProblems`); the SDK is regenerated separately.
   - A signup's status is Marvin's word for the entry status: a manual archive in Marvin reads as unsubscribed even if Buttondown still lists them.
   - The event-log status history is as complete as the log (pruned events leave a shorter story).
+
+## Decisions after phase 2 (2026-10-20)
+Jared: "go with your recommendations on all three".
+- **`listed` alone:** unchanged. `{"listed": "unlisted"}` is every internal entry; `listed` / `any` alone match nothing, like an empty rule set.
+- **Workflow queries by collection:** a query that names a collection returns what it holds, internal entries included
+  (`services/entries/query.py`); without a collection, type or entries it still never reaches them.
+- **Dashboard:** counts problem signups only; a pending signup is routine. The sidebar badge counts both.

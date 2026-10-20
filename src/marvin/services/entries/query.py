@@ -185,9 +185,11 @@ def build(session, group_id, spec: dict | None):
     if "trashed" not in statuses:
         q = q.filter(Entries.status != "trashed")
 
-    # Entries of an internal type (services/entry_listing.py) are found only by asking for the type (or the entries) by
-    # name: "all entries", a status or a text search never reach them, so a bulk action can't touch them by accident.
-    if not types and "entries" not in spec:
+    # Entries of an internal type (services/entry_listing.py) are found only by asking for the type, the entries or a
+    # collection by name: "all entries", a status or a text search never reach them, so a bulk action can't touch them
+    # by accident. A named collection returns what it holds (a smart collection with `listed: unlisted` gathers them).
+    collections = _as_list(spec.get("collection")) + _as_list(spec.get("collections"))
+    if not types and "entries" not in spec and not collections:
         from marvin.services.entry_listing import only_listed
 
         q = only_listed(session, group_id, q)
@@ -206,7 +208,6 @@ def build(session, group_id, spec: dict | None):
             return nothing, f"no such tag(s) in this workspace: {', '.join(tags)}"
         q = q.filter(Entries.id.in_(session.query(EntryTags.entry_id).filter(EntryTags.tag_id.in_(tag_ids))))
 
-    collections = _as_list(spec.get("collection")) + _as_list(spec.get("collections"))
     if collections:
         coll_ids = session.query(Collections.id).filter(
             Collections.group_id == group_id, Collections.slug.in_(collections) | Collections.name.in_(collections)
