@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.4 (2026-10-20)
+
+### Bug Fixes
+
+- **frontend**: The metrics page's tables line up
+  ([`7c98019`](https://github.com/InnerOpen/marvin/commit/7c98019db29392aa1ebb3bdcbe9a18e1909af6ee))
+
+### Testing
+
+- The dashboard runs test passes in the first hours after midnight UTC
+  ([`9e4e33f`](https://github.com/InnerOpen/marvin/commit/9e4e33f2dd8c4ec7ed54dabc2e3950efad20e5c1))
+
+
 ## v1.1.0-rc.3 (2026-10-19)
 
 ### Features
