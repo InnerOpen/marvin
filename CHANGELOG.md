@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.20 (2026-10-20)
+
+### Chores
+
+- **plugins**: Pin n8n v0.4.0 (results in Automation results; the two collections go)
+  ([`3f94797`](https://github.com/InnerOpen/marvin/commit/3f947970eba389c7aa126d38f3677a07d56ecaeb))
+
+### Features
+
+- **results**: A report on a plugin's own webhook reads its words through the connection that
+  installed it
+  ([`7732dc8`](https://github.com/InnerOpen/marvin/commit/7732dc81c9ae057531942219646a0489f40a8789))
+
+
 ## v1.1.0-rc.19 (2026-10-20)
 
 ### Chores
