@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.10 (2026-10-20)
+
+### Features
+
+- **plugins**: Instagram 0.8.0 — Social replaces the plugin's own auto-reply
+  ([`557f55f`](https://github.com/InnerOpen/marvin/commit/557f55f381b79ca73c304fcaf113fcff3dfd64a0))
+
+- **social**: Remove the Instagram plugin's legacy compatibility and its leftovers (Social phase 2)
+  ([`d18c75a`](https://github.com/InnerOpen/marvin/commit/d18c75a45b49d6d8f8278f8c83b53c6db77a2029))
+
+
 ## v1.1.0-rc.9 (2026-10-20)
 
 ### Documentation
