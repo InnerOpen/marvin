@@ -22,7 +22,7 @@ Each blueprint has a `kind`, a `slug`, `name`, one-line `description`, a `catego
 
 **Parameters.** Core names nobody's content. Where a blueprint needs a slug from the workspace, it asks for it: a `BlueprintParameter` has a `key`, a `label`, a `kind`, `required`, `default` and `help`. `entry_type`, `collection` and `integration` render as dropdowns of what the workspace has and are validated against it; `text` and `number` are free input. An `integration` parameter lists the workspace's connections of the declaring provider and defaults to the connection whose card you are on (through the API: the workspace's only connection of that provider). `{{key}}` placeholders are substituted through slug, name, description and payload, so `all-{{entry_type}}` applies once per type. A lone `{{key}}` yields the value itself rather than a string.
 
-**Core catalog** (`src/marvin/services/blueprints/catalog.py`): smart collections, and the Social set below.
+**Core catalog** (`src/marvin/services/blueprints/catalog.py`): smart collections.
 
 | Slug | Category | Rule it demonstrates |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ Each blueprint has a `kind`, a `slug`, `name`, one-line `description`, a `catego
 | `all-images` | Media | `target_type: asset`, `asset_types: [image]` |
 | `vector-artwork` | Media | `target_type: asset`, `mime_types: [image/svg+xml]` |
 
-**Social** (category Social, `src/marvin/services/blueprints/social.py`) is the one set core owns the content names for, because core's social engagement engine reads and writes them: the entry types `social-auto-reply` and `social-reply-log`, the smart collections `social-auto-reply-rules` and `social-replies`, and the scheduled task `social-engagement` (every 5 minutes, created disabled and in rehearsal). They are applied from the **Social engagement** card on Settings → Integrations (workspace admins; **Set up** creates what is missing, then the card shows the task's state), not from a provider's card. See [Integrations → Social engagement](integrations.md#social-engagement).
+**Social is not a blueprint set.** Core used to offer one (the entry types `social-auto-reply` and `social-reply-log`, the smart collections `social-auto-reply-rules` and `social-replies`, the scheduled task `social-engagement`), applied from a card on Settings → Integrations. It is retired: Marvin makes the rule type and the engine's task itself when a social network is connected ([Social → What Marvin makes](social.md#what-marvin-makes)), the reply log is the inbox item, and the two collections are not recreated. In a workspace that applied the set nothing is deleted; the migration removes the two collections only when they are still as the blueprint made them and empty, else just takes them off the sidebar.
 
 Status buckets are deliberately absent: every workspace already gets the locked inbox/drafts/needs-review/approved/published/archive collections.
 

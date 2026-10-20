@@ -813,15 +813,15 @@ A **Run integration** step can also read and answer comments on a connected netw
 
 - **Name the `integration`.** Posting fans out to every connected network; these don't, because a comment id means something to one network only. A step without an `integration` is refused when you save it and at run time.
 - **Approval.** `social.reply`, `social.message`, `social.repost` and `social.delete_comment` need a **Wait for approval** step before them, exactly like `social.post` (refused at save otherwise, and at run time unless the run was resumed after an approval; Marvin treats the action as gated whether or not its plugin says so). `social.comments`, `social.like` and `social.hide` don't: reading is harmless and a like or a hidden comment is easily undone.
-- **A person in the Social inbox is the approval too.** Replying, messaging or deleting from the [Social inbox](integrations.md#social-inbox) needs no workflow: an admin pressing the button acts on one item through its own narrow path. Workflows still need the Approval step.
+- **A person in the Social inbox is the approval too.** Replying, messaging or deleting from the [Social inbox](social.md#inbox) needs no workflow: an admin pressing the button acts on one item through its own narrow path. Workflows still need the Approval step.
 - **Missing arguments** (`comment_id`, `post_id`, `text`, `to`) are refused at save (a template counts as a value) and again, by name, at run time.
 - **Dry run**: `social.reply` and `social.message` are asked what they would send (`dry_run: true` set by the run, never by a typed argument) and send nothing; the others call nothing.
 - A network that can't do what you asked (a private reply on a network without them) refuses with the code `unsupported`, which fails the step like any plugin error.
-- **Automatic keyword replies aren't a workflow.** They are the engagement engine's rules (a published rule is the approval for its text): see [Integrations → Social engagement](integrations.md#social-engagement).
+- **Automatic keyword replies aren't a workflow.** They are the engagement engine's rules (a published rule is the approval for its text, set per network): see [Social → Rules](social.md#rules) and [Social → Auto-reply](social.md#auto-reply).
 
 ### Start on a new comment {#new-comment-trigger}
 
-A workflow can start when a new comment, reply or mention arrives on any connected network that offers `social.comments` (Instagram, a Facebook Page, Bluesky, Mastodon). The trigger is the event `social_comment_received`, listed under **Social** in the trigger list. Use it to classify the comment with AI, send it to review, answer after an Approval step, hide spam, like it or record a metric.
+A workflow can start when a new comment, reply or mention arrives on any connected network that offers `social.comments` (Instagram, a Facebook Page, Bluesky, Mastodon; see [Social](social.md)). The trigger is the event `social_comment_received`, listed under **Social** in the trigger list. Use it to classify the comment with AI, send it to review, answer after an Approval step, hide spam, like it or record a metric.
 
 A run reads the item as `${event.<field>}` (and conditions key on `event.<field>`):
 
@@ -851,7 +851,7 @@ A run reads the item as `${event.<field>}` (and conditions key on `event.<field>
 }
 ```
 
-- **It needs the task.** The events come from the same 5-minute poll as the keyword auto-reply engine, the **Social engagement** scheduled task. It is created **disabled** (Settings → Integrations → Social engagement → Set up): enable it for the trigger to fire. It announces whether its rehearsal is on or off, and whether or not you have any auto-reply rule; set `announce` to `false` on the task to stop that.
+- **Nothing to switch on.** The events come from the same 5-minute poll as the auto-reply engine, the **Social engagement** scheduled task, which Marvin creates and enables itself while a connected network offers `social.comments` ([Social → What Marvin makes](social.md#what-marvin-makes)). A network is announced whatever its auto-reply is set to (even **off**), and whether or not you have any rule.
 - **Once each, never a backlog.** Every new item is announced once. The first poll of a connection announces nothing that is already there; it only notes where the newest item is. Nothing older than 7 days is announced, and the account's own comments and replies never are, so a workflow's public reply can't start the workflow again. The poll is every 5 minutes, so a comment starts its workflow up to that long after it was written.
 - **A templated `integration`.** A `capability` step may name its connection as `${event.integration}` (it is checked when it runs, and has to come out as a connection's slug). Saving still checks the Approval step and the arguments. An `action` step names its slug.
 - **Approval is as ever.** `social.reply`, `social.message`, `social.repost` and `social.delete_comment` need a **Wait for approval** step first; `social.hide` and `social.like` don't, so a spam rule can hide a comment on its own. Not every network can hide or like (Mastodon can't hide; Instagram has no like): that step then fails like any plugin error, so limit it with a condition on `event.network`.

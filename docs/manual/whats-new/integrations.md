@@ -204,108 +204,9 @@ Setup, a worked example and the full code table: [n8n](n8n.md). The package's [R
 
 An action that declares a `capability` (currently `image.generate`, `image.edit`, `image.describe`, `image.search`, `image.upscale`) is discoverable by kind rather than by provider. `integrations_providing(kind, group_id)` returns pre-authorised handlers from every enabled integration in the workspace, highest `priority` first; `src/marvin/services/ai/media/capability.py` consumes it. Each invocation is logged as an `ai_executions` row and an `ai_operation_executed` (or `ai_operation_failed`) event, so paid capability spend shows in the event log.
 
-### Posting to social networks (`social.post`)
+### Social (its own page)
 
-A network's plugin (Instagram, a Facebook Page, Bluesky, Mastodon) declares one action with `capability="social.post"` and `requires_approval=True`. It takes `text` (required), `images` (0–10 public https URLs; Marvin has already turned library assets into their public URLs), `alt` (one text per picture), `link` and `dry_run`, and returns `posted`, `post_id`, `url` (the permalink), `network` and, on a dry run, `would_post`. A network refuses what it can't do (a text too long, no picture where one is required) by raising its normal action error with the reason; the workflow shows it against that network.
-
-A workflow reaches it with a **Run integration** step naming the capability: `capability: "social.post"` with an `integration` posts to that connection, and without one posts to every enabled connection that offers it, one after another. Unlike other capabilities, whose approval-gated actions are skipped, a `social.post` action is accepted once the run is past a **Wait for approval** step, and never before: posting is public. Recipes can require it with `{"capability": "social.post"}` as a prerequisite. See [Workflows → Post to social networks](workflows.md#post-to-social-networks).
-
-### Social engagement {#social-engagement}
-
-Reading comments and answering them, on every connected network. Private replies are the default (the way Instagram's auto-reply always worked), public replies are allowed, and there is a like, a hide, a delete, a repost and a direct message besides. Like posting, each network's plugin declares the capabilities it has, each on one action (`capability=`), and Marvin does the rest.
-
-**The capabilities** (what a plugin implements; `network` in every output is the plugin's own name):
-
-| Capability | Arguments | Output | Gated |
-| --- | --- | --- | --- |
-| `social.comments` | `since` (the opaque cursor the plugin returned last time), `limit` (50), `kinds` | `items`, `cursor` | no |
-| `social.reply` | `comment_id`, `text`, `private` (default `true`), `dry_run` | `replied`, `reply_id`, `private`, `url`, `network`, and `would_reply` on a dry run | yes |
-| `social.like` | `comment_id` | `liked`, `network` | no |
-| `social.hide` | `comment_id`, `hidden` (default `true`) | `hidden`, `network` | no |
-| `social.delete_comment` | `comment_id` | `deleted`, `network` | yes |
-| `social.repost` | `post_id` | `reposted`, `url`, `network` | yes |
-| `social.message` | `to` (`{id?, handle?}`), `text`, `dry_run` | `sent`, `message_id`, `network` | yes |
-
-`social.comments` returns items oldest to newest: `id` (what the other capabilities take as `comment_id`), `kind` (`comment`, `reply` or `mention`), `post_id`, `post_url`, `author` (`id`, `handle`, `name`), `text`, `created_at` (ISO, UTC), `url`, `network`. A mode a network can't do is refused with the error code `unsupported`. "Gated" means approval-gated: Marvin treats a gated action as `requires_approval` even when the plugin forgot to say so, and a workflow runs it only after a **Wait for approval** step ([Workflows → Answer comments and reach out](workflows.md#social-engagement)).
-
-**Who can do what** (the plan; each plugin says for itself):
-
-| | Read comments | Private reply | Public reply | Like | Hide | Delete | Repost | Message |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Instagram | yes | yes | yes | no | yes | yes | no | only as a reply to a comment |
-| Facebook Page | yes | yes (Messenger, within 7 days) | yes | yes | yes | yes | no | Messenger, within 24 hours of their last message |
-| Mastodon | yes (notifications) | yes (a direct reply) | yes | yes (favourite) | no | own replies only | yes (boost) | yes |
-| Bluesky | yes (notifications) | yes (chat) | yes | yes | yes | own replies only | yes | yes (chat) |
-
-**Auto-reply rules.** Keyword replies run on their own, under rules you keep as entries. Apply the core **Social** set once per workspace with the **Social engagement** card on Settings → Integrations (workspace admins; it lists the `social-auto-reply` rule type, the `social-reply-log` type, two collections and the **Social engagement** scheduled task, which of them are installed, and one **Set up** button that creates what is missing; once set up it shows the task's state, disabled or enabled and rehearsal on or off, with a link to it in Scheduled tasks). The same set is `POST /api/groups/blueprints/apply` with `source=core` and the slugs `social-auto-reply`, `social-reply-log`, `social-auto-reply-rules`, `social-replies` and `social-engagement`, or `GET /api/groups/blueprints?category=Social`. It starts switched off and in rehearsal, and Instagram's own auto-reply task must be turned off before the shared one handles Instagram. Core ships them, not a network's plugin, so one set serves every network. A rule is an entry of type `social-auto-reply` with:
-
-- `keywords`: comma-separated words or phrases (the data may also be a list). A keyword matches as a whole word in any case: "price" matches "What's the PRICE?" but not "priceless"; a phrase such as "how much" works. A rule needs at least one keyword and a reply.
-- `reply`: the text, sent exactly as written. **Publishing the rule is the approval of that text**; drafts never fire.
-- `networks`: empty means any network, else integration slugs or network names (`instagram`, `mastodon`, `b-main`), comma-separated.
-- `post`: empty means any post, else a post id or URL. A rule for the comment's own post beats one for any post; otherwise the rule written first wins. A comment gets one reply, from the first rule that hits.
-- `reply_as`: `private` (the default), `public` or `both` (a private reply and a public one; if the network refuses one half, the other still goes out).
-- `also_like`: also like the comment, where the network can. A like that fails never undoes the reply.
-- `kinds`: which items the rule answers, `comment, reply` by default (answers on your own posts). Add `mention` to also answer people who tag you elsewhere. Mastodon yields `reply` and `mention` (never `comment`); Instagram yields `comment` and `reply`.
-
-**The engine.** The **Social engagement** task (every 5 minutes by default, one per workspace, created disabled) reads, for each enabled integration whose plugin offers `social.comments` (and, to reply, `social.reply`), the items since that integration's stored cursor. It skips the account's own comments (compared by handle and id against the integration's config: `own_username`, `handle`, `page_id`, `ig_user_id`…), comments older than 7 days and comments already answered, matches the published rules, replies in the rule's mode and writes a `social-reply-log` entry: `network`, `integration`, `comment_id`, `rule`, `mode`, `rehearsal`, `reply_id`, `when`, plus the comment, the reply and the keyword. At most 20 replies per run; the rest wait for the next one, and so does a reply that failed for a reason worth retrying (three attempts). A network that refuses (`unsupported`, `refused`) is skipped for that comment, with no retry and no log entry, and noted in the run summary. One network failing never stops the others.
-
-The task's config: `rehearsal` (default `true`), `announce` (default `true`: tell workflows about new comments, see below), `max_replies` (20), `max_age_days` (7), `limit` (50, items read per network per run).
-
-- **Rehearsal first.** In rehearsal the plugin is called with `dry_run: true` (it sends nothing), the log entry says `rehearsal: true` and the engine only looks. A rehearsal entry never counts as "answered", so when you switch rehearsal off (set `rehearsal` to `false` in the task's config) it still answers what is inside the window. Read the log, then switch it off.
-- **Cursors.** Each integration's read cursors (live and rehearsal, kept apart; and a third for announcing, below), its retry queue and last poll time live in the integration's `state` (`state.social`), never shown to the plugin. The cursor is the plugin's own opaque string; one the plugin rejects (`invalid_cursor`) is dropped and the read starts again from the newest items, which the 7-day window and the log keep from being answered twice.
-- **Approval.** A workflow's `social.reply` needs an Approval step; the engine doesn't have one, so a published rule stands in for it, through one narrow door: the engine can call only `social.comments`, `social.reply` and `social.like` (never message, repost or delete); a reply counts as approved only when it comes from a rule that is still published at the moment of sending and the text is that rule's reply, character for character (no templating); and nothing but the engine reaches that path (a workflow step, the API and the plugins can't).
-- **Instagram.** Instagram's `ig-auto-reply` entries are read as rules for network `instagram` (`post_id` is `post`, keywords as written, a private reply) and its `ig-reply-log` entries count as already answered, so switching over answers nothing twice. The plugin's own **Instagram auto-reply** task is left as it is: while it is enabled the engine skips that integration (two senders would answer twice). To hand over, disable the plugin's task, then enable **Social engagement**. Nothing is deleted.
-
-**Workflows: a new comment starts one.** The same poll announces each new comment, reply or mention as the event `social_comment_received`, so a workflow can start on it: classify it with AI, send it to review, reply after an Approval step, hide spam, like it, record a metric ([Workflows → Start on a new comment](workflows.md#new-comment-trigger) has the fields and an example; the Library's **Triage new comments** is one ready-made). How it behaves:
-
-- **The task has to be enabled.** The **Social engagement** task is created disabled; enable it and the trigger fires. It runs for announcing whether its rehearsal is on or off (announcing is not sending), whether or not any rule exists, and for any network that offers `social.comments`, even one that can't reply. `announce: false` in the task's config makes it a replies-only engine again (and, with no rules, it then reads nothing).
-- **Its own cursor.** Announcing keeps `events_cursor` in `state.social`, apart from the live and rehearsal reply cursors, so switching rehearsal on or off changes nothing about what is announced, and replying changes nothing about what is read for workflows. When both stand at the same place, one read of the network serves both jobs.
-- **Once each.** The first poll of a connection announces nothing already there (it records the newest cursor and when it started: an empty account doesn't make the first comment look like backlog). From then on an item is announced once: each id is claimed before its event is sent (the last 500 are remembered), so a re-read, a dropped cursor or a crash can lose at most the one in flight and never sends one twice. Items older than 7 days (`max_age_days`) or written before the first poll are never announced.
-- **Never the account's own.** The same check as replying (handle and id against the integration's config) leaves out the account's own comments and replies, so a workflow that answers in public can't start itself again. An integration whose config names no account (`handle`, `own_username`, `page_id`, `ig_user_id`…) can't be told apart: set one before letting a workflow reply in public.
-- **Instagram.** While the plugin's own auto-reply task is enabled the shared engine doesn't reply for that connection, but it still announces its comments (the plugin's task reads on its own cursor, so Instagram is read twice).
-
-### Social inbox {#social-inbox}
-
-**Social inbox** (sidebar, `/workspace/social`) is one page for the comments, replies and mentions on every connected network, what was answered, and what to do with each. It fills from the **Social engagement** task, so it needs that task: until the task is set up and **enabled**, the page says so and links to the Social engagement card on Settings → Integrations (the task starts disabled, and in rehearsal, so nothing is sent until you switch rehearsal off). The sidebar link shows when a connected network can read comments, with a small count of the items still **new**; the card shows the same count. Editors and above can open it.
-
-**What it keeps.** Every network read the 5-minute poll makes, whether it was reading to reply or to announce, is written to `social_inbox_items`, one row per network item (unique on integration and item id), in one batch insert per read, so the poll isn't slower. Not kept: the account's own items (the same check as replying), and items older than 30 days. A system task, `prune_social_inbox_items` (daily, `retention_days: 30`), deletes what is older; the row keeps the text it first saw. An item records its author (id, handle, name), text, kind (comment, reply, mention), post, link, when the network says it was written, when Marvin first saw it, a **status** and, once answered, a pointer to its `social-reply-log` entry. The poll reads every kind of item whether or not a rule answers mentions, so mentions are there too (a rule's own `kinds` still decides what it answers). Keeping the items can't fail a poll: an error is logged and the poll goes on.
-
-**The page.** Compact rows (network logo, who, an excerpt, the kind and when, a status badge, and **Sent** or **Rehearsal** badges that link to the log entry; a new item has a dot and a bold name). Filter by integration (network), kind, status and text; the filters live in the page's address, so a view can be bookmarked. Tap or click a row to open it: the whole text, links to the post and to the item on the network (**Open on …**), and the actions below. Opening a new item marks it seen; **Mark all seen** clears the rest. On a phone the rows stay one line each and tapping opens the same panel.
-
-**Actions** (only what that network's plugin declares for the item; the API lists them per item):
-
-| Action | Capability | Role | Notes |
-| --- | --- | --- | --- |
-| **Reply** | `social.reply` | ADMIN | A text box and a **Private / Public** choice, private preselected. A mode is shown only when the network offers it (a plugin that takes only public replies sets `enum: [false]` on the action's `private` argument; one that refuses at run time answers `unsupported`, which is shown). Sent as you, written to the reply log, status `replied`. |
-| **Like** | `social.like` | EDITOR | New or seen items become `liked`; a reply or a hide is never downgraded. |
-| **Hide** / **Unhide** | `social.hide` | EDITOR | Comments under your own posts only (not mentions). Hidden wins over every other status; unhiding returns to `replied` or `seen`. |
-| **Delete** | `social.delete_comment` | ADMIN | Asks first; removes the comment on the network (can't be undone) and drops the item. Not for mentions. |
-| **Message** | `social.message` | ADMIN | A direct message to the author (by id and handle), not a reply to the comment; for networks that have it. No log entry. |
-| **Make a rule** | none | EDITOR | Creates a **draft** `social-auto-reply` entry: keywords suggested from the text (its distinctive words, at most three), the item's network, private replies, and, if you typed one in the reply box, that text as the reply. It does nothing until you publish it; the page links to the entry editor. 409 until the Social engagement set is applied. |
-
-**Status** is `new`, `seen`, `liked`, `replied` or `hidden`: seeing never undoes anything, a like never downgrades a reply, a reply never unhides, hiding wins, unhiding goes back to `replied` or `seen`.
-
-**The approval, for a person.** A workflow's reply, message or delete needs an Approval step; the engine's replies stand on a published rule. A person pressing the button in the inbox is the human approval those decisions ask for, through a third, narrow door (`social_inbox_actions.InboxActor.act`), separate from the engine's: the caller is an authenticated workspace member holding the role in the table (checked before anything is looked up, so a lower role gets 403, never a 404 that confirms an id); only the five capabilities above can pass (never reading, reposting, or anything else); the comment id and the integration are taken from the stored item, never from the request, so the inbox can't be pointed at another comment or network; the text is the person's own, typed for that item, never templated; and no approver, no call. The plugin's own approval flag doesn't stop a person's click. Every call is made with `dry_run` false. A failure shows the network's own sentence (422 for a refusal, 502 for a network error) and changes nothing.
-
-**A reply from the inbox is logged**, so the engine never answers it: a live `social-reply-log` entry (`rule: inbox`, the mode, `rehearsal: false`, the reply text, the sender's name in `by`, created by that user) with the same slug the engine checks. The item then points at it and becomes `replied`. If the comment already has a live entry (the engine answered it, or an earlier reply from the inbox) nothing is written twice; the reply is still sent after the page asks, and the item learns of it. If the log type isn't applied the reply is still sent and the response says `logged: false`. A rehearsal entry is shown as **Rehearsal** and never counts as answered.
-
-**API** (`/api/groups/social-inbox`, workspace-scoped, mounted when the SDK is installed; the response keys are camelCase):
-
-| Method | Path | Role | Purpose |
-| --- | --- | --- | --- |
-| GET | `` | EDITOR | The items, newest first (by when they were written). Filters: `integration` (slug), `network`, `kind`, `status` (repeat it for several), `q` (text, handle or name, `%` and `_` are literal), `since`, `until`, `limit` (1-200, 50), `offset`. Each item carries `actions`, `replyModes` and `reply` (`rehearsal`, `mode`, `logEntryId`…). The list also returns `total` and `new`. |
-| GET | `/summary` | EDITOR | `available`, `new`, the `integrations` that read comments, the Social engagement task's `engine` state (`missing`, `disabled`, `enabled`, with `rehearsal` and `announce`) and `can`, which actions the caller's role may use |
-| POST | `/seen` | EDITOR | `{ids}` or `{all: true, integration?}`: new becomes seen |
-| POST | `/{id}/reply` | ADMIN | `{text, private = true}` |
-| POST | `/{id}/like` | EDITOR | |
-| POST | `/{id}/hide` | EDITOR | `{hidden = true}` |
-| DELETE | `/{id}` | ADMIN | |
-| POST | `/{id}/message` | ADMIN | `{text}` |
-| POST | `/{id}/rule` | EDITOR | `{reply?}` creates the draft rule; returns `id`, `slug`, `keywords`, `path` |
-
-An action the item's network doesn't offer (or the integration is switched off, or its plugin isn't installed) is refused: 422 for the first, 409 for the others.
-
-**Not covered.** Items answered by Instagram's own plugin task before the switch have no pointer (the page shows no replied badge for them, though the engine never answers them again), and an item that was already in the log before the inbox existed isn't in the inbox: it fills from the next poll on.
+Social is not an integration. A network's plugin declares `social.*` capabilities (posting, reading comments, replying and the rest), and Marvin draws **Social** — its inbox, rules, replies and auto-reply switch — only while the workspace has an enabled integration that offers one; the Integrations page keeps only the connection cards. The capability contract, the engine and the pages are in [Social](social.md); posting from a workflow is in [Workflows → Post to social networks](workflows.md#post-to-social-networks).
 
 ## API
 
@@ -347,6 +248,8 @@ No setting switches integrations on; presence of an installed provider does. Cre
 Integrations: 1.0.0-rc.97 (commits 4f8d30e3, 847631de, 3e1603b4, bfad4311, 2c581d2c, 2b71a0c8, 53f896fb, 2026-09-24/25). Workflow integration step and HTTP `put`/`delete`: rc.111. Integration-contributed signature schemes: rc.113. Applying parameterised content from the card, action results and `{{SECRET}}` credentials: rc.114. Editing a connected integration: rc.115. Named User-Agent: rc.119. `INTEGRATION_HTTP_MAX_BYTES`: rc.123. Token-mode signature schemes from integrations: rc.144. `{{SECRET}}` references in action arguments: rc.145. **Admin → Extensions → Plugins** and `GET /api/admin/plugins`: rc.158. HTTP `patch`: rc.182. Core's own Apprise notifier removed in favour of the Apprise integration: rc.189. Integration-owned error handling (error policies, retries, alerts, **How errors are handled**, **Integration alerts**): rc.197; the alert routing moved to Settings → Automation → Notifications and the catalog was grouped by category with migration `cfbbd1cc67e4` (unreleased), migration `c9e2f4a6b8d1`; providers declare policies from `marvin-integration-sdk` 0.5.0. Option pickers for action inputs (`x-marvin-options`, `POST /{integration_id}/options`) and provider logos (`GET /providers/{slug}/logo`, from `marvin-integration-sdk` 0.6.0): rc.197. Integration routes admin-only: rc.197. **Alerts & health** page, its routes and `integrations.last_success_at`: migration `d5b1e8a3c7f2` (unreleased). The n8n provider is a separate package (SDK 0.5); its workflow picker needs rc.197. The Buttondown provider is a separate package; it relies on `${site.url}` (rc.177), `${entry.url}` and `if_none: skip` (rc.179). Recipes and guides from integrations: `marvin-integration-sdk` 0.9.0 with Slack 0.4.0, n8n 0.2.0, Buttondown 0.7.0, Apprise 0.3.0, Square 0.4.0 and Instagram 0.4.0 (2026-10-11).
 
 Social engagement (the `social.comments`, `social.reply`, `social.like`, `social.hide`, `social.delete_comment`, `social.repost` and `social.message` capabilities, the `social-auto-reply` rules, the `social_engagement` task, `integrations.state`, migration `5e1c7a9d3b24`): 2026-10-20. The `social_comment_received` trigger and the Social engagement card: 2026-10-20. The Social inbox (`social_inbox_items`, migration `7c3f9a1e5b82`, the `prune_social_inbox_items` system task, `/api/groups/social-inbox`): 2026-10-21.
+
+Social became its own space (rules per network, replies on inbox items, per-network auto-reply, no setup step; migration `ef911a9c1779`): 2026-10-21. See [Social](social.md).
 
 Note: `docs/archive/INTEGRATIONS_DESIGN.md` and the plugin architecture doc predate the implementation and describe polling that nothing calls; the SDK package is the contract.
 
