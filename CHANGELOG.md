@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.15 (2026-10-20)
+
+### Features
+
+- **collections**: A "Listed" rule for smart collections (any | listed | unlisted)
+  ([`5426583`](https://github.com/InnerOpen/marvin/commit/5426583cd5bf779d12268ccd48aa0f374187622d))
+
+
 ## v1.1.0-rc.14 (2026-10-20)
 
 ### Features
