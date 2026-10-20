@@ -6,6 +6,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.19 (2026-10-20)
+
+### Chores
+
+- **deps**: Marvin-integration-sdk v0.13.0 (HandsOff)
+  ([`8fff950`](https://github.com/InnerOpen/marvin/commit/8fff950aa405c7a88a97acacc5bbdd5ea4e0b2c6))
+
+### Documentation
+
+- **plan**: Automation results (n8n first, on a generic hand-off record)
+  ([`c5310d8`](https://github.com/InnerOpen/marvin/commit/c5310d8928a957c2bc7c5d3d48913a46fd5d92a5))
+
+### Features
+
+- **results**: Automation results — a record of the work handed to other systems, the
+  automation_result step, and the Results page
+  ([`b0766b1`](https://github.com/InnerOpen/marvin/commit/b0766b15d424b6028aa5b5c0ec277f78f5c38262))
+
+
 ## v1.1.0-rc.18 (2026-10-20)
 
 ### Features
