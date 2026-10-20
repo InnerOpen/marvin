@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.11 (2026-10-20)
+
+### Bug Fixes
+
+- **social**: Rules return to their network's Rules tab, and a trashed rule can be restored
+  ([`a815a2d`](https://github.com/InnerOpen/marvin/commit/a815a2d0113449459bcdf9ae60704e25c7921fb1))
+
+
 ## v1.1.0-rc.10 (2026-10-20)
 
 ### Features
