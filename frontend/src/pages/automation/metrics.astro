@@ -42,8 +42,8 @@ const data = JSON.stringify({ metrics, observations, canRemove }).replace(/</g, 
     <form id="mt-filters" class="filters" hidden>
       <label>Metric <select id="mt-metric" class="input"></select></label>
       <label>Variant <select id="mt-variant" class="input"></select></label>
-      <label>From <input id="mt-from" class="input" placeholder="2026-W40" spellcheck="false" /></label>
-      <label>To <input id="mt-to" class="input" placeholder="2026-W44" spellcheck="false" /></label>
+      <label>From <input id="mt-from" class="input" placeholder="2026-10-01" title="A day (2026-10-01), a week (2026-W40) or a month (2026-10)" spellcheck="false" /></label>
+      <label>To <input id="mt-to" class="input" placeholder="2026-10-31" title="A day (2026-10-31), a week (2026-W44) or a month (2026-10)" spellcheck="false" /></label>
       <button class="button ghost sm" type="submit">Show</button>
       <span id="mt-status" class="hint"></span>
     </form>
@@ -55,7 +55,7 @@ const data = JSON.stringify({ metrics, observations, canRemove }).replace(/</g, 
 
     <details id="mt-all" class="all" hidden>
       <summary>Every observation <span id="mt-count" class="muted"></span></summary>
-      <div class="table-scroll"><table id="mt-list" class="grid"></table></div>
+      <div class="table-scroll"><table id="mt-list" class="metric-table"></table></div>
     </details>
   </div>
 </AppLayout>
@@ -101,7 +101,7 @@ const data = JSON.stringify({ metrics, observations, canRemove }).replace(/</g, 
             .join("")}</tr>`,
       )
       .join("");
-    return `<div class="table-scroll"><table class="grid"><thead><tr><th scope="col">Window</th>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+    return `<div class="table-scroll"><table class="metric-table"><thead><tr><th scope="col">Window</th>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
   }
 
   function render() {
@@ -207,17 +207,17 @@ const data = JSON.stringify({ metrics, observations, canRemove }).replace(/</g, 
   .metrics-page :global(.metric h3) { margin: 0 0 8px; font-size: 16px; }
   .metrics-page :global(.subj) { margin: 8px 0 4px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
   .metrics-page :global(.table-scroll) { overflow-x: auto; max-width: 100%; }
-  .metrics-page :global(table.grid) { border-collapse: collapse; font-size: 14px; min-width: 100%; }
-  .metrics-page :global(table.grid th), .metrics-page :global(table.grid td) { border-bottom: 1px solid var(--line); padding: 6px 12px; text-align: right; white-space: nowrap; }
-  .metrics-page :global(table.grid th:first-child), .metrics-page :global(table.grid td:first-child) { text-align: left; }
-  .metrics-page :global(table.grid thead th) { font-size: 12px; color: var(--muted); font-weight: 600; }
-  .metrics-page :global(table.grid tbody th) { font-weight: 600; }
+  .metrics-page :global(table.metric-table) { border-collapse: collapse; font-size: 14px; min-width: 100%; }
+  .metrics-page :global(table.metric-table th), .metrics-page :global(table.metric-table td) { border-bottom: 1px solid var(--line); padding: 6px 12px; text-align: right; white-space: nowrap; }
+  .metrics-page :global(table.metric-table th:first-child), .metrics-page :global(table.metric-table td:first-child) { text-align: left; }
+  .metrics-page :global(table.metric-table thead th) { font-size: 12px; color: var(--muted); font-weight: 600; }
+  .metrics-page :global(table.metric-table tbody th) { font-weight: 600; }
   .metrics-page :global(td.none) { color: var(--muted); }
   .metrics-page :global(td code), .metrics-page :global(h3 code) { font-size: 13px; }
 
   .all { margin-top: 18px; }
   .all summary { cursor: pointer; font-weight: 600; font-size: 14px; padding: 6px 0; }
-  .all :global(table.grid td), .all :global(table.grid th) { text-align: left; }
+  .all :global(table.metric-table td), .all :global(table.metric-table th) { text-align: left; }
   .empty { color: var(--muted); font-size: 14px; padding: 24px; text-align: center; border: 1px dashed var(--line); border-radius: var(--radius); }
 
   @media (max-width: 640px) {
