@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.14 (2026-10-20)
+
+### Features
+
+- **audience**: Form submissions under Audience, and internal types as one visible flag
+  ([`9408416`](https://github.com/InnerOpen/marvin/commit/940841628ea6f8b3bdf25983a12fcbfd5f8de73a))
+
+
 ## v1.1.0-rc.13 (2026-10-20)
 
 ### Features
