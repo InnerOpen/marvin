@@ -18,6 +18,7 @@ from marvin.db.models.groups.integrations import IntegrationModel
 from marvin.db.models.platform.entries import Entries
 from marvin.db.models.platform.event_log import EventLogModel
 from marvin.db.models.users.roles import WorkspaceRole
+from marvin.db.models.users.users import Users
 from marvin.services import audience
 from marvin.services.automation.actions import entry as entry_action
 from marvin.services.automation.authz import ROLE_ADMIN
@@ -252,6 +253,49 @@ def test_a_subscribers_history_is_its_status_changes_from_the_event_log(site, re
     history = _client(site).get(f"{SUBSCRIBERS}/{sid}").json()["subscriber"]["history"]
     assert [h["label"] for h in history] == ["Reopened", "Unsubscribed", "Confirmed", "Needs a look", "Signed up"]
     assert _client(site).get(f"{SUBSCRIBERS}/{readers.ann.id}").json()["subscriber"]["history"] == []
+
+
+def test_an_archive_a_person_made_in_marvin_reads_archived_in_marvin_not_unsubscribed(site, readers):
+    """The mailing list's workflows run with no user, so their archive is a real unsubscribe; a person's archive in Marvin
+    unsubscribes nobody, so the list, the detail and the history must not call it Unsubscribed."""
+    c = _client(site)  # signs a member in, so a user exists for the person's events
+    person = site.session.query(Users.id).first()[0]
+    now = datetime.now(UTC)
+
+    def archived(entry, minutes, user_id=None):
+        site.session.add(
+            EventLogModel(
+                event_id=uuid.uuid4(),
+                event_type="entry_archived",
+                occurred_at=now - timedelta(minutes=minutes),
+                workspace_id=site.gid,
+                entity_id=entry.id,
+                entity_type="entry",
+                user_id=user_id,
+                integration_id="test",
+                event_data={},
+                message_title="entry_archived",
+            )
+        )
+
+    archived(readers.cy, 30)  # cy: unsubscribed by the list
+    bo = _set(site, readers.bo, "archived")
+    archived(bo, 20, user_id=person)  # bo: archived by hand in Marvin
+    site.session.commit()
+
+    rows = {i["email"]: i for i in _items(c.get(SUBSCRIBERS))}
+    assert (rows["bo@x.test"]["status"], rows["bo@x.test"]["archivedInMarvin"]) == ("unsubscribed", True)
+    assert (rows["cy@y.test"]["status"], rows["cy@y.test"]["archivedInMarvin"]) == ("unsubscribed", False)
+    assert rows["ann@x.test"]["archivedInMarvin"] is False
+    detail = c.get(f"{SUBSCRIBERS}/{bo.id}").json()["subscriber"]
+    assert detail["archivedInMarvin"] is True
+    assert [h["label"] for h in detail["history"]] == ["Archived in Marvin"]
+
+    archived(bo, 5)  # then the list unsubscribed them for real: the latest archive decides
+    site.session.commit()
+    assert {i["email"]: i["archivedInMarvin"] for i in _items(c.get(SUBSCRIBERS))}["bo@x.test"] is False
+    assert [h["label"] for h in c.get(f"{SUBSCRIBERS}/{bo.id}").json()["subscriber"]["history"]] == ["Unsubscribed", "Archived in Marvin"]
+    assert audience.archived_in_marvin(site.session, site.gid, []) == set()
 
 
 def test_only_a_signup_of_this_workspace_is_a_subscriber(site, readers, workspace, db_session):  # noqa: F811

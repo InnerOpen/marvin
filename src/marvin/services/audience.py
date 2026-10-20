@@ -335,8 +335,28 @@ def _review_reasons(entry: Entries) -> list[str]:
     return [*dict.fromkeys(_strings(sub.get("review_reasons")) + _strings(meta.get("review_reasons")))]
 
 
-def subscriber_row(entry: Entries, entry_type: EntryTypes, new: int = 0) -> dict:
-    """One subscriber as the list returns it: who, when, where it stands, and why when it is a problem (the latest reason)."""
+def archived_in_marvin(session, group_id, entry_ids) -> set:
+    """The archived signups whose latest archive a person made in Marvin, not the mailing list. The integration's workflows run
+    with no user, so their archive (a real unsubscribe) has none on its ``entry_archived`` event; a person's has theirs. Archiving
+    by hand doesn't unsubscribe anyone, so the list must not call these Unsubscribed."""
+    ids = list(entry_ids)
+    if not ids:
+        return set()
+    rows = (
+        session.query(EventLogModel.entity_id, EventLogModel.user_id)
+        .filter(EventLogModel.workspace_id == group_id, EventLogModel.entity_id.in_(ids), EventLogModel.event_type == "entry_archived")
+        .order_by(EventLogModel.occurred_at.desc())
+        .all()
+    )
+    latest: dict = {}
+    for entity_id, user_id in rows:
+        latest.setdefault(entity_id, user_id)
+    return {entity_id for entity_id, user_id in latest.items() if user_id is not None}
+
+
+def subscriber_row(entry: Entries, entry_type: EntryTypes, new: int = 0, *, by_hand: bool = False) -> dict:
+    """One subscriber as the list returns it: who, when, where it stands, and why when it is a problem (the latest reason).
+    ``by_hand``: an archived signup a person archived in Marvin (``archived_in_marvin``), still on the mailing list."""
     email, name = identity(entry_type, entry)
     state = subscriber_status(entry.status)
     reasons = _review_reasons(entry) if state == "problem" else []
@@ -347,6 +367,7 @@ def subscriber_row(entry: Entries, entry_type: EntryTypes, new: int = 0) -> dict
         "name": name,
         "title": entry.title,
         "status": state,
+        "archived_in_marvin": state == "unsubscribed" and by_hand,
         "entry_status": entry.status,
         "review_reasons": reasons,
         "reason": reasons[-1] if reasons else None,
@@ -428,6 +449,7 @@ HISTORY_LABEL = {
     "entry_restored": "Reopened",
 }
 HISTORY_AFTER = {"inbox": "Back to pending", "needs_review": "Needs a look"}
+HISTORY_ARCHIVED_BY_HAND = "Archived in Marvin"  # an archive a person made: the mailing list still has them (archived_in_marvin)
 HISTORY_LIMIT = 12
 
 
@@ -448,6 +470,8 @@ def history(session, group_id, entry_id) -> list[dict]:
     out = []
     for row in rows:
         label = HISTORY_LABEL.get(row.event_type)
+        if row.event_type == "entry_archived" and row.user_id is not None:
+            label = HISTORY_ARCHIVED_BY_HAND
         if label is None:  # an update: only a status change says anything
             data = row.event_data if isinstance(row.event_data, dict) else {}
             doc = data.get("documentData") or data.get("document_data") or {}
@@ -465,7 +489,7 @@ def subscriber_detail(session, entry: Entries, entry_type: EntryTypes, *, full_i
     meta = entry.metadata_json if isinstance(entry.metadata_json, dict) else {}
     sub = meta.get("submission") if isinstance(meta.get("submission"), dict) else {}
     return {
-        **subscriber_row(entry, entry_type),
+        **subscriber_row(entry, entry_type, by_hand=entry.id in archived_in_marvin(session, entry.group_id, [entry.id])),
         "fields": fields_of(entry_type, entry.data_json if isinstance(entry.data_json, dict) else {}),
         "source": _source(sub, full_ip),
         "history": history(session, entry.group_id, entry.id),

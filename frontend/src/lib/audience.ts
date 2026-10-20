@@ -386,6 +386,8 @@ export interface Subscriber {
   name?: string | null;
   title: string;
   status: SubscriberStatus;
+  /** Unsubscribed only because a person archived it in Marvin: the mailing list still has them. */
+  archivedInMarvin?: boolean;
   entryStatus: string;
   reviewReasons: string[];
   /** The latest review reason of a problem. */
@@ -423,8 +425,16 @@ export const SUBSCRIBER_STATUSES: { value: SubscriberStatus; label: string; hint
   { value: "problem", label: "Needs a look", hint: "The mailing list refused it, or the spam protection held it", tone: "warn" },
 ];
 
-/** The status badge; a problem's tooltip is its review reason when it has one. */
-export function subscriberBadge(status: string, reason?: string | null): Badge {
+/** What an archived-by-hand signup says: archiving in Marvin doesn't unsubscribe anyone, the mailing list does. */
+export const ARCHIVED_IN_MARVIN = {
+  label: "Archived in Marvin",
+  note: "Still on the mailing list: archiving here doesn't unsubscribe anyone. Unsubscribe them in your mailing-list integration.",
+};
+
+/** The status badge; a problem's tooltip is its review reason when it has one. An unsubscribed signup a person archived in Marvin
+ *  reads "Archived in Marvin", not Unsubscribed (`archivedInMarvin`). */
+export function subscriberBadge(status: string, reason?: string | null, archivedInMarvin = false): Badge {
+  if (status === "unsubscribed" && archivedInMarvin) return { label: ARCHIVED_IN_MARVIN.label, tone: "warn", title: ARCHIVED_IN_MARVIN.note };
   const known = SUBSCRIBER_STATUSES.find((s) => s.value === status);
   if (!known) return { label: status || "Unknown", tone: "neutral" };
   return { label: known.label, tone: known.tone, title: status === "problem" && reason ? reason : known.hint };
@@ -449,6 +459,8 @@ export interface SubscriberRowView {
   unread: boolean;
   /** A problem's reason, shown under the line. */
   reason: string;
+  /** An archived-by-hand signup's warning (still on the mailing list), shown under the line; else empty. */
+  note: string;
 }
 
 /** One compact row: who (name, else email), the email beside a name, the form, when, the status badge. */
@@ -462,9 +474,10 @@ export function subscriberRow(item: Subscriber): SubscriberRowView {
     form: item.form?.name ?? "",
     formIcon: item.form?.icon || "📬",
     at: item.signedUpAt,
-    badge: subscriberBadge(item.status, item.reason),
+    badge: subscriberBadge(item.status, item.reason, item.archivedInMarvin),
     unread: item.status === "pending" || item.status === "problem",
     reason: item.status === "problem" ? (item.reason ?? "").trim() : "",
+    note: item.status === "unsubscribed" && item.archivedInMarvin ? ARCHIVED_IN_MARVIN.note : "",
   };
 }
 

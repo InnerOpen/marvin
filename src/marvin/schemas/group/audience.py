@@ -140,6 +140,8 @@ class AudienceSubscriber(_MarvinModel):
     name: str | None = None
     title: str
     status: SubscriberStatus
+    archived_in_marvin: bool = False
+    """Unsubscribed only because a person archived the signup in Marvin: the mailing list still has them (unsubscribe them there)."""
     entry_status: str
     review_reasons: list[str] = Field(default_factory=list)
     """Why it needs a look (status problem only), oldest first."""

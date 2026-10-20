@@ -325,6 +325,17 @@ describe("a subscriber row", () => {
     assert.equal(subscriberRow(subscriber({ name: " ", email: "", title: "" })).who, "Someone");
   });
 
+  test("an unsubscribed signup a person archived in Marvin says so, and that the mailing list still has them", () => {
+    const byHand = subscriberRow(subscriber({ status: "unsubscribed", entryStatus: "archived", archivedInMarvin: true }));
+    assert.equal(byHand.badge.label, "Archived in Marvin");
+    assert.equal(byHand.badge.tone, "warn");
+    assert.match(byHand.note, /Still on the mailing list/);
+    const left = subscriberRow(subscriber({ status: "unsubscribed", entryStatus: "archived" }));
+    assert.equal(left.badge.label, "Unsubscribed");
+    assert.equal(left.note, "");
+    assert.equal(subscriberRow(subscriber({ status: "confirmed", archivedInMarvin: true })).badge.label, "Confirmed"); // only an unsubscribed one
+  });
+
   test("the form, when it arrived and a fallback icon", () => {
     const r = subscriberRow(subscriber());
     assert.equal(r.form, "Newsletter");

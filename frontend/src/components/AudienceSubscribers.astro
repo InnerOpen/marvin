@@ -146,7 +146,7 @@ const data = JSON.stringify({ summary, list, filters }).replace(/</g, "\\u003c")
       <span class="si-mark" aria-hidden="true">${esc(r.formIcon)}</span>
       <span class="si-main">
         <span class="si-line"><strong class="si-author">${esc(r.who)}</strong>${r.email ? `<span class="si-kind au-form">${esc(r.email)}</span>` : ""}</span>
-        <span class="si-text">${esc(r.reason || r.form)}</span>
+        <span class="si-text">${esc(r.reason || r.note || r.form)}</span>
       </span>
       <span class="si-meta"><time datetime="${esc(r.at)}" title="${esc(new Date(r.at).toLocaleString())}">${esc(timeAgo(r.at))}</time><span class="si-badges">${badge(r.badge)}</span></span>
     </button></li>`;
@@ -234,7 +234,8 @@ const data = JSON.stringify({ summary, list, filters }).replace(/</g, "\\u003c")
     return `<div class="si-d-who"><span class="si-mark" aria-hidden="true">${esc(r.formIcon)}</span><div><strong>${esc(r.who)}</strong>
         <div class="si-muted si-small">${esc(r.form)} · signed up <time title="${esc(new Date(r.at).toLocaleString())}">${esc(timeAgo(r.at))}</time></div></div>
         <span class="si-badges">${badge(r.badge)}</span></div>
-      ${r.reason ? `<p class="au-verdict warn"><strong>Why it needs a look:</strong> ${esc(r.reason)}</p>` : ""}`;
+      ${r.reason ? `<p class="au-verdict warn"><strong>Why it needs a look:</strong> ${esc(r.reason)}</p>` : ""}
+      ${r.note ? `<p class="au-verdict warn"><strong>Archived in Marvin:</strong> ${esc(r.note)}</p>` : ""}`;
   }
 
   function fieldHtml(f: SubscriberDetail["fields"][number]): string {

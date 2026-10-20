@@ -204,8 +204,9 @@ class AudienceController(BaseUserController):
             )
         else:
             totals = {k: overview[k] for k in audience.SUBSCRIBER_STATUSES}
+        by_hand = audience.archived_in_marvin(self.session, self.group_id, [e.id for e, _ in rows if e.status == "archived"])
         return AudienceSubscriberList(
-            items=[AudienceSubscriber(**audience.subscriber_row(e, t, waiting.get(t.slug, 0))) for e, t in rows],
+            items=[AudienceSubscriber(**audience.subscriber_row(e, t, waiting.get(t.slug, 0), by_hand=e.id in by_hand)) for e, t in rows],
             total=total,
             limit=limit,
             offset=offset,
