@@ -301,7 +301,15 @@ def describe_event(ctx: ToolContext, args: dict) -> str:
     workspaces, as on the admin Events page)."""
     from marvin.db.models.users.roles import PlatformRole
     from marvin.services.events import connections, custom_events
-    from marvin.services.events.event_catalog import CATALOG, canonical_event_type, diff_fields, get_catalog_entry, operational_fields, workflow_reads
+    from marvin.services.events.event_catalog import (
+        CATALOG,
+        canonical_event_type,
+        diff_fields,
+        get_catalog_entry,
+        operational_fields,
+        social_fields,
+        workflow_reads,
+    )
 
     user = ctx.user
     super_admin = getattr(user, "platform_role", None) == PlatformRole.SUPER_ADMIN or bool(getattr(user, "is_superuser", False))
@@ -332,6 +340,15 @@ def describe_event(ctx: ToolContext, args: dict) -> str:
             "triggerable": True,
             "fields": fields,
             "note": "A workflow starting on this reads these as ${event.<field>}. It never runs for a failure its own run caused.",
+        }
+    elif fields := social_fields(entry.event_type):  # a comment, reply or mention from a connected network: `${event.<field>}`
+        out["workflowTrigger"] = {
+            "triggerable": True,
+            "fields": fields,
+            "note": "A workflow starting on this reads these as ${event.<field>} (event.author.handle, event.text contains …). Reply with an "
+            'integration step {"integration": "${event.integration}", "capability": "social.reply", "args": {"comment_id": "${event.id}", '
+            '"text": "…"}} after an Approval step; social.hide and social.like need none. It is sent only while the Social engagement '
+            "scheduled task is enabled, and never for the account's own comments.",
         }
     elif fields := diff_fields(entry.event_type):  # an entry update's diff: `changed data.price` / ${event.before.data.price}
         out["updateDiff"] = {

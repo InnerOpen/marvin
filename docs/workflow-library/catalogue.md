@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-117 recipes: **105** verified-current, **8** supported-after-configuration, **3** needs-adapter, **1** needs-engine-capability.
+118 recipes: **106** verified-current, **8** supported-after-configuration, **3** needs-adapter, **1** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -123,6 +123,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [restore-trashed-resources](../../src/marvin/services/automation/recipes/restore-trashed-resources.json) — Restore all resources in the Trash | verified-current | `manual` | — | content mutation |
 | [asset-upload-announcement](../../src/marvin/services/automation/recipes/asset-upload-announcement.json) — Post new uploads to a chat channel | verified-current | `asset_uploaded` | outgoing webhook | external post |
 | [share-published-entry](../../src/marvin/services/automation/recipes/share-published-entry.json) — Share a published entry everywhere | verified-current | `entry_published` | an integration that can social.post (Instagram, a Facebook Page, Bluesky or Mastodon); AI on for workflows (Settings → AI) | external post, paid call |
+| [triage-new-comments](../../src/marvin/services/automation/recipes/triage-new-comments.json) — Triage new comments | verified-current | `social_comment_received` | an integration that can social.comments (Instagram, a Facebook Page, Bluesky or Mastodon); an integration that can notify (Slack or Apprise); the Social engagement scheduled task enabled (Settings → Scheduled tasks; Settings → Integrations → Social engagement sets it up, switched off) — it is what announces new comments; AI on for workflows (Settings → AI); scheduled task | external action, metric, notification, paid call |
 
 ## Waiting on a capability or an adapter
 
@@ -303,6 +304,12 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - Every social post needs a person's approval: the Approval step before the post step is required (a workflow without one is refused when saved).
   - The draft is kept under 280 characters so it fits Bluesky (300) and Mastodon (500). Add per_network to the post step to give one network its own text, e.g. {"instagram": {"text": "${entry.summary}"}}.
   - The entry's main picture is attached (${entry.image}); an entry without one posts text only, and Instagram refuses that.
+- [triage-new-comments](../../src/marvin/services/automation/recipes/triage-new-comments.json) — **Triage new comments** · verified-current · `social_comment_received`  
+  A new comment, reply or mention on a connected network is sorted by AI into question, praise, complaint or spam and counted as a metric; spam is hidden where the network allows it, and questions, complaints and spam you can't hide are sent to you.
+  - A comment is text from a stranger: the prompt tells the AI to classify it, never to follow it, and its answer is limited to the four categories.
+  - Praise is counted (the social-comments metric) and left alone; add a step with `social.like` (not every network has one) or a reply behind an Approval step to answer it.
+  - To answer a question, add an Approval step and an integration step {"integration": "${event.integration}", "capability": "social.reply", "args": {"comment_id": "${event.id}", "text": "…"}}.
+  - It runs only while the Social engagement task is enabled, and never for the account's own comments (so a reply it sends can't start it again).
 
 ### Images and files
 

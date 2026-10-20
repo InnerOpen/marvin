@@ -12,6 +12,9 @@ A step may name a `capability` instead of an `action` — `notify` sends through
 Slack or Apprise alike (services/integrations/alert_routing.py: capability_action), with the standard `title`
 and `body` arguments; the Workflow Library's notification recipes are written that way.
 
+`integration` may be a template (``${event.integration}``) on a capability step, resolved when the step runs: a run that
+starts on ``social_comment_received`` answers the comment on the connection it came through. An action step names its slug.
+
 `capability: "social.post"` posts to social networks (services/integrations/social.py): `images` may be library assets
 (resolved to their public URLs), `per_network` overrides the arguments for one network, and it runs only after a person
 approved the run — an Approval step earlier in the workflow (`approved_in_run`). With no `integration` it posts to every
@@ -60,6 +63,15 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
     from ..authz import INTEGRATION_ACTION_MIN_ROLE, ROLE_OWNER, require_role
 
     slug, key, capability = action.get("integration"), action.get("action"), action.get("capability")
+    if isinstance(slug, str) and "${" in slug:
+        # `integration: "${event.integration}"`: the slug a social_comment_received run carries. Only a capability step may take
+        # one (an action key belongs to one provider), and it has to come out as a slug.
+        if key:
+            raise AutomationActionError("a templated `integration` goes with a `capability` step: an action key belongs to one provider")
+        slug = str(interpolate(slug, context) or "").strip()
+        if not slug:
+            raise AutomationActionError(f"`integration` ({action['integration']}) came out empty: the run carries no connection to act on")
+        action = {**action, "integration": slug}
     if not (key or capability) or not (slug or (capability and not key)):
         raise AutomationActionError(
             "integration action needs `integration` (the integration's slug) and `action` (the provider action key) or `capability` "

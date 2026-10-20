@@ -31,7 +31,7 @@ A scheduled task is a row with a schedule and a handler:
 | `run_automation` | run a workspace automation (the schedule trigger for Workflows) | `automation_id` (required) |
 | `media_enrich` | run the entry type's recipe media derivations on one entry | `entry_id` (required) |
 | `run_integration_action` | call one provider action on one integration | see below |
-| `social_engagement` | read new comments on every connected social network and reply under published `social-auto-reply` rules; rehearsal by default ([Integrations → Social engagement](integrations.md#social-engagement)) | `rehearsal` (true), `max_replies` (20), `max_age_days` (7), `limit` (50) |
+| `social_engagement` | read new comments on every connected social network, reply under published `social-auto-reply` rules (rehearsal by default) and announce each new one as `social_comment_received` for workflows; created disabled by the Social engagement card ([Integrations → Social engagement](integrations.md#social-engagement)) | `rehearsal` (true), `announce` (true), `max_replies` (20), `max_age_days` (7), `limit` (50) |
 | `prune_expired_invitations` | delete invitations older than N days | `age_days` (30) |
 | `remove_orphaned_assets` | report assets linked to no entry, or with `auto_delete` move them to the Trash (restorable; emptying it deletes their files — an unlinked asset may still be a site logo) | `age_days` (30), `auto_delete` (false) |
 | `prune_expired_sessions` | no-op (JWTs are stateless) | none |

@@ -238,13 +238,21 @@ class _Images(IntegrationProvider):
 class _Social(IntegrationProvider):
     """A social network's plugin shape: one approval-gated `post` action declaring social.post (text, images, link, dry_run)."""
 
-    actions = (ProviderAction(key="post", label="Post", capability="social.post", requires_approval=True),)
+    actions = (
+        ProviderAction(key="post", label="Post", capability="social.post", requires_approval=True),
+        ProviderAction(key="comments", label="Comments", capability="social.comments"),
+        ProviderAction(key="hide", label="Hide a comment", capability="social.hide"),
+    )
 
     def __init__(self, slug):
         self.slug, self.name = slug, f"{slug} (fake)"
         self.calls: list[dict] = []
+        self.hidden: list[dict] = []
 
     def run_action(self, key, args, ctx):
+        if key == "hide":
+            self.hidden.append(dict(args))
+            return {"hidden": True, "network": self.slug}
         self.calls.append(dict(args))
         return {"posted": True, "post_id": f"{self.slug}-1", "url": f"https://{self.slug}.example/p/1", "network": self.slug}
 
@@ -374,6 +382,7 @@ def ws(db_session, monkeypatch):
         "form_entry_type": "contact-request",
         "message_field": "message",
         "notify_integration": "alerts",
+        "hide_networks": ["bluesky"],
         "collection_name": "Featured",
         "n8n_integration": "automation-hub",
         "n8n_webhook_path": "editorial-tasks",
@@ -3021,6 +3030,58 @@ class TestExecution:
         assert run(a_value=3, window="day")["ok"] and len(observed()) == 3  # another window is another observation
         assert "variant a" in _reload(ws, post).metadata_json["experiment_report"]
 
+    def test_triage_new_comments(self, ws):
+        from marvin.db.models.groups.metric_observations import MetricObservationModel
+
+        _install(ws, "triage-new-comments")
+        bluesky, mastodon, notices = ws.providers["bluesky"], ws.providers["mastodon"], ws.providers["apprise"]
+
+        def comment(cid, text, network, **extra):
+            integration = f"social-{network}"
+            return {
+                "id": cid, "kind": "comment", "post_id": "p1", "post_url": f"https://{network}.example/p/1", "text": text,
+                "author": {"id": "u1", "handle": "alice", "name": "Alice"}, "created_at": "2026-10-20T11:00:00Z",
+                "url": f"https://{network}.example/c/{cid}", "network": network, "integration": integration,
+                "integration_id": str(uuid.uuid4()), **extra,
+            }  # fmt: skip
+
+        def fire(cid, text, network, category):
+            if category:
+                ws.ai.reply_text(json.dumps({"category": category, "reason": f"it reads as {category}"}))
+            return _fire(ws, "social_comment_received", comment(cid, text, network), correlation_id=f"comment-{cid}")
+
+        fire("c1", "Get free followers at spam.example", "bluesky", "spam")  # hidden where the workflow can: no notice
+        assert bluesky.hidden == [{"comment_id": "c1"}] and notices.calls == []
+        asked = json.dumps(ws.ai.requests[-1])
+        assert "Get free followers" in asked and "alice" in asked and "bluesky" in asked
+
+        fire("c2", "Win a prize, click here", "mastodon", "spam")  # a network left out of hide_networks: told, not hidden
+        assert mastodon.hidden == [] and len(notices.calls) == 1
+        assert notices.calls[0]["title"] == "spam on mastodon: alice" and "Win a prize" in notices.calls[0]["body"]
+
+        fire("c3", "Is this available in blue?", "bluesky", "question")
+        fire("c4", "It arrived broken", "bluesky", "complaint")
+        assert [n["title"] for n in notices.calls[1:]] == ["question on bluesky: alice", "complaint on bluesky: alice"]
+        assert notices.calls[1]["body"].startswith("Is this available in blue?") and notices.calls[1]["body"].endswith("https://bluesky.example/c/c3")
+
+        fire("c5", "Love it, thank you!", "bluesky", "praise")  # counted, left alone
+        assert len(notices.calls) == 3 and bluesky.hidden == [{"comment_id": "c1"}]
+        before = len(ws.ai.requests)
+        assert fire("c6", "", "bluesky", None) == 0 and len(ws.ai.requests) == before  # nothing written: no AI call, no run
+
+        ws.session.expire_all()
+        counted = {
+            (o.variant, o.subject): o.value for o in ws.session.query(MetricObservationModel).filter_by(group_id=ws.gid, metric="social-comments")
+        }
+        assert counted == {
+            ("spam", "bluesky"): 1.0,
+            ("spam", "mastodon"): 1.0,
+            ("question", "bluesky"): 1.0,
+            ("complaint", "bluesky"): 1.0,
+            ("praise", "bluesky"): 1.0,
+        }
+        assert [r.status for r in _runs(ws, "triage-new-comments")] == ["success"] * 5
+
     @needs_browser
     def test_best_of_month(self, ws, store):
         row = _install(ws, "best-of-month")
@@ -3114,6 +3175,19 @@ def test_a_dry_run_of_a_scheduled_digest_and_an_event_recipe_passes(ws):
     preview = dry_run_for_event(ws.session, ws.gid, row, ctx)
     assert preview["would_fire"] and _step_errors(preview["plan"]) == []
     assert preview["plan"][-1]["resolved"]["title"] == "‹AI answer: title›"
+
+
+def test_a_dry_run_of_triage_new_comments_asks_no_ai_and_hides_nothing(ws):
+    from marvin.services.automation.engine import dry_run_for_event
+
+    row = _install(ws, "triage-new-comments")
+    doc = {
+        "id": "c1", "kind": "comment", "text": "free followers!", "author": {"id": "u1", "handle": "bot", "name": "Bot"},
+        "network": "bluesky", "integration": "social-bluesky", "integration_id": str(uuid.uuid4()), "url": "https://bluesky.example/c/c1",
+    }  # fmt: skip
+    preview = dry_run_for_event(ws.session, ws.gid, row, event_context("social_comment_received", doc, correlation_id="dry-triage"))
+    assert preview["would_fire"] and _step_errors(preview["plan"]) == []
+    assert ws.ai.requests == [] and ws.providers["bluesky"].hidden == [] and ws.providers["apprise"].calls == []
 
 
 def test_a_dry_run_of_the_new_member_welcome_shows_the_email_and_sends_nothing(ws, outbox, monkeypatch):

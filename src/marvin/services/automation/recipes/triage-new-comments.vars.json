@@ -1,0 +1,15 @@
+{
+  "recipe": "triage-new-comments",
+  "variables": {
+    "notify_integration": {
+      "type": "integration_slug",
+      "description": "Slug of a connected integration that can send notifications — Slack, Apprise… — where questions, complaints and spam you can't hide arrive.",
+      "example": "alerts"
+    },
+    "hide_networks": {
+      "type": "list",
+      "description": "The networks where spam is hidden by the workflow (a list of network names: a network that can't hide a comment, like Mastodon, is left out and its spam is sent to you instead).",
+      "example": ["instagram", "facebook", "bluesky"]
+    }
+  }
+}

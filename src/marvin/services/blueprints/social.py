@@ -3,7 +3,7 @@
 Unlike the rest of the core catalog these name their own content (``social-auto-reply``, ``social-reply-log``): the
 engagement engine (services/integrations/social_engagement.py) reads and writes exactly these types, so core — not a
 network's plugin — owns them, and one set serves every network. They are suggestions like any core blueprint (nothing is
-created until a workspace applies them), applied together from Settings → Blueprints; the engine says so when the log
+created until a workspace applies them), applied together from the Social engagement card (Settings → Integrations); the engine says so when the log
 type is missing. The task starts disabled and in rehearsal.
 
 Instagram's ``ig-auto-reply`` / ``ig-reply-log`` types (its plugin's blueprints) stay as they are: the engine reads the rules
@@ -164,19 +164,24 @@ SOCIAL_BLUEPRINTS: tuple[Blueprint, ...] = (
         slug=TASK_SLUG,
         name="Social engagement",
         category=CATEGORY_SOCIAL,
-        description="Every 5 minutes: read new comments on each network and reply under the published rules. Starts disabled, in rehearsal.",
+        description=(
+            "Every 5 minutes: read new comments on each network, reply under the published rules, and announce each new one to "
+            "workflows (social_comment_received). Starts disabled, in rehearsal: enable it for workflows to start."
+        ),
         requires=(f"entry_type:{LOG_TYPE}",),
         payload={
             "name": "Social engagement",
             "description": (
-                "Reads new comments on every connected network and answers keyword matches under published rules. "
-                "Starts disabled and in rehearsal (logs what it would send); set rehearsal to false to send."
+                "Reads new comments on every connected network, answers keyword matches under published rules, and announces each "
+                "new comment, reply or mention as a social_comment_received event workflows can start on (announce: false to stop that). "
+                "Starts disabled, and in rehearsal (logs what it would send; set rehearsal to false to send). It must be enabled for "
+                "the trigger to fire."
             ),
             "enabled": False,
             "schedule_type": "interval",
             "schedule_config": {"interval_seconds": ENGINE_INTERVAL_SECONDS},
             "task_type": "social_engagement",
-            "task_config": {"rehearsal": True, "max_replies": 20, "max_age_days": 7, "limit": 50},
+            "task_config": {"rehearsal": True, "announce": True, "max_replies": 20, "max_age_days": 7, "limit": 50},
         },
     ),
 )

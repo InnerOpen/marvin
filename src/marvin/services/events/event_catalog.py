@@ -28,6 +28,10 @@ OPERATIONS = "Operations"
 connection needing attention, a webhook that couldn't deliver, a scheduled task that failed."""
 
 
+SOCIAL = "Social"
+"""The builder's heading for events that arrive from a connected social network (a new comment, reply or mention)."""
+
+
 @dataclass
 class EventVariable:
     slug: str
@@ -1219,6 +1223,30 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("source_blueprint", "The integration blueprint that installed it", "announce-published-entries"),
             EventVariable("via", "Where it was switched: ui (a page or the API) or agent (approved by the admin)", "agent"),
             EventVariable("reason", "The agent's stated reason", "turn on publish announcements", type="string"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="social_comment_received",
+        name="Social Comment Received",
+        description="A new comment, reply or mention arrived on a connected social network (Instagram, a Facebook Page, "
+        "Bluesky, Mastodon…). Sent once per item, by the Social engagement scheduled task's poll, never for the account's own.",
+        category="Connect",
+        sent_by=["The Social engagement scheduled task, once for each new comment, reply or mention on a connected network"],
+        triggerable=True,
+        trigger_group=SOCIAL,
+        variables=COMMON_VARS
+        + [
+            EventVariable("id", "The item's id on its network (the comment_id of social.reply, .like, .hide…)", "17895695668004550"),
+            EventVariable("kind", "comment, reply or mention", "comment"),
+            EventVariable("text", "What was written", "What is the price?"),
+            EventVariable("author", "Who wrote it: author.id, author.handle, author.name", "{handle: alice, name: Alice}", type="object"),
+            EventVariable("post_id", "The post it is on, on its network", "17841400000000000"),
+            EventVariable("post_url", "The post's address", "https://www.instagram.com/p/abc/"),
+            EventVariable("created_at", "When it was written (ISO 8601, UTC)", "2026-10-20T11:42:00Z", type="datetime"),
+            EventVariable("url", "The item's own address", "https://www.instagram.com/p/abc/c/1789/"),
+            EventVariable("network", "The network's name", "instagram"),
+            EventVariable("integration", "The connection's slug: what a step's `integration` names (${event.integration})", "ig"),
+            EventVariable("integration_id", "The connection's id", "<integration-uuid>"),
         ],
     ),
     # ── Connect: Webhooks ─────────────────────────────────────────────────────
@@ -2470,6 +2498,17 @@ def workflow_reads(event_type: str) -> dict | None:
             "or a template. A dry run doesn't ask the AI: it previews with a stand-in answer."
         ),
     }
+
+
+def social_fields(event_type: str) -> dict[str, dict[str, str]]:
+    """What a workflow reads of a social event as `${event.<field>}` (and in a condition as `event.<field>`): each field of
+    its payload with its type and meaning, `author.*` among them. Empty for any other event. tests/test_social_comment_trigger.py
+    holds each one to the payload model that really sends it."""
+    entry = CATALOG_BY_TYPE.get(event_type)
+    if entry is None or not entry.triggerable or entry.trigger_group != SOCIAL:
+        return {}
+    common = {v.slug for v in COMMON_VARS}
+    return {v.slug: {"type": v.type, "description": v.description} for v in entry.variables if v.slug not in common}
 
 
 def offered_emittable() -> list[str]:

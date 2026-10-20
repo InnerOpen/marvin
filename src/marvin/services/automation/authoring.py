@@ -340,8 +340,10 @@ def _events(refs: WorkspaceRefs) -> dict:
     from marvin.services.events.event_catalog import (
         CATALOG_BY_TYPE,
         OPERATIONS,
+        SOCIAL,
         offered_emittable,
         operational_fields,
+        social_fields,
         trigger_groups,
         workflow_reads,
     )
@@ -361,6 +363,20 @@ def _events(refs: WorkspaceRefs) -> dict:
                 "integration step), so it can't loop; its own failures still reach people through Settings → Automation → Notifications, "
                 "which needs no workflow. Scheduled tasks count only the workspace's own, not the platform's. A repeat while a repair task "
                 "is open should make no second one: look it up first (a `collect` step on a metadata key) and `when` the create on none."
+            ),
+        }
+    if SOCIAL in groups:
+        out["social"] = {
+            "fields": {e: {k: f["type"] for k, f in social_fields(e).items()} for e in groups[SOCIAL]},
+            "note": (
+                "social_comment_received: a new comment, reply or mention on a connected network that offers social.comments, once per "
+                "item, from the Social engagement scheduled task's poll (it must be enabled; the engine's rehearsal setting doesn't "
+                "matter). Never the account's own, nothing older than 7 days, and the first poll announces no backlog. A workflow reads "
+                "${event.id}, .kind, .text, .author.handle, .author.name, .post_url, .url, .network, .integration (the connection's "
+                "slug) and conditions key on them (event.kind eq mention, event.text contains refund). To answer, an integration "
+                'step takes the slug as a template: {"kind": "integration", "integration": "${event.integration}", "capability": '
+                '"social.reply", "args": {"comment_id": "${event.id}", "text": "…"}} after an Approval step; social.hide and '
+                "social.like need no approval. Its own reply is the account's own item, so it never starts the workflow again."
             ),
         }
     out["form_submission_received"] = {  # its extra namespace, for a step that classifies or routes the submission
@@ -531,8 +547,10 @@ SOCIAL_NOTE = (
     "replies in the thread; a network that can't do the mode refuses with `unsupported`; output replied, reply_id, url), "
     "social.like (comment_id), social.hide (comment_id, hidden), social.delete_comment (comment_id), social.repost "
     "(post_id), social.message (to {id or handle}, text). reply, message, repost and delete_comment need an Approval step "
-    "before them like a post does; comments, like and hide don't. Automatic keyword replies are not a workflow: they are "
-    "the engagement engine's social-auto-reply rules (the Social engagement section of the integrations manual)."
+    "before them like a post does; comments, like and hide don't. A workflow can start on a new comment: the event "
+    "social_comment_received (see the events section) carries the comment, and its steps name the connection as a template, "
+    '"integration": "${event.integration}", with "comment_id": "${event.id}". Automatic keyword replies are not a workflow: '
+    "they are the engagement engine's social-auto-reply rules (the Social engagement section of the integrations manual)."
 )
 SCHEMA_CHECK_NOTE = (
     "schema_check holds a JSON document against a JSON Schema: document: ${steps.page.output.json} (a fetch step's parsed "
@@ -1016,7 +1034,9 @@ def _step_issues(
     elif kind == "integration":
         slug, key, capability = step.get("integration"), step.get("action"), step.get("capability")
         row = next((i for i in refs.integrations if i["slug"] == slug), None)
-        if not slug and capability and not key:
+        if _templated(slug):
+            _templated_integration_issues(step, after_approval, bad)
+        elif not slug and capability and not key:
             _every_integration_issues(capability, refs, bad, after_approval)
             _engagement_args_issues(step, capability, bad)
         elif row is None:
@@ -1046,6 +1066,20 @@ def _step_issues(
         _request_step_issues(step, bad)
     elif kind == "email":
         _email_step_issues(step, bad)
+
+
+def _templated_integration_issues(step: dict, after_approval: bool, bad) -> None:
+    """`integration: "${event.integration}"`: the connection is known only when the run starts, so what it can do is checked then.
+    Only a capability step may take one (an action key belongs to one provider); the approval and argument rules apply as ever."""
+    capability = step.get("capability")
+    if step.get("action") or not capability:
+        bad(
+            "integration",
+            "A templated `integration` (such as ${event.integration}) goes with a `capability` step; an action key belongs to one provider.",
+        )
+        return
+    _gated_capability_issue(capability, after_approval, bad)
+    _engagement_args_issues(step, capability, bad)
 
 
 def _gated_capability_issue(capability: str, after_approval: bool, bad) -> None:

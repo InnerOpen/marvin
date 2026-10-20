@@ -28,7 +28,7 @@ from marvin.services.integrations import social_engagement as engine  # noqa: E4
 from marvin.services.integrations.social_engagement import EngineCallError, Settings, run_engagement  # noqa: E402
 from marvin.services.integrations.social_rules import SocialRule  # noqa: E402
 
-LIVE = Settings(rehearsal=False)
+LIVE = Settings(rehearsal=False, announce=False)
 
 # ── fakes ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -428,21 +428,21 @@ def test_the_accounts_own_comments_are_skipped_by_handle_or_id_whatever_the_case
 def test_rehearsal_asks_the_plugin_for_a_dry_run_logs_it_and_sends_nothing(ws):
     rule(ws, also_like=True)
     ws.nets["mastodon"].feed = [item("c1")]
-    report = run(ws, Settings())
+    report = run(ws, Settings(announce=False))
     [(key, args)] = [(k, a) for k, a in ws.nets["mastodon"].calls if k == "reply"]
     assert args["dry_run"] is True and ws.nets["mastodon"].sent() == [] and ws.nets["mastodon"].sent("like") == []
     [entry] = logs(ws)
     assert (
         entry["rehearsal"] is True and "reply_id" not in entry and report.sent == 1 and report.summary().startswith("Social engagement (rehearsal)")
     )
-    run(ws, Settings())
+    run(ws, Settings(announce=False))
     assert len(logs(ws)) == 1  # not logged again every run
 
 
 def test_switching_rehearsal_off_still_answers_what_the_rehearsal_logged(ws):
     rule(ws)
     ws.nets["mastodon"].feed = [item("c1")]
-    run(ws, Settings())
+    run(ws, Settings(announce=False))
     assert state(ws, "m-main")["social"]["rehearsal_cursor"] == "1" and "cursor" not in state(ws, "m-main")["social"]
     run(ws)
     assert [a["comment_id"] for a in ws.nets["mastodon"].sent()] == ["c1"]
@@ -455,12 +455,12 @@ def test_switching_rehearsal_off_still_answers_what_the_rehearsal_logged(ws):
 def test_at_most_max_replies_a_run_the_rest_wait_for_the_next(ws):
     rule(ws)
     ws.nets["mastodon"].feed = [item(f"c{i}") for i in range(5)]
-    first = run(ws, Settings(rehearsal=False, max_replies=2))
+    first = run(ws, Settings(announce=False, rehearsal=False, max_replies=2))
     assert len(ws.nets["mastodon"].sent()) == 2 and first.sent == 2
     assert len(state(ws, "m-main")["social"]["pending"]) == 3
-    run(ws, Settings(rehearsal=False, max_replies=2))
+    run(ws, Settings(announce=False, rehearsal=False, max_replies=2))
     assert len(ws.nets["mastodon"].sent()) == 4
-    run(ws, Settings(rehearsal=False, max_replies=2))
+    run(ws, Settings(announce=False, rehearsal=False, max_replies=2))
     assert sorted(a["comment_id"] for a in ws.nets["mastodon"].sent()) == [f"c{i}" for i in range(5)]
     assert state(ws, "m-main")["social"]["pending"] == []
 
@@ -469,7 +469,7 @@ def test_the_cap_is_shared_across_networks(ws):
     rule(ws)
     for provider in ("mastodon", "bluesky"):
         ws.nets[provider].feed = [item("a"), item("b")]
-    run(ws, Settings(rehearsal=False, max_replies=3))
+    run(ws, Settings(announce=False, rehearsal=False, max_replies=3))
     assert len(ws.nets["bluesky"].sent()) + len(ws.nets["mastodon"].sent()) == 3
 
 
@@ -530,7 +530,7 @@ def test_a_missing_log_type_is_said_not_guessed(ws):
     ws.session.query(EntryTypes).filter_by(group_id=ws.gid, slug="social-reply-log").delete()
     ws.session.commit()
     report = run(ws)
-    assert "apply the Social auto-reply blueprint" in report.summary() and ws.nets["mastodon"].calls == []
+    assert "apply the Social engagement set" in report.summary() and ws.nets["mastodon"].calls == []
 
 
 # ── the narrow approval path ─────────────────────────────────────────────────────────────────────────────────────

@@ -15,7 +15,7 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 105,
+    "verified-current": 106,
     "needs-adapter": 3,
     "needs-engine-capability": 1,
     "supported-after-configuration": 8
@@ -11784,6 +11784,146 @@
           "integration:social.post"
         ],
         "test": "tests/test_workflow_library.py::TestExecution::test_share_published_entry"
+      },
+      "brief": null
+    },
+    {
+      "id": "triage-new-comments",
+      "title": "Triage new comments",
+      "outcome": "A new comment, reply or mention on a connected network is sorted by AI into question, praise, complaint or spam and counted as a metric; spam is hidden where the network allows it, and questions, complaints and spam you can't hide are sent to you.",
+      "category": "Social and community",
+      "category_slug": "social",
+      "tags": [
+        "social",
+        "comments",
+        "classify",
+        "spam",
+        "ai",
+        "notify"
+      ],
+      "target_entity": "none",
+      "trigger": {
+        "type": "event",
+        "event": "social_comment_received",
+        "custom_event": false,
+        "builtin_event": true
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "triage-new-comments.json",
+      "vars": "triage-new-comments.vars.json",
+      "setup_variables": [
+        {
+          "name": "notify_integration",
+          "type": "integration_slug",
+          "description": "Slug of a connected integration that can send notifications — Slack, Apprise… — where questions, complaints and spam you can't hide arrive.",
+          "example": "alerts"
+        },
+        {
+          "name": "hide_networks",
+          "type": "list",
+          "description": "The networks where spam is hidden by the workflow (a list of network names: a network that can't hide a comment, like Mastodon, is left out and its spam is sent to you instead).",
+          "example": [
+            "instagram",
+            "facebook",
+            "bluesky"
+          ]
+        }
+      ],
+      "requires": {
+        "trigger": "event:social_comment_received",
+        "action_kinds": [
+          "operation",
+          "metric",
+          "integration"
+        ],
+        "entry_ops": [],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [
+          "social.hide",
+          "notify"
+        ],
+        "condition_ops": [
+          "longer_than",
+          "eq",
+          "in"
+        ]
+      },
+      "prerequisites": {
+        "integrations": [
+          {
+            "capability": "social.comments",
+            "examples": "Instagram, a Facebook Page, Bluesky or Mastodon",
+            "note": "Any connected integration that offers the social.comments capability: the Social engagement scheduled task reads its new comments and announces each one."
+          },
+          {
+            "capability": "notify",
+            "examples": "Slack or Apprise",
+            "note": "Any connected integration that can send a notification: the step names the `notify` capability with a title and body."
+          }
+        ],
+        "features": [
+          "the Social engagement scheduled task enabled (Settings → Scheduled tasks; Settings → Integrations → Social engagement sets it up, switched off) — it is what announces new comments",
+          "AI on for workflows (Settings → AI)"
+        ]
+      },
+      "supporting_objects": [
+        {
+          "kind": "scheduled_task",
+          "required": true,
+          "name": "The Social engagement task",
+          "purpose": "Reads each connected network every 5 minutes and sends social_comment_received once per new comment, reply or mention.",
+          "referenced_by": "trigger",
+          "create": "Settings → Integrations → Social engagement → Set up, then enable the task"
+        },
+        {
+          "kind": "integration_connection",
+          "required": true,
+          "name": "A social network integration (Instagram, Facebook Page, Bluesky, Mastodon…)",
+          "purpose": "The comments come from it, and a hide goes back through it.",
+          "referenced_by": "actions[2] (integration: ${event.integration})",
+          "create": "Settings → Integrations → connect a network"
+        }
+      ],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per comment."
+        },
+        {
+          "kind": "metric",
+          "description": "Adds 1 to the social-comments metric for the day, by category and network (once per event)."
+        },
+        {
+          "kind": "external_action",
+          "description": "Hides a comment the AI calls spam, on the networks listed in hide_networks, through the connection it arrived on. A hide is easily undone on the network; nothing is deleted."
+        },
+        {
+          "kind": "notification",
+          "description": "Sends a notification through the chosen integration for a question, a complaint, or spam on a network that can't hide it."
+        }
+      ],
+      "cost_notes": "One short AI call per comment, from the workspace's monthly AI budget.",
+      "failure_behaviour": "An AI error fails the run before anything is hidden or sent; the comment is not announced again. A network that refuses the hide fails that step, and the notification after it does not run: keep hide_networks to networks that can hide. A dry run asks no network and previews each step.",
+      "dependencies": [],
+      "notes": [
+        "A comment is text from a stranger: the prompt tells the AI to classify it, never to follow it, and its answer is limited to the four categories.",
+        "Praise is counted (the social-comments metric) and left alone; add a step with `social.like` (not every network has one) or a reply behind an Approval step to answer it.",
+        "To answer a question, add an Approval step and an integration step {\"integration\": \"${event.integration}\", \"capability\": \"social.reply\", \"args\": {\"comment_id\": \"${event.id}\", \"text\": \"…\"}}.",
+        "It runs only while the Social engagement task is enabled, and never for the account's own comments (so a reply it sends can't start it again)."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "integration:social.hide",
+          "integration:notify"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_triage_new_comments"
       },
       "brief": null
     }

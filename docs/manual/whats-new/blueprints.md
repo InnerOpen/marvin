@@ -33,7 +33,7 @@ Each blueprint has a `kind`, a `slug`, `name`, one-line `description`, a `catego
 | `all-images` | Media | `target_type: asset`, `asset_types: [image]` |
 | `vector-artwork` | Media | `target_type: asset`, `mime_types: [image/svg+xml]` |
 
-**Social** (category Social, `src/marvin/services/blueprints/social.py`) is the one set core owns the content names for, because core's social engagement engine reads and writes them: the entry types `social-auto-reply` and `social-reply-log`, the smart collections `social-auto-reply-rules` and `social-replies`, and the scheduled task `social-engagement` (every 5 minutes, created disabled and in rehearsal). See [Integrations → Social engagement](integrations.md#social-engagement).
+**Social** (category Social, `src/marvin/services/blueprints/social.py`) is the one set core owns the content names for, because core's social engagement engine reads and writes them: the entry types `social-auto-reply` and `social-reply-log`, the smart collections `social-auto-reply-rules` and `social-replies`, and the scheduled task `social-engagement` (every 5 minutes, created disabled and in rehearsal). They are applied from the **Social engagement** card on Settings → Integrations (workspace admins; **Set up** creates what is missing, then the card shows the task's state), not from a provider's card. See [Integrations → Social engagement](integrations.md#social-engagement).
 
 Status buckets are deliberately absent: every workspace already gets the locked inbox/drafts/needs-review/approved/published/archive collections.
 

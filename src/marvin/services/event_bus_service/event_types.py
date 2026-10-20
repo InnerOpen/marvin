@@ -490,6 +490,9 @@ class EventTypes(EventTypeBase):
     was switched on — from the Events page, the API, or an agent with the admin's approval."""
     integration_action_disabled = auto()
     """An integration action was switched off."""
+    social_comment_received = auto()
+    """A new comment, reply or mention arrived on a connected social network (found by the engagement poll, once each).
+    Never the account's own."""
 
 
 class EventDocumentTypeBase(Enum):
@@ -1728,6 +1731,40 @@ class EventIntegrationAttentionData(EventDocumentDataBase):
     settings_url: str | None = None
     """Where to look: the workspace's Settings → Integrations page."""
     workspace_id: UUID4
+
+
+class EventSocialAuthor(_MarvinModel):
+    """Who wrote a comment, as the network says: any of these may be None."""
+
+    id: str | None = None
+    handle: str | None = None
+    name: str | None = None
+
+
+class EventSocialCommentData(EventDocumentDataBase):
+    """Data payload for social_comment_received: one new item from a connected network's ``social.comments``, as the
+    plugin normalised it, plus the connection it came through. A workflow reads it as ``${event.<field>}`` and replies
+    with ``{"integration": "${event.integration}", "capability": "social.reply", "args": {"comment_id": "${event.id}"}}``."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.integration
+    operation: EventOperationBase = EventOperation.info
+    id: str
+    """The item's id on its network: the ``comment_id`` every engagement capability takes."""
+    kind: str
+    """comment | reply | mention."""
+    post_id: str | None = None
+    post_url: str | None = None
+    author: EventSocialAuthor = Field(default_factory=EventSocialAuthor)
+    text: str = ""
+    created_at: str | None = None
+    """When it was written (ISO 8601, UTC), as the network gave it."""
+    url: str | None = None
+    """The item's own address."""
+    network: str
+    """The network's name, e.g. "instagram"."""
+    integration: str
+    """The connection's slug: what a step's ``integration`` names."""
+    integration_id: UUID4
 
 
 class EventAIBudgetData(EventDocumentDataBase):

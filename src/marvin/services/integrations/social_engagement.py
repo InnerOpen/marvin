@@ -34,6 +34,22 @@ A plugin that rejects its cursor (``invalid_cursor``) has it dropped and is read
 
 Instagram: while the plugin's own ``auto_reply`` scheduled task is enabled for an integration the engine leaves that
 integration alone (two senders would answer twice); switch the plugin's task off to hand it over.
+
+**Announcing** (``announce``, on by default): the same poll also sends one ``social_comment_received`` event per new
+comment, reply or mention, so a workflow can start on it. It is a second job of the same run, with its own state, so replying
+and announcing never change one another:
+
+* its own cursor, ``state["social"]["events_cursor"]`` — rehearsal and live reply cursors move independently of it, and it
+  moves in rehearsal and live alike (announcing is not sending);
+* ``events_started_at`` marks the first poll, which announces nothing (no backlog): it only records the newest cursor and
+  the ids it saw. After that an item is announced only when it was written after that moment and is within the 7-day
+  window, so a cursor that lags, is dropped, or restarts at the newest items never replays the past;
+* ``events_seen`` (the last 500 ids) is claimed *before* each event is sent, so a crash or a re-read can lose at most the one
+  event in flight and never sends one twice;
+* the account's own items are never announced (the same check as replying), which is what stops a workflow's public reply
+  from starting the workflow again;
+* it does not need a rule, a log type, or the integration's ``social.reply``: ``social.comments`` is enough. Instagram's
+  plugin-task skip applies to replying only; announcing still reads the network (one read serves both when the cursors agree).
 """
 
 from __future__ import annotations
@@ -52,6 +68,7 @@ from .social_rules import (
     IG_LOG_TYPE,
     IG_NETWORK,
     IG_RULE_TYPE,
+    ITEM_KINDS,
     LOG_TYPE,
     PRIVATE,
     PUBLIC,
@@ -64,6 +81,7 @@ from .social_rules import (
     is_own,
     match_item,
     own_identities,
+    parse_time,
     rule_from_data,
     too_old,
 )
@@ -85,6 +103,18 @@ PLUGIN_TASK_ACTION = "auto_reply"
 REASON_PLUGIN_TASK = "plugin_task_enabled"
 IG_REPLY_SLUG_PREFIX = "ig-reply-"
 MAX_NOTES = 5  # failures / refusals a run summary names
+EVENT_SOURCE = "social_engagement"
+MAX_SEEN = 500
+"""Ids the events pass remembers having announced (or passed over): what a re-read of the same items is checked against."""
+REASON_EVENT_OWN = "event_own"
+REASON_EVENT_OLD = "event_too_old"
+REASON_EVENT_BEFORE = "event_before_start"
+
+
+def _truthy(value, *, default: bool) -> bool:
+    if value is None:
+        return default
+    return value is not False and str(value).lower() not in ("false", "0", "no", "off")
 
 
 @dataclass(frozen=True)
@@ -96,6 +126,8 @@ class Settings:
     max_replies: int = DEFAULT_MAX_REPLIES
     max_age_days: int = DEFAULT_MAX_AGE_DAYS
     limit: int = DEFAULT_LIMIT
+    announce: bool = True
+    """Send ``social_comment_received`` for each new item (on unless the task says ``announce: false``)."""
 
     @classmethod
     def from_config(cls, config: dict | None) -> Settings:
@@ -112,6 +144,7 @@ class Settings:
             max_replies=number("max_replies", DEFAULT_MAX_REPLIES),
             max_age_days=number("max_age_days", DEFAULT_MAX_AGE_DAYS),
             limit=number("limit", DEFAULT_LIMIT),
+            announce=_truthy(config.get("announce"), default=True),
         )
 
 
@@ -126,6 +159,8 @@ class Report:
     sent: int = 0
     """Replies sent (live) or logged as would-send (rehearsal)."""
     liked: int = 0
+    announced: int = 0
+    """``social_comment_received`` events sent."""
     skipped: Counter = field(default_factory=Counter)
     notes: list[str] = field(default_factory=list)
     """Failures and refusals, one line each."""
@@ -138,7 +173,7 @@ class Report:
 
     @property
     def worth_logging(self) -> bool:
-        return bool(self.matched or self.failed or self.message)
+        return bool(self.matched or self.failed or self.message or self.announced)
 
     def summary(self) -> str:
         if self.message:
@@ -147,6 +182,8 @@ class Report:
         parts = [f"checked {self.checked}", f"matched {self.matched}", f"{'would reply' if self.rehearsal else 'replied'} {self.sent}"]
         if self.liked:
             parts.append(f"liked {self.liked}")
+        if self.announced:
+            parts.append(f"announced {self.announced}")
         if self.skipped:
             parts.append("skipped " + ", ".join(f"{k} {v}" for k, v in sorted(self.skipped.items())))
         shown = "; ".join(self.notes[:MAX_NOTES]) + (f"; and {len(self.notes) - MAX_NOTES} more" if len(self.notes) > MAX_NOTES else "")
@@ -378,6 +415,9 @@ class _Run:
     report: Report
     now: datetime
     log_type_id: object
+    event_bus: object = None
+    replying: bool = True
+    """Whether this run answers comments: there is a log type and at least one published rule."""
     legacy: set[str] | None = None
     budget: int = 0
 
@@ -387,21 +427,45 @@ class _Run:
         return self.legacy
 
 
+def _read_once(net: _Network, cursor: str | None, settings: Settings, kinds: list[str], cache: dict) -> tuple[list[dict], str | None, bool]:
+    """``_read``, remembered for the rest of this integration's pass: the replying and announcing jobs read the network
+    once when they stand at the same cursor and ask for the same kinds."""
+    key = (cursor, tuple(kinds))
+    if key not in cache:
+        cache[key] = _read(net, cursor, settings, kinds)
+    return cache[key]
+
+
 def _engage(run: _Run, row, provider) -> None:
+    """One integration's pass: announce its new items (when asked to), then answer under the rules (when there are any and the
+    plugin can reply)."""
     report, settings, session = run.report, run.settings, run.session
-    if _plugin_task_enabled(session, run.group_id, row.slug):
-        report.skipped[REASON_PLUGIN_TASK] += 1
-        report.note(f"{row.slug}: left to the plugin's own auto-reply task (switch it off to use the shared engine)")
-        return
     net = _Network(session, run.group_id, row, provider)
     state = _state(row)
+    cache: dict = {}
+    replying = run.replying and net.has(SOCIAL_REPLY)
+    if replying and _plugin_task_enabled(session, run.group_id, row.slug):
+        report.skipped[REASON_PLUGIN_TASK] += 1
+        report.note(f"{row.slug}: left to the plugin's own auto-reply task (switch it off to use the shared engine)")
+        replying = False
+    if not replying and not settings.announce:
+        return
+    report.integrations.append(row.slug)
+    if settings.announce:
+        _announce(run, net, row, state, cache, count=not replying)
+    if replying:
+        _reply(run, net, row, state, cache)
+
+
+def _reply(run: _Run, net: _Network, row, state: dict, cache: dict) -> None:
+    report, settings, session = run.report, run.settings, run.session
     cursor_key = "rehearsal_cursor" if settings.rehearsal else "cursor"
-    items, cursor, dropped = _read(net, state.get(cursor_key), settings, _needed_kinds(run.rules))
+    kinds = list(ITEM_KINDS) if settings.announce else _needed_kinds(run.rules)  # the rules' own kinds filter what matches
+    items, cursor, dropped = _read_once(net, state.get(cursor_key), settings, kinds, cache)
     pending = [] if settings.rehearsal else [p for p in state.get("pending") or [] if isinstance(p, dict) and isinstance(p.get("item"), dict)]
     attempts = {str(p["item"]["id"]): int(p.get("attempts") or 0) for p in pending}
     fresh = {str(i["id"]) for i in items}
     candidates = [p["item"] for p in pending if str(p["item"]["id"]) not in fresh] + items
-    report.integrations.append(row.slug)
     report.checked += len(items)
 
     handles, ids = own_identities(row.config)
@@ -443,6 +507,91 @@ def _engage(run: _Run, row, provider) -> None:
         state[cursor_key] = cursor
     state["polled_at"] = run.now.isoformat()
     _save_state(session, row, state)
+
+
+# ── announcing: one event per new item ────────────────────────────────────────────────────────────────────────────
+
+
+def _announce(run: _Run, net: _Network, row, state: dict, cache: dict, *, count: bool) -> None:
+    """Send ``social_comment_received`` for each item the integration's events cursor hasn't passed (see the module docstring)."""
+    report, settings, session = run.report, run.settings, run.session
+    items, cursor, dropped = _read_once(net, state.get("events_cursor"), settings, list(ITEM_KINDS), cache)
+    if count:
+        report.checked += len(items)
+    seen = [str(i) for i in state.get("events_seen") or []]
+    started = parse_time(state.get("events_started_at"))
+    if started is None:  # the first poll: what is already there is the backlog, not news
+        state["events_started_at"] = run.now.isoformat()
+        state["events_seen"] = (seen + [str(i["id"]) for i in items])[-MAX_SEEN:]
+        if cursor:
+            state["events_cursor"] = cursor
+        _save_state(session, row, state)
+        return
+    known = set(seen)
+    handles, ids = own_identities(row.config)
+    for item in items:  # oldest first
+        cid = str(item["id"])
+        if cid in known:
+            continue
+        known.add(cid)
+        seen.append(cid)
+        created = parse_time(item.get("created_at"))
+        if is_own(item, handles, ids):
+            report.skipped[REASON_EVENT_OWN] += 1
+        elif created is not None and created < started:
+            report.skipped[REASON_EVENT_BEFORE] += 1
+        elif too_old(item, run.now, settings.max_age_days):
+            report.skipped[REASON_EVENT_OLD] += 1
+        else:
+            state["events_seen"] = seen[-MAX_SEEN:]
+            _save_state(session, row, state)  # claimed before it is sent: never twice
+            _send_event(run, row, item)
+    state["events_seen"] = seen[-MAX_SEEN:]
+    if cursor or dropped:
+        state["events_cursor"] = cursor
+    _save_state(session, row, state)
+
+
+def _text(value) -> str | None:
+    return None if value in (None, "") else str(value)
+
+
+def _send_event(run: _Run, row, item: dict) -> None:
+    """Dispatch one ``social_comment_received``. A failure is this item's alone: it is noted and the run goes on."""
+    from marvin.services.event_bus_service.event_types import EventSocialAuthor, EventSocialCommentData, EventTypes
+
+    author = item.get("author") if isinstance(item.get("author"), dict) else {}
+    try:
+        data = EventSocialCommentData(
+            id=str(item["id"]),
+            kind=str(item.get("kind") or "comment"),
+            post_id=_text(item.get("post_id")),
+            post_url=_text(item.get("post_url")),
+            author=EventSocialAuthor(id=_text(author.get("id")), handle=_text(author.get("handle")), name=_text(author.get("name"))),
+            text=str(item.get("text") or ""),
+            created_at=_text(item.get("created_at")),
+            url=_text(item.get("url")),
+            network=str(item.get("network") or row.provider),
+            integration=row.slug,
+            integration_id=row.id,
+        )
+        who = data.author.handle or data.author.name or "someone"
+        run.event_bus.dispatch(
+            integration_id=EVENT_SOURCE,
+            group_id=run.group_id,
+            event_type=EventTypes.social_comment_received,
+            document_data=data,
+            message=f"New {data.kind} from {who} on {data.network}",
+            entity_id=row.id,
+            entity_type="integration",
+        )
+    except Exception as e:  # noqa: BLE001 — one item's event failing never stops the others, or the replies
+        run.session.rollback()
+        run.report.failed += 1
+        run.report.note(f"{row.slug}: could not announce comment {item.get('id')}: {e}")
+        logger.warning("social engagement: announcing %s on %s failed: %s", item.get("id"), row.slug, e)
+        return
+    run.report.announced += 1
 
 
 def _answer(run: _Run, net: _Network, row, item: dict, rule: SocialRule, keyword: str) -> bool:
@@ -525,16 +674,39 @@ def _still_published(session, group_id, rule: SocialRule) -> bool:
 # ── a run ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 
-def run_engagement(session, group_id, settings: Settings | None = None, *, now: datetime | None = None) -> Report:
-    """One engine run for a workspace (see the module docstring). One integration failing never stops the others."""
+def run_engagement(session, group_id, settings: Settings | None = None, *, now: datetime | None = None, event_bus=None) -> Report:
+    """One engine run for a workspace (see the module docstring). One integration failing never stops the others.
+
+    The poll runs when there is something to do with it: published rules to answer under, or ``settings.announce`` (workflows
+    waiting for ``social_comment_received``). With neither it reads nothing, so no cursor moves past comments a later rule would
+    answer. ``event_bus`` carries the announcements (the scheduler's own; a plain bus when none is given)."""
     settings = settings or Settings()
     report = Report(rehearsal=settings.rehearsal)
-    if (type_id := _log_type_id(session, group_id)) is None:
-        report.message = f"the '{LOG_TYPE}' entry type is missing — apply the Social auto-reply blueprint (Settings → Blueprints)"
+    type_id = _log_type_id(session, group_id)
+    rules = load_rules(session, group_id) if type_id is not None else []
+    if type_id is None and not settings.announce:
+        report.message = f"the '{LOG_TYPE}' entry type is missing — apply the Social engagement set (Settings → Integrations)"
         return report
-    if not (rules := load_rules(session, group_id)):
+    if type_id is None:
+        report.note(f"replies are off: the '{LOG_TYPE}' entry type is missing — apply the Social engagement set (Settings → Integrations)")
+    if not rules and not settings.announce:
         return report  # nothing to answer with: read nothing, so no cursor moves past comments a later rule would answer
-    run = _Run(session, group_id, settings, rules, report, now or datetime.now(UTC), type_id, budget=settings.max_replies)
+    if event_bus is None and settings.announce:
+        from marvin.services.event_bus_service.event_bus_service import EventBusService
+
+        event_bus = EventBusService(bg_tasks=None)
+    run = _Run(
+        session,
+        group_id,
+        settings,
+        rules,
+        report,
+        now or datetime.now(UTC),
+        type_id,
+        event_bus=event_bus,
+        replying=bool(rules),
+        budget=settings.max_replies,
+    )
 
     from marvin.db.models.groups.integrations import IntegrationModel
     from marvin.services.integrations import INTEGRATIONS_AVAILABLE, get_provider
@@ -548,7 +720,7 @@ def run_engagement(session, group_id, settings: Settings | None = None, *, now: 
         except KeyError:
             continue
         net = _Network(session, group_id, row, provider)
-        if not (net.has(SOCIAL_COMMENTS) and net.has(SOCIAL_REPLY)):
+        if not net.has(SOCIAL_COMMENTS):
             continue
         try:
             _engage(run, row, provider)

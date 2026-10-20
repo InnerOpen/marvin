@@ -83,6 +83,19 @@ Each plugin declares only the capabilities it has. Core shows what's possible pe
 - **Added beyond the plan:** a rule `kinds` field (default `comment, reply`; `mention` is opt-in) because Mastodon yields
   reply/mention and Instagram comment/reply; `unsupported`/`refused` from a plugin skip the comment with no retry and no
   log; `invalid_cursor` drops the cursor and rereads; rehearsal keeps its own cursor so leaving it still answers the window.
-- **Open:** core's Social blueprints have no button in the integrations UI yet (API only); `keywords` is a comma-separated
+- **Open:** `keywords` is a comma-separated
   text field in the editor (the engine also takes a list); the engine sends then logs, so a crash between the two could
   answer one comment twice.
+
+## Review, phase 2 (the new-comment trigger, 2026-10-20)
+- **Built:** `social_comment_received` (event catalogue, trigger heading Social, payload = the normalised item + `integration` slug and
+  `integration_id`, `${event.author.handle}` and conditions work); announced by the same 5-minute poll: `Settings.announce` (task config,
+  default true), the poll runs for announcing even with no rules or log type, and needs only `social.comments`; a templated
+  `integration` on a capability step (run time, save check, retry check); the Triage new comments recipe; the Social engagement card on
+  Settings → Integrations (applies core's set, shows the task's state); docs and authoring guide.
+- **Events cursor:** `state.social.events_cursor` + `events_started_at` + `events_seen` (last 500 ids), independent of the live and
+  rehearsal reply cursors; ids are claimed before the event is sent (at most once); first poll announces nothing; own items, items older
+  than the 7-day window and items written before the first poll are never announced. One network read serves both jobs when the
+  cursors agree.
+- **Open:** an integration whose config names no account can't have its own items recognised (a workflow's public reply could re-trigger
+  it); events are sent synchronously, so a slow workflow step delays the rest of the poll (the poll reads at most `limit` items).

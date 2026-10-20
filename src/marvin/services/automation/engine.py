@@ -75,6 +75,16 @@ def _run_key(automation) -> str:
     return str(getattr(automation, "id", None) or getattr(automation, "slug", ""))
 
 
+def _step_integration_slug(action: dict, context: dict) -> str | None:
+    """The slug an integration step acted on: its own `integration`, or what a templated one (`${event.integration}`) came out as."""
+    slug = action.get("integration")
+    if isinstance(slug, str) and "${" in slug:
+        from .matcher import interpolate
+
+        return str(interpolate(slug, context) or "") or None
+    return slug
+
+
 def _own_chain_workflows(event_ctx) -> set[str]:
     """The workflows an operational event (a failed webhook delivery, a budget crossing, a connection needing
     attention, a failed scheduled task) must not wake because their own work caused it. Normally that is the `_running`
@@ -837,7 +847,7 @@ class _StepRunner:
                 automation=self.automation,
                 context=self.context,
                 step_index=action_index,
-                integration_slug=action.get("integration"),
+                integration_slug=_step_integration_slug(action, self.context),
             )
         return self._succeeded(action, action_index, record, out, started, on_failure)
 
@@ -1194,7 +1204,10 @@ def run_retry(
     failed = actions[row.step_index] if row.step_index < len(actions) else {}
     # A step naming a capability (notify) has no action key of its own: the one it ran is the retry's.
     named = failed.get("action") or (row.action if failed.get("capability") else None)
-    if failed.get("kind") != "integration" or failed.get("integration") != row.integration_slug or named != row.action:
+    slug = failed.get("integration")
+    if isinstance(slug, str) and "${" in slug:  # a templated slug is resolved from the run's event: the retry re-resolves it
+        slug = row.integration_slug
+    if failed.get("kind") != "integration" or slug != row.integration_slug or named != row.action:
         errors.finish_retry(session, row, "superseded", "the workflow's steps changed since the failure")
         return "superseded"
 
