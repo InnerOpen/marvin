@@ -7,7 +7,9 @@ import { listWorkspaceMembers } from "@/lib/api/workspaceMembers";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
 import { navHref, navTitle } from "@/lib/navTree";
 import { nullIfForbidden } from "@/lib/workspaceRole";
+import { getSummary as getResultsSummary } from "@/lib/api/automationResults";
 import { getSummary as getSocialSummary } from "@/lib/api/socialInbox";
+import { showResults } from "@/lib/automationResults";
 
 const authToken = getAuthToken(Astro.cookies);
 const currentTab = Astro.url.searchParams.get("tab") || "general";
@@ -69,6 +71,8 @@ if (currentTab === "statistics" && workspace?.id) {
 
 // Social appears only once a connected network works with it (as in the sidebar).
 const socialSummary = await getSocialSummary(authToken!).catch(() => null);
+// Results is listed in the Automation tab only once a hand-off has happened (a member below editor gets a 403: no link).
+const resultsSummary = currentTab === "automation" ? await getResultsSummary(authToken!).catch(() => null) : null;
 
 const tabs = [
   { id: "general", label: "General", icon: "⚙" },
@@ -238,6 +242,15 @@ const tabs = [
               <strong>{navTitle("automation.approvals")}</strong>
               <p>Workflow runs waiting for a person to approve or deny</p>
             </a>
+            {showResults(resultsSummary) && (
+              <a href={navHref("automation.results")} class="link-card">
+                <strong>{navTitle("automation.results")}</strong>
+                <p>
+                  What happened to the work handed to other systems — in flight, no reply, failed or done
+                  {(resultsSummary?.attention ?? 0) > 0 && ` · ${resultsSummary?.attention} need a look`}
+                </p>
+              </a>
+            )}
             <a href={navHref("automation.events")} class="link-card">
               <strong>{navTitle("automation.events")}</strong>
               <p>Monitor workspace event system</p>

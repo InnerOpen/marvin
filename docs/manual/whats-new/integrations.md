@@ -138,6 +138,24 @@ How to add them to an integration: the SDK's README, "Teach Marvin about it"; th
 
 On `/automation/events/[type]` choose **+ Connect an integration action**, pick the integration and action, and give it args. String args accept `{{field}}` placeholders, filled from the event's document data plus `event_type`, `entity_id`, `entity_type` and `message`; an unknown placeholder is left as-is. `IntegrationEventListener` runs every enabled subscription for the event, each in its own try block, so one failing action does not stop the others. A subscription created from a blueprint starts **disabled**.
 
+### Hand-offs {#hand-offs}
+
+An action that only *starts* work somewhere else (an n8n workflow, a build) can declare `hands_off` (`marvin-integration-sdk` 0.13.0). Marvin then keeps one [automation result](automation-results.md) per call, with nothing for the workflow author to add: **in flight** when the **Run integration** step succeeds, **failed** when the call itself fails.
+
+```python
+ProviderAction(
+    key="trigger_workflow", label="Trigger workflow",
+    hands_off=HandsOff(
+        remote_id="execution_id",    # key in the action's result: the run's id over there
+        remote_url="execution_url",  # key in the action's result: a link to the run
+        target="path",               # key in the action's args: what was asked (shown on the record)
+        statuses={"success": "succeeded", "error": "failed", "waiting": "in_flight"},
+    ),
+)
+```
+
+All four are optional. The `statuses` map is **how a provider maps its own words to Marvin's**: the service's words on the left, Marvin's three (`in_flight`, `succeeded`, `failed`) on the right. When the other side reports back, the core [Record an automation result](workflows.md#record-an-automation-result) step names the connection and the service's word, and Marvin asks the provider (`result_status(word)`, which by default reads that map and accepts Marvin's own three; override it for words that need more than a lookup). A word the provider does not know leaves the result in flight with the word in its message. A malformed declaration (a status that is not one of Marvin's three) is refused when the provider registers, and the conformance kit asserts it is clean. An older Marvin ignores `hands_off`.
+
 ### Run an action from a workflow
 
 A workflow's **Run integration** step calls one action of one integration with templated args and hands the result to later steps as `$steps.<id>.output`. A step that names a `capability` (`notify`, `social.post`) instead of an action uses whichever action of that connection offers it; `social.post` with no `integration` posts to every connected network (see [Posting to social networks](#posting-to-social-networks-socialpost)). In a definition, `integration` is the **connection's** slug, the one in the card's footer (made from the name you gave the connection, so "n8n production" is `n8n_production`), not the provider's slug. See [Workflows](workflows.md).

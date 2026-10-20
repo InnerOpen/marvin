@@ -657,6 +657,32 @@ class SnapshotAction(_StepBase):
         return self
 
 
+class AutomationResultAction(_StepBase):
+    """Settles a hand-off's result. For work an integration action that declares `hands_off` handed to another system (its results are listed
+    under Settings > Automation > Results). `status` is the other system's own word for how it went (a template is fine), turned into
+    in flight | succeeded | failed by the connection named in `integration`. The result is found
+    by `remote_id` (the run's id on the other side), else it is the newest one still in flight for `entry_id` (default: the
+    triggering entry) and `integration`. A report that matches nothing is kept as a new result rather than dropped. Optional
+    `target` (what was asked, kept on a new result), `message` and `finished_at` (when it finished; default: now). Output
+    `result_id`, `status`, `matched` (remote_id | entry | none) and `created`."""
+
+    kind: Literal["automation_result"]
+    status: str
+    integration: str | None = None
+    remote_id: str | None = None
+    entry_id: str | None = None
+    target: str | None = None
+    message: str | None = None
+    finished_at: str | None = None
+    id: str | None = None
+
+    @model_validator(mode="after")
+    def _shape(self):
+        if not self.status.strip():
+            raise ValueError("an automation_result step needs a `status` (the other system's word, or a template that gives it)")
+        return self
+
+
 class MetricAction(_StepBase):
     """Records a number as an observation (never a conclusion). `metric` (slug), `value`, optional `variant` / `subject`
     labels, `window` day | week | month (the run's own, in the workspace zone; `at` = another date) or 2026-10-18 /
@@ -758,7 +784,8 @@ RepeatStep = Annotated[
     | SchemaCheckAction
     | EmailAction
     | MetricAction
-    | SnapshotAction,
+    | SnapshotAction
+    | AutomationResultAction,
     Field(discriminator="kind"),
 ]
 MAX_REPEAT_ITEMS = 25
@@ -852,6 +879,7 @@ ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "email": EmailAction,
     "metric": MetricAction,
     "snapshot": SnapshotAction,
+    "automation_result": AutomationResultAction,
     "wait": WaitAction,
     "repeat": RepeatAction,
     "parallel": ParallelAction,
@@ -872,6 +900,7 @@ Action = Annotated[
     | EmailAction
     | MetricAction
     | SnapshotAction
+    | AutomationResultAction
     | WaitAction
     | RepeatAction
     | ParallelAction,

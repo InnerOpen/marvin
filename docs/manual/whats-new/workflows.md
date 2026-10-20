@@ -148,6 +148,7 @@ A **webhook** or **integration** step can carry an `idempotency_key`, a template
 | `email` (Email a member) | `to` (a member's id or email), `subject`, `body` (markdown), `heading`, `button_text` + `button_link`, `once_per` | Writes to a member of the workspace — never an outside address — in the workspace's email layout; sent once per event. See [Email a member](#email-a-member). |
 | `metric` (Record a metric) | `op` (`record`, the default, `add` or `read`), `metric`, `value`, `variant`, `subject`, `window` (`day`/`week`/`month` or `2026-10-18` / `2026-W42` / `2026-10`), `at`; for a read `window_from`, `window_to`, `limit` | Records a number as an observation for a metric, variant and window — or adds to a count, or reads observations back. Recording again replaces the number; adding raises it, once for each event; a dry run writes nothing. Observations, not conclusions — see [Record a metric](#record-a-metric). |
 | `snapshot` (Save or restore a version) | `op` (`capture`, the default, or `restore`), `label`, `snapshot` (an id), `parts`, `entity_id`/`entity_slug` | Keeps a version of an entry and puts it back — see [Save and restore a version](#save-and-restore-a-version). |
+| `automation_result` (Record an automation result) | `status`, `integration`, `remote_id`, `entry_id`, `target`, `message`, `finished_at` | Reports back on work handed to another system: settles that hand-off's result, or keeps the report as a new one. See [Record an automation result](#record-an-automation-result). |
 | `media` (Process an image) | `op` (`resize`, `crop`, `convert`, `grade`, `inspect`, `palette`), `source`, the op's own fields, `attach_as` | Makes a new image from an image, or reads one — no AI or provider needed. See [Process an image](#process-an-image). |
 | `operation` (AI operation) | `op` (AI operation slug), `input`, `entity_type`, `entity_id`/`entity_slug`, `write_back` | Offered only when AI is enabled and the **Workflows** invocation source is on. **Write the result back to the entry** (`write_back: true`) follows the workspace approval mode: the result is applied or staged as a suggestion, and the output's `_write_back` says which (`applied` or `staged`). On an asset or resource the step sees the item (an image asset's picture, for an operation that looks at images) and `write_back` is a map of output keys to the item's fields, for example `{"alt_text": "alt_text"}`: an asset takes `alt_text`, `description`, `name`, `tags` or `metadata.<key>`, a resource `description`, `name`, `tags` or `metadata.<key>`. It follows the same approval mode, and needs a workflow author who is an EDITOR or above (else `_write_back` is `not_permitted`). The workspace's AI limits apply: over the daily request or monthly cost limit the step fails, and the per-request token cap bounds the call (see [Agents and Ask → Usage and limits](agents-and-ask.md#usage-and-limits)). |
 | `handler` (Run task) | `task`, `config` | Allowlist: `request_site_rebuild`, `publish_scheduled_entries`, `unpublish_expired_entries`, `ai_reindex_embeddings`, `resync_smart_collections`, `media_enrich`. `request_site_rebuild` queues a coalesced rebuild (see [Operations → Site rebuilds](../operations.md#site-rebuilds)). |
@@ -258,6 +259,22 @@ author to be at least an AUTHOR, like any entry step. A typical use: capture bef
 `GET …/snapshots/{snapshot_id}/diff?parts=…` (what a restore would change), `POST …/snapshots/{snapshot_id}/restore`
 (`{"parts": […]}`) and `DELETE …/snapshots/{snapshot_id}`. AUTHOR and above, on entries the caller may change (an AUTHOR:
 their own until approved or published). There is no snapshot list on the entry page yet; use the API or a workflow.
+
+### Record an automation result {#record-an-automation-result}
+
+When a connection's action [hands work off](automation-results.md#recorded) (starts a run in another system), Marvin keeps one result for it, in flight, without a step. When the other side reports back (usually a workflow that starts on an [incoming webhook](incoming-webhooks.md)), a **Record an automation result** step (`kind: "automation_result"`) settles it:
+
+```json
+{"kind": "automation_result", "integration": "n8n", "status": "${event.payload.status}",
+ "remote_id": "${event.payload.execution_id}", "entry_id": "${event.payload.marvin.entry_id}",
+ "message": "${event.payload.message}", "finished_at": "${event.payload.finished_at}"}
+```
+
+- `status` (required) is **the other system's own word** (`success`, `error`, `waiting`, a template is fine). The connection named in `integration` turns it into Marvin's **in flight**, **succeeded** or **failed**, so the workflow stays free of that system's vocabulary. A word the connection does not know leaves the result in flight with the word in its message. With no `integration`, only Marvin's own three words are understood (unless the report finds a result, whose connection then reads the word).
+- Which result: the one with `remote_id` (the run's id on the other side; on that connection when `integration` is given), else **the newest one still in flight** for `entry_id` (default: the triggering entry) and `integration`. A report that matches neither is **kept as a new result** (with `target`, what it was about) rather than dropped. An `entry_id` that is not an entry of this workspace is left off.
+- `message` and `finished_at` (ISO 8601 or epoch seconds; default: now) are kept on the result. Reporting a failure again after someone dismissed it brings it back as needing a look.
+
+Output: `result_id`, `status` (Marvin's), `matched` (`remote_id`, `entry` or `none`) and `created`. A dry run says what it would do (`would`: `settle` or `record`) and writes nothing. It needs the workflow author to be at least an AUTHOR, like an entry step. The workflow editor has a form for it.
 
 ### Run inputs
 
@@ -1011,6 +1028,8 @@ Parallel branches (`parallel`; the Publication release gate recipe): 2026-10-18.
 Custom events (`custom.<name>`: registered fields, Emit event `payload`, trigger and subscriptions, Achievement cabinet recipe): 2026-10-18.
 
 Save or restore a version (`snapshot` step, `/entries/{id}/snapshots`, migration `c5b1eb095038`): 2026-10-18.
+
+Record an automation result (`automation_result` step, migration `d3b9f27a6c14`; [Automation results](automation-results.md)): 2026-10-25.
 
 Classify a form submission (`${form_submission.*}`, the `classify-form-submission` step from a workflow; Form submission sorter recipe): 2026-10-18.
 

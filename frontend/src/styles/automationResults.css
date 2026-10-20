@@ -1,0 +1,43 @@
+/* Automation › Results: the few things the Social styles (social.css, imported beside this) don't cover. Compact rows on every screen;
+   tapping a row opens it; nothing is stacked into cards on a phone. */
+  .ar-root .si-mark { font-size: 20px; line-height: 1; }
+  .ar-root .si-mark .int-mark, .ar-dialog-mark .int-mark { height: 30px; min-width: 30px; max-width: 64px; }
+  .ar-root .si-mark .int-mark-img, .ar-dialog-mark .int-mark-img { height: 24px; max-width: 58px; }
+  .ar-root .ar-conn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .si-badge.bad { color: var(--color-error); border-color: color-mix(in srgb, var(--color-error) 45%, var(--line)); }
+  .ar-alert { margin: 0; }
+  .ar-tiles { list-style: none; margin: 0 0 12px; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .ar-tile { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: inherit; text-decoration: none; }
+  .ar-tile:hover { border-color: var(--accent); }
+  .ar-tile.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .ar-tile.new .ar-count { color: var(--accent); }
+  .ar-tile.good .ar-count { color: var(--good); }
+  .ar-tile.warn .ar-count { color: var(--warn); }
+  .ar-tile.bad .ar-count { color: var(--color-error); }
+  .ar-count { font-size: 22px; line-height: 1.1; }
+  .ar-label { font-size: 13px; color: var(--muted); }
+  .ar-standing { margin: 0; padding: 8px 12px; border-left: 3px solid var(--line); border-radius: var(--radius); background: var(--panel-2); font-size: 14px; }
+  .ar-standing.bad { border-left-color: var(--color-error); }
+  .ar-standing.warn { border-left-color: var(--warn); }
+  .ar-standing.good { border-left-color: var(--good); }
+  .ar-message { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+  .ar-facts { margin: 0; }
+  .ar-facts dd { overflow-wrap: anywhere; }
+  .ar-all { font-size: 13px; }
+  .ar-all a { color: var(--accent); }
+  /* the entry editor's line */
+  .ar-entry-line { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+  .ar-entry-line[hidden] { display: none; }
+  .ar-entry-line .ar-dot { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--muted); }
+  .ar-entry-line.new .ar-dot { background: var(--accent); }
+  .ar-entry-line.good .ar-dot { background: var(--good); }
+  .ar-entry-line.warn .ar-dot { background: var(--warn); }
+  .ar-entry-line.bad .ar-dot { background: var(--color-error); }
+  .ar-entry-line.bad .ar-text { color: var(--color-error); }
+  .ar-entry-line a { color: var(--accent); }
+  @media (max-width: 640px) {
+    .ar-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } /* two by two: the four counts stay readable on a phone */
+    .ar-count { font-size: 20px; }
+    .ar-root .si-kind.ar-conn { display: inline-block; max-width: 11ch; } /* the connection's name stays on a phone, shortened */
+    .ar-root .si-meta .si-badge.new { display: inline-block; } /* the status badge is part of the row's answer here */
+  }

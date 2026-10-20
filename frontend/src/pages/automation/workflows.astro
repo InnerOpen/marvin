@@ -492,7 +492,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const COND_OP_LABELS: Record<string, string> = WORKFLOW_LABELS.conditionOps;
   // Most-useful-first (backend returns kinds alphabetically). New steps default to the first
   // available — an AI operation when AI is on, otherwise the first non-AI kind.
-  const KIND_ORDER = ["operation", "entry", "media", "collect", "repeat", "parallel", "fetch", "request", "schema_check", "email", "metric", "snapshot", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
+  const KIND_ORDER = ["operation", "entry", "media", "collect", "repeat", "parallel", "fetch", "request", "schema_check", "email", "metric", "snapshot", "automation_result", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
   // A repeat's or a parallel branch's inner steps: a run can't park mid-loop or mid-branch, so no wait, approval, repeat or
   // parallel inside (backend: NOT_INSIDE, NOT_IN_A_BRANCH).
   const NOT_IN_REPEAT = new Set(["wait", "approval", "repeat", "parallel"]);
@@ -763,6 +763,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         return (row.querySelector(".a-sn-op") as HTMLSelectElement | null)?.value === "restore"
           ? ["restored", "changed", "content", "collections", "assets"]
           : ["snapshot_id", "created", "label"];
+      case "automation_result":
+        return ["result_id", "status", "matched", "created"];
       case "media": {
         const mediaOp = (row.querySelector(".a-media-op") as HTMLSelectElement | null)?.value;
         if (mediaOp === "inspect") return ["width", "height", "sharpness", "orientation"];
@@ -1281,6 +1283,23 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       opSel.addEventListener("change", syncMetric);
       winSel.addEventListener("change", syncMetric);
       syncMetric();
+    } else if (kind === "automation_result") {
+      wrap.innerHTML = `
+        <label class="tf"><span>Status <span class="muted">(what the other side reports, in its own words: success, error, waiting… the connection turns them into Marvin's — in flight, succeeded, failed)</span></span>
+          <input class="input a-ar-status" value="${esc(a.status ?? "")}" placeholder="\${event.payload.status}" spellcheck="false" /></label>
+        <label class="tf"><span>Connection <span class="muted">(optional: its slug; narrows the match and tells Marvin whose words the status is in)</span></span>
+          <input class="input a-ar-integration" list="wf-integrations" value="${esc(a.integration ?? "")}" placeholder="connection slug" /></label>
+        <label class="tf"><span>Run id <span class="muted">(optional: the other side's id for the run; the hand-off it started is found by it first)</span></span>
+          <input class="input a-ar-remote" value="${esc(a.remote_id ?? "")}" placeholder="\${event.payload.execution_id}" spellcheck="false" /></label>
+        <label class="tf"><span>Entry <span class="muted">(optional: an entry id; empty = the entry this workflow is about. Without a run id, the newest hand-off still in flight for it is settled)</span></span>
+          <input class="input a-ar-entry" value="${esc(a.entry_id ?? "")}" placeholder="\${event.payload.marvin.entry_id}" spellcheck="false" /></label>
+        <label class="tf"><span>Target <span class="muted">(optional: what was asked of the other side; used when the report starts a new result)</span></span>
+          <input class="input a-ar-target" value="${esc(a.target ?? "")}" placeholder="\${event.payload.workflow}" /></label>
+        <label class="tf"><span>Message <span class="muted">(optional)</span></span>
+          <input class="input a-ar-message" value="${esc(a.message ?? "")}" placeholder="\${event.payload.message}" /></label>
+        <label class="tf"><span>Finished at <span class="muted">(optional: when the other side finished, as a date and time; empty = now)</span></span>
+          <input class="input a-ar-finished" value="${esc(a.finished_at ?? "")}" placeholder="\${event.payload.finished_at}" spellcheck="false" /></label>
+        <span class="hint small">Settles the hand-off Marvin recorded when it sent the work: by the run id, else the newest one still in flight for that entry (and connection). A report that matches nothing is kept as a new result, never dropped. Results appear under Settings → Automation → Results. Later steps read <code>\${steps.&lt;step id&gt;.output.status}</code>, <code>matched</code> (remote_id, entry or none) and <code>created</code>.</span>`;
     } else if (kind === "snapshot") {
       const restoring = a.op === "restore";
       const parts: string[] = Array.isArray(a.parts) && a.parts.length ? a.parts : ["content", "collections", "assets"];
@@ -1640,6 +1659,18 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         setOrDrop("window", windowKind === "day" ? null : windowKind);
         setOrDrop("at", field(".a-mt-at")?.value.trim());
       }
+      return step;
+    }
+    if (kind === "automation_result") {
+      const status = field(".a-ar-status")?.value.trim() ?? "";
+      if (!status) throw new Error(`Step ${i + 1}: give the status the other side reported (a template like \${event.payload.status} works).`);
+      step.status = status;
+      setOrDrop("integration", field(".a-ar-integration")?.value.trim());
+      setOrDrop("remote_id", field(".a-ar-remote")?.value.trim());
+      setOrDrop("entry_id", field(".a-ar-entry")?.value.trim());
+      setOrDrop("target", field(".a-ar-target")?.value.trim());
+      setOrDrop("message", field(".a-ar-message")?.value.trim());
+      setOrDrop("finished_at", field(".a-ar-finished")?.value.trim());
       return step;
     }
     if (kind === "snapshot") {

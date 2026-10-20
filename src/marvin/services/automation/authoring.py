@@ -63,7 +63,7 @@ SECTION_GUIDE: dict[str, str] = {
         "the media step's ops (resize, crop, render, OCR, PDF, zip, watermark…) and the render templates · when images or documents are involved"
     ),
     "email": "the email step in full: who it may write to, sending once, links by role, what a dry run shows · when a step writes to a member",
-    "records": "the metric, snapshot and schema_check steps in full · when counting, keeping versions or checking JSON",
+    "records": "the metric, snapshot, schema_check and automation_result steps in full · for counts, versions, JSON checks and hand-off reports",
     "social": "social.post and the engagement capabilities (comments, reply, like, hide, delete, repost, message) · when posting or answering",
     "templates": (
         "the ${…} names a step can read (event, entry, asset, steps, input, member…) and how they resolve · when a step reads the "
@@ -76,7 +76,7 @@ SECTION_GUIDE: dict[str, str] = {
     "editor": "the workflow editor's own labels for each part · when telling a person what to click",
 }
 INDEX_BUDGET = 4_200  # characters: the index is read on every request
-SECTION_BUDGET = 16_000
+SECTION_BUDGET = 16_500  # characters: the `actions` section lists every step kind, so each new kind costs ~120 here (was 16_000)
 
 # Workspace lists are capped, like workspace_overview's structure: the guide must stay one tool result.
 REF_LIMIT = 50
@@ -444,7 +444,14 @@ def _conditions() -> dict:
 
 
 # Step kinds whose fields and rules live in their own guide section (kind → section); `actions` names them in one line.
-OWN_SECTION_KINDS = {"media": "media", "email": "email", "metric": "records", "snapshot": "records", "schema_check": "records"}
+OWN_SECTION_KINDS = {
+    "media": "media",
+    "email": "email",
+    "metric": "records",
+    "snapshot": "records",
+    "schema_check": "records",
+    "automation_result": "records",
+}
 
 
 def _kind_doc(model) -> dict:
@@ -504,6 +511,13 @@ def _render_templates() -> dict:
     }
 
 
+AUTOMATION_RESULT_NOTE = (
+    "automation_result reports back on work handed to another system. An integration step whose action declares a hand-off is kept "
+    "as one result (in flight, or failed) with nothing to add; when the other side replies (a workflow on an incoming webhook), this "
+    "step settles it: status is that system's own word (${event.payload.status}), which the `integration` named turns into in flight | "
+    "succeeded | failed; remote_id (the run's id over there) finds the result, else the newest one in flight for entry_id (default: "
+    "the triggering entry). A report that matches nothing is kept as a new result, never dropped. Outputs result_id, status, matched, created."
+)
 COLLECT_NOTE = (
     "collect is many → one: it runs a query (entity entry|asset|resource, query = a target's keys; dates may be relative, "
     "published_after: -7d) under any trigger and outputs rows (each like ${entry.*} / ${asset.*}, plus extra `fields` "
@@ -763,6 +777,7 @@ def authoring_guide(session, group_id, section: str | None = None, recipe: str |
             "metric": _step_doc("metric"),
             "snapshot": {**_step_doc("snapshot"), "note": SNAPSHOT_NOTE},
             "schema_check": {**_step_doc("schema_check"), "note": SCHEMA_CHECK_NOTE},
+            "automation_result": {**_step_doc("automation_result"), "note": AUTOMATION_RESULT_NOTE},
         }
     if "social" in want:
         out["social"] = {"note": SOCIAL_NOTE}

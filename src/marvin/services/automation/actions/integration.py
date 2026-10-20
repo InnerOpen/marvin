@@ -30,6 +30,10 @@ the step names its `integration` (a missing one is refused at save and here). `s
 `social.like` and `social.hide` don't. `social.reply` and `social.message` take `dry_run` from the run, as `social.post`
 does. The one unattended sender is the engagement engine (services/integrations/social_engagement.py), not a step.
 
+An action that declares ``hands_off`` (marvin_integration_sdk.HandsOff) starts work somewhere else: after the call the step keeps one
+result for it (services/automation_results.py) — in flight when the call succeeded, failed when it didn't — and the
+``automation_result`` step settles it when the other side reports back. Nothing in the workflow asks for this.
+
 A provider failure is raised as :class:`IntegrationStepError`, carrying the provider's error code and
 its resolved error policy, which the engine applies (`services/integrations/errors.py`): review, retry,
 notify, or carry on.
@@ -39,6 +43,8 @@ replaced by a reference (`images: [{asset: {id, slug, url, …}}]`) before the o
 for approval after generating and be retried — see media.keep_generated_images. `attach_as` links them to the run's
 entry in that role.
 """
+
+from marvin.services import automation_results
 
 from ..matcher import interpolate
 from .base import AutomationActionError, IntegrationStepError, register_action
@@ -310,6 +316,8 @@ def _call_provider(session, group_id, row, provider, key, args, src, keeps_image
         # on_failure steps branch on; anything untagged is "unknown".
         code = errors.error_code(e)
         detail = errors.redact(str(e), errors.secret_values(secret, *arg_secrets))
+        if not dry_run:  # an action that hands work off: the hand-off failed (what Results shows); the redacted message is what is kept
+            automation_results.track(session, group_id, row, _declared_action(provider, key), plain_args, context, error=detail)
         raise IntegrationStepError(
             f"{row.provider}.{key} failed: {detail}",
             code=code,
@@ -327,6 +335,8 @@ def _call_provider(session, group_id, row, provider, key, args, src, keeps_image
     if not dry_run:  # a dry run asked the plugin what it would do: nothing was spent, nothing is proven to work
         errors.action_succeeded(session, group_id, row.id, key, context)
     out = result if isinstance(result, dict) else {}
+    if not dry_run:  # an action that hands work off: it is in flight now, until the other side reports back
+        automation_results.track(session, group_id, row, _declared_action(provider, key), plain_args, context, out=out)
     if keeps_images:
         made_by = f"{row.provider}.{key}"
         out = keep_generated_images(

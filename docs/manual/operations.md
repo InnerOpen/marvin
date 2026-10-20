@@ -147,6 +147,7 @@ the Admin one. A template written as custom HTML is sent as written, without the
 | AI executions (`prune_ai_executions`) | `AI_EXECUTION_RETENTION_DAYS` | 90 days; a workspace's `logging_config.retention_days` overrides |
 | Scheduled-task execution log (`prune_scheduled_task_executions`) | task config `retention_days` | 30 days (rc.97) |
 | Social inbox items (`prune_social_inbox_items`) | task config `retention_days` | 30 days after the comment was written; an item with a live reply is kept 180 days (it is the reply log) |
+| Automation results (`prune_automation_results`) | task config `retention_days` | 30 days after a result succeeded (or a failure was dismissed); one in flight, or failed and not dismissed, is kept 180 days |
 | Revoked API tokens and site clients (`prune_revoked_tokens`) | task config `age_days` | 30 days after revocation |
 | Remote MCP sign-ins, tokens, connections and clients (`purge_oauth_records`) | task config `grant_days`, `client_days` | expired sign-ins and tokens at once; connections 90 days after revocation or their last token; clients 7 days unused with no connection |
 | Workflow runs and their steps (`prune_workflow_runs`) | `WORKFLOW_RUN_RETENTION_DAYS` | 90 days after the run finished; a run still running or waiting is never deleted; `0` keeps forever |

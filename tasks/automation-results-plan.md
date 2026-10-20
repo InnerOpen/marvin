@@ -68,3 +68,50 @@ Engine records in flight / failed for a `hands_off` action and nothing for other
 entry; unknown results recorded; No reply after the timeout; retry and dismiss (roles); retention; the page's API filters;
 dashboard counts; the migration (collections untouched/edited, metadata import) on both engines; n8n recipe and blueprints
 validate against the new core.
+
+## Review: phase 1 (core) built 2026-10-25
+
+### What was built
+- **Table and migration** `d3b9f27a6c14` (after `c4e8a2d19f57`): `automation_results` (group, entry, integration, workflow, `action`, `target`, `remote_id`, `remote_url`,
+  `status`, `message`, `sent_at`, `finished_at`, `attempt`, `dismissed_at`/`dismissed_by`). Deleted with the workspace, the connection and the entry; the workflow
+  is `SET NULL`. The same migration removes `n8n-failed` / `n8n-in-flight` only where each is still exactly the plugin's (name, smart, private, the plugin's rules,
+  `source_blueprint` empty or its own slug), imports each entry's `n8n_*` metadata as one result (`sent`/`waiting` in flight, `success` succeeded, `error` failed;
+  attached to the workspace's `n8n` connection when there is exactly one) and removes those keys. Downgrade drops the table and puts nothing back.
+- **SDK 0.13.0** (`~/code/MarvinIntegrationSDK`): `ProviderAction.hands_off = HandsOff(remote_id, remote_url, target, statuses)`, the `RESULT_*` words, `hands_off_problems`
+  (checked at `@register_provider`; the conformance kit asserts it), and the hook `IntegrationProvider.result_status(word, action=None)` (default: the declared map,
+  plus Marvin's own three).
+- **Engine hook** (`services/automation/actions/integration.py` → `services/automation_results.py: track`): in flight when a hands-off step succeeds, failed (with the
+  redacted provider message) when the call fails. A dry run, an idempotency-skipped step and an action with no `hands_off` record nothing. Runs in a savepoint and never
+  breaks the step. A retry run (the error policy's) or a person's Retry reuses the failed row and counts up `attempt`.
+- **`automation_result` step**: model + union in `automation_definition.py`, executor, `AUTOMATION_RESULT_MIN_ROLE` (AUTHOR), authoring note, editor labels (both copies),
+  workflow editor form. Settles by `remote_id`, else the newest in-flight row for the entry and connection; a report that matches nothing is kept as a new row.
+- **No reply**: computed from `sent_at` (24 h), never a status. **Retention**: `prune_automation_results` (daily; 30 days settled or dismissed, 180 unhandled), listed in the
+  database report.
+- **API** `/api/groups/automation-results` (EDITOR+ reads, ADMIN retries and dismisses), the dashboard attention fields `resultsFailed` / `resultsNoReply`.
+- **Frontend**: `/automation/results` (tiles as tabs, connection filter, search, compact rows, detail dialog), the Results card in Settings › Automation (only once a result
+  exists), two dashboard lines, the entry editor line, the step form. No sidebar item.
+- **Docs**: the manual page `whats-new/automation-results.md`, the step reference in `workflows.md`, the SDK's `hands_off` in `integrations.md` and the SDK README.
+
+### What differs from the plan, and why
+- **The step takes an `integration` argument** (optional). The plan's step shape had none, but the plan also says "the newest in-flight record for that entry *and connection*",
+  and the provider's words can only be mapped by knowing the connection. Without it only Marvin's own words are understood, unless the report finds a result (its connection
+  then reads the word). Also `target` (kept on a record the report creates).
+- **An unknown status word** (the plan only said an unknown *result* is recorded): the row stays in flight with the word in its message, so nothing is guessed to have
+  succeeded or failed.
+- **Retry** is the full version, not the simpler one: it re-runs only the one hand-off step (`engine.run_step_once`), refuses with the reason when that is not safe
+  (workflow gone or off; step gone or ambiguous; entry gone or no longer matching the conditions; the step reads `event` / `steps` / `previous`, which belong to the run that is over).
+  A repeat does not schedule the provider's own retries behind the person's back (connection-level notify only) and leaves no workflow run in the history.
+- **Dismiss and `action`** need two columns the plan's list did not name (`dismissed_at`/`dismissed_by`; `action`, to find the step again).
+- **The workflow authoring guide's `SECTION_BUDGET` goes from 16,000 to 16,500 characters**: the `actions` section had 37 characters of room, so any new step kind overflowed it. The
+  step is documented in the guide's `records` section (like `metric` and `snapshot`), keeping its entry in `actions` to one line.
+- **The SDK has no RELEASE_PROCESS.md or CHANGELOG** (the brief names both). Its convention is the version in `pyproject.toml` and `__init__.py`, plus a README note; that is what
+  0.13.0 does.
+- **An imported result's time**: n8n never recorded when a hand-off was sent, so an old "sent" with no report is dated by when the entry last changed and reads No reply.
+
+### Open points
+- Marvin still pins the SDK at `v0.12.0` (pyproject lines 23 and 120, and `uv.lock`); tests need 0.13.0. Switch the pin when the tag exists.
+- Phase 2 (n8n 0.4.0): `trigger_workflow` declares `HandsOff(remote_id="execution_id", remote_url="execution_url", target="path", statuses={"success": "succeeded", "error": "failed",
+  "waiting": "in_flight"})`; the recipe drops its `set_metadata` step; `n8n-record-result` becomes an `automation_result` step (pass `integration`, `remote_id`, `entry_id`, `target`);
+  stop shipping the two collections. Workflows installed from the old blueprints keep writing the metadata until the plugin's re-apply.
+- The OpenAPI spec changed (new paths and schemas, two fields on `AttentionCounts`): regenerate the TS SDK.
+- Not built, by design: a per-connection No reply timeout; automatic failure of a silent hand-off; hand-offs from social posts, Buttondown and Cloudflare builds.

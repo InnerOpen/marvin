@@ -46,6 +46,7 @@ TABLES: dict[str, tuple[str, Kept | None]] = {
     "ai_executions": ("AI runs (tokens, cost, output)", Kept("prune_ai_executions", setting="AI_EXECUTION_RETENTION_DAYS")),
     "scheduled_task_execution_log": ("Scheduled task history", Kept("prune_scheduled_task_executions", default_days=30)),
     "social_inbox_items": ("Social inbox (comments, replies and mentions)", Kept("prune_social_inbox_items", default_days=30)),
+    "automation_results": ("Automation results (work handed to other systems)", Kept("prune_automation_results", default_days=30)),
     "long_live_tokens": ("API tokens", Kept("prune_revoked_tokens", rule="revoked over 30 days ago")),
     "oauth_tokens": ("Remote MCP access and refresh tokens", Kept("purge_oauth_records", rule="once expired")),
     "oauth_authorization_requests": ("Remote MCP sign-ins in progress", Kept("purge_oauth_records", rule="once expired")),

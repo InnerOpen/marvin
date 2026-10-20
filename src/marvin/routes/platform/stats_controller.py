@@ -63,6 +63,10 @@ class AttentionCounts(_MarvinModel):
     # Signups that need a look (Audience › Subscribers: the mailing list refused it, or the spam protection held it); 0 below EDITOR. A pending
     # signup (the reader hasn't confirmed) is routine and nobody's to-do, so only problems are here (the sidebar badge counts both).
     audience_problems: int = 0
+    # Hand-offs to another system (Settings › Automation › Results): failures nobody dismissed, and ones still in flight after 24 hours with no
+    # reply. One in flight is routine, so it isn't here. 0 below EDITOR.
+    results_failed: int = 0
+    results_no_reply: int = 0
 
 
 class DashboardData(_MarvinModel):
@@ -159,6 +163,24 @@ class StatsController(BaseUserController):
             session.rollback()
             return 0, 0
 
+    def _results(self, gid) -> tuple[int, int]:
+        """``(failed hand-offs, hand-offs with no reply)`` waiting in Automation results, for a member who may read it (EDITOR and above)."""
+        from fastapi import HTTPException
+
+        from marvin.db.models.users.roles import WorkspaceRole
+        from marvin.routes._base.checks import require_workspace_role
+        from marvin.services import automation_results
+
+        session = self.repos.session
+        try:
+            require_workspace_role(self.user, gid, WorkspaceRole.EDITOR)
+            return automation_results.attention(session, gid)
+        except HTTPException:
+            return 0, 0
+        except Exception:  # a failed count: the panel just leaves the lines out
+            session.rollback()
+            return 0, 0
+
     @router.get("/dashboard", response_model=DashboardData, summary="Dashboard activity + attention queue")
     def get_dashboard(self) -> DashboardData:
         """Recent workspace activity and the "needs attention" counts — draft entries awaiting
@@ -232,6 +254,7 @@ class StatsController(BaseUserController):
             role, sees_backups = 0, False
         approvals_count, approvals = dash.approvals_waiting(session, gid, role)
         audience_new, audience_problems = self._audience(gid)
+        results_failed, results_no_reply = self._results(gid)
         return DashboardData(
             recent_activity=recent,
             attention=AttentionCounts(
@@ -246,6 +269,8 @@ class StatsController(BaseUserController):
                 oldest_inbox_days=dash.oldest_entry_days(session, gid, "inbox", now),
                 audience_new=audience_new,
                 audience_problems=audience_problems,
+                results_failed=results_failed,
+                results_no_reply=results_no_reply,
             ),
             approvals=approvals,
             upcoming=dash.upcoming(session, gid, now),

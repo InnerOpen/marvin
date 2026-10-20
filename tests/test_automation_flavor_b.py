@@ -363,6 +363,7 @@ class TestActionRegistry:
             "email",
             "metric",
             "snapshot",
+            "automation_result",
             "wait",
             "repeat",
             "parallel",

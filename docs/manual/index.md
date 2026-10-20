@@ -41,6 +41,7 @@ The admin sidebar shows **Dashboard**, **Ask**, **Content** (**Entries**, **Coll
 
 - [Forms and submission protection](whats-new/forms-and-submission-protection.md)
 - [Audience](whats-new/audience.md): Social, form submissions, and newsletter subscribers
+- [Automation results](whats-new/automation-results.md): what happened to the work a workflow handed to another system
 - [Collections](whats-new/collections.md)
 - [Agents and Ask](whats-new/agents-and-ask.md)
 

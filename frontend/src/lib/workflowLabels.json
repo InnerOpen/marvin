@@ -33,6 +33,7 @@
     "email": "Email a member",
     "metric": "Record a metric",
     "snapshot": "Save or restore a version",
+    "automation_result": "Record an automation result",
     "wait": "Wait",
     "repeat": "Repeat for each",
     "parallel": "Parallel branches"

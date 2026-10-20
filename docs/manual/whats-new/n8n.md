@@ -55,6 +55,9 @@ Applied from the card's **Content** section; nothing is required and nothing is 
 | Collection (optional) | `n8n-failed` | **n8n: failed**: smart, private, `metadata.n8n_status` is `error` |
 | Collection (optional) | `n8n-in-flight` | **n8n: in flight**: smart, private, `metadata.n8n_status` is `sent` or `waiting` |
 
+!!! note "Results now have their own page"
+    Marvin keeps each hand-off as an [automation result](automation-results.md) (Settings › Automation › Results), so the two collections and the `n8n_*` entry metadata above are on their way out. The upgrade that added the page turned each entry's `n8n_*` metadata into a result and removed **n8n: failed** and **n8n: in flight** where they are still exactly what the plugin created (a renamed or edited one stays). The n8n plugin's next release stops shipping the collections and records the result with the core [Record an automation result](workflows.md#record-an-automation-result) step instead of `set_metadata`; until you update it, the older workflows keep writing the metadata and nothing reads it.
+
 Both collections are private (**Visible to sites** off), so a result never queues a site rebuild. Nothing writes `sent` on its own: to track sends, follow the trigger step with a `set_metadata` step that sets `n8n_status: sent`.
 
 ## Where

@@ -117,6 +117,19 @@ SYSTEM_SCHEDULED_TASKS: list[SystemTaskDefinition] = [
         task_config={"retention_days": 30},
     ),
     SystemTaskDefinition(
+        slug="prune_automation_results",
+        name="Prune Automation Results",
+        task_type="prune_automation_results",
+        description=(
+            "Delete Automation results (the record of work handed to other systems) that succeeded, or failed and were dismissed, "
+            "more than 30 days ago; one still in flight, or failed and not dismissed, is kept 180 days so it keeps asking for a look. "
+            "Admin-only; runs daily."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _DAILY_SECONDS},
+        task_config={"retention_days": 30},
+    ),
+    SystemTaskDefinition(
         slug="reconcile_social_engagement",
         name="Reconcile Social Engagement",
         task_type="reconcile_social_engagement",

@@ -462,6 +462,58 @@ class PruneSocialInboxItemsHandler(ScheduledTaskHandler):
         return summary
 
 
+class PruneAutomationResultsHandler(ScheduledTaskHandler):
+    """
+    Delete old rows from automation_results (the record of work handed to other systems; all workspaces).
+
+    Admin-only. Every hand-off an integration action declares is kept (services/automation_results.py), so without this the table grows
+    with the workspaces' automation.
+
+    Configuration (task_config):
+    - retention_days: int (default: 30) - Delete results that succeeded (or failed and were dismissed) more than this many days ago. <= 0
+      disables. One still in flight, or failed and not dismissed, is kept for UNHANDLED_RETENTION_DAYS (180) instead: it is still
+      asking for a look.
+    """
+
+    name = "Prune Automation Results"
+    description = "Delete Automation results older than the retention window (admin only)"
+    admin_only = True
+    config_schema = {
+        "type": "object",
+        "properties": {
+            "retention_days": {
+                "type": "integer",
+                "default": 30,
+                "description": "Delete settled results more than this many days old (<=0 disables).",
+            },
+        },
+    }
+
+    def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
+        if task.group_id:
+            return "Skipped: prune_automation_results is admin-only and cannot run in a workspace context"
+
+        from marvin.services import automation_results
+
+        retention_days = task.task_config.get("retention_days", automation_results.RETENTION_DAYS)
+        if not retention_days or retention_days <= 0:
+            return "Skipped: automation results retention disabled (retention_days <= 0)"
+
+        with session_context() as session:
+            now = datetime.now(UTC)
+            deleted = automation_results.prune(
+                session,
+                now - timedelta(days=retention_days),
+                now - timedelta(days=max(retention_days, automation_results.UNHANDLED_RETENTION_DAYS)),
+            )
+
+        if not deleted:
+            return None
+        summary = f"Pruned {deleted} automation result{'s' if deleted != 1 else ''} older than {retention_days} days"
+        logger.info("Automation results prune: %s", summary)
+        return summary
+
+
 class ResyncSmartCollectionsHandler(ScheduledTaskHandler):
     """
     Reconcile smart-collection membership across all workspaces (platform-wide).
@@ -670,6 +722,7 @@ TaskHandlerRegistry.register("prune_ai_executions", PruneAIExecutionsHandler)
 TaskHandlerRegistry.register("prune_workflow_runs", PruneWorkflowRunsHandler)
 TaskHandlerRegistry.register("prune_scheduled_task_executions", PruneScheduledTaskExecutionsHandler)
 TaskHandlerRegistry.register("prune_social_inbox_items", PruneSocialInboxItemsHandler)
+TaskHandlerRegistry.register("prune_automation_results", PruneAutomationResultsHandler)
 TaskHandlerRegistry.register("resync_smart_collections", ResyncSmartCollectionsHandler)
 TaskHandlerRegistry.register("prune_revoked_tokens", PruneRevokedTokensHandler)
 TaskHandlerRegistry.register("optimize_database", OptimizeDatabaseHandler)

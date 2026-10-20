@@ -1,0 +1,282 @@
+---
+// Automation › Results: the work Marvin handed to another system, newest first. A row is compact on every screen (the entry, the
+// connection and target, the message or where it stands, when, a status badge); tapping it opens the result: where it stands, the
+// facts, "Open entry" and "Open the run", and for an admin Retry (runs the workflow's hand-off step again for that entry) and Dismiss
+// (a failure that has been dealt with). A refused retry shows the reason in the dialog.
+// Backend: routes/groups/automation_results_controller.py. Pure logic: lib/automationResults.ts (automationResults.test.mjs).
+import type { ResultList } from "@/lib/api/automationResults";
+import {
+  type Filters,
+  connectionOptions,
+  emptyNotice,
+  filtersToQuery,
+  hasFilters,
+  RESULTS_PATH,
+  STATES,
+  stateTiles,
+  type ResultsSummary,
+} from "@/lib/automationResults";
+
+interface Props {
+  summary: ResultsSummary | null;
+  list: ResultList | null;
+  filters: Filters;
+}
+const { summary, list, filters } = Astro.props;
+const counts = list?.counts ?? summary;
+const options = connectionOptions(list?.connections);
+const tiles = stateTiles(counts, filters.status);
+const empty = emptyNotice(counts, hasFilters(filters));
+const tileHref = (status: string, active: boolean) => `${RESULTS_PATH}${filtersToQuery({ ...filters, status: active ? "" : (status as Filters["status"]) })}`;
+const data = JSON.stringify({ summary: counts, list, filters }).replace(/</g, "\\u003c");
+---
+
+<div class="social-inbox ar-root">
+  <script type="application/json" id="ar-data" is:inline set:html={data}></script>
+
+  <ul class="ar-tiles" aria-label="Hand-offs by state">
+    {tiles.map((t) => (
+      <li>
+        <a class={`ar-tile ${t.tone}${t.active ? " active" : ""}`} href={tileHref(t.value, t.active)} title={t.hint} aria-current={t.active ? "true" : undefined}>
+          <strong class="ar-count" data-count={t.value}>{t.count}</strong>
+          <span class="ar-label">{t.label}</span>
+        </a>
+      </li>
+    ))}
+  </ul>
+  {filters.status && <p class="ar-all"><a href={`${RESULTS_PATH}${filtersToQuery({ ...filters, status: "" })}`}>Show every state</a></p>}
+
+  <div class="si-bar">
+    <form class="si-filters" id="ar-filters" method="get" action={RESULTS_PATH} role="search">
+      {filters.entry && <input type="hidden" name="entry" value={filters.entry} />}
+      <label>State
+        <select class="input" name="status">
+          <option value="">Any state</option>
+          {STATES.map((s) => <option value={s.value} selected={s.value === filters.status}>{s.label}</option>)}
+        </select>
+      </label>
+      {options.length > 1 && (
+        <label>Connection
+          <select class="input" name="connection">
+            <option value="">All connections</option>
+            {options.map((o) => <option value={o.value} selected={o.value === filters.connection}>{o.label}</option>)}
+          </select>
+        </label>
+      )}
+      <label class="grow">Search
+        <input class="input" type="search" name="q" value={filters.q} placeholder="Entry, target, message or run" maxlength="200" />
+      </label>
+      <button class="button secondary" type="submit">Search</button>
+    </form>
+  </div>
+  {filters.entry && <p class="ar-all">Showing one entry's hand-offs. <a href={`${RESULTS_PATH}${filtersToQuery({ ...filters, entry: "" })}`}>Show all</a></p>}
+
+  <p class="si-result bad ar-alert" id="ar-error" role="alert" hidden></p>
+  <ul class="si-list" id="ar-list" aria-label="Hand-offs"></ul>
+  <p class="si-muted si-count" id="ar-count" hidden></p>
+  <button type="button" class="button secondary si-more" id="ar-more" hidden>Show more</button>
+
+  <div class="si-empty" id="ar-empty" hidden>
+    <h3 id="ar-empty-title">{empty.title}</h3>
+    <p id="ar-empty-body">{empty.body}</p>
+    <p id="ar-empty-link">{empty.link && <a class="button secondary" href={empty.link.href}>{empty.link.label}</a>}</p>
+  </div>
+</div>
+
+<dialog id="ar-dialog" class="si-dialog" aria-labelledby="ar-d-title">
+  <div class="si-d-head">
+    <h3 id="ar-d-title">Hand-off</h3>
+    <button type="button" class="si-d-close" data-close aria-label="Close">×</button>
+  </div>
+  <div class="si-d-body" id="ar-d-body"></div>
+</dialog>
+
+<script>
+  import * as api from "@/lib/api/automationResults";
+  import {
+    actionButtons,
+    actionError,
+    apiQuery,
+    detailLines,
+    emptyNotice,
+    filtersToQuery,
+    hasFilters,
+    openEntryHref,
+    RESULTS_PATH,
+    resultRow,
+    standing,
+    stateOf,
+    type Filters,
+    type ResultItem,
+    type ResultsSummary,
+    stateTiles,
+  } from "@/lib/automationResults";
+  import { installLogoFallback, markHtml } from "@/lib/integrationLogo";
+  import { errorMessage, timeAgo } from "@/lib/socialInbox";
+
+  const $ = (id: string): any => document.getElementById(id);
+  const esc = (s: unknown) =>
+    String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
+
+  const init = JSON.parse($("ar-data").textContent || "{}");
+  let counts: ResultsSummary | null = init.summary ?? null;
+  const filters: Filters = init.filters;
+  let items: ResultItem[] = init.list?.items ?? [];
+  let total: number = init.list?.total ?? 0;
+  let openId: string | null = null;
+
+  const badge = (b: { label: string; tone: string; title?: string }) =>
+    `<span class="si-badge ${esc(b.tone)}"${b.title ? ` title="${esc(b.title)}"` : ""}>${esc(b.label)}</span>`;
+  // The connection's own mark when its provider ships a logo (the image falls back to a plug if it can't load).
+  const mark = (provider: string) => (provider ? markHtml({ slug: provider, icon: "🔌", hasLogo: true }) : `<span aria-hidden="true">🔌</span>`);
+
+  function rowHtml(item: ResultItem): string {
+    const r = resultRow(item);
+    return `<li><button type="button" class="si-row${r.unread ? " unread" : ""}" data-id="${esc(r.id)}" aria-haspopup="dialog">
+      <span class="si-mark" aria-hidden="true">${mark(r.provider)}</span>
+      <span class="si-main">
+        <span class="si-line"><strong class="si-author">${esc(r.title)}</strong>${r.connection ? `<span class="si-kind ar-conn">${esc(r.connection)}${r.target ? ` · ${esc(r.target)}` : ""}</span>` : ""}</span>
+        <span class="si-text">${esc(r.text)}</span>
+      </span>
+      <span class="si-meta"><time datetime="${esc(r.at)}" title="${esc(new Date(r.at).toLocaleString())}">${esc(timeAgo(r.at))}</time><span class="si-badges">${badge(r.badge)}</span></span>
+    </button></li>`;
+  }
+
+  function render() {
+    $("ar-list").innerHTML = items.map(rowHtml).join("");
+    installLogoFallback();
+    $("ar-empty").hidden = items.length > 0;
+    if (items.length === 0) {
+      const notice = emptyNotice(counts, hasFilters(filters));
+      $("ar-empty-title").textContent = notice.title;
+      $("ar-empty-body").textContent = notice.body;
+      $("ar-empty-link").innerHTML = notice.link ? `<a class="button secondary" href="${esc(notice.link.href)}">${esc(notice.link.label)}</a>` : "";
+    }
+    $("ar-count").hidden = items.length === 0;
+    $("ar-count").textContent = `${items.length} of ${total}`;
+    $("ar-more").hidden = items.length >= total;
+  }
+
+  // ── filters: a change goes to the URL, so a view can be bookmarked ───────────────────────────────────────────────
+  const filterForm = $("ar-filters") as HTMLFormElement | null;
+  filterForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const f = Object.fromEntries(new FormData(filterForm).entries()) as Record<string, string>;
+    location.href = `${RESULTS_PATH}${filtersToQuery({
+      status: (f.status ?? "") as Filters["status"],
+      connection: f.connection ?? "",
+      entry: f.entry ?? "",
+      q: f.q ?? "",
+    })}`;
+  });
+  filterForm?.querySelectorAll("select").forEach((el) => el.addEventListener("change", () => filterForm.requestSubmit()));
+
+  $("ar-more").addEventListener("click", async () => {
+    const button = $("ar-more") as HTMLButtonElement;
+    button.disabled = true;
+    try {
+      const more = await api.listResults(apiQuery(filters, items.length));
+      items = [...items, ...more.items.filter((m) => !items.some((i) => i.id === m.id))];
+      total = more.total;
+      render();
+    } catch (e) {
+      $("ar-count").hidden = false;
+      $("ar-count").textContent = errorMessage(e);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  // ── the tiles follow a retry or a dismiss (they were drawn when the page loaded) ──────────────────────────────────
+  async function refreshCounts() {
+    try {
+      counts = await api.getSummary();
+    } catch {
+      return;
+    }
+    for (const tile of stateTiles(counts)) {
+      const el = document.querySelector(`[data-count="${tile.value}"]`);
+      if (el) el.textContent = String(tile.count);
+    }
+  }
+
+  // ── the result ───────────────────────────────────────────────────────────────────────────────────────────────────
+  const dialog = $("ar-dialog") as HTMLDialogElement;
+  const body = $("ar-d-body") as HTMLElement;
+  const current = () => items.find((i) => i.id === openId) ?? null;
+
+  function detailHtml(item: ResultItem): string {
+    const r = resultRow(item);
+    const returnTo = `${location.pathname}${location.search}`;
+    const buttons = actionButtons(item, counts?.can);
+    const entryHref = openEntryHref(item, returnTo);
+    const tone = stateOf(item) === "failed" ? "bad" : stateOf(item) === "no_reply" ? "warn" : stateOf(item) === "succeeded" ? "good" : "";
+    const message = (item.message ?? "").trim();
+    return `<div class="si-d-who"><span class="si-mark ar-dialog-mark" aria-hidden="true">${mark(r.provider)}</span><div><strong>${esc(r.title)}</strong>
+        <div class="si-muted si-small">${esc(r.connection)}${r.target ? ` · ${esc(r.target)}` : ""}</div></div>
+        <span class="si-badges">${badge(r.badge)}</span></div>
+      <p class="ar-standing ${tone}">${esc(standing(item))}</p>
+      ${message ? `<p class="ar-message">${esc(message)}</p>` : ""}
+      <dl class="sr-facts ar-facts">${detailLines(item).map((l) => `<dt>${esc(l.label)}</dt><dd>${esc(l.value)}</dd>`).join("")}</dl>
+      <div class="si-actions">
+        ${buttons.map((b) => `<button type="button" class="button${b.key === "retry" ? "" : " secondary"} si-btn-sm" data-act="${b.key}" title="${esc(b.hint)}">${esc(b.label)}</button>`).join("")}
+        ${entryHref ? `<a class="button secondary si-btn-sm" href="${esc(entryHref)}">Open entry</a>` : ""}
+        ${item.remoteUrl ? `<a class="button secondary si-btn-sm" href="${esc(item.remoteUrl)}" target="_blank" rel="noopener noreferrer">Open the run</a>` : ""}
+      </div>
+      <p class="si-result" id="ar-result" role="status" hidden></p>`;
+  }
+
+  function show(item: ResultItem, result?: { text: string; bad: boolean }) {
+    $("ar-d-title").textContent = resultRow(item).title;
+    body.innerHTML = detailHtml(item);
+    installLogoFallback();
+    if (result) {
+      const out = $("ar-result");
+      out.hidden = false;
+      out.className = `si-result ${result.bad ? "bad" : "ok"}`;
+      out.textContent = result.text;
+    }
+  }
+
+  function open(item: ResultItem) {
+    openId = item.id;
+    show(item);
+    dialog.showModal();
+  }
+
+  $("ar-list").addEventListener("click", (event: Event) => {
+    const row = (event.target as HTMLElement).closest<HTMLElement>(".si-row");
+    const item = row ? items.find((i) => i.id === row.dataset.id) : null;
+    if (item) open(item);
+  });
+
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog || (event.target as HTMLElement).closest("[data-close]")) dialog.close();
+  });
+  dialog.addEventListener("close", () => {
+    openId = null;
+  });
+
+  body.addEventListener("click", async (event: Event) => {
+    const act = (event.target as HTMLElement).closest<HTMLElement>("[data-act]")?.dataset.act;
+    const item = current();
+    if ((act !== "retry" && act !== "dismiss") || !item) return;
+    body.querySelectorAll("button").forEach((b: HTMLButtonElement) => (b.disabled = true));
+    try {
+      const out = act === "retry" ? await api.retry(item.id) : await api.dismiss(item.id);
+      items = items.map((i) => (i.id === item.id ? out.result : i));
+      // a dismissed failure leaves the Failed view, which doesn't list them
+      if (act === "dismiss" && filters.status === "failed") {
+        items = items.filter((i) => i.id !== item.id);
+        total = Math.max(0, total - 1);
+      }
+      render();
+      await refreshCounts();
+      show(out.result, { text: act === "retry" ? "Sent again. It is in flight until the other side reports back." : "Dismissed.", bad: false });
+    } catch (e) {
+      show(item, { text: actionError(e), bad: true });
+    }
+  });
+
+  render();
+</script>

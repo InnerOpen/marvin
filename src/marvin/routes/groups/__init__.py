@@ -6,6 +6,7 @@ from . import (
     ai_settings_controller,
     audience_controller,
     audit_settings_controller,
+    automation_results_controller,
     blueprints_controller,
     custom_events_controller,
     email_branding_controller,
@@ -40,6 +41,7 @@ if INTEGRATIONS_AVAILABLE:
 
     router.include_router(social_inbox_controller.router, tags=["Groups: Social Inbox"])
 router.include_router(audience_controller.router, tags=["Groups: Audience"])
+router.include_router(automation_results_controller.router, tags=["Groups: Automation Results"])
 router.include_router(preferences_controller.router, tags=["Groups: Preferences"])
 router.include_router(email_template_controller.router, tags=["Groups: Email Templates"])
 router.include_router(email_branding_controller.router, tags=["Groups: Email Branding"])

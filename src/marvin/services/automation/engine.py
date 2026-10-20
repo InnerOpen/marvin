@@ -1170,6 +1170,43 @@ def dry_run_for_event(
     }
 
 
+def run_step_once(
+    session,
+    group_id,
+    automation,
+    step_index: int,
+    context: dict,
+    *,
+    user_id=None,
+    logger=None,
+    run_action: Callable = _registry_run_action,
+) -> AutomationActionError | None:
+    """Run one step of an automation on its own, in the context the caller built, under the workflow author's authority; returns
+    the step's error, or None when it ran. Nothing is recorded in the workflow's run history and the provider's error policy doesn't
+    schedule retries or reviews (only the connection-level notify applies): the caller owns what the step leaves behind. This is
+    how Settings › Automation › Results repeats a hand-off (services/automation_results.py: retry)."""
+    actions = (automation.definition or {}).get("actions") or []
+    context["previous"], context["steps"] = {}, {}
+    step = _StepRunner(
+        session=session,
+        group_id=group_id,
+        automation=automation,
+        context=context,
+        user_id=user_id,
+        authorizer_role=resolve_authorizer_role(session, group_id, getattr(automation, "created_by", None)),
+        logger=logger,
+        run_action=run_action,
+        recorder=NullRecorder(),
+        exec_id=None,
+        target_index=0,
+        target_ref=None,
+        dry_run=False,
+        step_log=None,
+        error_mode="connection",
+    )
+    return step.run(actions[step_index], step_index)
+
+
 def run_retry(
     session,
     group_id,

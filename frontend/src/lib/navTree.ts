@@ -193,6 +193,7 @@ const NODES: NavNode[] = [
   { id: "automation.events.type", label: "Event", href: "/automation/events/[type]", parent: "automation.events" },
   { id: "automation.custom-events", label: "Custom Events", href: "/automation/custom-events", parent: "settings.automation" },
   { id: "automation.metrics", label: "Metrics", href: "/automation/metrics", parent: "settings.automation" },
+  { id: "automation.results", label: "Results", href: "/automation/results", parent: "settings.automation" },
   {
     id: "automation.events.type.webhook",
     label: "Connect Webhook",

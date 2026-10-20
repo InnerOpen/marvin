@@ -21,6 +21,7 @@ import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
 import { askPageAllowed, bubbleAllowed } from "@/lib/marvin/gate";
 import { EDITORS_ONLY } from "@/lib/workspaceRole";
+import "@/styles/automationResults.css";
 
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
@@ -675,6 +676,8 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                 {(canPublish || entry.status === "published") && <option value="published" selected={entry.status === "published"}>Published</option>}
               </select>
             </div>
+            {/* The newest hand-off of this entry to another system, filled in by the script below; stays hidden when there is none or the caller can't read results. */}
+            <p class="ar-entry-line" id="ar-entry-line" hidden></p>
 
             <div class="form-group">
               <div class="label-row">
@@ -2800,5 +2803,34 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
         metadataField.style.borderColor = '#ef5350';
       }
     });
+  }
+</script>
+
+<script>
+  // The entry's newest hand-off to another system, under the status (Settings › Automation › Results). Editors and above read the
+  // results API; for anyone else, or on any error, the line simply stays hidden.
+  import { listResults } from '@/lib/api/automationResults';
+  import { entryLine } from '@/lib/automationResults';
+
+  const line = document.getElementById('ar-entry-line');
+  const entryId = document.body.dataset.entityId || window.location.pathname.split('/').pop();
+  if (line && entryId) {
+    listResults(new URLSearchParams({ entry_id: entryId, limit: '1' }).toString())
+      .then((out) => {
+        const latest = out.items[0];
+        if (!latest) return;
+        const info = entryLine(latest);
+        line.className = `ar-entry-line ${info.tone}`;
+        line.replaceChildren();
+        const dot = Object.assign(document.createElement('span'), { className: 'ar-dot' });
+        dot.setAttribute('aria-hidden', 'true');
+        line.append(dot, Object.assign(document.createElement('span'), { className: 'ar-text', textContent: info.text }));
+        if (info.runUrl) {
+          line.append(Object.assign(document.createElement('a'), { href: info.runUrl, target: '_blank', rel: 'noopener noreferrer', textContent: 'Open the run' }));
+        }
+        line.append(Object.assign(document.createElement('a'), { href: info.href, textContent: 'All results' }));
+        line.hidden = false;
+      })
+      .catch(() => {});
   }
 </script>
