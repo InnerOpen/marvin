@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.21 (2026-10-20)
+
+### Features
+
+- **results**: A hand-off still in flight can be dismissed
+  ([`0a40f93`](https://github.com/InnerOpen/marvin/commit/0a40f938d7eb9c49998c0989e6933f0a3877b63a))
+
+
 ## v1.1.0-rc.20 (2026-10-20)
 
 ### Chores
