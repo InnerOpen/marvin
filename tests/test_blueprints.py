@@ -83,9 +83,14 @@ def test_catalog_advertises_the_rules_people_would_not_find_alone():
 def test_core_ships_only_collections_and_names_nobodys_content():
     """Naming content is the workspace owner's business. Core must not invent entry types, and
     must not hardcode a slug it cannot know — where a rule needs one, it asks via a parameter."""
-    core = list_blueprints(source="core")
+    # The one exception is the Social set (services/blueprints/social.py): core's engagement engine reads and writes those
+    # types itself, so core owns their names. Everything else in the catalog stays generic.
+    core = [b for b in list_blueprints(source="core") if b.category != "Social"]
     assert {b.kind for b in core} == {"collection"}
     assert core, "core catalog should not be empty"
+    social = [b for b in list_blueprints(source="core") if b.category == "Social"]
+    assert {b.slug for b in social if b.kind == "entry_type"} == {"social-auto-reply", "social-reply-log"}
+    assert all(b.required is False for b in social), "core blueprints are suggestions"
 
     for blueprint in core:
         assert not blueprint.requires, f"{blueprint.slug} hardcodes a dependency instead of asking"

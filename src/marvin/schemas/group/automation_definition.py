@@ -377,7 +377,8 @@ class IntegrationAction(_StepBase):
     handoff-${entry.id}) makes the call once: the same key for this action within `idempotency_window_hours` (default 24)
     calls nothing and reuses the first call's output; a failed call doesn't count, so a retry still makes it.
     `capability: "social.post"` posts to social networks and needs an Approval step before it; with no `integration` it
-    posts to every connected network (see the guide's `social` section)."""
+    posts to every connected network (see the guide's `social` section). Engagement (`social.reply`, `social.like`…) names its `integration` and,
+    for reply, message, repost and delete_comment, needs the Approval step too."""
 
     kind: Literal["integration"]
     integration: str | None = None  # the workspace integration's slug; left out only by a capability step, for every integration that can

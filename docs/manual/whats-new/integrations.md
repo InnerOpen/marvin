@@ -210,6 +210,52 @@ A network's plugin (Instagram, a Facebook Page, Bluesky, Mastodon) declares one 
 
 A workflow reaches it with a **Run integration** step naming the capability: `capability: "social.post"` with an `integration` posts to that connection, and without one posts to every enabled connection that offers it, one after another. Unlike other capabilities, whose approval-gated actions are skipped, a `social.post` action is accepted once the run is past a **Wait for approval** step, and never before: posting is public. Recipes can require it with `{"capability": "social.post"}` as a prerequisite. See [Workflows → Post to social networks](workflows.md#post-to-social-networks).
 
+### Social engagement {#social-engagement}
+
+Reading comments and answering them, on every connected network. Private replies are the default (the way Instagram's auto-reply always worked), public replies are allowed, and there is a like, a hide, a delete, a repost and a direct message besides. Like posting, each network's plugin declares the capabilities it has, each on one action (`capability=`), and Marvin does the rest.
+
+**The capabilities** (what a plugin implements; `network` in every output is the plugin's own name):
+
+| Capability | Arguments | Output | Gated |
+| --- | --- | --- | --- |
+| `social.comments` | `since` (the opaque cursor the plugin returned last time), `limit` (50), `kinds` | `items`, `cursor` | no |
+| `social.reply` | `comment_id`, `text`, `private` (default `true`), `dry_run` | `replied`, `reply_id`, `private`, `url`, `network`, and `would_reply` on a dry run | yes |
+| `social.like` | `comment_id` | `liked`, `network` | no |
+| `social.hide` | `comment_id`, `hidden` (default `true`) | `hidden`, `network` | no |
+| `social.delete_comment` | `comment_id` | `deleted`, `network` | yes |
+| `social.repost` | `post_id` | `reposted`, `url`, `network` | yes |
+| `social.message` | `to` (`{id?, handle?}`), `text`, `dry_run` | `sent`, `message_id`, `network` | yes |
+
+`social.comments` returns items oldest to newest: `id` (what the other capabilities take as `comment_id`), `kind` (`comment`, `reply` or `mention`), `post_id`, `post_url`, `author` (`id`, `handle`, `name`), `text`, `created_at` (ISO, UTC), `url`, `network`. A mode a network can't do is refused with the error code `unsupported`. "Gated" means approval-gated: Marvin treats a gated action as `requires_approval` even when the plugin forgot to say so, and a workflow runs it only after a **Wait for approval** step ([Workflows → Answer comments and reach out](workflows.md#social-engagement)).
+
+**Who can do what** (the plan; each plugin says for itself):
+
+| | Read comments | Private reply | Public reply | Like | Hide | Delete | Repost | Message |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Instagram | yes | yes | yes | no | yes | yes | no | only as a reply to a comment |
+| Facebook Page | yes | yes (Messenger, within 7 days) | yes | yes | yes | yes | no | Messenger, within 24 hours of their last message |
+| Mastodon | yes (notifications) | yes (a direct reply) | yes | yes (favourite) | no | own replies only | yes (boost) | yes |
+| Bluesky | yes (notifications) | yes (chat) | yes | yes | yes | own replies only | yes | yes (chat) |
+
+**Auto-reply rules.** Keyword replies run on their own, under rules you keep as entries. Apply the core **Social** blueprints once per workspace: the `social-auto-reply` rule type, the `social-reply-log` type, two collections and the **Social engagement** scheduled task (`POST /api/groups/blueprints/apply` with the slugs `social-auto-reply`, `social-reply-log`, `social-auto-reply-rules`, `social-replies` and `social-engagement`, or `GET /api/groups/blueprints?category=Social`; the integrations page lists a provider's own blueprints only, so core's Social ones have no button yet). Core ships them, not a network's plugin, so one set serves every network. A rule is an entry of type `social-auto-reply` with:
+
+- `keywords`: comma-separated words or phrases (the data may also be a list). A keyword matches as a whole word in any case: "price" matches "What's the PRICE?" but not "priceless"; a phrase such as "how much" works. A rule needs at least one keyword and a reply.
+- `reply`: the text, sent exactly as written. **Publishing the rule is the approval of that text**; drafts never fire.
+- `networks`: empty means any network, else integration slugs or network names (`instagram`, `mastodon`, `b-main`), comma-separated.
+- `post`: empty means any post, else a post id or URL. A rule for the comment's own post beats one for any post; otherwise the rule written first wins. A comment gets one reply, from the first rule that hits.
+- `reply_as`: `private` (the default), `public` or `both` (a private reply and a public one; if the network refuses one half, the other still goes out).
+- `also_like`: also like the comment, where the network can. A like that fails never undoes the reply.
+- `kinds`: which items the rule answers, `comment, reply` by default (answers on your own posts). Add `mention` to also answer people who tag you elsewhere. Mastodon yields `reply` and `mention` (never `comment`); Instagram yields `comment` and `reply`.
+
+**The engine.** The **Social engagement** task (every 5 minutes by default, one per workspace, created disabled) reads, for each enabled integration whose plugin offers `social.comments` and `social.reply`, the items since that integration's stored cursor. It skips the account's own comments (compared by handle and id against the integration's config: `own_username`, `handle`, `page_id`, `ig_user_id`…), comments older than 7 days and comments already answered, matches the published rules, replies in the rule's mode and writes a `social-reply-log` entry: `network`, `integration`, `comment_id`, `rule`, `mode`, `rehearsal`, `reply_id`, `when`, plus the comment, the reply and the keyword. At most 20 replies per run; the rest wait for the next one, and so does a reply that failed for a reason worth retrying (three attempts). A network that refuses (`unsupported`, `refused`) is skipped for that comment, with no retry and no log entry, and noted in the run summary. One network failing never stops the others.
+
+The task's config: `rehearsal` (default `true`), `max_replies` (20), `max_age_days` (7), `limit` (50, items read per network per run).
+
+- **Rehearsal first.** In rehearsal the plugin is called with `dry_run: true` (it sends nothing), the log entry says `rehearsal: true` and the engine only looks. A rehearsal entry never counts as "answered", so when you switch rehearsal off (set `rehearsal` to `false` in the task's config) it still answers what is inside the window. Read the log, then switch it off.
+- **Cursors.** Each integration's read cursors (live and rehearsal, kept apart), its retry queue and last poll time live in the integration's `state` (`state.social`), never shown to the plugin. The cursor is the plugin's own opaque string; one the plugin rejects (`invalid_cursor`) is dropped and the read starts again from the newest items, which the 7-day window and the log keep from being answered twice.
+- **Approval.** A workflow's `social.reply` needs an Approval step; the engine doesn't have one, so a published rule stands in for it, through one narrow door: the engine can call only `social.comments`, `social.reply` and `social.like` (never message, repost or delete); a reply counts as approved only when it comes from a rule that is still published at the moment of sending and the text is that rule's reply, character for character (no templating); and nothing but the engine reaches that path (a workflow step, the API and the plugins can't).
+- **Instagram.** Instagram's `ig-auto-reply` entries are read as rules for network `instagram` (`post_id` is `post`, keywords as written, a private reply) and its `ig-reply-log` entries count as already answered, so switching over answers nothing twice. The plugin's own **Instagram auto-reply** task is left as it is: while it is enabled the engine skips that integration (two senders would answer twice). To hand over, disable the plugin's task, then enable **Social engagement**. Nothing is deleted.
+
 ## API
 
 All routes are workspace-scoped under `/api/groups/integrations` and mounted only when the SDK is installed. Every route needs workspace ADMIN or OWNER (or a platform super admin), reads included, except the provider catalog (`GET /providers`, any member) and logos (public); other members get 403. Before rc.197 any member could create, run and test connections.
@@ -248,6 +294,8 @@ No setting switches integrations on; presence of an installed provider does. Cre
 ## Since
 
 Integrations: 1.0.0-rc.97 (commits 4f8d30e3, 847631de, 3e1603b4, bfad4311, 2c581d2c, 2b71a0c8, 53f896fb, 2026-09-24/25). Workflow integration step and HTTP `put`/`delete`: rc.111. Integration-contributed signature schemes: rc.113. Applying parameterised content from the card, action results and `{{SECRET}}` credentials: rc.114. Editing a connected integration: rc.115. Named User-Agent: rc.119. `INTEGRATION_HTTP_MAX_BYTES`: rc.123. Token-mode signature schemes from integrations: rc.144. `{{SECRET}}` references in action arguments: rc.145. **Admin → Extensions → Plugins** and `GET /api/admin/plugins`: rc.158. HTTP `patch`: rc.182. Core's own Apprise notifier removed in favour of the Apprise integration: rc.189. Integration-owned error handling (error policies, retries, alerts, **How errors are handled**, **Integration alerts**): rc.197; the alert routing moved to Settings → Automation → Notifications and the catalog was grouped by category with migration `cfbbd1cc67e4` (unreleased), migration `c9e2f4a6b8d1`; providers declare policies from `marvin-integration-sdk` 0.5.0. Option pickers for action inputs (`x-marvin-options`, `POST /{integration_id}/options`) and provider logos (`GET /providers/{slug}/logo`, from `marvin-integration-sdk` 0.6.0): rc.197. Integration routes admin-only: rc.197. **Alerts & health** page, its routes and `integrations.last_success_at`: migration `d5b1e8a3c7f2` (unreleased). The n8n provider is a separate package (SDK 0.5); its workflow picker needs rc.197. The Buttondown provider is a separate package; it relies on `${site.url}` (rc.177), `${entry.url}` and `if_none: skip` (rc.179). Recipes and guides from integrations: `marvin-integration-sdk` 0.9.0 with Slack 0.4.0, n8n 0.2.0, Buttondown 0.7.0, Apprise 0.3.0, Square 0.4.0 and Instagram 0.4.0 (2026-10-11).
+
+Social engagement (the `social.comments`, `social.reply`, `social.like`, `social.hide`, `social.delete_comment`, `social.repost` and `social.message` capabilities, the `social-auto-reply` rules, the `social_engagement` task, `integrations.state`, migration `5e1c7a9d3b24`): 2026-10-20.
 
 Note: `docs/archive/INTEGRATIONS_DESIGN.md` and the plugin architecture doc predate the implementation and describe polling that nothing calls; the SDK package is the contract.
 

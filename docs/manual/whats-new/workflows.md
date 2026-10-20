@@ -790,6 +790,34 @@ A **Run integration** step with `capability: "social.post"` posts to Instagram, 
 
 The Workflow Library recipe **Share a published entry everywhere** is this whole shape: entry published, an AI-drafted post, approval, then post to every connected network.
 
+### Answer comments and reach out (social engagement) {#social-engagement}
+
+A **Run integration** step can also read and answer comments on a connected network, with these capabilities (each network's plugin maps them onto its own API; see [Integrations → Social engagement](integrations.md#social-engagement) for what each network can do):
+
+| `capability` | `args` | Output | Approval step first? |
+| --- | --- | --- | --- |
+| `social.comments` | `since` (the `cursor` an earlier read returned), `limit` (50), `kinds` (`comment`, `reply`, `mention`) | `items` (oldest first: `id`, `kind`, `post_id`, `post_url`, `author` {`id`, `handle`, `name`}, `text`, `created_at`, `url`, `network`) and `cursor` | no |
+| `social.reply` | `comment_id` (an item's `id`), `text`, `private` (default `true`: a private reply to the commenter; `false` replies in the thread) | `replied`, `reply_id`, `private`, `url`, `network` | **yes** |
+| `social.like` | `comment_id` | `liked` | no |
+| `social.hide` | `comment_id`, `hidden` (default `true`) | `hidden` | no |
+| `social.delete_comment` | `comment_id` | `deleted` | **yes** |
+| `social.repost` | `post_id` | `reposted`, `url` | **yes** |
+| `social.message` | `to` (`{"id": …}` or `{"handle": …}`), `text` | `sent`, `message_id` | **yes** |
+
+```json
+{"kind": "integration", "id": "read", "integration": "mastodon", "capability": "social.comments", "args": {"limit": 20}},
+{"kind": "approval", "id": "ok", "message": "Reply “${steps.read.output.items[0].text}”?"},
+{"kind": "integration", "integration": "mastodon", "capability": "social.reply",
+ "args": {"comment_id": "${steps.read.output.items[0].id}", "text": "Thanks for asking!", "private": false}}
+```
+
+- **Name the `integration`.** Posting fans out to every connected network; these don't, because a comment id means something to one network only. A step without an `integration` is refused when you save it and at run time.
+- **Approval.** `social.reply`, `social.message`, `social.repost` and `social.delete_comment` need a **Wait for approval** step before them, exactly like `social.post` (refused at save otherwise, and at run time unless the run was resumed after an approval; Marvin treats the action as gated whether or not its plugin says so). `social.comments`, `social.like` and `social.hide` don't: reading is harmless and a like or a hidden comment is easily undone.
+- **Missing arguments** (`comment_id`, `post_id`, `text`, `to`) are refused at save (a template counts as a value) and again, by name, at run time.
+- **Dry run**: `social.reply` and `social.message` are asked what they would send (`dry_run: true` set by the run, never by a typed argument) and send nothing; the others call nothing.
+- A network that can't do what you asked (a private reply on a network without them) refuses with the code `unsupported`, which fails the step like any plugin error.
+- **Automatic keyword replies aren't a workflow.** They are the engagement engine's rules (a published rule is the approval for its text): see [Integrations → Social engagement](integrations.md#social-engagement).
+
 ### Wait for approval
 
 A **Wait for approval** step (`approval`) stops the run until a person decides. The members who may decide — editors and
@@ -955,6 +983,8 @@ Record a metric (`metric`, migration `c4139a718fc6`, the Metrics page and `/api/
 `form_submission_received` as a trigger: v1.0.0-rc.51 (`8f1443d1`). `auth_scheme`: rc.50 (`a65ba7d0`). `entry.summary` and `entry.data.*`: rc.52 (`433e949e`). Response `body`, `set_metadata` and metadata targeting: rc.59 (`1380e92e`). `entity_query`: rc.60 (`65ffb648`). Raw-URL `method` and templated stored URLs: rc.61 (`b88e4035`). Builder fixes: rc.63 (`57956e71`). `set_data`, the integration step, `entry.metadata` and list indexes in paths: rc.111. `entry.image`: rc.119. Full entry context per query row and **Fields equal**: rc.129. Typed values for checkbox and number fields: rc.131. The shared entry query (`where`, `sort`, date filters): rc.138. Unknown `where` ops match nothing, and `run_workflow` runs appear under **Runs**: rc.139. Site build and deploy events from `emit_event`: rc.144. `{{SLUG}}` in integration step args: rc.145. AI limits on operation steps: rc.146. Site events as notification subscriptions: rc.151; as workflow triggers: rc.152. `automation_started` and the shared `execution_id`: rc.165. Dry run against a sample event, with the condition checklist and `GET …/samples`: rc.173. A refused publish fails the entry step with the reason: rc.175. `${site.url}`: rc.177. Each event's subject, a run's trigger (`trigger_entity_*`) and step summaries in `automation_ran` / `automation_failed`, `$event.entity_type` / `$event.entity_id`: rc.178. `if_none: skip` and `${entry.url}`: rc.179. `on_failure`, `request_review` and an integration error's `${error.code}`: rc.193. Integration error policies (`integration_errors`, `handled` / `handling` / `retry_attempt` on run events), a workflow never re-triggering itself, and option pickers in the **Run integration** step: rc.197. A step's `when` (if/else), an operation step's `write_back` field map, custom AI steps (`op: "custom"`), **Create an entry** (`create`) and **Wait for approval** (`approval`, migration `5c2e8a91d4f7`): unreleased (2026-10-11). **Process an image** (`media`), generated images kept as assets, `attach_as`, `asset.derived_from`, the `role` on `asset_attached_to_entry`, and `gt` / `gte` / `lt` / `lte`: unreleased (2026-10-12). **Render a template** (`render`): unreleased (2026-10-12). **Gather items** (`collect`), relative query dates, lists of pictures in a render, and local times across the admin: unreleased (2026-10-12). Linked items in queries (`entries`, `asset`, `resource`, `entry`, `role`, `exclude`, `checksum`, sort `position`), `only_invalid`, `asset.checksum` and **Check a web address** (`fetch`): unreleased (2026-10-12). Step ids and the result key in the editor, dry-run stand-ins for AI answers, and unchanged Set metadata / Set fields saving nothing: unreleased (2026-10-12). Run inputs (`trigger.inputs`, `${input.*}`) and cron in the editor's schedule: unreleased (2026-10-12). `extract_text`, `pages`, `find_sensitive`, `redact` (pypdfium2), `zip` and printed renders (`format: pdf`, the guide template): unreleased (2026-10-12). An integration step's `source` (image edits): unreleased (2026-10-12). `watermark`: unreleased (2026-10-12). **Wait** (`wait`, migration `b7e2c4f9a1d3`): unreleased (2026-10-13). Entry dates in `${entry.*}` and the recipe date picker: unreleased (2026-10-13). `${path|url}`, `attach_to`, comma-separated `entries`, and the One-tap share links, On this day, Audience milestone and Collaborator shout-out recipes (with the entry page's **Share** box): unreleased (2026-10-13). **Repeat for each** (`repeat`, `${each.*}`) with its guided form, an Entry action's **By id** target, and **Edit** opening as JSON when the guided builder can't show a workflow in full: unreleased (2026-10-13). Approvals with `choices` (migration `c9d4e7a2b1f8`), `longer_than` / `shorter_than`, **Cancel** on a waiting run, and the Thumbnail audition, Platform preview checker, Time capsule and Intake triage recipes: unreleased (2026-10-13). **Call a web API** (`request`) and template [filters](#filters) beyond `url`: v1.1.0 (2026-10-19).
 
 Post to social networks (`capability: "social.post"`, every connected network, `per_network`, assets as public URLs; Share a published entry everywhere recipe): 2026-10-19.
+
+Social engagement steps (`social.comments`, `social.reply`, `social.like`, `social.hide`, `social.delete_comment`, `social.repost`, `social.message`; reply, message, repost and delete need an Approval step; the engine's auto-reply rules): 2026-10-20.
 
 ## Related
 

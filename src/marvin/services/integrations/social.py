@@ -18,6 +18,28 @@ Output: ``posted``, ``post_id``, ``url`` (the permalink), ``network`` (e.g. "ins
 
 Posting is public and can't be quietly undone, so a ``social.post`` action only runs after a person approved the run
 (an Approval step earlier in the workflow); Marvin enforces that whether or not the plugin said ``requires_approval``.
+
+Engagement — reading comments and answering them — is six more capabilities, each declared on one plugin action
+(the contract every network's plugin implements; ``network`` in every output is the plugin's own name, e.g. "mastodon"):
+
+    social.comments       read   {since?, limit? = 50, kinds? ["comment","reply","mention"]} → {items, cursor}. ``since`` is the
+                                 opaque cursor the plugin returned last time; items run oldest → newest, each
+                                 {id, kind, post_id, post_url, author: {id, handle, name}, text, created_at (ISO UTC), url, network}.
+                                 An item's ``id`` is the ``comment_id`` every other capability takes.
+    social.reply          gated  {comment_id, text, private: true, dry_run} → {replied, reply_id, private, url, network}
+                                 (+ ``would_reply`` on a dry run). A mode the network can't do is refused with the SDK's
+                                 IntegrationError code ``unsupported``.
+    social.like           —      {comment_id} → {liked, network}
+    social.hide           —      {comment_id, hidden: true} → {hidden, network}
+    social.delete_comment gated  {comment_id} → {deleted, network}
+    social.repost         gated  {post_id} → {reposted, url, network}
+    social.message        gated  {to: {id?, handle?}, text, dry_run} → {sent, message_id, network}
+
+"Gated" is the same rule as ``social.post``: a workflow step runs only after an Approval step (``GATED_CAPABILITIES``,
+whether or not the plugin said ``requires_approval``). ``like`` and ``hide`` are easily undone moderation, so they aren't.
+Posting fans out to every connected network; engagement doesn't — a comment id means something to one network only — so
+a step naming one of these capabilities must also name its ``integration`` (``ENGAGEMENT_CAPABILITIES``). The one
+unattended sender is the engagement engine (``social_engagement.py``), which replies under a published rule.
 """
 
 from __future__ import annotations
@@ -26,12 +48,51 @@ import uuid
 from typing import Any
 
 SOCIAL_POST = "social.post"
+SOCIAL_COMMENTS = "social.comments"
+SOCIAL_REPLY = "social.reply"
+SOCIAL_LIKE = "social.like"
+SOCIAL_HIDE = "social.hide"
+SOCIAL_DELETE_COMMENT = "social.delete_comment"
+SOCIAL_REPOST = "social.repost"
+SOCIAL_MESSAGE = "social.message"
 MAX_IMAGES = 10
+
+ENGAGEMENT_CAPABILITIES = frozenset({SOCIAL_COMMENTS, SOCIAL_REPLY, SOCIAL_LIKE, SOCIAL_HIDE, SOCIAL_DELETE_COMMENT, SOCIAL_REPOST, SOCIAL_MESSAGE})
+"""Capabilities that act on one network's own ids (a comment, a post, an account): a step naming one names its
+``integration`` too — it never fans out to every network the way ``social.post`` does."""
+DRY_RUN_CAPABILITIES = frozenset({SOCIAL_POST, SOCIAL_REPLY, SOCIAL_MESSAGE})
+"""Capabilities whose plugin action takes ``dry_run``: a workflow's dry run asks it what it would send (and nothing is sent)."""
+REQUIRED_ARGS = {
+    SOCIAL_REPLY: ("comment_id", "text"),
+    SOCIAL_LIKE: ("comment_id",),
+    SOCIAL_HIDE: ("comment_id",),
+    SOCIAL_DELETE_COMMENT: ("comment_id",),
+    SOCIAL_REPOST: ("post_id",),
+    SOCIAL_MESSAGE: ("to", "text"),
+}
+"""The arguments each engagement capability can't run without (a step's ``args`` must carry each, as a value or a template)."""
 
 
 class SocialPostError(Exception):
     """A social.post step's arguments can't be sent as they are (a missing asset, a private one, no text). The
     message says what to change."""
+
+
+def engagement_args(capability: str, args: dict, dry_run: bool) -> dict:
+    """An engagement step's arguments as the plugin takes them: the step's own, checked for what the capability needs,
+    with ``dry_run`` set by the run alone for the capabilities that take it (a ``dry_run`` typed into the arguments is
+    ignored, as for ``social.post``). Raises SocialPostError naming what is missing."""
+    missing = [k for k in REQUIRED_ARGS.get(capability, ()) if args.get(k) in (None, "", {}, [])]
+    if missing:
+        raise SocialPostError(f"{capability} needs {', '.join(f'`{k}`' for k in missing)} in its args")
+    if capability == SOCIAL_MESSAGE:
+        to = args.get("to")
+        if not isinstance(to, dict) or not (to.get("id") or to.get("handle")):
+            raise SocialPostError("social.message needs `to` as an object with the person's `id` or `handle`")
+    merged = {k: v for k, v in args.items() if k != "dry_run"}
+    if capability in DRY_RUN_CAPABILITIES:
+        merged["dry_run"] = bool(dry_run)
+    return merged
 
 
 def network_overrides(per_network: Any, *names: str) -> dict:

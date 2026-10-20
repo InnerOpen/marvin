@@ -22,7 +22,7 @@ Each blueprint has a `kind`, a `slug`, `name`, one-line `description`, a `catego
 
 **Parameters.** Core names nobody's content. Where a blueprint needs a slug from the workspace, it asks for it: a `BlueprintParameter` has a `key`, a `label`, a `kind`, `required`, `default` and `help`. `entry_type`, `collection` and `integration` render as dropdowns of what the workspace has and are validated against it; `text` and `number` are free input. An `integration` parameter lists the workspace's connections of the declaring provider and defaults to the connection whose card you are on (through the API: the workspace's only connection of that provider). `{{key}}` placeholders are substituted through slug, name, description and payload, so `all-{{entry_type}}` applies once per type. A lone `{{key}}` yields the value itself rather than a string.
 
-**Core catalog** (`src/marvin/services/blueprints/catalog.py`), collections only, all smart:
+**Core catalog** (`src/marvin/services/blueprints/catalog.py`): smart collections, and the Social set below.
 
 | Slug | Category | Rule it demonstrates |
 | --- | --- | --- |
@@ -32,6 +32,8 @@ Each blueprint has a `kind`, a `slug`, `name`, one-line `description`, a `catego
 | `published-{{entry_type}}` | Editorial | `entry_types` + `statuses` (asks which type) |
 | `all-images` | Media | `target_type: asset`, `asset_types: [image]` |
 | `vector-artwork` | Media | `target_type: asset`, `mime_types: [image/svg+xml]` |
+
+**Social** (category Social, `src/marvin/services/blueprints/social.py`) is the one set core owns the content names for, because core's social engagement engine reads and writes them: the entry types `social-auto-reply` and `social-reply-log`, the smart collections `social-auto-reply-rules` and `social-replies`, and the scheduled task `social-engagement` (every 5 minutes, created disabled and in rehearsal). See [Integrations → Social engagement](integrations.md#social-engagement).
 
 Status buckets are deliberately absent: every workspace already gets the locked inbox/drafts/needs-review/approved/published/archive collections.
 

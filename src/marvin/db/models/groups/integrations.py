@@ -46,6 +46,10 @@ class IntegrationModel(SqlAlchemyBase, BaseMixins):
     config: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     """Non-secret instance settings; shape validated by the provider's config_schema."""
 
+    state: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
+    """Marvin's own bookkeeping for this connection, never shown to or passed to the provider: the social engagement
+    engine keeps its read cursors and retry queue here (``state["social"]``, services/integrations/social_engagement.py)."""
+
     secret_ref: Mapped[str | None] = mapped_column(String, nullable=True)
     """Slug the secret backend resolves for this instance's credential."""
 

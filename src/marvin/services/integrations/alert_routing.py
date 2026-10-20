@@ -10,12 +10,13 @@ inputs — a channel, a priority — are the route's arguments.
 
 from dataclasses import dataclass, field
 
-from .social import SOCIAL_POST
+from .social import SOCIAL_DELETE_COMMENT, SOCIAL_MESSAGE, SOCIAL_POST, SOCIAL_REPLY, SOCIAL_REPOST
 
 MESSAGE_CAPABILITY = "notify"
 """The capability (and provider category) that says "this sends a message / notification"."""
-GATED_CAPABILITIES = frozenset({SOCIAL_POST})
-"""Capabilities that publish publicly, so their actions always need a person's approval. Capability routing (a step that
+GATED_CAPABILITIES = frozenset({SOCIAL_POST, SOCIAL_REPLY, SOCIAL_MESSAGE, SOCIAL_REPOST, SOCIAL_DELETE_COMMENT})
+"""Capabilities that speak or destroy in public (post, reply, message, repost, delete a comment), so their actions always
+need a person's approval. Capability routing (a step that
 names the capability) skips an approval-gated action — nobody is there to approve an unattended run — except for these,
 which it accepts once the run is past an Approval step (``approved``). Marvin treats every action declaring one as gated,
 whether or not the plugin said ``requires_approval``."""
@@ -72,8 +73,8 @@ def message_actions(provider) -> list[MessageAction]:
 
 def capabilities_of(provider) -> set[str]:
     """The capabilities a provider offers to unattended callers (a workflow step): those its actions declare — an
-    approval-gated action's only for a capability that is gated by design (``social.post``, usable after an Approval
-    step) — and ``notify`` when it has a message action: what a recipe's ``{"capability": …}`` prerequisite is matched against."""
+    approval-gated action's only for a capability that is gated by design (``social.post`` and the engagement ones, usable after
+    an Approval step) — and ``notify`` when it has a message action: what a recipe's ``{"capability": …}`` prerequisite is matched against."""
     found = {
         a.capability
         for a in getattr(provider, "actions", ()) or ()

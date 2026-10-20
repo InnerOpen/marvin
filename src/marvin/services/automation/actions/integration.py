@@ -20,6 +20,13 @@ network: integration, network, posted, url, post_id, error), `posted_count`, `fa
 the others; the step fails at the end when any failed, unless `fail_on_error: false`. A dry run asks each plugin what it
 would post (`dry_run: true` in its arguments) and sends nothing.
 
+The engagement capabilities (`social.comments`, `social.reply`, `social.like`, `social.hide`, `social.delete_comment`,
+`social.repost`, `social.message`; services/integrations/social.py) act on one network's own ids, so they never fan out:
+the step names its `integration` (a missing one is refused at save and here). `social.reply`, `social.message`,
+`social.repost` and `social.delete_comment` need an Approval step before them, like `social.post`; `social.comments`,
+`social.like` and `social.hide` don't. `social.reply` and `social.message` take `dry_run` from the run, as `social.post`
+does. The one unattended sender is the engagement engine (services/integrations/social_engagement.py), not a step.
+
 A provider failure is raised as :class:`IntegrationStepError`, carrying the provider's error code and
 its resolved error policy, which the engine applies (`services/integrations/errors.py`): review, retry,
 notify, or carry on.
@@ -68,6 +75,12 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
 
     if not INTEGRATIONS_AVAILABLE:
         raise AutomationActionError("integrations are not available on this install (SDK not installed)")
+    from marvin.services.integrations.social import ENGAGEMENT_CAPABILITIES
+
+    if not slug and capability in ENGAGEMENT_CAPABILITIES:
+        raise AutomationActionError(
+            f"'{capability}' acts on one network's own comment or post: name its `integration` (it never runs on every network)"
+        )
 
     from marvin.db.models.groups.integrations import IntegrationModel
 
@@ -84,7 +97,7 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
 def _run_on(session, group_id, row, action: dict, context: dict, *, user_id, dry_run) -> dict:
     """The step's action on one integration (a row of this workspace, enabled): its output."""
     from marvin.services.integrations import get_provider
-    from marvin.services.integrations.social import SOCIAL_POST
+    from marvin.services.integrations.social import DRY_RUN_CAPABILITIES, ENGAGEMENT_CAPABILITIES, SOCIAL_POST
 
     slug, key, capability = row.slug, action.get("action"), action.get("capability")
     try:
@@ -107,9 +120,13 @@ def _run_on(session, group_id, row, action: dict, context: dict, *, user_id, dry
                 )
             raise AutomationActionError(f"'{slug}' ({row.provider}) can't {capability}: it has no action for that")
         key, args = found
-    social = capability == SOCIAL_POST and not action.get("action")  # a step that names the action passes that action's own arguments
+    by_capability = not action.get("action")  # a step that names the action passes that action's own arguments
+    social = capability == SOCIAL_POST and by_capability
+    engagement = capability in ENGAGEMENT_CAPABILITIES and by_capability
     if social:
         args = _social_args(session, group_id, row, action, args, context, dry_run)
+    elif engagement:
+        args = _engagement_args(row, capability, args, dry_run)
 
     declared = _declared_action(provider, key)
     if declared is None:
@@ -138,9 +155,9 @@ def _run_on(session, group_id, row, action: dict, context: dict, *, user_id, dry
             preview["keeps_images_as_assets"] = True
             if action.get("attach_as"):
                 preview["attach_as"] = interpolate(action["attach_as"], context)
-        if social and (gate is None or not gate.duplicate):
-            # A social post: the plugin is asked what it would post (args.dry_run; it sends nothing) so the preview shows
-            # its answer — and its refusal, e.g. a text too long for the network.
+        if (social or (engagement and capability in DRY_RUN_CAPABILITIES)) and (gate is None or not gate.duplicate):
+            # A social post (or reply, or message): the plugin is asked what it would send (args.dry_run; it sends nothing)
+            # so the preview shows its answer — and its refusal, e.g. a text too long for the network.
             answer = _call_provider(session, group_id, row, provider, key, args, src, keeps_images, action, context, user_id, dry_run=True)
             preview = {**answer, **preview}
         if gate is None:
@@ -168,6 +185,16 @@ def _social_args(session, group_id, row, action: dict, args: dict, context: dict
     except SocialPostError as e:
         raise AutomationActionError(f"{row.slug}: {e}") from e
     return {**merged, "dry_run": bool(dry_run)}
+
+
+def _engagement_args(row, capability: str, args: dict, dry_run: bool) -> dict:
+    """A social engagement call's arguments: the step's, checked for what the capability needs, `dry_run` set by the run alone."""
+    from marvin.services.integrations.social import SocialPostError, engagement_args
+
+    try:
+        return engagement_args(capability, args, dry_run)
+    except SocialPostError as e:
+        raise AutomationActionError(f"{row.slug}: {e}") from e
 
 
 def _fan_out(session, group_id, action: dict, context: dict, *, user_id, dry_run) -> dict:

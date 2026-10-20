@@ -64,7 +64,7 @@ SECTION_GUIDE: dict[str, str] = {
     ),
     "email": "the email step in full: who it may write to, sending once, links by role, what a dry run shows · when a step writes to a member",
     "records": "the metric, snapshot and schema_check steps in full · when counting, keeping versions or checking JSON",
-    "social": "social.post: posting to networks, approval, per_network · when posting to social media",
+    "social": "social.post and the engagement capabilities (comments, reply, like, hide, delete, repost, message) · when posting or answering",
     "templates": (
         "the ${…} names a step can read (event, entry, asset, steps, input, member…) and how they resolve · when a step reads the "
         "entry or an earlier step"
@@ -523,7 +523,16 @@ SOCIAL_NOTE = (
     "where it hasn't. Name an `integration` to post to that one only. per_network overrides args for one network, keyed by "
     'the integration\'s slug or its network\'s name — {"bluesky": {"text": "${entry.title|truncate:280}"}} — because each '
     "network has its own limit (a network refuses a post that is too long or lacks a picture it needs, naming why; a dry "
-    "run shows each one's answer and sends nothing)."
+    "run shows each one's answer and sends nothing). "
+    "Engagement — answering comments — is more capabilities, each on ONE network, so the step must name its `integration` "
+    "(never every network): social.comments (args since = the cursor it returned last time, limit, kinds; output items "
+    "[{id, kind, post_id, post_url, author {id, handle, name}, text, created_at, url, network}] oldest first, and cursor), "
+    "social.reply (comment_id = an item's id, text, private: true by default — a private reply to the commenter, false "
+    "replies in the thread; a network that can't do the mode refuses with `unsupported`; output replied, reply_id, url), "
+    "social.like (comment_id), social.hide (comment_id, hidden), social.delete_comment (comment_id), social.repost "
+    "(post_id), social.message (to {id or handle}, text). reply, message, repost and delete_comment need an Approval step "
+    "before them like a post does; comments, like and hide don't. Automatic keyword replies are not a workflow: they are "
+    "the engagement engine's social-auto-reply rules (the Social engagement section of the integrations manual)."
 )
 SCHEMA_CHECK_NOTE = (
     "schema_check holds a JSON document against a JSON Schema: document: ${steps.page.output.json} (a fetch step's parsed "
@@ -1009,6 +1018,7 @@ def _step_issues(
         row = next((i for i in refs.integrations if i["slug"] == slug), None)
         if not slug and capability and not key:
             _every_integration_issues(capability, refs, bad, after_approval)
+            _engagement_args_issues(step, capability, bad)
         elif row is None:
             bad("integration", f"No integration “{slug}” here. Integrations: {_close(str(slug), [i['slug'] for i in refs.integrations])}.")
         elif not key and capability:
@@ -1017,6 +1027,7 @@ def _step_issues(
                 bad("capability", f"“{slug}” can't {capability}. Integrations that can: {able}.")
             else:
                 _gated_capability_issue(capability, after_approval, bad)
+                _engagement_args_issues(step, capability, bad)
         elif row["actions"] is not None and key not in {a["action"] for a in row["actions"]}:
             actions = ", ".join(a["action"] for a in row["actions"]) or "(none)"
             bad("action", f"“{slug}” has no action “{key}” a workflow can run. Actions: {actions}.")
@@ -1038,19 +1049,46 @@ def _step_issues(
 
 
 def _gated_capability_issue(capability: str, after_approval: bool, bad) -> None:
-    """A capability that publishes publicly (social.post) runs only once a person approved the run: an Approval step before it."""
+    """A capability that speaks or destroys in public (social.post, .reply, .message, .repost, .delete_comment) runs only
+    once a person approved the run: an Approval step before it."""
     from marvin.services.integrations.alert_routing import GATED_CAPABILITIES
+    from marvin.services.integrations.social import SOCIAL_DELETE_COMMENT, SOCIAL_MESSAGE, SOCIAL_REPLY, SOCIAL_REPOST
 
     if capability in GATED_CAPABILITIES and not after_approval:
-        bad("capability", f"“{capability}” posts publicly and needs a person's approval: put an Approval step before it (it runs once approved).")
+        does = {
+            SOCIAL_REPLY: "replies to a comment",
+            SOCIAL_MESSAGE: "sends a message",
+            SOCIAL_REPOST: "reposts",
+            SOCIAL_DELETE_COMMENT: "deletes a comment (it can't be undone)",
+        }.get(capability, "posts publicly")
+        bad("capability", f"“{capability}” {does} and needs a person's approval: put an Approval step before it (it runs once approved).")
+
+
+def _engagement_args_issues(step: dict, capability: str, bad) -> None:
+    """A social engagement capability acts on one network's own comment or post: it names its `integration` (it never runs
+    on every network) and carries the arguments it can't run without, as values or templates."""
+    from marvin.services.integrations.social import ENGAGEMENT_CAPABILITIES, REQUIRED_ARGS
+
+    if capability not in ENGAGEMENT_CAPABILITIES:
+        return
+    if not step.get("integration"):
+        bad(
+            "integration", f"“{capability}” acts on one network's own comment or post, so it needs an `integration` (it never runs on every network)."
+        )
+    args = step.get("args") if isinstance(step.get("args"), dict) else {}
+    if missing := [k for k in REQUIRED_ARGS.get(capability, ()) if args.get(k) in (None, "", {}, [])]:
+        bad("args", f"“{capability}” needs {', '.join(missing)} in args (a value, or a template such as ${{steps.read.output.items[0].id}}).")
 
 
 def _every_integration_issues(capability: str, refs: WorkspaceRefs, bad, after_approval: bool) -> None:
     """A capability step with no `integration` runs on every connected integration that offers it: at least one must, and a
-    gated capability needs its Approval step."""
+    gated capability needs its Approval step. (An engagement capability never fans out: its step is refused for that
+    by `_engagement_args_issues`, not for having no integration that can.)"""
+    from marvin.services.integrations.social import ENGAGEMENT_CAPABILITIES
+
     able = [i for i in refs.integrations if i.get("enabled") and capability in (i.get("capabilities") or [])]
     known = all(i.get("capabilities") is not None for i in refs.integrations)
-    if not able and known:
+    if not able and known and capability not in ENGAGEMENT_CAPABILITIES:
         bad("capability", f"No connected integration can {capability} (Settings → Integrations): connect one, or name an `integration`.")
     _gated_capability_issue(capability, after_approval, bad)
 

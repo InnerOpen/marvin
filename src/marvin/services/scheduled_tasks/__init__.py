@@ -19,6 +19,7 @@ from .handlers import (  # noqa: F401  — imported for handler registration sid
     media,
     oauth,
     publishing,
+    social,
     storage,
 )
 
