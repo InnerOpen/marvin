@@ -11,6 +11,7 @@ import type { Blueprint } from "@/lib/api/blueprints";
 import { listBlueprints } from "@/lib/api/blueprints";
 import { getWorkflowLibrary } from "@/lib/api/workflowLibrary";
 import { type Recipe, recipeHref } from "@/lib/workflowLibrary";
+import { missingSlugs, socialSet, socialTask, taskState } from "@/lib/socialEngagement";
 import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -53,6 +54,18 @@ try {
 } catch (e) {
   console.error("[integrations] could not load entry types / collections for parameter pickers:", e);
 }
+
+// Core's "Social engagement" set (the auto-reply rule and log types, their collections, the engine's task): not a
+// provider's, so no connection's card carries it. Applied from its own card below; the task's state comes from the tasks list.
+const socialBlueprints = socialSet(blueprints);
+const socialMissing = missingSlugs(socialBlueprints);
+let socialTaskRow: ReturnType<typeof socialTask>;
+try {
+  socialTaskRow = socialTask(items(await fetchApi<any>("/api/platform/scheduled-tasks", {}, authToken)));
+} catch (e) {
+  console.error("[integrations] could not load the scheduled tasks for the Social engagement card:", e);
+}
+const socialState = socialTaskRow ? taskState(socialTaskRow) : null;
 
 const recipesByProvider = new Map<string, Recipe[]>();
 for (const r of (await libraryRequest)?.recipes ?? []) {
@@ -447,6 +460,52 @@ function statusMeta(status: string): { text: string; cls: string } {
       </div>
     )}
   </section>
+
+  <!-- Social engagement (core's own blueprint set) -->
+  {socialBlueprints.length > 0 && (
+    <section class="block" id="social-engagement">
+      <h3 class="block-title">Social engagement</h3>
+      <p class="hint">
+        Reads new comments, replies and mentions on every connected network that offers them: answers keyword matches under
+        published rules, and starts workflows on <code>social_comment_received</code>.
+      </p>
+      <details class="needs" open={socialMissing.length > 0}>
+        <summary>
+          Content
+          <span class={`badge ${socialMissing.length ? "warn" : "ok"}`}>
+            {socialMissing.length ? `${socialMissing.length} missing` : "set up"}
+          </span>
+        </summary>
+        <ul>
+          {socialBlueprints.map((b) => (
+            <li class={b.applied ? "is-there" : "is-missing"}>
+              <span class="tick">{b.applied ? "✓" : "○"}</span>
+              <span class="needs-name">{b.name}</span>
+              <span class="needs-kind">{KIND_NOUN[b.kind] ?? b.kind}</span>
+              <span class="needs-desc">{b.description}</span>
+            </li>
+          ))}
+        </ul>
+        {socialMissing.length > 0 && (
+          <button type="button" class="button small js-apply-social" data-slugs={JSON.stringify(socialMissing)}>
+            Set up
+          </button>
+        )}
+        {socialState && (
+          <p class="needs-note social-task">
+            The task is <strong>{socialState.label}</strong>
+            {socialState.announce ? "" : "; workflows are not told about new comments (announce is off)"}.
+            <a href={socialState.href}>Open it in Scheduled tasks</a>
+          </p>
+        )}
+        <p class="needs-note">
+          It starts switched off and in rehearsal: nothing is sent, and the log shows what would be. Enable the task to read
+          comments (and so to start workflows); set rehearsal to false on it to send replies. Instagram's own auto-reply
+          task must be turned off before the shared one handles Instagram.
+        </p>
+      </details>
+    </section>
+  )}
 
   <!-- Catalog -->
   <section class="block">
@@ -1049,6 +1108,37 @@ function statusMeta(status: string): { text: string; cls: string } {
       }
     });
   });
+
+  // "Social engagement" — apply core's Social blueprint set (what is missing; nothing existing is overwritten).
+  document.querySelectorAll<HTMLButtonElement>("button.js-apply-social").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const slugs: string[] = JSON.parse(button.dataset.slugs || "[]");
+      if (slugs.length === 0) return;
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = "Setting up…";
+      try {
+        const results = await applyBlueprints(slugs, undefined, "core");
+        const created = results.filter((r) => r.created).length;
+        const skipped = results.filter((r) => !r.created);
+        toast(
+          created === results.length
+            ? `Set up ${created} ${created === 1 ? "item" : "items"}. The task is switched off and in rehearsal.`
+            : `Set up ${created} of ${results.length}. ${skipped.map((r) => `${r.slug}: ${r.detail}`).join("; ")}`,
+          created > 0,
+        );
+        if (created > 0) setTimeout(reload, 900);
+        else {
+          button.disabled = false;
+          button.textContent = original;
+        }
+      } catch (e) {
+        toast(e instanceof Error ? e.message : String(e), false);
+        button.disabled = false;
+        button.textContent = original;
+      }
+    });
+  });
 </script>
 
 <style>
@@ -1057,6 +1147,8 @@ function statusMeta(status: string): { text: string; cls: string } {
   .needs li.is-outdated .tick { color: var(--mv-accent, #2563eb); }
   .needs li > .js-update-blueprint,
   .needs li > .js-apply-needs { grid-column: -2; grid-row: 1; justify-self: end; align-self: center; }
+  .social-task a { margin-left: 6px; color: var(--accent); }
+  .needs > .js-apply-social { margin: 4px 0 8px; }
   .needs-params { display: flex; flex-wrap: wrap; gap: 6px 14px; grid-column: 2 / -2; grid-row: 2; }
   .needs-params label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
   .needs-params .input.tiny { padding: 3px 6px; font-size: 12px; min-width: 12ch; max-width: 24ch; }
