@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.8 (2026-10-20)
+
+### Features
+
+- **social**: The Social inbox
+  ([`f114f40`](https://github.com/InnerOpen/marvin/commit/f114f404f03010347be8d61697eb437ae326d4f1))
+
+
 ## v1.1.0-rc.7 (2026-10-20)
 
 ### Features
