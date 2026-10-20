@@ -1,6 +1,6 @@
 """remove the Instagram plugin's old auto-reply leftovers (a data migration; there is nothing to undo)
 
-Jared's decision (2026-10-21): the Instagram plugin's own auto-reply (``ig-auto-reply`` rules, ``ig-reply-log`` entries, the
+Jared's decision (2026-10-20): the Instagram plugin's own auto-reply (``ig-auto-reply`` rules, ``ig-reply-log`` entries, the
 "Social — Auto-Responses" and "Social — Sent" collections, the ``instagram-auto-reply`` scheduled task) is replaced by Social
 in Marvin, nothing of it is live, and core no longer reads any of it. For every workspace that has them, this removes exactly:
 
