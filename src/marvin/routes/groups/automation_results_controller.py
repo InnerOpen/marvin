@@ -75,7 +75,7 @@ class AutomationResultsController(BaseUserController):
         connection: str | None = Query(None, description="One connection, by its slug."),
         entry_id: UUID4 | None = Query(None, description="One entry's results (the entry editor's line)."),
         q: str | None = Query(None, max_length=200, description="Text to find in the target, message, run id, entry title or connection."),
-        include_dismissed: bool = Query(True, description="False leaves out failures a person dismissed."),
+        include_dismissed: bool = Query(True, description="False leaves out hand-offs a person dismissed."),
         limit: int = Query(50, ge=1, le=200),
         offset: int = Query(0, ge=0),
     ):

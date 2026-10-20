@@ -589,15 +589,37 @@ def test_dismissing_a_failure_stops_it_counting_as_needing_attention_and_is_kept
     assert client.post(f"{API}/{row.id}/dismiss").status_code == 200  # again: nothing more to do
 
 
-@pytest.mark.parametrize("word", ["success", "waiting"])
-def test_only_a_failed_result_can_be_dismissed(flow, word):
+def test_a_succeeded_hand_off_has_nothing_to_dismiss(flow):
     _publish(flow)
-    _report(flow, word, integration="hooks", remote_id="run-1")
+    _report(flow, "success", integration="hooks", remote_id="run-1")
     (row,) = _rows(flow)
 
     res = _client(flow).post(f"{API}/{row.id}/dismiss")
 
-    assert res.status_code == 409 and "failed" in res.json()["detail"]
+    assert res.status_code == 409 and "in flight" in res.json()["detail"]
+
+
+def test_a_hand_off_nobody_expects_a_reply_to_is_dismissed_out_of_in_flight_and_no_reply_and_a_late_reply_still_settles_it(flow):
+    _publish(flow)
+    _publish(flow, flow.b)
+    late, fresh = _rows(flow)
+    _sent(flow, late, hours=30)  # No reply
+    client = _client(flow)
+    assert results.attention(flow.session, flow.gid) == (0, 1)
+
+    assert client.post(f"{API}/{late.id}/dismiss").status_code == 200
+    assert client.post(f"{API}/{fresh.id}/dismiss").json()["result"]["dismissed"] is True
+
+    summary = client.get(f"{API}/summary").json()
+    assert (summary["inFlight"], summary["noReply"], summary["attention"]) == (0, 0, 0)
+    assert results.attention(flow.session, flow.gid) == (0, 0)
+    assert client.get(API, params={"status": "no_reply"}).json()["total"] == 0
+    assert client.get(API, params={"status": "in_flight"}).json()["total"] == 0
+    assert client.get(API).json()["total"] == 2  # still listed, marked dismissed
+    assert client.get(API, params={"include_dismissed": "false"}).json()["total"] == 0
+
+    settled = _report(flow, "success", integration="hooks", remote_id=fresh.remote_id)  # the reply came after all
+    assert (settled["status"], settled["matched"]) == ("succeeded", "remote_id")
 
 
 # ── retry ───────────────────────────────────────────────────────────────────────────────────────────────────────

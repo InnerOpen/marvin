@@ -90,9 +90,10 @@ const BADGES: Record<ResultState, Badge> = {
   succeeded: { label: "Succeeded", tone: "good", title: "Finished" },
 };
 
-/** The status badge: In flight, No reply, Failed (Dismissed once a person dealt with it) or Succeeded. */
+/** The status badge: In flight, No reply, Failed or Succeeded; Dismissed once a person dealt with a failure or stopped waiting for a reply. */
 export function stateBadge(item: Pick<ResultItem, "status" | "noReply" | "dismissed">): Badge {
-  if (item.status === "failed" && item.dismissed) return { label: "Dismissed", tone: "muted", title: "A failure someone dealt with" };
+  if (item.dismissed && item.status === "failed") return { label: "Dismissed", tone: "muted", title: "A failure someone dealt with" };
+  if (item.dismissed && item.status === "in_flight") return { label: "Dismissed", tone: "muted", title: "Nobody is waiting for a reply to it any more" };
   return BADGES[stateOf(item)];
 }
 
@@ -134,6 +135,7 @@ export interface Row {
 }
 
 const WAITING_TEXT = "Waiting to hear back";
+const NOT_WAITING_TEXT = "Dismissed: not waiting for a reply";
 
 /** One compact row: the entry, the connection and target, the message (or where it stands), when, and the status badge. */
 export function resultRow(item: ResultItem): Row {
@@ -145,7 +147,7 @@ export function resultRow(item: ResultItem): Row {
     connection: item.connection?.name ?? "",
     provider: item.connection?.provider ?? "",
     target: (item.target ?? "").trim(),
-    text: message ? excerpt(message, 140) : state === "in_flight" || state === "no_reply" ? WAITING_TEXT : "",
+    text: message ? excerpt(message, 140) : item.dismissed && item.status === "in_flight" ? NOT_WAITING_TEXT : state === "in_flight" || state === "no_reply" ? WAITING_TEXT : "",
     at: item.finishedAt || item.sentAt,
     badge: stateBadge(item),
     unread: (state === "failed" && !item.dismissed) || state === "no_reply",
@@ -188,7 +190,8 @@ export interface ActionButton {
 }
 
 /** The buttons for one result, for a caller who may act (the summary's `can.act`, ADMIN and above): Retry on a failure that names the
- *  workflow step and entry that made it (`canRetry`), and Dismiss on a failure nobody dismissed yet. None for anyone else. */
+ *  workflow step and entry that made it (`canRetry`), and Dismiss on a failure or a hand-off still in flight that nobody dismissed yet
+ *  (a reply that will never come). None for anyone else. */
 export function actionButtons(item: Pick<ResultItem, "status" | "dismissed" | "canRetry">, can: ResultsSummary["can"] | undefined): ActionButton[] {
   if (can?.act !== true) return [];
   const buttons: ActionButton[] = [];
@@ -196,6 +199,7 @@ export function actionButtons(item: Pick<ResultItem, "status" | "dismissed" | "c
     buttons.push({ key: "retry", label: "Retry", hint: "Runs the workflow's hand-off step again for this entry" });
   }
   if (item.status === "failed" && !item.dismissed) buttons.push({ key: "dismiss", label: "Dismiss", hint: "Dealt with: it stops counting as needing attention" });
+  if (item.status === "in_flight" && !item.dismissed) buttons.push({ key: "dismiss", label: "Dismiss", hint: "Not waiting for a reply: it stops counting as in flight or No reply" });
   return buttons;
 }
 

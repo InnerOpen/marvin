@@ -30,12 +30,12 @@ The other side reports back however it can (typically a call to an [incoming web
 
 The page and its entry in the Automation tab appear only once a result exists. Until then there is nothing to show, and nothing in the way.
 
-- **Status** tiles: **In flight**, **No reply**, **Failed**, **Succeeded**, each with a count; tap one to filter. The count of failures leaves out the ones you dismissed.
+- **Status** tiles: **In flight**, **No reply**, **Failed**, **Succeeded**, each with a count; tap one to filter. The counts leave out the ones you dismissed.
 - **Connection** and **search** (the entry, the target, the message, the run id).
 - A row is compact on every screen: the entry, the connection with its logo, what was asked, a status badge, when, and the message. **Tap a row** to open it.
 - An open result has **Open entry**, **Open the run** (the link on the other side, when the connection gave one), and, for admins:
     - **Retry** repeats the hand-off. See [Retry](#retry).
-    - **Dismiss** marks a failure as dealt with, so it stops counting as needing a look (the record stays until it is pruned). Only a failed result can be dismissed.
+    - **Dismiss** marks a failure as dealt with, or a hand-off still in flight as one you no longer expect a reply to (a reply that can never match it, a run cancelled on the other side). It stops counting as failed, in flight or No reply and reads *Dismissed*; the record stays until it is pruned. A late reply still settles it, and a failure reported again asks for a look again. A succeeded result has nothing to dismiss.
 
 Editors and above can read the page. Retry and Dismiss are for **admins** and above, because a retry calls the other system with the workspace's credentials.
 
@@ -60,7 +60,7 @@ Marvin refuses a Retry it cannot do honestly, and says why:
 
 ## Retention {#retention}
 
-A daily system task, `prune_automation_results`, keeps the table small: a **succeeded** result (or a failure you dismissed) goes **30 days** after it finished; one still **in flight**, or **failed and not dismissed**, goes after **180 days**, so it keeps asking for a look. `retention_days` on the task changes the 30 (`<= 0` keeps everything). See [Scheduled tasks](scheduled-tasks.md) and [Operations → Retention](../operations.md).
+A daily system task, `prune_automation_results`, keeps the table small: a **succeeded** result (or one you dismissed) goes **30 days** after it finished; one still **in flight** or **failed** that nobody dismissed goes after **180 days**, so it keeps asking for a look. `retention_days` on the task changes the 30 (`<= 0` keeps everything). See [Scheduled tasks](scheduled-tasks.md) and [Operations → Retention](../operations.md).
 
 ## API {#api}
 
@@ -72,7 +72,7 @@ A daily system task, `prune_automation_results`, keeps the table small: a **succ
 | `GET /` | the results, newest first; `status` (one or more of `in_flight`, `no_reply`, `failed`, `succeeded`), `connection` (slug), `entry_id`, `q`, `include_dismissed`, `limit`, `offset`; also `counts` and the `connections` that have results |
 | `GET /{id}` | one result |
 | `POST /{id}/retry` | admin; `409` with the reason when it cannot be repeated |
-| `POST /{id}/dismiss` | admin; `409` unless the result failed |
+| `POST /{id}/dismiss` | admin; `409` for a succeeded result (a failed or in-flight one can be dismissed) |
 
 ## When n8n was the first
 

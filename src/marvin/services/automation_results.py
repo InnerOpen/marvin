@@ -86,8 +86,8 @@ def _uuid(value):
 
 
 def is_no_reply(row: Result, now: datetime | None = None) -> bool:
-    """In flight, and sent more than ``NO_REPLY_AFTER`` ago."""
-    return row.status == IN_FLIGHT and _aware(row.sent_at) < (now or _now()) - NO_REPLY_AFTER
+    """In flight, sent more than ``NO_REPLY_AFTER`` ago, and still waited for (not dismissed)."""
+    return row.status == IN_FLIGHT and row.dismissed_at is None and _aware(row.sent_at) < (now or _now()) - NO_REPLY_AFTER
 
 
 def needs_attention(row: Result, now: datetime | None = None) -> bool:
@@ -289,8 +289,9 @@ def summary(session, group_id) -> dict:
     its tab are drawn only then); ``in_flight`` excludes No reply; ``failed`` excludes dismissed ones; ``attention`` = failed + no reply."""
     now = _now()
     cutoff = now - NO_REPLY_AFTER
-    flight = func.sum(sa.case((sa.and_(Result.status == IN_FLIGHT, Result.sent_at >= cutoff), 1), else_=0))
-    late = func.sum(sa.case((sa.and_(Result.status == IN_FLIGHT, Result.sent_at < cutoff), 1), else_=0))
+    waiting = sa.and_(Result.status == IN_FLIGHT, Result.dismissed_at.is_(None))  # a dismissed one is no longer waited for
+    flight = func.sum(sa.case((sa.and_(waiting, Result.sent_at >= cutoff), 1), else_=0))
+    late = func.sum(sa.case((sa.and_(waiting, Result.sent_at < cutoff), 1), else_=0))
     failed = func.sum(sa.case((sa.and_(Result.status == FAILED, Result.dismissed_at.is_(None)), 1), else_=0))
     done = func.sum(sa.case((Result.status == SUCCEEDED, 1), else_=0))
     total, in_flight, no_reply, failed_n, succeeded = (
@@ -341,7 +342,7 @@ def query(
     if entry_id is not None:
         q = q.filter(Result.entry_id == entry_id)
     if not include_dismissed:
-        q = q.filter(sa.or_(Result.dismissed_at.is_(None), Result.status != FAILED))
+        q = q.filter(Result.dismissed_at.is_(None))
     if text and text.strip():
         return _search(session, q, text.strip(), limit, offset)
     total = q.count()
@@ -355,9 +356,9 @@ def _filtered(q, states: list[str] | None, now: datetime):
     clauses = []
     for state in dict.fromkeys(states):
         if state == "no_reply":
-            clauses.append(sa.and_(Result.status == IN_FLIGHT, Result.sent_at < cutoff))
+            clauses.append(sa.and_(Result.status == IN_FLIGHT, Result.dismissed_at.is_(None), Result.sent_at < cutoff))
         elif state == "in_flight":
-            clauses.append(sa.and_(Result.status == IN_FLIGHT, Result.sent_at >= cutoff))
+            clauses.append(sa.and_(Result.status == IN_FLIGHT, Result.dismissed_at.is_(None), Result.sent_at >= cutoff))
         else:
             clauses.append(Result.status == state)
     return q.filter(sa.or_(*clauses))
@@ -439,9 +440,11 @@ def can_retry(row: Result) -> bool:
 
 
 def dismiss(session, row: Result, user_id) -> Result:
-    """Mark a failure dealt with: it stops asking for attention. Only a failed result can be dismissed."""
-    if row.status != FAILED:
-        raise ResultError("Only a failed hand-off can be dismissed.")
+    """Mark a hand-off dealt with: a failure, or one still in flight that nobody expects a reply to any more (a reply that can never
+    match it, a run cancelled on the other side). It stops counting as failed, in flight or No reply. A late reply still settles it;
+    a failure reported again asks for attention again. A hand-off that succeeded has nothing to dismiss."""
+    if row.status not in (FAILED, IN_FLIGHT):
+        raise ResultError("Only a failed hand-off, or one still in flight, can be dismissed.")
     if row.dismissed_at is None:
         row.dismissed_at, row.dismissed_by = _now(), user_id
         session.flush()
@@ -452,9 +455,9 @@ def dismiss(session, row: Result, user_id) -> Result:
 
 
 def prune(session, settled_before: datetime, unhandled_before: datetime) -> int:
-    """Delete settled results (and dismissed failures) that finished before ``settled_before``, and in-flight or undismissed-failed ones
-    sent before ``unhandled_before``; returns how many."""
-    handled = sa.or_(Result.status == SUCCEEDED, sa.and_(Result.status == FAILED, Result.dismissed_at.isnot(None)))
+    """Delete settled and dismissed results that finished (or were sent) before ``settled_before``, and in-flight or failed ones nobody
+    dismissed sent before ``unhandled_before``; returns how many."""
+    handled = sa.or_(Result.status == SUCCEEDED, Result.dismissed_at.isnot(None))
     ended = func.coalesce(Result.finished_at, Result.sent_at)
     deleted = session.query(Result).filter(handled, ended < settled_before).delete(synchronize_session=False)
     deleted += session.query(Result).filter(sa.not_(handled), Result.sent_at < unhandled_before).delete(synchronize_session=False)

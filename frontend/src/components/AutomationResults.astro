@@ -265,8 +265,8 @@ const data = JSON.stringify({ summary: counts, list, filters }).replace(/</g, "\
     try {
       const out = act === "retry" ? await api.retry(item.id) : await api.dismiss(item.id);
       items = items.map((i) => (i.id === item.id ? out.result : i));
-      // a dismissed failure leaves the Failed view, which doesn't list them
-      if (act === "dismiss" && filters.status === "failed") {
+      // a dismissed one leaves the Failed, In flight and No reply views, which don't list them
+      if (act === "dismiss" && ["failed", "in_flight", "no_reply"].includes(filters.status)) {
         items = items.filter((i) => i.id !== item.id);
         total = Math.max(0, total - 1);
       }

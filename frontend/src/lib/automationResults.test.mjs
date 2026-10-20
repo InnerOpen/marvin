@@ -199,9 +199,18 @@ describe("Retry and Dismiss", () => {
     assert.deepEqual(actionButtons(result({ status: "failed", canRetry: true, dismissed: true }), { act: true }).map((b) => b.key), ["retry"]);
   });
 
-  test("nothing is offered on a result that did not fail", () => {
-    assert.deepEqual(actionButtons(result({ status: "in_flight", canRetry: true }), { act: true }), []);
+  test("a hand-off still in flight offers Dismiss (a reply that will never come), not Retry; a success offers nothing", () => {
+    assert.deepEqual(actionButtons(result({ status: "in_flight", canRetry: true }), { act: true }).map((b) => b.key), ["dismiss"]);
+    assert.deepEqual(actionButtons(result({ status: "in_flight", noReply: true }), { act: true }).map((b) => b.key), ["dismiss"]);
+    assert.deepEqual(actionButtons(result({ status: "in_flight", dismissed: true }), { act: true }), []);
     assert.deepEqual(actionButtons(result({ status: "succeeded" }), { act: true }), []);
+  });
+
+  test("a dismissed hand-off that was in flight reads Dismissed, quiet, and says nobody is waiting", () => {
+    const row = resultRow(result({ status: "in_flight", dismissed: true, noReply: false }));
+    assert.equal(row.badge.label, "Dismissed");
+    assert.equal(row.unread, false);
+    assert.match(row.text, /not waiting/);
   });
 
   test("an editor, who may read but not act, sees no buttons", () => {
