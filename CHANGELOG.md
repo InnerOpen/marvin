@@ -6,6 +6,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.22 (2026-10-20)
+
+### Chores
+
+- **deps**: Integration SDK v0.14.0 (record_if); Cloudflare Pages v0.3.0 and Buttondown v0.9.0
+  report to Automation results
+  ([`3aafbc6`](https://github.com/InnerOpen/marvin/commit/3aafbc678516ed8cd24c0078bf3a54f6a2858577))
+
+### Documentation
+
+- **plan**: Automation results for Cloudflare Pages builds and Buttondown sends
+  ([`a5ded4a`](https://github.com/InnerOpen/marvin/commit/a5ded4ac739c8b4ae1304d2667bfd41a9d7da410))
+
+### Features
+
+- **results**: Record hand-offs core runs itself, honour record_if, and never reopen an ended one
+  ([`35c206f`](https://github.com/InnerOpen/marvin/commit/35c206f1c04fa9e5eb42d7feaade45c58177209e))
+
+
 ## v1.1.0-rc.21 (2026-10-20)
 
 ### Features
