@@ -336,6 +336,28 @@ def test_without_a_connection_only_marvins_own_words_are_understood_and_the_hand
     assert (own["status"], unknown["status"]) == ("failed", "in_flight")
 
 
+def test_a_report_on_a_plugins_own_webhook_reads_its_words_through_the_connection_that_installed_the_webhook(flow):
+    from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookModel
+
+    hook = WorkspaceIncomingWebhookModel(session=flow.session, group_id=flow.gid, name="Results", slug="results", enabled=True)
+    hook.source_integration_id = flow.connection.id  # installed by the `hooks` connection's blueprint
+    bare = WorkspaceIncomingWebhookModel(session=flow.session, group_id=flow.gid, name="Other", slug="other", enabled=True)
+    flow.session.add_all([hook, bare])
+    flow.session.commit()
+
+    def report(webhook, remote_id):
+        action = {"kind": "automation_result", "status": "success", "remote_id": remote_id}  # no `integration`: the webhook says whose
+        out = run_automation_result_action(
+            flow.session, flow.gid, action, {"event": {"webhook_slug": webhook}, "steps": {}}, authorizer_role=ROLE_ADMIN
+        )
+        flow.session.commit()
+        return out
+
+    assert report("results", "fresh-1")["status"] == "succeeded"  # nothing matched, yet the word is the connection's
+    assert _rows(flow, remote_id="fresh-1")[0].integration_id == flow.connection.id
+    assert report("other", "fresh-2")["status"] == "in_flight"  # a webhook no connection installed: only Marvin's words
+
+
 def test_a_failure_reported_again_asks_for_attention_again(flow):
     _publish(flow)
     _report(flow, "error", integration="hooks", remote_id="run-1")

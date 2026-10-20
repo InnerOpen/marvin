@@ -7,7 +7,8 @@ incoming webhook — this step settles that result, which Settings › Automatio
 * ``status`` — the other system's own word for how it went (``success``, ``error``, ``waiting``…; a template is fine). The connection
   named in ``integration`` turns it into Marvin's (in flight, succeeded, failed) through its provider (``result_status``), so the
   workflow stays free of that system's vocabulary. A word the provider doesn't know leaves the result in flight with the word in its
-  message. Without ``integration`` only Marvin's own three are understood.
+  message. Without ``integration`` the connection that installed the triggering incoming webhook is used (a plugin's report-back
+  workflow then names none), else the connection of the result it settles; failing all of them only Marvin's own three are understood.
 * which result — the one with ``remote_id`` (the run's id on the other side, on that connection when one is named), else the newest one
   still in flight for ``entry_id`` (default: the triggering entry) and that connection. A report that matches nothing is kept as a
   new result (``target`` says what it was about) rather than dropped.
@@ -29,6 +30,21 @@ def _text(value) -> str | None:
     return None if value in (None, "") else str(value).strip() or None
 
 
+def _webhook_connection(session, group_id, context: dict):
+    """The connection that installed the incoming webhook this run answers, or None. A plugin's report-back workflow then needs no
+    ``integration`` argument: its own webhook already says whose words the report is in, whatever the connection is called."""
+    from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookModel
+    from marvin.db.models.groups.integrations import IntegrationModel
+
+    slug = _text((context.get("event") or {}).get("webhook_slug"))
+    if slug is None:
+        return None
+    webhook = session.query(WorkspaceIncomingWebhookModel).filter_by(group_id=group_id, slug=slug).first()
+    if webhook is None or webhook.source_integration_id is None:
+        return None
+    return session.get(IntegrationModel, webhook.source_integration_id)
+
+
 @register_action("automation_result")
 def run_automation_result_action(session, group_id, action: dict, context: dict, *, user_id=None, authorizer_role=None, dry_run=False) -> dict:
     from marvin.db.models.groups.integrations import IntegrationModel
@@ -45,6 +61,8 @@ def run_automation_result_action(session, group_id, action: dict, context: dict,
         connection = session.query(IntegrationModel).filter_by(group_id=group_id, slug=slug).first()
         if connection is None:
             raise AutomationActionError(f"automation_result: integration '{slug}' not found in this workspace")
+    else:
+        connection = _webhook_connection(session, group_id, context)
     remote_id = _text(interpolate(action.get("remote_id"), context))
     entry_ref = interpolate(action["entry_id"], context) if action.get("entry_id") else (context.get("entry") or {}).get("id")
     entry_id = results.entry_in(session, group_id, entry_ref)
