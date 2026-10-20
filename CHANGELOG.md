@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.16 (2026-10-20)
+
+### Chores
+
+- **plugins**: Pin Buttondown v0.8.0 (Subscribers replaces its collections; the signup form hook)
+  ([`6dbca82`](https://github.com/InnerOpen/marvin/commit/6dbca82d93c360b7b6794e6e1a519aa7293d4da1))
+
+### Features
+
+- **audience**: Subscribers, the submitter-IP privacy fix, a blueprint hook for form settings, and
+  the collections cleanup
+  ([`1cb22da`](https://github.com/InnerOpen/marvin/commit/1cb22dac5904c34cd0c62736e2e66ca59e458bc1))
+
+
 ## v1.1.0-rc.15 (2026-10-20)
 
 ### Features
