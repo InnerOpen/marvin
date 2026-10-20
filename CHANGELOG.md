@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.7 (2026-10-20)
+
+### Features
+
+- **plugins**: Facebook 0.2.0 and Bluesky 0.2.0 — comments, replies and engagement
+  ([`990515f`](https://github.com/InnerOpen/marvin/commit/990515f92cae6224af2c688cadc8115b2e3c373a))
+
+- **social**: A Social engagement card on Settings → Integrations
+  ([`58caaa0`](https://github.com/InnerOpen/marvin/commit/58caaa069acf86ae2b9a0bbf7d7dc985b299d131))
+
+- **social**: The new-comment workflow trigger, social_comment_received
+  ([`a3b79da`](https://github.com/InnerOpen/marvin/commit/a3b79da93898b73f3b357ef3f1ef131526889382))
+
+
 ## v1.1.0-rc.6 (2026-10-20)
 
 ### Features
