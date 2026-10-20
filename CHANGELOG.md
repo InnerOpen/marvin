@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.17 (2026-10-20)
+
+### Features
+
+- **query**: A query naming a collection returns what it holds, internal entries included
+  ([`ba17a40`](https://github.com/InnerOpen/marvin/commit/ba17a40026b6fdc39797878f165af4c0fa36dc9d))
+
+### Testing
+
+- **publish**: Leave cached platform-settings reads out of the page query count
+  ([`00bfa69`](https://github.com/InnerOpen/marvin/commit/00bfa69db91fe5af9c3a9b8d35ea8f72e2214ed4))
+
+
 ## v1.1.0-rc.16 (2026-10-20)
 
 ### Chores
