@@ -15,6 +15,9 @@ export interface Condition {
   value?: unknown;
 }
 
+/** Which kind of entry type an entries collection gathers (rule `listed`; services/collections/smart_collections.py). */
+export type ListedMode = "any" | "listed" | "unlisted";
+
 export interface BuilderState {
   match: "all" | "any";
   entryTypes: string[];
@@ -28,6 +31,7 @@ export interface BuilderState {
   resourceTypes: string[];
   tags: string[];
   createdWithinDays: number | null;
+  listed: ListedMode;
 }
 
 // Both arms name both keys: the frontend's tsconfig isn't strict, so `!parsed.ok` doesn't narrow.
@@ -45,10 +49,40 @@ export const WHERE_OPS = ["eq", "neq", "in", "contains", "exists", "missing", "g
 export const VALUELESS_OPS = new Set(["exists", "missing"]);
 const NUMERIC_OPS = new Set(["gt", "gte", "lt", "lte"]);
 
+/** The "Listed" control's choices, with the one line that explains each. An internal ("unlisted") entry type is one whose
+ *  `capabilities.listed` is false — Social's rule type, an Audience form's submissions (entryTypeListing.ts). */
+export const LISTED_CHOICES: { value: ListedMode; label: string; help: string }[] = [
+  {
+    value: "any",
+    label: "Any",
+    help: "Entries of listed types. Internal types (Social rules, Audience submissions) are left out unless you name them under Entry types.",
+  },
+  {
+    value: "listed",
+    label: "Listed only",
+    help: "Only entries of listed types. Naming an internal type under Entry types then matches nothing.",
+  },
+  {
+    value: "unlisted",
+    label: "Unlisted only",
+    help: "Only entries of internal types, all of them at once (no need to name the types). The other rules still narrow them.",
+  },
+];
+
+/** The mode a rules value stands for; absent, null or anything unknown reads as "any" (the backend refuses an unknown value on save). */
+export function listedMode(value: unknown): ListedMode {
+  return value === "listed" || value === "unlisted" ? value : "any";
+}
+
+/** The one-line explanation shown under the control for `mode`. */
+export function listedHelp(mode: ListedMode): string {
+  return (LISTED_CHOICES.find((c) => c.value === mode) ?? LISTED_CHOICES[0]).help;
+}
+
 const UNIVERSAL_KEYS = ["tags", "created_within_days", "match"];
 /** The keys the builder owns for each target; everything else in the JSON is left alone. */
 const BUILDER_KEYS: Record<TargetType, string[]> = {
-  entry: ["entry_types", "statuses", "published_within_days", "where", ...UNIVERSAL_KEYS],
+  entry: ["entry_types", "statuses", "published_within_days", "where", "listed", ...UNIVERSAL_KEYS],
   asset: ["asset_types", "mime_types", "origins", "made_from", ...UNIVERSAL_KEYS],
   resource: ["resource_types", ...UNIVERSAL_KEYS],
 };
@@ -84,6 +118,7 @@ export function stateFromRules(rules: Rules | null | undefined): BuilderState {
     resourceTypes: strings(r.resource_types),
     tags: strings(r.tags),
     createdWithinDays: days(r.created_within_days),
+    listed: listedMode(r.listed),
   };
 }
 
@@ -122,6 +157,7 @@ export function rulesFromState(state: BuilderState, target: TargetType, base: Ru
     set("entry_types", state.entryTypes);
     set("statuses", state.statuses);
     set("published_within_days", state.publishedWithinDays);
+    if (state.listed !== "any") rules.listed = state.listed; // "any" is the default: left out, as an absent key
     set(
       "where",
       state.where

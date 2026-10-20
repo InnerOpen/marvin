@@ -99,6 +99,11 @@ const vocabJson = JSON.stringify({ entryTypes, tags }).replace(/</g, "\\u003c");
         <span class="sr-label">Statuses</span>
         <div class="sr-chips" id="sr-statuses"></div>
       </div>
+      <div class="sr-row" data-target="entry">
+        <span class="sr-label">Listed <span class="form-help">which kind of entry type</span></span>
+        <div class="sr-chips" id="sr-listed" role="radiogroup" aria-label="Listed" aria-describedby="sr-listed-help"></div>
+        <span class="form-help" id="sr-listed-help"></span>
+      </div>
       <div class="sr-row" data-target="asset">
         <span class="sr-label">Asset types</span>
         <div class="sr-chips" id="sr-asset-types"></div>
@@ -152,6 +157,7 @@ const vocabJson = JSON.stringify({ entryTypes, tags }).replace(/</g, "\\u003c");
           <li><code>entry_types</code> — entry-type slugs, e.g. <code>["article", "bench-note"]</code></li>
           <li><code>statuses</code> — e.g. <code>["published"]</code>, or <code>["inbox"]</code> for a Drafts collection</li>
           <li><code>published_within_days</code> — published in the last N days</li>
+          <li><code>listed</code> — <code>"any"</code> (default: listed types, plus an internal type you name), <code>"listed"</code> (listed types only) or <code>"unlisted"</code> (internal types only, all of them; alone it is every internal entry)</li>
           <li><code>where</code> — field conditions, e.g. <code>{'[{"field": "price", "op": "gt", "value": 100}]'}</code>; ops <code>eq neq in contains exists missing gt gte lt lte</code></li>
         </ul>
         <ul data-target="asset" hidden>
@@ -194,6 +200,10 @@ const vocabJson = JSON.stringify({ entryTypes, tags }).replace(/</g, "\\u003c");
     conditionValueText,
     ENTRY_STATUSES,
     formatRules,
+    LISTED_CHOICES,
+    type ListedMode,
+    listedHelp,
+    listedMode,
     parseRules,
     type Rules,
     rulesFromState,
@@ -276,6 +286,18 @@ const vocabJson = JSON.stringify({ entryTypes, tags }).replace(/</g, "\\u003c");
       : `<span class="sr-empty">None in this workspace yet.</span>`;
   }
 
+  // The radios name a form that doesn't exist: they group, but stay out of the page's form post (the rules travel as `smartRules`).
+  function renderListed(mode: ListedMode) {
+    const wrap = $("sr-listed");
+    if (!wrap) return;
+    wrap.innerHTML = LISTED_CHOICES.map(
+      (c) =>
+        `<label class="sr-chip"><input type="radio" name="sr-listed" form="sr-not-a-form" value="${c.value}" ${c.value === mode ? "checked" : ""} /> ${esc(c.label)}</label>`,
+    ).join("");
+    const help = $("sr-listed-help");
+    if (help) help.textContent = listedHelp(mode);
+  }
+
   const checkedValues = (id: string) =>
     [...($(id)?.querySelectorAll<HTMLInputElement>("input[type=checkbox]:checked") ?? [])].map((i) => i.value);
 
@@ -304,6 +326,7 @@ const vocabJson = JSON.stringify({ entryTypes, tags }).replace(/</g, "\\u003c");
     ($<HTMLSelectElement>("sr-match")!).value = state.match;
     renderChips("sr-entry-types", vocab.entryTypes ?? [], state.entryTypes);
     renderChips("sr-statuses", plain(ENTRY_STATUSES), state.statuses);
+    renderListed(state.listed);
     renderChips("sr-asset-types", plain(ASSET_TYPES), state.assetTypes);
     renderChips("sr-tags", vocab.tags ?? [], state.tags);
     ($<HTMLInputElement>("sr-mime-types")!).value = state.mimeTypes.join(", ");
@@ -344,6 +367,7 @@ const vocabJson = JSON.stringify({ entryTypes, tags }).replace(/</g, "\\u003c");
       resourceTypes: splitList(($<HTMLInputElement>("sr-resource-types")!).value),
       tags: checkedValues("sr-tags"),
       createdWithinDays: num("sr-created-days"),
+      listed: listedMode($("sr-listed")?.querySelector<HTMLInputElement>("input[type=radio]:checked")?.value),
     };
   }
 
@@ -359,7 +383,10 @@ const vocabJson = JSON.stringify({ entryTypes, tags }).replace(/</g, "\\u003c");
   }
 
   function onBuilderChange() {
-    lastValid = rulesFromState(readBuilder(), target(), lastValid);
+    const state = readBuilder();
+    const help = $("sr-listed-help");
+    if (help) help.textContent = listedHelp(state.listed);
+    lastValid = rulesFromState(state, target(), lastValid);
     if (rulesArea) rulesArea.value = formatRules(lastValid);
     setJsonError(null);
     markStale();

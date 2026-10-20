@@ -6,6 +6,14 @@ from typing import Annotated, Any, Literal
 from pydantic import UUID4, AliasChoices, ConfigDict, Field, StringConstraints, field_validator
 
 from marvin.schemas._marvin import _MarvinModel
+from marvin.services.entry_listing import check_listed_rule
+
+
+def _checked_rules(rules: dict | None) -> dict | None:
+    """The ``smart_rules`` validator: ``listed`` (any | listed | unlisted) is the one rule key whose value is checked on save;
+    the other keys are read leniently by ``matches_rules`` (services/collections/smart_collections.py)."""
+    check_listed_rule(rules)
+    return rules
 
 
 class CollectionCreate(_MarvinModel):
@@ -37,6 +45,8 @@ class CollectionCreate(_MarvinModel):
     """Optional list of entry IDs to add to this collection."""
 
     model_config = ConfigDict(from_attributes=True)
+
+    _check_rules = field_validator("smart_rules")(_checked_rules)
 
 
 class CollectionUpdate(_MarvinModel):
@@ -70,6 +80,8 @@ class CollectionUpdate(_MarvinModel):
     """Optional list of entry IDs to replace existing entries in this collection."""
 
     model_config = ConfigDict(from_attributes=True)
+
+    _check_rules = field_validator("smart_rules")(_checked_rules)
 
 
 class CollectionSummary(_MarvinModel):
@@ -179,6 +191,8 @@ class SmartRulesPreviewRequest(_MarvinModel):
     """The rules, in the same shape as ``CollectionCreate.smart_rules``."""
     limit: int = Field(default=10, ge=0, le=50)
     """How many matching items to list (newest first); ``total`` counts them all."""
+
+    _check_rules = field_validator("smart_rules")(_checked_rules)
 
 
 class SmartRulesPreviewItem(_MarvinModel):

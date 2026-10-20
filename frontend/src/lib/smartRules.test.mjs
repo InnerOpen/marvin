@@ -8,6 +8,9 @@ import {
   conditionValueFromText,
   conditionValueText,
   formatRules,
+  LISTED_CHOICES,
+  listedHelp,
+  listedMode,
   parseRules,
   rulesFromState,
   stateFromRules,
@@ -106,5 +109,55 @@ describe("parseRules", () => {
   test("an empty rule set formats as blank so the placeholder shows", () => {
     assert.equal(formatRules({}), "");
     assert.equal(formatRules({ statuses: ["draft"] }), '{\n  "statuses": [\n    "draft"\n  ]\n}');
+  });
+});
+
+describe("the Listed rule", () => {
+  test("absent, null and unknown values read as Any", () => {
+    for (const value of [undefined, null, "any", "", "internal", 1, true, ["listed"]]) assert.equal(listedMode(value), "any");
+    assert.equal(stateFromRules({}).listed, "any");
+    assert.equal(stateFromRules({ listed: "listed" }).listed, "listed");
+    assert.equal(stateFromRules({ listed: "unlisted" }).listed, "unlisted");
+  });
+
+  test("Listed only and Unlisted only round-trip with the other rules, and Any leaves no key", () => {
+    for (const listed of ["listed", "unlisted"]) {
+      const rules = { statuses: ["draft"], tags: ["pinned"], listed, match: "any" };
+      assert.deepEqual(rulesFromState(stateFromRules(rules), "entry", rules), rules);
+    }
+    const anyState = { ...stateFromRules({ statuses: ["draft"] }), listed: "any" };
+    assert.deepEqual(rulesFromState(anyState, "entry"), { statuses: ["draft"] });
+  });
+
+  test("choosing Any again removes a stored value, and choosing another replaces it", () => {
+    const base = { statuses: ["draft"], listed: "unlisted" };
+    assert.deepEqual(rulesFromState({ ...stateFromRules(base), listed: "any" }, "entry", base), { statuses: ["draft"] });
+    assert.deepEqual(rulesFromState({ ...stateFromRules(base), listed: "listed" }, "entry", base), { statuses: ["draft"], listed: "listed" });
+  });
+
+  test("Unlisted only is a rule on its own, as the backend reads it", () => {
+    assert.deepEqual(rulesFromState({ ...stateFromRules({}), listed: "unlisted" }, "entry"), { listed: "unlisted" });
+  });
+
+  test("it is an entry rule: an asset or resource target never writes it, and keeps a stored one untouched", () => {
+    const state = { ...stateFromRules({}), listed: "unlisted", assetTypes: ["image"] };
+    assert.deepEqual(rulesFromState(state, "asset"), { asset_types: ["image"] });
+    assert.deepEqual(rulesFromState(state, "asset", { listed: "unlisted" }), { listed: "unlisted", asset_types: ["image"] });
+  });
+
+  test("every choice has a label and a one-line explanation, in the order Any, Listed only, Unlisted only", () => {
+    assert.deepEqual(
+      LISTED_CHOICES.map((c) => [c.value, c.label]),
+      [
+        ["any", "Any"],
+        ["listed", "Listed only"],
+        ["unlisted", "Unlisted only"],
+      ],
+    );
+    for (const choice of LISTED_CHOICES) {
+      assert.ok(choice.help.length > 20 && !choice.help.includes("\n"));
+      assert.equal(listedHelp(choice.value), choice.help);
+    }
+    assert.equal(listedHelp("bogus"), LISTED_CHOICES[0].help);
   });
 });

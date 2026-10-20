@@ -15,6 +15,7 @@ Rule shape (every dimension optional; an absent/empty dimension is not constrain
       "published_within_days": 30,                 # entries published in the last N days
       "created_within_days": 30,                   # any item created in the last N days
       "where": [{"field": "price", "op": "gt", "value": 100}],  # entry field conditions
+      "listed": "any" | "listed" | "unlisted",     # internal entry types (below; default "any")
       "match": "all" | "any"                       # combine dimensions (default "all")
     }
 
@@ -24,6 +25,18 @@ Each condition is its own dimension, so ``match: "any"`` ORs them with the rest.
 dimension that never holds — a typo must not widen the collection. The other keys of a workflow
 query (``entry_type``, ``status``, ``text``, date ranges…) are not smart rules; ``ignored_keys``
 names them so a preview can say so instead of quietly matching nothing.
+
+``listed`` is not a dimension but a gate, like the Trash and internal-type gates in ``matches_rules``: it narrows what the other rules
+(and ``match``) select. An entry type is internal when ``capabilities_json.listed`` is false (services/entry_listing.py).
+
+* ``any`` (the default, also when absent): listed types, plus an internal type only when ``entry_types`` names it.
+* ``listed``: only entries of listed types; naming an internal type then matches nothing. It only narrows, so it is not a rule
+  on its own (``{"listed": "listed"}`` matches nothing, as an empty rule set does).
+* ``unlisted``: only entries of internal types, all of them without naming each, combined with the other rules
+  (``{"listed": "unlisted"}`` alone is every internal entry; ``+ statuses`` narrows it). Entry types that are listed never match.
+
+An unrecognised value matches nothing (the schema rejects it on save). Membership follows a type's ``listed`` flag when it is
+toggled (``EntryTypesRepository._follow_listing`` re-syncs the type's entries).
 
 The ``*_within_days`` dimensions are *rolling*: an item silently ages out of the window. Membership
 is materialized, so nothing re-evaluates it on its own — the nightly ``resync_smart_collections``
@@ -49,14 +62,14 @@ The sync helpers never commit — the caller owns the transaction.
 from datetime import UTC, datetime, timedelta
 
 from marvin.core.root_logger import get_logger
-from marvin.services.entry_listing import is_listed_type
+from marvin.services.entry_listing import is_listed_type, listed_mode
 
 logger = get_logger(__name__)
 
 
 _UNIVERSAL_KEYS = ("tags", "created_within_days", "match")
 RULE_KEYS = {
-    "entry": ("entry_types", "statuses", "published_within_days", "where", *_UNIVERSAL_KEYS),
+    "entry": ("entry_types", "statuses", "published_within_days", "where", "listed", *_UNIVERSAL_KEYS),
     "asset": ("asset_types", "mime_types", "origins", "made_from", *_UNIVERSAL_KEYS),
     "resource": ("resource_types", *_UNIVERSAL_KEYS),
 }
@@ -64,8 +77,12 @@ RULE_KEYS = {
 
 
 def has_rules(rules: dict | None, target_type: str = "entry") -> bool:
-    """True when ``rules`` sets at least one dimension this target type reads (``match`` alone doesn't)."""
-    return any(k != "match" and (rules or {}).get(k) not in (None, "", [], {}) for k in RULE_KEYS.get(target_type, ()))
+    """True when ``rules`` sets at least one dimension this target type reads (``match`` alone doesn't). For entries,
+    ``listed: unlisted`` is a rule on its own (every internal entry); ``listed`` and ``any`` only narrow, so they aren't."""
+    rules = rules or {}
+    if target_type == "entry" and rules.get("listed") == "unlisted":
+        return True
+    return any(k not in ("match", "listed") and rules.get(k) not in (None, "", [], {}) for k in RULE_KEYS.get(target_type, ()))
 
 
 def ignored_keys(rules: dict | None, target_type: str = "entry") -> list[str]:
@@ -121,7 +138,8 @@ def matches_rules(item, rules: dict | None, target_type: str = "entry") -> bool:
       asset    → asset_types (asset_type), mime_types (mime_type, exact e.g. image/svg+xml), origins (origin: upload |
                  derived | generated), made_from (the versions made from these assets, by id or slug)
       resource → resource_types (resource_type)
-    ``tags`` and ``created_within_days`` are universal. An empty/None rule set — or one with no recognized dimension — matches nothing.
+    ``tags`` and ``created_within_days`` are universal; ``listed`` (any | listed | unlisted) gates entries by whether their type is
+    internal. An empty/None rule set — or one with no recognized dimension — matches nothing.
     An Ask file (a chat attachment, services/assets/scope.py) is in no collection until it's moved to the library.
     """
     if not rules or (target_type == "asset" and getattr(item, "scope", "library") != "library"):
@@ -135,12 +153,16 @@ def matches_rules(item, rules: dict | None, target_type: str = "entry") -> bool:
         if getattr(item, "status", None) == "trashed" and "trashed" not in (rules.get("statuses") or []):
             return False
         entry_types = rules.get("entry_types")
+        # The `listed` rule (module docstring) gates by the kind of type, ahead of everything else it selects.
+        mode = listed_mode(rules)
+        if mode is None or (mode != "any" and (mode == "listed") != is_listed_type(getattr(item, "entry_type", None))):
+            return False
         # An entry of an internal type (services/entry_listing.py) belongs only to a collection that names its type: the
         # status collections (Inbox, Drafts…) and the rest never hold it, whatever else the rules match. The one other
         # place is the Trash, so a trashed Social rule can be restored from there.
         item_type = getattr(item, "entry_type", None)
         in_trash = getattr(item, "status", None) == "trashed"  # (and the rules ask for trashed entries: checked above)
-        if not is_listed_type(item_type) and getattr(item_type, "slug", None) not in (entry_types or []) and not in_trash:
+        if mode == "any" and not is_listed_type(item_type) and getattr(item_type, "slug", None) not in (entry_types or []) and not in_trash:
             return False
         if entry_types:
             dimensions.append(getattr(item_type, "slug", None) in entry_types)
@@ -183,7 +205,8 @@ def matches_rules(item, rules: dict | None, target_type: str = "entry") -> bool:
         dimensions.append(bool(want & have))
 
     if not dimensions:
-        return False
+        # `listed: unlisted` alone selects every internal entry (the gate above has already let this one through).
+        return target_type == "entry" and rules.get("listed") == "unlisted"
 
     if rules.get("match") == "any":
         return any(dimensions)

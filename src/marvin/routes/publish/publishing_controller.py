@@ -8,6 +8,7 @@ All routes require API client token authentication (marvin_sk_ prefix).
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from marvin.core.config import get_app_settings
@@ -110,7 +111,8 @@ def _only_publishable_types(session, group_id, query):
     never make them public."""
     from marvin.db.models.platform import EntryTypes
 
-    excluded = non_publishable_type_ids(session.query(EntryTypes).filter(EntryTypes.group_id == group_id).all())
+    # The workspace's types and the global system ones (group_id NULL), like `unlisted_type_ids` (services/entry_listing.py).
+    excluded = non_publishable_type_ids(session.query(EntryTypes).filter(or_(EntryTypes.group_id == group_id, EntryTypes.group_id.is_(None))).all())
     return query.filter(Entries.entry_type_id.notin_(excluded)) if excluded else query
 
 

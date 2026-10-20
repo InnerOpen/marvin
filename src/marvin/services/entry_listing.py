@@ -20,9 +20,31 @@ One thing makes a type internal: ``capabilities_json.listed`` is false. It is a 
   form switched to listed shows its entries in both Audience and the content lists.
 
 Same shape as ``publish_visibility`` (which says what the publishing API serves): one answer to "is this type listed?".
+
+A smart collection's ``listed`` rule (``any`` | ``listed`` | ``unlisted``, below) is the one place that chooses between the two
+kinds: ``any`` is the behaviour above (listed types, plus an unlisted type the rules name), ``listed`` keeps only listed types
+(naming an unlisted one then matches nothing) and ``unlisted`` keeps only unlisted types, all of them without naming each.
 """
 
 from __future__ import annotations
+
+LISTED_MODES = ("any", "listed", "unlisted")
+"""The values of a smart collection's ``listed`` rule; absent means ``any``."""
+
+
+def listed_mode(rules: dict | None) -> str | None:
+    """A smart collection's ``listed`` rule: ``any`` (the default, also when absent or null), ``listed`` or ``unlisted``.
+    None for a value that is none of those — callers fail closed on it, a typo must not widen a collection."""
+    value = (rules or {}).get("listed")
+    if value is None:
+        return "any"
+    return value if isinstance(value, str) and value in LISTED_MODES else None
+
+
+def check_listed_rule(rules: dict | None) -> None:
+    """Raise ``ValueError`` when ``rules`` carries a ``listed`` that isn't one of ``LISTED_MODES`` (the schema's validation)."""
+    if listed_mode(rules) is None:
+        raise ValueError(f"smart_rules.listed must be one of {', '.join(LISTED_MODES)}.")
 
 
 def _caps(entry_type) -> dict:
@@ -128,7 +150,8 @@ def unlisted_entry_ids(session, group_id) -> set:
 
 def hidden_type_ids(session, group_id, collection=None) -> list:
     """The internal type ids to leave out of a collection's listing: all of them, except the ones its smart rules name
-    (a collection that asks for a type by name lists it). None for the Trash, which lists its internal entries too."""
+    (a collection that asks for a type by name lists it). None for the Trash, which lists its internal entries too.
+    The ``listed`` rule overrides the naming: ``unlisted`` hides none, ``listed`` hides all of them."""
     from marvin.db.models.platform.entry_types import EntryTypes
     from marvin.services.entries.trash import is_trash_collection
 
@@ -136,7 +159,11 @@ def hidden_type_ids(session, group_id, collection=None) -> list:
         return []
 
     excluded = unlisted_type_ids(session, group_id)
-    named = ((getattr(collection, "smart_rules", None) or {}).get("entry_types") or []) if collection is not None else []
+    rules = (getattr(collection, "smart_rules", None) or {}) if collection is not None else {}
+    mode = listed_mode(rules)
+    if mode == "unlisted":
+        return []
+    named = (rules.get("entry_types") or []) if mode == "any" else []
     if not excluded or not named:
         return excluded
     keep = {r[0] for r in session.query(EntryTypes.id).filter(EntryTypes.id.in_(excluded), EntryTypes.slug.in_(list(named)))}

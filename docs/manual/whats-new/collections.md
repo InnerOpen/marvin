@@ -24,6 +24,7 @@ The app sidebar lists your own collections under **Collections**, in the Collect
 | `statuses` | entry | entry status values |
 | `published_within_days` | entry | `published_at` within the last N days |
 | `where` | entry | field conditions, `[{"field": key, "op": op, "value": v}]`; each condition is one dimension |
+| `listed` | entry | which kind of entry type: `any` (default), `listed` or `unlisted` (**Listed**, see [The Listed rule](#the-listed-rule)); a gate on the other rules, not a dimension |
 | `asset_types` | asset | asset type bucket, e.g. `image` |
 | `mime_types` | asset | exact MIME type, e.g. `image/svg+xml` |
 | `origins` | asset | where it came from: `upload`, `derived` (a version a workflow made from another image), `generated` (**Came from**) |
@@ -40,6 +41,28 @@ The app sidebar lists your own collections under **Collections**, in the Collect
 ```
 
 `where` is the same condition a workflow's entry query uses (see [Workflows](workflows.md#run-on-a-query-of-entries)), evaluated by the same code: `field` is a field key of the entry type or `metadata.<key>`, and `op` is `eq`, `neq`, `in`, `contains`, `exists`, `missing`, `gt`, `gte`, `lt` or `lte`; comparisons read number-like text (`"$1,170"` → 1170). An unknown op never matches. The rest of the two shapes differ: smart rules use plural keys (`entry_types`, `statuses`), rolling windows and `match`, while a workflow query uses `entry_type`/`status`, `text`, `collection`, date ranges and `sort`, which smart rules do not read. **Run Query** names any key it ignores.
+
+### The Listed rule {#the-listed-rule}
+
+An entry type is **internal** (*unlisted*) when its `capabilities.listed` is false: Social's rule type and an Audience form's submissions are the examples. Internal entries are left out of All entries, the status lists, counts, search and the AI index, and a smart collection leaves them out too, unless its rules name the type. The `listed` rule says how a collection treats them. In the builder it is **Listed**, with **Any**, **Listed only** and **Unlisted only** and a line explaining the choice.
+
+| Value | The collection holds |
+| --- | --- |
+| `any` (the default; the same as leaving the key out) | entries of listed types, plus an internal type's entries only when `entry_types` names it: what smart collections always did |
+| `listed` | only entries of listed types; naming an internal type in `entry_types` then matches nothing |
+| `unlisted` | only entries of internal types, all of them at once, without naming each; every other rule still narrows them |
+
+```json
+{"listed": "unlisted", "statuses": ["draft"], "tags": ["pinned"], "match": "all"}
+```
+
+- **A gate, not a dimension.** `listed` narrows whatever the other rules (and `match`) select: with `match: "any"`, `{"listed": "unlisted", "statuses": ["draft"], "tags": ["pinned"], "match": "any"}` is the internal entries that are drafts *or* pinned, never a listed draft.
+- **`unlisted` is a rule on its own** (`{"listed": "unlisted"}` is every internal entry in the workspace). `listed` and `any` only narrow, so on their own they match nothing, like an empty rule set: **Run Query** says "No rules yet".
+- **It follows the type.** Switching a type's *Show in content lists* (its `listed` flag) re-syncs that type's entries at once: they leave `unlisted` collections and join `listed` ones, or the reverse, without waiting for the nightly resync. Changing a form's destination does the same, since it sets the flag.
+- **The Trash is unchanged.** It keeps listing every trashed entry, internal or not, and ignores the rule. A trashed entry is in no other collection, whatever `listed` says, unless the rules ask for the `trashed` status.
+- **Entries only.** An asset or resource collection ignores `listed` (**Run Query** lists it among the ignored keys).
+- **Validation.** `listed` must be `any`, `listed` or `unlisted`; the create, update and `POST /preview` calls answer **422** for anything else (`smart_rules.listed must be one of any, listed, unlisted.`). A stored value that is none of those (written some other way) matches nothing rather than widening the collection.
+- **Sites.** A collection that gathers internal entries can be **Visible to sites**, and the [publishing API](publishing-api.md) still never serves those entries: internal types are not publishable, whatever the collection holds, so the collection's entries, the `?collection=` filter and the single entry read leave them out (the collection itself, its name and its `smart_rules` are still published). The collection's page in the app lists them for you.
 
 ### Materialisation
 
@@ -86,7 +109,7 @@ None. The resync cadence is the system task's interval (daily); an admin can adj
 
 ## Since
 
-Builder, **Run Query**, `where` and `POST /preview`: rc.169. A scheduled publish joins matching smart collections at once (it fires the usual entry events): rc.171. **Visible to sites**, and private collections ignored by the entries `collection` filter: rc.186. Rolling windows: rc.82 (`142eb6e9`). No default "Recent": rc.83 (`921047ad`). Asset/resource targets, `mime_types` and `tags` predate this release. `origins`, `made_from`, and new assets joining matching asset collections when they are uploaded or made (not only at the nightly resync): unreleased (2026-10-12).
+Builder, **Run Query**, `where` and `POST /preview`: rc.169. A scheduled publish joins matching smart collections at once (it fires the usual entry events): rc.171. **Visible to sites**, and private collections ignored by the entries `collection` filter: rc.186. Rolling windows: rc.82 (`142eb6e9`). No default "Recent": rc.83 (`921047ad`). The `listed` rule (**Listed**): unreleased (2026-10-20). Asset/resource targets, `mime_types` and `tags` predate this release. `origins`, `made_from`, and new assets joining matching asset collections when they are uploaded or made (not only at the nightly resync): unreleased (2026-10-12).
 
 ## Related
 
