@@ -21,10 +21,12 @@ import { createSdkClient } from "@/lib/sdk";
 import { listAssetTypes } from "@/lib/api/assets";
 import { listCollections } from "@/lib/api/collections";
 import { listResourceTypes } from "@/lib/api/resources";
+import { getSummary as getSocialInboxSummary } from "@/lib/api/socialInbox";
 import { getTrashCounts } from "@/lib/api/trash";
 import { listEntryTypes } from "@/lib/api/entryTypes";
 import { getContentAccess } from "@/lib/api/workspaces";
 import { logoUrl } from "@/lib/integrationLogo";
+import { newBadgeText, SOCIAL_INBOX_PATH } from "@/lib/socialInbox";
 import { ADMINS_ONLY } from "@/lib/workspaceRole";
 
 interface Props {
@@ -114,6 +116,10 @@ if (authToken) {
   }
 }
 
+// Social inbox link, with how many comments are new. Shown when the workspace has a connected network that reads comments (or
+// items already kept); a member below EDITOR gets a 403 and no link. Best-effort, and asked alongside the Ask check below.
+const socialInbox = authToken ? getSocialInboxSummary(authToken).catch(() => null) : Promise.resolve(null);
+
 // Ask link: hidden while the workspace has the Ask page invocation source switched off. Best-effort — a
 // failed read keeps the link (the page explains itself).
 let askLinkShown = true;
@@ -171,6 +177,7 @@ if (authToken) {
     newTypes = [];
   }
 }
+const social = await socialInbox;
 const hasFolder = (slug: string) => folders.some((c) => c.slug === slug);
 
 // Collections an integration installed fold under that integration ("n8n › In flight, Failed"); a person's own stay
@@ -234,13 +241,14 @@ const onSettings = activeTab !== null;
 // Simplified navigation following 80% rule
 
 // Primary sidebar contains only daily-use features
-const navGroups = [
+const navGroups: { label: string | null; items: { href: string; label: string; icon: string; badge?: number }[] }[] = [
   {
     label: null,
     items: [
       { href: "/", label: "Dashboard", icon: "⌂" },
       // Quick link to the agent chat; the page itself gates on AI being enabled.
       ...(askLinkShown ? [{ href: ASK_PATH, label: "Ask", icon: "💬" }] : []),
+      ...(social?.available ? [{ href: SOCIAL_INBOX_PATH, label: "Social inbox", icon: "📬", badge: social.new }] : []),
     ],
   },
 ];
@@ -301,6 +309,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
               {group.items.map((item) => (
                 <a href={item.href} aria-current={isActive(item.href, path) ? "page" : undefined}>
                   <span aria-hidden="true">{item.icon}</span><span>{item.label}</span>
+                  {newBadgeText(item.badge) && <span class="nav-count attention" aria-label={`${item.badge} new`}>{newBadgeText(item.badge)}</span>}
                 </a>
               ))}
             </nav>

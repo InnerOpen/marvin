@@ -114,6 +114,30 @@ def rule_from_data(data: dict, *, id: str, published: bool = True, legacy: bool 
     )
 
 
+_STOPWORDS = frozenset(
+    """a about after again all also am an and any are as at be because been before being but by can could did do does doing for from
+    get got had has have he her here hers him his how i if in into is it its just me more most my no nor not of on once only or our
+    out over own she should so some such than that the their them then there these they this those to too under until up us very was
+    we were what when where which while who whom why will with would you your yours""".split()
+)
+_NOISE = re.compile(r"https?://\S+|[@#]\w+")
+_WORD = re.compile(r"[^\W\d_][\w'’-]*")
+
+
+def suggest_keywords(text: str, limit: int = 3) -> list[str]:
+    """A few keywords for a rule that would answer comments like ``text``: its distinctive words (no links, @mentions, hashtags,
+    stop words or words under three letters), lowercased, first mentioned first. "What is the price?" gives ["price"]. A
+    suggestion to edit, not a classification."""
+    found: list[str] = []
+    for word in _WORD.findall(_NOISE.sub(" ", text or "").lower()):
+        word = word.strip("'’-")
+        if len(word) >= 3 and word not in _STOPWORDS and word not in found:
+            found.append(word)
+        if len(found) == limit:
+            break
+    return found
+
+
 def keyword_hit(text: str, keywords) -> str | None:
     """The first keyword found as a whole word (case-insensitive) in ``text``; multi-word keywords work."""
     for kw in keywords:

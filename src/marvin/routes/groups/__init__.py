@@ -34,6 +34,10 @@ if INTEGRATIONS_AVAILABLE:
 
     router.include_router(integrations_controller.router, tags=["Groups: Integrations"])
     router.include_router(integrations_controller.public_router, tags=["Groups: Integrations"])
+
+    from . import social_inbox_controller
+
+    router.include_router(social_inbox_controller.router, tags=["Groups: Social Inbox"])
 router.include_router(preferences_controller.router, tags=["Groups: Preferences"])
 router.include_router(email_template_controller.router, tags=["Groups: Email Templates"])
 router.include_router(email_branding_controller.router, tags=["Groups: Email Branding"])

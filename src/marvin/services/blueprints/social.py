@@ -91,6 +91,7 @@ _LOG_FIELDS = [
         ("liked", "Liked", "boolean"),
         ("public_reply_id", "Public reply ID (mode both)", "text"),
         ("error", "Note", "text"),
+        ("by", "Sent by (a person, from the Social inbox)", "text"),
     )
 ]
 

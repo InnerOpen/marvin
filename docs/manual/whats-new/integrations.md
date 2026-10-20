@@ -264,6 +264,49 @@ The task's config: `rehearsal` (default `true`), `announce` (default `true`: tel
 - **Never the account's own.** The same check as replying (handle and id against the integration's config) leaves out the account's own comments and replies, so a workflow that answers in public can't start itself again. An integration whose config names no account (`handle`, `own_username`, `page_id`, `ig_user_id`…) can't be told apart: set one before letting a workflow reply in public.
 - **Instagram.** While the plugin's own auto-reply task is enabled the shared engine doesn't reply for that connection, but it still announces its comments (the plugin's task reads on its own cursor, so Instagram is read twice).
 
+### Social inbox {#social-inbox}
+
+**Social inbox** (sidebar, `/workspace/social`) is one page for the comments, replies and mentions on every connected network, what was answered, and what to do with each. It fills from the **Social engagement** task, so it needs that task: until the task is set up and **enabled**, the page says so and links to the Social engagement card on Settings → Integrations (the task starts disabled, and in rehearsal, so nothing is sent until you switch rehearsal off). The sidebar link shows when a connected network can read comments, with a small count of the items still **new**; the card shows the same count. Editors and above can open it.
+
+**What it keeps.** Every network read the 5-minute poll makes, whether it was reading to reply or to announce, is written to `social_inbox_items`, one row per network item (unique on integration and item id), in one batch insert per read, so the poll isn't slower. Not kept: the account's own items (the same check as replying), and items older than 30 days. A system task, `prune_social_inbox_items` (daily, `retention_days: 30`), deletes what is older; the row keeps the text it first saw. An item records its author (id, handle, name), text, kind (comment, reply, mention), post, link, when the network says it was written, when Marvin first saw it, a **status** and, once answered, a pointer to its `social-reply-log` entry. The poll reads every kind of item whether or not a rule answers mentions, so mentions are there too (a rule's own `kinds` still decides what it answers). Keeping the items can't fail a poll: an error is logged and the poll goes on.
+
+**The page.** Compact rows (network logo, who, an excerpt, the kind and when, a status badge, and **Sent** or **Rehearsal** badges that link to the log entry; a new item has a dot and a bold name). Filter by integration (network), kind, status and text; the filters live in the page's address, so a view can be bookmarked. Tap or click a row to open it: the whole text, links to the post and to the item on the network (**Open on …**), and the actions below. Opening a new item marks it seen; **Mark all seen** clears the rest. On a phone the rows stay one line each and tapping opens the same panel.
+
+**Actions** (only what that network's plugin declares for the item; the API lists them per item):
+
+| Action | Capability | Role | Notes |
+| --- | --- | --- | --- |
+| **Reply** | `social.reply` | ADMIN | A text box and a **Private / Public** choice, private preselected. A mode is shown only when the network offers it (a plugin that takes only public replies sets `enum: [false]` on the action's `private` argument; one that refuses at run time answers `unsupported`, which is shown). Sent as you, written to the reply log, status `replied`. |
+| **Like** | `social.like` | EDITOR | New or seen items become `liked`; a reply or a hide is never downgraded. |
+| **Hide** / **Unhide** | `social.hide` | EDITOR | Comments under your own posts only (not mentions). Hidden wins over every other status; unhiding returns to `replied` or `seen`. |
+| **Delete** | `social.delete_comment` | ADMIN | Asks first; removes the comment on the network (can't be undone) and drops the item. Not for mentions. |
+| **Message** | `social.message` | ADMIN | A direct message to the author (by id and handle), not a reply to the comment; for networks that have it. No log entry. |
+| **Make a rule** | none | EDITOR | Creates a **draft** `social-auto-reply` entry: keywords suggested from the text (its distinctive words, at most three), the item's network, private replies, and, if you typed one in the reply box, that text as the reply. It does nothing until you publish it; the page links to the entry editor. 409 until the Social engagement set is applied. |
+
+**Status** is `new`, `seen`, `liked`, `replied` or `hidden`: seeing never undoes anything, a like never downgrades a reply, a reply never unhides, hiding wins, unhiding goes back to `replied` or `seen`.
+
+**The approval, for a person.** A workflow's reply, message or delete needs an Approval step; the engine's replies stand on a published rule. A person pressing the button in the inbox is the human approval those decisions ask for, through a third, narrow door (`social_inbox_actions.InboxActor.act`), separate from the engine's: the caller is an authenticated workspace member holding the role in the table (checked before anything is looked up, so a lower role gets 403, never a 404 that confirms an id); only the five capabilities above can pass (never reading, reposting, or anything else); the comment id and the integration are taken from the stored item, never from the request, so the inbox can't be pointed at another comment or network; the text is the person's own, typed for that item, never templated; and no approver, no call. The plugin's own approval flag doesn't stop a person's click. Every call is made with `dry_run` false. A failure shows the network's own sentence (422 for a refusal, 502 for a network error) and changes nothing.
+
+**A reply from the inbox is logged**, so the engine never answers it: a live `social-reply-log` entry (`rule: inbox`, the mode, `rehearsal: false`, the reply text, the sender's name in `by`, created by that user) with the same slug the engine checks. The item then points at it and becomes `replied`. If the comment already has a live entry (the engine answered it, or an earlier reply from the inbox) nothing is written twice; the reply is still sent after the page asks, and the item learns of it. If the log type isn't applied the reply is still sent and the response says `logged: false`. A rehearsal entry is shown as **Rehearsal** and never counts as answered.
+
+**API** (`/api/groups/social-inbox`, workspace-scoped, mounted when the SDK is installed; the response keys are camelCase):
+
+| Method | Path | Role | Purpose |
+| --- | --- | --- | --- |
+| GET | `` | EDITOR | The items, newest first (by when they were written). Filters: `integration` (slug), `network`, `kind`, `status` (repeat it for several), `q` (text, handle or name, `%` and `_` are literal), `since`, `until`, `limit` (1-200, 50), `offset`. Each item carries `actions`, `replyModes` and `reply` (`rehearsal`, `mode`, `logEntryId`…). The list also returns `total` and `new`. |
+| GET | `/summary` | EDITOR | `available`, `new`, the `integrations` that read comments, the Social engagement task's `engine` state (`missing`, `disabled`, `enabled`, with `rehearsal` and `announce`) and `can`, which actions the caller's role may use |
+| POST | `/seen` | EDITOR | `{ids}` or `{all: true, integration?}`: new becomes seen |
+| POST | `/{id}/reply` | ADMIN | `{text, private = true}` |
+| POST | `/{id}/like` | EDITOR | |
+| POST | `/{id}/hide` | EDITOR | `{hidden = true}` |
+| DELETE | `/{id}` | ADMIN | |
+| POST | `/{id}/message` | ADMIN | `{text}` |
+| POST | `/{id}/rule` | EDITOR | `{reply?}` creates the draft rule; returns `id`, `slug`, `keywords`, `path` |
+
+An action the item's network doesn't offer (or the integration is switched off, or its plugin isn't installed) is refused: 422 for the first, 409 for the others.
+
+**Not covered.** Items answered by Instagram's own plugin task before the switch have no pointer (the page shows no replied badge for them, though the engine never answers them again), and an item that was already in the log before the inbox existed isn't in the inbox: it fills from the next poll on.
+
 ## API
 
 All routes are workspace-scoped under `/api/groups/integrations` and mounted only when the SDK is installed. Every route needs workspace ADMIN or OWNER (or a platform super admin), reads included, except the provider catalog (`GET /providers`, any member) and logos (public); other members get 403. Before rc.197 any member could create, run and test connections.
@@ -303,7 +346,7 @@ No setting switches integrations on; presence of an installed provider does. Cre
 
 Integrations: 1.0.0-rc.97 (commits 4f8d30e3, 847631de, 3e1603b4, bfad4311, 2c581d2c, 2b71a0c8, 53f896fb, 2026-09-24/25). Workflow integration step and HTTP `put`/`delete`: rc.111. Integration-contributed signature schemes: rc.113. Applying parameterised content from the card, action results and `{{SECRET}}` credentials: rc.114. Editing a connected integration: rc.115. Named User-Agent: rc.119. `INTEGRATION_HTTP_MAX_BYTES`: rc.123. Token-mode signature schemes from integrations: rc.144. `{{SECRET}}` references in action arguments: rc.145. **Admin → Extensions → Plugins** and `GET /api/admin/plugins`: rc.158. HTTP `patch`: rc.182. Core's own Apprise notifier removed in favour of the Apprise integration: rc.189. Integration-owned error handling (error policies, retries, alerts, **How errors are handled**, **Integration alerts**): rc.197; the alert routing moved to Settings → Automation → Notifications and the catalog was grouped by category with migration `cfbbd1cc67e4` (unreleased), migration `c9e2f4a6b8d1`; providers declare policies from `marvin-integration-sdk` 0.5.0. Option pickers for action inputs (`x-marvin-options`, `POST /{integration_id}/options`) and provider logos (`GET /providers/{slug}/logo`, from `marvin-integration-sdk` 0.6.0): rc.197. Integration routes admin-only: rc.197. **Alerts & health** page, its routes and `integrations.last_success_at`: migration `d5b1e8a3c7f2` (unreleased). The n8n provider is a separate package (SDK 0.5); its workflow picker needs rc.197. The Buttondown provider is a separate package; it relies on `${site.url}` (rc.177), `${entry.url}` and `if_none: skip` (rc.179). Recipes and guides from integrations: `marvin-integration-sdk` 0.9.0 with Slack 0.4.0, n8n 0.2.0, Buttondown 0.7.0, Apprise 0.3.0, Square 0.4.0 and Instagram 0.4.0 (2026-10-11).
 
-Social engagement (the `social.comments`, `social.reply`, `social.like`, `social.hide`, `social.delete_comment`, `social.repost` and `social.message` capabilities, the `social-auto-reply` rules, the `social_engagement` task, `integrations.state`, migration `5e1c7a9d3b24`): 2026-10-20. The `social_comment_received` trigger and the Social engagement card: 2026-10-20.
+Social engagement (the `social.comments`, `social.reply`, `social.like`, `social.hide`, `social.delete_comment`, `social.repost` and `social.message` capabilities, the `social-auto-reply` rules, the `social_engagement` task, `integrations.state`, migration `5e1c7a9d3b24`): 2026-10-20. The `social_comment_received` trigger and the Social engagement card: 2026-10-20. The Social inbox (`social_inbox_items`, migration `7c3f9a1e5b82`, the `prune_social_inbox_items` system task, `/api/groups/social-inbox`): 2026-10-21.
 
 Note: `docs/archive/INTEGRATIONS_DESIGN.md` and the plugin architecture doc predate the implementation and describe polling that nothing calls; the SDK package is the contract.
 

@@ -99,3 +99,27 @@ Each plugin declares only the capabilities it has. Core shows what's possible pe
   cursors agree.
 - **Open:** an integration whose config names no account can't have its own items recognised (a workflow's public reply could re-trigger
   it); events are sent synchronously, so a slow workflow step delays the rest of the poll (the poll reads at most `limit` items).
+
+## Review, phase 3 (the Social inbox page, 2026-10-21)
+- **Built:** `social_inbox_items` (migration `7c3f9a1e5b82`, unique on integration + item id, 30-day retention); the poll keeps every network
+  read it makes (`social_inbox.persist_items`: one SELECT and one multi-row INSERT per read, own items and items past retention skipped,
+  can't fail the poll) and every reply it logs points its item at the log entry (`mark_replied`); a daily `prune_social_inbox_items` system
+  task; `/api/groups/social-inbox` (list with filters and paging, summary, seen, reply, like, hide, delete, message, make a rule); the page
+  `/workspace/social` with a sidebar link and a "new" count (also on the Social engagement card); `frontend/src/lib/socialInbox.ts` with node tests.
+  Also fixed: the missing space before "Open it in Scheduled tasks" on the card.
+- **Roles:** list, seen, like, hide and make-a-rule are EDITOR; reply, delete and message are ADMIN (the role the workflow engine already asks of
+  integration actions; like and hide are the two that need no Approval step in a workflow). `ACTION_ROLES` in `social_inbox_actions.py` is the one
+  table; the summary's `can` tells the page what to show.
+- **The narrow approval path for a person:** a third door, `InboxActor.act`, beside the engine's `_Network.call`, not a widening of it. Five
+  capabilities only; the integration and comment id come from the stored item, never the request; a named approver is required; the text is the
+  person's; the plugin's own `requires_approval` doesn't block a person's click; `dry_run` is always false. The engine's door and its tests are
+  unchanged. `_Network` became a thin subclass of a shared `PluginCaller` (the plugin call itself), with no alert for a person's failed click.
+- **Reply recorded:** a live `social-reply-log` entry (`rule: inbox`, `by`, created by the user) under the engine's own slug, so the engine skips it;
+  an existing live entry is never written twice (a follow-up reply is allowed and only updates the item).
+- **Changed in the engine:** the replying read now asks for every item kind (it asked only for the kinds the rules answer unless announcing), so the
+  inbox has mentions even for a replies-only task; a rule's own `kinds` still decides what it answers.
+- **Decisions of mine:** a reply's modes come from the action's `private` argument (an `enum` narrows it; none means both) because the contract has
+  no declared modes; hide and delete aren't offered on a mention; a deleted comment's row is removed; `status` is the last-wins state machine in
+  `next_status` (hidden over replied over liked over seen); "make a rule" creates a draft entry and returns its editor path.
+- **Open:** items answered by Instagram's own task (`ig-reply-log`) have no replied badge; a person can send a second reply (the page asks); the
+  inbox keeps the text first seen (an edited comment isn't updated); no unread push or notification; the OpenAPI spec gained the routes (SDK to regenerate).

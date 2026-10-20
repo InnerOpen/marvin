@@ -28,12 +28,20 @@ its text, so the engine sends without one — through exactly one door, ``_Netwo
   a templated or computed text;
 * nothing outside this module can ask for it: a workflow step, the API and the plugins never reach ``_Network``.
 
+The Social inbox has its own, separate door for a *person* acting on one item (``social_inbox_actions.py``): there the person's
+click is the approval, and the engine's door stays exactly as narrow as above.
+
 A plugin refusal (IntegrationError code ``unsupported``, or ``refused`` for bad arguments) skips that comment: no retry, no
 log entry, noted in the run summary. Any other failure is that network's failure for the run: the other networks go on.
 A plugin that rejects its cursor (``invalid_cursor``) has it dropped and is read again without one.
 
 Instagram: while the plugin's own ``auto_reply`` scheduled task is enabled for an integration the engine leaves that
 integration alone (two senders would answer twice); switch the plugin's task off to hand it over.
+
+**Keeping the items.** Every network read the poll makes — replying and announcing alike — is also written to ``social_inbox_items``
+(``social_inbox.persist_items``: one batch upsert per read, the account's own items skipped, older than 30 days never kept), so
+the Social inbox page can list them; a reply the engine logs points its item at the log entry (``social_inbox.mark_replied``).
+Neither can fail the poll.
 
 **Announcing** (``announce``, on by default): the same poll also sends one ``social_comment_received`` event per new
 comment, reply or mention, so a workflow can start on it. It is a second job of the same run, with its own state, so replying
@@ -61,6 +69,7 @@ from datetime import UTC, datetime
 
 from marvin.core.root_logger import get_logger
 
+from . import social_inbox
 from .social import SOCIAL_COMMENTS, SOCIAL_LIKE, SOCIAL_REPLY
 from .social_rules import (
     BOTH,
@@ -96,6 +105,8 @@ MAX_ATTEMPTS = 3
 MAX_PENDING = 200
 STATE_KEY = "social"
 SOURCE_TAG = "social_engagement"
+TASK_TYPE = "social_engagement"
+"""The engine's scheduled task type (``scheduled_tasks/handlers/social.py``)."""
 CODES_NO_RETRY = frozenset({"unsupported", "refused"})
 """Plugin refusals that skip a comment for good: the network can't do it, or the arguments are wrong."""
 INVALID_CURSOR = "invalid_cursor"
@@ -213,8 +224,14 @@ def _rule_approves(rule, args: dict) -> bool:
     )
 
 
-class _Network:
-    """One integration as the engine calls it. ``call`` is the only way the engine reaches a plugin action."""
+class PluginCaller:
+    """One integration as a caller reaches it: the plugin's action for a capability, run with the connection's own config and
+    secret. It is not a door by itself — the engine's is ``_Network.call`` and a person's is
+    ``social_inbox_actions.InboxActor.act`` — each decides what may pass and what counts as approved before calling ``_run``.
+    ``alert_source`` is where a failure's "needs attention" alert says it came from (None: no alert, the caller shows the
+    error itself)."""
+
+    alert_source: str | None = "scheduled_task"
 
     def __init__(self, session, group_id, row, provider):
         self.session, self.group_id, self.row, self.provider = session, group_id, row, provider
@@ -222,10 +239,34 @@ class _Network:
         self._secret = None
 
     def has(self, capability: str) -> bool:
-        """Whether the plugin declares an action for it (whatever its approval flag: the engine's own rules decide)."""
+        """Whether the plugin declares an action for it (whatever its approval flag: the caller's own rules decide)."""
         from .alert_routing import capability_action
 
         return capability_action(self.provider, capability, {}, approved=True) is not None
+
+    def _run(self, key: str, args: dict) -> dict:
+        from marvin.services.integrations import IntegrationContext, build_http, errors
+        from marvin.services.secrets.resolver import resolve_secret
+
+        if self._ctx is None:
+            self._secret = resolve_secret(self.row.secret_ref, self.group_id) if self.row.secret_ref else None
+            self._ctx = IntegrationContext(config=self.row.config or {}, secret=self._secret, logger=logger, http=build_http())
+        try:
+            result = self.provider.run_action(key, args, self._ctx)
+        except Exception as e:  # noqa: BLE001 — every plugin failure is the caller's to classify
+            code = errors.error_code(e)
+            detail = errors.redact(str(e) or type(e).__name__, errors.secret_values(self._secret))
+            if self.alert_source and code not in CODES_NO_RETRY and code != INVALID_CURSOR:
+                errors.connection_failed(
+                    self.group_id, self.row.id, self.provider, key, e, source=self.alert_source, session=self.session, secrets=(self._secret,)
+                )
+            raise EngineCallError(f"{self.row.slug}.{key}: {detail}", code) from e
+        errors.connection_succeeded(self.group_id, self.row.id, session=self.session)
+        return result if isinstance(result, dict) else {}
+
+
+class _Network(PluginCaller):
+    """One integration as the engine calls it. ``call`` is the only way the engine reaches a plugin action."""
 
     def call(self, capability: str, args: dict, rule: SocialRule | None = None) -> dict:
         if capability not in ENGINE_CAPABILITIES:
@@ -237,26 +278,6 @@ class _Network:
         if found is None:
             raise EngineCallError(f"'{self.row.slug}' has no way to {capability} that a published rule approves", "unsupported")
         return self._run(*found)
-
-    def _run(self, key: str, args: dict) -> dict:
-        from marvin.services.integrations import IntegrationContext, build_http, errors
-        from marvin.services.secrets.resolver import resolve_secret
-
-        if self._ctx is None:
-            self._secret = resolve_secret(self.row.secret_ref, self.group_id) if self.row.secret_ref else None
-            self._ctx = IntegrationContext(config=self.row.config or {}, secret=self._secret, logger=logger, http=build_http())
-        try:
-            result = self.provider.run_action(key, args, self._ctx)
-        except Exception as e:  # noqa: BLE001 — every plugin failure is the engine's to classify
-            code = errors.error_code(e)
-            detail = errors.redact(str(e) or type(e).__name__, errors.secret_values(self._secret))
-            if code not in CODES_NO_RETRY and code != INVALID_CURSOR:
-                errors.connection_failed(
-                    self.group_id, self.row.id, self.provider, key, e, source="scheduled_task", session=self.session, secrets=(self._secret,)
-                )
-            raise EngineCallError(f"{self.row.slug}.{key}: {detail}", code) from e
-        errors.connection_succeeded(self.group_id, self.row.id, session=self.session)
-        return result if isinstance(result, dict) else {}
 
 
 # ── rules and the log ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -327,37 +348,68 @@ def _log_type_id(session, group_id):
 
 
 def _write_log(session, group_id, type_id, row, item: dict, rule: SocialRule, keyword: str, *, mode: str, rehearsal: bool, outcome: dict) -> None:
-    """One ``social-reply-log`` entry (committed at once: it is the dedupe)."""
+    """The engine's ``social-reply-log`` entry for a rule's reply."""
+    write_reply_log(
+        session, group_id, type_id, row, item, rule=rule.id, keyword=keyword, reply=rule.reply, mode=mode, rehearsal=rehearsal, outcome=outcome
+    )
+
+
+def write_reply_log(
+    session,
+    group_id,
+    type_id,
+    row,
+    item: dict,
+    *,
+    rule: str,
+    keyword: str,
+    reply: str,
+    mode: str,
+    rehearsal: bool,
+    outcome: dict,
+    by=None,
+    by_name: str | None = None,
+) -> str:
+    """One ``social-reply-log`` entry (committed at once: it is the dedupe), and the Social inbox's item pointed at it. ``rule`` is
+    the rule entry's slug, or ``inbox`` for a reply a person sent from the Social inbox, where ``by`` is that user (the entry's
+    creator, named ``by_name`` in the entry) and ``keyword`` is empty. Returns the entry's slug."""
     from marvin.services.entries.entry_service import EntryService
 
     author = item.get("author") or {}
     who = author.get("handle") or author.get("name") or author.get("id") or "someone"
+    when = datetime.now(UTC)
     data = {
         "network": item.get("network") or row.provider,
         "integration": row.slug,
         "comment_id": str(item["id"]),
-        "rule": rule.id,
+        "rule": rule,
         "mode": mode,
         "rehearsal": rehearsal,
         "reply_id": outcome.get("reply_id"),
-        "when": datetime.now(UTC).isoformat(),
+        "when": when.isoformat(),
         "post_id": item.get("post_id"),
         "author": who,
         "keyword": keyword,
         "comment": item.get("text"),
-        "reply": rule.reply,
+        "reply": reply,
         "url": outcome.get("url") or item.get("url"),
         "liked": outcome.get("liked", False),
         "public_reply_id": outcome.get("public_reply_id"),
         "error": outcome.get("error"),
+        "by": by_name,
     }
     data = {k: v for k, v in data.items() if v is not None}
     slug = log_slug(row.slug, str(item["id"]), rehearsal=rehearsal)
-    title = f"{'(rehearsal) ' if rehearsal else ''}{keyword} → {who} on {data['network']}"
-    EntryService(session, group_id, integration_id=SOURCE_TAG).create(
-        {"entry_type_id": type_id, "title": title, "slug": slug, "status": "published", "data_json": data}
+    title = f"{'(rehearsal) ' if rehearsal else ''}{keyword or 'reply'} → {who} on {data['network']}"
+    fields = {"entry_type_id": type_id, "title": title, "slug": slug, "status": "published", "data_json": data}
+    if by:
+        fields["created_by"] = by
+    EntryService(session, group_id, integration_id=SOURCE_TAG, actor_id=by).create(fields)
+    social_inbox.mark_replied(
+        session, row, str(item["id"]), log_slug=slug, mode=mode, rehearsal=rehearsal, reply_id=outcome.get("reply_id"), when=when, by=by
     )
     session.commit()
+    return slug
 
 
 # ── one integration ───────────────────────────────────────────────────────────────────────────────────────────────
@@ -397,13 +449,6 @@ def _read(net: _Network, cursor: str | None, settings: Settings, kinds: list[str
     return items, (str(out["cursor"]) if out.get("cursor") else None), dropped
 
 
-def _needed_kinds(rules: list[SocialRule]) -> list[str]:
-    from .social_rules import ITEM_KINDS
-
-    wanted = set().union(*(r.kinds for r in rules)) if rules else set()
-    return [k for k in ITEM_KINDS if k in wanted]
-
-
 @dataclass
 class _Run:
     """What one engine run shares across integrations."""
@@ -427,12 +472,14 @@ class _Run:
         return self.legacy
 
 
-def _read_once(net: _Network, cursor: str | None, settings: Settings, kinds: list[str], cache: dict) -> tuple[list[dict], str | None, bool]:
+def _read_once(run: _Run, net: _Network, row, cursor: str | None, kinds: list[str], cache: dict) -> tuple[list[dict], str | None, bool]:
     """``_read``, remembered for the rest of this integration's pass: the replying and announcing jobs read the network
-    once when they stand at the same cursor and ask for the same kinds."""
+    once when they stand at the same cursor and ask for the same kinds. Each network read is kept for the Social inbox."""
     key = (cursor, tuple(kinds))
     if key not in cache:
-        cache[key] = _read(net, cursor, settings, kinds)
+        cache[key] = _read(net, cursor, run.settings, kinds)
+        handles, ids = own_identities(row.config)
+        social_inbox.persist_items(run.session, row, cache[key][0], handles=handles, ids=ids, now=run.now)
     return cache[key]
 
 
@@ -460,8 +507,8 @@ def _engage(run: _Run, row, provider) -> None:
 def _reply(run: _Run, net: _Network, row, state: dict, cache: dict) -> None:
     report, settings, session = run.report, run.settings, run.session
     cursor_key = "rehearsal_cursor" if settings.rehearsal else "cursor"
-    kinds = list(ITEM_KINDS) if settings.announce else _needed_kinds(run.rules)  # the rules' own kinds filter what matches
-    items, cursor, dropped = _read_once(net, state.get(cursor_key), settings, kinds, cache)
+    # Every kind is read (the Social inbox keeps mentions too); a rule's own ``kinds`` decide what it answers.
+    items, cursor, dropped = _read_once(run, net, row, state.get(cursor_key), list(ITEM_KINDS), cache)
     pending = [] if settings.rehearsal else [p for p in state.get("pending") or [] if isinstance(p, dict) and isinstance(p.get("item"), dict)]
     attempts = {str(p["item"]["id"]): int(p.get("attempts") or 0) for p in pending}
     fresh = {str(i["id"]) for i in items}
@@ -515,7 +562,7 @@ def _reply(run: _Run, net: _Network, row, state: dict, cache: dict) -> None:
 def _announce(run: _Run, net: _Network, row, state: dict, cache: dict, *, count: bool) -> None:
     """Send ``social_comment_received`` for each item the integration's events cursor hasn't passed (see the module docstring)."""
     report, settings, session = run.report, run.settings, run.session
-    items, cursor, dropped = _read_once(net, state.get("events_cursor"), settings, list(ITEM_KINDS), cache)
+    items, cursor, dropped = _read_once(run, net, row, state.get("events_cursor"), list(ITEM_KINDS), cache)
     if count:
         report.checked += len(items)
     seen = [str(i) for i in state.get("events_seen") or []]

@@ -23,6 +23,7 @@ from .reports import *
 from .secrets import *
 from .slug_aliases import *
 from .smtp_profiles import *
+from .social_inbox import *
 from .storage_settings import *
 from .variables import *
 from .webhook_event_subscriptions import *

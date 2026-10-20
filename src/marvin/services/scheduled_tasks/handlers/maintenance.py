@@ -410,6 +410,51 @@ class PruneScheduledTaskExecutionsHandler(ScheduledTaskHandler):
         return summary
 
 
+class PruneSocialInboxItemsHandler(ScheduledTaskHandler):
+    """
+    Delete old rows from social_inbox_items (the Social inbox's comments, replies and mentions; all workspaces).
+
+    Admin-only. The 5-minute social engagement poll keeps every item it reads (services/integrations/social_inbox.py), so
+    without this the table grows with the accounts' comment traffic.
+
+    Configuration (task_config):
+    - retention_days: int (default: 30) - Delete items written (on the network) more than this many days ago. <= 0 disables.
+    """
+
+    name = "Prune Social Inbox Items"
+    description = "Delete Social inbox items older than the retention window (admin only)"
+    admin_only = True
+    config_schema = {
+        "type": "object",
+        "properties": {
+            "retention_days": {
+                "type": "integer",
+                "default": 30,
+                "description": "Delete inbox items written more than this many days ago (<=0 disables).",
+            },
+        },
+    }
+
+    def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
+        if task.group_id:
+            return "Skipped: prune_social_inbox_items is admin-only and cannot run in a workspace context"
+
+        from marvin.services.integrations import social_inbox
+
+        retention_days = task.task_config.get("retention_days", social_inbox.RETENTION_DAYS)
+        if not retention_days or retention_days <= 0:
+            return "Skipped: social inbox retention disabled (retention_days <= 0)"
+
+        with session_context() as session:
+            deleted = social_inbox.prune(session, datetime.now(UTC) - timedelta(days=retention_days))
+
+        if not deleted:
+            return None
+        summary = f"Pruned {deleted} social inbox item{'s' if deleted != 1 else ''} older than {retention_days} days"
+        logger.info("Social inbox prune: %s", summary)
+        return summary
+
+
 class ResyncSmartCollectionsHandler(ScheduledTaskHandler):
     """
     Reconcile smart-collection membership across all workspaces (platform-wide).
@@ -617,6 +662,7 @@ TaskHandlerRegistry.register("prune_event_logs", PruneEventLogsHandler)
 TaskHandlerRegistry.register("prune_ai_executions", PruneAIExecutionsHandler)
 TaskHandlerRegistry.register("prune_workflow_runs", PruneWorkflowRunsHandler)
 TaskHandlerRegistry.register("prune_scheduled_task_executions", PruneScheduledTaskExecutionsHandler)
+TaskHandlerRegistry.register("prune_social_inbox_items", PruneSocialInboxItemsHandler)
 TaskHandlerRegistry.register("resync_smart_collections", ResyncSmartCollectionsHandler)
 TaskHandlerRegistry.register("prune_revoked_tokens", PruneRevokedTokensHandler)
 TaskHandlerRegistry.register("optimize_database", OptimizeDatabaseHandler)

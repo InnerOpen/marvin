@@ -75,6 +75,8 @@ const NODES: NavNode[] = [
 
   // A workspace page with no parent: creating a workspace. (The dashboard lives at /, outside the map; /workspace redirects there.)
   { id: "workspace.new", label: "Create Workspace", href: "/workspace/new" },
+  // The Social inbox: a daily-use page with its own sidebar link, so it has no parent.
+  { id: "workspace.social", label: "Social inbox", href: "/workspace/social" },
 
   // Workspace settings
   { id: "settings", label: "Settings", href: "/workspace/settings", title: "Workspace Settings" },

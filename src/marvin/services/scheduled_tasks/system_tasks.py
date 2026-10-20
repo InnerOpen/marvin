@@ -104,6 +104,18 @@ SYSTEM_SCHEDULED_TASKS: list[SystemTaskDefinition] = [
         task_config={"retention_days": 30},
     ),
     SystemTaskDefinition(
+        slug="prune_social_inbox_items",
+        name="Prune Social Inbox Items",
+        task_type="prune_social_inbox_items",
+        description=(
+            "Delete Social inbox items (the comments, replies and mentions the social engagement task kept) written more than "
+            "30 days ago. Admin-only; runs daily."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _DAILY_SECONDS},
+        task_config={"retention_days": 30},
+    ),
+    SystemTaskDefinition(
         slug="resync_smart_collections",
         name="Resync Smart Collections",
         task_type="resync_smart_collections",

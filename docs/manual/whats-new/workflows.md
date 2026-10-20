@@ -813,6 +813,7 @@ A **Run integration** step can also read and answer comments on a connected netw
 
 - **Name the `integration`.** Posting fans out to every connected network; these don't, because a comment id means something to one network only. A step without an `integration` is refused when you save it and at run time.
 - **Approval.** `social.reply`, `social.message`, `social.repost` and `social.delete_comment` need a **Wait for approval** step before them, exactly like `social.post` (refused at save otherwise, and at run time unless the run was resumed after an approval; Marvin treats the action as gated whether or not its plugin says so). `social.comments`, `social.like` and `social.hide` don't: reading is harmless and a like or a hidden comment is easily undone.
+- **A person in the Social inbox is the approval too.** Replying, messaging or deleting from the [Social inbox](integrations.md#social-inbox) needs no workflow: an admin pressing the button acts on one item through its own narrow path. Workflows still need the Approval step.
 - **Missing arguments** (`comment_id`, `post_id`, `text`, `to`) are refused at save (a template counts as a value) and again, by name, at run time.
 - **Dry run**: `social.reply` and `social.message` are asked what they would send (`dry_run: true` set by the run, never by a typed argument) and send nothing; the others call nothing.
 - A network that can't do what you asked (a private reply on a network without them) refuses with the code `unsupported`, which fails the step like any plugin error.
