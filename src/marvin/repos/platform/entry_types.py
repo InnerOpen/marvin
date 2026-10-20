@@ -17,6 +17,23 @@ from marvin.services.entry_listing import is_listed_type, with_destination_defau
 logger = get_logger(__name__)
 
 
+def follow_listing(session, row: EntryTypes, commit: bool = True) -> None:
+    """The type became internal (a form now sends its submissions to the Audience) or listed again: its entries' derived
+    data follows at once — smart-collection membership (the Inbox folder's count) and, going internal, the AI index —
+    instead of waiting for the nightly smart-collection resync (services/entry_listing.py). ``commit=False`` leaves the
+    transaction to the caller (a blueprint apply)."""
+    from marvin.services.ai.embeddings import purge_embeddings
+    from marvin.services.collections.smart_collections import sync_entry
+
+    entries = session.query(Entries).filter(Entries.entry_type_id == row.id).all()
+    for entry in entries:
+        sync_entry(session, entry.group_id, entry)
+        if not is_listed_type(row):
+            purge_embeddings(session, entry.group_id, "entry", entry.id)
+    if entries:
+        session.commit() if commit else session.flush()
+
+
 class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
     """Repository for workspace-scoped and system-level entry types.
 
@@ -355,19 +372,7 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
         return result
 
     def _follow_listing(self, row: EntryTypes) -> None:
-        """The type became internal (a form now sends its submissions to the Audience) or listed again: its entries' derived
-        data follows at once — smart-collection membership (the Inbox folder's count) and, going internal, the AI index —
-        instead of waiting for the nightly smart-collection resync (services/entry_listing.py)."""
-        from marvin.services.ai.embeddings import purge_embeddings
-        from marvin.services.collections.smart_collections import sync_entry
-
-        entries = self.session.query(Entries).filter(Entries.entry_type_id == row.id).all()
-        for entry in entries:
-            sync_entry(self.session, entry.group_id, entry)
-            if not is_listed_type(row):
-                purge_embeddings(self.session, entry.group_id, "entry", entry.id)
-        if entries:
-            self.session.commit()
+        follow_listing(self.session, row)
 
     def delete(self, value: Any, match_key: str | None = None) -> EntryTypeRead:
         # Check if this is a system entry type

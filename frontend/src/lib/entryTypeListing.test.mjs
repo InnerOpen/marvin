@@ -74,6 +74,7 @@ describe("internal entry types", () => {
     assert.equal(usedBy({ slug: "contact", capabilitiesJson: { submittable: true } }), "Audience › Submissions");
     assert.equal(usedBy({ slug: "n", capabilitiesJson: { submittable: true, submission: { kind: "signup" } } }), "Audience › Subscribers");
     assert.equal(usedBy({ slug: "t", capabilitiesJson: { submittable: true, submission: { destination: "entries" } } }), null);
+    assert.equal(usedBy({ slug: "l", capabilitiesJson: { submittable: true, submission: { destination: "entries", kind: "signup" } } }), "Audience › Subscribers");
     assert.equal(usedBy({ slug: "note" }), null);
     assert.equal(internalReason({ slug: "note" }), null); // listed: no badge
     assert.match(internalReason(unlisted({ slug: "social-auto-reply", caps: {} })), /kept out of All entries.*Used by Audience › Social › Rules\./);

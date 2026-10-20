@@ -15,3 +15,31 @@
     .au-root .si-kind.au-form { display: inline-block; max-width: 11ch; } /* the form's name stays on a phone, shortened */
     .au-root .si-meta .si-badge.new { display: inline-block; } /* the status badge is part of the row's answer here */
   }
+
+/* Audience › Subscribers: the counts strip, the integration note and the status history. */
+  .as-tiles { list-style: none; margin: 0 0 12px; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .as-tile { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: inherit; text-decoration: none; }
+  .as-tile:hover { border-color: var(--accent); }
+  .as-tile.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .as-tile.new .as-count { color: var(--accent); }
+  .as-tile.good .as-count { color: var(--good); }
+  .as-tile.warn .as-count { color: var(--warn); }
+  .as-count { font-size: 22px; line-height: 1.1; }
+  .as-label { font-size: 13px; color: var(--muted); }
+  .as-note { margin: 0 0 12px; padding: 8px 12px; border-left: 3px solid var(--line); border-radius: var(--radius); background: var(--panel-2); font-size: 14px; }
+  .as-note.handled { border-left-color: var(--good); }
+  .as-note.hint { border-left-color: var(--warn); }
+  .as-note a { color: var(--accent); }
+  .as-history { margin: 0; padding: 10px 0 0; list-style: none; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  .as-history li { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
+  .as-history li span { color: inherit; }
+  @media (max-width: 640px) {
+    .as-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } /* two by two: the four counts stay readable on a phone */
+    .as-count { font-size: 20px; }
+  }
+
+  /* The date range folds away so the list is near the top on a phone; it opens by itself when a date is set. */
+  .as-dates { flex-basis: 100%; }
+  .as-dates summary { cursor: pointer; font-size: 13px; color: var(--muted); padding: 2px 0; }
+  .as-dates[open] { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+  .as-dates[open] summary { flex-basis: 100%; }

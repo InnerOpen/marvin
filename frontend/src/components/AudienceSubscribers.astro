@@ -1,0 +1,315 @@
+---
+// Audience › Subscribers: the newsletter signups (entries of the forms with `submission.kind: signup`), newest first. A row is
+// compact on every screen (who, the email beside a name, the form, when, a status badge); tapping it opens the signup: every field,
+// where it came from (the IP partly hidden below ADMIN), its status history and "Open as entry", plus Delete (to the Trash).
+// Subscribing and unsubscribing stay the mailing-list integration's: the note under the counts says so (or hints to connect one).
+// Backend: routes/groups/audience_controller.py. Pure logic: lib/audience.ts (audience.test.mjs).
+import type { SubscriberList } from "@/lib/api/audience";
+import {
+  type AudienceSummary,
+  hasSubscriberFilters,
+  integrationNote,
+  statusTiles,
+  SUBSCRIBER_STATUSES,
+  type SubscriberFilters,
+  subscriberFiltersToQuery,
+  signupFormOptions,
+  subscribersEmptyNotice,
+  SUBSCRIBERS_PATH,
+} from "@/lib/audience";
+
+interface Props {
+  summary: AudienceSummary | null;
+  list: SubscriberList | null;
+  filters: SubscriberFilters;
+}
+const { summary, list, filters } = Astro.props;
+const options = signupFormOptions(summary);
+const note = integrationNote(list?.integrations);
+const tiles = statusTiles(list?.counts, filters.status);
+const empty = subscribersEmptyNotice(summary, hasSubscriberFilters(filters));
+const tileHref = (status: string, active: boolean) => `${SUBSCRIBERS_PATH}${subscriberFiltersToQuery({ ...filters, status: active ? "" : (status as SubscriberFilters["status"]) })}`;
+const data = JSON.stringify({ summary, list, filters }).replace(/</g, "\\u003c");
+---
+
+<div class="social-inbox au-root">
+  <script type="application/json" id="as-data" is:inline set:html={data}></script>
+
+  <ul class="as-tiles" aria-label="Subscribers by status">
+    {tiles.map((t) => (
+      <li>
+        <a class={`as-tile ${t.tone}${t.active ? " active" : ""}`} href={tileHref(t.value, t.active)} title={t.hint} aria-current={t.active ? "true" : undefined}>
+          <strong class="as-count" data-count={t.value}>{t.count}</strong>
+          <span class="as-label">{t.label}</span>
+        </a>
+      </li>
+    ))}
+  </ul>
+
+  <p class={`as-note ${note.kind}`} id="as-note">
+    {note.text}
+    {note.link && <a href={note.link.href}> {note.link.label}</a>}
+  </p>
+
+  <div class="si-bar">
+    <form class="si-filters" id="as-filters" method="get" action={SUBSCRIBERS_PATH} role="search">
+      {options.length > 1 && (
+        <label>Signup form
+          <select class="input" name="form">
+            <option value="">All forms</option>
+            {options.map((o) => <option value={o.value} selected={o.value === filters.form}>{o.label}</option>)}
+          </select>
+        </label>
+      )}
+      <label>Status
+        <select class="input" name="status">
+          <option value="">Any status</option>
+          {SUBSCRIBER_STATUSES.map((s) => <option value={s.value} selected={s.value === filters.status}>{s.label}</option>)}
+        </select>
+      </label>
+      <label class="grow">Search
+        <input class="input" type="search" name="q" value={filters.q} placeholder="Email or name" maxlength="200" />
+      </label>
+      <button class="button secondary" type="submit">Search</button>
+      <details class="as-dates" open={Boolean(filters.from || filters.to)}>
+        <summary>Signed up between…</summary>
+        <label>From
+          <input class="input" type="date" name="from" value={filters.from} />
+        </label>
+        <label>To
+          <input class="input" type="date" name="to" value={filters.to} />
+        </label>
+      </details>
+    </form>
+  </div>
+
+  <p class="au-alert si-result bad" id="as-error" role="alert" hidden></p>
+  <ul class="si-list" id="as-list" aria-label="Subscribers"></ul>
+  <p class="si-muted si-count" id="as-count" hidden></p>
+  <button type="button" class="button secondary si-more" id="as-more" hidden>Show more</button>
+
+  <div class="si-empty" id="as-empty" hidden>
+    <h3 id="as-empty-title">{empty.title}</h3>
+    <p id="as-empty-body">{empty.body}</p>
+    <p id="as-empty-link">{empty.link && <a class="button secondary" href={empty.link.href}>{empty.link.label}</a>}</p>
+  </div>
+</div>
+
+<dialog id="as-dialog" class="si-dialog" aria-labelledby="as-d-title">
+  <div class="si-d-head">
+    <h3 id="as-d-title">Subscriber</h3>
+    <button type="button" class="si-d-close" data-close aria-label="Close">×</button>
+  </div>
+  <div class="si-d-body" id="as-d-body"></div>
+</dialog>
+
+<script>
+  import * as api from "@/lib/api/audience";
+  import {
+    type AudienceSummary,
+    fieldText,
+    hasSubscriberFilters,
+    historyLines,
+    openSubscriberHref,
+    sourceLines,
+    subscribersEmptyNotice,
+    subscriberActions,
+    subscriberApiQuery,
+    subscriberConfirmText,
+    subscriberFiltersToQuery,
+    subscriberRow,
+    SUBSCRIBERS_PATH,
+    type Subscriber,
+    type SubscriberDetail,
+    type SubscriberFilters,
+  } from "@/lib/audience";
+  import { errorMessage, newBadgeText, timeAgo } from "@/lib/socialInbox";
+
+  const $ = (id: string): any => document.getElementById(id);
+  const esc = (s: unknown) =>
+    String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
+
+  const init = JSON.parse($("as-data").textContent || "{}");
+  let summary: AudienceSummary | null = init.summary ?? null;
+  const filters: SubscriberFilters = init.filters;
+  const can = init.list?.can ?? {};
+  let items: Subscriber[] = init.list?.items ?? [];
+  let total: number = init.list?.total ?? 0;
+  let openId: string | null = null;
+
+  const badge = (b: { label: string; tone: string; title?: string }) =>
+    `<span class="si-badge ${esc(b.tone)}"${b.title ? ` title="${esc(b.title)}"` : ""}>${esc(b.label)}</span>`;
+
+  function rowHtml(item: Subscriber): string {
+    const r = subscriberRow(item);
+    return `<li><button type="button" class="si-row${r.unread ? " unread" : ""}" data-id="${esc(r.id)}" aria-haspopup="dialog">
+      <span class="si-mark" aria-hidden="true">${esc(r.formIcon)}</span>
+      <span class="si-main">
+        <span class="si-line"><strong class="si-author">${esc(r.who)}</strong>${r.email ? `<span class="si-kind au-form">${esc(r.email)}</span>` : ""}</span>
+        <span class="si-text">${esc(r.reason || r.form)}</span>
+      </span>
+      <span class="si-meta"><time datetime="${esc(r.at)}" title="${esc(new Date(r.at).toLocaleString())}">${esc(timeAgo(r.at))}</time><span class="si-badges">${badge(r.badge)}</span></span>
+    </button></li>`;
+  }
+
+  function render() {
+    $("as-list").innerHTML = items.map(rowHtml).join("");
+    $("as-empty").hidden = items.length > 0;
+    if (items.length === 0) {
+      const notice = subscribersEmptyNotice(summary, hasSubscriberFilters(filters));
+      $("as-empty-title").textContent = notice.title;
+      $("as-empty-body").textContent = notice.body;
+      $("as-empty-link").innerHTML = notice.link ? `<a class="button secondary" href="${esc(notice.link.href)}">${esc(notice.link.label)}</a>` : "";
+    }
+    $("as-count").hidden = items.length === 0;
+    $("as-count").textContent = `${items.length} of ${total}`;
+    $("as-more").hidden = items.length >= total;
+  }
+
+  // ── filters: a change goes to the URL, so a view can be bookmarked ───────────────────────────────────────────────
+  const filterForm = $("as-filters") as HTMLFormElement | null;
+  filterForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const f = Object.fromEntries(new FormData(filterForm).entries()) as Record<string, string>;
+    location.href = `${SUBSCRIBERS_PATH}${subscriberFiltersToQuery({
+      form: f.form ?? "",
+      status: (f.status ?? "") as SubscriberFilters["status"],
+      q: f.q ?? "",
+      from: f.from ?? "",
+      to: f.to ?? "",
+    })}`;
+  });
+  filterForm?.querySelectorAll("select, input[type=date]").forEach((el) => el.addEventListener("change", () => filterForm.requestSubmit()));
+
+  $("as-more").addEventListener("click", async () => {
+    const button = $("as-more") as HTMLButtonElement;
+    button.disabled = true;
+    try {
+      const more = await api.listSubscribers(subscriberApiQuery(filters, items.length));
+      items = [...items, ...more.items.filter((m) => !items.some((i) => i.id === m.id))];
+      total = more.total;
+      render();
+    } catch (e) {
+      $("as-count").hidden = false;
+      $("as-count").textContent = errorMessage(e);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  // ── the sidebar's badge and the counts follow a delete (they were drawn when the page loaded) ─────────────────────
+  async function refreshCounts() {
+    try {
+      summary = await api.getSummary();
+    } catch {
+      return;
+    }
+    const signups = summary.signups;
+    for (const key of ["pending", "confirmed", "unsubscribed", "problem"] as const) {
+      const el = document.querySelector(`[data-count="${key}"]`);
+      if (el) el.textContent = String(signups[key] ?? 0);
+    }
+    const item = document.querySelector("[data-aud-subscribers]");
+    if (!item) return;
+    const waiting = signups.waiting ?? 0;
+    let count = item.querySelector(".nav-count");
+    const text = newBadgeText(waiting);
+    if (!text) return count?.remove();
+    if (!count) {
+      count = document.createElement("span");
+      count.className = "nav-count attention";
+      item.append(count);
+    }
+    count.textContent = text;
+    count.setAttribute("aria-label", `${waiting} pending or needing a look`);
+  }
+
+  // ── the signup ───────────────────────────────────────────────────────────────────────────────────────────────────
+  const dialog = $("as-dialog") as HTMLDialogElement;
+  const body = $("as-d-body") as HTMLElement;
+  const current = () => items.find((i) => i.id === openId) ?? null;
+
+  function headHtml(item: Subscriber): string {
+    const r = subscriberRow(item);
+    return `<div class="si-d-who"><span class="si-mark" aria-hidden="true">${esc(r.formIcon)}</span><div><strong>${esc(r.who)}</strong>
+        <div class="si-muted si-small">${esc(r.form)} · signed up <time title="${esc(new Date(r.at).toLocaleString())}">${esc(timeAgo(r.at))}</time></div></div>
+        <span class="si-badges">${badge(r.badge)}</span></div>
+      ${r.reason ? `<p class="au-verdict warn"><strong>Why it needs a look:</strong> ${esc(r.reason)}</p>` : ""}`;
+  }
+
+  function fieldHtml(f: SubscriberDetail["fields"][number]): string {
+    const text = fieldText(f.value);
+    const value = /^[^@\s]+@[^@\s]+$/.test(text) ? `<a href="mailto:${esc(encodeURIComponent(text).replace(/%40/g, "@"))}">${esc(text)}</a>` : esc(text);
+    return `<dt>${esc(f.label)}</dt><dd>${value}</dd>`;
+  }
+
+  function detailHtml(item: Subscriber, detail: SubscriberDetail | null): string {
+    const returnTo = `${location.pathname}${location.search}`;
+    const buttons = subscriberActions(can);
+    let more = `<p class="si-muted" id="as-loading">Loading…</p>`;
+    if (detail) {
+      const source = sourceLines(detail);
+      const history = historyLines(detail);
+      more = `${detail.fields.length > 0 ? `<dl class="sr-facts au-fields">${detail.fields.map(fieldHtml).join("")}</dl>` : `<p class="si-muted">Nothing was filled in.</p>`}
+        ${history.length > 0 ? `<ol class="as-history" aria-label="Status history">${history.map((h) => `<li><span>${esc(h.label)}</span> <time title="${esc(new Date(h.at).toLocaleString())}">${esc(timeAgo(h.at))}</time></li>`).join("")}</ol>` : ""}
+        ${source.length > 0 ? `<dl class="sr-facts au-source">${source.map((l) => `<dt>${esc(l.label)}</dt><dd>${esc(l.value)}</dd>`).join("")}</dl>` : ""}`;
+    }
+    return `${headHtml(item)}${more}
+      <div class="si-actions">
+        ${buttons.map((b) => `<button type="button" class="button${b.destructive ? " si-danger" : " secondary"} si-btn-sm" data-act="${b.key}" title="${esc(b.hint ?? "")}">${esc(b.label)}</button>`).join("")}
+        <a class="button secondary si-btn-sm" href="${esc(openSubscriberHref(item, returnTo))}">Open as entry</a>
+      </div>
+      <p class="si-result" id="as-result" role="status" hidden></p>`;
+  }
+
+  async function open(item: Subscriber) {
+    openId = item.id;
+    $("as-d-title").textContent = subscriberRow(item).who;
+    body.innerHTML = detailHtml(item, null);
+    dialog.showModal();
+    try {
+      const out = await api.getSubscriber(item.id);
+      if (openId === item.id && out.subscriber) body.innerHTML = detailHtml(item, out.subscriber);
+    } catch (e) {
+      if (openId === item.id) $("as-loading")?.replaceWith(Object.assign(document.createElement("p"), { className: "si-result bad", textContent: errorMessage(e) }));
+    }
+  }
+
+  $("as-list").addEventListener("click", (event: Event) => {
+    const row = (event.target as HTMLElement).closest<HTMLElement>(".si-row");
+    const item = row ? items.find((i) => i.id === row.dataset.id) : null;
+    if (item) void open(item);
+  });
+
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog || (event.target as HTMLElement).closest("[data-close]")) dialog.close();
+  });
+  dialog.addEventListener("close", () => {
+    openId = null;
+  });
+
+  body.addEventListener("click", async (event: Event) => {
+    const act = (event.target as HTMLElement).closest<HTMLElement>("[data-act]")?.dataset.act;
+    const item = current();
+    if (act !== "delete" || !item || !confirm(subscriberConfirmText())) return;
+    body.querySelectorAll("button").forEach((b: HTMLButtonElement) => (b.disabled = true));
+    try {
+      await api.removeSubscriber(item.id);
+      items = items.filter((i) => i.id !== item.id);
+      total = Math.max(0, total - 1);
+      dialog.close();
+      render();
+      await refreshCounts();
+    } catch (e) {
+      body.querySelectorAll("button").forEach((b: HTMLButtonElement) => (b.disabled = false));
+      const out = $("as-result");
+      if (out) {
+        out.hidden = false;
+        out.className = "si-result bad";
+        out.textContent = errorMessage(e);
+      }
+    }
+  });
+
+  render();
+</script>

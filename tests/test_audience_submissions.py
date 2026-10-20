@@ -361,7 +361,8 @@ def test_the_summary_lists_only_the_message_forms_that_exist_with_their_new_coun
 
 def test_the_summary_draws_nothing_where_no_form_feeds_it(workspace, db_session):  # noqa: F811
     out = _sign_in(workspace, WorkspaceRole.EDITOR).get(f"{P}/summary").json()
-    assert out["submissions"] == {"show": False, "new": 0, "forms": []} and out["signups"] == {"show": False, "forms": []}
+    assert out["submissions"] == {"show": False, "new": 0, "forms": []}
+    assert out["signups"]["show"] is False and out["signups"]["forms"] == [] and out["signups"]["waiting"] == 0
     _type(db_session, workspace.gid, "testimonial", "Testimonial", _caps(destination="entries"))
     _type(db_session, workspace.gid, "note", "Note", None)
     out = _sign_in(workspace, WorkspaceRole.EDITOR).get(f"{P}/summary").json()
@@ -597,5 +598,7 @@ def test_the_openapi_describes_the_audience_routes():
         "/submissions/{submission_id}",
         "/submissions/{submission_id}/handled",
         "/submissions/{submission_id}/reopen",
+        "/subscribers",
+        "/subscribers/{subscriber_id}",
     }
     assert json.dumps(spec).count("AudienceSubmission") > 0

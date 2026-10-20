@@ -296,7 +296,10 @@ class CollectionsController(BaseUserController):
             .all()
         )
 
-        return [EntryRead.model_validate(entry) for entry in entries]
+        from marvin.services.entry_privacy import can_see_full_ip, entries_for
+
+        # A submission's IP address (metadata) is masked below ADMIN, as on the entries API.
+        return entries_for([EntryRead.model_validate(entry) for entry in entries], can_see_full_ip(self.user, self.group_id))
 
     @router.patch("/{item_id}/entries/order", summary="Reorder Collection Entries")
     def reorder_collection_entries(self, item_id: UUID4, data: ReorderEntriesRequest) -> dict:

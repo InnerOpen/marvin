@@ -1,5 +1,5 @@
 """
-The Audience API (``/groups/audience``): what Audience › Submissions shows. A form whose ``submission.destination`` is ``audience``
+The Audience API (``/groups/audience``): what Audience › Submissions and Subscribers show. A form whose ``submission.destination`` is ``audience``
 (the default) sends what people write to it here instead of to the workspace's content (services/audience.py); this lists those
 submissions, newest first, with the submission protection's verdict and where each came from, and lets a person act on one.
 
@@ -8,6 +8,11 @@ submitter's whole IP address is shown to ADMIN and above; an EDITOR sees it with
 
 An action is an ordinary status change of the submission's entry (``entry_updated`` and the status events fire as for any change in
 the entry editor): handled is ``archived``, not spam / reopen is ``inbox``, delete is the Trash (restorable from the Trash page).
+
+Subscribers (``/subscribers``) are the entries of the signup forms (``submission.kind: signup``), listed with the mailing list's word
+for their status: pending, confirmed, unsubscribed, problem (services/audience.py). The same roles and IP rule apply. There is no
+subscribe or unsubscribe here: those stay with the mailing-list integration's workflows and webhook; a person can open the entry or
+delete it (to the Trash).
 """
 
 from datetime import UTC, datetime
@@ -24,7 +29,13 @@ from marvin.schemas.group.audience import (
     AudienceSubmission,
     AudienceSubmissionList,
     AudienceSubmissionResult,
+    AudienceSubscriber,
+    AudienceSubscriberCounts,
+    AudienceSubscriberDetail,
+    AudienceSubscriberList,
+    AudienceSubscriberResult,
     AudienceSummary,
+    SubscriberStatus,
 )
 from marvin.services import audience
 from marvin.services.entries import EntryService
@@ -69,8 +80,9 @@ class AudienceController(BaseUserController):
     @router.get("/summary", response_model=AudienceSummary, summary="What Audience needs to show: the forms with their new counts")
     def summary(self):
         """The Audience message forms (`submissions.forms`: name, icon, and `new` = inbox plus needs review), their total, and
-        whether any signup form exists (`signups.show`; Subscribers, phase 2). Each part has `show` false until something feeds it,
-        so the sidebar draws only what exists. EDITOR and above (a lower role gets 403 and no group)."""
+        the signup forms with a count per subscriber status (`signups`: pending, confirmed, unsubscribed, problem, and `waiting` =
+        pending + problem). Each part has `show` false until something feeds it, so the sidebar draws only what exists. EDITOR and
+        above (a lower role gets 403 and no group)."""
         full_ip = self._gate()
         return AudienceSummary(**audience.summary(self.session, self.group_id), can=AudienceCan(act=True, full_ip=full_ip))
 
@@ -144,3 +156,80 @@ class AudienceController(BaseUserController):
         entry, _ = self._one(submission_id)
         self._entries().trash(entry.id)
         return AudienceSubmissionResult(submission=None)
+
+    # ── Subscribers ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+    def _subscriber(self, subscriber_id: UUID4):
+        found = audience.get_subscriber(self.session, self.group_id, subscriber_id)
+        if found is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such subscriber.")
+        return found
+
+    @router.get("/subscribers", response_model=AudienceSubscriberList, summary="List subscribers (newsletter signups), newest first")
+    def list_subscribers(
+        self,
+        form: str | None = Query(None, description="One signup form, by its entry type's slug (when there are several)."),
+        subscriber_status: list[SubscriberStatus] | None = Query(
+            None,
+            alias="status",
+            description="One or more of pending (inbox), confirmed (published), unsubscribed (archived), problem (needs review).",
+        ),
+        q: str | None = Query(None, max_length=200, description="Text to find in the email, the name or the title."),
+        since: datetime | None = Query(None, description="Signed up at or after this time."),
+        until: datetime | None = Query(None, description="Signed up at or before this time."),
+        limit: int = Query(50, ge=1, le=200),
+        offset: int = Query(0, ge=0),
+    ):
+        """The entries of the signup forms (`submission.kind: signup`), newest first: email, name when the form has one, when they
+        signed up, the status as the mailing list says it, and the review reason of a problem. `counts` is per status for the form (or
+        every form), whatever the other filters. `integrations` lists the enabled integrations that act on the signups (subscribing
+        and unsubscribing are theirs). EDITOR and above."""
+        full_ip = self._gate()
+        rows, total = audience.query_subscribers(
+            self.session,
+            self.group_id,
+            form=form,
+            statuses=subscriber_status,
+            text=q,
+            since=_naive_utc(since),
+            until=_naive_utc(until),
+            limit=limit,
+            offset=offset,
+        )
+        overview = audience.signups_summary(self.session, self.group_id, with_integrations=True)
+        waiting = {f["slug"]: f["new"] for f in overview["forms"]}
+        if form is not None:
+            totals, _ = audience.subscriber_counts(
+                self.session, self.group_id, [t.id for t in audience.signup_forms(self.session, self.group_id) if t.slug == form]
+            )
+        else:
+            totals = {k: overview[k] for k in audience.SUBSCRIBER_STATUSES}
+        return AudienceSubscriberList(
+            items=[AudienceSubscriber(**audience.subscriber_row(e, t, waiting.get(t.slug, 0))) for e, t in rows],
+            total=total,
+            limit=limit,
+            offset=offset,
+            counts=AudienceSubscriberCounts(**totals),
+            forms=overview["forms"],
+            integrations=overview["integrations"],
+            can=AudienceCan(act=True, full_ip=full_ip),
+        )
+
+    @router.get("/subscribers/{subscriber_id}", response_model=AudienceSubscriberResult, summary="Get one subscriber")
+    def get_subscriber(self, subscriber_id: UUID4):
+        """One subscriber in full: every submitted field, where the signup came from (the IP whole for ADMIN and above, masked for an
+        EDITOR) and its status history. 404 for an entry that isn't a signup form's. EDITOR and above."""
+        full_ip = self._gate()
+        entry, entry_type = self._subscriber(subscriber_id)
+        return AudienceSubscriberResult(
+            subscriber=AudienceSubscriberDetail(**audience.subscriber_detail(self.session, entry, entry_type, full_ip=full_ip))
+        )
+
+    @router.delete("/subscribers/{subscriber_id}", response_model=AudienceSubscriberResult, summary="Delete a subscriber (to the Trash)")
+    def delete_subscriber(self, subscriber_id: UUID4):
+        """Move the signup's entry to the Trash, where it can be restored or deleted forever. It does not unsubscribe the reader from
+        the mailing list: that stays the integration's. EDITOR and above."""
+        self._gate()
+        entry, _ = self._subscriber(subscriber_id)
+        self._entries().trash(entry.id)
+        return AudienceSubscriberResult(subscriber=None)

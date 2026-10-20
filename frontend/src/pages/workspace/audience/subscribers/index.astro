@@ -1,0 +1,47 @@
+---
+// Audience › Subscribers: the newsletter signups (entries of the forms with `submission.kind: signup`), newest first, with the
+// counts per status (pending, confirmed, unsubscribed, needs a look), filters and search. Subscribing and unsubscribing are the
+// mailing-list integration's (Buttondown's workflows and webhook); this page reads the entries and can delete one (to the Trash).
+// Editors and above. Backend: routes/groups/audience_controller.py. Pure logic: lib/audience.ts.
+import AudienceSubscribers from "@/components/AudienceSubscribers.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getSummary, listSubscribers, type SubscriberList } from "@/lib/api/audience";
+import { getAuthToken } from "@/lib/api/client";
+import { type AudienceSummary, parseSubscriberFilters, subscriberApiQuery, subscribersEmptyNotice } from "@/lib/audience";
+import { isForbidden } from "@/lib/workspaceRole";
+import "@/styles/social.css";
+import "@/styles/audience.css";
+
+const authToken = getAuthToken(Astro.cookies);
+const filters = parseSubscriberFilters(Astro.url.searchParams);
+let summary: AudienceSummary | null = null;
+let list: SubscriberList | null = null;
+let error: string | null = null;
+let restricted = false;
+try {
+  summary = await getSummary(authToken);
+  if (summary.signups.show) list = await listSubscribers(subscriberApiQuery(filters), authToken);
+} catch (e) {
+  if (isForbidden(e)) restricted = true;
+  else error = e instanceof Error ? e.message : String(e);
+}
+const none = summary && !summary.signups.show ? subscribersEmptyNotice(summary, false) : null;
+---
+
+<AppLayout crumb="workspace.audience.subscribers" restrictedNote={restricted ? "Audience is for editors and above." : null}>
+  <div class="social-page">
+    <p class="si-lede">
+      Who has joined your newsletter, and where each stands: pending (not confirmed yet), confirmed, unsubscribed, or needing a look.
+      Open one for the details. Your mailing-list integration does the subscribing and unsubscribing.
+    </p>
+    {error && <div class="si-alert">Could not load the subscribers: {error}</div>}
+    {none && (
+      <div class="si-empty">
+        <h3>{none.title}</h3>
+        <p>{none.body}</p>
+        {none.link && <p><a class="button secondary" href={none.link.href}>{none.link.label}</a></p>}
+      </div>
+    )}
+    {summary?.signups.show && !error && <AudienceSubscribers summary={summary} list={list} filters={filters} />}
+  </div>
+</AppLayout>

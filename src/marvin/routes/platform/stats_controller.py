@@ -60,6 +60,9 @@ class AttentionCounts(_MarvinModel):
     oldest_draft_days: int | None = None  # age of the oldest draft / inbox entry — "4 drafts" reads differently from "a draft for 23 days"
     oldest_inbox_days: int | None = None
     audience_new: int = 0  # new + suspicious submissions of the forms that go to the Audience (internal: not in the counts above); 0 below EDITOR
+    # Signups that need a look (Audience › Subscribers: the mailing list refused it, or the spam protection held it); 0 below EDITOR. A pending
+    # signup (the reader hasn't confirmed) is routine and nobody's to-do, so only problems are here (the sidebar badge counts both).
+    audience_problems: int = 0
 
 
 class DashboardData(_MarvinModel):
@@ -137,8 +140,8 @@ class StatsController(BaseUserController):
             ai_cost_usd=float(_sum(session, AIExecutionModel, AIExecutionModel.estimated_cost_usd, workspace_id, since=month_start)),
         )
 
-    def _audience_new(self, gid) -> int:
-        """Submissions waiting in Audience › Submissions, for a member who may read it (EDITOR and above)."""
+    def _audience(self, gid) -> tuple[int, int]:
+        """``(new submissions, problem signups)`` waiting in Audience, for a member who may read it (EDITOR and above)."""
         from fastapi import HTTPException
 
         from marvin.db.models.users.roles import WorkspaceRole
@@ -148,12 +151,13 @@ class StatsController(BaseUserController):
         session = self.repos.session
         try:
             require_workspace_role(self.user, gid, WorkspaceRole.EDITOR)
-            return int(audience.summary(session, gid)["submissions"]["new"])
+            overview = audience.summary(session, gid)
+            return int(overview["submissions"]["new"]), int(overview["signups"]["problem"])
         except HTTPException:
-            return 0
+            return 0, 0
         except Exception:  # a caller the role helpers can't read, or a failed count: the panel just leaves the line out
             session.rollback()
-            return 0
+            return 0, 0
 
     @router.get("/dashboard", response_model=DashboardData, summary="Dashboard activity + attention queue")
     def get_dashboard(self) -> DashboardData:
@@ -227,7 +231,7 @@ class StatsController(BaseUserController):
         except Exception:
             role, sees_backups = 0, False
         approvals_count, approvals = dash.approvals_waiting(session, gid, role)
-        audience_new = self._audience_new(gid)
+        audience_new, audience_problems = self._audience(gid)
         return DashboardData(
             recent_activity=recent,
             attention=AttentionCounts(
@@ -241,6 +245,7 @@ class StatsController(BaseUserController):
                 oldest_draft_days=dash.oldest_entry_days(session, gid, "draft", now),
                 oldest_inbox_days=dash.oldest_entry_days(session, gid, "inbox", now),
                 audience_new=audience_new,
+                audience_problems=audience_problems,
             ),
             approvals=approvals,
             upcoming=dash.upcoming(session, gid, now),

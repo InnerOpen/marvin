@@ -1,5 +1,5 @@
-// Audience: the pure logic of Audience › Submissions (the sidebar fold, a row, the status words, the filters, the actions, the
-// empty state). The submissions are what people send through the forms whose destination is the Audience (the default for a form):
+// Audience: the pure logic of Audience › Submissions and Audience › Subscribers (the sidebar fold and item, a row, the status words,
+// the filters, the actions, the empty state). The submissions are what people send through the forms whose destination is the Audience (the default for a form):
 // entries of an internal type, read here instead of among the workspace's content. No DOM and no fetch, so `npm test` covers it
 // (audience.test.mjs). The API: routes/groups/audience_controller.py; the word for an entry status is the backend's `state_of`.
 
@@ -8,6 +8,7 @@ import { type Badge, excerpt, newBadgeText } from "./socialInbox.ts";
 
 export const AUDIENCE_PATH = "/workspace/audience";
 export const SUBMISSIONS_PATH = `${AUDIENCE_PATH}/submissions`;
+export const SUBSCRIBERS_PATH = `${AUDIENCE_PATH}/subscribers`;
 export const PAGE_SIZE = 50;
 
 export type SubmissionState = "new" | "suspicious" | "handled";
@@ -21,10 +22,32 @@ export interface AudienceForm {
   new: number;
 }
 
+export type SubscriberStatus = "pending" | "confirmed" | "unsubscribed" | "problem";
+
+export interface AudienceIntegration {
+  slug: string;
+  name: string;
+  provider: string;
+}
+
+export interface SignupsSummary {
+  /** A signup form exists (`submission.kind: signup`): Subscribers is drawn. */
+  show: boolean;
+  /** Each signup form; `new` is its pending plus problem signups. */
+  forms: AudienceForm[];
+  pending?: number;
+  confirmed?: number;
+  unsubscribed?: number;
+  problem?: number;
+  /** Pending plus problems: the sidebar badge. */
+  waiting?: number;
+  /** The enabled integrations that act on the signups (filled by the Subscribers list). */
+  integrations?: AudienceIntegration[];
+}
+
 export interface AudienceSummary {
   submissions: { show: boolean; new: number; forms: AudienceForm[] };
-  /** A signup form exists (`submission.kind: signup`): Subscribers, in a later release, draws on it. */
-  signups: { show: boolean; forms: AudienceForm[] };
+  signups: SignupsSummary;
   can: { act?: boolean; fullIp?: boolean };
 }
 
@@ -116,7 +139,7 @@ export function submissionsNav(summary: AudienceSummary | null | undefined): Sub
   };
 }
 
-/** The Audience heading is drawn when Social or Submissions has something (Subscribers joins them later). */
+/** The Audience heading is drawn when Social, Submissions or Subscribers has something. */
 export function showAudienceGroup(parts: (object | null | undefined)[]): boolean {
   return parts.some((p) => p != null);
 }
@@ -349,4 +372,228 @@ export function emptyNotice(summary: AudienceSummary | null, filtered: boolean, 
 export function errorMessage(e: unknown): string {
   const message = e instanceof Error ? e.message : String(e ?? "");
   return message.trim() || "Something went wrong.";
+}
+
+
+// ══ Subscribers ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// A signup is an entry of a form with `submission.kind: signup`; its entry status mirrors the mailing list (the Buttondown loop):
+// inbox pending, published confirmed, archived unsubscribed, needs_review a problem. The backend maps them (`subscriber_status`).
+
+export interface Subscriber {
+  id: string;
+  form: AudienceForm;
+  email?: string | null;
+  name?: string | null;
+  title: string;
+  status: SubscriberStatus;
+  entryStatus: string;
+  reviewReasons: string[];
+  /** The latest review reason of a problem. */
+  reason?: string | null;
+  signedUpAt: string;
+  path: string;
+}
+
+export interface SubscriberDetail extends Subscriber {
+  fields: SubmissionField[];
+  source: Submission["source"];
+  history: { label: string; at: string }[];
+}
+
+export interface SubscriberCounts {
+  pending: number;
+  confirmed: number;
+  unsubscribed: number;
+  problem: number;
+}
+
+/** The sidebar's Subscribers item (a link, not a fold), or null — nothing is drawn — until a form has `submission.kind: signup`.
+ *  Its badge is what is waiting: pending plus problems. */
+export function subscribersNav(summary: AudienceSummary | null | undefined): { label: string; href: string; badge: string; badgeLabel: string } | null {
+  const signups = summary?.signups;
+  if (!signups?.show) return null;
+  const waiting = signups.waiting ?? (signups.pending ?? 0) + (signups.problem ?? 0);
+  return { label: "Subscribers", href: SUBSCRIBERS_PATH, badge: newBadgeText(waiting), badgeLabel: `${waiting} pending or needing a look` };
+}
+
+export const SUBSCRIBER_STATUSES: { value: SubscriberStatus; label: string; hint: string; tone: Badge["tone"] }[] = [
+  { value: "pending", label: "Pending", hint: "Asked to join and has not confirmed yet", tone: "new" },
+  { value: "confirmed", label: "Confirmed", hint: "Confirmed in the mailing list", tone: "good" },
+  { value: "unsubscribed", label: "Unsubscribed", hint: "Left the mailing list", tone: "muted" },
+  { value: "problem", label: "Needs a look", hint: "The mailing list refused it, or the spam protection held it", tone: "warn" },
+];
+
+/** The status badge; a problem's tooltip is its review reason when it has one. */
+export function subscriberBadge(status: string, reason?: string | null): Badge {
+  const known = SUBSCRIBER_STATUSES.find((s) => s.value === status);
+  if (!known) return { label: status || "Unknown", tone: "neutral" };
+  return { label: known.label, tone: known.tone, title: status === "problem" && reason ? reason : known.hint };
+}
+
+/** The counts strip at the top: one tile per status, with a count. `active` marks the status the list is filtered to. */
+export function statusTiles(counts: Partial<SubscriberCounts> | null | undefined, active = ""): { value: SubscriberStatus; label: string; count: number; tone: Badge["tone"]; active: boolean; hint: string }[] {
+  return SUBSCRIBER_STATUSES.map((s) => ({ value: s.value, label: s.label, count: Math.max(0, counts?.[s.value] ?? 0), tone: s.tone, active: s.value === active, hint: s.hint }));
+}
+
+export interface SubscriberRowView {
+  id: string;
+  /** The line's first words: the name when there is one, else the email, else the entry's title. */
+  who: string;
+  /** The email shown beside a name (empty when who already is the email). */
+  email: string;
+  form: string;
+  formIcon: string;
+  at: string;
+  badge: Badge;
+  /** Pending or a problem: drawn bold with a dot, as a New submission is. */
+  unread: boolean;
+  /** A problem's reason, shown under the line. */
+  reason: string;
+}
+
+/** One compact row: who (name, else email), the email beside a name, the form, when, the status badge. */
+export function subscriberRow(item: Subscriber): SubscriberRowView {
+  const email = (item.email ?? "").trim();
+  const name = (item.name ?? "").trim();
+  return {
+    id: item.id,
+    who: name || email || (item.title ?? "").trim() || "Someone",
+    email: name ? email : "",
+    form: item.form?.name ?? "",
+    formIcon: item.form?.icon || "📬",
+    at: item.signedUpAt,
+    badge: subscriberBadge(item.status, item.reason),
+    unread: item.status === "pending" || item.status === "problem",
+    reason: item.status === "problem" ? (item.reason ?? "").trim() : "",
+  };
+}
+
+/** The buttons for one subscriber: Delete (to the Trash) for a caller who may act. Subscribing and unsubscribing are the mailing-list
+ *  integration's, so there is no button for them. */
+export function subscriberActions(can: AudienceSummary["can"] | undefined): ActionButton[] {
+  return can?.act === true ? [{ key: "delete", label: "Delete", destructive: true, hint: "Moves it to the Trash; it does not unsubscribe them" }] : [];
+}
+
+export function subscriberConfirmText(): string {
+  return "Move this signup to the Trash? You can restore it from the Trash. This does not unsubscribe them from your mailing list.";
+}
+
+export interface SubscriberFilters {
+  /** A signup form's slug; "" is every form. */
+  form: string;
+  status: SubscriberStatus | "";
+  q: string;
+  /** Day filters, `YYYY-MM-DD` ("" for none). */
+  from: string;
+  to: string;
+}
+
+export const NO_SUBSCRIBER_FILTERS: SubscriberFilters = { form: "", status: "", q: "", from: "", to: "" };
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const day = (v: string | null | undefined) => (DAY.test(clean(v)) ? clean(v) : "");
+
+export function parseSubscriberFilters(search: URLSearchParams): SubscriberFilters {
+  const status = clean(search.get("status"));
+  return {
+    form: clean(search.get("form")),
+    status: SUBSCRIBER_STATUSES.some((s) => s.value === status) ? (status as SubscriberStatus) : "",
+    q: clean(search.get("q")).slice(0, 200),
+    from: day(search.get("from")),
+    to: day(search.get("to")),
+  };
+}
+
+/** The page's own query string for a view, so it can be bookmarked. */
+export function subscriberFiltersToQuery(filters: SubscriberFilters): string {
+  const q = new URLSearchParams();
+  if (clean(filters.form)) q.set("form", clean(filters.form));
+  if (clean(filters.status)) q.set("status", clean(filters.status));
+  if (clean(filters.q)) q.set("q", clean(filters.q));
+  if (day(filters.from)) q.set("from", day(filters.from));
+  if (day(filters.to)) q.set("to", day(filters.to));
+  const text = q.toString();
+  return text ? `?${text}` : "";
+}
+
+/** A day as the API's `since` (the start of that local day) or `until` (its end), in UTC. */
+export function dayBound(value: string, end: boolean): string | null {
+  const d = day(value);
+  if (!d) return null;
+  const [y, m, dd] = d.split("-").map(Number);
+  const at = end ? new Date(y, m - 1, dd, 23, 59, 59, 999) : new Date(y, m - 1, dd, 0, 0, 0, 0);
+  return Number.isNaN(at.getTime()) ? null : at.toISOString();
+}
+
+/** The API's query for a page of subscribers. */
+export function subscriberApiQuery(filters: SubscriberFilters, offset = 0, limit = PAGE_SIZE): string {
+  const q = new URLSearchParams();
+  if (clean(filters.form)) q.set("form", clean(filters.form));
+  if (clean(filters.status)) q.set("status", clean(filters.status));
+  if (clean(filters.q)) q.set("q", clean(filters.q));
+  const since = dayBound(filters.from, false);
+  const until = dayBound(filters.to, true);
+  if (since) q.set("since", since);
+  if (until) q.set("until", until);
+  q.set("limit", String(limit));
+  if (offset > 0) q.set("offset", String(offset));
+  return q.toString();
+}
+
+export function hasSubscriberFilters(filters: SubscriberFilters): boolean {
+  return Boolean(clean(filters.status) || clean(filters.q) || clean(filters.form) || day(filters.from) || day(filters.to));
+}
+
+/** The form filter's options: each signup form (the filter is drawn only when there are several). */
+export function signupFormOptions(summary: AudienceSummary | null | undefined): { value: string; label: string }[] {
+  return (summary?.signups?.forms ?? []).map((f) => ({ value: f.slug, label: f.name }));
+}
+
+export interface IntegrationNote {
+  /** handled: an integration subscribes and unsubscribes them; hint: none is connected. */
+  kind: "handled" | "hint";
+  text: string;
+  link?: { href: string; label: string };
+}
+
+/** The note under the counts: which connected integration handles subscribing and unsubscribing (Buttondown, or any whose workflows
+ *  name the signup form), or a hint to connect one. Marvin lists the signups either way. */
+export function integrationNote(integrations: AudienceIntegration[] | null | undefined): IntegrationNote {
+  const list = integrations ?? [];
+  if (list.length > 0) {
+    const names = list.map((i) => i.name).join(", ");
+    return {
+      kind: "handled",
+      text: `${names} handles subscribing and unsubscribing, through its workflows and webhook. A status here follows it; you can open a signup or delete it, but you can't unsubscribe someone from this page.`,
+      link: { href: "/workspace/settings/integrations", label: "Open Integrations" },
+    };
+  }
+  return {
+    kind: "hint",
+    text: "No mailing-list integration is connected. Signups are still collected and listed here; connect one (Buttondown, for example) to subscribe them and keep these statuses in step.",
+    link: { href: "/workspace/settings/integrations", label: "Connect an integration" },
+  };
+}
+
+/** What the page says when there is nothing to list. */
+export function subscribersEmptyNotice(summary: AudienceSummary | null, filtered: boolean): Notice {
+  if (filtered) return { title: "Nothing matches these filters", body: "Clear a filter or change the search to see more." };
+  if (summary && !summary.signups?.show) {
+    return {
+      title: "No signup form yet",
+      body: "Subscribers appears when an entry type is a signup form: open it under Entry types and set its Signup setting (the Buttondown integration does this for the form it is applied with).",
+      link: { href: "/workspace/entry-types", label: "Open Entry types" },
+    };
+  }
+  return { title: "No signups yet", body: "When someone joins through your signup form, they show here, newest first." };
+}
+
+/** "Open as entry" for a signup, returning to this page. */
+export function openSubscriberHref(item: Pick<Subscriber, "path">, returnTo: string): string {
+  return withReturn(item.path, returnTo);
+}
+
+/** The detail's facts under the heading: the form, when, and the status history (newest first), each as a label and a time. */
+export function historyLines(detail: Pick<SubscriberDetail, "history">): { label: string; at: string }[] {
+  return (detail.history ?? []).filter((h) => h && h.label && h.at);
 }

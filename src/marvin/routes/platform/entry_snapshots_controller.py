@@ -14,6 +14,7 @@ from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import editable_entry
 from marvin.schemas.platform.entry_snapshots import EntrySnapshotCreate, EntrySnapshotDiff, EntrySnapshotRead, EntrySnapshotRestore
 from marvin.services import snapshots
+from marvin.services.entry_privacy import can_see_full_ip
 
 router = APIRouter(prefix="/entries/{entry_id}/snapshots")
 
@@ -54,7 +55,11 @@ class EntrySnapshotsController(BaseUserController):
         self._entry(entry_id)
         row = self._snapshot(entry_id, snapshot_id)
         try:
-            return EntrySnapshotDiff(**snapshots.public(snapshots.plan(self.session, self.group_id, row, snapshots.clean_parts(parts))))
+            return EntrySnapshotDiff(
+                **snapshots.public(
+                    snapshots.plan(self.session, self.group_id, row, snapshots.clean_parts(parts), can_see_full_ip(self.user, self.group_id))
+                )
+            )
         except snapshots.SnapshotError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
 
@@ -67,7 +72,9 @@ class EntrySnapshotsController(BaseUserController):
         parts = snapshots.clean_parts(body.parts if body else None)
         self._entry(entry_id, (row.snapshot_json or {}).get("status") if "status" in parts else None)
         try:
-            done = snapshots.restore(self.session, self.group_id, row, parts, actor_id=self.user.id)
+            done = snapshots.restore(
+                self.session, self.group_id, row, parts, actor_id=self.user.id, full_ip=can_see_full_ip(self.user, self.group_id)
+            )
         except snapshots.SnapshotError as e:
             code = status.HTTP_409_CONFLICT if "Trash" in str(e) else status.HTTP_422_UNPROCESSABLE_ENTITY
             raise HTTPException(status_code=code, detail=str(e)) from e

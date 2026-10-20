@@ -12,7 +12,7 @@ Each blueprint has a `kind`, a `slug`, `name`, one-line `description`, a `catego
 | --- | --- | --- |
 | `collection` | A collection (smart collections are materialised at once) | A collection body |
 | `entry_type` | An entry type | An entry-type body |
-| `entry_fields` | Fields on an existing entry type | `{"entry_type": "<slug>", "fields": [<schema field>, …]}`; only fields whose `key` is missing are appended, existing fields are never changed |
+| `entry_fields` | Fields on an existing entry type, and optionally its form settings | `{"entry_type": "<slug>", "fields": [<schema field>, …], "submission": {"destination"?, "kind"?}?}`; only fields whose `key` is missing are appended, existing fields are never changed. `submission` is the one hook on a form's settings: `destination` (`audience` \| `entries`) and/or `kind` (`message` \| `signup`), nothing else, set on a submittable type only for the keys it doesn't already store (a choice someone made stays; choosing a destination sets *Show in content lists* as the editor does). A blueprint that only sets these declares `fields: []`. A Marvin before this hook ignores the block (and rejects an empty `fields` list, so a provider that wants to stay valid there also declares a field) |
 | `scheduled_task` | A scheduled task, switched off | A scheduled-task body |
 | `event_subscription` | An event → integration action wiring, switched off | `event_type`, `action`, `args` |
 | `incoming_webhook` | An [incoming webhook](incoming-webhooks.md), switched off and without a token | `name`, `description`, `signature_scheme`, `signature_header`, `signing_secret_ref`, `signature_url`, `signature_config`; a `token` is refused |
@@ -58,7 +58,7 @@ When an integration ships a newer version of a workflow you applied, its row sho
 
 ### Apply semantics
 
-- **Create what is missing, never overwrite what exists.** The upsert is keyed on the resolved slug within the workspace. A customised copy survives a repeat apply and a provider upgrade. For `entry_fields`, "applied" means every declared field is already on the type.
+- **Create what is missing, never overwrite what exists.** The upsert is keyed on the resolved slug within the workspace. A customised copy survives a repeat apply and a provider upgrade. For `entry_fields`, "applied" means every declared field is already on the type and every declared submission setting is stored.
 - **Dependency order.** Bulk apply sorts entry types, then added fields, collections, scheduled tasks, incoming webhooks and workflows, and flushes after each, so a collection that `requires: entry_type:<slug>` sees the type created moments earlier and a workflow finds the webhook it triggers on.
 - **Requirements gate.** An unmet `requires` entry makes the blueprint `available: false`; applying it returns `created: false` with `detail: "needs entry_type:<slug>"` rather than half-creating.
 - **Event subscriptions need a connection.** They reference an integration instance: `POST /{slug}/apply` takes `integration_id`, otherwise the workspace's only connection of that provider is used; with two or more, apply refuses rather than guess. They have no database slug, so the upsert dedupes on (integration, event type, action).

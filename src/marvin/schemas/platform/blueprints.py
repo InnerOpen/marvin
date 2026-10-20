@@ -53,6 +53,21 @@ REQUIREMENT_KINDS = ("entry_type", "collection")
 CORE_SOURCE = "core"
 
 
+#: The submission settings an `entry_fields` blueprint may set on a form (payload.submission): where its submissions go and what a
+#: submission is. Deliberately these two and no others (honeypot, captcha, rate limits, redirects… stay the workspace's).
+SUBMISSION_HOOK_VALUES = {"destination": ("audience", "entries"), "kind": ("message", "signup")}
+
+
+def _check_submission_hook(submission) -> None:
+    if not isinstance(submission, dict) or not submission:
+        raise ValueError("payload.submission must be an object with destination and/or kind")
+    for key, value in submission.items():
+        if key not in SUBMISSION_HOOK_VALUES:
+            raise ValueError(f"payload.submission may set only {' and '.join(SUBMISSION_HOOK_VALUES)}, not {key!r}")
+        if value not in SUBMISSION_HOOK_VALUES[key]:
+            raise ValueError(f"payload.submission.{key} must be one of {', '.join(SUBMISSION_HOOK_VALUES[key])}")
+
+
 class BlueprintParameter(_MarvinModel):
     """Something the workspace supplies when the blueprint is applied.
 
@@ -119,8 +134,11 @@ class Blueprint(_MarvinModel):
     """The body handed to the creating repository — a CollectionCreate / EntryTypes /
     ScheduledTaskCreate shape, minus the workspace scoping the core adds. By kind:
 
-    - `entry_fields`: `{"entry_type": "<slug or {{param}}>", "fields": [<schema field>, …]}` — fields
-      appended to that existing type when their key is missing; existing fields are never changed.
+    - `entry_fields`: `{"entry_type": "<slug or {{param}}>", "fields": [<schema field>, …], "submission": {…}?}` — fields
+      appended to that existing type when their key is missing; existing fields are never changed. The optional `submission`
+      is the one hook a blueprint has on a form's settings: `{"destination": "audience" | "entries", "kind": "message" |
+      "signup"}` (nothing else), set on a submittable type only for the keys the type doesn't already store, so a choice
+      someone made is kept. A blueprint that only sets these declares `fields: []`.
     - `incoming_webhook`: `{name?, description?, signature_scheme?, signature_header?,
       signing_secret_ref?}` — created disabled and without a token.
     - `workflow`: `{name?, definition: {trigger, conditions, actions, …}}` — created
@@ -152,8 +170,11 @@ class Blueprint(_MarvinModel):
                 raise ValueError(f"a {self.kind} blueprint must not set {forbidden!r}")
         if self.kind == "entry_fields":
             fields = self.payload.get("fields")
-            if not self.payload.get("entry_type") or not isinstance(fields, list) or not fields:
-                raise ValueError("an entry_fields blueprint needs payload.entry_type and a non-empty payload.fields list")
+            submission = self.payload.get("submission")
+            if not self.payload.get("entry_type") or not isinstance(fields, list) or not (fields or submission):
+                raise ValueError("an entry_fields blueprint needs payload.entry_type and a non-empty payload.fields list (or payload.submission)")
+            if submission is not None:
+                _check_submission_hook(submission)
         if self.kind == "workflow" and not isinstance(self.payload.get("definition"), dict):
             raise ValueError("a workflow blueprint needs payload.definition")
         return self

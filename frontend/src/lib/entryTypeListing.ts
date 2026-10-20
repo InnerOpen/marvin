@@ -44,7 +44,8 @@ export function usedBy(type: TypeLike | null | undefined): string | null {
   const slug = type?.slug ?? "";
   if (slug === "social-auto-reply") return "Audience › Social › Rules";
   if (slug === "social-reply-log") return "nothing now (a retired Social type)";
-  if (submissionDestination(type) === "audience") return submissionKind(type) === "signup" ? "Audience › Subscribers" : "Audience › Submissions";
+  if (submissionKind(type) === "signup") return "Audience › Subscribers"; // a signup form, whatever its destination
+  if (submissionDestination(type) === "audience") return "Audience › Submissions";
   return null;
 }
 

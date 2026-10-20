@@ -28,7 +28,7 @@ import { listEntryTypes } from "@/lib/api/entryTypes";
 import { getContentAccess } from "@/lib/api/workspaces";
 import { logoUrl } from "@/lib/integrationLogo";
 import { listedTypes } from "@/lib/entryTypeListing";
-import { isSubmissionsPath, showAudienceGroup, submissionsNav } from "@/lib/audience";
+import { isSubmissionsPath, showAudienceGroup, submissionsNav, subscribersNav } from "@/lib/audience";
 import { newBadgeText } from "@/lib/socialInbox";
 import { isSocialPath, socialNav } from "@/lib/socialSpace";
 import { ADMINS_ONLY } from "@/lib/workspaceRole";
@@ -187,9 +187,11 @@ if (authToken) {
 const socialSummary = await socialInbox;
 const socialGroup = socialNav(socialSummary);
 const onSocial = isSocialPath(Astro.url.pathname);
-const submissionsGroup = submissionsNav(await audienceInbox);
+const audienceSummary = await audienceInbox;
+const submissionsGroup = submissionsNav(audienceSummary);
+const subscribersItem = subscribersNav(audienceSummary);
 const onSubmissions = isSubmissionsPath(Astro.url.pathname);
-const showAudience = showAudienceGroup([socialGroup, submissionsGroup]);
+const showAudience = showAudienceGroup([socialGroup, submissionsGroup, subscribersItem]);
 const hasFolder = (slug: string) => folders.some((c) => c.slug === slug);
 
 // Collections an integration installed fold under that integration ("n8n › In flight, Failed"); a person's own stay
@@ -445,6 +447,13 @@ function isActive(itemPath: string, currentPath: string): boolean {
                   )}
                 </div>
               </details>
+              )}
+              {subscribersItem && (
+                <a href={subscribersItem.href} data-aud-subscribers aria-current={path === subscribersItem.href ? "page" : undefined}>
+                  <span aria-hidden="true">📬</span>
+                  <span>{subscribersItem.label}</span>
+                  {subscribersItem.badge && <span class="nav-count attention" aria-label={subscribersItem.badgeLabel}>{subscribersItem.badge}</span>}
+                </a>
               )}
             </nav>
           </div>

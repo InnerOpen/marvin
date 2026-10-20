@@ -208,6 +208,17 @@ def require_workspace_role(user: PrivateUser, group_id: UUID4, minimum: Workspac
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"{minimum.value} role or higher required.")
 
 
+def has_workspace_role(user: PrivateUser | None, group_id: UUID4, minimum: WorkspaceRole) -> bool:
+    """`require_workspace_role` as a yes/no: whether the user holds `minimum` or a higher role (a caller with no user, or no
+    role in the workspace, is never above anyone)."""
+    if user is None:
+        return False
+    if _bypasses_workspace_roles(user):
+        return True
+    role = user.get_workspace_role(group_id)
+    return role is not None and workspace_role_has_higher_or_equal_privilege(role, minimum)
+
+
 def require_workspace_editor(user: PrivateUser, group_id: UUID4) -> None:
     """Raise 403 unless the user is an EDITOR or above: the gate for writing workspace content."""
     require_workspace_role(user, group_id, WorkspaceRole.EDITOR)

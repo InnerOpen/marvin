@@ -29,7 +29,9 @@ const oldestDraftDays: number | null = attention.oldestDraftDays ?? attention.ol
 const oldestInboxDays: number | null = attention.oldestInboxDays ?? attention.oldest_inbox_days ?? null;
 // New and suspicious submissions of the forms that go to the Audience (internal entries: not in the inbox and review counts above).
 const audienceNew: number = attention.audienceNew ?? attention.audience_new ?? 0;
-const attentionTotal = inbox + drafts + needsReview + aiSuggestions + failures + approvalsWaiting + parkedRuns + audienceNew;
+// Signups that need a look (the mailing list refused them, or the spam protection held them); a pending one is routine and not counted.
+const audienceProblems: number = attention.audienceProblems ?? attention.audience_problems ?? 0;
+const attentionTotal = inbox + drafts + needsReview + aiSuggestions + failures + approvalsWaiting + parkedRuns + audienceNew + audienceProblems;
 
 // The oldest few approvals, decided right here; the rest on the Approvals page.
 const approvals: any[] = dashboard?.approvals ?? [];
@@ -244,6 +246,12 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
               <li><a href="/workspace/audience/submissions" class="attention-item">
                 <span class="attention-count warn">{audienceNew}</span>
                 <span class="attention-label">New form submissions (Audience)</span>
+              </a></li>
+            )}
+            {audienceProblems > 0 && (
+              <li><a href="/workspace/audience/subscribers?status=problem" class="attention-item">
+                <span class="attention-count warn">{audienceProblems}</span>
+                <span class="attention-label">Newsletter signups that need a look (Audience)</span>
               </a></li>
             )}
             {inbox > 0 && (

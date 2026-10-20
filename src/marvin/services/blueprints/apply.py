@@ -199,7 +199,7 @@ def apply_blueprint(session, group_id, blueprint: Blueprint, params: dict | None
         if blueprint.kind in PER_INTEGRATION_KINDS:
             where = "already connected"
         elif blueprint.kind == "entry_fields":
-            where = "already has every field"
+            where = "already has every field and setting"
         else:
             where = f"with slug '{slug}' already exists"
         result.detail = f"a {noun} {where} — left as it is"
@@ -251,12 +251,13 @@ def _models():
 
 def _existing(session, group_id, blueprint: Blueprint, slug: str, integration_id=None, params: dict | None = None):
     if blueprint.kind == "entry_fields":
-        # "Applied" means every declared field is already on the type; a type with only some of
-        # them still has work to do.
+        # "Applied" means every declared field is already on the type and every declared submission setting stored;
+        # a type with only some of them still has work to do.
         entry_type = _fields_target(session, group_id, blueprint, params or {})
         if entry_type is None:
             return None
-        return entry_type if not _missing_fields(entry_type, blueprint, params or {}) else None
+        done = not _missing_fields(entry_type, blueprint, params or {}) and not _missing_submission(entry_type, blueprint)
+        return entry_type if done else None
 
     if blueprint.kind == "event_subscription":
         # No slug in the database: a connection is identified by what it wires to what.
@@ -411,9 +412,46 @@ def _missing_fields(entry_type, blueprint: Blueprint, params: dict) -> list[dict
     return [f for f in declared if f.get("key") not in present]
 
 
+def _missing_submission(entry_type, blueprint: Blueprint) -> dict:
+    """The declared submission settings (payload.submission: destination and/or kind) the type doesn't store yet. A setting someone
+    already stored, even one different from the declared value, is theirs and is left alone. A type that isn't a form stores none, so
+    everything declared is missing (and applying it is refused with the reason)."""
+    from marvin.services.entry_listing import submission_settings
+
+    declared = (blueprint.payload or {}).get("submission") or {}
+    stored = submission_settings(entry_type) or {}
+    return {k: v for k, v in declared.items() if k in ("destination", "kind") and k not in stored}
+
+
+def _set_submission(session, entry_type, settings: dict) -> str:
+    """Store the missing submission settings on a form (through the same default the entry type editor applies: choosing a destination
+    sets whether the type is listed) and let its entries' derived data follow if that changed."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from marvin.repos.platform.entry_types import follow_listing
+    from marvin.schemas.platform.entry_type_rendering import CapabilitiesDefinition
+    from marvin.services.entry_listing import is_listed_type, submission_settings, with_destination_default
+
+    if submission_settings(entry_type) is None:
+        raise BlueprintParameterError(f"entry type '{entry_type.slug}' is not a form (submittable), so its submission settings can't be set")
+    old = dict(entry_type.capabilities_json or {})
+    was_listed = is_listed_type(entry_type)
+    new = with_destination_default(old, {**old, "submission": {**(old.get("submission") or {}), **settings}})
+    try:
+        CapabilitiesDefinition.model_validate(new)
+    except Exception as e:  # noqa: BLE001 — surface the rule that failed, don't half-apply
+        raise BlueprintParameterError(f"the submission settings don't fit entry type '{entry_type.slug}': {e}") from e
+    entry_type.capabilities_json = new
+    flag_modified(entry_type, "capabilities_json")
+    session.flush()
+    if is_listed_type(entry_type) != was_listed:
+        follow_listing(session, entry_type, commit=False)
+    return f"set {', '.join(f'{k} {v}' for k, v in settings.items())} on '{entry_type.slug}'"
+
+
 def _add_fields(session, group_id, blueprint: Blueprint, params: dict) -> str:
-    """Append the declared fields the type lacks. Existing fields — even ones with a declared key —
-    are left exactly as they are: the workspace may have customised them."""
+    """Append the declared fields the type lacks and set the declared submission settings it doesn't store. Existing fields — even
+    ones with a declared key — and stored settings are left exactly as they are: the workspace may have customised them."""
     from sqlalchemy.orm.attributes import flag_modified
 
     from marvin.schemas.platform.entry_type_schema import EntryTypeSchemaDefinition
@@ -422,17 +460,23 @@ def _add_fields(session, group_id, blueprint: Blueprint, params: dict) -> str:
     if entry_type is None:
         target = substitute((blueprint.payload or {}).get("entry_type"), params)
         raise BlueprintParameterError(f"no entry type '{target}' in this workspace to add fields to")
+    notes = []
     missing = _missing_fields(entry_type, blueprint, params)
-    schema = dict(entry_type.schema_json or {})
-    schema["fields"] = [*(schema.get("fields") or []), *missing]
-    try:
-        EntryTypeSchemaDefinition.model_validate(schema)
-    except Exception as e:  # noqa: BLE001 — surface the schema rule that failed, don't half-apply
-        raise BlueprintParameterError(f"the fields don't fit entry type '{entry_type.slug}': {e}") from e
-    entry_type.schema_json = schema
-    flag_modified(entry_type, "schema_json")
-    session.flush()
-    return f"added {', '.join(f['key'] for f in missing)} to '{entry_type.slug}'"
+    if missing:
+        schema = dict(entry_type.schema_json or {})
+        schema["fields"] = [*(schema.get("fields") or []), *missing]
+        try:
+            EntryTypeSchemaDefinition.model_validate(schema)
+        except Exception as e:  # noqa: BLE001 — surface the schema rule that failed, don't half-apply
+            raise BlueprintParameterError(f"the fields don't fit entry type '{entry_type.slug}': {e}") from e
+        entry_type.schema_json = schema
+        flag_modified(entry_type, "schema_json")
+        session.flush()
+        notes.append(f"added {', '.join(f['key'] for f in missing)} to '{entry_type.slug}'")
+    settings = _missing_submission(entry_type, blueprint)
+    if settings:
+        notes.append(_set_submission(session, entry_type, settings))
+    return "; ".join(notes)
 
 
 # --- updating what an integration declared earlier ------------------------------------------------

@@ -309,7 +309,7 @@ def _admin_get(db_session, gid, entry_id):
     from marvin.repos.repository_factory import AllRepositories
     from marvin.routes.platform.entries_controller import EntriesController
 
-    ctrl = SimpleNamespace(repos=AllRepositories(db_session, group_id=gid), session=db_session, group_id=gid)
+    ctrl = SimpleNamespace(repos=AllRepositories(db_session, group_id=gid), session=db_session, group_id=gid, user=None)
     return EntriesController.get_entry(ctrl, entry_id)
 
 

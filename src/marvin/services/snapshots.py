@@ -29,6 +29,7 @@ import uuid
 from typing import Any
 
 from marvin.db.models.platform.entry_snapshots import EntrySnapshotModel
+from marvin.services.entry_privacy import metadata_for
 
 MAX_PER_ENTRY = 20
 LABEL_MAX = 100
@@ -219,8 +220,10 @@ def _clip(value: Any) -> Any:
     return value
 
 
-def plan(session, group_id, row: EntrySnapshotModel, parts: tuple[str, ...] = DEFAULT_PARTS) -> dict:
-    """What restoring `row` onto its entry would change, by part — nothing is written. `changed` says whether anything would."""
+def plan(session, group_id, row: EntrySnapshotModel, parts: tuple[str, ...] = DEFAULT_PARTS, full_ip: bool = False) -> dict:
+    """What restoring `row` onto its entry would change, by part — nothing is written. `changed` says whether anything would.
+    A form submission's IP address, in the metadata shown as before/after, is masked unless `full_ip` (ADMIN and above;
+    services/entry_privacy.py): what would change is decided on the real values."""
     from marvin.db.models.platform.assets import Assets
     from marvin.db.models.platform.collections import Collections
 
@@ -233,7 +236,8 @@ def plan(session, group_id, row: EntrySnapshotModel, parts: tuple[str, ...] = DE
         changes: dict = {}
         for key in (*CONTENT_FIELDS, "data", "metadata"):
             if snap.get(key) != now.get(key):
-                changes[key] = {"before": _clip(now.get(key)), "after": _clip(snap.get(key))}
+                shown = (lambda v: metadata_for(v, full_ip)) if key == "metadata" else (lambda v: v)
+                changes[key] = {"before": _clip(shown(now.get(key))), "after": _clip(shown(snap.get(key)))}
         out["content"] = changes
     if "status" in parts:
         before, after = now["status"], snap.get("status")
@@ -289,6 +293,7 @@ def restore(
     actor_id=None,
     depth: int = 0,
     integration_id="entry_management",
+    full_ip: bool = False,
 ) -> dict:
     """Put `parts` of the snapshot back on its entry (through EntryService, so the normal events go out at `depth`).
     Returns the plan it carried out; a restore that would change nothing writes nothing."""
@@ -304,7 +309,7 @@ def restore(
     snap = row.snapshot_json or {}
     if "status" in parts and _TRASHED in (snap.get("status"), entry.status):
         raise SnapshotError("a restore doesn't move an entry into or out of the Trash")
-    done = plan(session, group_id, row, parts)
+    done = plan(session, group_id, row, parts, full_ip)
     if not done["changed"]:
         return {**public(done), "restored": False}
     svc = EntryService(session, group_id, actor_id=actor_id, integration_id=integration_id)

@@ -84,6 +84,8 @@ const NODES: NavNode[] = [
   // no parent. Each such form has its own page under it.
   { id: "workspace.audience.submissions", label: "Submissions", href: "/workspace/audience/submissions", title: "Audience submissions" },
   { id: "workspace.audience.submissions.form", label: "Form", href: "/workspace/audience/submissions/[form]", parent: "workspace.audience.submissions" },
+  // Audience › Subscribers: a plain item under Audience (only while a form is a signup form).
+  { id: "workspace.audience.subscribers", label: "Subscribers", href: "/workspace/audience/subscribers", title: "Subscribers" },
 
   // Workspace settings
   { id: "settings", label: "Settings", href: "/workspace/settings", title: "Workspace Settings" },

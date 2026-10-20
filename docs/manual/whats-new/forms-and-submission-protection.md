@@ -19,7 +19,7 @@ An entry type with `capabilities.submittable: true` is a form: a public POST to 
 Two settings under **Submission settings** (`capabilities.submission`):
 
 - `destination`: `audience` (default) or `entries`. **Audience**: people writing to you, kept out of your content. Choosing it sets `capabilities.listed` to false (the type's *Show in content lists* switch) as a default, so the entries stay out of All entries, the status lists (Inbox, Needs review, Archive…), their counts, search, the AI index, the dashboard pipeline and publishing (`services/entry_listing.py`), and are read under **Audience › Submissions**; the switch can be turned back on, and then they show in both. **Entries**: content to review and publish, e.g. testimonials, in Entries › Inbox as before (choosing it sets `listed` to true).
-- `kind`: `message` (default) or `signup`. **Message**: someone writing to you, listed under Submissions. **Signup**: newsletter signups, listed under Subscribers (next release); it only applies to the Audience destination.
+- `kind`: `message` (default) or `signup`. **Message**: someone writing to you, listed under Submissions (when the destination is Audience). **Signup**: newsletter signups, listed under Audience › Subscribers (whatever the destination). See [Audience](audience.md#subscribers).
 
 A form that stored neither gets both defaults, so existing forms are Audience message forms; a migration set `listed: false` on them. The submission itself is unchanged: an entry of the form's type, `inbox` or `needs_review`, with the same events, match field and notification, and a workflow or query that names the type (`entry_type: <slug>`) still finds it. An invalid value is refused on save (`422`). See [Audience](audience.md).
 

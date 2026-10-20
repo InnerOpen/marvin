@@ -239,14 +239,14 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
                         {destination === "entries" ? "Entries: content to review and publish, e.g. testimonials." : "Audience: people writing to you, kept out of your content."}
                       </p>
                     </div>
-                    <div class="form-group" id="sub_kind_group" hidden={destination === "entries"}>
+                    <div class="form-group" id="sub_kind_group">
                       <label for="sub_kind">A submission is a</label>
                       <select id="sub_kind" data-sub="kind">
                         <option value="message" selected={kind === "message"}>Message</option>
                         <option value="signup" selected={kind === "signup"}>Signup</option>
                       </select>
-                      <p class="form-help" id="sub_kind_help" data-message="Message: someone writing to you, listed under Submissions." data-signup="Signup: newsletter signups, listed under Subscribers.">
-                        {kind === "signup" ? "Signup: newsletter signups, listed under Subscribers." : "Message: someone writing to you, listed under Submissions."}
+                      <p class="form-help" id="sub_kind_help" data-message="Message: someone writing to you (listed under Submissions when the destination is Audience)." data-signup="Signup: newsletter signups, listed under Audience › Subscribers (whatever the destination).">
+                        {kind === "signup" ? "Signup: newsletter signups, listed under Audience › Subscribers (whatever the destination)." : "Message: someone writing to you (listed under Submissions when the destination is Audience)."}
                       </p>
                     </div>
                   </div>
@@ -679,7 +679,7 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
   document.getElementById('cap_publishable')?.addEventListener('change', syncCapabilitiesJson);
   document.getElementById('cap_submittable')?.addEventListener('change', syncCapabilitiesJson);
   document.getElementById('cap_routable')?.addEventListener('change', syncCapabilitiesJson);
-  // One line under each switch says what the choice does; a signup is an Audience thing, so the kind hides with Entries.
+  // One line under each switch says what the choice does.
   const destinationSelect = document.getElementById('sub_destination') as HTMLSelectElement | null;
   const kindSelect = document.getElementById('sub_kind') as HTMLSelectElement | null;
   function syncSubmissionHelp() {
@@ -687,8 +687,6 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
     if (help && destinationSelect) help.textContent = help.dataset[destinationSelect.value === 'entries' ? 'entries' : 'audience'] ?? '';
     const kindHelp = document.getElementById('sub_kind_help');
     if (kindHelp && kindSelect) kindHelp.textContent = kindHelp.dataset[kindSelect.value === 'signup' ? 'signup' : 'message'] ?? '';
-    const group = document.getElementById('sub_kind_group');
-    if (group && destinationSelect) group.hidden = destinationSelect.value === 'entries';
   }
   // Choosing where a form's submissions go sets "Show in content lists" as a default (Audience: off, Entries: on), which can
   // then be switched on its own; the server applies the same default, so this only shows it before saving.
@@ -702,8 +700,9 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
     const use = document.getElementById('cap_listed_use');
     if (use) {
       const initial = use.dataset.initial ?? '';
-      const isForm = submittableBox.checked && destinationSelect.value !== 'entries';
-      const where = isForm ? (kindSelect?.value === 'signup' ? 'Audience › Subscribers' : 'Audience › Submissions') : initial.startsWith('Audience › Sub') ? '' : initial;
+      const signup = submittableBox.checked && kindSelect?.value === 'signup';
+      const isForm = signup || (submittableBox.checked && destinationSelect.value !== 'entries');
+      const where = isForm ? (signup ? 'Audience › Subscribers' : 'Audience › Submissions') : initial.startsWith('Audience › Sub') ? '' : initial;
       use.textContent = where ? ` Used by ${where}.` : '';
     }
     syncCapabilitiesJson();

@@ -247,6 +247,11 @@ class EventsController(BaseUserController):
                 detail="You do not have access to this event.",
             )
 
+        # A form submission's event carries the submitter's IP: whole for an ADMIN and above, masked for everyone else.
+        from marvin.services.entry_privacy import can_see_full_ip, mask_event_ips
+
+        if not can_see_full_ip(self.user, self.group_id):
+            event = event.model_copy(update={"event_data": mask_event_ips(event.event_data)})
         return event
 
     @router.get("/entity/{entity_id}", response_model=list[EventLogSummary])

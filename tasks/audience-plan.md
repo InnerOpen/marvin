@@ -140,3 +140,53 @@ network for Social.
   - The entries API still returns a submission's whole IP to any member (see above).
   - The app icon badge doesn't include Audience submissions.
   - The editor's Back link for an Audience form's entry opened without `?return=` goes to All entries.
+
+## Review, phase 2 (2026-10-24)
+- **Built (core):**
+  - **Audience › Subscribers.** Shown when any submittable type has `submission.kind: signup`, **whatever its destination** (the kind alone
+    decides; the editor's Signup setting is visible for both destinations now). API under `/api/groups/audience`, EDITOR and above:
+    `GET /summary` (`signups` now carries `pending`, `confirmed`, `unsubscribed`, `problem` and `waiting` = pending + problem, per form too),
+    `GET /subscribers` (filters `form`, `status` (repeatable), `q` over email/name/title, `since`/`until`, paging, newest first; `counts` follow
+    the form filter; `integrations`), `GET /subscribers/{id}` (fields, source with the IP masked below ADMIN, status history from the event
+    log), `DELETE /subscribers/{id}` (Trash). Status mapping: inbox pending (and any unsettled status), published confirmed, archived
+    unsubscribed, needs_review problem, with the latest review reason. Trashed entries are not counted or listed.
+  - **Integration note.** `integrations` = enabled connections with a workflow they installed that names the signup form (a condition
+    `entry.entry_type` eq/in, or an entry step's `entity_query.entry_type`), or whose provider declares a blueprint with an entry-type parameter
+    defaulting to the form. Nothing is matched by name. It is computed for the Subscribers list only, not for the sidebar's summary (which is read on
+    every page). The page says that integration handles subscribing and unsubscribing, or hints to connect one.
+  - **Sidebar and page.** A plain **Subscribers** item after Submissions with a pending + problems badge; page `/workspace/audience/subscribers`:
+    four count tiles (tap to filter), the note, filters (form when several, status, search, a folded date range), compact rows on every screen (tap
+    to open), a detail dialog (fields, history, source, Open as entry with `?return=`, Delete), an empty state. The badge and tiles follow a delete.
+  - **Dashboard (decision):** `attention.audienceProblems` (+ a line linking to Subscribers filtered to problems) counts only signups that need
+    a look. A pending signup is routine and nobody's to-do, so it isn't there; the sidebar badge counts both, as asked.
+  - **Privacy fix.** `services/entry_privacy.py`: an ADMIN and above sees `metadata_json.submission.ip_address` whole, everyone else masked (the
+    Audience mask). Applied on the entries API (list, one, search, create/update/restore/suggestion responses), a collection's entries, the
+    assistants' and MCP's `get_entry` and `find_entries` (`include_metadata`), the snapshot diff and restore result, and the Event Log's detail
+    (the `form_submission_received` payload carries the IP). Saving never writes the masked form back (`keep_recorded_ip` for non-admins; the
+    editor posts the metadata box as it read it). The publishing API never carries the address (a published content form's entry reached sites with it).
+    Not covered, by design or left open: the admin-only workspace export (whole), the legacy Forms submissions list (editors, separate table),
+    workflow run context (`entry.metadata`, the author's privileges).
+  - **Cleanup migration `c4e8a2d19f57`** (data only, no-op downgrade, idempotent, SQLite and PostgreSQL): removes `confirmed-subscribers` /
+    `unsubscribed` only when exactly the plugin's (name, smart, private, entry target, no other blueprint's, rules exactly
+    `{entry_types: [one], statuses: [published | archived], match: all}`); marks the signup type `kind: signup` (and `destination: audience` where none
+    is stored) read from Buttondown's install: the subscribe workflow's `entry.entry_type eq` condition, else the confirm/unsubscribe workflows'
+    `entity_query.entry_type`, else the plugin default `newsletter` when a `buttondown` integration exists (the plugin keeps `signup_type` nowhere
+    else: a blueprint parameter is substituted into what it creates). A stored kind or destination is never overwritten. Coordinator's live finding
+    (Mash & Burn: `newsletter` unlisted with no kind) is this case.
+  - **Blueprint hook (justified):** `entry_fields` blueprints may carry `payload.submission: {destination?, kind?}` (nothing else, validated),
+    applied to a submittable type for the keys it doesn't store (create what is missing, never overwrite; choosing a destination sets `listed` like the
+    editor; entries follow). Chosen over a new blueprint kind (a kind needs an SDK change, the card's kind list, ordering and an updater) and over a free
+    `capabilities` merge (too broad: honeypot, captcha, rate limits would become blueprint business). `entry_fields` already means "settings on an existing
+    type", and the SDK's `payload` is a free dict, so no SDK release is needed. "Applied" now also needs the declared settings stored. Old cores:
+    the catalog skips a blueprint whose `fields` is empty, so a provider that wants to stay valid there also declares a field (Buttondown declares `email`,
+    which its signup workflow reads); the `submission` block is ignored and the type's Signup setting is set by hand.
+- **Plugin (Buttondown 0.8.0):** no collections; required `buttondown-signup-form` blueprint (the hook + `email` field); README/guide rewritten.
+- **Tests:** `test_audience_subscribers.py` (summary and status mapping, list, filters, roles, detail, history, delete, integrations note, dashboard,
+  Buttondown's confirm/unsubscribe steps finding the unlisted signup), `test_entry_ip_privacy.py` (every path, roles, write-back, publishing, events),
+  `test_migration_audience_subscribers.py` (both engines, exact match, lookalikes, idempotent, up/down/up, the named-type resolution),
+  `test_blueprint_submission_hook.py`; frontend `audience.test.mjs` (+25) and `entryTypeListing.test.mjs`.
+- **Open:**
+  - The app icon badge still doesn't count Audience (submissions or signups).
+  - The OpenAPI spec changed (new routes and schemas, `AudienceSignupsSummary`, dashboard `audienceProblems`); the SDK is regenerated separately.
+  - A signup's status is Marvin's word for the entry status: a manual archive in Marvin reads as unsubscribed even if Buttondown still lists them.
+  - The event-log status history is as complete as the log (pruned events leave a shorter story).

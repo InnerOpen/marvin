@@ -23,6 +23,7 @@ from marvin.db.models.platform.entry_tags import EntryTags
 from marvin.db.models.platform.entry_types import EntryTypes
 from marvin.db.models.platform.resources import Resources
 from marvin.db.models.platform.tags import Tags
+from marvin.services.entry_privacy import can_see_full_ip, metadata_for
 from marvin.services.entry_urls import best_entry_url, site_base_url
 
 from ..entity_resolve import resolve_entity_id, resolve_retrieved_sources
@@ -365,6 +366,7 @@ def find_entries(ctx: ToolContext, args: dict) -> str:
         ):
             resources_by_entry.setdefault(eid, []).append(_resource_ref(r))
     site_url = site_base_url(ctx.session, ctx.group_id) if rows else None
+    full_ip = can_see_full_ip(ctx.user, ctx.group_id)  # a submitter's IP (in metadata) is whole for an ADMIN and above only
     out = [
         {
             "id": str(e.id),
@@ -380,7 +382,7 @@ def find_entries(ctx: ToolContext, args: dict) -> str:
             "resources": resources_by_entry.get(e.id, []),
             "tags": tags_by_entry.get(e.id, []),
             **({"fields": {k: (e.data_json or {}).get(k) for k in include}} if include else {}),
-            **({"metadata": {k: (e.metadata_json or {}).get(k) for k in include_meta}} if include_meta else {}),
+            **({"metadata": {k: (metadata_for(e.metadata_json, full_ip) or {}).get(k) for k in include_meta}} if include_meta else {}),
         }
         for e in rows
     ]
@@ -447,7 +449,7 @@ def get_entry(ctx: ToolContext, args: dict) -> str:
             "entryType": entry.entry_type.slug if entry.entry_type else None,
             **_url_field(entry, site_base_url(ctx.session, ctx.group_id)),
             "data": entry.data_json,
-            "metadataJson": entry.metadata_json,
+            "metadataJson": metadata_for(entry.metadata_json, can_see_full_ip(ctx.user, ctx.group_id)),
             "publishedAt": entry.published_at.isoformat() if entry.published_at else None,
             "createdAt": entry.created_at.isoformat() if getattr(entry, "created_at", None) else None,
             "updatedAt": entry.update_at.isoformat() if getattr(entry, "update_at", None) else None,

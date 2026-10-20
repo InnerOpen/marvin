@@ -10,6 +10,7 @@ from marvin.schemas.platform import CollectionRead, EntryCreate, EntryQueryReque
 from marvin.services.entries import EntryService, trash
 from marvin.services.entries.entry_service import TRASHED, count_by_status, restore_status
 from marvin.services.entry_listing import unlisted_type_ids
+from marvin.services.entry_privacy import can_see_full_ip, entries_for, entry_for, keep_recorded_ip
 from marvin.services.entry_urls import entry_url, site_base_url
 
 router = APIRouter(prefix="/entries")
@@ -30,7 +31,18 @@ class EntriesController(BaseUserController):
 
     Delete moves an entry to the Trash (reversible); only a trashed entry can be deleted forever, and
     only an ADMIN/OWNER empties the whole Trash (services/entries/trash.py). Trashed entries are left
-    out of the list; fetching one by id still works and shows its status."""
+    out of the list; fetching one by id still works and shows its status.
+
+    A form submission's IP address (`metadataJson.submission.ip_address`) is whole for an ADMIN and above and masked for everyone
+    else, on every entry this controller returns (services/entry_privacy.py); saving an entry never overwrites the stored address
+    with a masked one."""
+
+    def _full_ip(self) -> bool:
+        return can_see_full_ip(self.user, self.group_id)
+
+    def _seen(self, entry):
+        """An entry as this caller may see it (the submitter's IP masked below ADMIN)."""
+        return entry_for(entry, self._full_ip())
 
     def _entries(self) -> EntryService:
         """The entry domain service, wired with this request's actor + event bus."""
@@ -46,14 +58,17 @@ class EntriesController(BaseUserController):
         """Every entry but those in the Trash (the Trash collection lists those) and those of an internal entry type
         (`capabilities.listed: false`, e.g. the Social auto-reply rules: their pages list them; fetch one by id)."""
         hidden = set(unlisted_type_ids(self.session, self.group_id))
-        return [e for e in self.repos.entries.get_all(order_by="created_at") if e.status != TRASHED and e.entry_type_id not in hidden]
+        full_ip = self._full_ip()
+        return [
+            entry_for(e, full_ip) for e in self.repos.entries.get_all(order_by="created_at") if e.status != TRASHED and e.entry_type_id not in hidden
+        ]
 
     @router.post("", response_model=EntryRead, status_code=status.HTTP_201_CREATED, summary="Create Entry")
     def create_entry(self, data: EntryCreate) -> EntryRead:
         require_can_create_entry(self.user, self.group_id, data.status, data.publish_at)
         data_dict = data.model_dump()
         data_dict["created_by"] = self.user.id  # inject the authenticated author
-        return self._entries().create(data_dict)
+        return self._seen(self._entries().create(data_dict))
 
     @router.post("/query", response_model=EntryQueryResult, summary="Search entries by conditions")
     def query_entries(self, body: EntryQueryRequest) -> EntryQueryResult:
@@ -66,7 +81,7 @@ class EntriesController(BaseUserController):
         result = run_entry_query(self.session, self.group_id, body.spec, limit=limit, offset=max(0, body.offset))
         if result.note:
             return EntryQueryResult(entries=[], total=0, note=result.note, unknown_ops=list(result.unknown_ops or []))
-        return EntryQueryResult(entries=[EntryRead.model_validate(e) for e in result.rows], total=result.total)
+        return EntryQueryResult(entries=entries_for([EntryRead.model_validate(e) for e in result.rows], self._full_ip()), total=result.total)
 
     @router.get("/counts", summary="Entry counts by status")
     def entry_counts(self) -> dict[str, int]:
@@ -102,7 +117,7 @@ class EntriesController(BaseUserController):
             site_url=site_base_url(self.session, self.group_id),
             entry_type=self.session.get(EntryTypes, entry.entry_type_id),
         )
-        return entry
+        return entry_for(entry, can_see_full_ip(self.user, self.group_id))
 
     @router.post("/{item_id}/apply-suggestion", response_model=EntryRead, summary="Apply AI Suggestion")
     def apply_suggestion(self, item_id: UUID4) -> EntryRead:
@@ -112,13 +127,13 @@ class EntriesController(BaseUserController):
         suggestion_json (when approval_mode doesn't auto-apply); this endpoint commits them.
         """
         editable_entry(self.user, self.group_id, self.repos, item_id)
-        return self._entries().apply_suggestion(item_id)
+        return self._seen(self._entries().apply_suggestion(item_id))
 
     @router.post("/{item_id}/reject-suggestion", response_model=EntryRead, summary="Reject AI Suggestion")
     def reject_suggestion(self, item_id: UUID4) -> EntryRead:
         """Discard the entry's staged AI suggestion without applying it."""
         editable_entry(self.user, self.group_id, self.repos, item_id)
-        return self.repos.entries.clear_suggestion(item_id)
+        return self._seen(self.repos.entries.clear_suggestion(item_id))
 
     @router.post("/{item_id}/suggested-assets/{asset_id}/approve", response_model=EntryRead, summary="Approve Suggested Asset")
     def approve_suggested_asset(self, item_id: UUID4, asset_id: UUID4) -> EntryRead:
@@ -128,7 +143,7 @@ class EntriesController(BaseUserController):
         entry = self._entries().approve_suggested_asset(item_id, asset_id)
         if entry is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No suggested asset found for this entry.")
-        return entry
+        return self._seen(entry)
 
     @router.post("/{item_id}/suggested-assets/{asset_id}/reject", response_model=EntryRead, summary="Reject Suggested Asset")
     def reject_suggested_asset(self, item_id: UUID4, asset_id: UUID4) -> EntryRead:
@@ -137,7 +152,7 @@ class EntriesController(BaseUserController):
         entry = self._entries().reject_suggested_asset(item_id, asset_id)
         if entry is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No suggested asset found for this entry.")
-        return entry
+        return self._seen(entry)
 
     @router.patch("/{item_id}", response_model=EntryRead, summary="Update Entry")
     def update_entry(self, item_id: UUID4, data: EntryUpdate) -> EntryRead:
@@ -150,10 +165,12 @@ class EntriesController(BaseUserController):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This entry is in the Trash. Restore it before editing it.")
         if data.status == TRASHED:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Move an entry to the Trash with DELETE /entries/{id}.")
+        if data.metadata_json is not None and not self._full_ip():
+            data.metadata_json = keep_recorded_ip(current.metadata_json, data.metadata_json)  # what they read was masked
         entry = self._entries().update(item_id, data)
         if entry is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found.")
-        return entry
+        return self._seen(entry)
 
     @router.delete("/{item_id}", summary="Move Entry to Trash (or delete a trashed entry forever)")
     def delete_entry(self, item_id: UUID4, permanent: bool = False) -> dict:
@@ -182,7 +199,7 @@ class EntriesController(BaseUserController):
         restored = self._entries().restore_from_trash(item_id)
         if restored is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found.")
-        return restored
+        return self._seen(restored)
 
     @router.get("/{entry_id}/collections", response_model=list[CollectionRead], summary="List Entry Collections")
     def list_entry_collections(self, entry_id: UUID4) -> list[CollectionRead]:

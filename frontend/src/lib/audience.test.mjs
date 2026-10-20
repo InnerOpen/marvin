@@ -6,6 +6,22 @@ import { describe, test } from "node:test";
 
 import {
   actionButtons,
+  dayBound,
+  hasSubscriberFilters,
+  historyLines,
+  integrationNote,
+  NO_SUBSCRIBER_FILTERS,
+  openSubscriberHref,
+  parseSubscriberFilters,
+  signupFormOptions,
+  statusTiles,
+  subscriberActions,
+  subscriberApiQuery,
+  subscriberBadge,
+  subscriberFiltersToQuery,
+  subscriberRow,
+  subscribersEmptyNotice,
+  subscribersNav,
   apiQuery,
   emptyNotice,
   excerptOf,
@@ -30,7 +46,7 @@ import {
 const form = (slug, extra = {}) => ({ slug, name: slug.toUpperCase(), icon: null, new: 0, ...extra });
 const summary = (forms, extra = {}) => ({
   submissions: { show: forms.length > 0, new: forms.reduce((n, f) => n + f.new, 0), forms },
-  signups: { show: false, forms: [] },
+  signups: { show: false, forms: [], pending: 0, confirmed: 0, unsubscribed: 0, problem: 0, waiting: 0, integrations: [] },
   can: { act: true, fullIp: false },
   ...extra,
 });
@@ -241,5 +257,217 @@ describe("the empty state", () => {
   test("a form with no submissions yet, and every form with none", () => {
     assert.equal(emptyNotice(summary([form("contact", { name: "Contact" })]), false, form("contact", { name: "Contact" })).title, "No Contact submissions yet");
     assert.equal(emptyNotice(summary([form("contact")]), false).title, "Nothing here yet");
+  });
+});
+
+// ── Subscribers ───────────────────────────────────────────────────────────────────────────────────────────────────────
+
+const signups = (extra = {}) => ({
+  show: true,
+  forms: [form("newsletter", { name: "Newsletter", new: 4 })],
+  pending: 3,
+  confirmed: 10,
+  unsubscribed: 2,
+  problem: 1,
+  waiting: 4,
+  integrations: [],
+  ...extra,
+});
+const subscriber = (extra = {}) => ({
+  id: "u1",
+  form: form("newsletter", { name: "Newsletter", icon: null }),
+  email: "ann@x.test",
+  name: "Ann Abel",
+  title: "Newsletter from ann",
+  status: "pending",
+  entryStatus: "inbox",
+  reviewReasons: [],
+  reason: null,
+  signedUpAt: "2026-10-20T10:00:00Z",
+  path: "/workspace/entries/u1",
+  ...extra,
+});
+
+describe("the sidebar's Subscribers item", () => {
+  test("nothing is drawn until a form is a signup form", () => {
+    assert.equal(subscribersNav(null), null);
+    assert.equal(subscribersNav(undefined), null);
+    assert.equal(subscribersNav(summary([])), null);
+    assert.equal(subscribersNav(summary([], { signups: signups({ show: false }) })), null);
+  });
+
+  test("a link to the page with pending plus problems as its badge", () => {
+    const nav = subscribersNav(summary([], { signups: signups() }));
+    assert.deepEqual(nav, { label: "Subscribers", href: "/workspace/audience/subscribers", badge: "4", badgeLabel: "4 pending or needing a look" });
+  });
+
+  test("no badge at zero, 99+ past 99, and the sum when the API sent no total", () => {
+    assert.equal(subscribersNav(summary([], { signups: signups({ pending: 0, problem: 0, waiting: 0 }) })).badge, "");
+    assert.equal(subscribersNav(summary([], { signups: signups({ waiting: 250 }) })).badge, "99+");
+    assert.equal(subscribersNav(summary([], { signups: { show: true, forms: [], pending: 2, problem: 1 } })).badge, "3");
+  });
+
+  test("it alone draws the Audience heading", () => {
+    assert.equal(showAudienceGroup([null, null, subscribersNav(summary([], { signups: signups() }))]), true);
+    assert.equal(showAudienceGroup([null, null, null]), false);
+  });
+});
+
+describe("a subscriber row", () => {
+  test("a name leads with the email beside it; without one the email leads", () => {
+    const named = subscriberRow(subscriber());
+    assert.equal(named.who, "Ann Abel");
+    assert.equal(named.email, "ann@x.test");
+    const bare = subscriberRow(subscriber({ name: null }));
+    assert.equal(bare.who, "ann@x.test");
+    assert.equal(bare.email, "");
+    assert.equal(subscriberRow(subscriber({ name: null, email: null })).who, "Newsletter from ann");
+    assert.equal(subscriberRow(subscriber({ name: " ", email: "", title: "" })).who, "Someone");
+  });
+
+  test("the form, when it arrived and a fallback icon", () => {
+    const r = subscriberRow(subscriber());
+    assert.equal(r.form, "Newsletter");
+    assert.equal(r.formIcon, "📬");
+    assert.equal(r.at, "2026-10-20T10:00:00Z");
+    assert.equal(subscriberRow(subscriber({ form: form("n", { icon: "🎟" }) })).formIcon, "🎟");
+  });
+
+  test("pending and a problem are drawn as waiting; confirmed and unsubscribed are not", () => {
+    const unread = (status) => subscriberRow(subscriber({ status })).unread;
+    assert.deepEqual(["pending", "confirmed", "unsubscribed", "problem"].map(unread), [true, false, false, true]);
+  });
+
+  test("a problem shows its reason on the row, others never do", () => {
+    assert.equal(subscriberRow(subscriber({ status: "problem", reason: " Buttondown · refused " })).reason, "Buttondown · refused");
+    assert.equal(subscriberRow(subscriber({ status: "confirmed", reason: "old" })).reason, "");
+  });
+});
+
+describe("the status words", () => {
+  test("each status has its word and tone", () => {
+    assert.deepEqual(
+      ["pending", "confirmed", "unsubscribed", "problem"].map((s) => [subscriberBadge(s).label, subscriberBadge(s).tone]),
+      [["Pending", "new"], ["Confirmed", "good"], ["Unsubscribed", "muted"], ["Needs a look", "warn"]],
+    );
+  });
+
+  test("a problem's tooltip is its reason; an unknown status is shown as it is", () => {
+    assert.equal(subscriberBadge("problem", "Spam firewall").title, "Spam firewall");
+    assert.match(subscriberBadge("problem").title, /refused/);
+    assert.deepEqual(subscriberBadge("weird"), { label: "weird", tone: "neutral" });
+    assert.equal(subscriberBadge("").label, "Unknown");
+  });
+
+  test("the counts strip has a tile per status, in order, with the active one marked", () => {
+    const tiles = statusTiles({ pending: 3, confirmed: 10, unsubscribed: 2, problem: 1 }, "problem");
+    assert.deepEqual(tiles.map((t) => [t.value, t.count, t.active]), [["pending", 3, false], ["confirmed", 10, false], ["unsubscribed", 2, false], ["problem", 1, true]]);
+    assert.deepEqual(statusTiles(null).map((t) => t.count), [0, 0, 0, 0]);
+    assert.equal(statusTiles({ pending: -2 })[0].count, 0);
+  });
+});
+
+describe("subscriber filters", () => {
+  test("parse keeps a known status, a plain day and trims the search", () => {
+    const f = parseSubscriberFilters(new URLSearchParams("status=problem&q=%20ann%20&form=news&from=2026-10-01&to=2026-10-31"));
+    assert.deepEqual(f, { form: "news", status: "problem", q: "ann", from: "2026-10-01", to: "2026-10-31" });
+    assert.deepEqual(parseSubscriberFilters(new URLSearchParams("status=bogus&from=yesterday&to=2026-13")), NO_SUBSCRIBER_FILTERS);
+  });
+
+  test("the page query keeps only what is set, and round-trips", () => {
+    assert.equal(subscriberFiltersToQuery(NO_SUBSCRIBER_FILTERS), "");
+    const f = { form: "news", status: "pending", q: "a b", from: "2026-10-01", to: "" };
+    const text = subscriberFiltersToQuery(f);
+    assert.equal(text, "?form=news&status=pending&q=a+b&from=2026-10-01");
+    assert.deepEqual(parseSubscriberFilters(new URLSearchParams(text.slice(1))), f);
+  });
+
+  test("the API query pages, and turns a day into the start and end of that day", () => {
+    const q = new URLSearchParams(subscriberApiQuery({ form: "news", status: "problem", q: "x", from: "2026-10-01", to: "2026-10-02" }, 50, 25));
+    assert.equal(q.get("form"), "news");
+    assert.equal(q.get("status"), "problem");
+    assert.equal(q.get("q"), "x");
+    assert.equal(q.get("limit"), "25");
+    assert.equal(q.get("offset"), "50");
+    const since = new Date(q.get("since"));
+    const until = new Date(q.get("until"));
+    assert.ok(since < until);
+    const hours = (until - since) / 3_600_000;
+    assert.ok(hours > 46 && hours < 49, `two whole days, DST aside: ${hours}`); // the start of the 1st to the end of the 2nd
+    assert.equal(new URLSearchParams(subscriberApiQuery(NO_SUBSCRIBER_FILTERS)).get("offset"), null);
+    assert.equal(new URLSearchParams(subscriberApiQuery(NO_SUBSCRIBER_FILTERS)).get("since"), null);
+  });
+
+  test("a day bound is null for anything that isn't a day", () => {
+    assert.equal(dayBound("", false), null);
+    assert.equal(dayBound("soon", true), null);
+    assert.ok(new Date(dayBound("2026-10-05", true)) > new Date(dayBound("2026-10-05", false)));
+  });
+
+  test("hasSubscriberFilters sees each one", () => {
+    assert.equal(hasSubscriberFilters(NO_SUBSCRIBER_FILTERS), false);
+    for (const k of ["form", "status", "q", "from", "to"]) assert.equal(hasSubscriberFilters({ ...NO_SUBSCRIBER_FILTERS, [k]: k === "status" ? "pending" : "2026-10-05" }), true);
+  });
+
+  test("the form filter offers each signup form", () => {
+    assert.deepEqual(signupFormOptions(summary([], { signups: signups() })), [{ value: "newsletter", label: "Newsletter" }]);
+    assert.deepEqual(signupFormOptions(null), []);
+  });
+});
+
+describe("what the page says about the integration", () => {
+  test("a connected integration is named as the one that subscribes and unsubscribes", () => {
+    const note = integrationNote([{ slug: "buttondown", name: "Buttondown", provider: "buttondown" }]);
+    assert.equal(note.kind, "handled");
+    assert.match(note.text, /Buttondown handles subscribing and unsubscribing/);
+    assert.match(note.text, /can't unsubscribe someone from this page/);
+  });
+
+  test("several are listed", () => {
+    const note = integrationNote([{ slug: "a", name: "A", provider: "a" }, { slug: "b", name: "B", provider: "b" }]);
+    assert.match(note.text, /A, B handles/);
+  });
+
+  test("none connected is a hint to connect one, and the signups are still listed", () => {
+    for (const none of [[], null, undefined]) {
+      const note = integrationNote(none);
+      assert.equal(note.kind, "hint");
+      assert.match(note.text, /No mailing-list integration is connected/);
+      assert.match(note.text, /still collected and listed here/);
+      assert.equal(note.link.href, "/workspace/settings/integrations");
+    }
+  });
+});
+
+describe("the open subscriber", () => {
+  test("only Delete, for a caller who may act, and it says it does not unsubscribe", () => {
+    const [del, ...rest] = subscriberActions({ act: true });
+    assert.deepEqual(rest, []);
+    assert.equal(del.key, "delete");
+    assert.equal(del.destructive, true);
+    assert.match(del.hint, /does not unsubscribe/);
+    assert.deepEqual(subscriberActions({ act: false }), []);
+    assert.deepEqual(subscriberActions(undefined), []);
+  });
+
+  test("Open as entry returns to the page with its filters", () => {
+    const href = openSubscriberHref(subscriber(), "/workspace/audience/subscribers?status=pending");
+    assert.equal(href, "/workspace/entries/u1?return=%2Fworkspace%2Faudience%2Fsubscribers%3Fstatus%3Dpending");
+  });
+
+  test("the history keeps only complete lines, in the order given (newest first)", () => {
+    assert.deepEqual(historyLines({ history: [{ label: "Confirmed", at: "2026-10-20T11:00:00Z" }, { label: "", at: "x" }, { label: "Signed up", at: "2026-10-20T10:00:00Z" }] }).map((h) => h.label), ["Confirmed", "Signed up"]);
+    assert.deepEqual(historyLines({}), []);
+  });
+});
+
+describe("the empty states", () => {
+  test("a filter that matches nothing, no signup form yet, and a form with no signups", () => {
+    assert.match(subscribersEmptyNotice(summary([], { signups: signups() }), true).title, /Nothing matches/);
+    const none = subscribersEmptyNotice(summary([]), false);
+    assert.equal(none.title, "No signup form yet");
+    assert.equal(none.link.href, "/workspace/entry-types");
+    assert.equal(subscribersEmptyNotice(summary([], { signups: signups() }), false).title, "No signups yet");
+    assert.equal(subscribersEmptyNotice(null, false).title, "No signups yet");
   });
 });

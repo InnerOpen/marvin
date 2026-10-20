@@ -47,6 +47,7 @@ from marvin.schemas.publishing import (
     WorkspaceInfo,
     WorkspaceSiteInfo,
 )
+from marvin.services.entry_privacy import strip_submission_ip
 from marvin.services.entry_urls import best_entry_url, site_base_url
 from marvin.services.media_embeds.publish import embeds_for_entries, site_embeds
 from marvin.services.publish_entry_links import published_asset, published_resource, resolve_entry_links
@@ -258,7 +259,7 @@ def _entry_to_read(
         description=entry.description,
         data=entry.data_json if data is None else data,
         published_at=entry.published_at,
-        metadata=entry.metadata_json,
+        metadata=strip_submission_ip(entry.metadata_json),  # a submitter's IP never goes to a site
         collections=collections,
         resources=resources,
         assets=assets,
@@ -322,7 +323,7 @@ def _entry_to_list_item(
         "assets": asset_slugs,
         "resources": resource_slugs,
         "tags": list(entry.tag_names),
-        "metadata": entry.metadata_json,
+        "metadata": strip_submission_ip(entry.metadata_json),
         "featured_asset": _resolve_featured_asset(entry, workspace_slug),
         "embeds": embeds or {},
     }
