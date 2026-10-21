@@ -8,6 +8,7 @@ action kinds, and the operations available as actions — so the UI is backend-d
 from contextlib import contextmanager
 from typing import Any
 
+import sqlalchemy as sa
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from pydantic import UUID4
 
@@ -203,8 +204,28 @@ class AutomationsController(BaseUserController):
     @router.get("", response_model=list[AutomationRead], summary="List Automations")
     def list_automations(self) -> list[AutomationRead]:
         _require_admin(self.user, self.group_id)
-        rows = self.session.query(WorkspaceAutomationModel).filter_by(group_id=self.group_id).order_by(WorkspaceAutomationModel.name).all()
-        return [AutomationRead.model_validate(r) for r in rows]
+        from marvin.db.models.groups.automation_executions import AutomationExecutionModel as Run
+
+        # Each workflow's newest run, for the whole list in one query: rank its runs newest first, keep the first.
+        started = sa.func.coalesce(Run.started_at, Run.created_at)
+        newest = (
+            sa.select(
+                Run.automation_id,
+                Run.status,
+                started.label("at"),
+                sa.func.row_number().over(partition_by=Run.automation_id, order_by=(started.desc(), Run.created_at.desc())).label("rank"),
+            )
+            .where(Run.group_id == self.group_id, Run.automation_id.is_not(None))
+            .subquery()
+        )
+        rows = (
+            self.session.query(WorkspaceAutomationModel, newest.c.at, newest.c.status)
+            .outerjoin(newest, sa.and_(newest.c.automation_id == WorkspaceAutomationModel.id, newest.c.rank == 1))
+            .filter(WorkspaceAutomationModel.group_id == self.group_id)
+            .order_by(WorkspaceAutomationModel.name)
+            .all()
+        )
+        return [AutomationRead.model_validate(r).model_copy(update={"last_run_at": at, "last_run_status": status}) for r, at, status in rows]
 
     @router.get("/options", response_model=AutomationOptions, summary="Automation builder options")
     def options(self) -> AutomationOptions:

@@ -3,6 +3,7 @@
 
 import type { Choice, ListAdapter } from "./organizedList.ts";
 import { menuHtml, switchHtml } from "./organizedListHtml.ts";
+import { timeAgo } from "./socialInbox.ts";
 
 /** A workflow as the list API returns it (camelCase), as far as the list needs. */
 export interface WorkflowRow {
@@ -13,6 +14,9 @@ export interface WorkflowRow {
   sourceRecipe?: string | null;
   sourceIntegrationId?: string | null;
   sourceBlueprint?: string | null;
+  /** When its newest run started, and how that run went (running | success | partial | failed | cancelled); null: never run. */
+  lastRunAt?: string | null;
+  lastRunStatus?: string | null;
   definition?: any;
 }
 
@@ -99,17 +103,39 @@ const esc = (s: unknown): string =>
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string,
   );
 
+const RUN_OUTCOMES: Record<string, string> = {
+  success: "succeeded",
+  partial: "partly failed",
+  failed: "failed",
+  running: "running",
+  cancelled: "cancelled",
+};
+
+/** Whether a workflow's last run went wrong (failed, or only partly worked) — the card marks it, and Needs attention can use it. */
+export function lastRunFailed(wf: WorkflowRow): boolean {
+  return wf.lastRunStatus === "failed" || wf.lastRunStatus === "partial";
+}
+
+/** "Last run 2 h ago · failed" (failed ones marked), or "Not run yet". */
+export function lastRunHtml(wf: WorkflowRow, now: Date = new Date()): string {
+  const when = timeAgo(wf.lastRunAt, now);
+  if (!when || !wf.lastRunStatus) return '<div class="wf-last none">Not run yet</div>';
+  const outcome = RUN_OUTCOMES[wf.lastRunStatus] ?? wf.lastRunStatus;
+  return `<div class="wf-last${lastRunFailed(wf) ? " failed" : ""}">Last run ${esc(when)} · ${esc(outcome)}</div>`;
+}
+
 /** One compact workflow card: name, one-line trigger, On/Off switch, Run and Edit, the rest under ⋯. The page
  * attaches the handlers by class (js-run, js-edit, js-toggle, js-dryrun, js-history, js-copy, js-delete) and fills
  * `.wf-history`. `details` is the When / If / Then flow, tucked under "Steps". */
 export function workflowCardHtml(
   wf: WorkflowRow,
-  options: { summary: string; details: string; linked: boolean },
+  options: { summary: string; details: string; linked: boolean; now?: Date },
 ): string {
   return `<article class="org-card wf-card${wf.enabled ? "" : " off"}${options.linked ? " linked" : ""}" data-id="${esc(wf.id)}">
     <div class="org-card-main">
       <div class="org-card-title"><strong>${esc(wf.name)}</strong></div>
       <div class="org-card-sub">${wf.enabled ? "" : "Off · "}${esc(options.summary)}</div>
+      ${lastRunHtml(wf, options.now)}
       <details class="wf-steps"><summary>Steps</summary>${options.details}</details>
       <div class="wf-history" hidden></div>
     </div>

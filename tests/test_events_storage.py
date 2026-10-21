@@ -188,6 +188,8 @@ WORKFLOW_KEYS = {
     "sourceBlueprint",
     "sourceRecipe",
     "sourceRecipeVersion",
+    "lastRunAt",
+    "lastRunStatus",
 }
 
 

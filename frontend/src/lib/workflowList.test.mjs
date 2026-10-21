@@ -136,4 +136,45 @@ describe("the card", () => {
       /wf-card linked/,
     );
   });
+
+  describe("the last run", () => {
+    const NOW = new Date("2026-10-21T12:00:00Z");
+    const last = (lastRunAt, lastRunStatus) =>
+      workflowCardHtml(wf({ type: "manual" }, { lastRunAt, lastRunStatus }), {
+        summary: "run manually",
+        details: "",
+        linked: false,
+        now: NOW,
+      });
+    const line = (html) => html.match(/<div class="wf-last[^"]*"[^>]*>(.*?)<\/div>/)?.[0] ?? "";
+
+    test("says when it ran and how it went", () => {
+      assert.match(line(last("2026-10-21T10:00:00Z", "success")), /Last run 2 h ago · succeeded/);
+    });
+
+    test("a failed run is marked", () => {
+      const html = line(last("2026-10-21T10:00:00Z", "failed"));
+      assert.match(html, /Last run 2 h ago · failed/);
+      assert.match(html, /class="wf-last failed"/);
+    });
+
+    test("a partly failed run is marked too, a good one is not", () => {
+      assert.match(line(last("2026-10-21T11:00:00Z", "partial")), /wf-last failed.*partly failed/);
+      assert.doesNotMatch(line(last("2026-10-21T11:00:00Z", "success")), /failed/);
+    });
+
+    test("running and cancelled read plainly", () => {
+      assert.match(line(last("2026-10-21T11:58:00Z", "running")), /Last run 2 min ago · running/);
+      assert.match(line(last("2026-10-21T11:00:00Z", "cancelled")), /1 h ago · cancelled/);
+    });
+
+    test("never run: says so, no outcome", () => {
+      assert.match(line(last(null, null)), /Not run yet/);
+      assert.doesNotMatch(line(last(undefined, undefined)), /Last run/);
+    });
+
+    test("an unknown status is shown as it came, escaped", () => {
+      assert.match(line(last("2026-10-21T10:00:00Z", "<odd>")), /· &lt;odd&gt;/);
+    });
+  });
 });
