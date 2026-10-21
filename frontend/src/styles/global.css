@@ -392,7 +392,9 @@ select {
 
 /* A button that can't act yet (e.g. View on site before publishing): greyed, its title says why. */
 .button.is-disabled,
-.button.is-disabled:hover {
+.button.is-disabled:hover,
+.button:disabled,
+.button:disabled:hover {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;

@@ -70,6 +70,14 @@ try {
       const card = btn.closest<HTMLElement>(".approval")!;
       const result = card.querySelector<HTMLElement>(".result")!;
       card.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
+      // Deciding waits while the workflow goes on (an image step takes up to a minute), so say so at once.
+      const label = btn.textContent;
+      const approving = btn.dataset.decision === "approve";
+      btn.textContent = approving ? "Approving…" : "Denying…";
+      result.textContent = approving
+        ? "Approved — the workflow is going on. This can take a minute (longer when it makes an image)."
+        : "Denied — finishing the run…";
+      result.hidden = false;
       try {
         const note = card.querySelector<HTMLInputElement>(".note")!.value.trim();
         const out = await decideApproval(card.dataset.id!, btn.dataset.decision as "approve" | "deny", note, btn.dataset.choice ?? null);
@@ -82,6 +90,7 @@ try {
         card.querySelector(".decide")!.remove();
       } catch (e: any) {
         result.textContent = e?.message ?? String(e);
+        btn.textContent = label;
         card.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = false));
       }
       result.hidden = false;
