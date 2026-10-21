@@ -194,8 +194,16 @@ class BlueprintRead(Blueprint):
     A parameterised blueprint is judged by its defaults."""
 
     outdated: bool = False
-    """Applied, but the provider now declares something different (workflows only) — the card offers
-    Update, which replaces the workflow's steps (hand edits included) and keeps whether it's on."""
+    """An Update is worth offering (workflows only): the state is `update`, `edited_update` or `differs`.
+    Update replaces the workflow's steps and keeps whether it's on."""
+
+    state: Literal["current", "update", "edited", "edited_update", "differs"] | None = None
+    """Where an applied workflow stands against the provider's current version (None: not applied, or not
+    a workflow). `edited`/`edited_update`: changed in this workspace since it was installed; `differs`:
+    installed before that was recorded, so an old version can't be told from an edit."""
+
+    edited: bool = False
+    """True for `edited` and `edited_update` — the workspace has changed it."""
 
 
 class BlueprintApplyResult(_MarvinModel):
@@ -208,6 +216,10 @@ class BlueprintApplyResult(_MarvinModel):
 
     updated: bool = False
     """True when an Update replaced an applied workflow's steps with the provider's current version."""
+
+    needs_confirmation: bool = False
+    """True when an Update was refused because it would replace changes made in this workspace; repeat it
+    with `replace_edits` once the person has agreed."""
 
     detail: str = ""
     """Why nothing was created, when nothing was."""

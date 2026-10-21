@@ -56,9 +56,17 @@ export interface Blueprint {
   /** Already in this workspace. Always false for a parameterised blueprint: its slug
    *  is not known until the parameters are. */
   applied: boolean;
-  /** Applied, but the integration now declares a different version (workflows) — Update replaces its steps. */
+  /** An Update is worth offering (workflows): `update`, `edited_update` or `differs`. */
   outdated?: boolean;
+  /** An applied workflow against the integration's current version. `edited`: changed in this workspace,
+   *  nothing new from the integration; `edited_update`: changed here and a newer version exists; `differs`:
+   *  installed before edits were tracked, so an old version can't be told from an edit. */
+  state?: BlueprintState | null;
+  /** The workspace changed it (`edited`, `edited_update`). */
+  edited?: boolean;
 }
+
+export type BlueprintState = "current" | "update" | "edited" | "edited_update" | "differs";
 
 export interface BlueprintApplyResult {
   slug: string;
@@ -66,6 +74,8 @@ export interface BlueprintApplyResult {
   created: boolean;
   /** An Update replaced an applied workflow's steps. */
   updated?: boolean;
+  /** An Update was refused because it would replace changes made here; repeat with `replaceEdits`. */
+  needsConfirmation?: boolean;
   detail: string;
   name: string;
 }
@@ -76,10 +86,10 @@ export interface BlueprintFilters {
   source?: string;
 }
 
-function query(filters: BlueprintFilters = {}): string {
+function query(filters: object = {}): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filters)) {
-    if (value) params.set(key, value);
+    if (value) params.set(key, String(value));
   }
   const qs = params.toString();
   return qs ? `?${qs}` : "";
@@ -112,14 +122,18 @@ export async function applyBlueprints(
   );
 }
 
-/** Replace an applied workflow's steps with what its integration declares now (keeps whether it's on). */
+/**
+ * Replace an applied workflow's steps with what its integration declares now (keeps whether it's on).
+ * A workflow changed in this workspace comes back `needsConfirmation` unless `replaceEdits`.
+ */
 export async function updateBlueprint(
   slug: string,
   source?: string,
+  replaceEdits = false,
   authToken?: string,
 ): Promise<BlueprintApplyResult> {
   return fetchApi<BlueprintApplyResult>(
-    `/api/groups/blueprints/${encodeURIComponent(slug)}/update${query({ source })}`,
+    `/api/groups/blueprints/${encodeURIComponent(slug)}/update${query({ source, replace_edits: replaceEdits || undefined })}`,
     { method: "POST", body: JSON.stringify(null), headers: { "Content-Type": "application/json" } },
     authToken,
   );

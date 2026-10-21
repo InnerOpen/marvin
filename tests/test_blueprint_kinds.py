@@ -20,7 +20,8 @@ from marvin.db.models.platform.entry_types import EntryTypes
 from marvin.db.models.users.roles import PlatformRole, WorkspaceRole
 from marvin.routes._base.checks import OperationChecks
 from marvin.schemas.platform.blueprints import Blueprint
-from marvin.services.blueprints import already_applied, apply_blueprint, apply_many, outdated, update_blueprint
+from marvin.services.blueprints import already_applied, apply_blueprint, apply_many, blueprint_state, outdated, update_blueprint
+from marvin.services.blueprints.apply import definition_hash
 
 ARTWORK_FIELDS = Blueprint(
     kind="entry_fields",
@@ -324,3 +325,107 @@ def test_non_workflow_kinds_are_never_outdated_or_updated(db_session, workspace)
     apply_blueprint(db_session, workspace.id, ARTWORK_FIELDS, {"entry_type": "artwork"})
     assert not outdated(db_session, workspace.id, ARTWORK_FIELDS)
     assert "can't be updated" in update_blueprint(db_session, workspace.id, ARTWORK_FIELDS).detail
+
+
+# --- edit protection: an edited workflow is told apart from an older version ------------------------------
+
+
+def _steps(v):
+    return {
+        "trigger": {"type": "incoming_webhook", "webhook": "shop-events"},
+        "conditions": [],
+        "actions": [{"kind": "entry", "op": "set_data", "data": {"v": v}}],
+    }
+
+
+OLD, NEW, MINE = _steps("old"), _steps("new"), _steps("mine")
+
+
+@pytest.mark.parametrize(
+    ("row", "stored", "declared", "state"),
+    [
+        (OLD, definition_hash(OLD), OLD, "current"),
+        (OLD, None, OLD, "current"),  # no stored hash is fine when it matches
+        (OLD, definition_hash(OLD), NEW, "update"),
+        (MINE, definition_hash(OLD), OLD, "edited"),
+        (MINE, definition_hash(OLD), NEW, "edited_update"),
+        (OLD, None, NEW, "differs"),
+        (NEW, definition_hash(OLD), NEW, "current"),  # edited into the provider's version
+    ],
+)
+def test_blueprint_state(row, stored, declared, state):
+    assert blueprint_state(row, stored, declared) == state
+
+
+def _edited_workflow(db_session, workspace, definition):
+    apply_blueprint(db_session, workspace.id, WORKFLOW, actor_id=workspace.user_id)
+    row = db_session.query(WorkspaceAutomationModel).filter_by(group_id=workspace.id, slug="shop-mark-sold").one()
+    row.definition = definition
+    db_session.commit()
+    return row
+
+
+def test_applying_records_the_installed_hash(db_session, workspace):
+    apply_blueprint(db_session, workspace.id, WORKFLOW, actor_id=workspace.user_id)
+    row = db_session.query(WorkspaceAutomationModel).filter_by(group_id=workspace.id, slug="shop-mark-sold").one()
+    assert row.source_definition_hash == definition_hash(WORKFLOW.payload["definition"])
+
+
+def test_an_edited_workflow_is_not_outdated_when_the_provider_has_nothing_new(db_session, workspace):
+    row = _edited_workflow(db_session, workspace, MINE)
+    assert not outdated(db_session, workspace.id, WORKFLOW)
+
+    result = update_blueprint(db_session, workspace.id, WORKFLOW)
+    assert not result.updated and result.needs_confirmation and "changed in this workspace" in result.detail
+    db_session.refresh(row)
+    assert row.definition == MINE
+
+
+def test_update_over_edits_is_refused_until_forced(db_session, workspace):
+    row = _edited_workflow(db_session, workspace, MINE)
+    assert outdated(db_session, workspace.id, NEWER_WORKFLOW)
+
+    refused = update_blueprint(db_session, workspace.id, NEWER_WORKFLOW)
+    assert not refused.updated and refused.needs_confirmation
+    db_session.refresh(row)
+    assert row.definition == MINE
+
+    forced = update_blueprint(db_session, workspace.id, NEWER_WORKFLOW, replace_edits=True)
+    db_session.commit()
+    db_session.refresh(row)
+    assert forced.updated and not forced.needs_confirmation
+    assert row.definition == NEWER_WORKFLOW.payload["definition"]
+    assert row.source_definition_hash == definition_hash(row.definition)
+    assert not outdated(db_session, workspace.id, NEWER_WORKFLOW)
+
+
+def test_a_workflow_with_no_recorded_hash_differs_and_needs_confirming(db_session, workspace):
+    row = _edited_workflow(db_session, workspace, OLD)
+    row.source_definition_hash = None
+    db_session.commit()
+    assert outdated(db_session, workspace.id, NEWER_WORKFLOW)
+    assert update_blueprint(db_session, workspace.id, NEWER_WORKFLOW).needs_confirmation
+    assert update_blueprint(db_session, workspace.id, NEWER_WORKFLOW, replace_edits=True).updated
+
+
+def test_the_blueprint_api_read_carries_the_state(db_session, workspace):
+    from marvin.routes.groups.blueprints_controller import BlueprintsController
+
+    ctx = SimpleNamespace(session=db_session, group_id=workspace.id)
+    assert BlueprintsController._to_read(ctx, WORKFLOW).state is None  # not applied
+    _edited_workflow(db_session, workspace, MINE)
+    read = BlueprintsController._to_read(ctx, WORKFLOW)
+    assert (read.state, read.edited, read.outdated) == ("edited", True, False)
+    read = BlueprintsController._to_read(ctx, NEWER_WORKFLOW)
+    assert (read.state, read.edited, read.outdated) == ("edited_update", True, True)
+
+
+def test_the_workflow_list_flags_an_edit_without_a_provider_lookup(db_session, workspace):
+    from marvin.schemas.group.automation import AutomationRead
+
+    row = _edited_workflow(db_session, workspace, WORKFLOW.payload["definition"])
+    row.source_blueprint = WORKFLOW.slug
+    db_session.commit()
+    assert not AutomationRead.model_validate(row).edited_since_install
+    row.definition = MINE
+    assert AutomationRead.model_validate(row).edited_since_install

@@ -6,7 +6,16 @@ exists. Three consumers share the one schema: the catalog a user browses, what a
 brings on install, and what the agent offers to create.
 """
 
-from .apply import already_applied, apply_blueprint, apply_many, missing_requirements, outdated, update_blueprint
+from .apply import (
+    already_applied,
+    apply_blueprint,
+    apply_many,
+    blueprint_state,
+    blueprint_state_of,
+    missing_requirements,
+    outdated,
+    update_blueprint,
+)
 from .catalog import CORE_BLUEPRINTS, categories, get_blueprint, list_blueprints
 
 __all__ = [
@@ -14,6 +23,8 @@ __all__ = [
     "already_applied",
     "apply_blueprint",
     "apply_many",
+    "blueprint_state",
+    "blueprint_state_of",
     "outdated",
     "update_blueprint",
     "categories",
