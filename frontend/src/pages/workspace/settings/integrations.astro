@@ -1266,6 +1266,7 @@ function statusMeta(status: string): { text: string; cls: string } {
 
   .conn-foot {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
@@ -1273,8 +1274,12 @@ function statusMeta(status: string): { text: string; cls: string } {
     padding-top: 12px;
     border-top: 1px solid var(--line);
   }
-  .conn-slug { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+  /* The slug never breaks (the card's overflow-wrap: anywhere split "slack" into "slac / k" on a phone). */
+  .conn-slug { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); flex: none; white-space: nowrap; }
   .conn-btns { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  @media (max-width: 640px) {
+    .conn-btns { flex: 1 1 100%; justify-content: flex-start; }
+  }
 
   .icon-btn-sm {
     display: inline-flex;
@@ -1462,8 +1467,8 @@ function statusMeta(status: string): { text: string; cls: string } {
   }
   /* On a phone the name and kind won't shrink, which squeezed the description to a sliver: stack them instead. */
   @media (max-width: 640px) {
-    .needs li.recipe-row { grid-template-columns: minmax(0, 1fr); gap: 0.1rem; }
-    .needs li.recipe-row > .needs-name { overflow-wrap: anywhere; }
+    .needs ul > li.recipe-row { grid-template-columns: minmax(0, 1fr); gap: 0.1rem; }
+    .needs ul > li.recipe-row > .needs-name { overflow-wrap: anywhere; }
     .needs li:not(.recipe-row) { grid-template-columns: 1rem minmax(0, 1fr) auto; }
     .needs li:not(.recipe-row) > .needs-name { grid-column: 2; grid-row: 1; overflow-wrap: anywhere; }
     .needs li:not(.recipe-row) > .needs-kind { grid-column: 2; grid-row: 2; }
