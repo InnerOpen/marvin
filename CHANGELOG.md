@@ -6,6 +6,40 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.27 (2026-10-21)
+
+### Documentation
+
+- **plan**: Automation lists — decisions from the grilling session
+  ([`2a9fdbd`](https://github.com/InnerOpen/marvin/commit/2a9fdbdca7e9af674ed894a1887adfc60cb4c144))
+
+- **plan**: Organise every Automation list with one shared pattern
+  ([`5935649`](https://github.com/InnerOpen/marvin/commit/59356494d5fa16430297b3f3e08a8e3da05cb514))
+
+- **plan**: Organise the Workflows page like the Workflow Library
+  ([`896ee33`](https://github.com/InnerOpen/marvin/commit/896ee336c4ba8c67a39b5140a8304a85c71666ea))
+
+### Features
+
+- **automation**: Custom events page grouped by what sends each event
+  ([`58d57f8`](https://github.com/InnerOpen/marvin/commit/58d57f85dec9605ecd62f649832ffc2ca78e4e2d))
+
+- **automation**: Delete everything a removed integration left behind
+  ([`5a3c796`](https://github.com/InnerOpen/marvin/commit/5a3c79675250e812ebb0cc655f1ac30cb72f61a1))
+
+- **automation**: Shared list kit and the organised Workflows page
+  ([`8a95eaa`](https://github.com/InnerOpen/marvin/commit/8a95eaae7b0989a2d9153fb2336a161dca597242))
+
+- **automation**: Workflow cards show the last run
+  ([`3c5b281`](https://github.com/InnerOpen/marvin/commit/3c5b28180effdd3b2823d62046e7733499e9cac6))
+
+- **automation**: Workflows need a look, one summary, the dashboard line and a Settings count
+  ([`34bf1a7`](https://github.com/InnerOpen/marvin/commit/34bf1a7a043312fbb513348de19be44ae4336727))
+
+- **webhooks**: Outgoing webhooks record which integration made them
+  ([`79d3fa9`](https://github.com/InnerOpen/marvin/commit/79d3fa9c6407978394a6a801ea7c76f6b5988937))
+
+
 ## v1.1.0-rc.26 (2026-10-21)
 
 ### Features
