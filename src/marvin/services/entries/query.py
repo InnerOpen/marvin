@@ -145,8 +145,9 @@ def _when(value, now: datetime | None = None) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
-def build(session, group_id, spec: dict | None):
-    """The SQL part of a spec: (query over Entries, note). The note explains a filter that can't match."""
+def build(session, group_id, spec: dict | None, *, exclude_types: tuple[str, ...] = ()):
+    """The SQL part of a spec: (query over Entries, note). The note explains a filter that can't match. ``exclude_types``
+    (entry type slugs) are never matched, however the spec asks for them: the agent tools keep Playbooks out this way."""
     import sqlalchemy as sa
 
     from marvin.db.models.platform.assets import Assets
@@ -171,6 +172,11 @@ def build(session, group_id, spec: dict | None):
         spellings = {s for t in types for s in (t.lower(), t.lower().replace("_", "-"), t.lower().replace("-", "_"))}
         type_ids = session.query(EntryTypes.id).filter(EntryTypes.group_id == group_id, EntryTypes.slug.in_(spellings))
         q = q.filter(Entries.entry_type_id.in_(type_ids))
+
+    if exclude_types:
+        q = q.filter(
+            ~Entries.entry_type_id.in_(session.query(EntryTypes.id).filter(EntryTypes.group_id == group_id, EntryTypes.slug.in_(exclude_types)))
+        )
 
     statuses = _as_list(spec.get("status")) + _as_list(spec.get("statuses"))
     if statuses:
@@ -362,12 +368,12 @@ def _sort_key(entry, by: str, numeric: bool):
     return (empty, str(value).lower() if not empty else "")
 
 
-def run(session, group_id, spec: dict | None, *, limit: int | None = None, offset: int = 0) -> EntryQueryResult:
+def run(session, group_id, spec: dict | None, *, limit: int | None = None, offset: int = 0, exclude_types: tuple[str, ...] = ()) -> EntryQueryResult:
     """Resolve a spec to rows (after offset/limit) plus the true total, groups and any note."""
     from marvin.db.models.platform.entries import Entries
 
     spec = spec or {}
-    q, note = build(session, group_id, spec)
+    q, note = build(session, group_id, spec, exclude_types=exclude_types)
     if note:
         return EntryQueryResult(rows=[], total=0, note=note)
 

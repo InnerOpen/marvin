@@ -680,6 +680,7 @@ class TestDryRun:
             raise AssertionError("EntryService must not be constructed during a dry run")
 
         monkeypatch.setattr(entries_mod, "EntryService", _boom)
+        monkeypatch.setattr("marvin.services.automation.actions.entry._require_admin_for_playbook", lambda *a: None)  # no session here
         eid = uuid4()
         out = run_entry_action(
             None, "G", {"kind": "entry", "op": "publish"}, {"event": {"entry_id": str(eid)}, "depth": 0}, authorizer_role=ROLE_AUTHOR, dry_run=True
@@ -1297,6 +1298,7 @@ class TestGeneralizedTriggers:
         monkeypatch.setattr(
             entries_mod, "EntryService", lambda *a, **k: SimpleNamespace(set_status=lambda i, st, reaction_depth=0: SimpleNamespace(id=i))
         )
+        monkeypatch.setattr(entry_mod, "_require_admin_for_playbook", lambda *a: None)  # no session here
         ctx = {"event": {}, "steps": {"lookup": {"output": {"body": {"id": "sub_1"}}}}, "depth": 0}
         out = entry_mod.run_entry_action(
             None,
@@ -1465,6 +1467,7 @@ class TestEntryAction:
 
         monkeypatch.setattr(entries_mod, "EntryService", SpySvc)
         monkeypatch.setattr(entry_action, "_is_trashed", lambda *a: False)  # no session here; not in the Trash
+        monkeypatch.setattr(entry_action, "_require_admin_for_playbook", lambda *a: None)  # nor is it a Playbook
         return calls
 
     def test_publish_sets_status_at_depth_plus_one(self, monkeypatch):

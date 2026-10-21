@@ -206,3 +206,41 @@ def test_ai_write_back_is_not_applied_to_a_published_playbook_for_an_editor(work
     assert may_change(ED, live) is False
     assert may_change(ED, draft) is True
     assert may_change(AD, live) is True
+
+
+# ── Workflows ────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("step", [{"op": "publish"}, {"op": "archive"}, {"op": "set_data", "data": {"body": "Rewritten"}}])
+def test_a_workflow_needs_an_admin_author_to_publish_or_change_a_playbook(workspace, db_session, step):
+    """Workflows run as the author's live role: an author since demoted to Editor must not publish Playbooks through one."""
+    from marvin.services.automation.actions.base import AutomationActionError
+    from marvin.services.automation.actions.entry import run_entry_action
+    from marvin.services.automation.authz import ROLE_ADMIN, ROLE_EDITOR
+
+    row = _playbook(db_session, workspace.gid, status="draft")
+    action, context = {"kind": "entry", "entity_id": str(row.id), **step}, {"event": {}, "steps": {}, "depth": 0}
+
+    with pytest.raises(AutomationActionError, match="Playbook"):
+        run_entry_action(db_session, workspace.gid, action, context, authorizer_role=ROLE_EDITOR)
+    db_session.refresh(row)
+    assert row.status == "draft" and row.data_json["body"] != "Rewritten"
+
+    run_entry_action(db_session, workspace.gid, action, context, authorizer_role=ROLE_ADMIN)  # an Admin author still can
+
+
+# ── Agents: no side door to a draft's text ───────────────────────────────────
+
+
+def test_agents_cannot_read_a_draft_playbook_through_the_entry_tools(workspace, db_session):
+    draft = _playbook(db_session, workspace.gid, "unreleased-voice", status="draft", body="TOP SECRET DRAFT STEPS")
+    live = _playbook(db_session, workspace.gid, status="published")
+    ordinary_id = {"id_or_slug": str(draft.id)}
+
+    for ident in (ordinary_id, {"id_or_slug": "unreleased-voice"}, {"id_or_slug": str(live.id)}):
+        out = _invoke(workspace, "get_entry", ident, ED)
+        assert "load_playbook" in out["error"] and "TOP SECRET" not in json.dumps(out)
+    for args in ({"entry_type": "playbook"}, {"entries": ["unreleased-voice"]}, {"entry_type": "playbook", "status": "draft"}, {"text": "voice"}):
+        out = _invoke(workspace, "find_entries", args, ED)
+        assert out["count"] == 0 and out["entries"] == [], args
+    assert "load_playbook" in _invoke(workspace, "find_entries", {"entry_type": "playbook"}, ED)["note"]

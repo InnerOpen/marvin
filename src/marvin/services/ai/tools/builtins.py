@@ -327,10 +327,16 @@ from marvin.services.entries.query import WHERE_OPS  # noqa: E402 — the tool s
     },
 )
 def find_entries(ctx: ToolContext, args: dict) -> str:
+    from marvin.services.entries.query import _as_list
     from marvin.services.entries.query import run as run_entry_query
+    from marvin.services.playbooks import PLAYBOOK_TYPE, PLAYBOOKS_NOT_ENTRIES
 
     limit = max(1, min(int(args.get("limit") or 10), FIND_ENTRIES_MAX_ROWS))
-    result = run_entry_query(ctx.session, ctx.group_id, args, limit=limit, offset=int(args.get("offset") or 0))
+    # A draft Playbook's text must not reach an agent: Playbooks are read with load_playbook, which serves published ones only.
+    result = run_entry_query(ctx.session, ctx.group_id, args, limit=limit, offset=int(args.get("offset") or 0), exclude_types=(PLAYBOOK_TYPE,))
+    asked = {t.lower().replace("_", "-") for t in _as_list(args.get("entry_type")) + _as_list(args.get("entry_types"))}
+    if PLAYBOOK_TYPE in asked:
+        return json.dumps({"count": 0, "entries": [], "note": PLAYBOOKS_NOT_ENTRIES})
     if result.note:
         return json.dumps({"count": 0, "entries": [], "note": result.note})
     rows, total = result.rows, result.total
@@ -403,6 +409,8 @@ def find_entries(ctx: ToolContext, args: dict) -> str:
     input_schema={"type": "object", "properties": {"id_or_slug": {"type": "string"}}, "required": ["id_or_slug"]},
 )
 def get_entry(ctx: ToolContext, args: dict) -> str:
+    from marvin.services.playbooks import PLAYBOOKS_NOT_ENTRIES, is_playbook
+
     ident = str(args.get("id_or_slug") or args.get("id") or args.get("slug") or "").strip()
     if not ident:
         return json.dumps({"error": "id_or_slug is required"})
@@ -415,6 +423,8 @@ def get_entry(ctx: ToolContext, args: dict) -> str:
     entry = ctx.session.get(Entries, eid) if isinstance(eid, _uuid.UUID) else None
     if not entry or entry.group_id != ctx.group_id:
         return json.dumps({"error": f"entry '{ident}' not found"})
+    if is_playbook(ctx.session, entry):  # a draft's text stays out of an agent's reach; load_playbook serves published ones
+        return json.dumps({"error": f"'{ident}' is a Playbook. {PLAYBOOKS_NOT_ENTRIES}"})
     # Return the FULL entry — every scalar field plus fully-hydrated attachments (each asset /
     # resource carries its entity data AND the junction row's role/position/metadata), so the model
     # never needs a follow-up tool to reason about media, references, or membership.

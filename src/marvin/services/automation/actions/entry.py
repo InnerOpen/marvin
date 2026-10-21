@@ -253,6 +253,8 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
     if entity_id is None:
         # A successful no-op: the run is green and the step's output says why nothing happened.
         return {"op": op, "skipped": True, "reason": "no matching entry", "query": interpolate(action["entity_query"], context)}
+    if op in ENTRY_OPS or op in DATA_OPS:
+        _require_admin_for_playbook(session, entity_id, op, authorizer_role)
     # Emitted events chain at depth+1 so the loop-guard bounds any cascade.
     depth = int(context.get("depth", 0)) + 1
 
@@ -287,6 +289,20 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
             "would_set_status": _would_set_status(session, op, entity_id),
         }
     return _set_status(session, group_id, entity_id, op, user_id=user_id, depth=depth)
+
+
+def _require_admin_for_playbook(session, entity_id, op: str, authorizer_role) -> None:
+    """A Playbook steers every agent run, so publishing or changing one is an Admin's call (routes/_base/checks.py
+    `require_playbook_rules`). A workflow acts as its author's *live* role: an author since demoted to Editor must not
+    publish or edit a Playbook through one, so a status or field op on a Playbook needs ADMIN, whatever the entry's status."""
+    from marvin.db.models.platform.entries import Entries
+    from marvin.services.playbooks import is_playbook
+
+    from ..authz import ROLE_ADMIN, ROLE_OWNER, require_role
+
+    entry = session.get(Entries, entity_id)
+    if entry is not None and is_playbook(session, entry):
+        require_role(ROLE_OWNER if authorizer_role is None else authorizer_role, ROLE_ADMIN, f"entry action '{op}' on a Playbook")
 
 
 def _create_key(context: dict) -> str | None:

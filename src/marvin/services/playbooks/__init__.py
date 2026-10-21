@@ -29,6 +29,7 @@ logger = get_logger(__name__)
 
 PLAYBOOK_TYPE = "playbook"
 PLAYBOOK_STATUS = "published"  # the only status that loads; draft, inbox, needs_review, approved, archived, trashed do not
+PLAYBOOKS_NOT_ENTRIES = "Playbooks are not read as entries: call list_playbooks, then load_playbook with a name (published Playbooks only)."
 LOAD_TOOL = "load_playbook"
 LIST_TOOL = "list_playbooks"
 READ_FILE_TOOL = "read_playbook_file"
