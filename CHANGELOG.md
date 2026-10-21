@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.33 (2026-10-21)
+
+### Bug Fixes
+
+- **ai**: An agent reply cut off before any text is asked again with more room, never shown blank
+  ([`b5f6c72`](https://github.com/InnerOpen/marvin/commit/b5f6c72ae2e3f91669e7a926d19aca9e03c4b2f5))
+
+
 ## v1.1.0-rc.32 (2026-10-21)
 
 ### Bug Fixes
