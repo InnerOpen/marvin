@@ -6,24 +6,26 @@ the standard frontmatter and the markdown ``body``; drafts, history, trash and b
 (``services/ai/tools/builtins_playbooks.py``), the system-frame catalog and the REST routes answer the same way:
 
 * ``ensure_playbook_type``: the type, created the first time a Playbook is written (the pattern of Social's rule type);
-* ``published_playbooks`` / ``published_playbook``: the one place that says which Playbooks a run may see. Later tickets
-  narrow it there (an agent's chosen set, manual-only);
-* ``catalog_block``: the paragraph the system frame adds, empty when there is nothing to list;
-* ``playbooks_used``: which Playbooks a run loaded, read back from its trace for the execution record;
-* reference files: assets linked to the Playbook entry whose junction ``role`` is the file's relative path
-  (``references/tone.md``). ``attach_reference`` / ``reference_files`` / ``remove_reference`` manage them and
-  ``published_playbook_file`` is the one place that says which one an agent may read. No column of its own: the junction
-  already has ``role``, and the existing attach/detach tools and routes keep working with it.
+* ``published_playbooks`` / ``published_playbook`` / ``find_published``: the one place that says which Playbooks a run may
+  see (an agent's chosen set, manual-only);
+* ``playbooks_used`` / ``playbooks_in_effect``: which Playbooks a run loaded, read back from its trace.
+
+The rest is split by concern and re-exported here, so callers import from ``marvin.services.playbooks``:
+
+* ``catalog``: the system-frame paragraphs (the catalog, the "always load" Playbooks);
+* ``proposals``: an agent's proposed change to a published Playbook, and what agents may not change;
+* ``files``: reference files, assets linked to the Playbook entry by their relative path;
+* ``skill_md`` / ``importer`` / ``github`` / ``exporter`` / ``memory``: the file format, import, export and thread memory.
 """
 
 from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable
 from dataclasses import dataclass, replace
 
 from marvin.core.root_logger import get_logger
+from marvin.services.playbooks.skill_md import COMPATIBILITY_MAX, DESCRIPTION_MAX, NAME_MAX, NAME_PATTERN
 
 logger = get_logger(__name__)
 
@@ -35,21 +37,13 @@ LIST_TOOL = "list_playbooks"
 READ_FILE_TOOL = "read_playbook_file"
 USED_KEY = "playbooks"  # AIExecutionModel.metadata_json[USED_KEY] = [{"id", "name"}, …]
 
-CATALOG_MAX = 50  # Playbooks named in the prompt; the rest are still found with list_playbooks
-CATALOG_LINE_CHARS = 200
-
-REPLACES_KEY = "replaces"  # data_json key of a proposed change: the name (slug) of the published Playbook it would replace
-CHANGE_KEYS = ("description", "body", "license", "compatibility", "allowed_tools", "manual_only")  # what publishing a change copies over
-CHANGE_SUFFIX = "-change"
-
-NAME_PATTERN = r"^[a-z0-9]+(-[a-z0-9]+)*$"
 _FIELDS = [
     {
         "key": "name",
         "label": "Name",
         "type": "text",
         "required": True,
-        "max": 64,
+        "max": NAME_MAX,
         "pattern": NAME_PATTERN,
         "helpText": "Lowercase words joined by hyphens. It is how an agent asks for the Playbook, and the entry's slug.",
     },
@@ -58,7 +52,7 @@ _FIELDS = [
         "label": "Description",
         "type": "text",
         "required": True,
-        "max": 1024,
+        "max": DESCRIPTION_MAX,
         "helpText": "One line the agent reads in its catalog: what the Playbook does and when to use it.",
     },
     {
@@ -69,7 +63,7 @@ _FIELDS = [
         "helpText": "What the agent follows once it loads the Playbook.",
     },
     {"key": "license", "label": "License", "type": "text"},
-    {"key": "compatibility", "label": "Compatibility", "type": "text", "max": 500},
+    {"key": "compatibility", "label": "Compatibility", "type": "text", "max": COMPATIBILITY_MAX},
     {
         "key": "allowed_tools",
         "label": "Allowed tools",
@@ -107,7 +101,6 @@ class Playbook:
 
 
 ALWAYS_MAX = 3  # "always load" Playbooks per agent
-ALWAYS_WARN_CHARS = 12_000  # about 3,000 tokens of instructions in every run's system prompt
 
 
 @dataclass(frozen=True)
@@ -193,46 +186,6 @@ def is_playbook(session, entry) -> bool:
     return slug == PLAYBOOK_TYPE
 
 
-def agent_change_refusal(session, entry) -> str | None:
-    """Why an agent's write tool may not change ``entry``, or None. A published Playbook steers every agent run, so
-    changing, archiving or trashing it is a person's call (an Admin's), whoever the agent is working for."""
-    if entry.status == PLAYBOOK_STATUS and is_playbook(session, entry):
-        return f"'{entry.title}' is a published Playbook: agents can draft Playbooks but never change or remove a published one. An Admin does that from the Playbooks page."
-    return None
-
-
-def change_target(session, entry):
-    """For a Playbook draft that proposes a change (its ``replaces`` field names a Playbook), the live entry row it would
-    replace; None for any other entry. Raises HTTP 409 when it names one that is gone or no longer published, so a change
-    is never published as a second, differently named Playbook. An Admin can clear ``replaces`` to publish it as a new one."""
-    from fastapi import HTTPException
-
-    from marvin.db.models.platform.entries import Entries
-
-    name = str((getattr(entry, "data_json", None) or {}).get(REPLACES_KEY) or "").strip().lower()
-    if not name or not is_playbook(session, entry):
-        return None
-    target = (
-        session.query(Entries)
-        .filter(Entries.group_id == entry.group_id, Entries.entry_type_id == entry.entry_type_id, Entries.slug == name, Entries.id != entry.id)
-        .first()
-    )
-    if target is None or target.status != PLAYBOOK_STATUS:
-        raise HTTPException(
-            status_code=409,
-            detail=f"This change replaces the Playbook '{name}', which is not published any more. Publish that one again, or clear 'Replaces' to publish this as a new Playbook.",
-        )
-    return target
-
-
-def changed_data(live_data: dict | None, change_data: dict | None) -> dict:
-    """The live Playbook's data once a proposed change is published: its content (``CHANGE_KEYS``) comes from the change
-    (a key the change leaves out is cleared), everything else (name, any other field) stays as it was."""
-    merged = {k: v for k, v in (live_data or {}).items() if k not in CHANGE_KEYS}
-    merged.update({k: v for k, v in (change_data or {}).items() if k in CHANGE_KEYS})
-    return merged
-
-
 def _published_rows(session, group_id):
     from marvin.db.models.platform.entries import Entries
     from marvin.db.models.platform.entry_types import EntryTypes
@@ -250,7 +203,7 @@ def _published_rows(session, group_id):
     )
 
 
-def _of(row) -> Playbook:
+def _playbook_from_row(row) -> Playbook:
     data = row.data_json or {}
     return Playbook(
         id=str(row.id),
@@ -260,11 +213,6 @@ def _of(row) -> Playbook:
         manual_only=data.get("manual_only") is True,
         allowed_tools=str(data.get("allowed_tools") or ""),
     )
-
-
-def _visible(playbook: Playbook, scope: PlaybookScope) -> bool:
-    """May a run with this scope load it? In the chosen set, and when manual-only, named in the user's message."""
-    return scope.allows(playbook.name) and (not playbook.manual_only or is_named(playbook.name, scope.asked))
 
 
 def playbook_type_id(session, group_id):
@@ -294,23 +242,31 @@ def published_playbooks(session, group_id, scope: PlaybookScope | None = None) -
 
     With a ``scope`` this is what that run's catalog lists: the chosen set only, and no manual-only Playbook (those are
     never offered, only loaded when named). Without one it is every published Playbook, for the admin screens."""
-    found = [_of(row) for row in _published_rows(session, group_id)]
+    found = [_playbook_from_row(row) for row in _published_rows(session, group_id)]
     if scope is None:
         return found
     return [p for p in found if scope.allows(p.name) and not p.manual_only]
 
 
-def published_playbook(session, group_id, name: str, scope: PlaybookScope | None = None) -> Playbook | None:
-    """One published Playbook of this workspace by name, or None: a draft, another workspace's and a made-up name look the same.
-
-    With a ``scope``, also None for one outside the agent's chosen set and for a manual-only one the user did not name."""
+def find_published(session, group_id, name: str, scope: PlaybookScope | None = None):
+    """``(entry row, Playbook)`` of the published Playbook called ``name`` that a run with ``scope`` may see, else None: a draft,
+    another workspace's and a made-up name look the same. With a ``scope`` it is also None for one outside the agent's chosen
+    set and for a manual-only one the user's message did not name. The one lookup behind ``published_playbook`` and the files."""
     from marvin.db.models.platform.entries import Entries
 
     row = _published_rows(session, group_id).filter(Entries.slug == str(name or "").strip().lower()).first()
-    found = _of(row) if row is not None else None
-    if found is not None and scope is not None and not _visible(found, scope):
+    if row is None:
         return None
-    return found
+    playbook = _playbook_from_row(row)
+    if scope is not None and not (scope.allows(playbook.name) and (not playbook.manual_only or is_named(playbook.name, scope.asked))):
+        return None
+    return row, playbook
+
+
+def published_playbook(session, group_id, name: str, scope: PlaybookScope | None = None) -> Playbook | None:
+    """One published Playbook of this workspace by name, or None (see ``find_published``)."""
+    found = find_published(session, group_id, name, scope)
+    return found[1] if found is not None else None
 
 
 def manual_only_refusal(session, group_id, name: str, scope: PlaybookScope) -> str | None:
@@ -326,27 +282,6 @@ def always_playbooks(session, group_id, scope: PlaybookScope) -> list[Playbook]:
     """The agent's "always load" Playbooks that can still be loaded (published, in its set, not manual-only), in its order."""
     by_name = {p.name: p for p in published_playbooks(session, group_id, scope)}
     return [by_name[name] for name in scope.always[:ALWAYS_MAX] if name in by_name]
-
-
-def always_block(playbooks: Iterable[Playbook]) -> str:
-    """The system-frame section with each "always load" Playbook in full; "" when there are none."""
-    listed = list(playbooks)
-    if not listed:
-        return ""
-    parts = ["## Playbooks to follow in every conversation\nThese Playbooks are already loaded: follow them without calling " + LOAD_TOOL + "."]
-    parts += [f"### {p.name}\n{p.body.strip()}" for p in listed]
-    return "\n\n".join(parts)
-
-
-def always_warning(playbooks: Iterable[Playbook]) -> str | None:
-    """A warning when the "always load" Playbooks are long (they ride along with every run); None when they are not."""
-    size = sum(len(p.body) for p in playbooks)
-    if size <= ALWAYS_WARN_CHARS:
-        return None
-    return (
-        f"These always-loaded Playbooks add about {size // 4:,} tokens ({size:,} characters) to every run of this agent. "
-        "Consider loading the long ones on demand instead."
-    )
 
 
 class PlaybookSettingsError(ValueError):
@@ -366,52 +301,6 @@ def check_agent_settings(session, group_id, settings: dict | None) -> None:
     loadable = {p.name for p in published_playbooks(session, group_id, PlaybookScope())}
     if missing := [n for n in always if n not in loadable]:
         raise PlaybookSettingsError(f"Not a published Playbook that loads by itself (manual-only ones do not): {', '.join(missing)}.")
-
-
-PROPOSE_HINT = (
-    "If you notice a correction people keep making, or a better way to do a task, you may propose it: draft a new Playbook "
-    "with create_draft, or a change to one of these with propose_playbook_change. It goes to the Inbox for an admin to review; "
-    "you never publish or edit a Playbook yourself.\n"
-)
-
-
-def catalog_block(playbooks: Iterable[Playbook], can_propose: bool = False) -> str:
-    """The system-frame paragraph naming the Playbooks, one line each; "" when there are none (nothing is added).
-    ``can_propose``: the agent can draft, so it is also told when to propose a Playbook."""
-    listed = list(playbooks)
-    if not listed:
-        return ""
-    lines = []
-    for p in listed[:CATALOG_MAX]:
-        text = " ".join(p.description.split())
-        if len(text) > CATALOG_LINE_CHARS:
-            text = text[: CATALOG_LINE_CHARS - 1].rstrip() + "…"
-        lines.append(f"- {p.name}: {text}")
-    more = f"\n({len(listed) - CATALOG_MAX} more: call {LIST_TOOL} to see them.)" if len(listed) > CATALOG_MAX else ""
-    return (
-        "## Playbooks\n"
-        "This workspace keeps Playbooks: written procedures for particular tasks. When a request matches one of the "
-        f"descriptions below, call {LOAD_TOOL} with its name before you start, then follow it using the tools you already "
-        "have. A Playbook never gives you more tools or permissions, and one that does not fit the request is not loaded.\n"
-        + (PROPOSE_HINT if can_propose else "")
-        + "\n".join(lines)
-        + more
-    )
-
-
-def frame_block(session, group_id, scope: PlaybookScope, tool_names: Iterable[str]) -> str:
-    """The Playbook sections of a run's system frame, shared by every way an agent runs (Ask and the bubble, ``run_agent``): the
-    catalog of what ``scope`` may load (when ``load_playbook`` is among ``tool_names`` and there is any), then the agent's
-    "always load" Playbooks in full. "" when there is nothing to add."""
-    names = set(tool_names)
-    parts = []
-    if LOAD_TOOL in names:
-        can_propose = "propose_playbook_change" in names or "create_draft" in names
-        if catalog := catalog_block(published_playbooks(session, group_id, scope), can_propose):
-            parts.append(catalog)
-    if always := always_block(always_playbooks(session, group_id, scope)):
-        parts.append(always)
-    return "\n\n".join(parts)
 
 
 def playbooks_used(steps) -> list[dict]:
@@ -476,155 +365,34 @@ def parse_allowed_tools(raw) -> list[str]:
     return list(seen)
 
 
-# ── Reference files ──────────────────────────────────────────────────────────
-
-PATH_MAX = 255
-FILES_MAX = 100  # reference files per Playbook
-
-
-class PlaybookFileError(ValueError):
-    """A reference file that can't be attached; the message says why and is safe to show."""
-
-
-def normalize_path(path) -> str:
-    """A reference file's path as kept: relative, forward slashes, no ``.``/``..`` parts (``references/tone.md``).
-
-    Raises PlaybookFileError for anything that could point outside the Playbook's own folder."""
-    raw = str(path or "").strip()
-    if not raw or len(raw) > PATH_MAX or "\\" in raw or "\x00" in raw or raw.startswith("/"):
-        raise PlaybookFileError("A reference file's path is relative, like 'references/tone.md' (at most 255 characters).")
-    parts = [part for part in raw.split("/") if part not in ("", ".")]
-    if not parts or any(part == ".." for part in parts):
-        raise PlaybookFileError("A reference file's path stays inside the Playbook: no '..' and no leading '/'.")
-    return "/".join(parts)
-
-
-@dataclass(frozen=True)
-class ReferenceFile:
-    path: str
-    asset_id: str
-    name: str
-    mime_type: str | None
-    size: int
-
-
-def _playbook_entry(session, group_id, entry_id):
-    from marvin.db.models.platform.entries import Entries
-    from marvin.db.models.platform.entry_types import EntryTypes
-
-    return (
-        session.query(Entries)
-        .join(EntryTypes, Entries.entry_type_id == EntryTypes.id)
-        .filter(Entries.id == entry_id, Entries.group_id == group_id, EntryTypes.group_id == group_id, EntryTypes.slug == PLAYBOOK_TYPE)
-        .first()
-    )
-
-
-def _links(session, entry_id):
-    """(junction, asset) pairs of a Playbook's reference files: live assets whose role is a valid path, by path."""
-    from marvin.db.models.platform.assets import Assets
-    from marvin.db.models.platform.entry_assets import EntryAssets
-
-    rows = (
-        session.query(EntryAssets, Assets)
-        .join(Assets, EntryAssets.asset_id == Assets.id)
-        .filter(EntryAssets.entry_id == entry_id, Assets.trashed_at.is_(None), EntryAssets.role.isnot(None))
-        .all()
-    )
-    found = []
-    for link, asset in rows:
-        try:
-            found.append((normalize_path(link.role), link, asset))
-        except PlaybookFileError:
-            continue  # some other role ('hero'): not a reference file
-    return sorted(found, key=lambda t: t[0])
-
-
-def _file(path, asset) -> ReferenceFile:
-    return ReferenceFile(path=path, asset_id=str(asset.id), name=asset.name, mime_type=asset.mime_type, size=int(asset.file_size or 0))
-
-
-def reference_files(session, entry_id) -> list[ReferenceFile]:
-    """A Playbook entry's reference files by path (not workspace-checked: callers hold an entry they may see)."""
-    return [_file(path, asset) for path, _link, asset in _links(session, entry_id)]
-
-
-def attach_reference(session, group_id, entry_id, asset_id, path) -> ReferenceFile:
-    """Attach a workspace asset to a Playbook under ``path`` (committed). Linking the same asset again moves it to the new path.
-
-    Raises PlaybookFileError: not a Playbook of this workspace, not a live asset of it, a bad or taken path, too many files."""
-    import sqlalchemy as sa
-
-    from marvin.db.models.platform.assets import Assets
-    from marvin.db.models.platform.entry_assets import EntryAssets
-
-    clean = normalize_path(path)
-    if _playbook_entry(session, group_id, entry_id) is None:
-        raise PlaybookFileError("No such Playbook in this workspace.")
-    asset = session.get(Assets, asset_id)
-    if asset is None or str(asset.group_id) != str(group_id) or asset.trashed_at is not None:
-        raise PlaybookFileError("No such asset in this workspace.")
-    current = _links(session, entry_id)
-    mine = next((link for _p, link, a in current if a.id == asset.id), None)
-    if any(p == clean and a.id != asset.id for p, _l, a in current):
-        raise PlaybookFileError(f"The Playbook already has a file at '{clean}'.")
-    if mine is None and len(current) >= FILES_MAX:
-        raise PlaybookFileError(f"A Playbook holds at most {FILES_MAX} reference files.")
-    if mine is None:
-        mine = session.query(EntryAssets).filter_by(entry_id=entry_id, asset_id=asset.id).first()  # linked, but not as a reference
-    if mine is None:
-        top = session.query(sa.func.max(EntryAssets.position)).filter(EntryAssets.entry_id == entry_id).scalar()
-        mine = EntryAssets(entry_id=entry_id, asset_id=asset.id, position=0 if top is None else top + 1)
-        session.add(mine)
-    mine.role = clean
-    session.commit()
-    return _file(clean, asset)
-
-
-def remove_reference(session, group_id, entry_id, path) -> bool:
-    """Take the file at ``path`` off a Playbook (committed; the asset itself stays). False when there was none."""
-    if _playbook_entry(session, group_id, entry_id) is None:
-        return False
-    try:
-        wanted = normalize_path(path)
-    except PlaybookFileError:
-        return False
-    for found, link, _asset in _links(session, entry_id):
-        if found == wanted:
-            session.delete(link)
-            session.commit()
-            return True
-    return False
-
-
-def _visible_row(session, group_id, name: str, scope: PlaybookScope | None):
-    """The published Playbook entry called ``name`` that ``scope`` (when given) lets a run see, else None."""
-    from marvin.db.models.platform.entries import Entries
-
-    row = _published_rows(session, group_id).filter(Entries.slug == str(name or "").strip().lower()).first()
-    if row is not None and scope is not None and not _visible(_of(row), scope):
-        return None
-    return row
-
-
-def published_playbook_files(session, group_id, name: str, scope: PlaybookScope | None = None) -> list[ReferenceFile] | None:
-    """The reference-file index of a published Playbook by name, or None when it isn't one (draft, other workspace, made up,
-    or outside the ``scope`` the run has)."""
-    row = _visible_row(session, group_id, name, scope)
-    return reference_files(session, row.id) if row is not None else None
-
-
-def published_playbook_file(session, group_id, name: str, path: str, scope: PlaybookScope | None = None):
-    """The asset at ``path`` of a published Playbook of this workspace, or None: a draft, another workspace's Playbook,
-    one outside the ``scope``, a path it doesn't hold and a malformed path all look the same."""
-    row = _visible_row(session, group_id, name, scope)
-    if row is None:
-        return None
-    try:
-        wanted = normalize_path(path)
-    except PlaybookFileError:
-        return None
-    for found, _link, asset in _links(session, row.id):
-        if found == wanted and str(asset.group_id) == str(group_id):
-            return asset
-    return None
+# Re-exported so callers keep importing from ``marvin.services.playbooks``. Last, because each submodule imports names defined above.
+from marvin.services.playbooks.catalog import (  # noqa: E402, F401
+    ALWAYS_WARN_CHARS,
+    CATALOG_LINE_CHARS,
+    CATALOG_MAX,
+    PROPOSE_HINT,
+    always_block,
+    always_warning,
+    catalog_block,
+    frame_block,
+)
+from marvin.services.playbooks.files import (  # noqa: E402, F401
+    FILES_MAX,
+    PATH_MAX,
+    PlaybookFileError,
+    ReferenceFile,
+    attach_reference,
+    normalize_path,
+    published_playbook_file,
+    published_playbook_files,
+    reference_files,
+    remove_reference,
+)
+from marvin.services.playbooks.proposals import (  # noqa: E402, F401
+    CHANGE_KEYS,
+    CHANGE_SUFFIX,
+    REPLACES_KEY,
+    agent_change_refusal,
+    change_target,
+    changed_data,
+)

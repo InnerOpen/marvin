@@ -25,10 +25,13 @@ from dataclasses import dataclass, field
 
 import yaml
 
+# The standard's limits, the one copy on the backend (the Playbook type's schema imports them). The editor's
+# frontend/src/lib/playbooks.ts keeps a mirror.
 NAME_MAX = 64
 DESCRIPTION_MAX = 1024
 COMPATIBILITY_MAX = 500
-_NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+NAME_PATTERN = r"^[a-z0-9]+(-[a-z0-9]+)*$"  # also the Playbook type's `name` field pattern
+_NAME_RE = re.compile(NAME_PATTERN)
 _FENCE = re.compile(r"^---[ \t]*$", re.MULTILINE)
 _KNOWN = ("name", "description", "license", "compatibility", "allowed-tools", "allowed_tools", "disable-model-invocation")
 _TRUE = {"true", "yes", "on", "1"}

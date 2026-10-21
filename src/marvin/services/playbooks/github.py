@@ -25,6 +25,7 @@ PAGE_HOSTS = {"github.com", "www.github.com"}
 ALLOWED_HOSTS = frozenset({"github.com", "api.github.com", "codeload.github.com"})
 REF_SPLITS_MAX = 4
 TIMEOUT = 20
+SOURCE_URL_MAX = 500  # characters of the link kept on the draft (`metadata.source.url`); not a Playbook field limit
 
 _NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -146,5 +147,5 @@ def fetch_package(url: str, http=None) -> tuple[Package, dict]:
     if not archive.ok:
         raise _refused(archive, "downloading the repository")
     package = read_repo_archive(archive.content, subdir)
-    source = {"url": url.strip()[:500], "repo": f"{link.owner}/{link.repo}", "path": subdir, "commit": commit}
+    source = {"url": url.strip()[:SOURCE_URL_MAX], "repo": f"{link.owner}/{link.repo}", "path": subdir, "commit": commit}
     return package, source
