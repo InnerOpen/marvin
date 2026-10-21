@@ -783,12 +783,14 @@ def list_assets(ctx: ToolContext, args: dict) -> str:
 def get_asset(ctx: ToolContext, args: dict) -> str:
     import uuid as _uuid
 
+    from marvin.services.assets.scope import is_playbook_file
+
     ident = str(args.get("id_or_slug") or args.get("id") or args.get("slug") or "").strip()
     if not ident:
         return json.dumps({"error": "id_or_slug is required"})
     aid = resolve_entity_id(ctx.session, ctx.group_id, "asset", ident)
     a = ctx.session.get(Assets, aid) if isinstance(aid, _uuid.UUID) else None
-    if not a or a.group_id != ctx.group_id:
+    if not a or a.group_id != ctx.group_id or is_playbook_file(a):
         return json.dumps({"error": f"asset '{ident}' not found"})
     return json.dumps(
         {

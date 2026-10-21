@@ -82,6 +82,7 @@ def extract_text(kind: str, data: bytes, max_chars: int) -> str:
 def read_attachment(ctx: ToolContext, args: dict) -> str:
     from marvin.db.models.platform.assets import Assets
     from marvin.services.ai.entity_resolve import resolve_entity_id
+    from marvin.services.assets.scope import is_playbook_file
 
     ref = str(args.get("asset") or "").strip()
     if not ref:
@@ -93,7 +94,7 @@ def read_attachment(ctx: ToolContext, args: dict) -> str:
         asset = None
     except Exception as e:  # noqa: BLE001 — surface to the model
         return json.dumps({"error": f"could not resolve asset '{ref}': {e}"})
-    if asset is None or str(asset.group_id) != str(ctx.group_id):
+    if asset is None or str(asset.group_id) != str(ctx.group_id) or is_playbook_file(asset):  # a Playbook's files are read with read_playbook_file
         return json.dumps({"error": f"no asset '{ref}' in this workspace (try list_assets)"})
 
     return json.dumps(read_asset_text(asset, args.get("max_chars")))

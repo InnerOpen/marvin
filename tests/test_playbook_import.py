@@ -340,3 +340,27 @@ def test_a_real_zip_with_scripts_imports(workspace, db_session):
     paths = [f.path for f in playbooks.reference_files(db_session, entry.id)]
     assert paths == ["agents/openai.yaml", "template.sh"]
     assert out["skipped"] == []
+
+
+# ── Reference files are the Playbook's, not the library's ───────────────────
+
+
+def test_imported_reference_files_stay_out_of_the_library_and_the_asset_tools(workspace, db_session):
+    from marvin.db.models.platform import Assets
+    from tests.test_playbook_roles import _invoke
+
+    data = make_zip({"SKILL.md": skill("kept-apart"), "references/guide.md": "# Guide\nSecret sauce.\n"}, folder="kept-apart/")
+    assert post(workspace, data).status_code == 201
+    asset = db_session.query(Assets).filter_by(group_id=workspace.gid).one()
+    assert asset.scope == "playbook"
+
+    editor = gates._sign_in(workspace, WorkspaceRole.EDITOR)
+    assert editor.get("/api/platform/assets").json() == []  # the Assets library
+    assert _invoke(workspace, "list_assets", {})["count"] == 0
+    for tool, args in (("read_attachment", {"asset": str(asset.id)}), ("get_asset", {"id_or_slug": asset.slug})):
+        out = _invoke(workspace, tool, args)
+        assert "error" in out and "Secret sauce" not in json.dumps(out), tool
+
+    # ...but the Playbook's own paths still reach it, once it is published.
+    entry = _entry(db_session, workspace.gid, "kept-apart")
+    assert [f.path for f in playbooks.reference_files(db_session, entry.id)] == ["references/guide.md"]

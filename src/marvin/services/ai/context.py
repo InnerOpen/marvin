@@ -139,9 +139,10 @@ class ContextBuilder:
     def with_asset(self, asset_id: UUID4) -> "ContextBuilder":
         """Load a single asset directly as the primary asset (e.g. for vision operations)."""
         from marvin.db.models.platform.assets import Assets
+        from marvin.services.assets.scope import is_playbook_file
 
         a = self._session.get(Assets, asset_id)
-        if a and a.group_id == self._group_id:
+        if a and a.group_id == self._group_id and not is_playbook_file(a):  # a Playbook's files are not for the asset tools
             self._ctx.assets = [self._asset_dict(a)]
         return self
 

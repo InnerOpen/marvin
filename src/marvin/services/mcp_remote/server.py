@@ -199,12 +199,13 @@ def show_image_for(conn: Connection, args: dict | None) -> tuple[dict, str | Non
         from marvin.services.ai.entity_resolve import resolve_entity_id
         from marvin.services.ai.media.transforms import _load
         from marvin.services.ai.tools.builtins import _asset_public_url
+        from marvin.services.assets.scope import is_playbook_file
         from marvin.services.storage.provider_factory import provider_for
 
         ref = str((args or {}).get("asset") or "").strip()
         asset_id = resolve_entity_id(session, conn.group_id, "asset", ref) if ref else None
         asset = session.get(Assets, asset_id) if isinstance(asset_id, uuid.UUID) else None
-        if asset is None or str(asset.group_id) != str(conn.group_id) or asset.trashed_at is not None:
+        if asset is None or str(asset.group_id) != str(conn.group_id) or asset.trashed_at is not None or is_playbook_file(asset):
             return {"error": f"no asset '{ref}' in this workspace (try list_assets)"}, None, None
         info = {
             "id": str(asset.id),

@@ -390,6 +390,7 @@ def import_package(
     from marvin.schemas.platform import AssetUploadRequest
     from marvin.services.ai.tools import list_tools
     from marvin.services.assets.asset_storage_service import AssetRejected
+    from marvin.services.assets.scope import PLAYBOOK
 
     if name is not None and name.strip():
         try:
@@ -428,7 +429,7 @@ def import_package(
             asset = assets.upload_asset(
                 upload_file=upload,  # type: ignore[arg-type]
                 upload_request=AssetUploadRequest(
-                    slug=slug, name=posixpath.basename(file.path), metadata_json={"playbook": doc.name, "path": file.path}
+                    slug=slug, name=posixpath.basename(file.path), metadata_json={"playbook": doc.name, "path": file.path}, scope=PLAYBOOK
                 ),
                 group_id=group_id,
                 user_id=user_id,
