@@ -89,6 +89,16 @@ def incoming_webhooks_needing_a_look(session, group_id) -> int:
     return session.query(sa.func.count(hook.id)).filter(hook.group_id == group_id, hook.enabled.is_(True), hook.received_count == 0).scalar() or 0
 
 
+def outgoing_webhooks_needing_a_look(session, group_id) -> int:
+    """Enabled outgoing webhooks whose URL is an address the server won't post to (the rule WebhookCreate enforces in production; see
+    ``webhook_attention``). Only enabled rows are read, and only their URLs."""
+    from marvin.db.models.groups.webhooks import GroupWebhooksModel
+    from marvin.schemas.group.webhook import webhook_attention
+
+    urls = session.query(GroupWebhooksModel.url).filter(GroupWebhooksModel.group_id == group_id, GroupWebhooksModel.enabled.is_(True)).all()
+    return sum(1 for (url,) in urls if webhook_attention(True, url))
+
+
 @dataclass(frozen=True)
 class Kind:
     key: str  # "workflows" …
@@ -124,4 +134,5 @@ def summary(session, group_id) -> dict:
 # ── the kinds ───────────────────────────────────────────────────────────────────────────────────────────────────
 register("workflows", "/automation/workflows?status=attention", workflows_needing_a_look)
 register("incoming_webhooks", "/automation/incoming-webhooks?status=attention", incoming_webhooks_needing_a_look)
-# Later pages add theirs here: register("scheduled_tasks", …), register("outgoing_webhooks", …)
+register("outgoing_webhooks", "/automation/webhooks?status=attention", outgoing_webhooks_needing_a_look)
+# Later pages add theirs here: register("scheduled_tasks", …)
