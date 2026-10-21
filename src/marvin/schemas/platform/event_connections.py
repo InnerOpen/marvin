@@ -97,6 +97,8 @@ class EventConnectionCounts(_MarvinModel):
     """The catalog's category (e.g. "Publishing")."""
     senders: int
     """Marvin's own senders plus the workspace's workflows, incoming webhooks and scheduled tasks that send it."""
+    sender_kinds: list[SenderKind] = []
+    """The distinct kinds of thing that send it (sorted), so a list can group event types by what sends them."""
     reactions: int
     """Workflows, integration actions, emails and webhooks on it, switched-off ones included."""
     active_reactions: int

@@ -33,6 +33,8 @@ export interface MountOptions<T> {
   adapter: ListAdapter<T>;
   integrations: Integrations;
   noun: string;
+  /** False when the items have no On/Off (the headings then leave out "N on"). */
+  onOff?: boolean;
   /** localStorage key the From/Status/facet choices are remembered under, per page. */
   storageKey: string;
   linkedId?: string | null;
@@ -61,6 +63,7 @@ export function mountOrganizedList<T>(options: MountOptions<T>) {
     });
     host.innerHTML = sectionsHtml(result.sections, {
       noun: options.noun,
+      onOff: options.onOff,
       integrations: options.integrations,
       linkedId: options.linkedId,
       id: adapter.id,
