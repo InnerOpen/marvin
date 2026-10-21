@@ -17,6 +17,8 @@ export interface WorkflowRow {
   /** When its newest run started, and how that run went (running | success | partial | failed | cancelled); null: never run. */
   lastRunAt?: string | null;
   lastRunStatus?: string | null;
+  /** Why it needs a look (the server decides): "last_run_failed" | "off_while_integration_on"; null/absent: it doesn't. */
+  attention?: string | null;
   definition?: any;
 }
 
@@ -84,8 +86,8 @@ export function triggerSummary(wf: WorkflowRow, names: NameLookup): string {
   }
 }
 
-/** The adapter for the shared list kit. Needs-attention flags arrive with the last-run data (a later ticket): add
- * `attention` here and pass `statusOptions({ attention: true })` to the filter bar. */
+/** The adapter for the shared list kit. `attention` is the server's flag (see attentionReason); the page passes
+ * `statusOptions({ attention: true })` to the filter bar. */
 export function workflowAdapter(names: NameLookup): ListAdapter<WorkflowRow> {
   return {
     id: (wf) => wf.id,
@@ -97,6 +99,7 @@ export function workflowAdapter(names: NameLookup): ListAdapter<WorkflowRow> {
       recipe: wf.sourceRecipe ?? null,
     }),
     enabled: (wf) => wf.enabled,
+    attention: (wf) => !!wf.attention,
     facets: { starts: triggerKind },
   };
 }
@@ -120,6 +123,22 @@ export function lastRunFailed(wf: WorkflowRow): boolean {
   return wf.lastRunStatus === "failed" || wf.lastRunStatus === "partial";
 }
 
+const ATTENTION_REASONS: Record<string, string> = {
+  last_run_failed: "The last run failed",
+  off_while_integration_on: "Off, but its integration is on",
+};
+
+/** The reason a flagged workflow needs a look, in words ("" when it doesn't). */
+export function attentionReason(wf: WorkflowRow): string {
+  return wf.attention ? (ATTENTION_REASONS[wf.attention] ?? "Needs a look") : "";
+}
+
+/** The small "Needs a look" marker with its reason (empty when the workflow is fine). */
+export function attentionHtml(wf: WorkflowRow): string {
+  const why = attentionReason(wf);
+  return why ? `<div class="wf-attention" title="${esc(why)}"><strong>Needs a look</strong> · ${esc(why)}</div>` : "";
+}
+
 /** "Last run 2 h ago · failed" (failed ones marked), or "Not run yet". */
 export function lastRunHtml(wf: WorkflowRow, now: Date = new Date()): string {
   const when = timeAgo(wf.lastRunAt, now);
@@ -139,6 +158,7 @@ export function workflowCardHtml(
     <div class="org-card-main">
       <div class="org-card-title"><strong>${esc(wf.name)}</strong></div>
       <div class="org-card-sub">${wf.enabled ? "" : "Off · "}${esc(options.summary)}</div>
+      ${attentionHtml(wf)}
       ${lastRunHtml(wf, options.now)}
       <details class="wf-steps"><summary>Steps</summary>${options.details}</details>
       <div class="wf-history" hidden></div>

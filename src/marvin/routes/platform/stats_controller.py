@@ -67,6 +67,10 @@ class AttentionCounts(_MarvinModel):
     # reply. One in flight is routine, so it isn't here. 0 below EDITOR.
     results_failed: int = 0
     results_no_reply: int = 0
+    # Workflows (and, as their pages land, webhooks and scheduled tasks) that need a look — one number from services/automation/attention.py,
+    # with the page to open first. 0 below ADMIN, who are the ones who manage automations.
+    automation: int = 0
+    automation_page: str | None = None
 
 
 class DashboardData(_MarvinModel):
@@ -181,6 +185,25 @@ class StatsController(BaseUserController):
             session.rollback()
             return 0, 0
 
+    def _automation(self, gid) -> tuple[int, str | None]:
+        """``(items needing a look, the page to open first)`` in Automation, for a member who manages it (ADMIN and above)."""
+        from fastapi import HTTPException
+
+        from marvin.db.models.users.roles import WorkspaceRole
+        from marvin.routes._base.checks import require_workspace_role
+        from marvin.services.automation import attention
+
+        session = self.repos.session
+        try:
+            require_workspace_role(self.user, gid, WorkspaceRole.ADMIN)
+            found = attention.summary(session, gid)
+            return found["total"], found["first_page"]
+        except HTTPException:
+            return 0, None
+        except Exception:  # a failed count: the panel just leaves the line out
+            session.rollback()
+            return 0, None
+
     @router.get("/dashboard", response_model=DashboardData, summary="Dashboard activity + attention queue")
     def get_dashboard(self) -> DashboardData:
         """Recent workspace activity and the "needs attention" counts — draft entries awaiting
@@ -255,6 +278,7 @@ class StatsController(BaseUserController):
         approvals_count, approvals = dash.approvals_waiting(session, gid, role)
         audience_new, audience_problems = self._audience(gid)
         results_failed, results_no_reply = self._results(gid)
+        automation, automation_page = self._automation(gid)
         return DashboardData(
             recent_activity=recent,
             attention=AttentionCounts(
@@ -271,6 +295,8 @@ class StatsController(BaseUserController):
                 audience_problems=audience_problems,
                 results_failed=results_failed,
                 results_no_reply=results_no_reply,
+                automation=automation,
+                automation_page=automation_page,
             ),
             approvals=approvals,
             upcoming=dash.upcoming(session, gid, now),

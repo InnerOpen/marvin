@@ -9,6 +9,8 @@ import { navHref, navTitle } from "@/lib/navTree";
 import { nullIfForbidden } from "@/lib/workspaceRole";
 import { getSummary as getResultsSummary } from "@/lib/api/automationResults";
 import { getSummary as getSocialSummary } from "@/lib/api/socialInbox";
+import { getAutomationAttention } from "@/lib/api/automationAttention";
+import { countBadge } from "@/lib/automationAttention";
 import { showResults } from "@/lib/automationResults";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -74,6 +76,10 @@ const socialSummary = await getSocialSummary(authToken!).catch(() => null);
 // Results is listed in the Automation tab only once a hand-off has happened (a member below editor gets a 403: no link).
 const resultsSummary = currentTab === "automation" ? await getResultsSummary(authToken!).catch(() => null) : null;
 
+// What needs a look in Automation, as a count on the tab (admins only: others get a 403, so no count).
+const automationAttention = await getAutomationAttention(authToken!).catch(() => null);
+const automationCount = countBadge(automationAttention?.total);
+
 const tabs = [
   { id: "general", label: "General", icon: "⚙" },
   { id: "members", label: "Members", icon: "👥" },
@@ -105,6 +111,9 @@ const tabs = [
         >
           <span class="tab-icon">{tab.icon}</span>
           <span class="tab-label">{tab.label}</span>
+          {tab.id === "automation" && automationCount && (
+            <span class="tab-count" title="Automation items that need a look" aria-label={`${automationCount} need a look`}>{automationCount}</span>
+          )}
         </a>
       ))}
     </nav>
@@ -232,7 +241,10 @@ const tabs = [
           <div class="quick-links">
             <a href={navHref("automation.workflows")} class="link-card">
               <strong>{navTitle("automation.workflows")}</strong>
-              <p>When X happens, run steps automatically (AI optional)</p>
+              <p>
+                When X happens, run steps automatically (AI optional)
+                {(automationAttention?.kinds?.workflows ?? 0) > 0 && ` · ${automationAttention?.kinds?.workflows} need a look`}
+              </p>
             </a>
             <a href={navHref("automation.library")} class="link-card">
               <strong>{navTitle("automation.library")}</strong>
@@ -487,6 +499,18 @@ const tabs = [
     background: var(--bg);
     color: var(--ink);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+
+  .tab-count {
+    min-width: 18px;
+    padding: 0 6px;
+    border-radius: 9px;
+    background: var(--color-error);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 18px;
+    text-align: center;
   }
 
   .tab-icon {

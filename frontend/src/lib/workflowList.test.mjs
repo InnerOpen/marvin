@@ -4,8 +4,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { organize } from "./organizedList.ts";
+import { organize, statusOptions } from "./organizedList.ts";
 import {
+  attentionHtml,
+  attentionReason,
   humanInterval,
   STARTS_OPTIONS,
   triggerKind,
@@ -94,8 +96,16 @@ describe("the workflow adapter", () => {
     );
   });
 
-  test("no attention flags yet (a later ticket adds them)", () => {
-    assert.equal(adapter.attention, undefined);
+  test("Needs attention matches the flagged workflows, and the Status filter offers it", () => {
+    const flagged = [
+      wf({ type: "manual" }, { id: "1", attention: "last_run_failed" }),
+      wf({ type: "manual" }, { id: "2", attention: null }),
+      wf({ type: "manual" }, { id: "3" }),
+      wf({ type: "manual" }, { id: "4", enabled: false, attention: "off_while_integration_on" }),
+    ];
+    const hit = organize(flagged, adapter, {}, { status: "attention" });
+    assert.deepEqual(hit.sections.flatMap((s) => s.items.map((i) => i.id)).sort(), ["1", "4"]);
+    assert.equal(statusOptions({ attention: true })[0].label, "Needs attention");
   });
 });
 
@@ -176,5 +186,28 @@ describe("the card", () => {
     test("an unknown status is shown as it came, escaped", () => {
       assert.match(line(last("2026-10-21T10:00:00Z", "<odd>")), /· &lt;odd&gt;/);
     });
+  });
+});
+
+describe("the Needs a look marker", () => {
+  test("a flagged card says why; an unflagged one has no marker", () => {
+    assert.match(attentionHtml(wf({}, { attention: "last_run_failed" })), /Needs a look.*The last run failed/);
+    assert.match(attentionHtml(wf({}, { attention: "off_while_integration_on" })), /Off, but its integration is on/);
+    assert.equal(attentionHtml(wf({}, { attention: null })), "");
+    assert.equal(attentionHtml(wf({})), "");
+    assert.equal(attentionReason(wf({}, { attention: "something_new" })), "Needs a look");
+  });
+
+  test("the marker is on the card, and the reason is escaped", () => {
+    const html = workflowCardHtml(wf({ type: "manual" }, { attention: "last_run_failed" }), {
+      summary: "",
+      details: "",
+      linked: false,
+    });
+    assert.match(html, /class="wf-attention"/);
+    assert.doesNotMatch(
+      workflowCardHtml(wf({ type: "manual" }), { summary: "", details: "", linked: false }),
+      /wf-attention/,
+    );
   });
 });

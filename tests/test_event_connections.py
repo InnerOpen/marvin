@@ -971,7 +971,17 @@ def test_workspace_admins_read_both(db_session, world, role):
     res = client.get(f"{WS}/connections")
     assert res.status_code == 200, res.text
     row = next(r for r in res.json() if r["eventType"] == "entry_published")
-    assert set(row) == {"eventType", "name", "category", "senders", "senderKinds", "reactions", "activeReactions", "builtinReactions", "lastOccurredAt"}
+    assert set(row) == {
+        "eventType",
+        "name",
+        "category",
+        "senders",
+        "senderKinds",
+        "reactions",
+        "activeReactions",
+        "builtinReactions",
+        "lastOccurredAt",
+    }
     assert (row["name"], row["category"]) == ("Entry Published", "Content")
 
     res = client.get(f"{WS}/entry_published/connections", params={"limit": 1})

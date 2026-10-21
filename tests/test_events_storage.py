@@ -190,6 +190,7 @@ WORKFLOW_KEYS = {
     "sourceRecipeVersion",
     "lastRunAt",
     "lastRunStatus",
+    "attention",
 }
 
 

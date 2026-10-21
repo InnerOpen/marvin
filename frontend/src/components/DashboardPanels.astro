@@ -9,6 +9,7 @@
  */
 import LocalTime from "@/components/LocalTime.astro";
 import { unpricedNotice } from "@/lib/aiUsage";
+import { dashboardLine } from "@/lib/automationAttention";
 
 interface Props {
   dashboard: any;
@@ -35,8 +36,9 @@ const audienceProblems: number = attention.audienceProblems ?? attention.audienc
 // One still in flight is routine and isn't here.
 const resultsFailed: number = attention.resultsFailed ?? attention.results_failed ?? 0;
 const resultsNoReply: number = attention.resultsNoReply ?? attention.results_no_reply ?? 0;
+const automationLine = dashboardLine(attention.automation, attention.automationPage ?? attention.automation_page);
 const attentionTotal =
-  inbox + drafts + needsReview + aiSuggestions + failures + approvalsWaiting + parkedRuns + audienceNew + audienceProblems + resultsFailed + resultsNoReply;
+  inbox + drafts + needsReview + aiSuggestions + failures + approvalsWaiting + parkedRuns + audienceNew + audienceProblems + resultsFailed + resultsNoReply + (attention.automation ?? 0);
 
 // The oldest few approvals, decided right here; the rest on the Approvals page.
 const approvals: any[] = dashboard?.approvals ?? [];
@@ -269,6 +271,12 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
               <li><a href="/automation/results?status=no_reply" class="attention-item">
                 <span class="attention-count warn">{resultsNoReply}</span>
                 <span class="attention-label">Hand-offs with no reply</span>
+              </a></li>
+            )}
+            {automationLine && (
+              <li><a href={automationLine.href} class="attention-item">
+                <span class="attention-count warn">{attention.automation}</span>
+                <span class="attention-label">{automationLine.text}</span>
               </a></li>
             )}
             {inbox > 0 && (
