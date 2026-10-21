@@ -97,6 +97,12 @@ describe("agent preview", () => {
     assert.deepEqual(view.notes, ["No tools: a model agent is plain chat."]);
   });
 
+  test("the always-loaded Playbooks size warning is added as a note", () => {
+    const view = agentPreviewView(agent({ playbooksWarning: "These always-loaded Playbooks add about 4,000 tokens." }));
+    assert.equal(view.notes.at(-1), "These always-loaded Playbooks add about 4,000 tokens.");
+    assert.equal(agentPreviewView(agent()).notes.length, 1);
+  });
+
   test("tools are summarised by category, never listed", () => {
     assert.equal(
       toolsNote(agent()),

@@ -52,6 +52,16 @@ export interface Agent {
   /** "character" (a library pack's), "generated" or "edited". Read-only: saving lines marks them edited. */
   bubbleLinesSource?: string | null;
   mood?: MoodSettings | null;
+  /**
+   * Its Playbooks. `names` null = every published Playbook, a list = only those; `always` = up to three put in
+   * full in its system frame. Null = all published, none loaded up front.
+   */
+  playbooks?: AgentPlaybooks | null;
+}
+
+export interface AgentPlaybooks {
+  names: string[] | null;
+  always: string[];
 }
 
 export type AgentCreate = Omit<

@@ -392,12 +392,15 @@ const builtins = agents.filter((a) => a.isSystem);
     resetAgentToolPolicy,
     updateAgent,
     type Agent,
+    type AgentPlaybooks,
     type Catalog,
     type PolicyValue,
   } from "@/lib/api/aiAgents";
   import { inheritedDefaults, inheritLabel, matrixCategories, matrixTools, policyFromChoices } from "@/lib/agentMatrix";
   import { agentPreviewView, promptPreviewHtml, promptPreviewMessage } from "@/lib/promptPreview";
   import { type Tone, toneOptions } from "@/lib/tones";
+
+  const ALWAYS_MAX = 3; // services/playbooks ALWAYS_MAX
   import { type BubbleLines, fillLines, fillMood, linesFieldsHtml, moodFieldsHtml, readLines, readMood } from "@/lib/marvin/characterSheet";
   import { voiceFor } from "@/lib/marvin/persona";
 
@@ -517,7 +520,16 @@ const builtins = agents.filter((a) => a.isSystem);
         allowWrites: fd.get("allowWrites") === "on",
         enabled: fd.get("enabled") === "on",
         toolPolicy: collectPolicy(matrix),
+        // Only the Edit form has the Playbooks fields; the New form leaves them out (all published, none always).
+        ...(form.querySelector('[name="playbooksMode"]') ? { playbooks: readPlaybooks(form) } : {}),
       };
+    }
+    const lines = (v: FormDataEntryValue | null) => [...new Set(String(v ?? "").split(/[\n,]/).map((s) => s.trim().toLowerCase()).filter(Boolean))];
+    function readPlaybooks(form: HTMLFormElement): AgentPlaybooks | null {
+      const fd = new FormData(form);
+      const names = fd.get("playbooksMode") === "chosen" ? lines(fd.get("playbookNames")) : null;
+      const always = lines(fd.get("playbookAlways"));
+      return names === null && !always.length ? null : { names, always };
     }
     const allowWritesOf = (form: HTMLFormElement) => (form.querySelector<HTMLInputElement>('[name="allowWrites"]')?.checked ?? false);
 
@@ -834,6 +846,13 @@ const builtins = agents.filter((a) => a.isSystem);
             <label class="toggle-label"><input type="checkbox" name="allowWrites" class="toggle-input"${agent.allowWrites ? " checked" : ""} /><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-text">Allow writes</span></label>
             <label class="toggle-label"><input type="checkbox" name="enabled" class="toggle-input"${agent.enabled ? " checked" : ""} /><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-text">Enabled</span></label>
           </div>
+          <div class="form-field"><div class="section-title"><h4>Playbooks</h4><p>Written procedures this agent can load. Pick all published ones or a chosen set. Up to ${ALWAYS_MAX} can be always loaded: their full text rides along with every run (the prompt preview warns when that gets long). A Playbook marked manual-only is never offered or loaded unless the person's message names it.</p></div>
+            <div class="form-row">
+              <div class="form-field"><label class="label">Available</label><select class="input" name="playbooksMode"><option value="all"${agent.playbooks?.names ? "" : " selected"}>All published Playbooks</option><option value="chosen"${agent.playbooks?.names ? " selected" : ""}>Only these</option></select></div>
+              <div class="form-field"><label class="label">Always load <span class="muted">(names, up to ${ALWAYS_MAX})</span></label><textarea class="input mono" name="playbookAlways" rows="2" placeholder="bench-note-voice">${esc((agent.playbooks?.always ?? []).join("\n"))}</textarea></div>
+            </div>
+            <div class="form-field" data-role="playbook-names"${agent.playbooks?.names ? "" : " hidden"}><label class="label">Chosen Playbooks <span class="muted">(names, one per line)</span></label><textarea class="input mono" name="playbookNames" rows="3">${esc((agent.playbooks?.names ?? []).join("\n"))}</textarea></div>
+          </div>
           <div class="form-field"><div class="section-title"><h4>Tools</h4><p>Inherit follows the group default (with writes on, write groups ask first); override per group or per tool. Ask first binds the tool but pauses the run for your approval on the Ask page; where there is no conversation to pause (bubble, MCP, hand-off children) it behaves like Block.</p></div><div class="matrix" data-role="matrix"></div></div>
           <div class="form-actions"><button type="submit" class="button small">Save changes</button><button type="button" class="button secondary small e-preview">Preview prompt</button><button type="button" class="button secondary small e-cancel">Cancel</button><span class="save-status" data-role="estatus"></span></div>
           <div class="prompt-preview" data-role="epreview" hidden aria-live="polite"></div>
@@ -851,6 +870,8 @@ const builtins = agents.filter((a) => a.isSystem);
         // What this agent would get with the form as it stands — saved or not.
         const ePreview = editBox.querySelector<HTMLElement>('[data-role="epreview"]')!;
         editBox.querySelector(".e-preview")?.addEventListener("click", () => void showPreview(ePreview, () => previewAgentPrompt(slug, readForm(form, matrix))));
+        const chosenBox = form.querySelector<HTMLElement>('[data-role="playbook-names"]')!;
+        form.querySelector('[name="playbooksMode"]')?.addEventListener("change", (ev) => (chosenBox.hidden = (ev.target as HTMLSelectElement).value !== "chosen"));
         wirePersona(form, agent);
         form.addEventListener("submit", async (ev) => {
           ev.preventDefault();

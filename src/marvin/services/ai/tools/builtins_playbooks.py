@@ -14,6 +14,8 @@ from marvin.services.playbooks import (
     LIST_TOOL,
     LOAD_TOOL,
     READ_FILE_TOOL,
+    PlaybookScope,
+    manual_only_refusal,
     published_playbook,
     published_playbook_file,
     published_playbook_files,
@@ -21,6 +23,10 @@ from marvin.services.playbooks import (
 )
 
 from .base import ToolContext, register_tool
+
+
+def _scope(ctx: ToolContext) -> PlaybookScope:
+    return ctx.playbooks or PlaybookScope()
 
 
 @register_tool(
@@ -34,7 +40,7 @@ from .base import ToolContext, register_tool
     read_only=True,
 )
 def list_playbooks(ctx: ToolContext, _args: dict) -> str:
-    found = published_playbooks(ctx.session, ctx.group_id)
+    found = published_playbooks(ctx.session, ctx.group_id, _scope(ctx))
     return json.dumps({"playbooks": [{"name": p.name, "description": p.description} for p in found]})
 
 
@@ -55,11 +61,14 @@ def list_playbooks(ctx: ToolContext, _args: dict) -> str:
 )
 def load_playbook(ctx: ToolContext, args: dict) -> str:
     name = str(args.get("name") or "").strip()
-    found = published_playbook(ctx.session, ctx.group_id, name)
+    scope = _scope(ctx)
+    found = published_playbook(ctx.session, ctx.group_id, name, scope)
     if found is None:
-        available = [p.name for p in published_playbooks(ctx.session, ctx.group_id)]
+        available = [p.name for p in published_playbooks(ctx.session, ctx.group_id, scope)]
+        if why := manual_only_refusal(ctx.session, ctx.group_id, name, scope):
+            return json.dumps({"error": why, "available": available})
         return json.dumps({"error": f"No published Playbook named '{name}'.", "available": available})
-    files = published_playbook_files(ctx.session, ctx.group_id, name) or []
+    files = published_playbook_files(ctx.session, ctx.group_id, name, scope) or []
     return json.dumps(
         {
             "id": found.id,
@@ -95,12 +104,18 @@ def read_playbook_file(ctx: ToolContext, args: dict) -> str:
     from .builtins_attachments import read_asset_text
 
     name, path = str(args.get("playbook") or "").strip(), str(args.get("path") or "").strip()
-    asset = published_playbook_file(ctx.session, ctx.group_id, name, path)
+    scope = _scope(ctx)
+    asset = published_playbook_file(ctx.session, ctx.group_id, name, path, scope)
     if asset is None:
-        files = published_playbook_files(ctx.session, ctx.group_id, name)
+        files = published_playbook_files(ctx.session, ctx.group_id, name, scope)
         if files is None:
+            if why := manual_only_refusal(ctx.session, ctx.group_id, name, scope):
+                return json.dumps({"error": why})
             return json.dumps(
-                {"error": f"No published Playbook named '{name}'.", "available": [p.name for p in published_playbooks(ctx.session, ctx.group_id)]}
+                {
+                    "error": f"No published Playbook named '{name}'.",
+                    "available": [p.name for p in published_playbooks(ctx.session, ctx.group_id, scope)],
+                }
             )
         return json.dumps({"error": f"The Playbook '{name}' has no file '{path}'.", "files": [f.path for f in files]})
     out = read_asset_text(asset, args.get("max_chars"))

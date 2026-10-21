@@ -101,7 +101,52 @@ class Playbook:
     name: str
     description: str
     body: str
+    manual_only: bool = False
     allowed_tools: str = ""  # the standard's `allowed-tools`: space-separated names, kept as written
+
+
+ALWAYS_MAX = 3  # "always load" Playbooks per agent
+ALWAYS_WARN_CHARS = 12_000  # about 3,000 tokens of instructions in every run's system prompt
+
+
+@dataclass(frozen=True)
+class PlaybookScope:
+    """What one run of one agent may see: the agent's settings plus the message it is answering.
+
+    * ``names``: the chosen set (None = every published Playbook);
+    * ``always``: Playbooks put in full in the system frame (at most ``ALWAYS_MAX``);
+    * ``asked``: the user's latest message. A manual-only Playbook is loadable only when this *names* it (see ``is_named``).
+
+    The default scope (no agent: MarvinMCP, the remote MCP server, the invoke route) is "all published, nothing asked", so a
+    manual-only Playbook never loads for those callers."""
+
+    names: tuple[str, ...] | None = None
+    always: tuple[str, ...] = ()
+    asked: str = ""
+
+    @classmethod
+    def of(cls, settings: dict | None, asked: str = "") -> PlaybookScope:
+        """The scope of an agent's stored ``playbooks`` setting (``{"names": [...]|None, "always": [...]}``)."""
+        settings = settings or {}
+        names = settings.get("names")
+        return cls(
+            names=tuple(names) if names is not None else None,
+            always=tuple(settings.get("always") or ()),
+            asked=asked,
+        )
+
+    def allows(self, name: str) -> bool:
+        return self.names is None or name in self.names
+
+
+def is_named(name: str, text: str | None) -> bool:
+    """Did the user name this Playbook? Its name (``bench-note-voice``) appears in the text as whole words, in any case,
+    with hyphens, underscores or spaces between them: ``Bench Note Voice`` and ``bench_note_voice`` count, ``bench-note-voices`` and
+    ``mybench-note-voice`` do not. Only the user's latest message is read, never the agent's own output or a tool result."""
+    parts = [re.escape(part) for part in name.lower().split("-") if part]
+    if not parts or not text:
+        return False
+    return re.search(r"(?<![a-z0-9])(?<![a-z0-9][-_])" + r"[\s_-]+".join(parts) + r"(?![a-z0-9])(?![-_][a-z0-9])", text.lower()) is not None
 
 
 def ensure_playbook_type(session, group_id):
@@ -207,8 +252,14 @@ def _of(row) -> Playbook:
         name=row.slug,
         description=str(data.get("description") or ""),
         body=str(data.get("body") or ""),
+        manual_only=data.get("manual_only") is True,
         allowed_tools=str(data.get("allowed_tools") or ""),
     )
+
+
+def _visible(playbook: Playbook, scope: PlaybookScope) -> bool:
+    """May a run with this scope load it? In the chosen set, and when manual-only, named in the user's message."""
+    return scope.allows(playbook.name) and (not playbook.manual_only or is_named(playbook.name, scope.asked))
 
 
 def playbook_type_id(session, group_id):
@@ -233,17 +284,83 @@ def all_playbooks(session, group_id) -> list:
     )
 
 
-def published_playbooks(session, group_id) -> list[Playbook]:
-    """The workspace's published Playbooks by name: what an agent may list. A workspace with none (or never written one) gets []."""
-    return [_of(row) for row in _published_rows(session, group_id)]
+def published_playbooks(session, group_id, scope: PlaybookScope | None = None) -> list[Playbook]:
+    """The workspace's published Playbooks by name. A workspace with none (or never written one) gets [].
+
+    With a ``scope`` this is what that run's catalog lists: the chosen set only, and no manual-only Playbook (those are
+    never offered, only loaded when named). Without one it is every published Playbook, for the admin screens."""
+    found = [_of(row) for row in _published_rows(session, group_id)]
+    if scope is None:
+        return found
+    return [p for p in found if scope.allows(p.name) and not p.manual_only]
 
 
-def published_playbook(session, group_id, name: str) -> Playbook | None:
-    """One published Playbook of this workspace by name, or None: a draft, another workspace's and a made-up name look the same."""
+def published_playbook(session, group_id, name: str, scope: PlaybookScope | None = None) -> Playbook | None:
+    """One published Playbook of this workspace by name, or None: a draft, another workspace's and a made-up name look the same.
+
+    With a ``scope``, also None for one outside the agent's chosen set and for a manual-only one the user did not name."""
     from marvin.db.models.platform.entries import Entries
 
     row = _published_rows(session, group_id).filter(Entries.slug == str(name or "").strip().lower()).first()
-    return _of(row) if row is not None else None
+    found = _of(row) if row is not None else None
+    if found is not None and scope is not None and not _visible(found, scope):
+        return None
+    return found
+
+
+def manual_only_refusal(session, group_id, name: str, scope: PlaybookScope) -> str | None:
+    """The message for a load refused only because the Playbook is manual-only and unnamed; None for any other refusal
+    (an outside-the-set Playbook must look like a made-up name, so it gets no message of its own)."""
+    found = published_playbook(session, group_id, name)
+    if found is not None and found.manual_only and scope.allows(found.name) and not is_named(found.name, scope.asked):
+        return f"'{found.name}' is a manual-only Playbook: it loads only when the user names it in their message. Ask them to name it."
+    return None
+
+
+def always_playbooks(session, group_id, scope: PlaybookScope) -> list[Playbook]:
+    """The agent's "always load" Playbooks that can still be loaded (published, in its set, not manual-only), in its order."""
+    by_name = {p.name: p for p in published_playbooks(session, group_id, scope)}
+    return [by_name[name] for name in scope.always[:ALWAYS_MAX] if name in by_name]
+
+
+def always_block(playbooks: Iterable[Playbook]) -> str:
+    """The system-frame section with each "always load" Playbook in full; "" when there are none."""
+    listed = list(playbooks)
+    if not listed:
+        return ""
+    parts = ["## Playbooks to follow in every conversation\nThese Playbooks are already loaded: follow them without calling " + LOAD_TOOL + "."]
+    parts += [f"### {p.name}\n{p.body.strip()}" for p in listed]
+    return "\n\n".join(parts)
+
+
+def always_warning(playbooks: Iterable[Playbook]) -> str | None:
+    """A warning when the "always load" Playbooks are long (they ride along with every run); None when they are not."""
+    size = sum(len(p.body) for p in playbooks)
+    if size <= ALWAYS_WARN_CHARS:
+        return None
+    return (
+        f"These always-loaded Playbooks add about {size // 4:,} tokens ({size:,} characters) to every run of this agent. "
+        "Consider loading the long ones on demand instead."
+    )
+
+
+class PlaybookSettingsError(ValueError):
+    """An agent's Playbook settings that can't be saved; the message says why and is safe to show."""
+
+
+def check_agent_settings(session, group_id, settings: dict | None) -> None:
+    """Refuse settings that name more than ``ALWAYS_MAX`` "always load" Playbooks, one outside the chosen set, or one that is
+    not a published, non-manual-only Playbook of this workspace (an always-loaded Playbook must be able to load by itself).
+    Names in the chosen set may be anything: a Playbook still being written can be chosen before it is published."""
+    settings = settings or {}
+    always, names = list(settings.get("always") or []), settings.get("names")
+    if len(always) > ALWAYS_MAX:
+        raise PlaybookSettingsError(f"An agent can always load at most {ALWAYS_MAX} Playbooks; remove one first.")
+    if names is not None and (outside := [n for n in always if n not in names]):
+        raise PlaybookSettingsError(f"Always-loaded Playbooks must be in the chosen set: {', '.join(outside)}.")
+    loadable = {p.name for p in published_playbooks(session, group_id, PlaybookScope())}
+    if missing := [n for n in always if n not in loadable]:
+        raise PlaybookSettingsError(f"Not a published Playbook that loads by itself (manual-only ones do not): {', '.join(missing)}.")
 
 
 PROPOSE_HINT = (
@@ -310,19 +427,23 @@ def loaded_playbook_names(convo) -> list[str]:
     return names
 
 
-def playbooks_in_effect(session, group_id, convo=(), thread=None) -> list[Playbook]:
+def playbooks_in_effect(session, group_id, convo=(), thread=None, scope: PlaybookScope | None = None) -> list[Playbook]:
     """THE seam for "which Playbooks steer this run": what the tool limit (``allowed_tools``) and anything else that
     follows a loaded Playbook asks. The thread's (those its earlier replies recorded, ``memory.thread_playbooks``), then
     those loaded in this run's transcript (``convo``, see ``loaded_playbook_names``). Only ones still published count,
-    with their current text. Later sources (an agent's always-load Playbooks, ticket 05) are added here."""
+    with their current text. With the agent's ``scope``, its always-load Playbooks come first (they steer every run) and
+    anything outside its chosen set is left out; a manual-only one that was loaded stays in effect for its thread."""
     from marvin.services.playbooks.memory import thread_playbooks
 
     names: dict[str, None] = {}
+    if scope is not None:
+        for p in always_playbooks(session, group_id, scope):
+            names.setdefault(p.name, None)
     for entry in thread_playbooks(thread):
         names.setdefault(entry.get("name") or "", None)
     for name in loaded_playbook_names(convo):
         names.setdefault(name, None)
-    found = (published_playbook(session, group_id, name) for name in names if name)
+    found = (published_playbook(session, group_id, name) for name in names if name and (scope is None or scope.allows(name)))
     return [p for p in found if p is not None]
 
 
@@ -456,20 +577,27 @@ def remove_reference(session, group_id, entry_id, path) -> bool:
     return False
 
 
-def published_playbook_files(session, group_id, name: str) -> list[ReferenceFile] | None:
-    """The reference-file index of a published Playbook by name, or None when it isn't one (draft, other workspace, made up)."""
+def _visible_row(session, group_id, name: str, scope: PlaybookScope | None):
+    """The published Playbook entry called ``name`` that ``scope`` (when given) lets a run see, else None."""
     from marvin.db.models.platform.entries import Entries
 
     row = _published_rows(session, group_id).filter(Entries.slug == str(name or "").strip().lower()).first()
+    if row is not None and scope is not None and not _visible(_of(row), scope):
+        return None
+    return row
+
+
+def published_playbook_files(session, group_id, name: str, scope: PlaybookScope | None = None) -> list[ReferenceFile] | None:
+    """The reference-file index of a published Playbook by name, or None when it isn't one (draft, other workspace, made up,
+    or outside the ``scope`` the run has)."""
+    row = _visible_row(session, group_id, name, scope)
     return reference_files(session, row.id) if row is not None else None
 
 
-def published_playbook_file(session, group_id, name: str, path: str):
+def published_playbook_file(session, group_id, name: str, path: str, scope: PlaybookScope | None = None):
     """The asset at ``path`` of a published Playbook of this workspace, or None: a draft, another workspace's Playbook,
-    a path it doesn't hold and a malformed path all look the same."""
-    from marvin.db.models.platform.entries import Entries
-
-    row = _published_rows(session, group_id).filter(Entries.slug == str(name or "").strip().lower()).first()
+    one outside the ``scope``, a path it doesn't hold and a malformed path all look the same."""
+    row = _visible_row(session, group_id, name, scope)
     if row is None:
         return None
     try:
