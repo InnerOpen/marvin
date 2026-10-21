@@ -116,6 +116,56 @@ def test_a_change_whose_playbook_was_unpublished_is_not_published_as_a_new_one(w
     assert _row(db_session, id=change.id).status == "inbox"
 
 
+def _scheduled_change(db_session, gid, live_status="published", **data):
+    """A change draft for BENCH due for scheduled publish, plus an ordinary due entry beside it."""
+    from datetime import UTC, datetime, timedelta
+
+    live = _playbook(db_session, gid, status=live_status)
+    change = _playbook(db_session, gid, f"{BENCH}-change", status="inbox", body=NEW_BODY)
+    change.data_json = {**change.data_json, "replaces": BENCH, **data}
+    change.publish_at = datetime.now(UTC) - timedelta(hours=1)
+    db_session.commit()
+    return live, change
+
+
+def test_a_scheduled_change_whose_playbook_is_gone_is_skipped_and_the_run_goes_on(workspace, db_session):
+    from tests.test_scheduled_publishing import run_task
+
+    live, change = _scheduled_change(db_session, workspace.gid, live_status="draft")
+    other = _playbook(db_session, workspace.gid, "label-voice", status="approved")
+    other.publish_at = change.publish_at
+    db_session.commit()
+
+    summary, _events = run_task(workspace.gid)  # used to raise the 409 and abort the whole run
+
+    stale = _row(db_session, id=change.id)
+    assert stale.status == "inbox" and stale.publish_at is None  # not retried every five minutes
+    assert "not published any more" in stale.metadata_json["scheduled_publish_failed"]["reason"]
+    assert _row(db_session, id=other.id).status == "published"  # the entry after it still went out
+    assert "label-voice" in summary and _row(db_session, id=live.id).data_json["body"] == BENCH_BODY
+
+
+def test_a_scheduled_change_publishes_through_the_hook_when_its_playbook_is_live(workspace, db_session):
+    from tests.test_scheduled_publishing import run_task
+
+    live, change = _scheduled_change(db_session, workspace.gid)
+
+    run_task(workspace.gid)
+
+    assert _row(db_session, id=live.id).data_json["body"] == NEW_BODY and _row(db_session, id=change.id).status == "archived"
+
+
+def test_a_change_still_has_to_pass_the_publish_gate(workspace, db_session):
+    live, change = _scheduled_change(db_session, workspace.gid, description="")  # a required field left empty
+    change.publish_at = None
+    db_session.commit()
+
+    res = gates._sign_in(workspace, AD).patch(f"{P}/entries/{change.id}", json={"status": "published"})
+
+    assert res.status_code == 422, res.text
+    assert _row(db_session, id=live.id).data_json["body"] == BENCH_BODY and _row(db_session, id=change.id).status == "inbox"
+
+
 # ── An agent run ─────────────────────────────────────────────────────────────
 
 

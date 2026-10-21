@@ -195,10 +195,10 @@ class EntryService:
         old = self.repos.entries.get_one(entry_id)
         if not old:
             return None
+        self._gate_publish(entry_id, old, data)  # first: a proposed Playbook change meets the contract too, before it replaces anything
         if (data.get("status") if isinstance(data, dict) else getattr(data, "status", None)) == "published" and old.status != "published":
             if (replaced := self._publish_playbook_change(old, reaction_depth)) is not None:
                 return replaced
-        self._gate_publish(entry_id, old, data)
         data = self._trash_bookkeeping(old, data)
         entry = self.repos.entries.update(entry_id, data)
         self._emit_updated_and_transitions(old, entry, "updated", reaction_depth)
