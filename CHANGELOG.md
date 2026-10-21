@@ -6,6 +6,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.32 (2026-10-21)
+
+### Bug Fixes
+
+- **workflows**: The validator reads inside not / any / all condition groups
+  ([`5a55bd3`](https://github.com/InnerOpen/marvin/commit/5a55bd3859bdbbae82bd54a387979cf6ae70bb8b))
+
+### Features
+
+- **workflow-library**: Image recipes — suggest an image, create one for an entry
+  ([`aaf86a1`](https://github.com/InnerOpen/marvin/commit/aaf86a1d9cd0593b58821016e48b648df7499955))
+
+### Testing
+
+- **workflows**: Image.generate is now routable after an approval; image.edit stays unroutable
+  ([`dc221cd`](https://github.com/InnerOpen/marvin/commit/dc221cdb84c3ac76ccbe9ff9f5e7f3d29a185c99))
+
+
 ## v1.1.0-rc.31 (2026-10-21)
 
 ### Bug Fixes
