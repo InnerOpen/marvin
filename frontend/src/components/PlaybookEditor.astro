@@ -9,10 +9,12 @@ interface Props {
   /** The entry's id and status; both absent for a new Playbook. */
   id?: string | null;
   status?: string | null;
+  /** Whether the caller is an Admin: only they publish, unpublish or change a published Playbook. */
+  canPublish?: boolean;
 }
-const { form, id = null, status = null } = Astro.props;
+const { form, id = null, status = null, canPublish = true } = Astro.props;
 const isNew = !id;
-const actions = actionsFor(status, isNew);
+const actions = actionsFor(status, isNew, canPublish);
 const warning = lengthWarning(form.body);
 ---
 
@@ -68,6 +70,11 @@ const warning = lengthWarning(form.body);
     </label>
   </details>
 
+  {!canPublish && (
+    <p class="hint" id="pb-admin-note">
+      {status === "published" ? "This Playbook is published. Only an Admin can change or unpublish it." : "You can draft and edit. Only an Admin can publish a Playbook."}
+    </p>
+  )}
   <div class="pb-actions">
     {actions.map((a) => (
       <button type="button" class:list={["button", a.primary ? "" : "secondary"]} data-action={a.key}>{a.label}</button>

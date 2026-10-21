@@ -40,6 +40,7 @@ from marvin.schemas.group.ai_thread import AIThreadDetail, AIThreadMessageRead, 
 from marvin.services.ai.agents import ROUTER_SLUG
 from marvin.services.ai.executions import link_child_execution
 from marvin.services.ai.parked_runs import ABANDONED_ERROR, ABANDONED_MESSAGE, EXECUTION_STATUS_AWAITING  # noqa: F401 — re-exported
+from marvin.services.ai.tool_gateway import run_tool_limit
 from marvin.services.ui_links import entry_edit_url, entry_review_link
 
 router = APIRouter(prefix="/ai", route_class=MarvinCrudRoute)
@@ -1505,6 +1506,7 @@ class AIOperationsController(BaseUserController):
                 on_event=on_event,
                 resume=ResumeState(convo=deserialize_messages(pending.get("convo")), pending=calls, decisions=own, outputs=outputs),
                 load_on_demand=self._tools_on_demand(spec.slug),
+                tool_limit=run_tool_limit(self.session, self.group_id, thread),
             )
         except HTTPException:
             raise
@@ -1692,8 +1694,13 @@ class AIOperationsController(BaseUserController):
                 execution.entity_id,
                 parent_thread_id=parent_thread_id,
             )
+        from marvin.services.playbooks.memory import META_KEY as PLAYBOOKS_META
+        from marvin.services.playbooks.memory import in_effect
+
         _, log_outputs = self._logging_policy()
         meta: dict = {"sources": sources, "totalTokens": tokens}
+        if remembered := in_effect(thread, steps):  # the Playbooks this reply used; later turns re-include them
+            meta[PLAYBOOKS_META] = remembered
         if handoffs:
             meta["handoffs"] = handoffs
         if referrals:
@@ -1910,6 +1917,17 @@ class AIOperationsController(BaseUserController):
             roster = roster_block(specs, agent_slug, self._user_role(), "agent", can_handoff="run_agent" in tool_names)
         return preamble, roster
 
+    def _thread_playbooks_block(self, thread, tool_names: set[str]) -> str:
+        """The Playbooks this thread loaded on earlier turns, as a system-prompt section ("" when none): a loaded
+        Playbook stays in effect for the whole conversation, though old tool results are not replayed to the model."""
+        from marvin.services.playbooks import LOAD_TOOL
+        from marvin.services.playbooks.memory import reload_block
+
+        if thread is None or LOAD_TOOL not in tool_names:
+            return ""
+        block = reload_block(self.session, self.group_id, thread)
+        return "\n\n" + block if block else ""
+
     @staticmethod
     def _framed(system: str, preamble: str, roster: str) -> str:
         framed = preamble + "\n\n" + system
@@ -1997,6 +2015,7 @@ class AIOperationsController(BaseUserController):
 
             ctx.playbooks = replace(getattr(ctx, "playbooks", None) or PlaybookScope(), asked=body.message or "")
         system = self._framed(system, *self._system_frame(names, agent_slug))
+        system += self._thread_playbooks_block(thread, names)
         user_msg = body.message
         if context_block:
             system += (
@@ -2069,6 +2088,7 @@ class AIOperationsController(BaseUserController):
                 max_steps=max_steps,
                 on_event=on_event,
                 load_on_demand=self._tools_on_demand(agent_slug),
+                tool_limit=run_tool_limit(self.session, self.group_id, thread),
             )
         except HTTPException as e:
             self._finish_progress(run_id, "failed", self._http_error_text(e))
@@ -2207,6 +2227,7 @@ class AIOperationsController(BaseUserController):
         from datetime import UTC, datetime
 
         from marvin.services.ai.threads import extract_handoffs, extract_sources
+        from marvin.services.playbooks.memory import in_effect as playbooks_in_effect
 
         execution.status = "completed"
         execution.completed_at = datetime.now(UTC)
@@ -2243,6 +2264,7 @@ class AIOperationsController(BaseUserController):
             "answer": result.answer,
             "steps": [{"tool": s.tool, "arguments": s.arguments, "result": s.result} for s in steps],
             "sources": sources,
+            "playbooks": playbooks_in_effect(thread, steps),
             "handoffs": handoffs,
             "referrals": referrals,
             "stoppedReason": result.stopped_reason,

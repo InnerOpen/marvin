@@ -14,10 +14,13 @@ import {
   isValid,
   lengthWarning,
   listSummary,
+  NO_USES_NOTE,
   playbookRow,
   sortedItems,
   statusLabel,
   statusTone,
+  useRow,
+  usedLabel,
   validate,
 } from "./playbooks.ts";
 
@@ -169,5 +172,38 @@ describe("actions", () => {
   test("a draft publishes; a published one unpublishes", () => {
     assert.deepEqual(actionsFor("draft", false).map((a) => a.key), ["save", "publish"]);
     assert.deepEqual(actionsFor("published", false).map((a) => a.key), ["save", "unpublish"]);
+    assert.deepEqual(actionsFor("draft", false, false).map((a) => a.key), ["save"]); // an editor drafts, never publishes
+    assert.deepEqual(actionsFor(undefined, true, false).map((a) => a.key), ["save"]);
+    assert.deepEqual(actionsFor("published", false, false), []); // a live Playbook is an Admin's to change
+  });
+});
+
+describe("used recently", () => {
+  const now = new Date("2026-10-21T12:00:00Z");
+
+  test("the list says when a Playbook was last used, or that it was not", () => {
+    assert.equal(usedLabel("2026-10-21T09:00:00Z", now), "Used 3 h ago");
+    assert.equal(usedLabel("2026-10-18T12:00:00Z", now), "Used 3 d ago");
+    assert.equal(usedLabel(null, now), "Not used lately");
+    assert.equal(usedLabel(undefined, now), "Not used lately");
+    const row = playbookRow({ id: "a", name: "n", description: "", status: "published", lastUsedAt: "2026-10-21T11:59:30Z" }, now);
+    assert.equal(row.used, "Used just now");
+  });
+
+  test("a use shows the agent, when, and a link to the conversation when there is one", () => {
+    const row = useRow({ executionId: "e1", agentSlug: "marvin", agentName: "Marvin", usedAt: "2026-10-21T11:00:00Z", threadId: "t 1" }, now);
+    assert.deepEqual(row, { key: "e1", agent: "Marvin", when: "1 h ago", href: "/workspace/settings/ai-ask?thread=t%201" });
+  });
+
+  test("a run with no conversation has no link, and a missing agent name falls back to the slug", () => {
+    const row = useRow({ executionId: "e2", agentSlug: "scribe", usedAt: "2026-10-20T12:00:00Z" }, now);
+    assert.equal(row.href, null);
+    assert.equal(row.agent, "scribe");
+    assert.equal(useRow({ executionId: "e3" }, now).agent, "An agent");
+    assert.equal(useRow({ executionId: "e3" }, now).when, "earlier");
+  });
+
+  test("the empty note explains itself", () => {
+    assert.match(NO_USES_NOTE, /Not used lately/);
   });
 });

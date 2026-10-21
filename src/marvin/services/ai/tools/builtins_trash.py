@@ -278,6 +278,7 @@ def _plan_entries(ctx: ToolContext, args: dict, plan: _Plan, *, restore: bool) -
     from marvin.db.models.platform.entries import Entries
     from marvin.routes._base.checks import require_can_edit_entry
     from marvin.services.entries.entry_service import restore_status
+    from marvin.services.playbooks import agent_change_refusal
 
     candidates = []
     for ref in _refs(args):
@@ -297,6 +298,9 @@ def _plan_entries(ctx: ToolContext, args: dict, plan: _Plan, *, restore: bool) -
         seen.add(entry.id)
         if (entry.status == TRASHED) != restore:
             plan.already.append({**_row(entry), "status": entry.status} if restore else _row(entry))
+            continue
+        if refusal := agent_change_refusal(ctx.session, entry):
+            plan.skipped.append({**_row(entry), "entry": ref, "reason": refusal})
             continue
         try:  # the entry page's rule for the status it gets (e.g. an AUTHOR restoring to Approved)
             require_can_edit_entry(ctx.user, ctx.group_id, entry, restore_status(entry) if restore else TRASHED)

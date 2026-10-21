@@ -3,7 +3,7 @@
 // `playbook` type (backend: services/playbooks, routes/groups/playbooks_controller.py); the list comes from that route and the
 // editor saves through the ordinary entries API. No DOM and no fetch, so `npm test` covers it (playbooks.test.mjs).
 
-import { excerpt } from "./socialInbox.ts";
+import { excerpt, timeAgo } from "./socialInbox.ts";
 
 export const PLAYBOOKS_PATH = "/workspace/settings/ai-playbooks";
 export const NEW_PLAYBOOK_PATH = `${PLAYBOOKS_PATH}/new`;
@@ -22,6 +22,8 @@ export interface PlaybookItem {
   status: string;
   manualOnly?: boolean;
   updatedAt?: string | null;
+  /** When an agent last loaded it; null when not lately. */
+  lastUsedAt?: string | null;
 }
 
 export interface PlaybookForm {
@@ -70,9 +72,17 @@ export interface PlaybookRow {
   label: string;
   tone: "published" | "draft" | "";
   manualOnly: boolean;
+  /** "Used 3 d ago", or "Not used lately". */
+  used: string;
 }
 
-export function playbookRow(item: PlaybookItem): PlaybookRow {
+/** The list's "used recently" words for a Playbook. */
+export function usedLabel(lastUsedAt: string | null | undefined, now: Date = new Date()): string {
+  const when = timeAgo(lastUsedAt, now);
+  return when ? `Used ${when}` : "Not used lately";
+}
+
+export function playbookRow(item: PlaybookItem, now: Date = new Date()): PlaybookRow {
   return {
     id: item.id,
     href: editorPath(item.id),
@@ -81,8 +91,42 @@ export function playbookRow(item: PlaybookItem): PlaybookRow {
     label: statusLabel(item.status),
     tone: statusTone(item.status),
     manualOnly: item.manualOnly === true,
+    used: usedLabel(item.lastUsedAt, now),
   };
 }
+
+// ── used recently (the editor page) ───────────────────────────────────────────────────────────────────────────────
+
+/** One run that loaded the Playbook (GET /groups/playbooks/{id}/uses). */
+export interface PlaybookUse {
+  executionId: string;
+  agentSlug?: string | null;
+  agentName?: string | null;
+  usedAt?: string | null;
+  /** The Ask conversation the run belongs to, when the viewer may open it. */
+  threadId?: string | null;
+}
+
+export interface UseRow {
+  key: string;
+  agent: string;
+  when: string;
+  /** Where to open the run; null when there is no conversation to open (or it is someone else's). */
+  href: string | null;
+}
+
+const ASK_PAGE_PATH = "/workspace/settings/ai-ask";
+
+export function useRow(use: PlaybookUse, now: Date = new Date()): UseRow {
+  return {
+    key: use.executionId,
+    agent: use.agentName || use.agentSlug || "An agent",
+    when: timeAgo(use.usedAt, now) || "earlier",
+    href: use.threadId ? `${ASK_PAGE_PATH}?thread=${encodeURIComponent(use.threadId)}` : null,
+  };
+}
+
+export const NO_USES_NOTE = "Not used lately. Agents load a Playbook when a request matches it, and each use will show here.";
 
 /** Published first, then drafts, then archived; by name within each (the API already orders by name). */
 export function sortedItems(items: PlaybookItem[]): PlaybookItem[] {
@@ -188,8 +232,16 @@ export function entryPayload(form: PlaybookForm, entryTypeId: string | null, sta
   };
 }
 
-/** The buttons the editor offers for a Playbook in `status`: publishing and unpublishing follow whatever the API allows. */
-export function actionsFor(status: string | null | undefined, isNew: boolean): Array<{ key: "save" | "publish" | "unpublish"; label: string; primary: boolean }> {
+/**
+ * The buttons the editor offers for a Playbook in `status`. Publishing, unpublishing and changing a published Playbook are an
+ * Admin's (the API refuses an editor with a 403): `canPublish` false leaves an editor with drafts only, and nothing on a live one.
+ */
+export function actionsFor(
+  status: string | null | undefined,
+  isNew: boolean,
+  canPublish = true,
+): Array<{ key: "save" | "publish" | "unpublish"; label: string; primary: boolean }> {
+  if (!canPublish) return status === "published" ? [] : [{ key: "save", label: "Save draft", primary: true }];
   if (isNew) return [{ key: "save", label: "Save draft", primary: false }, { key: "publish", label: "Save and publish", primary: true }];
   if (status === "published") return [{ key: "save", label: "Save", primary: true }, { key: "unpublish", label: "Unpublish", primary: false }];
   return [{ key: "save", label: "Save draft", primary: false }, { key: "publish", label: "Publish", primary: true }];

@@ -2,7 +2,19 @@
 // Settings › AI › Playbooks › New: write a Playbook. It saves as a draft (or publishes at once); the entry type is made on the first save.
 import AppLayout from "@/layouts/AppLayout.astro";
 import PlaybookEditor from "@/components/PlaybookEditor.astro";
+import { listWorkspaces } from "@/lib/api/workspaces";
+import { getAuthToken } from "@/lib/api/client";
+import { requireAuth } from "@/lib/auth";
 import { EMPTY_FORM } from "@/lib/playbooks";
+import { canManageWorkspace } from "@/lib/workspaceRole";
+
+const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
+let canPublish = false;
+try {
+  canPublish = canManageWorkspace(await listWorkspaces(getAuthToken(Astro.cookies)), user);
+} catch {
+  // unknown role: offer drafts only; the API decides on save
+}
 ---
 
 <AppLayout crumb="settings.ai-playbooks.new">
@@ -12,5 +24,5 @@ import { EMPTY_FORM } from "@/lib/playbooks";
       <p>Write the procedure as you would brief a new colleague. Agents see only the description until they load it.</p>
     </div>
   </div>
-  <PlaybookEditor form={EMPTY_FORM} />
+  <PlaybookEditor form={EMPTY_FORM} canPublish={canPublish} />
 </AppLayout>

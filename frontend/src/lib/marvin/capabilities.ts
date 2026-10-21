@@ -44,6 +44,7 @@ import {
   scoped,
   threadFor,
 } from "@/lib/marvin/pending";
+import { usedHtml } from "@/lib/marvin/playbooksUsed";
 import { referralsHtml } from "@/lib/marvin/referrals";
 import { findTone } from "@/lib/tones";
 
@@ -272,7 +273,7 @@ function runResult(res: AgentRunResult | undefined, slug: string): MarvinResult 
   if (res?.stoppedReason === "awaiting_approval" && res.threadId)
     return parkedResult(res.threadId, slug, res.pending ?? []);
   return {
-    html: agentReplyHtml(res?.answer ?? "(no answer — the void stares back)", res?.steps ?? [], res?.referrals ?? []),
+    html: agentReplyHtml(res?.answer ?? "(no answer — the void stares back)", res?.steps ?? [], res?.referrals ?? [], res?.playbooks ?? []),
     executionId: res?.executionId,
   };
 }
@@ -383,7 +384,7 @@ export async function resumePendingRun(run: PendingRun): Promise<MarvinResult | 
   if (outcome.kind === "reply") {
     const m = outcome.message;
     return {
-      html: agentReplyHtml(m.content, m.stepsJson ?? [], (m as any).metaJson?.referrals ?? []),
+      html: agentReplyHtml(m.content, m.stepsJson ?? [], (m as any).metaJson?.referrals ?? [], (m as any).metaJson?.playbooks ?? []),
       executionId: m.executionId ?? undefined,
     };
   }
@@ -397,7 +398,7 @@ export async function resumePendingRun(run: PendingRun): Promise<MarvinResult | 
 }
 
 /** An agent answer as bubble HTML: the answer, image thumbnails, drafts it composed, referrals, tools it used. */
-function agentReplyHtml(answer: string, steps: any[], referrals: Referral[] = []): string {
+function agentReplyHtml(answer: string, steps: any[], referrals: Referral[] = [], playbooks: { id: string; name?: string | null }[] = []): string {
   let html = `<div class="mv-answer">${renderMarkdown(answer)}</div>`;
 
   // Deterministic thumbnail strip from the tool results' image assets (real urls, not guessed).
@@ -421,10 +422,12 @@ function agentReplyHtml(answer: string, steps: any[], referrals: Referral[] = []
   html += referralsHtml(referrals);
 
   // Show which tools were used, as a subtle trace of the agent's work.
-  if (steps.length) {
-    const tools = [...new Set(steps.map((s) => s.tool))];
-    html += `<div class="mv-sources"><span>Used:</span> ${tools.map((t) => `<code>${esc(t)}</code>`).join(" ")}</div>`;
-  }
+  // The Playbooks that steered the reply lead the line; they are shown here, never written into the answer text.
+  const used = usedHtml(
+    steps.map((s) => s.tool),
+    playbooks,
+  );
+  if (used) html += `<div class="mv-sources">${used}</div>`;
   return html;
 }
 

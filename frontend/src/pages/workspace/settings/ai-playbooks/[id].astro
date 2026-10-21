@@ -4,22 +4,32 @@
 import AppLayout from "@/layouts/AppLayout.astro";
 import PlaybookEditor from "@/components/PlaybookEditor.astro";
 import { getAuthToken } from "@/lib/api/client";
-import { getPlaybook, listPlaybooks, type PlaybookEntry } from "@/lib/api/playbooks";
-import { formFromEntry, PLAYBOOKS_PATH } from "@/lib/playbooks";
-import { isForbidden } from "@/lib/workspaceRole";
+import { getPlaybook, listPlaybooks, listPlaybookUses, type PlaybookEntry } from "@/lib/api/playbooks";
+import { formFromEntry, NO_USES_NOTE, PLAYBOOKS_PATH, type PlaybookUse, useRow } from "@/lib/playbooks";
+import { listWorkspaces } from "@/lib/api/workspaces";
+import { requireAuth } from "@/lib/auth";
+import { canManageWorkspace, isForbidden } from "@/lib/workspaceRole";
 
 const { id } = Astro.params;
+const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
 const authToken = getAuthToken(Astro.cookies);
+let canPublish = false;
 let entry: PlaybookEntry | null = null;
+let uses: PlaybookUse[] = [];
 let error: string | null = null;
 let restricted = false;
 try {
+  canPublish = canManageWorkspace(await listWorkspaces(authToken), user);
   const list = await listPlaybooks(authToken);
-  if (id && list.items.some((item) => item.id === id)) entry = await getPlaybook(id, authToken);
+  if (id && list.items.some((item) => item.id === id)) {
+    entry = await getPlaybook(id, authToken);
+    uses = await listPlaybookUses(id, authToken).catch(() => []); // the history is a nicety: the editor works without it
+  }
 } catch (e) {
   if (isForbidden(e)) restricted = true;
   else error = e instanceof Error ? e.message : String(e);
 }
+const useRows = uses.map((use) => useRow(use));
 ---
 
 <AppLayout
@@ -42,7 +52,32 @@ try {
           <p>Edits to a published Playbook reach agents as soon as you save.</p>
         </div>
       </div>
-      <PlaybookEditor form={formFromEntry(entry)} id={entry.id} status={entry.status} />
+      <PlaybookEditor form={formFromEntry(entry)} id={entry.id} status={entry.status} canPublish={canPublish} />
+      <section class="section-card pb-uses" data-testid="playbook-uses">
+        <h3>Used recently</h3>
+        {useRows.length === 0 && <p class="pb-uses-none">{NO_USES_NOTE}</p>}
+        {useRows.length > 0 && (
+          <ul>
+            {useRows.map((row) => (
+              <li>
+                <strong>{row.agent}</strong>
+                <span class="pb-uses-when">{row.when}</span>
+                {row.href && <a href={row.href}>Open the conversation</a>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </>
   )}
 </AppLayout>
+
+<style>
+  .pb-uses { margin-top: 16px; }
+  .pb-uses h3 { margin: 0 0 8px; }
+  .pb-uses-none { margin: 0; color: var(--muted); font-size: 13px; }
+  .pb-uses ul { list-style: none; margin: 0; padding: 0; }
+  .pb-uses li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 6px 0; font-size: 14px; }
+  .pb-uses li + li { border-top: 1px solid var(--line); }
+  .pb-uses-when { color: var(--muted); font-size: 13px; }
+</style>

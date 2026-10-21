@@ -37,7 +37,9 @@ class _Loop:
         self.messages: list = []
         self.tools: list = []
 
-    def __call__(self, provider, model, messages, tools, options=None, max_steps=6, on_event=None, resume=None, load_on_demand=False):
+    def __call__(
+        self, provider, model, messages, tools, options=None, max_steps=6, on_event=None, resume=None, load_on_demand=False, tool_limit=None
+    ):
         self.messages.append(messages)
         self.tools.append({t.name for t in tools})
         return AgentResult(answer="ok", steps=[], prompt_tokens=1, completion_tokens=1, total_tokens=2, stopped_reason="complete")
