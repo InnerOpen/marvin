@@ -167,6 +167,8 @@ export interface AgentRunResult {
   steps: { tool: string; arguments: unknown; result?: unknown }[];
   /** Citations gathered from the run's `search_content` results. */
   sources?: Source[];
+  /** The Playbooks in effect for this reply (loaded now or earlier in the thread): what the "Used:" line names. */
+  playbooks?: { id: string; name?: string | null }[];
   handoffs?: Handoff[];
   referrals?: Referral[];
   /** "complete" | "max_steps" | "awaiting_approval" — the last one carries `pending` and no answer yet. */
@@ -208,6 +210,7 @@ export interface ThreadMessage {
     totalTokens?: number;
     handoffs?: Handoff[];
     referrals?: Referral[];
+    playbooks?: { id: string; name?: string | null }[];
     /** A turn closing a paused run that was never decided: a new message arrived, or it expired. */
     abandoned?: boolean;
     expired?: boolean;

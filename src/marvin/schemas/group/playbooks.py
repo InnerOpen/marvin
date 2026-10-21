@@ -14,6 +14,21 @@ class PlaybookItem(_MarvinModel):
     status: str
     manual_only: bool = False
     updated_at: datetime | None = None
+    last_used_at: datetime | None = None
+    """When an agent last loaded it (None: not lately, or never)."""
+
+
+class PlaybookUse(_MarvinModel):
+    execution_id: UUID4
+    agent_slug: str | None = None
+    agent_name: str | None = None
+    used_at: datetime | None = None
+    thread_id: UUID4 | None = None
+    """The Ask conversation the run belongs to, when it has one: what a person can open."""
+
+
+class PlaybookUses(_MarvinModel):
+    items: list[PlaybookUse] = Field(default_factory=list)
 
 
 class PlaybookList(_MarvinModel):

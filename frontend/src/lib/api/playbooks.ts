@@ -5,7 +5,7 @@
  * routes. Pass authToken in SSR (from Astro.cookies); omit it in the browser.
  */
 
-import type { PlaybookItem } from "../playbooks";
+import type { PlaybookItem, PlaybookUse } from "../playbooks";
 import { fetchApi } from "./client";
 
 const BASE = "/api/groups/playbooks";
@@ -28,6 +28,10 @@ export const listPlaybooks = (authToken?: string) => fetchApi<PlaybookList>(BASE
 /** The `playbook` entry type's id, creating the type when this workspace has no Playbook yet. */
 export const ensurePlaybookType = async (authToken?: string) =>
   (await fetchApi<{ entryTypeId: string }>(`${BASE}/type`, { method: "POST" }, authToken)).entryTypeId;
+
+/** The runs that loaded this Playbook lately, newest first. */
+export const listPlaybookUses = async (id: string, authToken?: string) =>
+  (await fetchApi<{ items: PlaybookUse[] }>(`${BASE}/${encodeURIComponent(id)}/uses`, {}, authToken)).items;
 
 export const getPlaybook = (id: string, authToken?: string) => fetchApi<PlaybookEntry>(`${ENTRIES}/${encodeURIComponent(id)}`, {}, authToken);
 
