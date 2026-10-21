@@ -92,6 +92,22 @@ def _agent_columns(data, values: dict) -> dict:
     return values
 
 
+def _check_playbook_settings(session, group_id, settings: dict | None) -> None:
+    """A 422 for Playbook settings that can't be kept (a fourth always-load, one outside the set, one that can't load by itself)."""
+    from marvin.services.playbooks import PlaybookSettingsError, check_agent_settings
+
+    try:
+        check_agent_settings(session, group_id, settings)
+    except PlaybookSettingsError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+
+
+def _always_warning(session, group_id, spec) -> str | None:
+    from marvin.services.playbooks import PlaybookScope, always_playbooks, always_warning
+
+    return always_warning(always_playbooks(session, group_id, PlaybookScope.of(spec.playbooks)))
+
+
 @controller(router)
 class AIOperationsController(BaseUserController):
     # ── Operations catalogue ───────────────────────────────────────────
@@ -827,7 +843,7 @@ class AIOperationsController(BaseUserController):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"An agent with slug '{data.slug}' already exists.")
         self._require_known_tone(data.default_register)
         columns = _agent_columns(data, data.model_dump())
-        self._check_playbook_settings(columns.get("playbooks"))
+        _check_playbook_settings(self.session, self.group_id, columns.get("playbooks"))
         row = WorkspaceAgentModel(session=self.session, group_id=self.group_id, created_by=self.user.id, **columns)
         self.session.add(row)
         self.session.commit()
@@ -848,7 +864,7 @@ class AIOperationsController(BaseUserController):
         self._require_known_tone(data.default_register)
         sent = _agent_columns(data, data.model_dump(exclude_unset=True))
         if "playbooks" in sent:
-            self._check_playbook_settings(sent["playbooks"])
+            _check_playbook_settings(self.session, self.group_id, sent["playbooks"])
         before = {k: getattr(row, k) for k in sent}
         for k, v in sent.items():
             setattr(row, k, v)
@@ -860,15 +876,6 @@ class AIOperationsController(BaseUserController):
         if changed:
             self._record_agent_change([f"agents.{spec.slug}.{k}" for k in changed], self._agent_edit_message(spec.name, changed, policy_change))
         return self._agent_read(spec, self._agent_character(spec))
-
-    def _check_playbook_settings(self, settings: dict | None) -> None:
-        """A 422 for Playbook settings that can't be kept (a fourth always-load, one outside the set, one that can't load by itself)."""
-        from marvin.services.playbooks import PlaybookSettingsError, check_agent_settings
-
-        try:
-            check_agent_settings(self.session, self.group_id, settings)
-        except PlaybookSettingsError as e:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
 
     @router.delete("/agents/{slug}/tool-policy", response_model=AgentRead, summary="Reset an agent's permission matrix to its default")
     def reset_agent_tool_policy(self, slug: str) -> AgentRead:
@@ -1162,7 +1169,7 @@ class AIOperationsController(BaseUserController):
             # No provider: binding only builds the tool list; nothing runs, so nothing reaches a model.
             tools, _ = self._bind_agent_tools(None, agent=spec, role=self._user_role(), park_allowed=True)
             preamble, roster = self._system_frame({tool.name for tool in tools}, spec.slug, spec)
-            playbooks_warning = self._always_warning(spec)
+            playbooks_warning = _always_warning(self.session, self.group_id, spec)
             system = self._framed(system, preamble, roster)
         return AgentPromptPreview(
             system=system,
@@ -1194,11 +1201,6 @@ class AIOperationsController(BaseUserController):
             if changes.get(key) is not None:
                 changes[key] = tuple(changes[key])
         return replace(spec, **changes)
-
-    def _always_warning(self, spec) -> str | None:
-        from marvin.services.playbooks import PlaybookScope, always_playbooks, always_warning
-
-        return always_warning(always_playbooks(self.session, self.group_id, PlaybookScope.of(spec.playbooks)))
 
     @staticmethod
     def _tool_categories(tools: list) -> list[AgentToolCategory]:
@@ -1993,7 +1995,7 @@ class AIOperationsController(BaseUserController):
 
             from marvin.services.playbooks import PlaybookScope
 
-            ctx.playbooks = replace(ctx.playbooks or PlaybookScope(), asked=body.message or "")
+            ctx.playbooks = replace(getattr(ctx, "playbooks", None) or PlaybookScope(), asked=body.message or "")
         system = self._framed(system, *self._system_frame(names, agent_slug))
         user_msg = body.message
         if context_block:
