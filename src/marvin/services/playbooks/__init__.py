@@ -19,6 +19,7 @@ the standard frontmatter and the markdown ``body``; drafts, history, trash and b
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -90,6 +91,7 @@ class Playbook:
     name: str
     description: str
     body: str
+    allowed_tools: str = ""  # the standard's `allowed-tools`: space-separated names, kept as written
 
 
 def ensure_playbook_type(session, group_id):
@@ -158,7 +160,13 @@ def _published_rows(session, group_id):
 
 def _of(row) -> Playbook:
     data = row.data_json or {}
-    return Playbook(id=str(row.id), name=row.slug, description=str(data.get("description") or ""), body=str(data.get("body") or ""))
+    return Playbook(
+        id=str(row.id),
+        name=row.slug,
+        description=str(data.get("description") or ""),
+        body=str(data.get("body") or ""),
+        allowed_tools=str(data.get("allowed_tools") or ""),
+    )
 
 
 def playbook_type_id(session, group_id):
@@ -229,6 +237,41 @@ def playbooks_used(steps) -> list[dict]:
         if isinstance(out, dict) and out.get("id") and not out.get("error"):
             used.setdefault(out["id"], {"id": out["id"], "name": out.get("name")})
     return list(used.values())
+
+
+def loaded_playbook_names(convo) -> list[str]:
+    """Names of the Playbooks a conversation loaded, in first-load order, read from its messages: an assistant
+    ``load_playbook`` call whose tool message is not an error. The run's own trace, so a run resumed after a park (whose
+    loop starts with an empty step list) still knows what it loaded."""
+    calls = {c.id: c for m in convo if getattr(m, "role", None) == "assistant" for c in (getattr(m, "tool_calls", None) or []) if c.name == LOAD_TOOL}
+    names: list[str] = []
+    for m in convo:
+        if getattr(m, "role", None) != "tool" or m.tool_call_id not in calls:
+            continue
+        try:
+            out = json.loads(m.content)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(out, dict) and out.get("name") and not out.get("error") and out["name"] not in names:
+            names.append(out["name"])
+    return names
+
+
+def playbooks_in_effect(session, group_id, convo=()) -> list[Playbook]:
+    """THE seam for "which Playbooks steer this run": what the tool limit (``allowed_tools``) and anything else that
+    follows a loaded Playbook asks. Today: the Playbooks loaded in this run's conversation (``convo``) that are still
+    published, with their current text. Thread memory (ticket 06) extends it here, so every caller gets it at once."""
+    found = (published_playbook(session, group_id, name) for name in loaded_playbook_names(convo))
+    return [p for p in found if p is not None]
+
+
+def parse_allowed_tools(raw) -> list[str]:
+    """The tokens of an ``allowed-tools`` value, in order, without duplicates. The standard separates with spaces; a
+    token may carry a parenthesised qualifier holding spaces (``Bash(git add:*)``), and commas also separate."""
+    seen: dict[str, None] = {}
+    for token in re.findall(r"[^\s,()]+(?:\([^)]*\))?", str(raw or "")):
+        seen.setdefault(token, None)
+    return list(seen)
 
 
 # ── Reference files ──────────────────────────────────────────────────────────

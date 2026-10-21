@@ -40,6 +40,7 @@ from marvin.schemas.group.ai_thread import AIThreadDetail, AIThreadMessageRead, 
 from marvin.services.ai.agents import ROUTER_SLUG
 from marvin.services.ai.executions import link_child_execution
 from marvin.services.ai.parked_runs import ABANDONED_ERROR, ABANDONED_MESSAGE, EXECUTION_STATUS_AWAITING  # noqa: F401 — re-exported
+from marvin.services.ai.tool_gateway import run_tool_limit
 from marvin.services.ui_links import entry_edit_url, entry_review_link
 
 router = APIRouter(prefix="/ai", route_class=MarvinCrudRoute)
@@ -1481,6 +1482,7 @@ class AIOperationsController(BaseUserController):
                 on_event=on_event,
                 resume=ResumeState(convo=deserialize_messages(pending.get("convo")), pending=calls, decisions=own, outputs=outputs),
                 load_on_demand=self._tools_on_demand(spec.slug),
+                tool_limit=run_tool_limit(self.session, self.group_id),
             )
         except HTTPException:
             raise
@@ -2033,6 +2035,7 @@ class AIOperationsController(BaseUserController):
                 max_steps=max_steps,
                 on_event=on_event,
                 load_on_demand=self._tools_on_demand(agent_slug),
+                tool_limit=run_tool_limit(self.session, self.group_id),
             )
         except HTTPException as e:
             self._finish_progress(run_id, "failed", self._http_error_text(e))

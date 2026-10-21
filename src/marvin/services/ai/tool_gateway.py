@@ -11,7 +11,10 @@ it passes, in order:
 4. the connection's scope: a read-only connection (`allow_writes=False`) runs only read tools;
 5. the AI budget, for a tool that calls the workspace's AI provider (`ToolSpec.uses_ai`);
 6. the bulk-write / ask-first gate (`bulk_writes.unattended`): a call the agent loop would park answers with its
-   refusal instead of running.
+   refusal instead of running;
+7. the Playbook limit, when Playbooks are in effect (`playbook_tool_limit`): a Playbook that lists `allowed-tools`
+   narrows the call to those tools, never beyond gates 1-6. The agent loop applies the same limit (`run_agent_loop`'s
+   `tool_limit`); an MCP call has no Playbook in effect unless its caller passes `playbooks`.
 
 `visible_tools` applies the same filter to the tool list, so what a caller can't run isn't advertised. Gates 1, 2
 and 5 answer with an HTTPException (the REST route returns it as is); gates 3, 4 and 6 answer with an
@@ -27,6 +30,7 @@ from fastapi import HTTPException, status
 
 from marvin.core.root_logger import get_logger
 from marvin.services.ai.tools.base import ToolContext, ToolSpec, user_role
+from marvin.services.playbooks import LIST_TOOL, LOAD_TOOL, READ_FILE_TOOL
 
 _logger = get_logger(__name__)
 
@@ -76,6 +80,73 @@ def check_invocation_source(session, group_id, source: str, declared_sources) ->
     return runs_as
 
 
+# ── The Playbook limit ───────────────────────────────────────────────────────
+
+# Playbook tools stay available so the agent can keep reading; `load_tools` only brings in tools the limit still judges.
+ALWAYS_ALLOWED = (LOAD_TOOL, LIST_TOOL, READ_FILE_TOOL, "load_tools")
+
+
+def resolve_tool_name(token: str, known) -> str | None:
+    """The Marvin tool a Playbook's `allowed-tools` token names, or None when it names nothing this workspace has.
+
+    The standard's tokens are Claude Code's (`Bash(git:*)`, `Read`, `mcp__server__tool`): the qualifier in brackets and an
+    `mcp__<server>__` prefix are dropped, and `marvin_find_entries` (MarvinMCP's spelling) matches `find_entries`. Claude
+    Code's own tools (`Bash`, `Read`, `Edit`) are not mapped to Marvin tools: a guess would grant or deny the wrong thing."""
+    name = token.split("(", 1)[0].strip()
+    if name.startswith("mcp__"):
+        name = name.split("__", 2)[-1]
+    for candidate in (name, name.removeprefix("marvin_")):
+        if candidate in known:
+            return candidate
+    return None
+
+
+def playbook_tool_limit(playbooks, known) -> frozenset[str] | None:
+    """The tool names the Playbooks in effect allow, or None when none of them narrows.
+
+    `known` is every tool name the run could have (the registry plus the run's own); a token naming none of them is
+    ignored. A Playbook narrows when it names at least one known tool; one that lists nothing, or nothing Marvin
+    knows (a Claude Code Playbook's `Bash(git:*) Read`), says nothing about Marvin's tools and does not narrow, rather
+    than locking the agent out of everything.
+
+    Several narrowing Playbooks: the UNION of their lists. Playbooks loaded together each need their own tools, so
+    taking the intersection would let loading a second Playbook silently break the first; a union keeps each
+    working, and it still never goes beyond the agent's own tools, because the caller intersects the result with them.
+    An unrestricted Playbook loaded later does not lift an earlier limit. The Playbook tools are always allowed."""
+    from marvin.services.playbooks import parse_allowed_tools
+
+    allowed: set[str] = set()
+    for playbook in playbooks:
+        names = {n for t in parse_allowed_tools(playbook.allowed_tools) if (n := resolve_tool_name(t, known))}
+        allowed |= names
+    return frozenset(allowed | set(ALWAYS_ALLOWED)) if allowed else None
+
+
+def playbook_refusal(name: str, limit: frozenset[str] | None) -> dict | None:
+    """The refusal for a call to `name` under `limit` (from `playbook_tool_limit`), or None when it may run."""
+    if limit is None or name in limit:
+        return None
+    allowed = ", ".join(sorted(limit - set(ALWAYS_ALLOWED)))
+    return {
+        "error": f"The Playbook you loaded limits this task to: {allowed}. '{name}' is not one of them; continue with those or answer without it.",
+        "tool": name,
+    }
+
+
+def run_tool_limit(session, group_id):
+    """The `tool_limit` an agent run hands `run_agent_loop`: asked with the run's transcript and tool names, it reads the
+    Playbooks in effect (`playbooks_in_effect`) and answers None, or a function that refuses the tools they don't allow."""
+    from marvin.services.playbooks import playbooks_in_effect
+
+    def limit(convo, known):
+        allowed = playbook_tool_limit(playbooks_in_effect(session, group_id, convo), known)
+        if allowed is None:
+            return None
+        return lambda name: json.dumps(refusal) if (refusal := playbook_refusal(name, allowed)) else None
+
+    return limit
+
+
 def is_read_tool(spec: ToolSpec) -> bool:
     """A tool a read-only connection may see and run: read-only itself, and not in a write category (which leaves
     out `run_agent`, whose child run could write with the user's role rather than the connection's scope)."""
@@ -84,20 +155,24 @@ def is_read_tool(spec: ToolSpec) -> bool:
     return spec.read_only is True and not category_writes(category_of(spec.name, read_only=spec.read_only))
 
 
-def visible_tools(session, group_id, user, *, allow_writes: bool = True, extra: tuple[str, ...] = ()) -> list[ToolSpec]:
+def visible_tools(session, group_id, user, *, allow_writes: bool = True, extra: tuple[str, ...] = (), playbooks=()) -> list[ToolSpec]:
     """The registry tools an MCP caller is shown: declared for `mcp` (or named in `extra`, tools a caller projects
     itself although they withhold `mcp`), within its role, not blocked by Marvin's matrix, and (on a read-only
-    connection) read tools only. An "Ask first" tool stays listed: calling it says where it can run."""
+    connection) read tools only. An "Ask first" tool stays listed: calling it says where it can run. `playbooks` (the
+    ones in effect, default none) narrow the list to what they allow."""
     from marvin.services.ai.agents import POLICY_BLOCK, resolve_policy
     from marvin.services.ai.tools import list_tools
     from marvin.services.ai.tools.categories import category_of
 
     role = user_role(user, group_id)
     marvin = router_agent(session, group_id)
+    registry = list_tools()
+    limit = playbook_tool_limit(playbooks, {t.name for t in registry})
     return [
         t
-        for t in list_tools()
-        if ("mcp" in t.sources or t.name in extra)
+        for t in registry
+        if playbook_refusal(t.name, limit) is None
+        and ("mcp" in t.sources or t.name in extra)
         and role >= t.min_role
         and resolve_policy(marvin, t.name, category_of(t.name, read_only=t.read_only), role)[0] != POLICY_BLOCK
         and (allow_writes or is_read_tool(t))
@@ -115,6 +190,7 @@ def invoke_unattended(
     allow_writes: bool = True,
     extra: tuple[str, ...] = (),
     logger: Any = None,
+    playbooks=(),
 ) -> dict:
     """Run one registry tool for a caller nobody can be asked on behalf of, through every gate (module docstring).
 
@@ -145,6 +221,12 @@ def invoke_unattended(
 
     if not allow_writes and not is_read_tool(spec):
         return {"error": READ_ONLY_REFUSAL, "tool": spec.name}
+
+    if playbooks:
+        from marvin.services.ai.tools import list_tools
+
+        if (refusal := playbook_refusal(spec.name, playbook_tool_limit(playbooks, {t.name for t in list_tools()}))) is not None:
+            return refusal
 
     if spec.uses_ai:
         from marvin.services.ai.budget import blocked_reason

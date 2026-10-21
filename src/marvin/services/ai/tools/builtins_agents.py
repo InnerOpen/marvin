@@ -179,6 +179,7 @@ def _run_standalone(ctx: ToolContext, args: dict) -> str:
     from marvin.services.ai.agents import may_talk, resolve_agent
     from marvin.services.ai.base import CompletionOptions, Message
     from marvin.services.ai.pricing import estimate_cost
+    from marvin.services.ai.tool_gateway import run_tool_limit
 
     spec = resolve_agent(ctx.session, ctx.group_id, str(args.get("agent") or ""))
     if spec is None:
@@ -240,7 +241,7 @@ def _run_standalone(ctx: ToolContext, args: dict) -> str:
             p_tok, c_tok, t_tok = getattr(res, "prompt_tokens", 0), getattr(res, "completion_tokens", 0), getattr(res, "total_tokens", 0)
             cached_tok, written_tok = getattr(res, "cached_prompt_tokens", 0) or 0, getattr(res, "cache_write_tokens", 0) or 0
         else:
-            res = run_agent_loop(provider, model, messages, tools, opts, max_steps=max_steps)
+            res = run_agent_loop(provider, model, messages, tools, opts, max_steps=max_steps, tool_limit=run_tool_limit(ctx.session, ctx.group_id))
             answer, steps = res.answer, [{"tool": s.tool, "arguments": s.arguments} for s in res.steps]
             p_tok, c_tok, t_tok = res.prompt_tokens, res.completion_tokens, res.total_tokens
             cached_tok, written_tok = getattr(res, "cached_prompt_tokens", 0) or 0, getattr(res, "cache_write_tokens", 0) or 0
