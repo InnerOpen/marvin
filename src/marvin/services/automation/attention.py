@@ -82,6 +82,16 @@ def workflows_needing_a_look(session, group_id) -> int:
     return sum(1 for *_, reason in workflow_rows(session, group_id) if reason)
 
 
+def outgoing_webhooks_needing_a_look(session, group_id) -> int:
+    """Enabled outgoing webhooks whose URL is an address the server won't post to (the rule WebhookCreate enforces in production; see
+    ``webhook_attention``). Only enabled rows are read, and only their URLs."""
+    from marvin.db.models.groups.webhooks import GroupWebhooksModel
+    from marvin.schemas.group.webhook import webhook_attention
+
+    urls = session.query(GroupWebhooksModel.url).filter(GroupWebhooksModel.group_id == group_id, GroupWebhooksModel.enabled.is_(True)).all()
+    return sum(1 for (url,) in urls if webhook_attention(True, url))
+
+
 def scheduled_task_reason(*, enabled: bool, last_status: str | None, system: bool, integration_id: Any, blueprint: str | None) -> str | None:
     """Why a scheduled task needs a look, or None: it is on and its last run failed or timed out.
 
@@ -144,5 +154,6 @@ def summary(session, group_id) -> dict:
 
 # ── the kinds ───────────────────────────────────────────────────────────────────────────────────────────────────
 register("workflows", "/automation/workflows?status=attention", workflows_needing_a_look)
+register("outgoing_webhooks", "/automation/webhooks?status=attention", outgoing_webhooks_needing_a_look)
 register("scheduled_tasks", "/workspace/scheduled-tasks?status=attention", scheduled_tasks_needing_a_look)
 # Later pages add theirs here: register("incoming_webhooks", "/automation/incoming-webhooks?status=attention", incoming_webhooks_needing_a_look) …

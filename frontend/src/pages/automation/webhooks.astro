@@ -1,29 +1,61 @@
 ---
-import LocalTime from "@/components/LocalTime.astro";
+import FilterBar from "@/components/FilterBar.astro";
+import OrganizedSections from "@/components/OrganizedSections.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
-import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import { listIntegrations, listProviders } from "@/lib/api/integrations";
+import { getCurrentWorkspace, listWorkspaces } from "@/lib/api/workspaces";
+import { fromOptions, type Integrations, statusOptions } from "@/lib/organizedList";
 import { createSdkClient } from "@/lib/sdk";
-import { isForbidden } from "@/lib/workspaceRole";
+import { MODE_OPTIONS, webhookAdapter } from "@/lib/webhookList";
+import { canManageWorkspace, isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
 let workspace = null;
 let webhooks: any[] = [];
+let integrationInfo: Integrations = {};
 let error: string | null = null;
 let adminOnly = false;
+// "Delete all of these" (From a removed integration) is ADMIN only; the API refuses anyone else.
+let canManage = false;
 
 try {
   workspace = await getCurrentWorkspace(authToken);
 
   if (workspace) {
     webhooks = await sdk.webhooks.list();
+    try {
+      canManage = canManageWorkspace(await listWorkspaces(authToken), (await sdk.user.getProfile()) as any);
+    } catch {
+      // unknown role: no button
+    }
+    // The sections' names and logos. If the integrations can't be read, their webhooks still group rather than
+    // all reading as "From a removed integration".
+    const [integrations, providers] = await Promise.all([
+      listIntegrations(authToken).catch((e) => (console.error("[webhooks] integrations:", e), null)),
+      listProviders(authToken).catch(() => []),
+    ]);
+    const byProvider = new Map((providers ?? []).map((p: any) => [p.slug, p]));
+    integrationInfo = integrations
+      ? Object.fromEntries(
+          integrations.map((i: any) => {
+            const provider: any = byProvider.get(i.provider);
+            return [i.id, { name: i.name, slug: i.provider, icon: provider?.icon, hasLogo: provider?.hasLogo }];
+          }),
+        )
+      : Object.fromEntries(
+          webhooks.filter((w: any) => w.sourceIntegrationId).map((w: any) => [w.sourceIntegrationId, { name: "an integration" }]),
+        );
   }
 } catch (e) {
   console.error("[webhooks] Error loading:", e);
   if (isForbidden(e)) adminOnly = true;
   else error = e instanceof Error ? e.message : String(e);
 }
+
+const json = (value: unknown) => JSON.stringify(value).replace(/</g, "\\u003c");
+const fromChoices = fromOptions(webhooks, webhookAdapter(), integrationInfo);
 ---
 
 <AppLayout crumb="automation.webhooks" adminOnly={adminOnly}>
@@ -38,72 +70,34 @@ try {
     </div>
   </div>
 
-  <div class="page-container">
+  <div class="page-container webhooks-page">
     {error ? (
       <div class="alert alert-error">
         <strong>Error:</strong> {error}
       </div>
-    ) : webhooks.length === 0 ? (
-      <div class="empty-state">
-        <div class="empty-icon">🔗</div>
-        <p class="empty-title">No webhooks configured</p>
-        <p class="empty-description">
-          Webhooks allow you to receive HTTP notifications when events occur in your workspace
-        </p>
-        <a href="/automation/webhooks/new" class="button">New Webhook</a>
-      </div>
     ) : (
-      <div class="webhooks-grid">
-        {webhooks.map((webhook) => (
-          <article class="webhook-card">
-            <div class="webhook-header">
-              <div>
-                <h3>{webhook.name}</h3>
-                <code class="webhook-url">{webhook.url}</code>
-              </div>
-              <span class={`status-badge ${webhook.enabled ? "active" : "inactive"}`}>
-                {webhook.enabled ? "Active" : "Inactive"}
-              </span>
-            </div>
-            <div class="webhook-meta">
-              <div class="meta-item">
-                <span class="meta-label">Method</span>
-                <span class="meta-value">{webhook.method || 'POST'}</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">Type</span>
-                <span class="meta-value">{(webhook as any).webhookType ?? (webhook as any).webhook_type ?? 'generic'}</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">Scheduled</span>
-                <span class="meta-value"><LocalTime iso={(webhook as any).scheduledTime ?? (webhook as any).scheduled_time} fallback="Not scheduled" /></span>
-              </div>
-            </div>
-            <div class="webhook-actions">
-              <a href={`/automation/webhooks/${webhook.id}`} class="button secondary small">Edit</a>
-              <button
-                class="button secondary small"
-                data-action="toggle"
-                data-id={webhook.id}
-                data-enabled={webhook.enabled}
-              >{webhook.enabled ? 'Disable' : 'Enable'}</button>
-              <button
-                class="button secondary small"
-                data-action="test"
-                data-id={webhook.id}
-                data-name={webhook.name}
-                disabled={!webhook.enabled}
-              >Test</button>
-              <button
-                class="button secondary small danger"
-                data-action="delete"
-                data-id={webhook.id}
-                data-name={webhook.name}
-              >Delete</button>
-            </div>
-          </article>
-        ))}
-      </div>
+      <>
+        {webhooks.length > 0 && (
+          <FilterBar
+            searchPlaceholder="Search webhooks…"
+            searchId="wh-search"
+            filters={[
+              { id: "wh-f-from", label: "sources", options: fromChoices },
+              { id: "wh-f-status", label: "statuses", options: statusOptions({ attention: true }) },
+              { id: "wh-f-mode", label: "modes", options: MODE_OPTIONS },
+            ]}
+          />
+        )}
+        <OrganizedSections id="wh" noun="webhook" emptyAll="No webhooks configured. Webhooks send an HTTP request when events occur in your workspace." />
+        {webhooks.length === 0 && (
+          <div class="empty-state">
+            <a href="/automation/webhooks/new" class="button">New Webhook</a>
+          </div>
+        )}
+        <script type="application/json" id="wh-list-data" is:inline set:html={json(webhooks)}></script>
+        <script type="application/json" id="wh-can-manage" is:inline set:html={JSON.stringify(canManage)}></script>
+        <script type="application/json" id="wh-integration-names" is:inline set:html={json(integrationInfo)}></script>
+      </>
     )}
   </div>
 
@@ -111,62 +105,89 @@ try {
 
 <script>
   import { createSdkClient } from '@/lib/sdk';
+  import { mountOrganizedList } from '@/lib/organizedListView';
+  import { webhookAdapter, webhookCardHtml } from '@/lib/webhookList';
   const sdk = createSdkClient();
 
+  const read = (id: string) => {
+    const el = document.getElementById(id);
+    return el ? JSON.parse(el.textContent || 'null') : null;
+  };
+  const webhooks: any[] = read('wh-list-data') || [];
+  const integrations = read('wh-integration-names') || {};
+  const when = (iso: string) => new Date(iso).toLocaleString();
+
   // Toggle webhook enabled/disabled — must send full payload (PUT, not PATCH)
-  document.querySelectorAll('[data-action="toggle"]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = btn.getAttribute('data-id')!;
-      const currentlyEnabled = btn.getAttribute('data-enabled') === 'true';
+  async function toggle(id: string, currentlyEnabled: boolean) {
+    try {
+      const webhook = await sdk.webhooks.get(id);
+      await sdk.webhooks.update(id, {
+        name: webhook.name,
+        url: webhook.url,
+        method: webhook.method,
+        webhook_type: webhook.webhookType ?? (webhook as any).webhook_type,
+        scheduled_time: webhook.scheduledTime ?? (webhook as any).scheduled_time,
+        enabled: !currentlyEnabled,
+      } as any);
+      window.location.reload();
+    } catch (error) {
+      alert('Failed to update webhook');
+    }
+  }
 
-      try {
-        const webhook = await sdk.webhooks.get(id);
-        await sdk.webhooks.update(id, {
-          name: webhook.name,
-          url: webhook.url,
-          method: webhook.method,
-          webhook_type: webhook.webhookType ?? (webhook as any).webhook_type,
-          scheduled_time: webhook.scheduledTime ?? (webhook as any).scheduled_time,
-          enabled: !currentlyEnabled,
-        } as any);
-        window.location.reload();
-      } catch (error) {
-        alert('Failed to update webhook');
-      }
+  async function test(id: string, name: string) {
+    if (!confirm(`Send a test request to "${name}"?`)) return;
+    try {
+      await sdk.webhooks.test(id);
+      alert('Test request sent! Check the Activity Log for results.');
+    } catch (error) {
+      alert('Failed to send test request');
+    }
+  }
+
+  async function remove(id: string, name: string) {
+    if (!confirm(`Are you sure you want to delete the webhook "${name}"?`)) return;
+    try {
+      await sdk.webhooks.delete(id);
+      window.location.reload();
+    } catch (error) {
+      alert('Failed to delete webhook');
+    }
+  }
+
+  const host = document.getElementById('wh-list');
+  if (host) {
+    const list = mountOrganizedList<any>({
+      host,
+      emptyFiltered: document.getElementById('wh-empty')!,
+      emptyAll: document.getElementById('wh-none')!,
+      search: document.getElementById('wh-search') as HTMLInputElement | null,
+      selects: {
+        from: document.getElementById('wh-f-from') as HTMLSelectElement | null,
+        status: document.getElementById('wh-f-status') as HTMLSelectElement | null,
+        mode: document.getElementById('wh-f-mode') as HTMLSelectElement | null,
+      },
+      items: () => webhooks,
+      adapter: webhookAdapter(),
+      integrations,
+      noun: 'webhook',
+      storageKey: 'marvin.automation.webhooks.filters',
+      linkedId: null,
+      renderItem: (w, { linked }) => webhookCardHtml(w, { linked, when }),
+      removedDelete: { kind: 'outgoing-webhooks', canDelete: read('wh-can-manage') === true },
+      afterRender: (root) => {
+        root.querySelectorAll<HTMLElement>('.wh-card').forEach((card) => {
+          const id = card.dataset.id!;
+          const name = card.dataset.name || '';
+          const w = webhooks.find((x) => x.id === id);
+          card.querySelector('.js-toggle')?.addEventListener('click', () => toggle(id, !!w?.enabled));
+          card.querySelector('.js-test')?.addEventListener('click', () => test(id, name));
+          card.querySelector('.js-delete')?.addEventListener('click', () => remove(id, name));
+        });
+      },
     });
-  });
-
-  // Test webhook
-  document.querySelectorAll('[data-action="test"]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = (btn as HTMLElement).dataset.id!;
-      const name = (btn as HTMLElement).dataset.name;
-      if (!confirm(`Send a test request to "${name}"?`)) return;
-      try {
-        await sdk.webhooks.test(id);
-        alert('Test request sent! Check the Activity Log for results.');
-      } catch (error) {
-        alert('Failed to send test request');
-      }
-    });
-  });
-
-  // Delete webhook
-  document.querySelectorAll('[data-action="delete"]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = btn.getAttribute('data-id');
-      const name = btn.getAttribute('data-name');
-
-      if (!confirm(`Are you sure you want to delete the webhook "${name}"?`)) return;
-
-      try {
-        await sdk.webhooks.delete(id!);
-        window.location.reload();
-      } catch (error) {
-        alert('Failed to delete webhook');
-      }
-    });
-  });
+    list.refresh();
+  }
 </script>
 
 <style>
@@ -214,129 +235,9 @@ try {
   }
 
   .empty-state {
-    padding: 80px 24px;
+    padding: 16px 0;
     text-align: center;
   }
 
-  .empty-icon {
-    font-size: 64px;
-    margin-bottom: 16px;
-    opacity: 0.3;
-  }
-
-  .empty-title {
-    margin: 0 0 8px;
-    font-size: 18px;
-    font-weight: 600;
-  }
-
-  .empty-description {
-    margin: 0 0 24px;
-    color: var(--muted);
-    font-size: 14px;
-  }
-
-  .webhooks-grid {
-    display: grid;
-    gap: 16px;
-  }
-
-  .webhook-card {
-    padding: 20px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-  }
-
-  .webhook-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 16px;
-    margin-bottom: 12px;
-  }
-
-  .webhook-header h3 {
-    margin: 0 0 6px;
-    font-size: 16px;
-    font-weight: 600;
-  }
-
-  .webhook-url {
-    font-family: ui-monospace, monospace;
-    font-size: 13px;
-    color: var(--muted);
-    word-break: break-all;
-  }
-
-  .status-badge {
-    padding: 4px 10px;
-    border-radius: 4px;
-    font-size: 12px;
-    font-weight: 600;
-    text-transform: uppercase;
-  }
-
-  .status-badge.active {
-    background: rgba(79, 156, 132, 0.1);
-    color: var(--accent);
-  }
-
-  .status-badge.inactive {
-    background: rgba(128, 128, 128, 0.1);
-    color: var(--muted);
-  }
-
-  .webhook-meta {
-    display: flex;
-    gap: 24px;
-    margin-bottom: 16px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .meta-item {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .meta-label {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--muted);
-  }
-
-  .meta-value {
-    font-size: 14px;
-  }
-
-  .webhook-actions {
-    display: flex;
-    gap: 8px;
-  }
-
-  .button.small {
-    padding: 6px 14px;
-    font-size: 13px;
-  }
-
-  .button.danger {
-    color: var(--color-error);
-  }
-
-  .button.danger:hover {
-    background: var(--color-error-bg);
-  }
-
-  .button:disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
-
-  /* Phones: the meta row and the four actions wrap rather than widening the card. */
-  @media (max-width: 640px) {
-    .webhook-card { padding: 16px; }
-    .webhook-meta { flex-wrap: wrap; gap: 12px 24px; }
-    .webhook-actions { flex-wrap: wrap; }
-  }
+  .webhooks-page :global(.wh-attention) { margin-top: 2px; font-size: 12px; color: var(--color-error); }
 </style>
