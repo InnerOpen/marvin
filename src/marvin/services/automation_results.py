@@ -222,6 +222,7 @@ def settle(
     entry_id=None,
     target: str | None = None,
     message: str | None = None,
+    remote_url: str | None = None,
     finished_at: datetime | None = None,
 ) -> tuple[Result, str]:
     """Apply a report to the hand-off it is about and return ``(row, matched)``: ``matched`` is ``remote_id``, ``entry`` or ``none``
@@ -243,6 +244,7 @@ def settle(
             integration_id=integration.id if integration is not None else None,
             target=_text(target),
             remote_id=remote_id,
+            remote_url=_link(remote_url),
             status=status,
             message=message,
             sent_at=settled_at,
@@ -260,6 +262,8 @@ def settle(
         row.message = message
     if remote_id and not row.remote_id:
         row.remote_id = remote_id
+    if not row.remote_url:
+        row.remote_url = _link(remote_url)
     if status == FAILED:
         row.dismissed_at, row.dismissed_by = None, None  # a failure reported again asks for attention again
     session.flush()
@@ -447,6 +451,7 @@ def reads(session, rows: list[Result], *, now: datetime | None = None) -> list[d
                 "entry": {"id": entry[0], "title": entry[1], "slug": entry[2]} if entry else None,
                 "connection": {"slug": connection.slug, "name": connection.name, "provider": connection.provider} if connection else None,
                 "workflow": {"id": workflow.id, "name": workflow.name, "slug": workflow.slug} if workflow else None,
+                "action": _action(connection, row.action),
                 "target": row.target,
                 "remote_id": row.remote_id,
                 "remote_url": row.remote_url,
@@ -459,6 +464,21 @@ def reads(session, rows: list[Result], *, now: datetime | None = None) -> list[d
             }
         )
     return out
+
+
+def _action(connection: IntegrationModel | None, key: str | None) -> dict | None:
+    """``{key, label}`` for the declared action: the provider's label for it, else the key (the provider is gone, or no longer has it)."""
+    from marvin.services.integrations import get_provider
+
+    if not key:
+        return None
+    label = key
+    if connection is not None:
+        try:
+            label = getattr(get_provider(connection.provider).get_action(key), "label", "") or key
+        except KeyError:
+            pass
+    return {"key": key, "label": label}
 
 
 def can_retry(row: Result) -> bool:

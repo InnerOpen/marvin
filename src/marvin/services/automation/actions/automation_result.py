@@ -12,7 +12,8 @@ incoming webhook — this step settles that result, which Settings › Automatio
 * which result — the one with ``remote_id`` (the run's id on the other side, on that connection when one is named), else the newest one
   still in flight for ``entry_id`` (default: the triggering entry) and that connection. A report that matches nothing is kept as a
   new result (``target`` says what it was about) rather than dropped.
-* ``message`` and ``finished_at`` (ISO 8601 or epoch seconds; default: now) are kept on it.
+* ``message``, ``remote_url`` (a web address for the run; kept when the result has none yet) and ``finished_at`` (ISO 8601 or epoch
+  seconds; default: now) are kept on it.
 
 Output: ``result_id``, ``status`` (Marvin's), ``matched`` (``remote_id`` | ``entry`` | ``none``) and ``created``. A dry run says what it
 would do and writes nothing. It needs the workflow author's role to be AUTHOR or above, as the entry step this replaces did.
@@ -88,6 +89,7 @@ def run_automation_result_action(session, group_id, action: dict, context: dict,
         entry_id=entry_id,
         target=_text(interpolate(action.get("target"), context)),
         message=_text(interpolate(action.get("message"), context)),
+        remote_url=_text(interpolate(action.get("remote_url"), context)),
         finished_at=results.parse_moment(interpolate(action.get("finished_at"), context)),
     )
     return {"result_id": str(row.id), "status": row.status, "matched": matched, "created": matched == "none"}

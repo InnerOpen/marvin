@@ -29,6 +29,7 @@ export interface ResultItem {
   entry?: { id: string; title: string; slug?: string | null } | null;
   connection?: ResultConnection | null;
   workflow?: { id: string; name: string; slug?: string | null } | null;
+  action?: { key: string; label: string } | null;
   target?: string | null;
   remoteId?: string | null;
   remoteUrl?: string | null;
@@ -121,7 +122,7 @@ export function stateTiles(counts: ResultsSummary | null | undefined, active = "
 
 export interface Row {
   id: string;
-  /** The entry's title; a hand-off that isn't about an entry says so. */
+  /** What the hand-off was: the entry's title, else the workflow, else the connection and action, else the connection. */
   title: string;
   connection: string;
   provider: string;
@@ -134,6 +135,29 @@ export interface Row {
   unread: boolean;
 }
 
+/** The target as shown: a web address (a webhook's, which may carry a token in its path or query) is cut to its host. */
+function shownTarget(target: string | null | undefined): string {
+  const text = (target ?? "").trim();
+  if (!/^https?:\/\//i.test(text)) return text;
+  try {
+    return new URL(text).host;
+  } catch {
+    return "";
+  }
+}
+
+/** What a hand-off was, for its row: the entry's title, else the workflow's name, else "Connection: action", else the connection's name. */
+export function resultTitle(item: ResultItem): string {
+  const connection = (item.connection?.name ?? "").trim();
+  const action = (item.action?.label ?? "").trim();
+  return (
+    (item.entry?.title ?? "").trim() ||
+    (item.workflow?.name ?? "").trim() ||
+    (connection && action ? `${connection}: ${action}` : connection) ||
+    "Automation result"
+  );
+}
+
 const WAITING_TEXT = "Waiting to hear back";
 const NOT_WAITING_TEXT = "Dismissed: not waiting for a reply";
 
@@ -143,10 +167,10 @@ export function resultRow(item: ResultItem): Row {
   const message = (item.message ?? "").trim();
   return {
     id: item.id,
-    title: (item.entry?.title ?? "").trim() || "Not about an entry",
+    title: resultTitle(item),
     connection: item.connection?.name ?? "",
     provider: item.connection?.provider ?? "",
-    target: (item.target ?? "").trim(),
+    target: shownTarget(item.target),
     text: message ? excerpt(message, 140) : item.dismissed && item.status === "in_flight" ? NOT_WAITING_TEXT : state === "in_flight" || state === "no_reply" ? WAITING_TEXT : "",
     at: item.finishedAt || item.sentAt,
     badge: stateBadge(item),
@@ -163,7 +187,7 @@ export interface Line {
 export function detailLines(item: ResultItem, now: Date = new Date()): Line[] {
   const lines: Line[] = [];
   if (item.connection) lines.push({ label: "Connection", value: item.connection.name });
-  if (item.target) lines.push({ label: "Target", value: item.target });
+  if (shownTarget(item.target)) lines.push({ label: "Target", value: shownTarget(item.target) });
   if (item.workflow) lines.push({ label: "Workflow", value: item.workflow.name });
   if (item.remoteId) lines.push({ label: "Run", value: item.remoteId });
   lines.push({ label: "Sent", value: timeAgo(item.sentAt, now) });

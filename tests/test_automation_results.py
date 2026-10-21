@@ -383,6 +383,17 @@ def test_a_report_settles_the_result_with_that_remote_id_and_the_providers_words
     assert second.status == "in_flight"
 
 
+def test_a_report_may_carry_a_link_to_the_run_which_never_replaces_the_one_the_hand_off_kept_and_is_only_a_web_address(flow):
+    _publish(flow)
+
+    _report(flow, "success", integration="hooks", remote_id="run-1", remote_url="https://elsewhere.example/other")
+    assert _rows(flow)[0].remote_url == "https://flow.example/runs/1"
+
+    _report(flow, "success", integration="hooks", remote_id="unseen", remote_url="https://elsewhere.example/new")
+    _report(flow, "success", integration="hooks", remote_id="unseen-too", remote_url="javascript:alert(1)")
+    assert [r.remote_url for r in _rows(flow)] == ["https://flow.example/runs/1", "https://elsewhere.example/new", None]
+
+
 @pytest.mark.parametrize(
     ("word", "expected"), [("success", "succeeded"), ("error", "failed"), ("waiting", "in_flight"), ("ERROR", "failed"), ("failed", "failed")]
 )
@@ -660,6 +671,7 @@ def test_the_list_gives_each_result_with_its_entry_connection_workflow_and_times
     assert (newest["entry"]["title"], oldest["entry"]["title"]) == ("Post 1", "Post 0")
     assert newest["connection"] == {"slug": "hooks", "name": "Hooks", "provider": "fake_flow"}
     assert newest["workflow"]["name"] == "Hand off"
+    assert newest["action"] == {"key": "start", "label": "Start a run"}  # the provider's own label for the declared action
     assert (newest["status"], newest["noReply"], newest["target"], newest["remoteId"], newest["attempt"]) == (
         "in_flight",
         False,

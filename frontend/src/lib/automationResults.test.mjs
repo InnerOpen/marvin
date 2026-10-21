@@ -144,10 +144,34 @@ describe("a row", () => {
     assert.equal(resultRow(result({ status: "succeeded" })).unread, false);
   });
 
-  test("a hand-off that is not about an entry says so, and one with no connection leaves it blank", () => {
-    const row = resultRow(result({ entry: null, connection: null }));
-    assert.equal(row.title, "Not about an entry");
+  test("a hand-off that is not about an entry is named by its workflow, else its connection and action, else its connection", () => {
+    const action = { key: "deploy", label: "Deploy site" };
+    assert.equal(resultRow(result({ entry: null })).title, "Hand off published posts");
+    assert.equal(resultRow(result({ entry: null, workflow: null, action })).title, "Marketing flows: Deploy site");
+    assert.equal(resultRow(result({ entry: null, workflow: null })).title, "Marketing flows");
+    assert.equal(resultRow(result({ entry: { id: ENTRY, title: "  ", slug: null }, workflow: null, action })).title, "Marketing flows: Deploy site");
+  });
+
+  test("a hand-off with nothing to name it is an Automation result, and a missing connection leaves that column blank", () => {
+    const row = resultRow(result({ entry: null, workflow: null, connection: null }));
+    assert.equal(row.title, "Automation result");
     assert.equal(row.connection, "");
+  });
+
+  test("a target that is a web address shows only its host, never the path or query", () => {
+    const row = resultRow(result({ target: "https://hooks.example.test/webhook/abc123?token=secret" }));
+    assert.equal(row.target, "hooks.example.test");
+    assert.equal(resultRow(result({ target: "https://" })).target, "");
+    assert.equal(resultRow(result({ target: "marvin/ping" })).target, "marvin/ping");
+    assert.deepEqual(detailLines(result({ target: "https://hooks.example.test/x?t=1" }), NOW).find((l) => l.label === "Target"), {
+      label: "Target",
+      value: "hooks.example.test",
+    });
+  });
+
+  test("a settled n8n ping shows its target and message", () => {
+    const row = resultRow(result({ entry: null, workflow: { id: "w2", name: "n8n ping", slug: null }, target: "marvin/ping", status: "succeeded", message: "pong" }));
+    assert.deepEqual([row.title, row.target, row.text], ["n8n ping", "marvin/ping", "pong"]);
   });
 });
 

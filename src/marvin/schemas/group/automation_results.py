@@ -28,6 +28,13 @@ class AutomationResultConnection(_MarvinModel):
     provider: str
 
 
+class AutomationResultAction(_MarvinModel):
+    """What the provider's action is called: its declared key, and the label the provider gives it (the key when it names none)."""
+
+    key: str
+    label: str
+
+
 class AutomationResultWorkflow(_MarvinModel):
     """The Marvin workflow whose step handed it off."""
 
@@ -47,6 +54,8 @@ class AutomationResult(_MarvinModel):
     """Empty for a result no known connection reported, and once the connection is deleted (the result goes with it)."""
     workflow: AutomationResultWorkflow | None = None
     """Empty for a result that arrived unannounced, or from a workflow since deleted."""
+    action: AutomationResultAction | None = None
+    """Empty for a result kept before the action was recorded."""
     target: str | None = None
     """What was asked of the other side, as the provider names it (an n8n workflow's path)."""
     remote_id: str | None = None

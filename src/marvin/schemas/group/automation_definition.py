@@ -663,7 +663,8 @@ class AutomationResultAction(_StepBase):
     in flight | succeeded | failed by the connection named in `integration`. The result is found
     by `remote_id` (the run's id on the other side), else it is the newest one still in flight for `entry_id` (default: the
     triggering entry) and `integration`. A report that matches nothing is kept as a new result rather than dropped. Optional
-    `target` (what was asked, kept on a new result), `message` and `finished_at` (when it finished; default: now). Output
+    `target` (what was asked, kept on a new result), `message`, `remote_url` (a link to the run, kept when the result has none) and
+    `finished_at` (when it finished; default: now). Output
     `result_id`, `status`, `matched` (remote_id | entry | none) and `created`."""
 
     kind: Literal["automation_result"]
@@ -673,6 +674,7 @@ class AutomationResultAction(_StepBase):
     entry_id: str | None = None
     target: str | None = None
     message: str | None = None
+    remote_url: str | None = None
     finished_at: str | None = None
     id: str | None = None
 
