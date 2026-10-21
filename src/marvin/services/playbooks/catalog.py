@@ -48,12 +48,23 @@ PROPOSE_HINT = (
 )
 
 
+FIRST_DRAFT_HINT = (
+    "## Playbooks\n"
+    "This workspace can keep Playbooks: written procedures that tell agents how a task is done here (a house style, a "
+    "checklist). None are published yet. When asked to write one, or when you notice a correction people keep making, "
+    "draft it with create_draft (entry_type 'playbook'; fields name — lowercase words joined by hyphens —, description — "
+    "when to use it, one sentence —, and body — the procedure in markdown). It goes to the Inbox; an admin reviews and "
+    "publishes it, never you."
+)
+
+
 def catalog_block(playbooks: Iterable[Playbook], can_propose: bool = False) -> str:
-    """The system-frame paragraph naming the Playbooks, one line each; "" when there are none (nothing is added).
-    ``can_propose``: the agent can draft, so it is also told when to propose a Playbook."""
+    """The system-frame paragraph naming the Playbooks, one line each. ``can_propose``: the agent can draft, so it is also told
+    when to propose one. With none published, an agent that can draft is told Playbooks exist and how to draft the first (else
+    it would never learn of them); one that can't gets "" and the prompt is untouched."""
     listed = list(playbooks)
     if not listed:
-        return ""
+        return FIRST_DRAFT_HINT if can_propose else ""
     lines = []
     for p in listed[:CATALOG_MAX]:
         text = " ".join(p.description.split())

@@ -183,6 +183,16 @@ def test_a_workspace_without_playbooks_adds_nothing_to_the_prompt(workspace, mod
     assert "Playbook" not in model.systems[0]
 
 
+def test_an_editor_in_a_workspace_without_playbooks_is_told_how_to_draft_the_first(workspace, model):
+    """The bubble's main agent, for someone who may draft: with nothing published it still learns Playbooks exist, so asking it
+    to "write a Playbook for our Bench Note voice" works in a fresh workspace."""
+    _ask(workspace, "hello", role=WorkspaceRole.EDITOR)
+
+    system = model.systems[0]
+    assert "None are published yet" in system
+    assert "create_draft" in system
+
+
 def test_a_workspace_with_only_drafts_adds_nothing_to_the_prompt(workspace, db_session, model):
     _playbook(db_session, workspace.gid, status="draft")
 

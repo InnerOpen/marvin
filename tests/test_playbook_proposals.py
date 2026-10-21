@@ -212,4 +212,17 @@ def test_the_catalog_tells_an_agent_that_can_draft_when_to_propose():
     pb = [Playbook(id="1", name=BENCH, description="d", body="b")]
     assert "propose_playbook_change" in catalog_block(pb, can_propose=True)
     assert "propose_playbook_change" not in catalog_block(pb)
-    assert catalog_block([], can_propose=True) == ""
+    assert catalog_block([], can_propose=False) == ""  # nothing published and nothing it could draft: the prompt is untouched
+
+
+def test_with_none_published_an_agent_that_can_draft_is_told_playbooks_exist_and_how_to_draft_the_first():
+    from marvin.services.playbooks import catalog_block
+
+    text = catalog_block([], can_propose=True)
+
+    assert text.startswith("## Playbooks")
+    assert "None are published yet" in text
+    assert "create_draft" in text and "playbook" in text  # the entry type to draft into
+    assert all(field in text for field in ("name", "description", "body"))
+    assert "admin" in text.lower()  # it only drafts; an admin publishes
+    assert "load_playbook" not in text  # there is nothing to load yet
