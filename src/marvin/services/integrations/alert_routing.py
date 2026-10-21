@@ -20,6 +20,11 @@ need a person's approval. Capability routing (a step that
 names the capability) skips an approval-gated action — nobody is there to approve an unattended run — except for these,
 which it accepts once the run is past an Approval step (``approved``). Marvin treats every action declaring one as gated,
 whether or not the plugin said ``requires_approval``."""
+IMAGE_GENERATE = "image.generate"
+APPROVABLE_CAPABILITIES = GATED_CAPABILITIES | {IMAGE_GENERATE}
+"""Capabilities a capability step may run on an approval-gated action once the run is past an Approval step. The
+public-facing ones above always need that approval; ``image.generate`` spends the connection's credits, and providers
+declare it ``requires_approval`` (OpenAI Images), so "any image provider" works once a person said yes."""
 BODY_FIELDS = ("text", "body", "message", "content")
 """Input names, in preference order, that carry a message's text."""
 TITLE_FIELDS = ("title", "subject")
@@ -73,12 +78,13 @@ def message_actions(provider) -> list[MessageAction]:
 
 def capabilities_of(provider) -> set[str]:
     """The capabilities a provider offers to unattended callers (a workflow step): those its actions declare — an
-    approval-gated action's only for a capability that is gated by design (``social.post`` and the engagement ones, usable after
-    an Approval step) — and ``notify`` when it has a message action: what a recipe's ``{"capability": …}`` prerequisite is matched against."""
+    approval-gated action's only for a capability that is approvable by design (``social.post`` and the engagement ones,
+    ``image.generate``; usable after an Approval step) — and ``notify`` when it has a message action: what a recipe's
+    ``{"capability": …}`` prerequisite is matched against."""
     found = {
         a.capability
         for a in getattr(provider, "actions", ()) or ()
-        if getattr(a, "capability", None) and (a.capability in GATED_CAPABILITIES or not getattr(a, "requires_approval", False))
+        if getattr(a, "capability", None) and (a.capability in APPROVABLE_CAPABILITIES or not getattr(a, "requires_approval", False))
     }
     if any(not _needs_approval(provider, m.key) for m in message_actions(provider)):
         found.add(MESSAGE_CAPABILITY)
@@ -90,7 +96,7 @@ def capability_action(provider, capability: str, args: dict, *, approved: bool =
     arguments in that action's terms, or None when the provider has none. ``notify`` takes the standard ``title``
     and ``body`` and maps them onto the message action's own fields (Slack's ``text``, Apprise's ``body``…); any
     other argument passes through. Other capabilities pass the arguments as they are. An approval-gated action is
-    skipped, except for a capability in ``GATED_CAPABILITIES`` when the run is ``approved`` (past an Approval step)."""
+    skipped, except for a capability in ``APPROVABLE_CAPABILITIES`` when the run is ``approved`` (past an Approval step)."""
     if capability == MESSAGE_CAPABILITY:
         action = next((m for m in message_actions(provider) if not _needs_approval(provider, m.key)), None)
         if action is None:
@@ -100,7 +106,9 @@ def capability_action(provider, capability: str, args: dict, *, approved: bool =
         carried = action.args(title, body) if title else {action.body_field: body}
         return action.key, {**rest, **carried}
     for declared in getattr(provider, "actions", ()) or ():
-        if getattr(declared, "capability", None) == capability and (not needs_approval(declared) or (approved and capability in GATED_CAPABILITIES)):
+        if getattr(declared, "capability", None) == capability and (
+            not needs_approval(declared) or (approved and capability in APPROVABLE_CAPABILITIES)
+        ):
             return declared.key, dict(args)
     return None
 

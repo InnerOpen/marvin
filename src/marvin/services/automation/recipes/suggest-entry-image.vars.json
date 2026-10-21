@@ -1,0 +1,20 @@
+{
+  "recipe": "suggest-entry-image",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type that should always carry an image.",
+      "example": "article"
+    },
+    "style_note": {
+      "type": "text",
+      "description": "The look of the photo you want, in a few words. Leave it blank for no particular style.",
+      "example": "documentary workshop photo, warm light"
+    },
+    "suggestion_key": {
+      "type": "text",
+      "description": "The metadata key the suggestion is saved under (the Create-an-image recipe reads the same key).",
+      "example": "image_suggestion"
+    }
+  }
+}

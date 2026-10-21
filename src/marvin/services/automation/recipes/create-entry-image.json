@@ -1,0 +1,82 @@
+{
+  "name": "Create an image for this entry",
+  "definition": {
+    "trigger": {
+      "type": "manual",
+      "inputs": [
+        {
+          "name": "entry",
+          "label": "Which entry needs an image",
+          "type": "entry"
+        }
+      ]
+    },
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "suggest",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "write_back": false,
+        "prompt": "Read the entry “${entry.title}” and describe, in one or two sentences, the photograph that should accompany it: the subject the entry is actually about, the angle, the focus and the light. No text or logos in the picture, no people's faces, and nothing the entry does not mention. Photo style to follow (may be blank): {{style_note}}",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "suggestion": {
+              "type": "string",
+              "minLength": 10
+            }
+          },
+          "required": [
+            "suggestion"
+          ]
+        },
+        "when": {
+          "not": {
+            "field": "entry.metadata.{{suggestion_key}}",
+            "op": "exists"
+          }
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "{{suggestion_key}}": "${steps.suggest.output.suggestion}"
+        },
+        "when": {
+          "not": {
+            "field": "entry.metadata.{{suggestion_key}}",
+            "op": "exists"
+          }
+        }
+      },
+      {
+        "kind": "approval",
+        "id": "ok",
+        "message": "Create an image for “${entry.title}”? This spends image credits on {{image_integration}}. The picture is attached to the entry as {{role}} for review; nothing is published.",
+        "approvers": "editor",
+        "expires_in_hours": 72
+      },
+      {
+        "kind": "integration",
+        "id": "image",
+        "integration": "{{image_integration}}",
+        "capability": "image.generate",
+        "attach_as": "{{role}}",
+        "args": {
+          "prompt": "{{style_prefix}} ${entry.metadata.{{suggestion_key}}}",
+          "count": 1,
+          "name": "${entry.title} — image"
+        },
+        "when": {
+          "field": "steps.ok.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      }
+    ]
+  }
+}

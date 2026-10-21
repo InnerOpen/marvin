@@ -1,0 +1,59 @@
+{
+  "name": "Suggest an image for new entries",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_created"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      },
+      {
+        "not": {
+          "field": "entry.image",
+          "op": "exists"
+        }
+      },
+      {
+        "not": {
+          "field": "entry.metadata.{{suggestion_key}}",
+          "op": "exists"
+        }
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "suggest",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "write_back": false,
+        "prompt": "Read the entry “${entry.title}” and describe, in one or two sentences, the photograph that should accompany it: the subject the entry is actually about, the angle, the focus and the light. No text or logos in the picture, no people's faces, and nothing the entry does not mention. Photo style to follow (may be blank): {{style_note}}",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "suggestion": {
+              "type": "string",
+              "minLength": 10
+            }
+          },
+          "required": [
+            "suggestion"
+          ]
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "{{suggestion_key}}": "${steps.suggest.output.suggestion}"
+        }
+      }
+    ]
+  }
+}

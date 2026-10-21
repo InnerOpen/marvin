@@ -411,6 +411,10 @@ def ws(db_session, monkeypatch):
         "tag": "brand",
         "preset": "warm",
         "image_integration": "openai-images",
+        "role": "hero",
+        "style_prefix": "Documentary photograph, natural light, no text, no logos.",
+        "style_note": "documentary workshop photo, warm light",
+        "suggestion_key": "image_suggestion",
         "style": "a 1950s sci-fi pulp",
         "project_type": "project",
         "status_field": "stage",
@@ -1555,6 +1559,105 @@ class TestExecution:
         (call,) = ws.providers["openai_images"].calls
         assert call["prompt"] == "A bright, hand-drawn poster: a glowing brass lantern"
         assert ws.session.query(EntryAssets).filter_by(entry_id=project.id, role="celebration").count() == 1
+
+    # ── image recipes: a suggestion for new entries, and an image made on request (any image.generate connection) ──
+    SUGGESTION = "A brass lantern on an oak bench, shallow focus, low warm light."
+
+    def test_suggest_entry_image(self, ws, store):
+        from marvin.db.models.platform import EntryAssets
+
+        _install(ws, "suggest-entry-image")
+        fresh = _entry(ws, "article", "Brass lantern", data={"body": "Cutting the glass for a lantern."})
+        ws.ai.reply_text(json.dumps({"suggestion": self.SUGGESTION}))
+
+        _fire(ws, "entry_created", _entry_doc(fresh), entity=fresh.id, entity_type="entry")
+
+        assert _reload(ws, fresh).metadata_json["image_suggestion"] == self.SUGGESTION
+        assert "Brass lantern" in ws.ai.last_request() and "documentary workshop photo" in ws.ai.last_request()
+        assert [r.status for r in _runs(ws, "suggest-entry-image")] == ["success"]
+        assert ws.providers["openai_images"].calls == []  # a suggestion only: nothing is generated
+
+        # Skipped: it has an image, it already has a suggestion, it is another type.
+        pictured = _entry(ws, "article", "Has a picture", data={"body": "x"})
+        photo = self._picture_asset(ws, store, "photo", _picture())
+        ws.session.add(EntryAssets(entry_id=pictured.id, asset_id=photo.id, role="hero", position=0))
+        suggested = _entry(ws, "article", "Has a note", data={"body": "x"}, metadata={"image_suggestion": "Already written."})
+        other = _entry(ws, "newsletter-issue", "Issue 3", data={"body": "x"})
+        ws.session.commit()
+        for entry in (pictured, suggested, other):
+            _fire(ws, "entry_created", _entry_doc(entry), entity=entry.id, entity_type="entry", correlation_id=f"c-{entry.slug}")
+        assert len(ws.ai.requests) == 1 and len(_runs(ws, "suggest-entry-image")) == 1
+        assert _reload(ws, suggested).metadata_json["image_suggestion"] == "Already written."
+        assert "image_suggestion" not in (_reload(ws, pictured).metadata_json or {})
+
+    def _create_image(self, ws, row, entry):
+        recorder = ExecutionRecorder(ws.session, ws.gid)
+        return run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, recorder=recorder, inputs={"entry": entry.slug})
+
+    def _assert_image_made_and_attached(self, ws, entry, prompt):
+        from marvin.db.models.platform import EntryAssets
+
+        (call,) = ws.providers["openai_images"].calls  # one generate call, with the saved suggestion
+        assert call["prompt"] == prompt and call["count"] == 1
+        link = ws.session.query(EntryAssets).filter_by(entry_id=entry.id, role="hero").one()
+        assert link.asset.metadata_json["generated_by"] == "openai_images.generate"
+
+    def test_create_entry_image(self, ws, store):
+        row = _install(ws, "create-entry-image")
+        prefix = ws.values["style_prefix"]
+        entry = _entry(ws, "article", "Brass lantern", data={"body": "x"}, metadata={"image_suggestion": self.SUGGESTION})
+
+        self._create_image(ws, row, entry)
+        assert ws.providers["openai_images"].calls == [] and not ws.ai.requests  # waiting for a yes; the saved suggestion is reused
+        self._decide(ws)
+
+        self._assert_image_made_and_attached(ws, entry, f"{prefix} {self.SUGGESTION}")
+        assert [r.status for r in _runs(ws, "create-entry-image")][-1] == "success"
+
+        # Denied: nothing is generated or attached.
+        again = _entry(ws, "article", "Second lantern", data={"body": "x"}, metadata={"image_suggestion": self.SUGGESTION})
+        self._create_image(ws, row, again)
+        self._decide(ws, "deny")
+        assert len(ws.providers["openai_images"].calls) == 1
+
+    def test_create_entry_image_writes_the_suggestion_first_when_there_is_none(self, ws, store):
+        row = _install(ws, "create-entry-image")
+        entry = _entry(ws, "article", "Brass lantern", data={"body": "Cutting glass."})
+        ws.ai.reply_text(json.dumps({"suggestion": self.SUGGESTION}))
+
+        self._create_image(ws, row, entry)
+        assert _reload(ws, entry).metadata_json["image_suggestion"] == self.SUGGESTION  # saved before anyone approves
+        self._decide(ws)
+
+        self._assert_image_made_and_attached(ws, entry, f"{ws.values['style_prefix']} {self.SUGGESTION}")
+        assert len(ws.ai.requests) == 1
+
+    def test_create_entry_image_through_run_workflow_the_agent_and_mcp_path(self, ws, store):
+        _install(ws, "create-entry-image")
+        entry = _entry(ws, "article", "Brass lantern", data={"body": "x"}, metadata={"image_suggestion": self.SUGGESTION})
+
+        listed = {w["slug"]: w for w in _tool(ws, "list_workflows", {})["workflows"]}
+        assert [i["name"] for i in listed["create-entry-image"]["inputs"]] == ["entry"]
+        result = _tool(ws, "run_workflow", {"workflow": "create-entry-image", "inputs": {"entry": entry.slug}})
+        assert result["workflow"] == "create-entry-image"
+        self._decide(ws)
+
+        self._assert_image_made_and_attached(ws, entry, f"{ws.values['style_prefix']} {self.SUGGESTION}")
+        assert _tool(ws, "run_workflow", {"workflow": "create-entry-image"})["error"]  # an entry is needed
+
+    def test_the_image_recipes_stay_in_their_workspace(self, ws, store):
+        from marvin.services.automation import inputs as run_inputs
+
+        row = _install(ws, "create-entry-image")
+        _install(ws, "suggest-entry-image")
+        entry = _entry(ws, "article", "Brass lantern", data={"body": "x"})
+        elsewhere = uuid.uuid4()
+
+        with pytest.raises(run_inputs.RunInputError, match="no entry"):
+            run_inputs.resolve(ws.session, elsewhere, row, {"entry": entry.slug})
+        ctx = event_context("entry_created", _entry_doc(entry), entity_id=entry.id, entity_type="entry", user_id=None, correlation_id="x")
+        assert run_automations_for_event(ws.session, elsewhere, ctx, recorder=ExecutionRecorder(ws.session, elsewhere)) == 0
+        assert _runs(ws, "suggest-entry-image") == [] and ws.providers["openai_images"].calls == []
 
     def test_share_published_entry(self, ws):
         _install(ws, "share-published-entry")
@@ -3352,7 +3455,7 @@ def test_guide_offers_the_recipes_this_workspace_can_run(ws):
     assert offered == set(WORKFLOW_RECIPES)  # the fixture has every connection and AI on
 
     section = authoring_guide(ws.session, ws.gid, "examples")
-    assert sorted(r["recipe"] for r in section["examples"]["recipes"]) == WORKFLOW_RECIPES and guide_size(section) < 16_500
+    assert sorted(r["recipe"] for r in section["examples"]["recipes"]) == WORKFLOW_RECIPES and guide_size(section) < 17_000
     one = authoring_guide(ws.session, ws.gid, "examples", "newsletter-delivery")["examples"]["newsletter-delivery"]
     assert one["definition"] == recipes.load_recipe("newsletter-delivery")["definition"] and "newsletter_integration" in one["setup_variables"]
     assert "{{" in json.dumps(one["definition"]) and "${entry.title}" in json.dumps(one["definition"])
@@ -3370,6 +3473,21 @@ def test_guide_offers_the_recipes_this_workspace_can_run(ws):
     assert "no such recipe" in authoring_guide(ws.session, ws.gid, "examples", "nope")["examples"]["error"]
     # An idea is never offered, however the workspace is set up.
     assert "status is needs-engine-capability" in authoring_guide(ws.session, ws.gid, "examples", "reply-drafting-desk")["examples"]["error"]
+
+
+def test_create_entry_image_is_ready_only_with_a_connection_that_can_generate_images(ws):
+    from marvin.db.models.groups.integrations import IntegrationModel
+
+    item = recipes.entry("create-entry-image")
+    assert item["prerequisites"]["integrations"][0]["capability"] == "image.generate"
+    assert recipes.missing_prerequisites(item, workspace_refs(ws.session, ws.gid)) == []  # an OpenAI-Images-shaped connection qualifies
+
+    ws.session.query(IntegrationModel).filter_by(group_id=ws.gid, slug="openai-images").update({"enabled": False})
+    ws.session.commit()
+    refs = workspace_refs(ws.session, ws.gid)
+    assert "create-entry-image" not in {r["id"] for r in recipes.offered(refs)}
+    assert "image.generate" in recipes.missing_prerequisites(item, refs)[0]
+    assert "suggest-entry-image" in {r["id"] for r in recipes.offered(refs)}  # the suggestion needs AI, not a connection
 
 
 def test_draft_workflow_instantiates_a_recipe_with_typed_vars(ws):
