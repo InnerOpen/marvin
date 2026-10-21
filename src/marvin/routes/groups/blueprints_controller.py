@@ -19,13 +19,14 @@ from marvin.services.blueprints import (
     already_applied,
     apply_blueprint,
     apply_many,
+    blueprint_state_of,
     categories,
     get_blueprint,
     list_blueprints,
     missing_requirements,
-    outdated,
     update_blueprint,
 )
+from marvin.services.blueprints.apply import UPDATE_STATES
 
 router = APIRouter(prefix="/groups/blueprints")
 logger = get_logger(__name__)
@@ -37,12 +38,15 @@ class BlueprintsController(BaseUserController):
 
     def _to_read(self, blueprint, integration_id: UUID4 | None = None) -> BlueprintRead:
         missing = missing_requirements(self.session, self.group_id, blueprint)
+        state = blueprint_state_of(self.session, self.group_id, blueprint)
         return BlueprintRead(
             **blueprint.model_dump(),
             available=not missing,
             missing_requirements=missing,
             applied=already_applied(self.session, self.group_id, blueprint, None, integration_id),
-            outdated=outdated(self.session, self.group_id, blueprint),
+            outdated=state in UPDATE_STATES,
+            state=state,
+            edited=state in ("edited", "edited_update"),
         )
 
     @router.get("", response_model=list[BlueprintRead])
@@ -93,13 +97,20 @@ class BlueprintsController(BaseUserController):
         return result
 
     @router.post("/{slug}/update", response_model=BlueprintApplyResult)
-    def update_one(self, slug: str, params: dict | None = Body(None), source: str | None = Query(None)):
-        """Replace an applied workflow's steps with what its integration declares now."""
+    def update_one(
+        self,
+        slug: str,
+        params: dict | None = Body(None),
+        source: str | None = Query(None),
+        replace_edits: bool = Query(False, description="Go ahead although the workflow was changed in this workspace"),
+    ):
+        """Replace an applied workflow's steps with what its integration declares now. A workflow changed in
+        this workspace is left alone (`needs_confirmation` in the result) unless `replace_edits`."""
         blueprint = get_blueprint(slug, source=source)
         if blueprint is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No blueprint '{slug}'.")
         self.checks.can_manage_settings(self.group_id)
-        result = update_blueprint(self.session, self.group_id, blueprint, params)
+        result = update_blueprint(self.session, self.group_id, blueprint, params, replace_edits)
         self.session.commit()
         logger.info("Blueprint '%s' update in %s: updated=%s (%s)", slug, self.group_id, result.updated, result.detail)
         return result

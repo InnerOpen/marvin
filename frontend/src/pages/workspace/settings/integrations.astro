@@ -80,6 +80,14 @@ for (const b of blueprints) {
   needsByProvider.set(b.source, [...(needsByProvider.get(b.source) ?? []), b]);
 }
 
+// What the card says about an applied workflow that isn't `current` (see the API's `state`).
+const STATE_TAG: Record<string, string> = {
+  update: "Update available",
+  edited: "Edited in this workspace",
+  edited_update: "Edited here · update available",
+  differs: "Differs from the integration's version",
+};
+
 const KIND_NOUN: Record<string, string> = {
   entry_type: "entry type",
   entry_fields: "fields on a type",
@@ -208,8 +216,11 @@ function statusMeta(status: string): { text: string; cls: string } {
 
                     const row = (b: Blueprint) => (
                       <li class={b.applied ? (b.outdated ? "is-there is-outdated" : "is-there") : "is-missing"}>
-                        <span class="tick" title={b.outdated ? "Update available" : undefined}>{b.applied ? (b.outdated ? "↑" : "✓") : "○"}</span>
-                        <span class="needs-name">{b.name}</span>
+                        <span class="tick" title={b.outdated ? STATE_TAG[b.state ?? "update"] : undefined}>{b.applied ? (b.outdated ? "↑" : "✓") : "○"}</span>
+                        <span class="needs-name">
+                          {b.name}
+                          {b.applied && b.state && b.state !== "current" && <span class="needs-tag">{STATE_TAG[b.state]}</span>}
+                        </span>
                         <span class="needs-kind">{KIND_NOUN[b.kind] ?? b.kind}</span>
                         <span class="needs-desc">{b.description}</span>
                         {!b.applied && b.parameters.length > 0 && (
@@ -251,6 +262,7 @@ function statusMeta(status: string): { text: string; cls: string } {
                             data-source={it.provider}
                             data-slug={b.slug}
                             data-name={b.name}
+                            data-replaces={b.state === "update" ? undefined : "1"}
                             title="The integration ships a newer version of this workflow"
                           >
                             Update
@@ -588,6 +600,21 @@ function statusMeta(status: string): { text: string; cls: string } {
       <div class="panel-actions">
         <button type="button" class="button secondary" id="result-copy">Copy</button>
         <button type="button" class="button" id="result-done">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Update confirm (shown before an Update replaces changes made in this workspace) -->
+  <div id="update-overlay" class="overlay" hidden>
+    <div class="panel" role="dialog" aria-modal="true" aria-labelledby="update-title">
+      <div class="panel-head">
+        <h3 id="update-title">Replace your changes?</h3>
+        <button type="button" class="icon-btn" id="update-close" aria-label="Close">×</button>
+      </div>
+      <p class="panel-sub" id="update-sub"></p>
+      <div class="panel-actions">
+        <button type="button" class="button" id="update-go">Update and replace</button>
+        <button type="button" class="button secondary" id="update-cancel">Cancel</button>
       </div>
     </div>
   </div>
@@ -1033,29 +1060,48 @@ function statusMeta(status: string): { text: string; cls: string } {
     }),
   );
 
-  // A newer version of an applied workflow: replace its steps, after saying what that overwrites.
+  // A newer version of an applied workflow: replace its steps. One changed in this workspace (or of unknown
+  // history) asks first, in a panel, since Update would discard those changes; the server refuses without it too.
+  const updateOverlay = document.getElementById("update-overlay") as HTMLElement;
+  const updateSub = document.getElementById("update-sub") as HTMLElement;
+  let confirmUpdate: (() => void) | null = null;
+  const closeUpdate = () => {
+    updateOverlay.hidden = true;
+    confirmUpdate = null;
+  };
+  document.getElementById("update-close")?.addEventListener("click", closeUpdate);
+  document.getElementById("update-cancel")?.addEventListener("click", closeUpdate);
+  updateOverlay?.addEventListener("click", (e) => { if (e.target === updateOverlay) closeUpdate(); });
+  document.getElementById("update-go")?.addEventListener("click", () => {
+    const go = confirmUpdate;
+    closeUpdate();
+    go?.();
+  });
+
   document.querySelectorAll<HTMLButtonElement>("button.js-update-blueprint").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const ok = confirm(
-        `Update "${button.dataset.name}" to the integration's current version?\n\n` +
-          "Its steps are replaced — any edits you made to this workflow are lost. Whether it's switched on stays as it is.",
-      );
-      if (!ok) return;
+    const run = async (replaceEdits: boolean) => {
       button.disabled = true;
       button.textContent = "Updating…";
       try {
-        const result = await updateBlueprint(button.dataset.slug!, button.dataset.source);
+        const result = await updateBlueprint(button.dataset.slug!, button.dataset.source, replaceEdits);
         toast(result.updated ? `Updated ${result.name || result.slug}.` : `Not updated: ${result.detail}`, !!result.updated);
-        if (result.updated) setTimeout(reload, 900);
-        else {
-          button.disabled = false;
-          button.textContent = "Update";
+        if (result.updated) {
+          setTimeout(reload, 900);
+          return;
         }
       } catch (e) {
         toast(e instanceof Error ? e.message : String(e), false);
-        button.disabled = false;
-        button.textContent = "Update";
       }
+      button.disabled = false;
+      button.textContent = "Update";
+    };
+    button.addEventListener("click", () => {
+      if (!button.dataset.replaces) return void run(false);
+      updateSub.textContent =
+        `"${button.dataset.name}" was changed in this workspace. Updating replaces those changes with the integration's ` +
+        "current version. Whether it's switched on stays as it is.";
+      confirmUpdate = () => void run(true);
+      updateOverlay.hidden = false;
     });
   });
 
@@ -1108,6 +1154,7 @@ function statusMeta(status: string): { text: string; cls: string } {
   .conn-meta { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
   .needs li.is-outdated { opacity: 1; }
   .needs li.is-outdated .tick { color: var(--mv-accent, #2563eb); }
+  .needs-tag { margin-left: 0.4rem; padding: 0 0.4rem; border: 1px solid var(--line); border-radius: 999px; font-size: 0.7rem; font-weight: 400; color: var(--mv-muted, #6b7280); white-space: normal; }
   .needs li > .js-update-blueprint,
   .needs li > .js-apply-needs { grid-column: -2; grid-row: 1; justify-self: end; align-self: center; }
   .needs-params { display: flex; flex-wrap: wrap; gap: 6px 14px; grid-column: 2 / -2; grid-row: 2; }

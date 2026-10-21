@@ -369,6 +369,7 @@ def _create(
                 enabled=False,
                 definition=definition,
                 created_by=actor_id,
+                source_definition_hash=definition_hash(definition),
                 **provenance,
             )
         )
@@ -506,18 +507,59 @@ def _declared_and_existing(session, group_id, blueprint: Blueprint, params: dict
     return (substitute(blueprint.payload, resolved), row) if row is not None else (None, None)
 
 
-def outdated(session, group_id, blueprint: Blueprint, params: dict | None = None) -> bool:
-    """True when this workspace has the blueprint's workflow but its steps differ from what the
-    provider declares now (an older version — or one edited by hand, which Update would replace)."""
+def definition_hash(definition) -> str:
+    import hashlib
+
+    return hashlib.sha256(_canonical(definition or {}).encode()).hexdigest()
+
+
+def blueprint_state(row_definition, stored_hash: str | None, declared_definition) -> str:
+    """How an applied workflow stands against its provider's current version:
+
+    - `current`: the same steps as the provider declares now.
+    - `update`: untouched since install, and the provider has a newer version — safe to update.
+    - `edited`: changed in this workspace, the provider has nothing new — nothing to offer.
+    - `edited_update`: changed here *and* the provider has a newer version — updating replaces the edits.
+    - `differs`: no install hash recorded (installed before it was) — can't tell an edit from an old version.
+    """
+    have, declared = definition_hash(row_definition), definition_hash(declared_definition)
+    if have == declared:
+        return "current"
+    if not stored_hash:
+        return "differs"
+    if have == stored_hash:
+        return "update"
+    return "edited" if declared == stored_hash else "edited_update"
+
+
+# States in which an Update is worth offering. `edited` has nothing new to take.
+UPDATE_STATES = ("update", "edited_update", "differs")
+# States where Update would discard changes made here, so it needs `replace_edits`.
+REPLACES_EDITS = ("edited", "edited_update", "differs")
+
+
+def blueprint_state_of(session, group_id, blueprint: Blueprint, params: dict | None = None) -> str | None:
+    """`blueprint_state` for this workspace's copy, or None when there is nothing to compare."""
     declared, row = _declared_and_existing(session, group_id, blueprint, params)
     if row is None:
-        return False
-    return _canonical(row.definition or {}) != _canonical(declared.get("definition") or {})
+        return None
+    return blueprint_state(row.definition, row.source_definition_hash, declared.get("definition"))
 
 
-def update_blueprint(session, group_id, blueprint: Blueprint, params: dict | None = None) -> BlueprintApplyResult:
+def outdated(session, group_id, blueprint: Blueprint, params: dict | None = None) -> bool:
+    """True when an Update is worth offering: the provider declares something this workspace's workflow
+    doesn't have, and it isn't an edited copy with nothing new to take (see `blueprint_state`)."""
+    return blueprint_state_of(session, group_id, blueprint, params) in UPDATE_STATES
+
+
+def update_blueprint(session, group_id, blueprint: Blueprint, params: dict | None = None, replace_edits: bool = False) -> BlueprintApplyResult:
     """Replace an applied workflow's steps with the provider's current version. Whether it is
-    switched on is kept; the new definition must pass structural validation first."""
+    switched on is kept; the new definition must pass structural validation first.
+
+    A workflow changed in this workspace (`edited`, `edited_update`) or of unknown history (`differs`)
+    is refused unless `replace_edits`: the update would silently discard those changes. `edited` has
+    nothing new to take, so even then it is only rewritten when forced — that is how someone returns an
+    edited copy to the integration's version."""
     result = BlueprintApplyResult(slug=blueprint.slug, kind=blueprint.kind, created=False)
     if blueprint.kind not in UPDATABLE_KINDS:
         result.detail = f"a {blueprint.kind.replace('_', ' ')} can't be updated from its blueprint"
@@ -533,10 +575,19 @@ def update_blueprint(session, group_id, blueprint: Blueprint, params: dict | Non
     if issues:
         result.detail = f"the new workflow definition is invalid: {issues}"
         return result
-    if _canonical(row.definition or {}) == _canonical(definition):
+    state = blueprint_state(row.definition, row.source_definition_hash, definition)
+    if state == "current":
         result.detail = "already up to date"
+        if not row.source_definition_hash:
+            row.source_definition_hash = definition_hash(definition)  # it matches the provider's, so it is unedited
+            session.flush()
+        return result
+    if state in REPLACES_EDITS and not replace_edits:
+        result.needs_confirmation = True
+        result.detail = "This workflow was changed in this workspace; updating replaces those changes."
         return result
     row.definition = definition
+    row.source_definition_hash = definition_hash(definition)
     session.flush()
     result.slug, result.name, result.updated = row.slug, row.name, True
     result.detail = "updated to the integration's current version"

@@ -14,6 +14,8 @@ export interface WorkflowRow {
   sourceRecipe?: string | null;
   sourceIntegrationId?: string | null;
   sourceBlueprint?: string | null;
+  /** An integration's workflow whose steps were changed in this workspace since it was installed. */
+  editedSinceInstall?: boolean;
   /** When its newest run started, and how that run went (running | success | partial | failed | cancelled); null: never run. */
   lastRunAt?: string | null;
   lastRunStatus?: string | null;
@@ -139,6 +141,13 @@ export function attentionHtml(wf: WorkflowRow): string {
   return why ? `<div class="wf-attention" title="${esc(why)}"><strong>Needs a look</strong> · ${esc(why)}</div>` : "";
 }
 
+/** A small "Edited" tag on an integration's workflow that was changed here (its Update on the integration then asks first). */
+export function editedHtml(wf: WorkflowRow): string {
+  return wf.editedSinceInstall
+    ? ' <span class="wf-edited" title="Changed in this workspace since the integration installed it">Edited</span>'
+    : "";
+}
+
 /** "Last run 2 h ago · failed" (failed ones marked), or "Not run yet". */
 export function lastRunHtml(wf: WorkflowRow, now: Date = new Date()): string {
   const when = timeAgo(wf.lastRunAt, now);
@@ -156,7 +165,7 @@ export function workflowCardHtml(
 ): string {
   return `<article class="org-card wf-card${wf.enabled ? "" : " off"}${options.linked ? " linked" : ""}" data-id="${esc(wf.id)}">
     <div class="org-card-main">
-      <div class="org-card-title"><strong>${esc(wf.name)}</strong></div>
+      <div class="org-card-title"><strong>${esc(wf.name)}</strong>${editedHtml(wf)}</div>
       <div class="org-card-sub">${wf.enabled ? "" : "Off · "}${esc(options.summary)}</div>
       ${attentionHtml(wf)}
       ${lastRunHtml(wf, options.now)}

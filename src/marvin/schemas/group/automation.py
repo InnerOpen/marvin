@@ -53,6 +53,8 @@ class AutomationRead(_MarvinModel):
     """Read-only: the Workflow Library recipe it was made from, if it was."""
     source_recipe_version: str | None = None
     """Read-only: that recipe's version when it was made (the Library says when the recipe has changed since)."""
+    edited_since_install: bool = False
+    """Read-only: an integration's workflow whose steps were changed in this workspace since it was installed."""
     last_run_at: datetime | None = None
     """Read-only, on the list only: when its newest run started (null: it has never run)."""
     last_run_status: str | None = None

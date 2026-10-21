@@ -138,8 +138,22 @@ class WorkspaceAutomationModel(SqlAlchemyBase, BaseMixins, InstalledByMixin):
     # recipe_version) — so the Library shows where a recipe is in use, and when the recipe has changed since.
     source_recipe: Mapped[str | None] = mapped_column(sa.String(128), nullable=True, index=True)
     source_recipe_version: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
+    # Installed by a blueprint: sha256 of the definition as it was installed (services/blueprints/apply:
+    # definition_hash). A definition that no longer hashes to this was edited here. NULL: installed before
+    # this was recorded, or not from a blueprint.
+    source_definition_hash: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
 
     __table_args__ = (sa.UniqueConstraint("group_id", "slug", name="uq_automations_group_slug"),)
+
+    @property
+    def edited_since_install(self) -> bool:
+        """Installed by a blueprint, and its definition no longer matches what was installed. False when that
+        isn't known (no hash recorded) — the integration card's `differs` covers that case."""
+        if not (self.source_blueprint and self.source_definition_hash):
+            return False
+        from marvin.services.blueprints.apply import definition_hash
+
+        return definition_hash(self.definition) != self.source_definition_hash
 
     @auto_init()
     def __init__(self, session: Session, **kwargs) -> None:

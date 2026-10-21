@@ -7,6 +7,7 @@ import { describe, test } from "node:test";
 import { organize, statusOptions } from "./organizedList.ts";
 import {
   attentionHtml,
+  editedHtml,
   attentionReason,
   humanInterval,
   STARTS_OPTIONS,
@@ -209,5 +210,13 @@ describe("the Needs a look marker", () => {
       workflowCardHtml(wf({ type: "manual" }), { summary: "", details: "", linked: false }),
       /wf-attention/,
     );
+  });
+});
+
+describe("the Edited tag", () => {
+  test("only an integration workflow changed here carries it", () => {
+    assert.match(editedHtml(wf({}, { editedSinceInstall: true })), /class="wf-edited".*>Edited</);
+    assert.equal(editedHtml(wf({}, { editedSinceInstall: false })), "");
+    assert.equal(editedHtml(wf({})), "");
   });
 });

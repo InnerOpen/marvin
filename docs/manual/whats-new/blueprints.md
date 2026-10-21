@@ -54,7 +54,19 @@ Status buckets are deliberately absent: every workspace already gets the locked 
 
 ### Update an applied workflow
 
-When an integration ships a newer version of a workflow you applied, its row shows ↑ and an **Update** button. Update replaces the workflow's definition with the integration's current one, discarding any edits you made to it, and keeps whether it is switched on. Only workflows can be updated; everything else stays as you have it.
+When an integration ships a newer version of a workflow you applied, its row shows ↑ and an **Update** button. Update replaces the workflow's definition with the integration's current one and keeps whether it is switched on. Only workflows can be updated; everything else stays as you have it.
+
+Marvin remembers the version it installed, so it can tell a new version from your own edits:
+
+| Row says | Meaning | Update |
+|---|---|---|
+| ✓ | Same as the integration's version. | none |
+| ↑ Update available | Untouched since install; the integration has a newer version. | Replaces the steps. |
+| Edited in this workspace | You changed it and the integration has nothing newer. | none offered |
+| Edited here · update available | You changed it and there is a newer version. | Asks first: your changes are replaced. |
+| Differs from the integration's version | Installed before Marvin tracked edits, so an old version can't be told from an edit. | Asks first. It records the version, so later rows read as above. |
+
+An edited workflow also carries an **Edited** tag on the Workflows page. The API refuses an update that would replace your changes unless `replace_edits=true` is sent (the result has `needs_confirmation`).
 
 ### Apply semantics
 
@@ -71,14 +83,14 @@ Workspace-scoped, under `/api/groups/blueprints`. Apply and update need workspac
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| GET | `` | Catalog annotated per workspace: `applied`, `outdated`, `available`, `missing_requirements`. Filters `?kind=`, `?category=`, `?source=core|<provider>`, `?integration_id=` |
+| GET | `` | Catalog annotated per workspace: `applied`, `outdated`, `state` (`current`, `update`, `edited`, `edited_update`, `differs`), `edited`, `available`, `missing_requirements`. Filters `?kind=`, `?category=`, `?source=core|<provider>`, `?integration_id=` |
 | GET | `/categories` | Category names in catalog order, core first then each provider |
 | GET | `/{slug}?source=` | One blueprint with its payload |
 | POST | `/{slug}/apply?source=&integration_id=` | Body: the `params` dict, e.g. `{"entry_type": "post"}`. Returns `BlueprintApplyResult` |
 | POST | `/apply?source=` | Body: `slugs` list and `params` keyed by slug. Returns a list of results, applied in dependency order |
-| POST | `/{slug}/update?source=` | Workflows only: replace the applied workflow's definition with the declared one. Returns `BlueprintApplyResult` with `updated` |
+| POST | `/{slug}/update?source=&replace_edits=` | Workflows only: replace the applied workflow's definition with the declared one. A workflow changed in the workspace is refused (`needs_confirmation`) unless `replace_edits=true`. Returns `BlueprintApplyResult` with `updated` |
 
-A parameterised blueprint is judged `applied` by its default parameter values; one with a required parameter that has no default reads as not applied. `outdated` is true when an applied workflow's definition differs from what the provider declares now. Slugs are unique per source; pass `source` to disambiguate.
+A parameterised blueprint is judged `applied` by its default parameter values; one with a required parameter that has no default reads as not applied. `outdated` is true when an Update is worth offering: state `update`, `edited_update` or `differs`. Slugs are unique per source; pass `source` to disambiguate.
 
 ```json
 {"slug": "recently-published", "kind": "collection", "created": true, "updated": false, "detail": "", "name": "Recently published"}
