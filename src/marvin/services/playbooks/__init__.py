@@ -399,6 +399,21 @@ def catalog_block(playbooks: Iterable[Playbook], can_propose: bool = False) -> s
     )
 
 
+def frame_block(session, group_id, scope: PlaybookScope, tool_names: Iterable[str]) -> str:
+    """The Playbook sections of a run's system frame, shared by every way an agent runs (Ask and the bubble, ``run_agent``): the
+    catalog of what ``scope`` may load (when ``load_playbook`` is among ``tool_names`` and there is any), then the agent's
+    "always load" Playbooks in full. "" when there is nothing to add."""
+    names = set(tool_names)
+    parts = []
+    if LOAD_TOOL in names:
+        can_propose = "propose_playbook_change" in names or "create_draft" in names
+        if catalog := catalog_block(published_playbooks(session, group_id, scope), can_propose):
+            parts.append(catalog)
+    if always := always_block(always_playbooks(session, group_id, scope)):
+        parts.append(always)
+    return "\n\n".join(parts)
+
+
 def playbooks_used(steps) -> list[dict]:
     """The Playbooks a run loaded, in first-load order, as ``{"id", "name"}``, read from its trace (a refused load is not a use)."""
     used: dict[str, dict] = {}

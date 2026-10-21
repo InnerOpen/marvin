@@ -1903,17 +1903,12 @@ class AIOperationsController(BaseUserController):
         hand off or refer to come last ("" when it can do neither). The agent's Playbook settings (`spec`, else the stored
         agent `agent_slug`) narrow the catalog to its chosen set and put its "always load" Playbooks in full after it."""
         from marvin.services.ai.agents import list_agents, resolve_agent, roster_block, workspace_preamble
-        from marvin.services.playbooks import LOAD_TOOL, PlaybookScope, always_block, always_playbooks, catalog_block, published_playbooks
+        from marvin.services.playbooks import PlaybookScope, frame_block
 
         preamble = workspace_preamble(self._workspace_name(), tool_names)
         spec = spec or resolve_agent(self.session, self.group_id, agent_slug)
-        scope = PlaybookScope.of(getattr(spec, "playbooks", None))
-        if LOAD_TOOL in tool_names:  # the Playbooks this agent may load; nothing at all when there are none
-            can_propose = "propose_playbook_change" in tool_names or "create_draft" in tool_names
-            if catalog := catalog_block(published_playbooks(self.session, self.group_id, scope), can_propose):
-                preamble += "\n\n" + catalog
-        if always := always_block(always_playbooks(self.session, self.group_id, scope)):
-            preamble += "\n\n" + always
+        if playbooks := frame_block(self.session, self.group_id, PlaybookScope.of(getattr(spec, "playbooks", None)), tool_names):
+            preamble += "\n\n" + playbooks
         roster = ""
         if "run_agent" in tool_names or "suggest_agent" in tool_names:
             specs = list_agents(self.session, self.group_id)

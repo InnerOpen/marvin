@@ -353,3 +353,38 @@ def test_playbooks_in_effect_adds_the_always_loaded_ones_inside_the_chosen_set(w
     scope = PlaybookScope(names=("always-one", "thread-one"), always=("always-one",))
     assert [p.name for p in playbooks_in_effect(db_session, workspace.gid, (), thread, scope)] == ["always-one", "thread-one"]
     assert [p.name for p in playbooks_in_effect(db_session, workspace.gid, (), thread)] == ["thread-one", "outside-one"]
+
+
+# ── run_agent (the stateless MCP / API runner) frames the run like Ask does ───
+
+
+def test_run_agent_gets_the_catalog_the_always_load_and_the_chosen_set(workspace, db_session, model, monkeypatch):
+    import json
+
+    _playbook(db_session, workspace.gid, "alpha-voice", description="Voice for alpha notes.", body="ALPHA STEPS")
+    _playbook(db_session, workspace.gid, "beta-voice", description="Voice for beta notes.", body="BETA STEPS")
+    _manual(db_session, workspace.gid)
+    _agent(workspace, playbooks={"names": ["alpha-voice", MANUAL], "always": ["alpha-voice"]})
+    monkeypatch.setattr("marvin.services.ai.factory.get_workspace_ai_provider", lambda session, gid: model)
+    monkeypatch.setattr("marvin.services.ai.tools.builtins_agents._default_model", lambda ctx: "m")
+    tool_results = []
+    ask = model.complete_with_tools
+
+    def recording(messages, *a, **kw):
+        if messages[-1].role == "tool":
+            tool_results.append(messages[-1].content)
+        return ask(messages, *a, **kw)
+
+    monkeypatch.setattr(model, "complete_with_tools", recording)
+
+    out = _invoke(workspace, "run_agent", {"agent": "writer", "message": "hello"}, WorkspaceRole.AUTHOR)
+    assert "error" not in out, out
+    system = model.systems[-1]
+    assert "- alpha-voice:" in _catalog(system) and "beta-voice" not in system and MANUAL not in _catalog(system)  # chosen set; manual-only unlisted
+    assert "## Playbooks to follow in every conversation" in system and "ALPHA STEPS" in system
+
+    # A manual-only Playbook loads when this very message names it; one outside the chosen set never does.
+    _invoke(workspace, "run_agent", {"agent": "writer", "message": f"please load playbook {MANUAL}"}, WorkspaceRole.AUTHOR)
+    assert "Refund within 30 days." in tool_results[-2]
+    _invoke(workspace, "run_agent", {"agent": "writer", "message": "please load playbook beta-voice"}, WorkspaceRole.AUTHOR)
+    assert "BETA STEPS" not in json.dumps(tool_results) and "error" in tool_results[-2]
