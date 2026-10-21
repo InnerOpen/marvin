@@ -227,6 +227,63 @@ def create_draft(ctx: ToolContext, args: dict) -> str:
 
 
 @register_tool(
+    name="propose_playbook_change",
+    description=(
+        "Propose a change to a PUBLISHED Playbook: saves a separate inbox draft that names the Playbook it would replace, "
+        "for an admin to compare and publish (publishing it updates that Playbook; until then nothing changes). Pass only "
+        "what should differ; the rest is copied from the live one. Use it when you notice a better procedure or a correction "
+        "people keep making. For a brand-new Playbook use create_draft with entry_type 'playbook'. "
+        "The result's reviewLink is a finished markdown link — give it to the user verbatim."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "playbook": {"type": "string", "description": "the published Playbook's name"},
+            "description": {"type": "string", "description": "the new one-line description"},
+            "body": {"type": "string", "description": "the new full instructions (markdown)"},
+            "license": {"type": "string"},
+            "compatibility": {"type": "string"},
+            "allowed_tools": {"type": "string", "description": "space-separated tool names"},
+            "manual_only": {"type": "boolean"},
+            "reason": {"type": "string", "description": "why: what you noticed, for the reviewer"},
+        },
+        "required": ["playbook"],
+    },
+    min_role=ROLE_EDITOR,
+    read_only=False,
+)
+def propose_playbook_change(ctx: ToolContext, args: dict) -> str:
+    from marvin.db.models.platform.entries import Entries
+    from marvin.db.models.platform.entry_types import EntryTypes
+    from marvin.services.playbooks import CHANGE_KEYS, CHANGE_SUFFIX, REPLACES_KEY, ensure_playbook_type, published_playbook
+
+    name = str(args.get("playbook") or "").strip().lower()
+    live = published_playbook(ctx.session, ctx.group_id, name)
+    if live is None:
+        return json.dumps({"error": f"'{name}' is not a published Playbook (list_playbooks lists them). For a new one use create_draft."})
+    row = ctx.session.get(Entries, _uuid.UUID(live.id))
+    data = {k: v for k, v in (row.data_json or {}).items() if k in CHANGE_KEYS}
+    changes = {k: args[k] for k in CHANGE_KEYS if k in args and args[k] != data.get(k)}
+    if not changes:
+        return json.dumps({"error": "nothing differs from the published Playbook: pass the description, body or other field you would change"})
+    taken = {s for (s,) in ctx.session.query(Entries.slug).filter(Entries.group_id == ctx.group_id, Entries.slug.like(f"{name}{CHANGE_SUFFIX}%"))}
+    title = f"{name}{CHANGE_SUFFIX}"
+    for n in range(2, 1000):
+        if title not in taken:
+            break
+        title = f"{name}{CHANGE_SUFFIX}-{n}"
+    et = ctx.session.get(EntryTypes, ensure_playbook_type(ctx.session, ctx.group_id))
+    try:
+        result = _draft_service(ctx).save_draft(
+            entry_type=et, title=title, summary=str(args.get("reason") or "").strip() or None,
+            fields={**data, **changes, "name": title, REPLACES_KEY: name},
+        )  # fmt: skip
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+    return json.dumps({**result, "replaces": name, "note": f"Nothing changed yet: an admin publishes this draft to update '{name}'."})
+
+
+@register_tool(
     name="update_draft",
     description=(
         "Change some fields of an inbox, draft or needs-review entry to exact values (what the user gave, or what an "

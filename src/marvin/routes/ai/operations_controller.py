@@ -1879,7 +1879,8 @@ class AIOperationsController(BaseUserController):
 
         preamble = workspace_preamble(self._workspace_name(), tool_names)
         if LOAD_TOOL in tool_names:  # the Playbooks this agent may load; nothing at all when there are none
-            if catalog := catalog_block(published_playbooks(self.session, self.group_id)):
+            can_propose = "propose_playbook_change" in tool_names or "create_draft" in tool_names
+            if catalog := catalog_block(published_playbooks(self.session, self.group_id), can_propose):
                 preamble += "\n\n" + catalog
         roster = ""
         if "run_agent" in tool_names or "suggest_agent" in tool_names:

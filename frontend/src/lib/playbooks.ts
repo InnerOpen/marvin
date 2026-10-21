@@ -34,6 +34,8 @@ export interface PlaybookForm {
   allowedTools: string;
   manualOnly: boolean;
   body: string;
+  /** On a proposed change: the name of the published Playbook it would replace (publishing it updates that one). */
+  replaces?: string;
 }
 
 export const EMPTY_FORM: PlaybookForm = { name: "", description: "", license: "", compatibility: "", allowedTools: "", manualOnly: false, body: "" };
@@ -209,6 +211,7 @@ export function formFromEntry(entry: EntryLike | null | undefined): PlaybookForm
     allowedTools: text(data.allowed_tools),
     manualOnly: data.manual_only === true,
     body: text(data.body),
+    ...(text(data.replaces) ? { replaces: text(data.replaces) } : {}),
   };
 }
 
@@ -223,6 +226,7 @@ export function entryPayload(form: PlaybookForm, entryTypeId: string | null, sta
   ];
   for (const [key, value] of optional) if (value) dataJson[key] = value;
   dataJson.body = form.body;
+  if (form.replaces) dataJson.replaces = form.replaces; // a proposed change stays one when it is saved here
   return {
     ...(entryTypeId ? { entryTypeId } : {}),
     title: name,
