@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.34 (2026-10-21)
+
+### Bug Fixes
+
+- **approvals**: Approve and Deny say at once that the run is going on
+  ([`30934db`](https://github.com/InnerOpen/marvin/commit/30934db242fe9fed1fbf093c814c243391bb75fa))
+
+
 ## v1.1.0-rc.33 (2026-10-21)
 
 ### Bug Fixes
