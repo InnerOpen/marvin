@@ -7,7 +7,7 @@ export interface ReviewLink { target: string; kind: "url" | "file"; found: boole
 export interface ReviewFile { path: string; size: number; script: boolean; referenced: boolean }
 export interface ReviewWarning { kind: string; file: string; line: number; excerpt: string }
 export interface ImportReview {
-  source?: { kind?: string; filename?: string; importedAt?: string };
+  source?: { kind?: string; filename?: string; importedAt?: string; url?: string; repo?: string; path?: string; commit?: string };
   tools: ReviewTool[];
   narrowsTools: boolean;
   links: ReviewLink[];
@@ -65,7 +65,33 @@ export function sizeLabel(bytes: number): string {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+export interface SourceView {
+  /** "owner/repo", plus the folder when the skill is not at the repository's root. */
+  label: string;
+  /** The first 7 characters of the commit the import is pinned to. */
+  commit: string;
+  fullCommit: string;
+  /** The folder as it was at that commit, so the link shows exactly what was imported. */
+  href: string;
+}
+
+const COMMIT = /^[0-9a-f]{40}$/;
+const REPO = /^[\w.-]+\/[\w.-]+$/;
+
+/** Where a GitHub import came from, or null for an upload (or a value that isn't a pinned GitHub source). */
+export function sourceView(source: ImportReview["source"]): SourceView | null {
+  if (source?.kind !== "github" || !source.repo || !REPO.test(source.repo) || !source.commit || !COMMIT.test(source.commit)) return null;
+  const path = (source.path ?? "").replace(/^\/+|\/+$/g, "");
+  return {
+    label: path ? `${source.repo}, ${path}` : source.repo,
+    commit: source.commit.slice(0, 7),
+    fullCommit: source.commit,
+    href: `https://github.com/${source.repo}/tree/${source.commit}${path ? `/${path.split("/").map(encodeURIComponent).join("/")}` : ""}`,
+  };
+}
+
 export interface ReviewView {
+  source: SourceView | null;
   /** One sentence for the top of the panel: what needs a look. */
   headline: string;
   tone: "ok" | "attention";
@@ -91,6 +117,7 @@ export function reviewView(review: ImportReview): ReviewView {
   if (broken) bits.push(plural(broken, "linked file") + " not in the import");
   if (review.skipped.length) bits.push(plural(review.skipped.length, "file") + " left out");
   return {
+    source: sourceView(review.source),
     headline: bits.length ? `Look at before publishing: ${bits.join(", ")}.` : "Nothing flagged. Still read it before you publish.",
     tone: bits.length ? "attention" : "ok",
     tools: review.tools.map((t) => ({
@@ -119,6 +146,14 @@ export function reviewView(review: ImportReview): ReviewView {
     warningsMore: review.warningsOmitted ? `${plural(review.warningsOmitted, "more warning")} not shown.` : "",
     disclaimer: review.disclaimer,
   };
+}
+
+export const GITHUB_IMPORT_PLACEHOLDER = "https://github.com/owner/repo/tree/main/skills/name";
+
+/** The link typed into the GitHub import field, trimmed; null when there is nothing to send. */
+export function githubLink(raw: string): string | null {
+  const text = raw.trim();
+  return text ? text : null;
 }
 
 /** The line an import failure shows (a 4xx carries the backend's own reason). */

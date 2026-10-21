@@ -13,6 +13,12 @@ const { view, status = null } = Astro.props;
 <section class="section-card pb-review" data-testid="playbook-review" data-tone={view.tone}>
   <h3>Import review</h3>
   <p class:list={["pb-headline", view.tone]}>{view.headline}</p>
+  {view.source && (
+    <p class="pb-sub" data-testid="review-source">
+      Imported from <a href={view.source.href} rel="noopener noreferrer" target="_blank">{view.source.label}</a>, pinned to commit{" "}
+      <code title={view.source.fullCommit}>{view.source.commit}</code>.
+    </p>
+  )}
   {status !== "published" && <p class="pb-sub">This is a draft. Agents don't see it until an Admin publishes it.</p>}
   <p class="pb-disclaimer" data-testid="review-disclaimer">{view.disclaimer}</p>
 

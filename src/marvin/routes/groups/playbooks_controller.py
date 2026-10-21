@@ -13,11 +13,12 @@ from marvin.db.models.groups.ai_threads import AIThreadModel
 from marvin.db.models.users.roles import WorkspaceRole
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import has_workspace_role, require_workspace_role
-from marvin.schemas.group.playbooks import PlaybookImported, PlaybookItem, PlaybookList, PlaybookType, PlaybookUse, PlaybookUses
+from marvin.schemas.group.playbooks import PlaybookGithubImport, PlaybookImported, PlaybookItem, PlaybookList, PlaybookType, PlaybookUse, PlaybookUses
 from marvin.services import playbooks
 from marvin.services.assets.asset_storage_service import AssetStorageService
 from marvin.services.entries.entry_service import EntryService
 from marvin.services.playbooks import exporter, importer
+from marvin.services.playbooks import github as github_import
 from marvin.services.playbooks.memory import recent_uses
 
 router = APIRouter(prefix="/groups/playbooks")
@@ -108,6 +109,34 @@ class PlaybooksController(BaseUserController):
             )
         except importer.ImportRefused as e:
             raise HTTPException(status_code=e.status_code, detail=str(e)) from e
+        return self._imported(done)
+
+    @router.post("/import-github", response_model=PlaybookImported, status_code=201, summary="Import a skill from a GitHub link as a draft Playbook")
+    def import_playbook_from_github(self, body: PlaybookGithubImport) -> PlaybookImported:
+        """Like the file import, from a public GitHub link to a skill folder or its ``SKILL.md`` (EDITOR and above). The link is pinned
+        to the commit it names now; the commit is recorded on the draft (``metadata.source``) and shown in its review. Only github.com
+        is fetched, with no token, through the guarded HTTP client. 400 for a link that is not a skill, 404 not found, 413 too big,
+        429 GitHub's rate limit, 502 GitHub unreachable, 409 name taken."""
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.EDITOR)
+        try:
+            package, source = github_import.fetch_package(body.url)
+            done = importer.import_package(
+                self.session,
+                package,
+                group_id=self.group_id,
+                user_id=self.user.id,
+                filename=source["repo"],
+                entries=EntryService(self.session, self.group_id, event_bus=self.event_bus, actor_id=self.user.id),
+                assets=AssetStorageService.for_workspace(self.repos),
+                name=body.name,
+                source=source,
+            )
+        except importer.ImportRefused as e:
+            raise HTTPException(status_code=e.status_code, detail=str(e)) from e
+        return self._imported(done)
+
+    @staticmethod
+    def _imported(done) -> PlaybookImported:
         return PlaybookImported(
             id=done.entry.id,
             name=done.entry.slug,

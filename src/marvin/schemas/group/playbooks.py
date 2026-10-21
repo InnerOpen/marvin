@@ -42,6 +42,13 @@ class PlaybookType(_MarvinModel):
     entry_type_id: UUID4
 
 
+class PlaybookGithubImport(_MarvinModel):
+    url: str
+    """A public github.com link to a skill folder (``…/tree/<branch>/<folder>``), a ``SKILL.md`` (``…/blob/…``) or a repository root."""
+    name: str | None = None
+    """A new name when the skill's own is already taken."""
+
+
 class PlaybookImported(_MarvinModel):
     """What an import made: the draft's id and name, how many reference files it kept, and the review of what it asks for."""
 

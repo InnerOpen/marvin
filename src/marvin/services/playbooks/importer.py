@@ -48,6 +48,7 @@ UPLOAD_MAX = 10 * 1024 * 1024
 MEMBER_MAX = 5 * 1024 * 1024
 TOTAL_MAX = 25 * 1024 * 1024
 MEMBERS_MAX = 500
+ARCHIVE_MAX = 30 * 1024 * 1024  # a whole repository archive from GitHub (only the skill folder in it is read, under the limits above)
 SKILL_FILE = "SKILL.md"
 
 SCRIPT_DIR = "scripts"
@@ -129,13 +130,21 @@ def _read_bounded(zf: zipfile.ZipFile, info: zipfile.ZipInfo, path: str, used: i
     return data
 
 
-def _read_zip(data: bytes) -> Package:
+def _read_zip(data: bytes, subdir: str | None = None) -> Package:
+    """A zip as a Package. With ``subdir`` (the GitHub import) the zip is a whole repository archive: its one top folder is
+    dropped and only the files under ``subdir`` ('' for the repository root) are read; the rest is never opened and counts
+    toward no limit. SKILL.md must then sit exactly at ``subdir``."""
     try:
         zf = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile:
         raise ImportRefused("That is not a readable zip file.") from None
     with zf:
         infos = zf.infolist()
+        prefix = None
+        if subdir is not None:
+            top = next((p.split("/")[0] for i in infos if (p := i.filename.replace("\\", "/").lstrip("/")) and "/" in p), "")
+            prefix = f"{top}/{subdir}/" if subdir else f"{top}/"
+            infos = [i for i in infos if i.filename.replace("\\", "/").startswith(prefix)]
         if len(infos) > MEMBERS_MAX:
             raise ImportRefused(f"The zip holds {len(infos)} entries; at most {MEMBERS_MAX} are accepted.", 413)
         if sum(i.file_size for i in infos) > TOTAL_MAX * 4:  # a declared size is only a hint, but an absurd one is enough to refuse
@@ -146,6 +155,8 @@ def _read_zip(data: bytes) -> Package:
             path = _safe_name(info.filename)
             if path is None:
                 raise ImportRefused(f"The zip holds an unsafe path ('{info.filename[:80]}'): paths must stay inside the folder.")
+            if prefix is not None:
+                path = path[len(prefix) :]
             if not path or info.is_dir() or _junk(path):
                 continue
             if info.flag_bits & 0x1:
@@ -155,15 +166,20 @@ def _read_zip(data: bytes) -> Package:
                 continue
             members.append((path, info))
 
-        skills = [p for p, _ in members if posixpath.basename(p) == SKILL_FILE and p.count("/") <= 1]
-        if not skills:
-            raise ImportRefused("The zip has no SKILL.md at its top or in its one top-level folder.")
-        if SKILL_FILE in skills:
+        if prefix is not None:
+            if SKILL_FILE not in {p for p, _ in members}:
+                raise ImportRefused("That folder has no SKILL.md, so it is not a skill.")
             root = ""
-        elif len(skills) == 1:
-            root = posixpath.dirname(skills[0]) + "/"
         else:
-            raise ImportRefused(f"The zip holds more than one skill ({len(skills)} SKILL.md files); import them one at a time.")
+            skills = [p for p, _ in members if posixpath.basename(p) == SKILL_FILE and p.count("/") <= 1]
+            if not skills:
+                raise ImportRefused("The zip has no SKILL.md at its top or in its one top-level folder.")
+            if SKILL_FILE in skills:
+                root = ""
+            elif len(skills) == 1:
+                root = posixpath.dirname(skills[0]) + "/"
+            else:
+                raise ImportRefused(f"The zip holds more than one skill ({len(skills)} SKILL.md files); import them one at a time.")
 
         used, files, text = 0, [], ""
         for path, info in members:
@@ -185,7 +201,13 @@ def _read_zip(data: bytes) -> Package:
                 skipped.append({"path": rel[:80], "reason": str(e)})
                 continue
             files.append(PackageFile(rel, raw))
-    return Package("zip", _parse(text), text, sorted(files, key=lambda f: f.path), skipped)
+    return Package("zip" if subdir is None else "github", _parse(text), text, sorted(files, key=lambda f: f.path), skipped)
+
+
+def read_repo_archive(data: bytes, subdir: str) -> Package:
+    """A repository archive (a GitHub zipball) narrowed to the skill folder at ``subdir``. Same limits as ``read_package``,
+    in memory only. Raises ImportRefused."""
+    return _read_zip(data, subdir)
 
 
 def read_package(filename: str, data: bytes) -> Package:
@@ -356,11 +378,19 @@ def import_playbook(session, *, group_id, user_id, filename: str, data: bytes, e
     """Create a draft Playbook from an upload. ``entries`` is an ``EntryService`` and ``assets`` an ``AssetStorageService`` of
     this workspace. Raises ImportRefused (bad package, name taken, too big) before anything is written; a file the asset
     store turns down is skipped and listed in the review rather than failing the import."""
+    package = read_package(filename, data)
+    return import_package(session, package, group_id=group_id, user_id=user_id, filename=filename, entries=entries, assets=assets, name=name)
+
+
+def import_package(
+    session, package: Package, *, group_id, user_id, filename: str, entries, assets, name: str | None = None, source: dict | None = None
+) -> Imported:
+    """``import_playbook`` from a Package already read (the upload, or a GitHub folder). ``source`` is recorded on the review
+    and the entry (``metadata_json["source"]``) as the draft's provenance."""
     from marvin.schemas.platform import AssetUploadRequest
     from marvin.services.ai.tools import list_tools
     from marvin.services.assets.asset_storage_service import AssetRejected
 
-    package = read_package(filename, data)
     if name is not None and name.strip():
         try:
             package.doc.name = check_name(name.strip())
@@ -373,6 +403,9 @@ def import_playbook(session, *, group_id, user_id, filename: str, data: bytes, e
     review = review_package(package, {t.name for t in list_tools()})
     review["source"] = {"kind": package.kind, "filename": (filename or "")[:200], "importedAt": datetime.now(UTC).isoformat()}
     metadata = {"importReview": review}
+    if source:
+        review["source"] = {**review["source"], **source}
+        metadata["source"] = dict(source)
     if doc.extra:
         metadata["frontmatterExtra"] = _json_safe(doc.extra)
     entry = entries.create(

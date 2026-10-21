@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { importError, NO_NARROWING_NOTE, NOT_A_MARVIN_TOOL, reviewFromMetadata, reviewView, sizeLabel, warningLabel } from "./playbookReview.ts";
+import { githubLink, importError, sourceView, NO_NARROWING_NOTE, NOT_A_MARVIN_TOOL, reviewFromMetadata, reviewView, sizeLabel, warningLabel } from "./playbookReview.ts";
 
 const review = (over = {}) => ({
   tools: [],
@@ -114,4 +114,33 @@ describe("importError", () => {
     assert.equal(importError(new Error("boom")), "boom");
     assert.equal(importError(null), "The import failed.");
   });
+});
+
+describe("sourceView", () => {
+  const SHA = "0123456789abcdef0123456789abcdef01234567";
+  test("a GitHub import names the repo, folder and pinned commit, and links to that commit", () => {
+    const v = sourceView({ kind: "github", repo: "o/r", path: "skills/my skill", commit: SHA, url: "https://github.com/o/r/tree/main/x" });
+    assert.deepEqual(v, {
+      label: "o/r, skills/my skill",
+      commit: "0123456",
+      fullCommit: SHA,
+      href: `https://github.com/o/r/tree/${SHA}/skills/my%20skill`,
+    });
+    assert.equal(sourceView({ kind: "github", repo: "o/r", path: "", commit: SHA })?.href, `https://github.com/o/r/tree/${SHA}`);
+  });
+  test("an upload, or a source that is not a pinned GitHub one, shows nothing", () => {
+    assert.equal(sourceView({ kind: "zip", filename: "a.zip" }), null);
+    assert.equal(sourceView(undefined), null);
+    assert.equal(sourceView({ kind: "github", repo: "o/r", commit: "main" }), null);
+    assert.equal(sourceView({ kind: "github", repo: "javascript:alert(1)//x", commit: SHA }), null);
+  });
+  test("the review view carries it", () => {
+    const review = reviewFromMetadata({ importReview: { tools: [], files: [], source: { kind: "github", repo: "o/r", path: "a", commit: SHA } } });
+    assert.equal(reviewView(review).source?.commit, "0123456");
+  });
+});
+
+test("githubLink trims and ignores an empty field", () => {
+  assert.equal(githubLink("  https://github.com/o/r \n"), "https://github.com/o/r");
+  assert.equal(githubLink("   "), null);
 });
