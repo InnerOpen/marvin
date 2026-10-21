@@ -1444,9 +1444,20 @@ function statusMeta(status: string): { text: string; cls: string } {
   }
   .needs li {
     display: grid;
-    grid-template-columns: 1rem auto auto 1fr;
+    /* tick, name, kind, description, and a column of its own for the Add / Update button (it used to sit on the description) */
+    grid-template-columns: 1rem auto auto minmax(0, 1fr) auto;
     gap: 0.45rem;
     align-items: baseline;
+  }
+  /* On a phone the name and kind won't shrink, which squeezed the description to a sliver: stack them instead. */
+  @media (max-width: 640px) {
+    .needs li:not(.recipe-row) { grid-template-columns: 1rem minmax(0, 1fr) auto; }
+    .needs li:not(.recipe-row) > .needs-name { grid-column: 2; grid-row: 1; overflow-wrap: anywhere; }
+    .needs li:not(.recipe-row) > .needs-kind { grid-column: 2; grid-row: 2; }
+    .needs li:not(.recipe-row) > .needs-desc { grid-column: 2 / -1; grid-row: 3; }
+    .needs li:not(.recipe-row) > .needs-params { grid-column: 2 / -1; grid-row: 4; }
+    .needs li:not(.recipe-row) > .js-update-blueprint,
+    .needs li:not(.recipe-row) > .js-apply-needs { grid-column: 3; grid-row: 1; }
   }
   .needs li.recipe-row { grid-template-columns: auto 1fr; }
   .needs li.recipe-row a { color: var(--accent); }
