@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.29 (2026-10-21)
+
+### Bug Fixes
+
+- **playbooks**: Show the Playbook list as slim cards like the Automation lists
+  ([`ef0494e`](https://github.com/InnerOpen/marvin/commit/ef0494e2b74e0e91ed8487920e0b6b48651102cf))
+
+### Features
+
+- **playbooks**: Explain what GitHub links and uploads import
+  ([`3b76018`](https://github.com/InnerOpen/marvin/commit/3b760181b50b8d0de43d88c72135e7c5b259cafe))
+
+
 ## v1.1.0-rc.28 (2026-10-21)
 
 ### Bug Fixes
