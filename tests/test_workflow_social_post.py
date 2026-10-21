@@ -136,11 +136,18 @@ def test_other_gated_capabilities_stay_unroutable(nets):
     class _Images(IntegrationProvider):
         slug = "imgs"
         name = "Images"
-        actions = (ProviderAction(key="generate", label="Generate", capability="image.generate", requires_approval=True),)
+        actions = (
+            ProviderAction(key="generate", label="Generate", capability="image.generate", requires_approval=True),
+            ProviderAction(key="edit", label="Edit", capability="image.edit", requires_approval=True),
+        )
 
     provider = _Images()
-    assert "image.generate" not in capabilities_of(provider)
-    assert capability_action(provider, "image.generate", {}, approved=True) is None
+    assert "image.edit" not in capabilities_of(provider)
+    assert capability_action(provider, "image.edit", {}, approved=True) is None
+    # image.generate is approvable: routed only once the run is past an Approval step.
+    assert "image.generate" in capabilities_of(provider)
+    assert capability_action(provider, "image.generate", {}, approved=False) is None
+    assert capability_action(provider, "image.generate", {}, approved=True) == ("generate", {})
 
 
 def test_an_action_declaring_social_post_is_gated_even_if_the_plugin_forgot_to_say_so(monkeypatch, ws):

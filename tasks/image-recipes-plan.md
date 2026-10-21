@@ -86,3 +86,18 @@ entries, a validator change, tests.
    request.
 4. Fix the `not`-group validator warning as part of this.
 5. Swap Mash & Burn's hand-built workflows for recipe-installed ones after release.
+
+## Review (built 2026-10-21, branch `wl/image-recipes`)
+Built as planned, with these differences:
+- **Approval step in recipe 2.** OpenAI Images' `generate` is approval-gated, and capability routing skipped every gated
+  action except the public-facing social ones — a bare `capability: "image.generate"` step could never run on it. Added
+  `alert_routing.APPROVABLE_CAPABILITIES` (`GATED_CAPABILITIES` + `image.generate`): such a step runs on a gated action once
+  the run is past an Approval step, and `capabilities_of` now reports it so the Library readiness check and the step
+  validator see the connection. The draft check (`_image_generate_issue`) asks for the approval step. Recipe 2 therefore
+  asks an editor to approve before spending credits (one click on the Run button / in approvals).
+- **No `body_field` variable, no `entry_type` on recipe 2.** The custom AI step's default `see: item` already gives the AI the
+  whole entry; recipe variables have no optional/blank support, and a manual run on a chosen entry needs no type guard.
+  Recipe 1: `entry_type`, `style_note`, `suggestion_key`. Recipe 2: `image_integration`, `role`, `style_prefix`,
+  `style_note`, `suggestion_key`.
+- Guide-size budget in `test_guide_offers_the_recipes_this_workspace_can_run` raised 16,500 → 17,000 (two more recipes).
+- Not done (data, after release): Mash & Burn swap and the `bench-note-writing` Playbook line.
