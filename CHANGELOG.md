@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.36 (2026-10-21)
+
+### Features
+
+- **layout**: Settings and Automation pages keep to a readable width
+  ([`e75e107`](https://github.com/InnerOpen/marvin/commit/e75e107d5976112a0b8cc5f131c5e99cfec6963d))
+
+
 ## v1.1.0-rc.35 (2026-10-21)
 
 ### Bug Fixes
