@@ -4,7 +4,9 @@ import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import type { IntegrationWithHealth, ProviderActionInfo, ProviderInfo } from "@/lib/api/integrations";
-import { listIntegrations, listProviders } from "@/lib/api/integrations";
+import { getIntegrationFootprint, listIntegrations, listProviders } from "@/lib/api/integrations";
+import { footprintIsEmpty, footprintSections, footprintSummary } from "@/lib/integrationFootprint";
+import type { IntegrationFootprint } from "@/lib/integrationFootprint";
 import { CATEGORY_LABEL, focusedCategory, groupByCategory } from "@/lib/integrationCategories";
 import { policyRows } from "@/lib/integrationPolicy";
 import type { Blueprint } from "@/lib/api/blueprints";
@@ -36,6 +38,18 @@ try {
   if (isForbidden(e)) adminOnly = true;
   else error = e instanceof Error ? e.message : String(e);
 }
+
+// What each connection installed ("What it installed"). Optional: a card without it just leaves the section out.
+const footprints = new Map<string, IntegrationFootprint>();
+await Promise.all(
+  integrations.map(async (it) => {
+    try {
+      footprints.set(it.id, await getIntegrationFootprint(it.id, authToken));
+    } catch (e) {
+      console.error(`[integrations] could not load what ${it.slug} installed:`, e);
+    }
+  }),
+);
 
 // The workspace's own entry types and collections, for blueprint parameters that pick one. Optional:
 // without them the parameters fall back to plain text inputs.
@@ -291,6 +305,44 @@ function statusMeta(status: string): { text: string; cls: string } {
                         <p class="needs-note">
                           Applying only creates what is missing — anything you have already changed is left alone.
                         </p>
+                      </details>
+                    );
+                  })()}
+
+                  {(() => {
+                    const footprint = footprints.get(it.id);
+                    if (!footprint) return null;
+                    const sections = footprintSections(footprint);
+                    return (
+                      <details class="needs installed" data-footprint={it.id}>
+                        <summary>
+                          What it installed
+                          <span class="badge">{footprintSummary(footprint)}</span>
+                        </summary>
+                        {footprintIsEmpty(footprint) ? (
+                          <p class="needs-note">Nothing yet. What an integration's blueprints create here is listed once you add them above.</p>
+                        ) : (
+                          <>
+                            {sections.map((section) => (
+                              <div class="installed-kind" data-kind={section.kind}>
+                                <h5 class="needs-head"><a href={section.href}>{section.heading}</a></h5>
+                                <ul class="installed-items">
+                                  {section.items.map((item) => (
+                                    <li class={item.enabled === false ? "is-off" : ""}>
+                                      {item.name || "Untitled"}
+                                      {item.enabled === false && <span class="needs-kind">off</span>}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ))}
+                            {footprint.fieldChanges.length > 0 && (
+                              <ul class="installed-items installed-fields">
+                                {footprint.fieldChanges.map((c) => <li>{c.label}</li>)}
+                              </ul>
+                            )}
+                          </>
+                        )}
                       </details>
                     );
                   })()}
@@ -1119,6 +1171,11 @@ function statusMeta(status: string): { text: string; cls: string } {
     border-radius: var(--radius);
   }
   .conn-card.is-disabled { opacity: 0.62; }
+  .installed-items { list-style: none; margin: 2px 0 8px; padding: 0 0 0 4px; font-size: 0.85rem; }
+  .installed-items li { padding: 1px 0; }
+  .installed-items li.is-off { opacity: 0.65; }
+  .installed-kind .needs-head a { color: inherit; }
+  .installed-fields { margin-top: 4px; }
 
   .conn-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .conn-id { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
