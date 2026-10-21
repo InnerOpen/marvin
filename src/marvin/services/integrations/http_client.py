@@ -111,20 +111,27 @@ class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
         return self.do_open(_PinnedHTTPSConnection, req, context=self._context)
 
 
-def _guard(url: str) -> None:
-    """The URL's shape: http(s) with a host. Whether the host is public is checked as it connects (``_public_address``)."""
+def _guard(url: str, allowed_hosts: frozenset[str] | None = None) -> None:
+    """The URL's shape: http(s) with a host (and, for a client built with ``allowed_hosts``, one of those hosts). Whether the
+    host is public is checked as it connects (``_public_address``)."""
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise SsrfError(f"Only http(s) URLs are allowed (got {parsed.scheme!r}).")
     if not parsed.hostname:
         raise SsrfError("URL has no host.")
+    if allowed_hosts is not None and parsed.hostname.lower() not in allowed_hosts:
+        raise SsrfError(f"Refusing to call {parsed.hostname!r}: only {', '.join(sorted(allowed_hosts))} are allowed here.")
 
 
 class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """A redirect must stay http(s); its host is checked when it connects, like the first one."""
+    """A redirect must stay http(s) (and inside ``allowed_hosts`` when the client has them); its host is checked when it
+    connects, like the first one."""
+
+    def __init__(self, allowed_hosts: frozenset[str] | None = None):
+        self._allowed_hosts = allowed_hosts
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        _guard(newurl)
+        _guard(newurl, self._allowed_hosts)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
@@ -152,14 +159,17 @@ def is_transient_network_error(exc: BaseException | None) -> bool:
 class MarvinHttpHelper:
     """Implements ``marvin_integration_sdk.http.HttpHelper``."""
 
-    def __init__(self, max_bytes: int | None = None) -> None:
+    def __init__(self, max_bytes: int | None = None, allowed_hosts: frozenset[str] | set[str] | None = None) -> None:
+        """``allowed_hosts`` narrows the client to those host names, for the first request and every redirect (a fetch from
+        one named service, such as the GitHub import)."""
+        self._allowed_hosts = frozenset(h.lower() for h in allowed_hosts) if allowed_hosts is not None else None
         self._opener = urllib.request.build_opener(
-            urllib.request.ProxyHandler({}), _GuardedRedirectHandler(), _PinnedHTTPHandler(), _PinnedHTTPSHandler()
+            urllib.request.ProxyHandler({}), _GuardedRedirectHandler(self._allowed_hosts), _PinnedHTTPHandler(), _PinnedHTTPSHandler()
         )
         self._max_bytes = get_app_settings().INTEGRATION_HTTP_MAX_BYTES if max_bytes is None else max_bytes
 
     def _send(self, req: urllib.request.Request, timeout: float) -> Response:
-        _guard(req.full_url)
+        _guard(req.full_url, self._allowed_hosts)
         if not req.has_header("User-agent"):  # urllib stores header names capitalize()d
             req.add_header("User-Agent", USER_AGENT)
         try:

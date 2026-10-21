@@ -15,6 +15,15 @@ from marvin.services.automation.actions.entry import run_entry_action
 from marvin.services.automation.authz import ROLE_ADMIN
 
 
+@fixture(autouse=True)
+def _no_playbook_lookup_without_a_session(monkeypatch):
+    """The stubbed tests run with no session, (or a fake one), so there is no entry to look up as a Playbook; the DB-backed ones still check."""
+    from marvin.services.automation.actions import entry as entry_action
+
+    real = entry_action._require_admin_for_playbook
+    monkeypatch.setattr(entry_action, "_require_admin_for_playbook", lambda session, *a: real(session, *a) if hasattr(session, "query") else None)
+
+
 def test_set_data_merges_templated_values_into_data_json(monkeypatch):
     import marvin.services.entries as entries_mod
 

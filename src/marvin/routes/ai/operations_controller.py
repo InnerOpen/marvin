@@ -40,6 +40,7 @@ from marvin.schemas.group.ai_thread import AIThreadDetail, AIThreadMessageRead, 
 from marvin.services.ai.agents import ROUTER_SLUG
 from marvin.services.ai.executions import link_child_execution
 from marvin.services.ai.parked_runs import ABANDONED_ERROR, ABANDONED_MESSAGE, EXECUTION_STATUS_AWAITING  # noqa: F401 — re-exported
+from marvin.services.ai.tool_gateway import run_tool_limit
 from marvin.services.ui_links import entry_edit_url, entry_review_link
 
 router = APIRouter(prefix="/ai", route_class=MarvinCrudRoute)
@@ -87,7 +88,25 @@ def _agent_columns(data, values: dict) -> dict:
         values["bubble_lines_source"] = SOURCE_EDITED if lines else None
     if "mood" in values:
         values["mood"] = data.mood.stored() if data.mood else None
+    if "playbooks" in values:
+        values["playbooks"] = data.playbooks.stored() if data.playbooks else None
     return values
+
+
+def _check_playbook_settings(session, group_id, settings: dict | None) -> None:
+    """A 422 for Playbook settings that can't be kept (a fourth always-load, one outside the set, one that can't load by itself)."""
+    from marvin.services.playbooks import PlaybookSettingsError, check_agent_settings
+
+    try:
+        check_agent_settings(session, group_id, settings)
+    except PlaybookSettingsError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+
+
+def _always_warning(session, group_id, spec) -> str | None:
+    from marvin.services.playbooks import PlaybookScope, always_playbooks, always_warning
+
+    return always_warning(always_playbooks(session, group_id, PlaybookScope.of(spec.playbooks)))
 
 
 @controller(router)
@@ -591,9 +610,10 @@ class AIOperationsController(BaseUserController):
         if not entry:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Entry '{body.entry}' not found.")
         # Revising is editing: an AUTHOR may revise only their own entries, and not approved/published ones.
-        from marvin.routes._base.checks import require_can_edit_entry
+        from marvin.routes._base.checks import require_can_edit_entry, require_playbook_rules
 
         require_can_edit_entry(self.user, self.group_id, entry)
+        require_playbook_rules(self.session, self.user, self.group_id, entry.entry_type_id, entry.status)  # a published Playbook is an Admin's
 
         provider = None
         try:
@@ -825,6 +845,7 @@ class AIOperationsController(BaseUserController):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"An agent with slug '{data.slug}' already exists.")
         self._require_known_tone(data.default_register)
         columns = _agent_columns(data, data.model_dump())
+        _check_playbook_settings(self.session, self.group_id, columns.get("playbooks"))
         row = WorkspaceAgentModel(session=self.session, group_id=self.group_id, created_by=self.user.id, **columns)
         self.session.add(row)
         self.session.commit()
@@ -844,6 +865,8 @@ class AIOperationsController(BaseUserController):
         row = self._agent_row_or_404(slug)
         self._require_known_tone(data.default_register)
         sent = _agent_columns(data, data.model_dump(exclude_unset=True))
+        if "playbooks" in sent:
+            _check_playbook_settings(self.session, self.group_id, sent["playbooks"])
         before = {k: getattr(row, k) for k in sent}
         for k, v in sent.items():
             setattr(row, k, v)
@@ -1142,11 +1165,13 @@ class AIOperationsController(BaseUserController):
         instructions = self._named_agent_instructions(spec, assistant_name)
         system = instructions + self._register_clause(register, persona_prompt)
         preamble = roster = ""
+        playbooks_warning = None
         tools: list = []
         if spec.kind != "model":
             # No provider: binding only builds the tool list; nothing runs, so nothing reaches a model.
             tools, _ = self._bind_agent_tools(None, agent=spec, role=self._user_role(), park_allowed=True)
-            preamble, roster = self._system_frame({tool.name for tool in tools}, spec.slug)
+            preamble, roster = self._system_frame({tool.name for tool in tools}, spec.slug, spec)
+            playbooks_warning = _always_warning(self.session, self.group_id, spec)
             system = self._framed(system, preamble, roster)
         return AgentPromptPreview(
             system=system,
@@ -1158,6 +1183,7 @@ class AIOperationsController(BaseUserController):
             tone=t.preview(tones.resolve(register), persona_prompt),
             tone_source="agent" if spec.default_register and tones.get(spec.default_register) else "workspace",
             roster=roster,
+            playbooks_warning=playbooks_warning,
             tool_count=len(tools),
             ask_first_count=sum(1 for tool in tools if getattr(tool, "requires_approval", False)),
             tool_categories=self._tool_categories(tools),
@@ -1456,6 +1482,7 @@ class AIOperationsController(BaseUserController):
         body = self._resume_body(thread, run, client_run_id=None)
         ctx.execution_id = str(execution.id)
         ctx.tone_register = self._effective_register(run.get("register"), spec)
+        ctx.playbooks = self._asking(ctx, run.get("asked"))
         if depth < self._handoff_max_depth() and may_hand_off:
             ctx.delegate = self._delegate_runner(
                 parent_thread=thread, parent_body=body, parent_execution=execution, on_event=on_event, depth=depth, chain=(*chain, spec.slug)
@@ -1481,6 +1508,7 @@ class AIOperationsController(BaseUserController):
                 on_event=on_event,
                 resume=ResumeState(convo=deserialize_messages(pending.get("convo")), pending=calls, decisions=own, outputs=outputs),
                 load_on_demand=self._tools_on_demand(spec.slug),
+                tool_limit=run_tool_limit(self.session, self.group_id, thread, getattr(ctx, "playbooks", None)),
             )
         except HTTPException:
             raise
@@ -1668,8 +1696,13 @@ class AIOperationsController(BaseUserController):
                 execution.entity_id,
                 parent_thread_id=parent_thread_id,
             )
+        from marvin.services.playbooks.memory import META_KEY as PLAYBOOKS_META
+        from marvin.services.playbooks.memory import in_effect
+
         _, log_outputs = self._logging_policy()
         meta: dict = {"sources": sources, "totalTokens": tokens}
+        if remembered := in_effect(thread, steps):  # the Playbooks this reply used; later turns re-include them
+            meta[PLAYBOOKS_META] = remembered
         if handoffs:
             meta["handoffs"] = handoffs
         if referrals:
@@ -1805,6 +1838,7 @@ class AIOperationsController(BaseUserController):
             bubble_lines=spec.bubble_lines,
             bubble_lines_source=spec.bubble_lines_source,
             mood=spec.mood,
+            playbooks=spec.playbooks,
         )
 
     @staticmethod
@@ -1862,18 +1896,44 @@ class AIOperationsController(BaseUserController):
             return spec.system_prompt or model_agent_system_prompt(name, router_name=assistant_name)
         return spec.system_prompt or self._default_agent_system_prompt(name)
 
-    def _system_frame(self, tool_names: set[str], agent_slug: str) -> tuple[str, str]:
+    def _system_frame(self, tool_names: set[str], agent_slug: str, spec=None) -> tuple[str, str]:
         """(preamble, roster) around a persona run's own prompt. Environment facts come first — what "the
-        RAG" means here and which of the bound tools answers which kind of question; the agents it may hand
-        off or refer to come last ("" when it can do neither)."""
-        from marvin.services.ai.agents import list_agents, roster_block, workspace_preamble
+        RAG" means here and which of the bound tools answers which kind of question — then the catalog of
+        Playbooks the agent may load (when it can load them and the workspace has any); the agents it may
+        hand off or refer to come last ("" when it can do neither). The agent's Playbook settings (`spec`, else the stored
+        agent `agent_slug`) narrow the catalog to its chosen set and put its "always load" Playbooks in full after it."""
+        from marvin.services.ai.agents import list_agents, resolve_agent, roster_block, workspace_preamble
+        from marvin.services.playbooks import PlaybookScope, frame_block
 
         preamble = workspace_preamble(self._workspace_name(), tool_names)
+        spec = spec or resolve_agent(self.session, self.group_id, agent_slug)
+        if playbooks := frame_block(self.session, self.group_id, PlaybookScope.of(getattr(spec, "playbooks", None)), tool_names):
+            preamble += "\n\n" + playbooks
         roster = ""
         if "run_agent" in tool_names or "suggest_agent" in tool_names:
             specs = list_agents(self.session, self.group_id)
             roster = roster_block(specs, agent_slug, self._user_role(), "agent", can_handoff="run_agent" in tool_names)
         return preamble, roster
+
+    @staticmethod
+    def _asking(ctx, message: str | None):
+        """The run's Playbook scope answering ``message``: manual-only Playbooks the message names may load."""
+        from marvin.services.playbooks import PlaybookScope
+
+        return (getattr(ctx, "playbooks", None) or PlaybookScope()).asking(message)
+
+    def _thread_playbooks_block(self, thread, tool_names: set[str], scope=None) -> str:
+        """The Playbooks this thread loaded on earlier turns, as a system-prompt section ("" when none): a loaded
+        Playbook stays in effect for the whole conversation, though old tool results are not replayed to the model."""
+        from marvin.services.playbooks import LOAD_TOOL, always_playbooks
+        from marvin.services.playbooks.memory import reload_block
+
+        if thread is None or LOAD_TOOL not in tool_names:
+            return ""
+        # An always-load Playbook is already in the frame in full: it appears once, there.
+        always = {p.name for p in always_playbooks(self.session, self.group_id, scope)} if scope is not None else set()
+        block = reload_block(self.session, self.group_id, thread, skip=always)
+        return "\n\n" + block if block else ""
 
     @staticmethod
     def _framed(system: str, preamble: str, roster: str) -> str:
@@ -1955,7 +2015,10 @@ class AIOperationsController(BaseUserController):
         attached = self._attached_assets(body.attachments)
         # Environment facts come first, the agent's own persona after: what "the RAG" means here and which
         # of the bound tools answers which kind of question.
+        if ctx is not None:  # the user's latest message decides which manual-only Playbook they named
+            ctx.playbooks = self._asking(ctx, body.message)
         system = self._framed(system, *self._system_frame(names, agent_slug))
+        system += self._thread_playbooks_block(thread, names, getattr(ctx, "playbooks", None))
         user_msg = body.message
         if context_block:
             system += (
@@ -2028,6 +2091,7 @@ class AIOperationsController(BaseUserController):
                 max_steps=max_steps,
                 on_event=on_event,
                 load_on_demand=self._tools_on_demand(agent_slug),
+                tool_limit=run_tool_limit(self.session, self.group_id, thread, getattr(ctx, "playbooks", None)),
             )
         except HTTPException as e:
             self._finish_progress(run_id, "failed", self._http_error_text(e))
@@ -2166,6 +2230,7 @@ class AIOperationsController(BaseUserController):
         from datetime import UTC, datetime
 
         from marvin.services.ai.threads import extract_handoffs, extract_sources
+        from marvin.services.playbooks.memory import in_effect as playbooks_in_effect
 
         execution.status = "completed"
         execution.completed_at = datetime.now(UTC)
@@ -2173,7 +2238,7 @@ class AIOperationsController(BaseUserController):
         execution.output_json = (
             {"answer": result.answer, "steps": [{"tool": s.tool, "arguments": s.arguments} for s in steps]} if log_outputs else {"steps": len(steps)}
         )
-        execution.metadata_json = _with_tools_used(execution.metadata_json, steps)
+        execution.metadata_json = _with_run_trace(execution.metadata_json, steps)
         sources = extract_sources(steps)
         handoffs, child_referrals = extract_handoffs(steps)
         referrals = [*referrals, *child_referrals]
@@ -2202,6 +2267,7 @@ class AIOperationsController(BaseUserController):
             "answer": result.answer,
             "steps": [{"tool": s.tool, "arguments": s.arguments, "result": s.result} for s in steps],
             "sources": sources,
+            "playbooks": playbooks_in_effect(thread, steps),
             "handoffs": handoffs,
             "referrals": referrals,
             "stoppedReason": result.stopped_reason,
@@ -2249,7 +2315,7 @@ class AIOperationsController(BaseUserController):
             append_turn(self.session, thread, "user", body.message, meta=self._user_turn_meta(body))
         execution.status = EXECUTION_STATUS_AWAITING
         self._account_execution(execution, result, provider, model, start)
-        execution.metadata_json = _with_tools_used({**(execution.metadata_json or {}), "thread_id": str(thread.id)}, steps)
+        execution.metadata_json = _with_run_trace({**(execution.metadata_json or {}), "thread_id": str(thread.id)}, steps)
         park_thread(
             self.session,
             thread,
@@ -2263,6 +2329,7 @@ class AIOperationsController(BaseUserController):
                 "entity_type": body.entity_type,
                 "entity_id": str(entity_id) if entity_id else None,
                 "model": model,
+                "asked": body.message,  # a resumed run has no new message: what the user named still decides manual-only loads
             },
             steps=steps,
             referrals=referrals,
@@ -2728,6 +2795,7 @@ class AIOperationsController(BaseUserController):
         from marvin.services.ai.agent import AgentTool
         from marvin.services.ai.tools import ToolContext, bulk_writes, list_tools
         from marvin.services.ai.tools.categories import category_of
+        from marvin.services.playbooks import PlaybookScope
 
         ctx = ToolContext(
             session=self.session,
@@ -2737,6 +2805,7 @@ class AIOperationsController(BaseUserController):
             logger=self.logger,
             depth=depth,
             source="agent",
+            playbooks=PlaybookScope.of(agent.playbooks) if agent is not None else None,
         )
         role = self._user_role()
         can_park = park_allowed
@@ -3130,13 +3199,14 @@ class AIOperationsController(BaseUserController):
 
     def _may_change(self, entity_type: str, obj) -> bool:
         """Whether the caller may edit this entry/asset/resource under the content roles (EDITOR+ any;
-        an AUTHOR only their own unpublished entries)."""
+        an AUTHOR only their own unpublished entries; a published Playbook only an ADMIN)."""
         from marvin.db.models.users.roles import WorkspaceRole
-        from marvin.routes._base.checks import require_can_edit_entry, require_workspace_role
+        from marvin.routes._base.checks import require_can_edit_entry, require_playbook_rules, require_workspace_role
 
         try:
             if entity_type == "entry":
                 require_can_edit_entry(self.user, self.group_id, obj)
+                require_playbook_rules(self.session, self.user, self.group_id, obj.entry_type_id, obj.status)
             else:
                 require_workspace_role(self.user, self.group_id, WorkspaceRole.EDITOR)
         except HTTPException:
@@ -3443,12 +3513,18 @@ class AIOperationsController(BaseUserController):
             self.logger.error(f"Failed to dispatch AI budget event: {e}", exc_info=True)
 
 
-def _with_tools_used(metadata: dict | None, steps) -> dict:
-    """A run's metadata plus `tools`: the names of the tools it used, in first-use order — what the AI Executions list
-    says the run did ("used draft workflow, find entries"). Names only, kept whatever the output-logging policy."""
+def _with_run_trace(metadata: dict | None, steps) -> dict:
+    """A run's metadata plus what its trace shows it did, kept whatever the output-logging policy:
+    `tools`, the names of the tools it used in first-use order — what the AI Executions list says the run did
+    ("used draft workflow, find entries") — and `playbooks`, the Playbooks it loaded (`{id, name}`; absent when none)."""
+    from marvin.services.playbooks import USED_KEY, playbooks_used
+
     names: list[str] = []
     for step in steps:
         tool = getattr(step, "tool", None)
         if tool and tool not in names:
             names.append(tool)
-    return {**(metadata or {}), "tools": names}
+    trace = {**(metadata or {}), "tools": names}
+    if used := playbooks_used(steps):
+        trace[USED_KEY] = used
+    return trace

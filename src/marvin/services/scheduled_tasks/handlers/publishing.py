@@ -37,6 +37,11 @@ SUMMARY_NAME_LIMIT = 5
 # What EntryService's publish gate raises for an entry it won't publish: missing required
 # fields/assets/tags, or an expiration date that has already passed.
 PUBLISH_REFUSED_STATUS_CODE = 422
+# What a proposed Playbook change raises when the Playbook it replaces is gone or unpublished: it can't be fixed by
+# waiting, so the run drops the schedule instead of retrying it every few minutes.
+STALE_CHANGE_STATUS_CODE = 409
+# metadata_json key recording why a scheduled publish was given up.
+FAILED_KEY = "scheduled_publish_failed"
 
 
 class _StatusChanger:
@@ -65,6 +70,14 @@ class _StatusChanger:
         """Set the status, plus any other field `changes` made in the same update (one
         entry_updated event)."""
         self._service(entry.group_id).update(entry.id, EntryUpdate(status=status, **changes))
+
+    def give_up(self, entry: Entries, reason: str, now: datetime) -> None:
+        """Drop a schedule that can never succeed: clear publish_at and note the reason on the entry (metadata_json). Written
+        directly like `hold`: the task's bookkeeping, not an edit to react to."""
+        entry.publish_at = None
+        entry.scheduled_publish_blocked = None
+        entry.metadata_json = {**(entry.metadata_json or {}), FAILED_KEY: {"reason": reason, "at": now.isoformat()}}
+        self._session.commit()
 
     def hold(self, entry: Entries, waiting_for: str, reason: str, issues: list[str], now: datetime) -> None:
         """Record why a due entry is being held back (Entries.scheduled_publish_blocked) and emit
@@ -183,6 +196,12 @@ class PublishScheduledEntriesHandler(ScheduledTaskHandler):
                 try:
                     changer.set_status(entry, "published")
                 except HTTPException as e:
+                    if e.status_code == STALE_CHANGE_STATUS_CODE:
+                        reason = _refusal_reason(e)
+                        logger.warning("Scheduled publish dropped for entry '%s' (id=%s): %s", title, entry_id, reason)
+                        changer.give_up(entry, reason, now)
+                        skipped.append(f"'{title}' — {reason}")
+                        continue
                     if e.status_code != PUBLISH_REFUSED_STATUS_CODE:
                         raise
                     reason = _refusal_reason(e)

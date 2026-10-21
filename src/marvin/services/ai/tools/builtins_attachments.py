@@ -82,7 +82,7 @@ def extract_text(kind: str, data: bytes, max_chars: int) -> str:
 def read_attachment(ctx: ToolContext, args: dict) -> str:
     from marvin.db.models.platform.assets import Assets
     from marvin.services.ai.entity_resolve import resolve_entity_id
-    from marvin.services.storage.provider_factory import provider_for
+    from marvin.services.assets.scope import is_playbook_file
 
     ref = str(args.get("asset") or "").strip()
     if not ref:
@@ -94,19 +94,26 @@ def read_attachment(ctx: ToolContext, args: dict) -> str:
         asset = None
     except Exception as e:  # noqa: BLE001 — surface to the model
         return json.dumps({"error": f"could not resolve asset '{ref}': {e}"})
-    if asset is None or str(asset.group_id) != str(ctx.group_id):
+    if asset is None or str(asset.group_id) != str(ctx.group_id) or is_playbook_file(asset):  # a Playbook's files are read with read_playbook_file
         return json.dumps({"error": f"no asset '{ref}' in this workspace (try list_assets)"})
+
+    return json.dumps(read_asset_text(asset, args.get("max_chars")))
+
+
+def read_asset_text(asset, max_chars_arg=None) -> dict:
+    """What `read_attachment` answers for an asset already checked to be readable by the caller: its text (capped) or an `error`."""
+    from marvin.services.storage.provider_factory import provider_for
 
     about = {"id": str(asset.id), "name": asset.name, "mimeType": asset.mime_type}
     kind = document_kind(asset.mime_type, asset.extension)
     if kind is None:
         hint = " Use view_image for an image." if (asset.mime_type or "").startswith("image/") else ""
-        return json.dumps({"error": f"can't read this kind of file ({asset.mime_type}).{hint}", "asset": about})
+        return {"error": f"can't read this kind of file ({asset.mime_type}).{hint}", "asset": about}
     if (asset.file_size or 0) > MAX_FILE_BYTES:
-        return json.dumps({"error": f"the file is too large to read ({asset.file_size // (1024 * 1024)} MB)", "asset": about})
+        return {"error": f"the file is too large to read ({asset.file_size // (1024 * 1024)} MB)", "asset": about}
 
     try:
-        max_chars = max(1, min(int(args.get("max_chars") or DEFAULT_MAX_CHARS), DEFAULT_MAX_CHARS))
+        max_chars = max(1, min(int(max_chars_arg or DEFAULT_MAX_CHARS), DEFAULT_MAX_CHARS))
     except (TypeError, ValueError):
         max_chars = DEFAULT_MAX_CHARS
     try:
@@ -114,14 +121,14 @@ def read_attachment(ctx: ToolContext, args: dict) -> str:
             data = fh.read()
         text = extract_text(kind, data, max_chars).strip()
     except Exception as e:  # noqa: BLE001 — an unreadable file is data for the model, never an exception in the loop
-        return json.dumps({"error": f"could not read the file: {e}", "asset": about})
+        return {"error": f"could not read the file: {e}", "asset": about}
 
     if not text:
         note = "no text found — a scanned PDF holds only images of its pages" if kind == "pdf" else "the document is empty"
-        return json.dumps({"asset": about, "text": "", "note": note})
+        return {"asset": about, "text": "", "note": note}
     if len(text) > max_chars:
-        return json.dumps({"asset": about, "text": text[:max_chars], "truncated": True, "note": f"cut at {max_chars} characters"})
-    return json.dumps({"asset": about, "text": text, "truncated": False})
+        return {"asset": about, "text": text[:max_chars], "truncated": True, "note": f"cut at {max_chars} characters"}
+    return {"asset": about, "text": text, "truncated": False}
 
 
 MAX_MOVE = 10

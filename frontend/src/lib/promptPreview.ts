@@ -52,6 +52,8 @@ export interface AgentPromptPreview {
   toneSource: "agent" | "workspace";
   /** The agents it may hand off or refer to ("" when it can do neither). */
   roster: string;
+  /** The "always load" Playbooks are long: they ride along with every run of this agent. */
+  playbooksWarning?: string | null;
   toolCount: number;
   askFirstCount: number;
   toolCategories: { id: string; label: string; count: number }[];
@@ -151,7 +153,7 @@ export function agentPreviewView(p: AgentPromptPreview): PromptPreviewView {
   return {
     summary: `Tone: ${tone} (${where}). ${p.tone.personaSummary}`,
     parts,
-    notes: [toolsNote(p)],
+    notes: [toolsNote(p), ...(p.playbooksWarning ? [p.playbooksWarning] : [])],
     full: p.system,
     tokensNote: `About ${p.tokens} tokens of system prompt on every step, before the conversation and what the user is looking at.`,
   };

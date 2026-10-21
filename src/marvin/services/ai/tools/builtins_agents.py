@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from marvin.services.ai.operations.base import ROLE_EDITOR
@@ -179,6 +180,8 @@ def _run_standalone(ctx: ToolContext, args: dict) -> str:
     from marvin.services.ai.agents import may_talk, resolve_agent
     from marvin.services.ai.base import CompletionOptions, Message
     from marvin.services.ai.pricing import estimate_cost
+    from marvin.services.ai.tool_gateway import run_tool_limit
+    from marvin.services.playbooks import PlaybookScope, frame_block
 
     spec = resolve_agent(ctx.session, ctx.group_id, str(args.get("agent") or ""))
     if spec is None:
@@ -203,15 +206,20 @@ def _run_standalone(ctx: ToolContext, args: dict) -> str:
         for h in (args.get("history") or [])[-12:]
         if isinstance(h, dict) and h.get("role") in ("user", "assistant")
     ]
+    # The agent's Playbook settings and this message (which decides a manual-only Playbook the caller named) steer the run,
+    # on a copy: the caller's context is not ours to change. `referrals` stays the one shared list.
+    scope = PlaybookScope.of(spec.playbooks).asking(message)
+    run_ctx = replace(ctx, playbooks=scope)
+    tools = standalone_tools(spec, run_ctx, role) if spec.kind == "persona" else []
     system = spec.system_prompt or (
         f"You are {spec.name}, an assistant for this headless-CMS workspace. Use the provided tools to search, "
         "browse, and (only when asked) author content. Prefer tools over guessing and ground your answer in "
         "what they return. Authoring creates a DRAFT for human review — never claim anything is published. Be concise."
     )
     system += _character_section(ctx, spec, args.get("tone"))
+    if playbooks := frame_block(ctx.session, ctx.group_id, scope, (t.name for t in tools)):
+        system = playbooks + "\n\n" + system  # as the Ask path frames a run: what Playbooks exist, before the agent's own prompt
     messages = [Message(role="system", content=system), *history, Message(role="user", content=message)]
-
-    tools = standalone_tools(spec, ctx, role) if spec.kind == "persona" else []
 
     _app = get_app_settings()
     opts = CompletionOptions(temperature=_app.AI_DEFAULT_TEMPERATURE, max_tokens=None)
@@ -240,7 +248,9 @@ def _run_standalone(ctx: ToolContext, args: dict) -> str:
             p_tok, c_tok, t_tok = getattr(res, "prompt_tokens", 0), getattr(res, "completion_tokens", 0), getattr(res, "total_tokens", 0)
             cached_tok, written_tok = getattr(res, "cached_prompt_tokens", 0) or 0, getattr(res, "cache_write_tokens", 0) or 0
         else:
-            res = run_agent_loop(provider, model, messages, tools, opts, max_steps=max_steps)
+            res = run_agent_loop(
+                provider, model, messages, tools, opts, max_steps=max_steps, tool_limit=run_tool_limit(ctx.session, ctx.group_id, None, scope)
+            )
             answer, steps = res.answer, [{"tool": s.tool, "arguments": s.arguments} for s in res.steps]
             p_tok, c_tok, t_tok = res.prompt_tokens, res.completion_tokens, res.total_tokens
             cached_tok, written_tok = getattr(res, "cached_prompt_tokens", 0) or 0, getattr(res, "cache_write_tokens", 0) or 0

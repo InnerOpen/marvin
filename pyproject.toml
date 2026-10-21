@@ -49,6 +49,7 @@ dependencies = [
     "unicode>=2.9",
     "uvicorn>=0.34.2",
     "fastembed>=0.7,<1",
+    "pyyaml>=6.0",
 ]
 
 [project.scripts]

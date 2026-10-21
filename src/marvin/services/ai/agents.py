@@ -283,6 +283,8 @@ class AgentSpec:
     # A built-in agent whose matrix this workspace changed (Settings → AI → Agents): `tool_policy` is then
     # the code default with the workspace's override merged over it (see `_system_agent`).
     tool_policy_overridden: bool = False
+    # Its Playbooks, as stored ({"names": [...] | None, "always": [...]}); None = all published, none loaded up front.
+    playbooks: dict | None = None
 
 
 SYSTEM_AGENTS: dict[str, AgentSpec] = {
@@ -378,6 +380,7 @@ def spec_from_row(row) -> AgentSpec:
         bubble_lines=getattr(row, "bubble_lines", None) or None,
         bubble_lines_source=getattr(row, "bubble_lines_source", None) or None,
         mood=getattr(row, "mood", None) or None,
+        playbooks=getattr(row, "playbooks", None) or None,
     )
 
 

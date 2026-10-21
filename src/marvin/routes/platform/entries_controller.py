@@ -5,7 +5,13 @@ from pydantic import UUID4
 
 from marvin.db.models.platform import EntryCollections, EntryTypes
 from marvin.routes._base import BaseUserController, controller
-from marvin.routes._base.checks import editable_entry, require_can_create_entry, require_can_edit_entry, require_workspace_admin
+from marvin.routes._base.checks import (
+    editable_entry,
+    require_can_create_entry,
+    require_can_edit_entry,
+    require_playbook_rules,
+    require_workspace_admin,
+)
 from marvin.schemas.platform import CollectionRead, EntryCreate, EntryQueryRequest, EntryQueryResult, EntryRead, EntryUpdate
 from marvin.services.entries import EntryService, trash
 from marvin.services.entries.entry_service import TRASHED, count_by_status, restore_status
@@ -66,6 +72,7 @@ class EntriesController(BaseUserController):
     @router.post("", response_model=EntryRead, status_code=status.HTTP_201_CREATED, summary="Create Entry")
     def create_entry(self, data: EntryCreate) -> EntryRead:
         require_can_create_entry(self.user, self.group_id, data.status, data.publish_at)
+        require_playbook_rules(self.session, self.user, self.group_id, data.entry_type_id, None, data.status, data.publish_at)
         data_dict = data.model_dump()
         data_dict["created_by"] = self.user.id  # inject the authenticated author
         return self._seen(self._entries().create(data_dict))
@@ -159,6 +166,8 @@ class EntriesController(BaseUserController):
         # The service emits entry_updated + any status-transition events (published/unpublished/
         # archived/restored), in that order.
         current = editable_entry(self.user, self.group_id, self.repos, item_id, data.status, data.publish_at)
+        if data.entry_type_id is not None and data.entry_type_id != current.entry_type_id:  # moved into the Playbook type and published at once
+            require_playbook_rules(self.session, self.user, self.group_id, data.entry_type_id, None, data.status, data.publish_at)
         # The Trash has its own doors: DELETE puts an entry in, POST /restore takes it out. A trashed
         # entry is read-only until restored.
         if current.status == TRASHED:

@@ -15,6 +15,7 @@ from . import (
     invitation_controller,
     metrics_controller,
     notifications_controller,
+    playbooks_controller,
     preferences_controller,
     secrets_controller,
     smtp_controller,
@@ -41,6 +42,7 @@ if INTEGRATIONS_AVAILABLE:
 
     router.include_router(social_inbox_controller.router, tags=["Groups: Social Inbox"])
 router.include_router(audience_controller.router, tags=["Groups: Audience"])
+router.include_router(playbooks_controller.router, tags=["Groups: Playbooks"])
 router.include_router(automation_results_controller.router, tags=["Groups: Automation Results"])
 router.include_router(preferences_controller.router, tags=["Groups: Preferences"])
 router.include_router(email_template_controller.router, tags=["Groups: Email Templates"])

@@ -274,7 +274,7 @@ def _event_calls(pending: list[PendingCall]) -> list[dict]:
 # An agent bound to every tool its role allows sends ~50 tool definitions with each question — most of the prompt.
 # It keeps the everyday ones loaded (CORE_CATEGORIES) and gets `load_tools` for the rest, by category; a call to an
 # unloaded tool by name loads its category first, so its approval rules apply before it runs.
-CORE_CATEGORIES = frozenset({"entries_read", "entries_author", "library_read", "docs_read", "agents_read", "agents_run"})
+CORE_CATEGORIES = frozenset({"entries_read", "entries_author", "library_read", "docs_read", "playbooks_read", "agents_read", "agents_run"})
 LOAD_TOOLS = "load_tools"
 
 
@@ -346,6 +346,20 @@ class _Toolset:
             _notify(self.on_event, {"type": "tools_loaded", "categories": categories, "tools": added})
         return added
 
+    def _refuser(self, convo, tool_limit):
+        """The run's tool limit now (see `run_agent_loop`): None, or a function from a tool name to its refusal."""
+        return tool_limit(convo, set(self.by_name) | set(self.category_of)) if tool_limit else None
+
+    def offered(self, convo, tool_limit) -> list[ToolDefinition]:
+        """The tool definitions to show the model: all of them, less those the limit refuses."""
+        refuse = self._refuser(convo, tool_limit)
+        return self.defs if refuse is None else [d for d in self.defs if refuse(d.name) is None]
+
+    def refusal(self, name: str, convo, tool_limit) -> str | None:
+        """Why a call to a bound tool may not run under the limit, or None."""
+        refuse = self._refuser(convo, tool_limit)
+        return refuse(name) if refuse is not None and name in self.by_name else None
+
     def ensure_loaded(self, name: str) -> None:
         """A call to a tool still waiting on demand loads its category first, so its approval rules apply."""
         cat = self.category_of.get(name)
@@ -363,6 +377,7 @@ def run_agent_loop(
     on_event: EventListener | None = None,
     resume: ResumeState | None = None,
     load_on_demand: bool = False,
+    tool_limit: Callable[[list[Message], set[str]], Callable[[str], str | None] | None] | None = None,
 ) -> AgentResult:
     """Drive the tool-calling loop and return the final answer plus the tool-call trace.
 
@@ -382,6 +397,11 @@ def run_agent_loop(
     output comes from `resume.outputs`; while it is missing (the specialist parked again) the loop
     settles what it can — approved calls run, denied ones are declined — and parks again without
     asking the model.
+
+    `tool_limit` narrows what the run may call while something (a loaded Playbook) says so. It is asked before each
+    model call and each tool call with the transcript so far and the names of every tool the run has, and returns None
+    (no limit) or a function from a tool name to a refusal (a JSON string the model gets instead of the tool's result)
+    or None when the tool may run. It only removes: a tool the run was not bound to stays unknown.
     """
     # load_on_demand: start with CORE_CATEGORIES and let the model load the rest (split_on_demand, `load_tools`).
     loaded, on_demand = split_on_demand(tools) if load_on_demand else (tools, None)
@@ -402,11 +422,17 @@ def run_agent_loop(
         result.steps.append(AgentStep(tool=name, arguments=arguments, result=out))
         convo.append(Message(role="tool", content=out, tool_call_id=call_id))
 
+    def limit_refusal(name: str) -> str | None:
+        return toolset.refusal(name, convo, tool_limit)
+
     def dispatch(call_id: str, name: str, arguments: dict, deferred: list[PendingCall]) -> None:
         tool = by_name.get(name)
         _notify(on_event, {"type": "tool_call", "tool": name, "arguments": arguments})
         ok = True
-        if tool is None:
+        if (refusal := limit_refusal(name)) is not None:
+            ok = False
+            out = refusal
+        elif tool is None:
             ok = False
             out = json.dumps({"error": f"unknown tool: {name}"})
         else:
@@ -456,7 +482,7 @@ def run_agent_loop(
 
     for _step in range(max_steps):
         _notify(on_event, {"type": "thinking"})
-        completion = provider.complete_with_tools(convo, model, tool_defs, options)
+        completion = provider.complete_with_tools(convo, model, toolset.offered(convo, tool_limit), options)
         account(completion)
 
         if not completion.tool_calls:
@@ -474,6 +500,9 @@ def run_agent_loop(
         for call in completion.tool_calls:
             arguments = dict(call.arguments or {})
             ensure_loaded(call.name)
+            if limit_refusal(call.name) is not None:  # refused before any ask-first: nothing to approve
+                dispatch(call.id, call.name, arguments, deferred)
+                continue
             pend, preview = _approval_needed(by_name.get(call.name), arguments)
             if pend:
                 pending.append(PendingCall(id=call.id, tool=call.name, arguments=arguments, preview=preview))

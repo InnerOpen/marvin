@@ -1,17 +1,22 @@
-"""Where an asset lives: the Assets library, or Ask files.
+"""Where an asset lives: the Assets library, Ask files, or a Playbook's reference files.
 
 A file attached to a question in the bubble or on the Ask page is an *Ask file*: uploaded so the agent can open
 it, not added to the library. It stays out of everything that lists, counts, searches, publishes or sweeps the
 library (the Assets page, the AI's asset queries, smart collections, the site API, the search index, the
 orphaned-assets task) until someone moves it there — the Ask files tab, or the agent's `move_to_assets` — and
 attaching it to an entry moves it first, so a site never links a file the site API won't serve.
+
+A Playbook's reference file (services/playbooks) has the third scope. It is kept out of the same places and, unlike an
+Ask file, never moves to the library: it is reachable only through its Playbook (``read_playbook_file``, the export),
+which checks that the Playbook is published, so the asset tools must not read a draft's files by id or slug.
 """
 
 from typing import Any
 
 LIBRARY = "library"
 ASK = "ask"
-SCOPES = (LIBRARY, ASK)
+PLAYBOOK = "playbook"
+SCOPES = (LIBRARY, ASK)  # what the Assets list can be asked for; PLAYBOOK files are never listed
 
 # The `metadata.attachedVia` values the bubble and the Ask page upload with: such an upload is an Ask file.
 ASK_SURFACES = ("bubble", "ask_page")
@@ -24,6 +29,10 @@ def upload_scope(metadata: dict | None) -> str:
 
 def is_ask_file(asset: Any) -> bool:
     return getattr(asset, "scope", LIBRARY) == ASK
+
+
+def is_playbook_file(asset: Any) -> bool:
+    return getattr(asset, "scope", LIBRARY) == PLAYBOOK
 
 
 def move_to_library(session, group_id, asset_ids, *, actor_id=None, event_bus=None, commit: bool = True) -> list:

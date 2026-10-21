@@ -278,7 +278,7 @@ def park_thread(
 
     `calls`/`steps` are PendingCall/AgentStep lists, `convo` the loop's Message transcript (tool
     calls and ids included — every provider needs one tool message per call id), `run` is
-    `{agent_slug, max_steps, register, entity_type, entity_id, model}`. Never exposed whole through
+    `{agent_slug, max_steps, register, entity_type, entity_id, model, asked}`. Never exposed whole through
     the API: `AIThreadDetail.pending` shows the calls only (flattened, see agent.flatten_pending).
 
     `parent` is set on a hand-off specialist's park (`{thread_id, execution_id}` of the run that

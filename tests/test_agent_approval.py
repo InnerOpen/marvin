@@ -46,7 +46,9 @@ class _Loop:
         self.results = list(results)
         self.calls = []
 
-    def __call__(self, provider, model, messages, tools, options=None, max_steps=6, on_event=None, resume=None, load_on_demand=False):
+    def __call__(
+        self, provider, model, messages, tools, options=None, max_steps=6, on_event=None, resume=None, load_on_demand=False, tool_limit=None
+    ):
         self.calls.append({"messages": messages, "tools": tools, "max_steps": max_steps, "resume": resume, "on_event": on_event})
         res = self.results.pop(0)
         if on_event:
@@ -145,7 +147,7 @@ def test_run_names_its_thread_on_the_execution_before_the_loop(ctl, monkeypatch)
     # for the next process to close it (services/ai/interrupted_runs.py).
     seen = {}
 
-    def loop(provider, model, messages, tools, options=None, max_steps=6, on_event=None, resume=None, load_on_demand=False):
+    def loop(provider, model, messages, tools, options=None, max_steps=6, on_event=None, resume=None, load_on_demand=False, tool_limit=None):
         row = ctl.session.query(AIExecutionModel).filter_by(group_id=ctl.user.group_id, status="running").one()
         seen.update(row.metadata_json or {})
         return _done()
@@ -242,7 +244,9 @@ def test_core_parks_the_run_on_its_thread(ctl):
     assert thread.status == "awaiting_approval"
     pj = thread.pending_json
     assert pj["calls"] == res["pending"] and pj["execution_id"] == res["executionId"]
-    assert pj["run"] == {"agent_slug": "marvin", "max_steps": 6, "register": None, "entity_type": None, "entity_id": None, "model": "m1"}
+    assert pj["run"] == {
+        "agent_slug": "marvin", "max_steps": 6, "register": None, "entity_type": None, "entity_id": None, "model": "m1", "asked": "tag it",
+    }  # fmt: skip
     assert pj["steps"][0]["tool"] == "search_content" and pj["convo"][-1]["tool_calls"][0]["id"] == "c2"
     execution = _execution(ctl, res)
     assert execution.status == "awaiting_approval" and execution.completed_at is None and execution.total_tokens == 8
@@ -296,6 +300,35 @@ def test_resume_runs_the_decisions_and_finishes_on_the_same_execution(ctl):
     assert ctl.event_bus.events[0]["document_data"].decisions == {"c2": "approve", "c3": "deny"}
     assert ctl.event_bus.events[1]["document_data"].decisions == {"c2": "approve", "c3": "deny"}
     assert ctl.event_bus.types()[2] == EventTypes.ai_operation_executed
+
+
+def test_a_resumed_run_still_knows_what_the_user_asked_so_a_named_manual_only_playbook_loads(ctl, db_session, monkeypatch):
+    """`asked` (the user's message that started the run) is what makes a manual-only Playbook loadable; it must survive the park."""
+    import json
+
+    from marvin.services.ai.tools import ToolContext
+    from marvin.services.ai.tools.builtins_playbooks import load_playbook
+    from marvin.services.playbooks import PlaybookScope
+    from tests.test_playbooks import _playbook
+
+    gid = ctl.user.group_id
+    row = _playbook(db_session, gid, "refund-policy")
+    row.data_json = {**row.data_json, "manual_only": True}
+    db_session.flush()
+    _res, thread = _park(ctl, message="Please follow refund-policy for this one.")
+
+    tool_ctx = ToolContext(session=db_session, group_id=gid, playbooks=PlaybookScope())
+    ctl._bind_agent_tools = lambda provider, agent=None, role=None, *, depth=0, park_allowed=False: ([_ask_tool()], tool_ctx)
+    loaded = {}
+
+    def loop(provider, model, messages, tools, options=None, max_steps=6, on_event=None, resume=None, load_on_demand=False, tool_limit=None):
+        loaded.update(json.loads(load_playbook(tool_ctx, {"name": "refund-policy"})))  # the model's next move after the approval
+        return _done()
+
+    monkeypatch.setattr(loop_mod, "run_agent_loop", loop)
+    ctl.resume_thread(str(thread.id), AIThreadResumeRequest(decisions={"c2": "approve"}))
+
+    assert loaded.get("name") == "refund-policy", loaded
 
 
 def test_resume_deny_only_emits_rejected_only(ctl):

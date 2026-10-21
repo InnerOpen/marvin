@@ -65,6 +65,9 @@ class WorkspaceAgentModel(SqlAlchemyBase, BaseMixins):
     # The Social Battery settings for this agent (schemas/group/ai_settings.py: MoodSettings). Stored only:
     # nothing reads them until the meter is built.
     mood: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
+    # The Playbooks this agent may use (services/playbooks): {"names": [...] | None, "always": [...]}. None = every
+    # published Playbook, none loaded up front; "names" a list = only those; "always" = up to three put in full in the system frame.
+    playbooks: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     created_by: Mapped[GUID | None] = mapped_column(GUID, nullable=True)
 
     @auto_init()

@@ -56,6 +56,7 @@ nav:
       - Incoming webhooks: whats-new/incoming-webhooks.md
       - Outgoing webhooks: whats-new/outgoing-webhooks.md
       - Agents & Ask: whats-new/agents-and-ask.md
+      - Playbooks: whats-new/playbooks.md
       - Marvin as an MCP server: whats-new/marvin-as-mcp-server.md
       - Scheduled tasks: whats-new/scheduled-tasks.md
       - Integrations: whats-new/integrations.md

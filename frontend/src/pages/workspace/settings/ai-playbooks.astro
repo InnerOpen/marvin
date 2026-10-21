@@ -1,0 +1,164 @@
+---
+// Settings › AI › Playbooks: the workspace's Playbooks (written procedures an agent follows when a task calls for one) with their
+// status. A Playbook is an entry of the internal `playbook` type, so it never appears in All entries, search or the status lists;
+// this page and its editor are where it lives. Editors and above. Backend: routes/groups/playbooks_controller.py.
+// Pure logic: lib/playbooks.ts.
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { listPlaybooks, type PlaybookList } from "@/lib/api/playbooks";
+import { GITHUB_IMPORT_PLACEHOLDER, IMPORT_PATH_ACCEPT } from "@/lib/playbookReview";
+import { EMPTY_NOTICE, listSummary, NEW_PLAYBOOK_PATH, playbookRow, sortedItems } from "@/lib/playbooks";
+import { isForbidden } from "@/lib/workspaceRole";
+
+const authToken = getAuthToken(Astro.cookies);
+let list: PlaybookList | null = null;
+let error: string | null = null;
+let restricted = false;
+try {
+  list = await listPlaybooks(authToken);
+} catch (e) {
+  if (isForbidden(e)) restricted = true;
+  else error = e instanceof Error ? e.message : String(e);
+}
+const items = sortedItems(list?.items ?? []);
+const rows = items.map((item) => playbookRow(item));
+---
+
+<AppLayout crumb="settings.ai-playbooks" restrictedNote={restricted ? "Playbooks are for editors and above." : null}>
+  <div class="page-header">
+    <div>
+      <h2>Playbooks</h2>
+      <p>Written procedures your agents follow when a task calls for one. Only published Playbooks are used.</p>
+    </div>
+    {!error && (
+      <div class="pb-head-actions">
+        <button type="button" class="button secondary" id="pb-import" title="Import a SKILL.md or a zip of a skill folder">Import</button>
+        <input type="file" id="pb-import-file" accept={IMPORT_PATH_ACCEPT} hidden />
+        <a class="button" href={NEW_PLAYBOOK_PATH}>New Playbook</a>
+      </div>
+    )}
+  </div>
+
+  {!error && (
+    <form class="pb-github" id="pb-github-form" autocomplete="off">
+      <input
+        type="url"
+        id="pb-github-url"
+        placeholder={GITHUB_IMPORT_PLACEHOLDER}
+        aria-label="GitHub link to a skill folder or SKILL.md"
+        title="A public github.com link to a skill folder or its SKILL.md"
+      />
+      <button type="submit" class="button secondary" id="pb-github-go">Import from GitHub</button>
+    </form>
+  )}
+
+  <p class="pb-import-msg" id="pb-import-msg" role="status" hidden></p>
+  {error && <div class="alert"><strong>Couldn't load your Playbooks.</strong> {error}</div>}
+
+  {!error && rows.length === 0 && (
+    <div class="section-card pb-empty">
+      <h3>{EMPTY_NOTICE.title}</h3>
+      <p>{EMPTY_NOTICE.body}</p>
+      <p><a class="button" href={NEW_PLAYBOOK_PATH}>Write the first one</a></p>
+    </div>
+  )}
+
+  {rows.length > 0 && (
+    <div class="section-card">
+      <p class="pb-summary">{listSummary(items)}</p>
+      <ul class="pb-list">
+        {rows.map((row) => (
+          <li>
+            <a class="pb-row" href={row.href}>
+              <span class="pb-main">
+                <strong class="pb-name">{row.name}</strong>
+                {row.summary && <span class="pb-desc">{row.summary}</span>}
+                <span class="pb-used">{row.used}</span>
+              </span>
+              <span class="pb-tags">
+                {row.manualOnly && <span class="pb-manual" title="Loaded only when a person names it">Manual only</span>}
+                <span class:list={["pill", row.tone]}>{row.label}</span>
+              </span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )}
+</AppLayout>
+
+<style>
+  .pb-head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pb-github { display: flex; gap: 8px; margin: 0 0 12px; max-width: 720px; }
+  .pb-github input { flex: 1; min-width: 0; }
+  @media (max-width: 720px) { .pb-github { flex-direction: column; } }
+  .pb-import-msg { margin: 0 0 12px; font-size: 14px; padding: 8px 12px; border-radius: var(--radius); border: 1px solid var(--line); }
+  .pb-import-msg.error { color: var(--bad, #b91c1c); border-color: var(--bad, #b91c1c); }
+  .pb-summary { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
+  .pb-list { list-style: none; margin: 0; padding: 0; }
+  .pb-list li + li { border-top: 1px solid var(--line); }
+  .pb-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 2px; color: inherit; text-decoration: none; }
+  .pb-row:hover .pb-name { color: var(--accent); }
+  .pb-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .pb-name { font-family: ui-monospace, monospace; font-size: 14px; overflow-wrap: anywhere; }
+  .pb-desc { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .pb-used { font-size: 12px; color: var(--muted); }
+  .pb-tags { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .pb-manual { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+  .pb-empty h3 { margin: 0 0 6px; }
+  @media (max-width: 720px) {
+    .pb-row { align-items: flex-start; flex-direction: column; gap: 6px; }
+    .pb-tags { flex-wrap: wrap; }
+  }
+</style>
+
+<script>
+  import { importPlaybook, importPlaybookFromGithub } from "@/lib/api/playbooks";
+  import { githubLink, importError } from "@/lib/playbookReview";
+  import { editorPath } from "@/lib/playbooks";
+
+  const button = document.getElementById("pb-import") as HTMLButtonElement | null;
+  const input = document.getElementById("pb-import-file") as HTMLInputElement | null;
+  const message = document.getElementById("pb-import-msg") as HTMLElement;
+
+  const say = (text: string, error = false) => {
+    message.textContent = text;
+    message.hidden = !text;
+    message.classList.toggle("error", error);
+  };
+
+  const githubForm = document.getElementById("pb-github-form") as HTMLFormElement | null;
+  const githubUrl = document.getElementById("pb-github-url") as HTMLInputElement | null;
+  const githubGo = document.getElementById("pb-github-go") as HTMLButtonElement | null;
+  githubForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const link = githubLink(githubUrl?.value ?? "");
+    if (!link) return say("Paste a GitHub link to a skill folder or a SKILL.md file.", true);
+    githubGo!.disabled = true;
+    say("Fetching from GitHub…");
+    try {
+      const made = await importPlaybookFromGithub(link);
+      location.assign(`${editorPath(made.id)}?imported=1`);
+    } catch (e) {
+      say(importError(e), true);
+      githubGo!.disabled = false;
+    }
+  });
+
+  button?.addEventListener("click", () => input?.click());
+  input?.addEventListener("change", async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    button!.disabled = true;
+    say(`Importing ${file.name}…`);
+    try {
+      const made = await importPlaybook(file);
+      location.assign(`${editorPath(made.id)}?imported=1`);
+    } catch (e) {
+      say(importError(e), true);
+      button!.disabled = false;
+    } finally {
+      input.value = "";
+    }
+  });
+</script>

@@ -10,6 +10,7 @@ from . import (
     builtins_insights,  # registers insights tools (executions/events/tasks)  # noqa: F401
     builtins_media,  # registers add_embed (staged) / preview_embed (media players)  # noqa: F401
     builtins_overview,  # registers workspace_overview (what the workspace contains + index coverage)  # noqa: F401
+    builtins_playbooks,  # registers list_playbooks / load_playbook (published Playbooks: guidance an agent loads)  # noqa: F401
     builtins_trash,  # registers trash_entries (Delete: to the Trash, restorable; never emptied by AI)  # noqa: F401
     builtins_vision,  # registers view_image (read-only look at an image asset)  # noqa: F401
     builtins_workflows,  # registers workflow_authoring_guide / get_workflow / draft_workflow / update_workflow_draft  # noqa: F401

@@ -70,6 +70,7 @@ def _plan(ctx: ToolContext, args: dict) -> tuple[_Plan | None, str | None]:
     """(plan, None), or (None, error) for a call that can't run at all."""
     from marvin.db.models.platform.entries import Entries
     from marvin.routes._base.checks import require_can_edit_entry
+    from marvin.services.playbooks import agent_change_refusal
 
     refs = _refs(args)
     if not refs:
@@ -92,6 +93,9 @@ def _plan(ctx: ToolContext, args: dict) -> tuple[_Plan | None, str | None]:
         seen.add(entry.id)
         if entry.status == ARCHIVED:
             plan.already.append(_row(entry))
+            continue
+        if refusal := agent_change_refusal(ctx.session, entry):
+            plan.skipped.append({**_row(entry), "entry": ref, "reason": refusal})
             continue
         try:
             require_can_edit_entry(ctx.user, ctx.group_id, entry, ARCHIVED)
