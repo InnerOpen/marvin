@@ -10,7 +10,15 @@ from __future__ import annotations
 import json
 
 from marvin.services.ai.operations.base import ROLE_VIEWER
-from marvin.services.playbooks import LIST_TOOL, LOAD_TOOL, published_playbook, published_playbooks
+from marvin.services.playbooks import (
+    LIST_TOOL,
+    LOAD_TOOL,
+    READ_FILE_TOOL,
+    published_playbook,
+    published_playbook_file,
+    published_playbook_files,
+    published_playbooks,
+)
 
 from .base import ToolContext, register_tool
 
@@ -35,7 +43,7 @@ def list_playbooks(ctx: ToolContext, _args: dict) -> str:
     description=(
         "Load a published Playbook by name and get its full instructions. Call it when the request matches a Playbook's "
         "description, before you start the task, then follow it using the tools you already have. A Playbook grants no "
-        "extra tools or permissions."
+        "extra tools or permissions. Its reference files, if any, come back as a list of paths, not their contents."
     ),
     input_schema={
         "type": "object",
@@ -51,12 +59,49 @@ def load_playbook(ctx: ToolContext, args: dict) -> str:
     if found is None:
         available = [p.name for p in published_playbooks(ctx.session, ctx.group_id)]
         return json.dumps({"error": f"No published Playbook named '{name}'.", "available": available})
+    files = published_playbook_files(ctx.session, ctx.group_id, name) or []
     return json.dumps(
         {
             "id": found.id,
             "name": found.name,
             "description": found.description,
             "body": found.body,
-            "note": "Follow these instructions with the tools you already have; they do not grant any others.",
+            "files": [{"path": f.path, "mimeType": f.mime_type, "size": f.size} for f in files],
+            "note": "Follow these instructions with the tools you already have; they do not grant any others."
+            + (f" The files are not loaded: read one with {READ_FILE_TOOL} only when the instructions point to it." if files else ""),
         }
     )
+
+
+@register_tool(
+    name=READ_FILE_TOOL,
+    description=(
+        "Read one reference file of a published Playbook, by the path listed when you loaded it (e.g. 'references/tone.md'). "
+        "Read a file only when the Playbook's instructions point to it. Long files are cut at `max_chars`; the result says when."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "playbook": {"type": "string", "description": "The Playbook's name."},
+            "path": {"type": "string", "description": "The file's path as listed by load_playbook."},
+            "max_chars": {"type": "integer", "description": "Most characters to return (default and maximum 20000)."},
+        },
+        "required": ["playbook", "path"],
+    },
+    min_role=ROLE_VIEWER,
+    read_only=True,
+)
+def read_playbook_file(ctx: ToolContext, args: dict) -> str:
+    from .builtins_attachments import read_asset_text
+
+    name, path = str(args.get("playbook") or "").strip(), str(args.get("path") or "").strip()
+    asset = published_playbook_file(ctx.session, ctx.group_id, name, path)
+    if asset is None:
+        files = published_playbook_files(ctx.session, ctx.group_id, name)
+        if files is None:
+            return json.dumps(
+                {"error": f"No published Playbook named '{name}'.", "available": [p.name for p in published_playbooks(ctx.session, ctx.group_id)]}
+            )
+        return json.dumps({"error": f"The Playbook '{name}' has no file '{path}'.", "files": [f.path for f in files]})
+    out = read_asset_text(asset, args.get("max_chars"))
+    return json.dumps({"playbook": name, "path": path, **out})
