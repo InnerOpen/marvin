@@ -101,3 +101,25 @@ Jared: "Probably should organize webhooks, incoming webhooks, custom events and 
 6. Outgoing webhooks gain "installed by" (a migration).
 7. Scheduled tasks: a workspace page under Automation, or only the admin page? (Recommendation: a workspace page, read-mostly,
    since plugins now install tasks per workspace.)
+
+## Decisions (grilling, 2026-10-21; every recommendation accepted)
+1. Group by **source** now (Yours → From the Library → each integration → From a removed integration → Marvin's own); purpose
+   tags for your own items maybe later.
+2. Each integration's card lists **What it installed** — workflows, incoming and outgoing webhooks, scheduled tasks,
+   collections (links, pre-filtered); fields and form settings as one line.
+3. **Off items stay in their sections, dimmed**; Status defaults to All.
+4. Designed for ~100 items per page, **no paging**; search and filters narrow.
+5. A workspace **Automation › Scheduled tasks** page, mostly read-only (on/off, run now, last run, history).
+6. **Separate pages** sharing one layout (no merged Automation page).
+7. Status filter gains **Needs attention**: last run failed; incoming webhook never received or only rejected; outgoing
+   webhook pointing where the server can't reach (e.g. localhost); a plugin workflow off while its integration is on.
+8. Items of a **removed integration** get their own section with "Delete all of these".
+9. **Marvin's own** scheduled tasks: shown read-only, last, with history, no switches.
+10. Outgoing webhooks gain "installed by" (migration); **backfill only exact matches** to a known plugin blueprint (name and
+    URL host); the rest stay Yours.
+11. "Where it came from" is **read-only**; Delete is the only clean-up.
+12. Dashboard line "Automation needs a look (N)" + a count on the Settings › Automation tab.
+13. Ship in **three phases**, each pushed when green: (1) shared list kit + Workflows (with last run); (2) Incoming webhooks +
+    the Scheduled tasks page; (3) Outgoing webhooks (migration, backfill) + Custom events + "What it installed".
+Plus the earlier ones: sections always expanded; Run and Edit on the card, the rest in "⋯"; last-run outcome included;
+shared kit built first.
