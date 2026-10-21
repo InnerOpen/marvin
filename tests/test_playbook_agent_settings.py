@@ -282,3 +282,74 @@ def _used(run):
     from marvin.services.playbooks import playbooks_used
 
     return playbooks_used([SimpleNamespace(tool=s["tool"], result=s["result"]) for s in run["steps"]])
+
+
+# ── With thread memory (06) and the tool limit (07) ──────────────────────────
+
+
+def _turn_on(workspace, slug, message, thread="new") -> dict:
+    res = gates._sign_in(workspace, WorkspaceRole.AUTHOR).post(
+        f"/api/ai/agents/{slug}/run", json={"message": message, "source": "api", "threadId": thread}
+    )
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
+def test_a_playbook_both_always_loaded_and_loaded_in_the_thread_appears_once(workspace, db_session, model):
+    from tests.test_playbooks import BENCH, BENCH_BODY
+
+    _playbook(db_session, workspace.gid)
+    _agent(workspace, playbooks={"always": [BENCH]})
+
+    first = _turn_on(workspace, "writer", f"Write a bench note, use {BENCH}")
+    assert first["steps"][0]["tool"] == "load_playbook"  # loaded in the thread as well
+    _turn_on(workspace, "writer", "Now make it shorter", first["threadId"])
+
+    system = model.systems[-1]
+    assert system.count(BENCH_BODY) == 1  # in the frame; the thread's reload skips it
+    assert "## Playbooks loaded earlier in this conversation" not in system
+
+
+def test_a_thread_loaded_playbook_that_is_not_always_loaded_is_still_reloaded(workspace, db_session, model):
+    from tests.test_playbooks import BENCH, BENCH_BODY
+
+    _playbook(db_session, workspace.gid)
+    _playbook(db_session, workspace.gid, "alpha-voice", body="ALPHA STEPS.")
+    _agent(workspace, playbooks={"always": ["alpha-voice"]})
+
+    first = _turn_on(workspace, "writer", f"use {BENCH}")
+    _turn_on(workspace, "writer", "Now make it shorter", first["threadId"])
+    system = model.systems[-1]
+    assert system.count(BENCH_BODY) == 1 and system.count("ALPHA STEPS.") == 1
+    assert "## Playbooks loaded earlier in this conversation" in system
+
+
+def test_an_always_loaded_playbooks_allowed_tools_narrow_the_run(workspace, db_session, model):
+    from tests.test_playbooks import BENCH
+
+    row = _playbook(db_session, workspace.gid)
+    row.data_json = {**row.data_json, "allowed_tools": "list_tags"}
+    db_session.commit()
+    _playbook(db_session, workspace.gid, "other-voice", body="OTHER.")
+    _agent(workspace, playbooks={"always": [BENCH]})
+
+    run = _run(workspace, "writer", "please use other-voice")  # loads only the unlimited one, then tries find_entries
+    assert _tools_called(run) == ["load_playbook", "find_entries"]
+    assert "limits this task" in run["steps"][1]["result"]
+
+
+def test_playbooks_in_effect_adds_the_always_loaded_ones_inside_the_chosen_set(workspace, db_session):
+    from types import SimpleNamespace
+
+    from marvin.services.playbooks import playbooks_in_effect
+
+    for name in ("always-one", "thread-one", "outside-one"):
+        _playbook(db_session, workspace.gid, name)
+    row = next(r for r in [_playbook(db_session, workspace.gid, "x-extra")])
+    thread = SimpleNamespace(
+        messages=[SimpleNamespace(seq=1, meta_json={"playbooks": [{"id": "1", "name": "thread-one"}, {"id": "2", "name": "outside-one"}]})]
+    )
+    assert row is not None
+    scope = PlaybookScope(names=("always-one", "thread-one"), always=("always-one",))
+    assert [p.name for p in playbooks_in_effect(db_session, workspace.gid, (), thread, scope)] == ["always-one", "thread-one"]
+    assert [p.name for p in playbooks_in_effect(db_session, workspace.gid, (), thread)] == ["thread-one", "outside-one"]

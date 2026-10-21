@@ -9,6 +9,7 @@ later turn. Pure functions over a session, a thread or a trace.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
 
 from marvin.services.playbooks import USED_KEY, playbooks_used, published_playbook
@@ -37,16 +38,20 @@ def thread_playbooks(thread) -> list[dict]:
     return list(kept.values())
 
 
-def reload_block(session, group_id, thread) -> str:
+def reload_block(session, group_id, thread, skip: Iterable[str] = ()) -> str:
     """The system-prompt section that keeps the thread's Playbooks in effect ("" when it has loaded none).
 
     The text is the Playbook's published text now: an edit reaches the conversation, and one that has since been
-    unpublished or trashed is dropped (an agent never sees what it could not load).
+    unpublished or trashed is dropped (an agent never sees what it could not load). Names in ``skip`` (the agent's
+    always-load Playbooks, already in the frame in full) are left out so none appears twice.
     """
+    skip = set(skip)
     sections: list[str] = []
     skipped: list[str] = []
     room = RELOAD_MAX_CHARS
     for entry in thread_playbooks(thread):
+        if (entry.get("name") or "") in skip:
+            continue
         found = published_playbook(session, group_id, entry.get("name") or "")
         if found is None or found.id != entry["id"]:
             continue
