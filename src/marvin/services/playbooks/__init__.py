@@ -123,6 +123,28 @@ def _of(row) -> Playbook:
     return Playbook(id=str(row.id), name=row.slug, description=str(data.get("description") or ""), body=str(data.get("body") or ""))
 
 
+def playbook_type_id(session, group_id):
+    """The workspace's ``playbook`` entry type id, or None when no Playbook was ever written. Never creates it (a read path)."""
+    from marvin.db.models.platform.entry_types import EntryTypes
+
+    return session.query(EntryTypes.id).filter_by(group_id=group_id, slug=PLAYBOOK_TYPE).scalar()
+
+
+def all_playbooks(session, group_id) -> list:
+    """Every Playbook entry of the workspace except those in the Trash, by name (the Playbooks page's list). Entry rows."""
+    from marvin.db.models.platform.entries import Entries
+
+    type_id = playbook_type_id(session, group_id)
+    if type_id is None:
+        return []
+    return (
+        session.query(Entries)
+        .filter(Entries.group_id == group_id, Entries.entry_type_id == type_id, Entries.status != "trashed")
+        .order_by(Entries.slug)
+        .all()
+    )
+
+
 def published_playbooks(session, group_id) -> list[Playbook]:
     """The workspace's published Playbooks by name: what an agent may list. A workspace with none (or never written one) gets []."""
     return [_of(row) for row in _published_rows(session, group_id)]

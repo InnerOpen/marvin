@@ -1,0 +1,48 @@
+---
+// Settings › AI › Playbooks › one Playbook: the editor. The Playbook is read through the entries API, but only when the Playbooks list
+// names it, so this page never opens some other entry. Editors and above.
+import AppLayout from "@/layouts/AppLayout.astro";
+import PlaybookEditor from "@/components/PlaybookEditor.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { getPlaybook, listPlaybooks, type PlaybookEntry } from "@/lib/api/playbooks";
+import { formFromEntry, PLAYBOOKS_PATH } from "@/lib/playbooks";
+import { isForbidden } from "@/lib/workspaceRole";
+
+const { id } = Astro.params;
+const authToken = getAuthToken(Astro.cookies);
+let entry: PlaybookEntry | null = null;
+let error: string | null = null;
+let restricted = false;
+try {
+  const list = await listPlaybooks(authToken);
+  if (id && list.items.some((item) => item.id === id)) entry = await getPlaybook(id, authToken);
+} catch (e) {
+  if (isForbidden(e)) restricted = true;
+  else error = e instanceof Error ? e.message : String(e);
+}
+---
+
+<AppLayout
+  crumb="settings.ai-playbooks.edit"
+  title={entry?.slug ?? "Playbook"}
+  restrictedNote={restricted ? "Playbooks are for editors and above." : null}
+>
+  {error && <div class="alert"><strong>Couldn't load this Playbook.</strong> {error}</div>}
+  {!error && !restricted && !entry && (
+    <div class="section-card">
+      <h3>Playbook not found</h3>
+      <p>It may have been moved to the Trash. See all your <a href={PLAYBOOKS_PATH}>Playbooks</a>.</p>
+    </div>
+  )}
+  {entry && (
+    <>
+      <div class="page-header">
+        <div>
+          <h2>{entry.slug}</h2>
+          <p>Edits to a published Playbook reach agents as soon as you save.</p>
+        </div>
+      </div>
+      <PlaybookEditor form={formFromEntry(entry)} id={entry.id} status={entry.status} />
+    </>
+  )}
+</AppLayout>

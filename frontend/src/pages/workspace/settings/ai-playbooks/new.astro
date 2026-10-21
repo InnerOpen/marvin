@@ -1,0 +1,16 @@
+---
+// Settings › AI › Playbooks › New: write a Playbook. It saves as a draft (or publishes at once); the entry type is made on the first save.
+import AppLayout from "@/layouts/AppLayout.astro";
+import PlaybookEditor from "@/components/PlaybookEditor.astro";
+import { EMPTY_FORM } from "@/lib/playbooks";
+---
+
+<AppLayout crumb="settings.ai-playbooks.new">
+  <div class="page-header">
+    <div>
+      <h2>New Playbook</h2>
+      <p>Write the procedure as you would brief a new colleague. Agents see only the description until they load it.</p>
+    </div>
+  </div>
+  <PlaybookEditor form={EMPTY_FORM} />
+</AppLayout>
