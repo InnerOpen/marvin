@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.39 (2026-10-21)
+
+### Bug Fixes
+
+- **integrations**: Blueprint rows stack on a phone; the Update button gets its own column
+  ([`a5c3f8c`](https://github.com/InnerOpen/marvin/commit/a5c3f8c77a3f5d3ed3161519cc69f2d80b1f345d))
+
+
 ## v1.1.0-rc.38 (2026-10-21)
 
 ### Chores
