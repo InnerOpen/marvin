@@ -6,6 +6,113 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.23 (2026-10-21)
+
+### Bug Fixes
+
+- **playbooks**: A run resumed after an approval keeps what the user asked
+  ([`1e86bb3`](https://github.com/InnerOpen/marvin/commit/1e86bb35808e82b5187febdf0b59c33ac8ee7bd4))
+
+- **playbooks**: A stale scheduled change no longer aborts the publish run; changes meet the publish
+  gate
+  ([`2de9fc2`](https://github.com/InnerOpen/marvin/commit/2de9fc230df81bed745ed58c9cd122b33b5d2197))
+
+- **playbooks**: Agent Playbook helpers as module functions
+  ([`75fd874`](https://github.com/InnerOpen/marvin/commit/75fd874a0d557e9e7e16585685eaabed1ef10d5d))
+
+- **playbooks**: AI revise and write-back follow the Playbook admin rule
+  ([`550a38f`](https://github.com/InnerOpen/marvin/commit/550a38fd5199840277e578f3e98cc6803eb19a39))
+
+- **playbooks**: Reference files get their own asset scope, out of the library and the asset tools
+  ([`f917901`](https://github.com/InnerOpen/marvin/commit/f9179012a5377aa4e05b927709f4ae0aa5a36224))
+
+- **playbooks**: Run_agent frames its run with the Playbook catalog, always-load and chosen set, as
+  Ask does
+  ([`00106ec`](https://github.com/InnerOpen/marvin/commit/00106ec8f6c36ff52c9f0cc4bfaba796548b7fed))
+
+- **playbooks**: Workflows need an Admin author to publish or change a Playbook; agents can't read
+  drafts through the entry tools
+  ([`0994b09`](https://github.com/InnerOpen/marvin/commit/0994b09f6f9dcf8f966e95be79cf4e66f3be3ec6))
+
+### Chores
+
+- **deps**: Declare pyyaml (the SKILL.md codec imports it directly)
+  ([`3709644`](https://github.com/InnerOpen/marvin/commit/370964497b1fbd02ca7c96cedd76e1836b0839ba))
+
+### Documentation
+
+- Add the Playbooks page to What's new
+  ([`f3a39a7`](https://github.com/InnerOpen/marvin/commit/f3a39a7dbc867f931a1b2202cd939509a2e54485))
+
+- **research**: Agent Skills decisions (Playbooks), agreed 2026-10-21
+  ([`aa9aee4`](https://github.com/InnerOpen/marvin/commit/aa9aee4f30137e0a6a2f65115c796d3a3898be5e))
+
+- **research**: Agent Skills gap analysis
+  ([`c002a94`](https://github.com/InnerOpen/marvin/commit/c002a94c5e1c0fe207bb4708d87eb6bb85462c54))
+
+### Features
+
+- **playbooks**: A published Playbook steers an agent
+  ([`75caf30`](https://github.com/InnerOpen/marvin/commit/75caf30b4fe5e10de85006e53f1b6e9e0f315e57))
+
+- **playbooks**: Agents propose a Playbook, or a change to a published one, into the Inbox
+  ([`ba3c0c8`](https://github.com/InnerOpen/marvin/commit/ba3c0c8128133d4722f54f60750eb2c204d76ae9))
+
+- **playbooks**: Allowed-tools narrows the tools an agent may call
+  ([`7711f13`](https://github.com/InnerOpen/marvin/commit/7711f1340759b831a2739b9673cf840c86f559ea))
+
+- **playbooks**: Always-load Playbooks join thread memory and the allowed-tools limit
+  ([`e786abd`](https://github.com/InnerOpen/marvin/commit/e786abd0ee4fce0c1dfe7c1526208ff4f449631b))
+
+- **playbooks**: Export a Playbook as a standard skill folder zip
+  ([`14aa416`](https://github.com/InnerOpen/marvin/commit/14aa4161ba3a84345cf78b0ea6266cf9bd26a857))
+
+- **playbooks**: Hide Publish from non-admins in the Playbook editor
+  ([`c647f45`](https://github.com/InnerOpen/marvin/commit/c647f45dd1dc1a35fffc2260ca9950feeee709e3))
+
+- **playbooks**: Import a skill from a public GitHub link, pinned to its commit
+  ([`34a9198`](https://github.com/InnerOpen/marvin/commit/34a91989c546f63f946f1318965898888790c2bd))
+
+- **playbooks**: Import a SKILL.md or skill zip as a draft, with a review panel
+  ([`93087ec`](https://github.com/InnerOpen/marvin/commit/93087eced2dac76dfd0ad98cea95933a725c716d))
+
+- **playbooks**: Only admins publish Playbooks; agents only draft
+  ([`bfa3ccc`](https://github.com/InnerOpen/marvin/commit/bfa3cccbfe6388179bfe386c38994df05a5147d8))
+
+- **playbooks**: Per-agent Playbook settings (chosen set, always load, manual-only)
+  ([`f634fbf`](https://github.com/InnerOpen/marvin/commit/f634fbfb1b256e4420f941d930846586a255a8b1))
+
+- **playbooks**: Reference files with their paths kept
+  ([`0ca3806`](https://github.com/InnerOpen/marvin/commit/0ca3806a53a47d4379014ed3e39609e3db999683))
+
+- **playbooks**: Settings > AI > Playbooks page and editor
+  ([`db324c4`](https://github.com/InnerOpen/marvin/commit/db324c4cca92ed733cfcf1f435f9c5567288dab4))
+
+- **playbooks**: The thread's Playbooks keep allowed-tools in effect on later turns
+  ([`2859ff9`](https://github.com/InnerOpen/marvin/commit/2859ff9e0be5711748957946b1e8d2033acdaee2))
+
+- **playbooks**: Thread memory, Used line, used recently
+  ([`8dba227`](https://github.com/InnerOpen/marvin/commit/8dba227ef5202c3edd13f14f951e469e0e9bb1ff))
+
+### Refactoring
+
+- **playbooks**: Controller helpers, importer split into named steps with typed review and source,
+  one escape helper, mirrored limits noted
+  ([`eab786c`](https://github.com/InnerOpen/marvin/commit/eab786c47c21cf4ca111021297e2e50418c4b404))
+
+- **playbooks**: Split the service into catalog, proposals and files; one source for the field
+  limits; fold the published lookups
+  ([`e0b17a3`](https://github.com/InnerOpen/marvin/commit/e0b17a3c340f33b13cecbabe57eafba4aae29831))
+
+### Testing
+
+- Set_data stubs skip the Playbook lookup when there is no session
+  ([`5a88760`](https://github.com/InnerOpen/marvin/commit/5a887605e73e257e7fcd12b3a8188334ee22f957))
+
+- **playbooks**: The Author tool set now includes propose_playbook_change
+  ([`cc824af`](https://github.com/InnerOpen/marvin/commit/cc824af25e3b2c44608af00c7fd05e3021685026))
+
+
 ## v1.1.0-rc.22 (2026-10-20)
 
 ### Chores
