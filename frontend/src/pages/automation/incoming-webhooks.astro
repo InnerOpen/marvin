@@ -1,9 +1,15 @@
 ---
+import FilterBar from "@/components/FilterBar.astro";
+import OrganizedSections from "@/components/OrganizedSections.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { getBrowserApiBaseUrl } from "@/lib/api/config";
-import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import { listIntegrations, listProviders } from "@/lib/api/integrations";
+import { getCurrentWorkspace, listWorkspaces } from "@/lib/api/workspaces";
+import { incomingWebhookAdapter, RECEIVED_OPTIONS, SIGNED_OPTIONS } from "@/lib/incomingWebhookList";
+import { fromOptions, type Integrations, statusOptions } from "@/lib/organizedList";
 import { createSdkClient } from "@/lib/sdk";
+import { canManageWorkspace } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
@@ -11,11 +17,40 @@ const sdk = createSdkClient(authToken);
 let workspace: any = null;
 let webhooks: any[] = [];
 let schemes: any[] = [];
+let integrationInfo: Integrations = {};
 let error: string | null = null;
+// "Delete all of these" (From a removed integration) is ADMIN only; the API refuses anyone else.
+let canManage = false;
+try {
+  canManage = canManageWorkspace(await listWorkspaces(authToken), (await sdk.user.getProfile()) as any);
+} catch {
+  // unknown role: no button
+}
 
 try {
   workspace = await getCurrentWorkspace(authToken);
-  if (workspace) webhooks = await sdk.incomingWebhooks.list();
+  if (workspace) {
+    let integrations: any[] | null = [];
+    let providers: any[] = [];
+    [webhooks, integrations, providers] = await Promise.all([
+      sdk.incomingWebhooks.list(),
+      // The sections' names and logos. If the integrations can't be read, their webhooks still group (below)
+      // rather than all reading as "From a removed integration".
+      listIntegrations(authToken).catch((e) => (console.error("[incoming-webhooks] integrations:", e), null)),
+      listProviders(authToken).catch(() => []),
+    ]);
+    const byProvider = new Map((providers ?? []).map((p: any) => [p.slug, p]));
+    integrationInfo = integrations
+      ? Object.fromEntries(
+          integrations.map((i: any) => {
+            const provider: any = byProvider.get(i.provider);
+            return [i.id, { name: i.name, slug: i.provider, icon: provider?.icon, hasLogo: provider?.hasLogo }];
+          }),
+        )
+      : Object.fromEntries(
+          webhooks.filter((w: any) => w.sourceIntegrationId).map((w: any) => [w.sourceIntegrationId, { name: "an integration" }]),
+        );
+  }
   // Core presets, presets from installed integrations, then "custom".
   if (workspace) schemes = await fetchApi<any[]>("/api/incoming-webhooks/signature-schemes", {}, authToken);
 } catch (e) {
@@ -25,6 +60,9 @@ try {
 
 const listJson = JSON.stringify(webhooks).replace(/</g, "\\u003c");
 const schemesJson = JSON.stringify(schemes).replace(/</g, "\\u003c");
+const integrationNamesJson = JSON.stringify(integrationInfo).replace(/</g, "\\u003c");
+// The filter bar's choices (the page script reads the same selects back): From only offers the sections that exist.
+const fromChoices = fromOptions(webhooks, incomingWebhookAdapter(), integrationInfo);
 // Shown to the user to configure an external system that POSTs here, so it must be the publicly
 // reachable address rather than an internal cluster one.
 const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
@@ -34,6 +72,8 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
  <div class="iw-page" data-hook-base={hookBase}>
   <script type="application/json" id="iw-list-data" is:inline set:html={listJson}></script>
   <script type="application/json" id="iw-schemes-data" is:inline set:html={schemesJson}></script>
+  <script type="application/json" id="iw-integration-names" is:inline set:html={integrationNamesJson}></script>
+  <script type="application/json" id="iw-can-manage" is:inline set:html={JSON.stringify(canManage)}></script>
   <div class="toolbar">
     <div>
       <h2>Incoming Webhooks</h2>
@@ -79,14 +119,29 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
       </div>
     </section>
 
-    <div id="iw-list" class="iw-list"></div>
-    <div id="iw-empty" class="empty" hidden>No incoming webhooks yet. Create one to get a URL.</div>
+    <!-- Webhook list: the shared list kit (lib/organizedList.ts) -->
+    {webhooks.length > 0 && (
+      <FilterBar
+        searchPlaceholder="Search webhooks…"
+        searchId="iw-search"
+        filters={[
+          { id: "iw-f-from", label: "sources", options: fromChoices },
+          { id: "iw-f-status", label: "statuses", options: statusOptions({ attention: true }) },
+          { id: "iw-f-signed", label: "signing", options: SIGNED_OPTIONS },
+          { id: "iw-f-received", label: "deliveries", options: RECEIVED_OPTIONS },
+        ]}
+      />
+    )}
+    <OrganizedSections id="iw" noun="webhook" emptyAll="No incoming webhooks yet. Create one to get a URL." />
   </div>
  </div>
 </AppLayout>
 
 <script>
   import { fetchApi } from "@/lib/api/client";
+  import { attentionReason, incomingWebhookAdapter } from "@/lib/incomingWebhookList";
+  import { mountOrganizedList } from "@/lib/organizedListView";
+  import { menuHtml, switchHtml } from "@/lib/organizedListHtml";
   import { createSdkClient } from "@/lib/sdk";
 
   const sdk = () => createSdkClient();
@@ -99,6 +154,8 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
 
   const hookBase = (document.querySelector(".iw-page") as HTMLElement).dataset.hookBase || "";
   let webhooks: any[] = JSON.parse($("iw-list-data").textContent || "[]");
+  const INTEGRATIONS = JSON.parse($("iw-integration-names").textContent || "{}");
+  const canManage = JSON.parse($("iw-can-manage").textContent || "false") === true;
   const schemes: any[] = JSON.parse($("iw-schemes-data").textContent || "[]");
   // What the sender must do, in the selected scheme's own words (its notes), so the hint never
   // describes a different scheme than the one picked.
@@ -152,18 +209,17 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
            <span class="hint" data-status></span>
          </div>`;
 
-    return `<div class="iw-card" data-id="${esc(w.id)}">
+    const why = attentionReason(w);
+    return `<article class="org-card iw-card${w.enabled ? "" : " off"}" data-id="${esc(w.id)}">
+     <div class="org-card-main">
       <div class="iw-head">
         <div>
           <strong>${esc(w.name)}</strong>
           <code class="slug">${esc(w.slug)}</code>
           ${w.description ? `<span class="desc">${esc(w.description)}</span>` : ""}
         </div>
-        <div class="iw-head-actions">
-          <label class="switch" title="Enabled"><input type="checkbox" data-act="toggle" ${w.enabled ? "checked" : ""} /><span class="track"></span></label>
-          <button class="button ghost sm danger" data-act="delete" title="Delete">Delete</button>
-        </div>
       </div>
+      ${why ? `<div class="iw-attention" title="${esc(why)}"><strong>Needs a look</strong> · ${esc(why)}</div>` : ""}
       ${tokenBlock}
       <div class="signing-row">
         <span class="hint">Signing: ${w.signingSecretRef
@@ -199,14 +255,34 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
         ${w.signingSecretRef ? `<span class="pill" title="Requests are verified (${esc(schemeLabel(w.signatureScheme || "hmac_sha256_hex"))}) with secret ${esc(w.signingSecretRef)}${w.signatureHeader ? ` in header ${esc(w.signatureHeader)}` : ""}">verified</span>` : ""}
       </div>
       <div class="iw-deliveries" data-deliveries hidden></div>
-    </div>`;
+     </div>
+     <div class="org-card-actions">
+       ${switchHtml({ on: w.enabled, cls: "js-toggle", label: w.name })}
+       ${menuHtml([{ cls: "js-delete", label: "Delete", title: "Delete this webhook", danger: true }])}
+     </div>
+    </article>`;
   }
 
-  function render() {
-    const list = $("iw-list");
-    list.innerHTML = webhooks.map(card).join("");
-    $("iw-empty").toggleAttribute("hidden", webhooks.length > 0);
-  }
+  const list = mountOrganizedList<any>({
+    host: $("iw-list"),
+    emptyFiltered: $("iw-empty"),
+    emptyAll: $("iw-none"),
+    search: document.getElementById("iw-search") as HTMLInputElement | null,
+    selects: {
+      from: document.getElementById("iw-f-from") as HTMLSelectElement | null,
+      status: document.getElementById("iw-f-status") as HTMLSelectElement | null,
+      signed: document.getElementById("iw-f-signed") as HTMLSelectElement | null,
+      received: document.getElementById("iw-f-received") as HTMLSelectElement | null,
+    },
+    items: () => webhooks,
+    adapter: incomingWebhookAdapter(),
+    integrations: INTEGRATIONS,
+    noun: "webhook",
+    storageKey: "marvin.automation.incoming-webhooks.filters",
+    renderItem: (w) => card(w),
+    removedDelete: { kind: "incoming-webhooks", canDelete: canManage },
+  });
+  const render = () => list.refresh();
 
   function upsert(w) {
     const i = webhooks.findIndex((x) => x.id === w.id);
@@ -287,19 +363,19 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
 
   // ── Per-card actions (event delegation) ─────────────────────────────────────
   $("iw-list").addEventListener("click", async (ev: Event) => {
-    const btn: any = (ev.target as HTMLElement).closest("[data-act]");
+    const btn: any = (ev.target as HTMLElement).closest("[data-act], .js-toggle, .js-delete");
     if (!btn) return;
     const cardEl: any = btn.closest(".iw-card");
     const id = cardEl?.dataset.id;
     const w = webhooks.find((x) => x.id === id);
     if (!w) return;
-    const act = btn.dataset.act;
+    const act = btn.classList.contains("js-toggle") ? "toggle" : btn.classList.contains("js-delete") ? "delete" : btn.dataset.act;
     const status = cardEl.querySelector("[data-status]");
     const setStatus = (t: string, err?: boolean) => { if (status) { status.textContent = t; status.classList.toggle("error", !!err); } };
 
     try {
       if (act === "toggle") {
-        const enabled = btn.checked;
+        const enabled = btn.getAttribute("aria-checked") !== "true";
         upsert(await sdk().incomingWebhooks.update(id, { enabled }));
       } else if (act === "mint" || act === "rotate") {
         if (act === "rotate" && !confirm("Rotate the token? The current URL will stop working immediately.")) return;
@@ -425,7 +501,7 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
   .button.danger { color: var(--color-error, #c0392b); border-color: var(--color-error, #c0392b); }
   .button.ghost.danger { background: transparent; }
 
-  .create-card, .iw-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+  .create-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
   .create-card[hidden] { display: none; }
   .form-row { display: flex; gap: 14px; align-items: flex-end; }
   .form-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
@@ -443,47 +519,39 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
   .switch input:checked + .track { background: var(--accent); }
   .switch input:checked + .track::before { transform: translateX(16px); }
 
-  .iw-list { display: flex; flex-direction: column; gap: 12px; }
   .hint { font-size: 12px; color: var(--muted); }
   .hint.error { color: var(--color-error, #c0392b); }
-  .empty { color: var(--muted); font-size: 14px; padding: 24px; text-align: center; border: 1px dashed var(--line); border-radius: var(--radius); }
 
   /* Card internals are rendered in JS → style via :global(). */
-  .iw-list :global(.iw-card) { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-  .iw-list :global(.iw-head) { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-  .iw-list :global(.iw-head strong) { font-size: 15px; }
-  .iw-list :global(.slug) { margin-left: 8px; font-size: 12px; color: var(--muted); background: var(--bg); padding: 1px 6px; border-radius: 4px; }
-  .iw-list :global(.desc) { display: block; margin-top: 4px; font-size: 13px; color: var(--muted); }
-  .iw-list :global(.iw-head-actions) { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-  .iw-list :global(.button) { padding: 8px 14px; border-radius: var(--radius); border: 1px solid var(--line); background: transparent; color: var(--ink); font-size: 14px; font-weight: 600; cursor: pointer; }
-  .iw-list :global(.button.sm) { padding: 4px 10px; font-size: 12px; }
-  .iw-list :global(.button.danger) { color: var(--color-error, #c0392b); border-color: var(--color-error, #c0392b); }
-  .iw-list :global(.token-live) { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-  .iw-list :global(.token-live .url) { flex: 1; min-width: 240px; font-family: var(--mono, monospace); font-size: 12px; }
-  .iw-list :global(.token-none) { display: flex; gap: 10px; align-items: center; }
-  .iw-list :global(.signing-row) { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 13px; }
-  .iw-list :global(.signing-edit) { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
-  .iw-list :global(.signing-edit .input) { flex: 1; min-width: 200px; }
-  .iw-list :global(.signing-reveal) { flex-basis: 100%; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-  .iw-list :global(.test-panel) { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
-  .iw-list :global(.test-panel[hidden]) { display: none; }
-  .iw-list :global(.test-payload) { width: 100%; box-sizing: border-box; font-family: var(--mono, monospace); font-size: 12px; resize: vertical; }
-  .iw-list :global(.test-actions) { display: flex; align-items: center; gap: 8px; }
-  .iw-list :global(.button.sm.danger) { color: var(--color-error, #c0392b); border-color: var(--color-error, #c0392b); }
-  .iw-list :global(.iw-meta) { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
-  .iw-list :global(.iw-meta .link-btn) { font-size: 12px; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; }
-  .iw-list :global(.iw-deliveries) { margin-top: 8px; display: grid; gap: 4px; }
-  .iw-list :global(.delivery summary) { cursor: pointer; font-size: 13px; }
-  .iw-list :global(.delivery-body) { margin: 6px 0 4px; padding: 8px 10px; max-height: 320px; overflow: auto; background: var(--panel-2); border-radius: var(--radius); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .iw-list :global(.pill) { padding: 1px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); font-size: 11px; }
-  .iw-list :global(.switch) { position: relative; display: inline-block; width: 38px; height: 22px; }
-  .iw-list :global(.switch input) { opacity: 0; width: 0; height: 0; }
-  .iw-list :global(.switch .track) { position: absolute; inset: 0; background: var(--line); border-radius: 999px; transition: .2s; }
-  .iw-list :global(.switch .track::before) { content: ""; position: absolute; height: 16px; width: 16px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .2s; }
-  .iw-list :global(.switch input:checked + .track) { background: var(--accent); }
-  .iw-list :global(.switch input:checked + .track::before) { transform: translateX(16px); }
-  .iw-list :global(.hint) { font-size: 12px; color: var(--muted); }
-  .iw-list :global(.hint.error) { color: var(--color-error, #c0392b); }
+  .iw-page :global(.iw-card .org-card-main) { display: flex; flex-direction: column; gap: 10px; flex: 1; min-width: 0; }
+  .iw-page :global(.iw-attention) { font-size: 12px; color: var(--color-error); }
+  .iw-page :global(.iw-head) { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .iw-page :global(.iw-head strong) { font-size: 15px; }
+  .iw-page :global(.slug) { margin-left: 8px; font-size: 12px; color: var(--muted); background: var(--bg); padding: 1px 6px; border-radius: 4px; }
+  .iw-page :global(.desc) { display: block; margin-top: 4px; font-size: 13px; color: var(--muted); }
+  .iw-page :global(.button) { padding: 8px 14px; border-radius: var(--radius); border: 1px solid var(--line); background: transparent; color: var(--ink); font-size: 14px; font-weight: 600; cursor: pointer; }
+  .iw-page :global(.button.sm) { padding: 4px 10px; font-size: 12px; }
+  .iw-page :global(.button.danger) { color: var(--color-error, #c0392b); border-color: var(--color-error, #c0392b); }
+  .iw-page :global(.token-live) { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .iw-page :global(.token-live .url) { flex: 1; min-width: 240px; font-family: var(--mono, monospace); font-size: 12px; }
+  .iw-page :global(.token-none) { display: flex; gap: 10px; align-items: center; }
+  .iw-page :global(.signing-row) { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 13px; }
+  .iw-page :global(.signing-edit) { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+  .iw-page :global(.signing-edit .input) { flex: 1; min-width: 200px; }
+  .iw-page :global(.signing-reveal) { flex-basis: 100%; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .iw-page :global(.test-panel) { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+  .iw-page :global(.test-panel[hidden]) { display: none; }
+  .iw-page :global(.test-payload) { width: 100%; box-sizing: border-box; font-family: var(--mono, monospace); font-size: 12px; resize: vertical; }
+  .iw-page :global(.test-actions) { display: flex; align-items: center; gap: 8px; }
+  .iw-page :global(.button.sm.danger) { color: var(--color-error, #c0392b); border-color: var(--color-error, #c0392b); }
+  .iw-page :global(.iw-meta) { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+  .iw-page :global(.iw-meta .link-btn) { font-size: 12px; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; }
+  .iw-page :global(.iw-deliveries) { margin-top: 8px; display: grid; gap: 4px; }
+  .iw-page :global(.delivery summary) { cursor: pointer; font-size: 13px; }
+  .iw-page :global(.delivery-body) { margin: 6px 0 4px; padding: 8px 10px; max-height: 320px; overflow: auto; background: var(--panel-2); border-radius: var(--radius); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .iw-page :global(.pill) { padding: 1px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); font-size: 11px; }
+  .iw-page :global(.hint) { font-size: 12px; color: var(--muted); }
+  .iw-page :global(.hint.error) { color: var(--color-error, #c0392b); }
 
   /* Phones: the create form's field pairs stack, a long name or slug wraps instead of pushing the
      toggle and Delete off the card, and the small buttons get finger-sized. */
@@ -491,10 +559,10 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
     .form-row { flex-wrap: wrap; }
     .form-field.grow { flex: 1 1 220px; }
     .create-actions { flex-wrap: wrap; }
-    .iw-list :global(.iw-head > div:first-child) { min-width: 0; overflow-wrap: anywhere; }
-    .iw-list :global(.button.sm),
+    .iw-page :global(.iw-head > div:first-child) { min-width: 0; overflow-wrap: anywhere; }
+    .iw-page :global(.button.sm),
     .button.sm { min-height: 36px; }
-    .iw-list :global(.token-live .url) { min-width: 0; flex-basis: 100%; }
-    .iw-list :global(.signing-edit .input) { min-width: 0; flex-basis: 100%; }
+    .iw-page :global(.token-live .url) { min-width: 0; flex-basis: 100%; }
+    .iw-page :global(.signing-edit .input) { min-width: 0; flex-basis: 100%; }
   }
 </style>

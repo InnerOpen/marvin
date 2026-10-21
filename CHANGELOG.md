@@ -6,6 +6,41 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.30 (2026-10-21)
+
+### Bug Fixes
+
+- **integrations**: What it installed items no longer squeezed into the checklist's tick column
+  ([`4fd84af`](https://github.com/InnerOpen/marvin/commit/4fd84afe1e2eb5a48496065105f7d5535d229352))
+
+
+## v1.1.0-rc.29 (2026-10-21)
+
+### Bug Fixes
+
+- **playbooks**: Show the Playbook list as slim cards like the Automation lists
+  ([`ef0494e`](https://github.com/InnerOpen/marvin/commit/ef0494e2b74e0e91ed8487920e0b6b48651102cf))
+
+### Features
+
+- **playbooks**: Explain what GitHub links and uploads import
+  ([`3b76018`](https://github.com/InnerOpen/marvin/commit/3b760181b50b8d0de43d88c72135e7c5b259cafe))
+
+
+## v1.1.0-rc.28 (2026-10-21)
+
+### Bug Fixes
+
+- **playbooks**: Style the Import from GitHub field like other text inputs
+  ([`a37f60b`](https://github.com/InnerOpen/marvin/commit/a37f60b79f4572c80ff5bd8d775a00a58bd6ee4b))
+
+### Documentation
+
+- **plan**: Image recipes — suggest an image, create one for an entry (any image.generate
+  connection)
+  ([`acbd638`](https://github.com/InnerOpen/marvin/commit/acbd63840a0cdda92fcdb7eb239a442e1bed8f5f))
+
+
 ## v1.1.0-rc.27 (2026-10-21)
 
 ### Documentation

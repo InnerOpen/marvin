@@ -15,7 +15,9 @@ import sqlalchemy as sa
 
 from marvin.db.models.groups.automation_executions import AutomationExecutionModel as Run
 from marvin.db.models.groups.automations import WorkspaceAutomationModel
+from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookModel
 from marvin.db.models.groups.integrations import IntegrationModel
+from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
 
 # Why a workflow is flagged (the API's `attention` field; the page words them).
 LAST_RUN_FAILED = "last_run_failed"
@@ -81,6 +83,51 @@ def workflows_needing_a_look(session, group_id) -> int:
     return sum(1 for *_, reason in workflow_rows(session, group_id) if reason)
 
 
+def incoming_webhooks_needing_a_look(session, group_id) -> int:
+    """Enabled incoming webhooks that have never received a call. (Marvin does not record rejected deliveries — a bad token or signature
+    only reaches the log — so "recent deliveries all rejected" cannot be told apart here; the page's filter uses the same single rule.)"""
+    hook = WorkspaceIncomingWebhookModel
+    return session.query(sa.func.count(hook.id)).filter(hook.group_id == group_id, hook.enabled.is_(True), hook.received_count == 0).scalar() or 0
+
+
+def outgoing_webhooks_needing_a_look(session, group_id) -> int:
+    """Enabled outgoing webhooks whose URL is an address the server won't post to (the rule WebhookCreate enforces in production; see
+    ``webhook_attention``). Only enabled rows are read, and only their URLs."""
+    from marvin.db.models.groups.webhooks import GroupWebhooksModel
+    from marvin.schemas.group.webhook import webhook_attention
+
+    urls = session.query(GroupWebhooksModel.url).filter(GroupWebhooksModel.group_id == group_id, GroupWebhooksModel.enabled.is_(True)).all()
+    return sum(1 for (url,) in urls if webhook_attention(True, url))
+
+
+def scheduled_task_reason(*, enabled: bool, last_status: str | None, system: bool, integration_id: Any, blueprint: str | None) -> str | None:
+    """Why a scheduled task needs a look, or None: it is on and its last run failed or timed out.
+
+    Marvin's own tasks are the platform's to watch, not the workspace's; a task a removed integration left behind (a blueprint, no
+    integration) is for "Delete all of these"; a task that is switched off was dealt with.
+    """
+    if system or not enabled or last_status not in ("failed", "timeout"):
+        return None
+    if blueprint and integration_id is None:
+        return None
+    return LAST_RUN_FAILED
+
+
+def scheduled_task_reason_of(task: ScheduledTaskModel) -> str | None:
+    return scheduled_task_reason(
+        enabled=task.enabled,
+        last_status=task.last_status,
+        system=task.group_id is None,
+        integration_id=task.source_integration_id,
+        blueprint=task.source_blueprint,
+    )
+
+
+def scheduled_tasks_needing_a_look(session, group_id) -> int:
+    tasks = session.query(ScheduledTaskModel).filter(ScheduledTaskModel.group_id == group_id).all()
+    return sum(1 for task in tasks if scheduled_task_reason_of(task))
+
+
 @dataclass(frozen=True)
 class Kind:
     key: str  # "workflows" …
@@ -115,4 +162,6 @@ def summary(session, group_id) -> dict:
 
 # ── the kinds ───────────────────────────────────────────────────────────────────────────────────────────────────
 register("workflows", "/automation/workflows?status=attention", workflows_needing_a_look)
-# Later pages add theirs here: register("incoming_webhooks", "/automation/incoming-webhooks?status=attention", incoming_webhooks_needing_a_look) …
+register("incoming_webhooks", "/automation/incoming-webhooks?status=attention", incoming_webhooks_needing_a_look)
+register("outgoing_webhooks", "/automation/webhooks?status=attention", outgoing_webhooks_needing_a_look)
+register("scheduled_tasks", "/workspace/scheduled-tasks?status=attention", scheduled_tasks_needing_a_look)
