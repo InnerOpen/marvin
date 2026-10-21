@@ -15,6 +15,7 @@ import sqlalchemy as sa
 
 from marvin.db.models.groups.automation_executions import AutomationExecutionModel as Run
 from marvin.db.models.groups.automations import WorkspaceAutomationModel
+from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookModel
 from marvin.db.models.groups.integrations import IntegrationModel
 
 # Why a workflow is flagged (the API's `attention` field; the page words them).
@@ -81,6 +82,13 @@ def workflows_needing_a_look(session, group_id) -> int:
     return sum(1 for *_, reason in workflow_rows(session, group_id) if reason)
 
 
+def incoming_webhooks_needing_a_look(session, group_id) -> int:
+    """Enabled incoming webhooks that have never received a call. (Marvin does not record rejected deliveries — a bad token or signature
+    only reaches the log — so "recent deliveries all rejected" cannot be told apart here; the page's filter uses the same single rule.)"""
+    hook = WorkspaceIncomingWebhookModel
+    return session.query(sa.func.count(hook.id)).filter(hook.group_id == group_id, hook.enabled.is_(True), hook.received_count == 0).scalar() or 0
+
+
 @dataclass(frozen=True)
 class Kind:
     key: str  # "workflows" …
@@ -115,4 +123,5 @@ def summary(session, group_id) -> dict:
 
 # ── the kinds ───────────────────────────────────────────────────────────────────────────────────────────────────
 register("workflows", "/automation/workflows?status=attention", workflows_needing_a_look)
-# Later pages add theirs here: register("incoming_webhooks", "/automation/incoming-webhooks?status=attention", incoming_webhooks_needing_a_look) …
+register("incoming_webhooks", "/automation/incoming-webhooks?status=attention", incoming_webhooks_needing_a_look)
+# Later pages add theirs here: register("scheduled_tasks", …), register("outgoing_webhooks", …)

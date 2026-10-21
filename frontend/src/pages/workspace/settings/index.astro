@@ -281,7 +281,10 @@ const tabs = [
             </a>
             <a href={navHref("automation.incoming-webhooks")} class="link-card">
               <strong>{navTitle("automation.incoming-webhooks")}</strong>
-              <p>Tokened URLs external systems POST to, to trigger workflows</p>
+              <p>
+                Tokened URLs external systems POST to, to trigger workflows
+                {(automationAttention?.kinds?.incoming_webhooks ?? 0) > 0 && ` · ${automationAttention?.kinds?.incoming_webhooks} need a look`}
+              </p>
             </a>
             <a href={navHref("automation.notifications")} class="link-card">
               <strong>{navTitle("automation.notifications")}</strong>
