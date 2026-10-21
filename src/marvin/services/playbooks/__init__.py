@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from marvin.core.root_logger import get_logger
 
@@ -138,6 +138,10 @@ class PlaybookScope:
 
     def allows(self, name: str) -> bool:
         return self.names is None or name in self.names
+
+    def asking(self, message: str | None) -> PlaybookScope:
+        """This scope for a run answering ``message`` (the user's latest message)."""
+        return replace(self, asked=message or "")
 
 
 def is_named(name: str, text: str | None) -> bool:

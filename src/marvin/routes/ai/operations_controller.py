@@ -1482,6 +1482,7 @@ class AIOperationsController(BaseUserController):
         body = self._resume_body(thread, run, client_run_id=None)
         ctx.execution_id = str(execution.id)
         ctx.tone_register = self._effective_register(run.get("register"), spec)
+        ctx.playbooks = self._asking(ctx, run.get("asked"))
         if depth < self._handoff_max_depth() and may_hand_off:
             ctx.delegate = self._delegate_runner(
                 parent_thread=thread, parent_body=body, parent_execution=execution, on_event=on_event, depth=depth, chain=(*chain, spec.slug)
@@ -1919,6 +1920,13 @@ class AIOperationsController(BaseUserController):
             roster = roster_block(specs, agent_slug, self._user_role(), "agent", can_handoff="run_agent" in tool_names)
         return preamble, roster
 
+    @staticmethod
+    def _asking(ctx, message: str | None):
+        """The run's Playbook scope answering ``message``: manual-only Playbooks the message names may load."""
+        from marvin.services.playbooks import PlaybookScope
+
+        return (getattr(ctx, "playbooks", None) or PlaybookScope()).asking(message)
+
     def _thread_playbooks_block(self, thread, tool_names: set[str], scope=None) -> str:
         """The Playbooks this thread loaded on earlier turns, as a system-prompt section ("" when none): a loaded
         Playbook stays in effect for the whole conversation, though old tool results are not replayed to the model."""
@@ -2013,11 +2021,7 @@ class AIOperationsController(BaseUserController):
         # Environment facts come first, the agent's own persona after: what "the RAG" means here and which
         # of the bound tools answers which kind of question.
         if ctx is not None:  # the user's latest message decides which manual-only Playbook they named
-            from dataclasses import replace
-
-            from marvin.services.playbooks import PlaybookScope
-
-            ctx.playbooks = replace(getattr(ctx, "playbooks", None) or PlaybookScope(), asked=body.message or "")
+            ctx.playbooks = self._asking(ctx, body.message)
         system = self._framed(system, *self._system_frame(names, agent_slug))
         system += self._thread_playbooks_block(thread, names, getattr(ctx, "playbooks", None))
         user_msg = body.message
@@ -2330,6 +2334,7 @@ class AIOperationsController(BaseUserController):
                 "entity_type": body.entity_type,
                 "entity_id": str(entity_id) if entity_id else None,
                 "model": model,
+                "asked": body.message,  # a resumed run has no new message: what the user named still decides manual-only loads
             },
             steps=steps,
             referrals=referrals,
