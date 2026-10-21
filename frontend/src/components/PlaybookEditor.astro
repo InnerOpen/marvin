@@ -50,7 +50,12 @@ const warning = lengthWarning(form.body);
 
   <div class="pb-field">
     <label class="label" for="pb-body">Instructions</label>
+    <div class="pb-tabs" role="tablist" aria-label="Instructions view">
+      <button type="button" class="pb-tab active" role="tab" aria-selected="true" data-body-tab="write">Write</button>
+      <button type="button" class="pb-tab" role="tab" aria-selected="false" data-body-tab="preview">Preview</button>
+    </div>
     <textarea class="input pb-body" id="pb-body" name="body" rows="18" spellcheck="true">{form.body}</textarea>
+    <div class="pb-preview" id="pb-preview" hidden></div>
     <span class="hint"><span id="pb-lines">0 lines</span>. Markdown. Aim for about {BODY_LINES_ADVISED} lines or fewer.</span>
     <div class="pb-warning" id="pb-warning" role="status" hidden={!warning}>{warning}</div>
   </div>
@@ -98,6 +103,25 @@ const warning = lengthWarning(form.body);
   .pb-field { display: grid; gap: 6px; min-width: 0; }
   .pb-field .input { width: 100%; box-sizing: border-box; }
   .pb-body { font-family: ui-monospace, monospace; font-size: 13px; line-height: 1.5; resize: vertical; }
+  .pb-body[hidden] { display: none; }
+  .pb-tabs { display: flex; gap: 4px; margin: 0 0 6px; }
+  .pb-tab { background: none; border: 1px solid var(--line); border-radius: 6px; padding: 4px 12px; font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; min-height: 32px; }
+  .pb-tab.active { background: var(--panel); color: var(--text); border-color: var(--accent, var(--line)); }
+  .pb-preview { border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; min-height: 18em; max-height: 70vh; overflow: auto; background: var(--panel); line-height: 1.6; overflow-wrap: anywhere; }
+  .pb-preview :global(h1), .pb-preview :global(h2), .pb-preview :global(h3), .pb-preview :global(h4) { margin: 1em 0 0.4em; line-height: 1.3; }
+  .pb-preview :global(h1) { font-size: 1.5rem; }
+  .pb-preview :global(h2) { font-size: 1.25rem; }
+  .pb-preview :global(h3) { font-size: 1.1rem; }
+  .pb-preview :global(:first-child) { margin-top: 0; }
+  .pb-preview :global(p), .pb-preview :global(ul), .pb-preview :global(ol), .pb-preview :global(blockquote) { margin: 0 0 0.8em; }
+  .pb-preview :global(ul), .pb-preview :global(ol) { padding-left: 1.4em; }
+  .pb-preview :global(code) { font-family: ui-monospace, monospace; font-size: 0.9em; background: var(--bg); padding: 1px 4px; border-radius: 4px; }
+  .pb-preview :global(pre) { background: var(--bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  .pb-preview :global(pre code) { background: none; padding: 0; }
+  .pb-preview :global(blockquote) { border-left: 3px solid var(--line); padding-left: 12px; color: var(--muted); }
+  .pb-preview :global(table) { border-collapse: collapse; display: block; overflow-x: auto; }
+  .pb-preview :global(th), .pb-preview :global(td) { border: 1px solid var(--line); padding: 4px 8px; }
+  .pb-preview :global(.preview-empty) { color: var(--muted); }
   .pb-status { display: flex; align-items: center; gap: 10px; margin: 0; flex-wrap: wrap; }
   .pb-hint, .hint { font-size: 12px; color: var(--muted); }
   .pb-error { font-size: 13px; color: var(--bad, #b91c1c); }
@@ -120,6 +144,7 @@ const warning = lengthWarning(form.body);
 
 <script>
   import { describeSaveError } from "@/lib/saveError";
+  import { renderPreviewInto } from "@/lib/mediaEmbedsBrowser";
   import { createPlaybook, ensurePlaybookType, exportPlaybook, trashPlaybook, updatePlaybook } from "@/lib/api/playbooks";
   import { bodyLines, editorPath, entryPayload, isValid, lengthWarning, PLAYBOOKS_PATH, validate, type PlaybookForm } from "@/lib/playbooks";
 
@@ -164,6 +189,23 @@ const warning = lengthWarning(form.body);
     warnEl.hidden = !text;
   }
   field("body").addEventListener("input", showLength);
+
+  // Write / Preview: the preview is the body rendered as markdown and sanitised (an imported Playbook's text is someone
+  // else's), with embeds off — agents read the text, not players.
+  const previewEl = document.getElementById("pb-preview") as HTMLElement;
+  formEl.querySelectorAll<HTMLButtonElement>("[data-body-tab]").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const preview = tab.dataset.bodyTab === "preview";
+      if (preview) renderPreviewInto(previewEl, field("body").value, false);
+      previewEl.hidden = !preview;
+      field("body").hidden = preview;
+      formEl.querySelectorAll<HTMLButtonElement>("[data-body-tab]").forEach((t) => {
+        const on = t === tab;
+        t.classList.toggle("active", on);
+        t.setAttribute("aria-selected", on ? "true" : "false");
+      });
+    });
+  });
   showLength();
   for (const name of ["name", "description", "compatibility"]) field(name).addEventListener("blur", showErrors);
 
