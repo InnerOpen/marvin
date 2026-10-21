@@ -323,6 +323,10 @@ select {
   gap: 24px;
 }
 
+/* AppLayout's `width`: Settings and Automation pages keep to a readable column on big screens. */
+.content.width-page { grid-template-columns: minmax(0, 900px); }
+.content.width-wide { grid-template-columns: minmax(0, 1200px); }
+
 .toolbar {
   display: flex;
   flex-wrap: wrap;

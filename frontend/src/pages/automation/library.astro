@@ -55,7 +55,7 @@ const BADGE: Record<Readiness, string> = { ready: "ok", setup: "warn", elsewhere
 const libraryJson = JSON.stringify(library.recipes).replace(/</g, "\\u003c");
 ---
 
-<AppLayout crumb="automation.library" adminOnly={adminOnly}>
+<AppLayout width="wide" crumb="automation.library" adminOnly={adminOnly}>
   <div class="library-page">
     <div class="page-head">
       <h2>Workflow Library</h2>

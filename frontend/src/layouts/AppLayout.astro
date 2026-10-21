@@ -70,6 +70,11 @@ interface Props {
    * show this note in place of the page body. `adminOnly` is the same with ADMINS_ONLY.
    */
   restrictedNote?: string | null;
+  /**
+   * How wide the page body may grow: "page" 900px, "wide" 1200px (card grids, tables), "full" the whole window.
+   * Defaults to "page" under Settings and Automation (so long lines stay readable on a big screen), else "full".
+   */
+  width?: "page" | "wide" | "full";
 }
 
 const { crumb, crumbParams, crumbLabels, eyebrow = "Marvin Platform", entityType, entityId, entityLabel, adminOnly = false, restrictedNote = null } = Astro.props;
@@ -77,6 +82,8 @@ const title = Astro.props.title ?? (crumb ? navTitle(crumb) : "");
 const trail = crumb ? navTrail(crumb, { params: crumbParams, labels: crumbLabels }) : null;
 const blockedNote = adminOnly ? ADMINS_ONLY : restrictedNote;
 const path = Astro.url.pathname;
+const width =
+  Astro.props.width ?? (/^\/(workspace\/settings|automation)(\/|$)|^\/workspace\/scheduled-tasks\/?$/.test(path) ? "page" : "full");
 // Non-production instances (backend ENVIRONMENT_LABEL) badge the header and prefix the tab title.
 const environmentLabel = await getEnvironmentLabel();
 
@@ -523,7 +530,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
             </form>
           </div>
         </header>
-        <section class="content">
+        <section class:list={["content", width !== "full" && `width-${width}`]}>
           {blockedNote ? (
             <div class="alert alert-info" role="status">{blockedNote}</div>
           ) : (
