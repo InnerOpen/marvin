@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.35 (2026-10-21)
+
+### Bug Fixes
+
+- **deps**: Mcp 1.30.0 (Dependabot #164: unbounded StreamableHTTP sessions)
+  ([`f257b05`](https://github.com/InnerOpen/marvin/commit/f257b05ba3a7629de46b7acbc91eea27a571db3d))
+
+
 ## v1.1.0-rc.34 (2026-10-21)
 
 ### Bug Fixes
