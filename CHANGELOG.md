@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.28 (2026-10-21)
+
+### Bug Fixes
+
+- **playbooks**: Style the Import from GitHub field like other text inputs
+  ([`a37f60b`](https://github.com/InnerOpen/marvin/commit/a37f60b79f4572c80ff5bd8d775a00a58bd6ee4b))
+
+### Documentation
+
+- **plan**: Image recipes — suggest an image, create one for an entry (any image.generate
+  connection)
+  ([`acbd638`](https://github.com/InnerOpen/marvin/commit/acbd63840a0cdda92fcdb7eb239a442e1bed8f5f))
+
+
 ## v1.1.0-rc.27 (2026-10-21)
 
 ### Documentation
