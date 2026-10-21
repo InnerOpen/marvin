@@ -79,9 +79,19 @@ class _Http:
         return self._answer("POST", url, json, data, headers)
 
 
+DEPLOYMENT = {
+    "id": DEPLOY_ID,
+    "environment": "preview",
+    "url": f"https://{DEPLOY_ID}.my-site.pages.dev",
+    "deployment_trigger": {"metadata": {"branch": "develop", "commit_message": "Fix the feed\n\nA longer explanation."}},
+}
+
+
 def _sites_routes(deploy=(200, {"result": {"id": DEPLOY_ID, "url": f"https://{DEPLOY_ID}.my-site.pages.dev"}, "success": True})):
     return [
         ("GET", "/history/logs", 200, LOGS),
+        # The success workflow reads the deployment itself for its Results line (deployment_summary).
+        ("GET", f"/deployments/{DEPLOY_ID}", 200, {"result": DEPLOYMENT, "success": True}),
         ("GET", f"/pages/projects/{PROJECT}", 200, {"result": {"id": "proj-1", "production_branch": "main"}, "success": True}),
         ("POST", "/deployments", *deploy),
     ]
@@ -200,8 +210,6 @@ def _cloudflare(world, event, deployment_id=DEPLOY_ID):
             "deployment_id": deployment_id,
             "project_name": PROJECT,
             "pages_dev_url": f"https://{deployment_id}.my-site.pages.dev",
-            "environment": "ENVIRONMENT_PREVIEW",
-            "deployment_trigger": {"metadata": {"branch": "develop", "commit_message": "Fix the feed\n\nA longer explanation."}},
         }
     }
     return _hook(world, "cloudflare-pages", payload)
