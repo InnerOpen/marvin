@@ -96,7 +96,11 @@ def test_the_summary_counts_them_under_outgoing_webhooks(db_session, workspace, 
 
     found = gates._sign_in(workspace, WorkspaceRole.ADMIN).get("/api/automations/attention").json()
 
-    assert found == {"total": 1, "kinds": {"workflows": 0, "outgoing_webhooks": 1}, "firstPage": "/automation/webhooks?status=attention"}
+    assert found == {
+        "total": 1,
+        "kinds": {"workflows": 0, "outgoing_webhooks": 1, "scheduled_tasks": 0},
+        "firstPage": "/automation/webhooks?status=attention",
+    }
 
 
 def test_another_workspaces_webhooks_never_count(db_session, workspace, production):
