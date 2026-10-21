@@ -88,17 +88,50 @@ class Playbook:
 
 
 def ensure_playbook_type(session, group_id):
-    """The workspace's ``playbook`` entry type, created when it is missing (committed). Returns its id."""
+    """The workspace's ``playbook`` entry type, created when it is missing and brought up to date when it is not
+    (committed). Returns its id.
+
+    The type is made once, so a field added to ``PLAYBOOK_TYPE_PAYLOAD`` later would never reach an existing workspace:
+    each call adds the payload's fields the stored schema lacks, and leaves everything else (the user's own fields,
+    relabelled or changed ones, the type's name and settings) as it is.
+    """
+    from sqlalchemy.orm.attributes import flag_modified
+
     from marvin.db.models.platform.entry_types import EntryTypes
 
-    found = session.query(EntryTypes.id).filter_by(group_id=group_id, slug=PLAYBOOK_TYPE).scalar()
+    found = session.query(EntryTypes).filter_by(group_id=group_id, slug=PLAYBOOK_TYPE).one_or_none()
     if found is not None:
-        return found
+        schema = dict(found.schema_json or {})
+        fields = list(schema.get("fields") or [])
+        have = {f.get("key") for f in fields}
+        missing = [f for f in _FIELDS if f["key"] not in have]
+        if missing:
+            found.schema_json = {**schema, "fields": [*fields, *(dict(f) for f in missing)]}
+            flag_modified(found, "schema_json")
+            session.commit()
+            logger.info("playbooks: added %s to the %s entry type of workspace %s", [f["key"] for f in missing], PLAYBOOK_TYPE, group_id)
+        return found.id
     created = EntryTypes(session=session, group_id=group_id, slug=PLAYBOOK_TYPE, **PLAYBOOK_TYPE_PAYLOAD)
     session.add(created)
     session.commit()
     logger.info("playbooks: created the %s entry type for workspace %s", PLAYBOOK_TYPE, group_id)
     return created.id
+
+
+def is_playbook(session, entry) -> bool:
+    """Whether ``entry`` is a Playbook (an entry of the workspace's ``playbook`` type)."""
+    from marvin.db.models.platform.entry_types import EntryTypes
+
+    slug = session.query(EntryTypes.slug).filter(EntryTypes.id == entry.entry_type_id).scalar()
+    return slug == PLAYBOOK_TYPE
+
+
+def agent_change_refusal(session, entry) -> str | None:
+    """Why an agent's write tool may not change ``entry``, or None. A published Playbook steers every agent run, so
+    changing, archiving or trashing it is a person's call (an Admin's), whoever the agent is working for."""
+    if entry.status == PLAYBOOK_STATUS and is_playbook(session, entry):
+        return f"'{entry.title}' is a published Playbook: agents can draft Playbooks but never change or remove a published one. An Admin does that from the Playbooks page."
+    return None
 
 
 def _published_rows(session, group_id):

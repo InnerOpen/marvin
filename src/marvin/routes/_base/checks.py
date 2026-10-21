@@ -233,6 +233,30 @@ def _author_may_set(new_status: str | None, publish_at) -> bool:
     return new_status not in AUTHOR_LOCKED_STATUSES and publish_at is None
 
 
+PLAYBOOK_ADMIN_DETAIL = "Only an ADMIN or above can publish a Playbook, or change one that is published."
+
+
+def require_playbook_rules(
+    session, user: PrivateUser, group_id: UUID4, entry_type_id, current_status: str | None = None, new_status: str | None = None, publish_at=None
+) -> None:
+    """Raise 403 unless the user may do this to an entry of the type: Playbooks steer agents, so publishing one (or
+    scheduling it), and changing or removing one that is published, need ADMIN rather than EDITOR. Editors still
+    draft and edit drafts. Other entry types pass untouched. Call it after the usual entry rules."""
+    publishing = new_status == "published" or publish_at is not None
+    if not publishing and current_status != "published":
+        return
+    from marvin.db.models.platform.entry_types import EntryTypes
+    from marvin.services.playbooks import PLAYBOOK_TYPE
+
+    if session.query(EntryTypes.slug).filter(EntryTypes.id == entry_type_id).scalar() != PLAYBOOK_TYPE:
+        return
+    if _bypasses_workspace_roles(user):
+        return
+    role = user.get_workspace_role(group_id)
+    if role is None or not workspace_role_has_higher_or_equal_privilege(role, WorkspaceRole.ADMIN):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=PLAYBOOK_ADMIN_DETAIL)
+
+
 def require_can_create_entry(user: PrivateUser, group_id: UUID4, new_status: str | None = None, publish_at=None) -> None:
     """Raise 403 unless the user may create this entry.
 
@@ -283,4 +307,5 @@ def editable_entry(user: PrivateUser, group_id: UUID4, repos, entry_id: UUID4, n
     if not entry:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found.")
     require_can_edit_entry(user, group_id, entry, new_status, publish_at)
+    require_playbook_rules(repos.session, user, group_id, entry.entry_type_id, entry.status, new_status, publish_at)
     return entry

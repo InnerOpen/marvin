@@ -39,6 +39,7 @@ def _service(ctx: ToolContext):
 def _entry_type(ctx: ToolContext, ref: str):
     """The workspace's (or a built-in) entry type by slug or id, or None."""
     from marvin.db.models.platform.entry_types import EntryTypes
+    from marvin.services.playbooks import PLAYBOOK_TYPE, ensure_playbook_type
 
     et = (
         ctx.session.query(EntryTypes)
@@ -46,6 +47,8 @@ def _entry_type(ctx: ToolContext, ref: str):
         .filter((EntryTypes.group_id == ctx.group_id) | (EntryTypes.group_id.is_(None)))
         .first()
     )
+    if not et and ref == PLAYBOOK_TYPE:  # the Playbook type is made when the first one is written: an agent's draft is that
+        et = ctx.session.get(EntryTypes, ensure_playbook_type(ctx.session, ctx.group_id))
     if not et:
         try:
             et = ctx.session.get(EntryTypes, _uuid.UUID(ref))
@@ -132,14 +135,17 @@ def compose_entry(ctx: ToolContext, args: dict) -> str:
 )
 def revise_entry(ctx: ToolContext, args: dict) -> str:
     from marvin.db.models.platform.entries import Entries
+    from marvin.services.playbooks import agent_change_refusal
 
-    svc, err = _service(ctx)
-    if err:
-        return err
     eid = resolve_entity_id(ctx.session, ctx.group_id, "entry", args.get("entry"))
     entry = ctx.session.get(Entries, eid) if isinstance(eid, _uuid.UUID) else None
     if not entry or entry.group_id != ctx.group_id:
         return json.dumps({"error": f"entry '{args.get('entry')}' not found in this workspace"})
+    if refusal := agent_change_refusal(ctx.session, entry):
+        return json.dumps({"error": refusal})
+    svc, err = _service(ctx)
+    if err:
+        return err
     result = svc.revise(
         entry=entry,
         instruction=str(args.get("instruction") or ""),
@@ -240,11 +246,14 @@ def create_draft(ctx: ToolContext, args: dict) -> str:
 )
 def update_draft(ctx: ToolContext, args: dict) -> str:
     from marvin.db.models.platform.entries import Entries
+    from marvin.services.playbooks import agent_change_refusal
 
     eid = resolve_entity_id(ctx.session, ctx.group_id, "entry", args.get("entry"))
     entry = ctx.session.get(Entries, eid) if isinstance(eid, _uuid.UUID) else None
     if not entry or entry.group_id != ctx.group_id:
         return json.dumps({"error": f"entry '{args.get('entry')}' not found in this workspace"})
+    if refusal := agent_change_refusal(ctx.session, entry):
+        return json.dumps({"error": refusal})
     try:
         result = _draft_service(ctx).update_draft(
             entry=entry, title=args.get("title"), summary=args.get("summary"), fields=args.get("fields"), tags=args.get("tags"),
