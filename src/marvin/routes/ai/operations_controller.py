@@ -1864,11 +1864,16 @@ class AIOperationsController(BaseUserController):
 
     def _system_frame(self, tool_names: set[str], agent_slug: str) -> tuple[str, str]:
         """(preamble, roster) around a persona run's own prompt. Environment facts come first — what "the
-        RAG" means here and which of the bound tools answers which kind of question; the agents it may hand
-        off or refer to come last ("" when it can do neither)."""
+        RAG" means here and which of the bound tools answers which kind of question — then the catalog of
+        Playbooks the agent may load (when it can load them and the workspace has any); the agents it may
+        hand off or refer to come last ("" when it can do neither)."""
         from marvin.services.ai.agents import list_agents, roster_block, workspace_preamble
+        from marvin.services.playbooks import LOAD_TOOL, catalog_block, published_playbooks
 
         preamble = workspace_preamble(self._workspace_name(), tool_names)
+        if LOAD_TOOL in tool_names:  # the Playbooks this agent may load; nothing at all when there are none
+            if catalog := catalog_block(published_playbooks(self.session, self.group_id)):
+                preamble += "\n\n" + catalog
         roster = ""
         if "run_agent" in tool_names or "suggest_agent" in tool_names:
             specs = list_agents(self.session, self.group_id)
@@ -2173,7 +2178,7 @@ class AIOperationsController(BaseUserController):
         execution.output_json = (
             {"answer": result.answer, "steps": [{"tool": s.tool, "arguments": s.arguments} for s in steps]} if log_outputs else {"steps": len(steps)}
         )
-        execution.metadata_json = _with_tools_used(execution.metadata_json, steps)
+        execution.metadata_json = _with_run_trace(execution.metadata_json, steps)
         sources = extract_sources(steps)
         handoffs, child_referrals = extract_handoffs(steps)
         referrals = [*referrals, *child_referrals]
@@ -2249,7 +2254,7 @@ class AIOperationsController(BaseUserController):
             append_turn(self.session, thread, "user", body.message, meta=self._user_turn_meta(body))
         execution.status = EXECUTION_STATUS_AWAITING
         self._account_execution(execution, result, provider, model, start)
-        execution.metadata_json = _with_tools_used({**(execution.metadata_json or {}), "thread_id": str(thread.id)}, steps)
+        execution.metadata_json = _with_run_trace({**(execution.metadata_json or {}), "thread_id": str(thread.id)}, steps)
         park_thread(
             self.session,
             thread,
@@ -3443,12 +3448,18 @@ class AIOperationsController(BaseUserController):
             self.logger.error(f"Failed to dispatch AI budget event: {e}", exc_info=True)
 
 
-def _with_tools_used(metadata: dict | None, steps) -> dict:
-    """A run's metadata plus `tools`: the names of the tools it used, in first-use order — what the AI Executions list
-    says the run did ("used draft workflow, find entries"). Names only, kept whatever the output-logging policy."""
+def _with_run_trace(metadata: dict | None, steps) -> dict:
+    """A run's metadata plus what its trace shows it did, kept whatever the output-logging policy:
+    `tools`, the names of the tools it used in first-use order — what the AI Executions list says the run did
+    ("used draft workflow, find entries") — and `playbooks`, the Playbooks it loaded (`{id, name}`; absent when none)."""
+    from marvin.services.playbooks import USED_KEY, playbooks_used
+
     names: list[str] = []
     for step in steps:
         tool = getattr(step, "tool", None)
         if tool and tool not in names:
             names.append(tool)
-    return {**(metadata or {}), "tools": names}
+    trace = {**(metadata or {}), "tools": names}
+    if used := playbooks_used(steps):
+        trace[USED_KEY] = used
+    return trace

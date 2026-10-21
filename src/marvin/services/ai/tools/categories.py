@@ -49,6 +49,7 @@ CATEGORIES: tuple[ToolCategory, ...] = (
     ),
     ToolCategory("insights", "AI insights", False, "AI executions and settings"),
     ToolCategory("docs_read", "Read Marvin's documentation", False, "Search and read Marvin's user manual (how Marvin works, not workspace data)"),
+    ToolCategory("playbooks_read", "Playbooks: read", False, "List and load the workspace's published Playbooks (written procedures)"),
     ToolCategory("agents_read", "Agents: read", False, "List the workspace's agents"),
     # A hand-off is not a write: the child's tools are already capped by the caller's role.
     ToolCategory("agents_run", "Agents: delegate", False, "Run another agent on the caller's behalf"),
@@ -114,6 +115,8 @@ CATEGORY_BY_TOOL: dict[str, str] = {
     "get_ai_settings": "insights",
     "search_docs": "docs_read",
     "read_doc": "docs_read",
+    "list_playbooks": "playbooks_read",
+    "load_playbook": "playbooks_read",  # guidance as text; grants no tools or permissions
     "list_agents": "agents_read",
     "suggest_agent": "agents_read",  # a referral runs nothing
     "run_agent": "agents_run",

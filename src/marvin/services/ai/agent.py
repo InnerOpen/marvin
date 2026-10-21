@@ -274,7 +274,7 @@ def _event_calls(pending: list[PendingCall]) -> list[dict]:
 # An agent bound to every tool its role allows sends ~50 tool definitions with each question — most of the prompt.
 # It keeps the everyday ones loaded (CORE_CATEGORIES) and gets `load_tools` for the rest, by category; a call to an
 # unloaded tool by name loads its category first, so its approval rules apply before it runs.
-CORE_CATEGORIES = frozenset({"entries_read", "entries_author", "library_read", "docs_read", "agents_read", "agents_run"})
+CORE_CATEGORIES = frozenset({"entries_read", "entries_author", "library_read", "docs_read", "playbooks_read", "agents_read", "agents_run"})
 LOAD_TOOLS = "load_tools"
 
 
