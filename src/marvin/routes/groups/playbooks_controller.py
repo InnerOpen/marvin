@@ -6,15 +6,18 @@ Playbook's status (internal entries are kept out of the entries list), and makin
 (reading never creates it). EDITOR and above.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import UUID4
 
 from marvin.db.models.groups.ai_threads import AIThreadModel
 from marvin.db.models.users.roles import WorkspaceRole
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import has_workspace_role, require_workspace_role
-from marvin.schemas.group.playbooks import PlaybookItem, PlaybookList, PlaybookType, PlaybookUse, PlaybookUses
+from marvin.schemas.group.playbooks import PlaybookImported, PlaybookItem, PlaybookList, PlaybookType, PlaybookUse, PlaybookUses
 from marvin.services import playbooks
+from marvin.services.assets.asset_storage_service import AssetStorageService
+from marvin.services.entries.entry_service import EntryService
+from marvin.services.playbooks import importer
 from marvin.services.playbooks.memory import recent_uses
 
 router = APIRouter(prefix="/groups/playbooks")
@@ -65,3 +68,35 @@ class PlaybooksController(BaseUserController):
         openable = {str(row.id) for row in visible} if asked else set()
         found = [{**u, "thread_id": u["thread_id"] if u["thread_id"] in openable else None} for u in found]
         return PlaybookUses(items=[PlaybookUse(**u, agent_name=names.get(u["agent_slug"] or "")) for u in found])
+
+    @router.post("/import", response_model=PlaybookImported, status_code=201, summary="Import a SKILL.md or a skill zip as a draft Playbook")
+    def import_playbook(self, file: UploadFile = File(...), name: str | None = Form(None)) -> PlaybookImported:
+        """Make a **draft** Playbook from a ``SKILL.md`` or a zip of a skill folder (EDITOR and above). Its reference files are
+        kept with their paths (``scripts/`` too, flagged and never run) and the review of what it asks for is stored on the
+        entry. It is never published: an Admin does that. 400 for an unusable package (bad frontmatter, unsafe paths), 413
+        past the size or file-count limits, 409 when the name is already used (send another ``name`` to import it anyway)."""
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.EDITOR)
+        if file.size is not None and file.size > importer.UPLOAD_MAX:
+            raise HTTPException(status_code=413, detail=f"The upload is over the {importer.UPLOAD_MAX // 1048576} MB limit.")
+        data = file.file.read(importer.UPLOAD_MAX + 1)
+        try:
+            done = importer.import_playbook(
+                self.session,
+                group_id=self.group_id,
+                user_id=self.user.id,
+                filename=file.filename or "",
+                data=data,
+                entries=EntryService(self.session, self.group_id, event_bus=self.event_bus, actor_id=self.user.id),
+                assets=AssetStorageService.for_workspace(self.repos),
+                name=name,
+            )
+        except importer.ImportRefused as e:
+            raise HTTPException(status_code=e.status_code, detail=str(e)) from e
+        return PlaybookImported(
+            id=done.entry.id,
+            name=done.entry.slug,
+            status=done.entry.status,
+            file_count=done.file_count,
+            skipped=done.review["skipped"],
+            review=done.review,
+        )

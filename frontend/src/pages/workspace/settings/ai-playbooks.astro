@@ -6,6 +6,7 @@
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { listPlaybooks, type PlaybookList } from "@/lib/api/playbooks";
+import { IMPORT_PATH_ACCEPT } from "@/lib/playbookReview";
 import { EMPTY_NOTICE, listSummary, NEW_PLAYBOOK_PATH, playbookRow, sortedItems } from "@/lib/playbooks";
 import { isForbidden } from "@/lib/workspaceRole";
 
@@ -29,9 +30,16 @@ const rows = items.map((item) => playbookRow(item));
       <h2>Playbooks</h2>
       <p>Written procedures your agents follow when a task calls for one. Only published Playbooks are used.</p>
     </div>
-    {!error && <a class="button" href={NEW_PLAYBOOK_PATH}>New Playbook</a>}
+    {!error && (
+      <div class="pb-head-actions">
+        <button type="button" class="button secondary" id="pb-import" title="Import a SKILL.md or a zip of a skill folder">Import</button>
+        <input type="file" id="pb-import-file" accept={IMPORT_PATH_ACCEPT} hidden />
+        <a class="button" href={NEW_PLAYBOOK_PATH}>New Playbook</a>
+      </div>
+    )}
   </div>
 
+  <p class="pb-import-msg" id="pb-import-msg" role="status" hidden></p>
   {error && <div class="alert"><strong>Couldn't load your Playbooks.</strong> {error}</div>}
 
   {!error && rows.length === 0 && (
@@ -67,6 +75,9 @@ const rows = items.map((item) => playbookRow(item));
 </AppLayout>
 
 <style>
+  .pb-head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pb-import-msg { margin: 0 0 12px; font-size: 14px; padding: 8px 12px; border-radius: var(--radius); border: 1px solid var(--line); }
+  .pb-import-msg.error { color: var(--bad, #b91c1c); border-color: var(--bad, #b91c1c); }
   .pb-summary { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
   .pb-list { list-style: none; margin: 0; padding: 0; }
   .pb-list li + li { border-top: 1px solid var(--line); }
@@ -84,3 +95,36 @@ const rows = items.map((item) => playbookRow(item));
     .pb-tags { flex-wrap: wrap; }
   }
 </style>
+
+<script>
+  import { importPlaybook } from "@/lib/api/playbooks";
+  import { importError } from "@/lib/playbookReview";
+  import { editorPath } from "@/lib/playbooks";
+
+  const button = document.getElementById("pb-import") as HTMLButtonElement | null;
+  const input = document.getElementById("pb-import-file") as HTMLInputElement | null;
+  const message = document.getElementById("pb-import-msg") as HTMLElement;
+
+  const say = (text: string, error = false) => {
+    message.textContent = text;
+    message.hidden = !text;
+    message.classList.toggle("error", error);
+  };
+
+  button?.addEventListener("click", () => input?.click());
+  input?.addEventListener("change", async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    button!.disabled = true;
+    say(`Importing ${file.name}…`);
+    try {
+      const made = await importPlaybook(file);
+      location.assign(`${editorPath(made.id)}?imported=1`);
+    } catch (e) {
+      say(importError(e), true);
+      button!.disabled = false;
+    } finally {
+      input.value = "";
+    }
+  });
+</script>

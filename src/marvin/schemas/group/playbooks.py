@@ -1,6 +1,7 @@
 """The Playbooks page's API (routes/groups/playbooks_controller.py): the workspace's Playbooks with their status."""
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import UUID4, Field
 
@@ -39,3 +40,16 @@ class PlaybookList(_MarvinModel):
 
 class PlaybookType(_MarvinModel):
     entry_type_id: UUID4
+
+
+class PlaybookImported(_MarvinModel):
+    """What an import made: the draft's id and name, how many reference files it kept, and the review of what it asks for."""
+
+    id: UUID4
+    name: str
+    status: str
+    file_count: int = 0
+    skipped: list[dict[str, Any]] = Field(default_factory=list)
+    """Files left out, each ``{path, reason}``."""
+    review: dict[str, Any]
+    """The findings (services/playbooks/importer.py ``review_package``); camelCase keys, also stored on the entry's metadata."""
