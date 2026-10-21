@@ -168,3 +168,51 @@ def test_a_playbook_without_a_list_changes_nothing(workspace, db_session, model)
 
     assert "error" not in json.loads(run["steps"][1]["result"])
     assert model.tool_names[0] == model.tool_names[1]
+
+
+# ── Later turns of a thread ──────────────────────────────────────────────────
+
+
+def test_the_limit_still_holds_on_later_turns_of_the_thread(workspace, db_session, monkeypatch):
+    """A Playbook loaded on turn 1 stays in effect for the thread, so its `allowed-tools` narrows turn 2 as well."""
+    from marvin.routes.ai.operations_controller import AIOperationsController
+    from marvin.services.ai.base import ToolCall
+    from tests import test_content_role_gates as gates
+    from tests import test_playbooks as base
+
+    class Lookup(base.FakeModel):
+        """The scripted model, plus: a request saying 'look up' tries find_entries without loading anything."""
+
+        def complete_with_tools(self, messages, model, tools, options=None, tool_choice="auto"):
+            last = messages[-1]
+            if last.role == "user" and "look up" in last.content:
+                self.tool_names.append({t.name for t in tools})
+                return base._turn(tool_calls=[ToolCall(id="l1", name="find_entries", arguments={})])
+            if last.role == "tool" and messages[-2].tool_calls[0].name == "find_entries":
+                self.tool_names.append({t.name for t in tools})
+                return base._turn(content="Looked.")
+            return super().complete_with_tools(messages, model, tools, options, tool_choice)
+
+    fake = Lookup()
+    monkeypatch.setattr(AIOperationsController, "_agent_provider", lambda self: fake)
+    monkeypatch.setattr(AIOperationsController, "_default_model", lambda self: "m")
+    _limited(db_session, workspace.gid, "list_tags")
+    client = gates._sign_in(workspace, WorkspaceRole.AUTHOR)
+
+    def turn(message, thread="new"):
+        res = client.post("/api/ai/agent", json={"message": message, "source": "api", "threadId": thread})
+        assert res.status_code == 200, res.text
+        return res.json()
+
+    first = turn(f"Please draft a {BENCH}.")
+    assert _tools_called(first) == ["load_playbook", "find_entries"]
+
+    second = turn("Now look up the entries again.", first["threadId"])  # nothing loaded this turn
+
+    assert _tools_called(second) == ["find_entries"]
+    refused = json.loads(second["steps"][0]["result"])
+    assert refused["tool"] == "find_entries" and "limits this task" in refused["error"]
+    assert "find_entries" not in fake.tool_names[-2]  # not even offered on turn 2
+
+    elsewhere = turn("Fresh start: look up the entries.")  # a new thread has no Playbook in effect
+    assert "error" not in json.loads(elsewhere["steps"][0]["result"])

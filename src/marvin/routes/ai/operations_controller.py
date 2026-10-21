@@ -1482,7 +1482,7 @@ class AIOperationsController(BaseUserController):
                 on_event=on_event,
                 resume=ResumeState(convo=deserialize_messages(pending.get("convo")), pending=calls, decisions=own, outputs=outputs),
                 load_on_demand=self._tools_on_demand(spec.slug),
-                tool_limit=run_tool_limit(self.session, self.group_id),
+                tool_limit=run_tool_limit(self.session, self.group_id, thread),
             )
         except HTTPException:
             raise
@@ -2052,7 +2052,7 @@ class AIOperationsController(BaseUserController):
                 max_steps=max_steps,
                 on_event=on_event,
                 load_on_demand=self._tools_on_demand(agent_slug),
-                tool_limit=run_tool_limit(self.session, self.group_id),
+                tool_limit=run_tool_limit(self.session, self.group_id, thread),
             )
         except HTTPException as e:
             self._finish_progress(run_id, "failed", self._http_error_text(e))

@@ -133,13 +133,13 @@ def playbook_refusal(name: str, limit: frozenset[str] | None) -> dict | None:
     }
 
 
-def run_tool_limit(session, group_id):
+def run_tool_limit(session, group_id, thread=None):
     """The `tool_limit` an agent run hands `run_agent_loop`: asked with the run's transcript and tool names, it reads the
-    Playbooks in effect (`playbooks_in_effect`) and answers None, or a function that refuses the tools they don't allow."""
+    Playbooks in effect (`playbooks_in_effect`: the thread's and the run's) and answers None, or a function refusing the tools they don't allow."""
     from marvin.services.playbooks import playbooks_in_effect
 
     def limit(convo, known):
-        allowed = playbook_tool_limit(playbooks_in_effect(session, group_id, convo), known)
+        allowed = playbook_tool_limit(playbooks_in_effect(session, group_id, convo, thread), known)
         if allowed is None:
             return None
         return lambda name: json.dumps(refusal) if (refusal := playbook_refusal(name, allowed)) else None

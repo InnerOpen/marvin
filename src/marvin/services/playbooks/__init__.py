@@ -257,11 +257,19 @@ def loaded_playbook_names(convo) -> list[str]:
     return names
 
 
-def playbooks_in_effect(session, group_id, convo=()) -> list[Playbook]:
+def playbooks_in_effect(session, group_id, convo=(), thread=None) -> list[Playbook]:
     """THE seam for "which Playbooks steer this run": what the tool limit (``allowed_tools``) and anything else that
-    follows a loaded Playbook asks. Today: the Playbooks loaded in this run's conversation (``convo``) that are still
-    published, with their current text. Thread memory (ticket 06) extends it here, so every caller gets it at once."""
-    found = (published_playbook(session, group_id, name) for name in loaded_playbook_names(convo))
+    follows a loaded Playbook asks. The thread's (those its earlier replies recorded, ``memory.thread_playbooks``), then
+    those loaded in this run's transcript (``convo``, see ``loaded_playbook_names``). Only ones still published count,
+    with their current text. Later sources (an agent's always-load Playbooks, ticket 05) are added here."""
+    from marvin.services.playbooks.memory import thread_playbooks
+
+    names: dict[str, None] = {}
+    for entry in thread_playbooks(thread):
+        names.setdefault(entry.get("name") or "", None)
+    for name in loaded_playbook_names(convo):
+        names.setdefault(name, None)
+    found = (published_playbook(session, group_id, name) for name in names if name)
     return [p for p in found if p is not None]
 
 
