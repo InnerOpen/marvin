@@ -7,18 +7,21 @@
 //     items: () => workflows, adapter, integrations, noun: "workflow",
 //     storageKey: "marvin.automation.workflows.filters",
 //     linkedId, renderItem, afterRender,
+//     removedDelete: { kind: "workflows", canDelete },   // "Delete all of these" (admins), see removedDelete below
 //   });
 //   list.refresh();   // after the items change
 
+import { deleteRemovedIntegrationItems, type RemovedKind } from "./api/removedIntegration.ts";
 import {
   browserStore,
   type Integrations,
   type ListAdapter,
   loadFilters,
   organize,
+  removedItems,
   saveFilters,
 } from "./organizedList.ts";
-import { type SectionsOptions, sectionsHtml } from "./organizedListHtml.ts";
+import { removedConfirmHtml, type SectionsOptions, sectionsHtml } from "./organizedListHtml.ts";
 
 export interface MountOptions<T> {
   host: HTMLElement;
@@ -39,6 +42,10 @@ export interface MountOptions<T> {
   storageKey: string;
   linkedId?: string | null;
   renderItem: SectionsOptions<T>["renderItem"];
+  /** "Delete all of these" on the From a removed integration section. Omit (or `canDelete: false`, for non-admins) and
+   * the button is not drawn. `kind` names the server's list (DELETE /api/groups/removed-integration-items/{kind}).
+   * The dialog lists every item in the section, filters aside. `onDeleted` defaults to reloading the page. */
+  removedDelete?: { kind: RemovedKind; canDelete: boolean; onDeleted?: () => void };
   /** After every draw: attach the cards' handlers. */
   afterRender?: (host: HTMLElement) => void;
 }
@@ -67,11 +74,51 @@ export function mountOrganizedList<T>(options: MountOptions<T>) {
       integrations: options.integrations,
       linkedId: options.linkedId,
       id: adapter.id,
+      removedAction: options.removedDelete?.canDelete === true,
       renderItem: options.renderItem,
     });
     options.emptyAll.toggleAttribute("hidden", items.length > 0);
     options.emptyFiltered.toggleAttribute("hidden", items.length === 0 || result.shown > 0);
     options.afterRender?.(host);
+  }
+
+  // "Delete all of these": a dialog listing the section's items, then one server call for the kind.
+  function confirmRemovedDelete() {
+    const rd = options.removedDelete;
+    if (!rd?.canDelete) return;
+    const names = removedItems(options.items(), adapter, options.integrations).map((item) => adapter.name(item));
+    if (!names.length) return;
+    const dialog = document.createElement("dialog");
+    dialog.className = "org-confirm-dialog";
+    dialog.innerHTML = removedConfirmHtml(names, options.noun);
+    document.body.appendChild(dialog);
+    const close = () => {
+      dialog.close();
+      dialog.remove();
+    };
+    dialog.querySelector(".org-confirm-cancel")?.addEventListener("click", close);
+    dialog.addEventListener("cancel", () => dialog.remove());
+    dialog.querySelector(".org-confirm-delete")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      button.disabled = true;
+      button.textContent = "Deleting…";
+      try {
+        await deleteRemovedIntegrationItems(rd.kind);
+        close();
+        (rd.onDeleted ?? (() => location.reload()))();
+      } catch (e) {
+        button.disabled = false;
+        button.textContent = "Try again";
+        let note = dialog.querySelector(".org-confirm-error");
+        if (!note) {
+          note = document.createElement("p");
+          note.className = "org-confirm-error";
+          dialog.querySelector("h3")?.after(note);
+        }
+        note.textContent = e instanceof Error ? e.message : "Could not delete.";
+      }
+    });
+    dialog.showModal();
   }
 
   options.search?.addEventListener("input", refresh);
@@ -93,6 +140,10 @@ export function mountOrganizedList<T>(options: MountOptions<T>) {
   };
   host.addEventListener("click", (event) => {
     const target = event.target as HTMLElement;
+    if (target.closest(".org-delete-removed")) {
+      confirmRemovedDelete();
+      return;
+    }
     const more = target.closest<HTMLElement>(".org-more");
     if (more) {
       const wrap = more.closest<HTMLElement>(".org-more-wrap")!;

@@ -21,6 +21,8 @@ export interface ItemSource {
   recipe?: string | null;
   /** The integration (connection) that installed it. */
   integrationId?: string | null;
+  /** The blueprint that installed it. With no `integrationId` it means the integration was removed (see `sectionKey`). */
+  blueprint?: string | null;
   /** Marvin's own (a platform scheduled task). */
   system?: boolean;
 }
@@ -86,20 +88,31 @@ export const SECTION_TITLE: Record<Exclude<SectionKind, "integration" | "group">
   system: "Marvin's own",
 };
 
+/** What "Delete all of these" removes: every item in the From a removed integration section, whatever the filters say. */
+export function removedItems<T>(items: T[], adapter: ListAdapter<T>, integrations: Integrations): T[] {
+  return items.filter((item) => keyOf(item, adapter, integrations) === "removed");
+}
+
 /** The empty-filter message (the Library's wording). */
 export const emptyMessage = (noun: string) => `No ${noun} matches. Try another search, or show all.`;
 
-/** Which section an item's source puts it in. */
+/** Which section an item's source puts it in.
+ *
+ * "From a removed integration": deleting an integration sets every installed row's `source_integration_id` to NULL (the
+ * FK is ON DELETE SET NULL) but leaves `source_blueprint`, so nothing ever points at a missing integration. A blueprint
+ * with no integration is therefore a removed one (a person's own item has neither). The server's "Delete all of these"
+ * uses the same rule (services/automation/removed_integration.py). A pointer to an integration the page doesn't know
+ * is also treated as removed. */
 export function sectionKey(source: ItemSource | undefined, integrations: Integrations): string {
   if (source?.system) return "system";
   if (source?.integrationId)
     return source.integrationId in integrations ? `integration:${source.integrationId}` : "removed";
+  if (source?.blueprint) return "removed";
   if (source?.recipe) return "library";
   return "yours";
 }
 
-const kindOf = (key: string): SectionKind =>
-  key.startsWith("integration:") ? "integration" : (key as SectionKind);
+const kindOf = (key: string): SectionKind => (key.startsWith("integration:") ? "integration" : (key as SectionKind));
 
 /** The section an item is in: the page's own grouping if it has one, else by source. */
 function keyOf<T>(item: T, adapter: ListAdapter<T>, integrations: Integrations): string {
@@ -114,8 +127,7 @@ function titleFor<T>(key: string, adapter: ListAdapter<T>, integrations: Integra
 
 function compareFor<T>(adapter: ListAdapter<T>, integrations: Integrations) {
   const order = adapter.groups?.choices.map((c) => c.value);
-  return (a: string, b: string) =>
-    order ? order.indexOf(a) - order.indexOf(b) : compareKeys(a, b, integrations);
+  return (a: string, b: string) => (order ? order.indexOf(a) - order.indexOf(b) : compareKeys(a, b, integrations));
 }
 
 const ORDER: SectionKind[] = ["yours", "library", "integration", "removed", "system"];
@@ -173,23 +185,21 @@ export function organize<T>(
     shown += 1;
     linkedShown ||= linked;
   }
-  const sections = [...groups.keys()]
-    .sort(compareFor(adapter, integrations))
-    .map((key): Section<T> => {
-      const sorted = [...(groups.get(key) ?? [])].sort(
-        (a, b) =>
-          Number(adapter.enabled(b)) - Number(adapter.enabled(a)) || adapter.name(a).localeCompare(adapter.name(b)),
-      );
-      return {
-        key,
-        kind: adapter.groups ? "group" : kindOf(key),
-        title: titleFor(key, adapter, integrations),
-        ...(key.startsWith("integration:") ? { integrationId: key.slice("integration:".length) } : {}),
-        items: sorted,
-        count: sorted.length,
-        on: sorted.filter((i) => adapter.enabled(i)).length,
-      };
-    });
+  const sections = [...groups.keys()].sort(compareFor(adapter, integrations)).map((key): Section<T> => {
+    const sorted = [...(groups.get(key) ?? [])].sort(
+      (a, b) =>
+        Number(adapter.enabled(b)) - Number(adapter.enabled(a)) || adapter.name(a).localeCompare(adapter.name(b)),
+    );
+    return {
+      key,
+      kind: adapter.groups ? "group" : kindOf(key),
+      title: titleFor(key, adapter, integrations),
+      ...(key.startsWith("integration:") ? { integrationId: key.slice("integration:".length) } : {}),
+      items: sorted,
+      count: sorted.length,
+      on: sorted.filter((i) => adapter.enabled(i)).length,
+    };
+  });
   return { sections, shown, linkedShown };
 }
 

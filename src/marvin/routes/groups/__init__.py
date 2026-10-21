@@ -17,6 +17,7 @@ from . import (
     notifications_controller,
     playbooks_controller,
     preferences_controller,
+    removed_integration_controller,
     secrets_controller,
     smtp_controller,
     storage_settings_controller,
@@ -54,3 +55,4 @@ router.include_router(audit_settings_controller.router, tags=["Groups: Audit Set
 router.include_router(custom_events_controller.router, tags=["Groups: Custom Events"])
 router.include_router(notifications_controller.router, tags=["Groups: Notifications"])
 router.include_router(metrics_controller.router, tags=["Groups: Metrics"])
+router.include_router(removed_integration_controller.router, tags=["Groups: Removed Integration Items"])

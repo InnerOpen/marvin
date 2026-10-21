@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { menuHtml, sectionsHtml, switchHtml } from "./organizedListHtml.ts";
+import { menuHtml, removedConfirmHtml, sectionsHtml, switchHtml } from "./organizedListHtml.ts";
 
 const section = (extra = {}) => ({
   key: "yours",
@@ -72,5 +72,31 @@ describe("card controls", () => {
     assert.match(on, /role="switch" aria-checked="true"/);
     assert.match(on, /aria-label="Workflow &quot;A&quot;: on"/);
     assert.match(switchHtml({ on: false, cls: "js-toggle", label: "w" }), /aria-checked="false"/);
+  });
+});
+
+describe("Delete all of these", () => {
+  const draw = (kind, removedAction) =>
+    sectionsHtml([section({ key: kind, kind, title: "T" })], {
+      noun: "workflow",
+      integrations: {},
+      removedAction,
+      renderItem: () => "",
+    });
+
+  test("only the removed section gets the button, and only when asked for (admins)", () => {
+    assert.match(draw("removed", true), /org-delete-removed">Delete all of these<\/button>/);
+    assert.doesNotMatch(draw("removed", false), /org-delete-removed/);
+    assert.doesNotMatch(draw("removed", undefined), /org-delete-removed/);
+    assert.doesNotMatch(draw("yours", true), /org-delete-removed/);
+    assert.doesNotMatch(draw("system", true), /org-delete-removed/);
+  });
+
+  test("the confirmation lists every item, escaped, and counts them", () => {
+    const html = removedConfirmHtml(["Send <b>email</b>", "Rebuild"], "workflow");
+    assert.match(html, /Delete 2 workflows\?/);
+    assert.match(html, /<li>Send &lt;b&gt;email&lt;\/b&gt;<\/li><li>Rebuild<\/li>/);
+    assert.match(html, /org-confirm-delete/);
+    assert.match(removedConfirmHtml(["Only"], "workflow"), /Delete 1 workflow\?/);
   });
 });

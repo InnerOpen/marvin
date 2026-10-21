@@ -87,7 +87,11 @@ export function workflowAdapter(names: NameLookup): ListAdapter<WorkflowRow> {
     id: (wf) => wf.id,
     name: (wf) => wf.name,
     search: (wf) => [wf.slug ?? "", triggerSummary(wf, names)],
-    source: (wf) => ({ integrationId: wf.sourceIntegrationId ?? null, recipe: wf.sourceRecipe ?? null }),
+    source: (wf) => ({
+      integrationId: wf.sourceIntegrationId ?? null,
+      blueprint: wf.sourceBlueprint ?? null,
+      recipe: wf.sourceRecipe ?? null,
+    }),
     enabled: (wf) => wf.enabled,
     facets: { starts: triggerKind },
   };

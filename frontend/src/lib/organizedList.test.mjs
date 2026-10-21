@@ -9,6 +9,7 @@ import {
   fromOptions,
   loadFilters,
   organize,
+  removedItems,
   STATUS_OPTIONS,
   saveFilters,
   sectionKey,
@@ -63,6 +64,23 @@ describe("sections", () => {
     const removed = organize(items, adapter, integrations).sections.find((s) => s.kind === "removed");
     assert.deepEqual(ids(removed), ["w7"]);
     assert.equal(removed.title, "From a removed integration");
+  });
+
+  test("a blueprint with no integration is removed: deleting an integration NULLs the id and keeps the blueprint", () => {
+    assert.equal(sectionKey({ integrationId: null, blueprint: "buttondown-welcome" }, integrations), "removed");
+    // a person's own item has neither; a live integration's has both
+    assert.equal(sectionKey({ integrationId: null, blueprint: null }, integrations), "yours");
+    assert.equal(sectionKey({ integrationId: "b1", blueprint: "buttondown-welcome" }, integrations), "integration:b1");
+    // a recipe-made item has no blueprint
+    assert.equal(sectionKey({ blueprint: null, recipe: "r" }, integrations), "library");
+  });
+
+  test("removedItems: the whole section, whatever the filters say", () => {
+    const more = [...items, { id: "w9", name: "Blueprint left", source: { blueprint: "x" }, on: false }];
+    assert.deepEqual(
+      removedItems(more, adapter, integrations).map((i) => i.id),
+      ["w7", "w9"],
+    );
   });
 
   test("an integration wins over a recipe; an item with neither is yours", () => {
@@ -240,12 +258,18 @@ describe("pages that group by something other than the source", () => {
   test("sections follow the page's own order and titles, not the source", () => {
     const result = organize(rows, grouped, {});
     assert.deepEqual(keys(result), ["workflow", "webhook", "none"]);
-    assert.deepEqual(result.sections.map((s) => s.title), ["Sent by a workflow", "Sent by a webhook", "Nothing sends it yet"]);
+    assert.deepEqual(
+      result.sections.map((s) => s.title),
+      ["Sent by a workflow", "Sent by a webhook", "Nothing sends it yet"],
+    );
     assert.deepEqual(ids(result.sections[0]), ["c", "d"]);
   });
 
   test("From offers only the groups that exist, and filters on them", () => {
-    assert.deepEqual(fromOptions(rows.slice(1), grouped, {}).map((c) => c.value), ["workflow", "none"]);
+    assert.deepEqual(
+      fromOptions(rows.slice(1), grouped, {}).map((c) => c.value),
+      ["workflow", "none"],
+    );
     assert.deepEqual(keys(organize(rows, grouped, {}, { from: "none" })), ["none"]);
   });
 

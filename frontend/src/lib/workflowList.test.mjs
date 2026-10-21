@@ -74,8 +74,8 @@ describe("the workflow adapter", () => {
   ];
 
   test("reads camelCase source fields from the API", () => {
-    assert.deepEqual(adapter.source(items[1]), { integrationId: "b1", recipe: null });
-    assert.deepEqual(adapter.source(items[2]), { integrationId: null, recipe: "r" });
+    assert.deepEqual(adapter.source(items[1]), { integrationId: "b1", blueprint: null, recipe: null });
+    assert.deepEqual(adapter.source(items[2]), { integrationId: null, blueprint: null, recipe: "r" });
   });
 
   test("search finds a workflow by what starts it", () => {

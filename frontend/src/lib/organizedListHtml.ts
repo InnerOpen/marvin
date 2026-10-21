@@ -21,6 +21,9 @@ export interface SectionsOptions<T> {
   id?: (item: T) => string;
   /** False for pages whose items have no On/Off: the counts then read "5 events". */
   onOff?: boolean;
+  /** Admin only: the From a removed integration heading gets a "Delete all of these" button (`org-delete-removed`);
+   * organizedListView.ts's `removedDelete` option wires it. */
+  removedAction?: boolean;
   /** One card, as HTML. Off items should carry the `off` class so they dim. */
   renderItem: (item: T, state: { linked: boolean }) => string;
 }
@@ -37,7 +40,7 @@ export function sectionsHtml<T>(sections: Section<T>[], options: SectionsOptions
         )
         .join("");
       return `<section class="org-section" data-section="${esc(section.key)}">
-        <h4 class="org-title">${mark}<span class="org-name">${esc(section.title)}</span><span class="org-counts">${esc(countsText(section, options.noun, { onOff: options.onOff }))}</span></h4>
+        <h4 class="org-title">${mark}<span class="org-name">${esc(section.title)}</span><span class="org-counts">${esc(countsText(section, options.noun, { onOff: options.onOff }))}</span>${section.kind === "removed" && options.removedAction ? `<button type="button" class="org-btn danger org-delete-removed">Delete all of these</button>` : ""}</h4>
         <div class="org-items">${cards}</div>
       </section>`;
     })
@@ -67,4 +70,17 @@ export function menuHtml(actions: MenuAction[]): string {
 export function switchHtml(options: { on: boolean; cls: string; label: string }): string {
   const state = options.on ? "on" : "off";
   return `<button type="button" class="org-switch ${esc(options.cls)}" role="switch" aria-checked="${options.on}" aria-label="${esc(`${options.label}: ${state}`)}" title="${options.on ? "On — click to switch off" : "Off — click to switch on"}"><span class="org-switch-knob"></span></button>`;
+}
+
+/** The confirmation for "Delete all of these": says what goes and lists every item by name. The view puts it in a
+ * `<dialog>` and listens for the `org-confirm-delete` / `org-confirm-cancel` buttons. */
+export function removedConfirmHtml(names: string[], noun: string): string {
+  const count = names.length;
+  const what = `${count} ${noun}${count === 1 ? "" : "s"}`;
+  return `<form method="dialog" class="org-confirm">
+    <h3>Delete ${esc(what)}?</h3>
+    <p>${count === 1 ? "This was" : "These were"} installed by an integration that has been removed. Deleting cannot be undone.</p>
+    <ul class="org-confirm-list">${names.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>
+    <div class="org-confirm-actions"><button type="button" class="org-btn org-confirm-cancel">Cancel</button><button type="button" class="org-btn danger org-confirm-delete">Delete ${esc(what)}</button></div>
+  </form>`;
 }
