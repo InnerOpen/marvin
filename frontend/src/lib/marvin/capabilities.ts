@@ -658,8 +658,51 @@ const tone: Capability = {
   },
 };
 
+// ── Built-in skill: Mash & Burn Bench Notes ───────────────────────────────────
+// Turn rough workshop material into a researched, on-brand article draft in the Mash & Burn workspace.
+const benchNote: Capability = {
+  id: "bench-note",
+  label: "Bench Note",
+  hint: "Turn rough workshop notes into a researched Mash & Burn Bench Note draft.",
+  commands: ["bench-note", "bench"],
+  async run(arg: string): Promise<MarvinResult> {
+    const source = arg.trim();
+    if (!source) {
+      return {
+        html: `<div class="mv-help">Give me a voice note, rough notes, an image, or a subject to write about. Try <code>/bench-note the pocket shape on the Foundry jacket is too shallow; compare it with the earlier denim prototype</code>.</div>`,
+      };
+    }
+
+    const request = [
+      "Create a Mash & Burn Co. Bench Note as a new, reviewable inbox draft from the source material below.",
+      "",
+      "Workspace and research:",
+      "- First verify the active workspace is Mash & Burn Co. (slug: mash-burn-co). If it is not, do not create a draft; tell the user to switch workspaces.",
+      "- Search the workspace for the projects, entries, resources, and assets the notes mention. Read relevant records before writing, and use their exact names and facts.",
+      "- Check the available entry types and collections. Use the existing bench-note entry type when present; otherwise use the existing article type and Bench Notes collection if available. Do not create types or collections.",
+      "- Search for an existing note on the same subject to avoid creating a duplicate.",
+      "",
+      "Writing:",
+      "- Treat a Bench Note as a real, useful article from the workshop: develop the observation or question, explain the material or construction choice, connect it to the relevant project or reference, and include what was learned or what comes next when the source supports it.",
+      "- Keep the article grounded in the supplied notes and verified workspace content. Never invent dates, materials, measurements, tests, outcomes, maker opinions, or project details. If a key fact is essential and missing, ask one concise question before creating the draft. Otherwise, write around the gap.",
+      "- Write in the Mash & Burn Co. voice: conversational, self-aware, quietly funny when it fits, tactile and craftsmanship-focused, with the scale and honesty of a small workshop making pieces one at a time. Keep it understated and specific; avoid generic marketing language, grand claims, and luxury-brand puffery.",
+      "- Give it a clear, memorable title and a readable article body. Preserve useful technical detail, but explain it for a curious reader. Let the work and its details carry the story.",
+      "- Link or relate only to existing workspace items that are clearly relevant and supported by the authoring tool. Do not guess links.",
+      "",
+      "Save the result with compose_entry as a new inbox draft. Do not publish it, approve it, or alter existing entries. Afterward, give the user the draft link and a brief note about any facts or links that could not be verified.",
+      "",
+      "Raw source material:",
+      source,
+    ].join("\n");
+
+    // Keep this command's brand instructions authoritative even when a session tone is set.
+    takeRegister();
+    return runBubbleAgent(getActiveAgent(), request, undefined);
+  },
+};
+
 // ── Registry ─────────────────────────────────────────────────────────────────
-const CAPABILITIES: Capability[] = [agent, ask, chat, tools, agents, use, tone];
+const CAPABILITIES: Capability[] = [agent, ask, chat, tools, agents, use, tone, benchNote];
 
 /**
  * Route raw input to a capability.
