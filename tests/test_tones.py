@@ -686,7 +686,7 @@ def test_authoring_tools_draft_in_the_runs_tone(monkeypatch, tool):
             return {"ok": True}
 
     entry_type = SimpleNamespace(group_id=None)
-    entry = SimpleNamespace(group_id="g1")
+    entry = SimpleNamespace(group_id="g1", status="draft")
 
     class _Query:
         def filter(self, *a):

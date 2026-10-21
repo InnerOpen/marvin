@@ -232,8 +232,16 @@ export function entryPayload(form: PlaybookForm, entryTypeId: string | null, sta
   };
 }
 
-/** The buttons the editor offers for a Playbook in `status`: publishing and unpublishing follow whatever the API allows. */
-export function actionsFor(status: string | null | undefined, isNew: boolean): Array<{ key: "save" | "publish" | "unpublish"; label: string; primary: boolean }> {
+/**
+ * The buttons the editor offers for a Playbook in `status`. Publishing, unpublishing and changing a published Playbook are an
+ * Admin's (the API refuses an editor with a 403): `canPublish` false leaves an editor with drafts only, and nothing on a live one.
+ */
+export function actionsFor(
+  status: string | null | undefined,
+  isNew: boolean,
+  canPublish = true,
+): Array<{ key: "save" | "publish" | "unpublish"; label: string; primary: boolean }> {
+  if (!canPublish) return status === "published" ? [] : [{ key: "save", label: "Save draft", primary: true }];
   if (isNew) return [{ key: "save", label: "Save draft", primary: false }, { key: "publish", label: "Save and publish", primary: true }];
   if (status === "published") return [{ key: "save", label: "Save", primary: true }, { key: "unpublish", label: "Unpublish", primary: false }];
   return [{ key: "save", label: "Save draft", primary: false }, { key: "publish", label: "Publish", primary: true }];
