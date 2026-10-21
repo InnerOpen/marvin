@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.25 (2026-10-21)
+
+### Bug Fixes
+
+- **playbooks**: A Playbook that names itself in Replaces publishes as itself
+  ([`5a41530`](https://github.com/InnerOpen/marvin/commit/5a4153093567bdbe9ce65a8881422ac726bde301))
+
+
 ## v1.1.0-rc.24 (2026-10-21)
 
 ### Features
