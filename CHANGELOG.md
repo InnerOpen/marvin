@@ -6,6 +6,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.38 (2026-10-21)
+
+### Chores
+
+- **plugins**: Cloudflare Pages 0.4.0 (Results summary from the deployment, branch as target)
+  ([`5058816`](https://github.com/InnerOpen/marvin/commit/5058816a7360f9a46e8599d5f140e7b93d26426e))
+
+### Features
+
+- **blueprints**: Edit protection for workflows an integration installed
+  ([`e4dba9c`](https://github.com/InnerOpen/marvin/commit/e4dba9c469e18cc3b0f9bc7f81db0cb17fb7f111))
+
+### Testing
+
+- The Cloudflare success summary comes from the deployment lookup
+  ([`c49f22b`](https://github.com/InnerOpen/marvin/commit/c49f22b55acfe4311c1cddb5501adaec4e6f219b))
+
+- The workflow API's key set includes editedSinceInstall
+  ([`d93041c`](https://github.com/InnerOpen/marvin/commit/d93041c7e0cb48905b9650c188dfc657c4007277))
+
+
 ## v1.1.0-rc.37 (2026-10-21)
 
 ### Bug Fixes
