@@ -7,7 +7,7 @@ force-final path.
 
 import json
 
-from marvin.services.ai.agent import AgentTool, run_agent_loop
+from marvin.services.ai.agent import EMPTY_ANSWER, NO_ANSWER, ROOMY_MAX_TOKENS, AgentTool, run_agent_loop
 from marvin.services.ai.base import AIProvider, CompletionResult, Message, ToolCall
 
 
@@ -118,6 +118,71 @@ def test_agent_max_steps_forces_final_answer():
     assert result.answer == "forced final"
     assert len(result.steps) == 2  # two tool dispatches within budget
     assert provider.calls[-1][1] == "none"  # final answer requested with tools disabled
+
+
+def _cut_off(ct=4096):
+    """A reply that hit the output allowance before any text (a thinking model spent it all thinking)."""
+    r = _result(ct=ct)
+    r.stop_reason = "max_tokens"
+    return r
+
+
+class _OptionsProvider(ScriptedProvider):
+    def __init__(self, results):
+        super().__init__(results)
+        self.options = []
+
+    def complete_with_tools(self, messages, model, tools, options=None, tool_choice="auto"):
+        self.options.append(options)
+        return super().complete_with_tools(messages, model, tools, options, tool_choice)
+
+
+def test_a_final_answer_cut_off_before_any_text_is_asked_again_with_more_room():
+    always_call = _result(tool_calls=[ToolCall(id="c", name="echo", arguments={})])
+    provider = _OptionsProvider([always_call, _cut_off(), _result(content="the review", ct=900)])
+    tool = AgentTool(name="echo", description="", input_schema={}, run=lambda _a: "{}")
+
+    result = run_agent_loop(provider, "m", [Message(role="user", content="review the copy")], [tool], max_steps=1)
+
+    assert result.answer == "the review"
+    assert provider.options[-1].max_tokens == ROOMY_MAX_TOKENS and provider.calls[-1][1] == "none"
+    assert result.completion_tokens == 3 + 4096 + 900  # the retry is counted
+
+
+def test_a_plain_answer_cut_off_before_any_text_is_asked_again_too():
+    provider = _OptionsProvider([_cut_off(), _result(content="answer")])
+
+    result = run_agent_loop(provider, "m", [Message(role="user", content="hi")], [_echo_tool()])
+
+    assert result.answer == "answer" and provider.calls[-1][1] == "none"
+
+
+def test_still_no_text_after_the_retry_tells_the_person_instead_of_a_blank_reply():
+    provider = _OptionsProvider([_cut_off(), _cut_off(ct=16000)])
+
+    result = run_agent_loop(provider, "m", [Message(role="user", content="hi")], [_echo_tool()])
+
+    assert result.answer == EMPTY_ANSWER
+
+
+def test_a_model_that_refuses_the_bigger_allowance_gets_the_message_not_an_error():
+    class Refuses(_OptionsProvider):
+        def complete_with_tools(self, messages, model, tools, options=None, tool_choice="auto"):
+            if options is not None and options.max_tokens == ROOMY_MAX_TOKENS:
+                raise ValueError("max_tokens: 16000 > 4096, the maximum for this model")
+            return super().complete_with_tools(messages, model, tools, options, tool_choice)
+
+    result = run_agent_loop(Refuses([_cut_off()]), "m", [Message(role="user", content="hi")], [_echo_tool()])
+
+    assert result.answer == EMPTY_ANSWER
+
+
+def test_an_empty_reply_that_was_not_cut_off_is_not_retried_and_says_so():
+    provider = _OptionsProvider([_result(content="  ")])
+
+    result = run_agent_loop(provider, "m", [Message(role="user", content="hi")], [_echo_tool()])
+
+    assert result.answer == NO_ANSWER and len(provider.calls) == 1
 
 
 def _echo_tool():

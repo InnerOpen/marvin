@@ -13,7 +13,7 @@ the controller, where it can reuse gating/repos.
 import json
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from marvin.services.ai.base import AIProvider, CompletionOptions, Message, ToolDefinition
 
@@ -31,6 +31,15 @@ NUDGE = (
     "Do it now: call the tool in this turn instead of describing what you will do. There is no later "
     "turn — a reply that only promises to check is a failed reply."
 )
+
+
+# A reply can stop at the output allowance before any text: a thinking model (claude-sonnet-5-5 thinks first) may spend
+# all of it thinking, which used to reach the person as a blank answer. Such a reply is asked for once more with this
+# much room, tools off; if there is still no text, the person is told rather than shown nothing.
+CUT_OFF = {"max_tokens", "length"}
+ROOMY_MAX_TOKENS = 16000
+EMPTY_ANSWER = "I ran out of room before I could write my answer. Ask again with a narrower request, for example a few entries at a time."
+NO_ANSWER = "I didn't produce an answer that time. Please ask again."
 
 
 def looks_like_deferral(text: str | None) -> bool:
@@ -367,6 +376,25 @@ class _Toolset:
             self.activate([cat])
 
 
+def _answer_of(completion, provider: AIProvider, convo: list[Message], model: str, tool_defs, options, account) -> str:
+    """The completion's text, asking once more with more room when it was cut off before any (see CUT_OFF)."""
+    if (completion.content or "").strip():
+        return completion.content
+    if completion.stop_reason not in CUT_OFF:
+        return NO_ANSWER
+    if options is None or (options.max_tokens or 0) < ROOMY_MAX_TOKENS:
+        roomy = replace(options, max_tokens=ROOMY_MAX_TOKENS) if options is not None else CompletionOptions(max_tokens=ROOMY_MAX_TOKENS)
+        try:
+            again = provider.complete_with_tools(convo, model, tool_defs, roomy, tool_choice="none")
+        except Exception:  # a model whose output limit is below ROOMY_MAX_TOKENS refuses the request
+            again = None
+        if again is not None:
+            account(again)
+            if (again.content or "").strip():
+                return again.content
+    return EMPTY_ANSWER
+
+
 def run_agent_loop(
     provider: AIProvider,
     model: str,
@@ -491,7 +519,7 @@ def run_agent_loop(
                 convo.append(Message(role="assistant", content=completion.content or ""))
                 convo.append(Message(role="user", content=NUDGE))
                 continue
-            result.answer = completion.content
+            result.answer = _answer_of(completion, provider, convo, model, tool_defs, options, account)
             return result
 
         convo.append(Message(role="assistant", content=completion.content or "", tool_calls=completion.tool_calls))
@@ -516,6 +544,6 @@ def run_agent_loop(
     _notify(on_event, {"type": "thinking"})
     final = provider.complete_with_tools(convo, model, tool_defs, options, tool_choice="none")
     account(final)
-    result.answer = final.content
+    result.answer = _answer_of(final, provider, convo, model, tool_defs, options, account)
     result.stopped_reason = "max_steps"
     return result
