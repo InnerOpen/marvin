@@ -216,46 +216,45 @@ def validate_definition(definition: dict | None, max_steps: int | None = None) -
         namespaces = namespaces | {subject}
 
     # ── Conditions ────────────────────────────────────────────────────────────
-    for i, cond in enumerate(definition.get("conditions") or []):
-        if not isinstance(cond, dict):
-            continue
-        field = str(cond.get("field") or "")
-        seg = field.split(".")[0] if field else ""
-        op = cond.get("op", "eq")
+    for i, top in enumerate(definition.get("conditions") or []):
+        for cond in _condition_leaves(top):
+            field = str(cond.get("field") or "")
+            seg = field.split(".")[0] if field else ""
+            op = cond.get("op", "eq")
 
-        if not field:
-            issues.append(_issue("warning", "Condition has no field — it won't do anything.", "condition", i))
-        elif seg in ("previous", "steps"):
-            issues.append(
-                _issue(
-                    "warning",
-                    f"Condition uses “{field}”, but step outputs aren't available in conditions (conditions are evaluated before any step runs).",
-                    "condition",
-                    i,
+            if not field:
+                issues.append(_issue("warning", "Condition has no field — it won't do anything.", "condition", i))
+            elif seg in ("previous", "steps"):
+                issues.append(
+                    _issue(
+                        "warning",
+                        f"Condition uses “{field}”, but step outputs aren't available in conditions (conditions are evaluated before any step runs).",
+                        "condition",
+                        i,
+                    )
                 )
-            )
-        elif seg == "entry" and not has_entry:
-            issues.append(
-                _issue(
-                    "warning",
-                    f"Condition uses “{field}”, but this {_pretty(ttype)} trigger has no entry — "
-                    "this condition will never match. Use event.payload.* (webhook) or an entry trigger.",
-                    "condition",
-                    i,
+            elif seg == "entry" and not has_entry:
+                issues.append(
+                    _issue(
+                        "warning",
+                        f"Condition uses “{field}”, but this {_pretty(ttype)} trigger has no entry — "
+                        "this condition will never match. Use event.payload.* (webhook) or an entry trigger.",
+                        "condition",
+                        i,
+                    )
                 )
-            )
-        elif seg and seg not in namespaces and seg not in ("event", "entry", "site", *ITEM_KINDS):
-            issues.append(
-                _issue(
-                    "warning",
-                    f"Condition field “{field}” isn't in this trigger's context (available: {', '.join(sorted(namespaces))}).",
-                    "condition",
-                    i,
+            elif seg and seg not in namespaces and seg not in ("event", "entry", "site", *ITEM_KINDS):
+                issues.append(
+                    _issue(
+                        "warning",
+                        f"Condition field “{field}” isn't in this trigger's context (available: {', '.join(sorted(namespaces))}).",
+                        "condition",
+                        i,
+                    )
                 )
-            )
 
-        if op not in _OPS:
-            issues.append(_issue("warning", f"Unknown condition operator “{op}”.", "condition", i))
+            if op not in _OPS:
+                issues.append(_issue("warning", f"Unknown condition operator “{op}”.", "condition", i))
 
     # ── Actions ───────────────────────────────────────────────────────────────
     from .engine import MAX_ACTIONS
@@ -303,6 +302,17 @@ def validate_definition(definition: dict | None, max_steps: int | None = None) -
     issues.extend(unattended_trash_issues(definition))
     issues.extend(when_issues(definition))
     return issues
+
+
+def _condition_leaves(cond) -> list[dict]:
+    """The leaf conditions of a condition node: a leaf is itself; ``{all|any: [...]}`` and ``{not: …}`` groups (the
+    matcher's keys, nesting arbitrarily) have no field of their own, so their children are what gets checked."""
+    if not isinstance(cond, dict):
+        return []
+    if "all" in cond or "any" in cond or "not" in cond:
+        children = [*(cond.get("all") or []), *(cond.get("any") or []), cond.get("not")]
+        return [leaf for child in children if child is not None for leaf in _condition_leaves(child)]
+    return [cond]
 
 
 def _condition_fields(cond) -> list[str]:
