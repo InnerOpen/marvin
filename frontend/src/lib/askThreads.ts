@@ -61,7 +61,8 @@ export function handOffNote(t: Thread): string | null {
 /** The shortest search the server runs (services/ai/threads.py SEARCH_MIN_CHARS). */
 export const SEARCH_MIN_CHARS = 2;
 
-const escapeHtml = (s: string) =>
+/** Text made safe for innerHTML. Exported so other DOM-free modules reuse it instead of keeping their own copy. */
+export const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
 
 /** ``text`` as HTML with every case-insensitive occurrence of ``needle`` wrapped in <mark> — the rest escaped. */

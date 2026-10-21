@@ -2,13 +2,14 @@
 // reply's `playbooks` (the run response's field, or the stored turn's `metaJson.playbooks`), never written into the model's text.
 // Pure, so `npm test` covers it (playbooksUsed.test.mjs). Shared by the Ask page and the bubble.
 
+// Not `esc` from capabilities.ts: that module imports this one (and the DOM libraries), so it would be a cycle and `npm test` could not load it.
+import { escapeHtml as esc } from "../askThreads.ts";
+
 export interface UsedPlaybook {
   id: string;
   name?: string | null;
 }
 
-const esc = (s: string) =>
-  s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 /** Playbook names in the order given, each once; entries without a name are skipped. */
 export function playbookNames(playbooks: UsedPlaybook[] | null | undefined): string[] {

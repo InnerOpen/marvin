@@ -35,7 +35,7 @@ import uuid
 import zipfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 
 from marvin.core.root_logger import get_logger
 from marvin.services.ai.tool_gateway import resolve_tool_name
@@ -72,6 +72,51 @@ class ImportRefused(ValueError):
         self.status_code = status_code
 
 
+class Skipped(TypedDict):
+    """A file left out of the import, and why (shown in the review)."""
+
+    path: str
+    reason: str
+
+
+class GithubSource(TypedDict):
+    """Where a GitHub import came from (``metadata_json["source"]``): the link as given, the repo, the folder in it, the pinned commit."""
+
+    url: str
+    repo: str
+    path: str
+    commit: str
+
+
+class ImportSource(TypedDict):
+    """``review["source"]``: how the Playbook arrived. A GitHub import also carries the ``GithubSource`` keys."""
+
+    kind: str  # "skill_md" | "zip" | "github"
+    filename: NotRequired[str]
+    importedAt: NotRequired[str]
+    url: NotRequired[str]
+    repo: NotRequired[str]
+    path: NotRequired[str]
+    commit: NotRequired[str]
+
+
+class Review(TypedDict):
+    """What an editor should look at before publishing (``review_package``); the keys are camelCase because the editor reads the stored
+    copy as it is. ``tools``, ``links``, ``files`` and ``warnings`` are lists of small JSON objects described in the module docstring."""
+
+    source: ImportSource
+    tools: list[dict]
+    narrowsTools: bool
+    links: list[dict]
+    files: list[dict]
+    scripts: list[str]
+    skipped: list[Skipped]
+    warnings: list[dict]
+    warningsOmitted: int
+    extraKeys: list[str]
+    disclaimer: str
+
+
 @dataclass
 class PackageFile:
     path: str
@@ -84,7 +129,7 @@ class Package:
     doc: SkillDoc
     text: str
     files: list[PackageFile] = field(default_factory=list)
-    skipped: list[dict] = field(default_factory=list)
+    skipped: list[Skipped] = field(default_factory=list)
 
 
 # ── Reading ──────────────────────────────────────────────────────────────────
@@ -130,77 +175,103 @@ def _read_bounded(zf: zipfile.ZipFile, info: zipfile.ZipInfo, path: str, used: i
     return data
 
 
+def _open_zip(data: bytes) -> zipfile.ZipFile:
+    try:
+        return zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile:
+        raise ImportRefused("That is not a readable zip file.") from None
+
+
+def _narrow_to_folder(infos: list[zipfile.ZipInfo], subdir: str) -> tuple[list[zipfile.ZipInfo], str]:
+    """A repository archive's entries under ``subdir`` ('' for the root) inside its one top folder, and that folder's prefix."""
+    top = next((p.split("/")[0] for i in infos if (p := i.filename.replace("\\", "/").lstrip("/")) and "/" in p), "")
+    prefix = f"{top}/{subdir}/" if subdir else f"{top}/"
+    return [i for i in infos if i.filename.replace("\\", "/").startswith(prefix)], prefix
+
+
+def _check_size(infos: list[zipfile.ZipInfo]) -> None:
+    if len(infos) > MEMBERS_MAX:
+        raise ImportRefused(f"The zip holds {len(infos)} entries; at most {MEMBERS_MAX} are accepted.", 413)
+    if sum(i.file_size for i in infos) > TOTAL_MAX * 4:  # a declared size is only a hint, but an absurd one is enough to refuse
+        raise ImportRefused("The folder is too large once unpacked.", 413)
+
+
+def _list_members(infos: list[zipfile.ZipInfo], prefix: str | None) -> tuple[list[tuple[str, zipfile.ZipInfo]], list[Skipped]]:
+    """The files worth reading, as (clean relative path, info). Refuses an unsafe or encrypted member; notes a symlink as skipped."""
+    members: list[tuple[str, zipfile.ZipInfo]] = []
+    skipped: list[Skipped] = []
+    for info in infos:
+        path = _safe_name(info.filename)
+        if path is None:
+            raise ImportRefused(f"The zip holds an unsafe path ('{info.filename[:80]}'): paths must stay inside the folder.")
+        if prefix is not None:
+            path = path[len(prefix) :]
+        if not path or info.is_dir() or _junk(path):
+            continue
+        if info.flag_bits & 0x1:
+            raise ImportRefused("The zip is password-protected.")
+        if stat.S_ISLNK(info.external_attr >> 16):
+            skipped.append({"path": path, "reason": "a link, not a file"})
+            continue
+        members.append((path, info))
+    return members, skipped
+
+
+def _skill_root(members: list[tuple[str, zipfile.ZipInfo]], in_folder: bool) -> str:
+    """The folder prefix SKILL.md sits in: '' at the top, or its one top-level folder. A repository folder must have it exactly at
+    its top; an upload may have one top-level folder; two skills are refused."""
+    if in_folder:
+        if SKILL_FILE not in {p for p, _ in members}:
+            raise ImportRefused("That folder has no SKILL.md, so it is not a skill.")
+        return ""
+    skills = [p for p, _ in members if posixpath.basename(p) == SKILL_FILE and p.count("/") <= 1]
+    if not skills:
+        raise ImportRefused("The zip has no SKILL.md at its top or in its one top-level folder.")
+    if SKILL_FILE in skills:
+        return ""
+    if len(skills) == 1:
+        return posixpath.dirname(skills[0]) + "/"
+    raise ImportRefused(f"The zip holds more than one skill ({len(skills)} SKILL.md files); import them one at a time.")
+
+
+def _read_members(
+    zf: zipfile.ZipFile, members: list[tuple[str, zipfile.ZipInfo]], root: str, skipped: list[Skipped]
+) -> tuple[str, list[PackageFile]]:
+    """SKILL.md's text and the other files under ``root``, each read with a bound. Appends what it leaves out to ``skipped``."""
+    used, text = 0, ""
+    files: list[PackageFile] = []
+    for path, info in members:
+        if not path.startswith(root):
+            skipped.append({"path": path, "reason": "outside the skill's folder"})
+            continue
+        rel = path[len(root) :]
+        if rel == SKILL_FILE:
+            text = _decode(_read_bounded(zf, info, path, used), "SKILL.md")
+            continue
+        if len(files) >= FILES_MAX:
+            raise ImportRefused(f"A Playbook holds at most {FILES_MAX} reference files; this folder has more.", 413)
+        raw = _read_bounded(zf, info, path, used)
+        used += len(raw)
+        try:
+            rel = normalize_path(rel)
+        except PlaybookFileError as e:
+            skipped.append({"path": rel[:80], "reason": str(e)})
+            continue
+        files.append(PackageFile(rel, raw))
+    return text, files
+
+
 def _read_zip(data: bytes, subdir: str | None = None) -> Package:
     """A zip as a Package. With ``subdir`` (the GitHub import) the zip is a whole repository archive: its one top folder is
     dropped and only the files under ``subdir`` ('' for the repository root) are read; the rest is never opened and counts
     toward no limit. SKILL.md must then sit exactly at ``subdir``."""
-    try:
-        zf = zipfile.ZipFile(io.BytesIO(data))
-    except zipfile.BadZipFile:
-        raise ImportRefused("That is not a readable zip file.") from None
-    with zf:
-        infos = zf.infolist()
-        prefix = None
+    with _open_zip(data) as zf:
+        infos, prefix = zf.infolist(), None
         if subdir is not None:
-            top = next((p.split("/")[0] for i in infos if (p := i.filename.replace("\\", "/").lstrip("/")) and "/" in p), "")
-            prefix = f"{top}/{subdir}/" if subdir else f"{top}/"
-            infos = [i for i in infos if i.filename.replace("\\", "/").startswith(prefix)]
-        if len(infos) > MEMBERS_MAX:
-            raise ImportRefused(f"The zip holds {len(infos)} entries; at most {MEMBERS_MAX} are accepted.", 413)
-        if sum(i.file_size for i in infos) > TOTAL_MAX * 4:  # a declared size is only a hint, but an absurd one is enough to refuse
-            raise ImportRefused("The folder is too large once unpacked.", 413)
-        members: list[tuple[str, zipfile.ZipInfo]] = []
-        skipped: list[dict] = []
-        for info in infos:
-            path = _safe_name(info.filename)
-            if path is None:
-                raise ImportRefused(f"The zip holds an unsafe path ('{info.filename[:80]}'): paths must stay inside the folder.")
-            if prefix is not None:
-                path = path[len(prefix) :]
-            if not path or info.is_dir() or _junk(path):
-                continue
-            if info.flag_bits & 0x1:
-                raise ImportRefused("The zip is password-protected.")
-            if stat.S_ISLNK(info.external_attr >> 16):
-                skipped.append({"path": path, "reason": "a link, not a file"})
-                continue
-            members.append((path, info))
-
-        if prefix is not None:
-            if SKILL_FILE not in {p for p, _ in members}:
-                raise ImportRefused("That folder has no SKILL.md, so it is not a skill.")
-            root = ""
-        else:
-            skills = [p for p, _ in members if posixpath.basename(p) == SKILL_FILE and p.count("/") <= 1]
-            if not skills:
-                raise ImportRefused("The zip has no SKILL.md at its top or in its one top-level folder.")
-            if SKILL_FILE in skills:
-                root = ""
-            elif len(skills) == 1:
-                root = posixpath.dirname(skills[0]) + "/"
-            else:
-                raise ImportRefused(f"The zip holds more than one skill ({len(skills)} SKILL.md files); import them one at a time.")
-
-        used, files, text = 0, [], ""
-        for path, info in members:
-            if not path.startswith(root):
-                skipped.append({"path": path, "reason": "outside the skill's folder"})
-                continue
-            rel = path[len(root) :]
-            if rel == SKILL_FILE:
-                raw = _read_bounded(zf, info, path, used)
-                text = _decode(raw, "SKILL.md")
-                continue
-            if len(files) >= FILES_MAX:
-                raise ImportRefused(f"A Playbook holds at most {FILES_MAX} reference files; this folder has more.", 413)
-            raw = _read_bounded(zf, info, path, used)
-            used += len(raw)
-            try:
-                rel = normalize_path(rel)
-            except PlaybookFileError as e:
-                skipped.append({"path": rel[:80], "reason": str(e)})
-                continue
-            files.append(PackageFile(rel, raw))
+            infos, prefix = _narrow_to_folder(infos, subdir)
+        _check_size(infos)
+        members, skipped = _list_members(infos, prefix)
+        text, files = _read_members(zf, members, _skill_root(members, in_folder=prefix is not None), skipped)
     return Package("zip" if subdir is None else "github", _parse(text), text, sorted(files, key=lambda f: f.path), skipped)
 
 
@@ -257,7 +328,8 @@ def _excerpt(line: str) -> str:
 
 
 def _warnings(texts: list[tuple[str, str]]) -> tuple[list[dict], int]:
-    found, omitted = [], 0
+    found: list[dict] = []
+    omitted = 0
     for where, text in texts:
         for number, line in enumerate(text.splitlines(), 1):
             kinds = []
@@ -320,7 +392,7 @@ def _readable(file: PackageFile) -> str | None:
         return None
 
 
-def review_package(package: Package, tool_names: set[str] | frozenset[str]) -> dict:
+def review_package(package: Package, tool_names: set[str] | frozenset[str]) -> Review:
     """What an editor should look at before publishing (see the module docstring); JSON-safe, camelCase keys."""
     paths = {f.path for f in package.files}
     links = _links(package.text, paths)
@@ -353,7 +425,7 @@ def review_package(package: Package, tool_names: set[str] | frozenset[str]) -> d
 @dataclass
 class Imported:
     entry: Any
-    review: dict
+    review: Review
     file_count: int
 
 
@@ -382,54 +454,44 @@ def import_playbook(session, *, group_id, user_id, filename: str, data: bytes, e
     return import_package(session, package, group_id=group_id, user_id=user_id, filename=filename, entries=entries, assets=assets, name=name)
 
 
-def import_package(
-    session, package: Package, *, group_id, user_id, filename: str, entries, assets, name: str | None = None, source: dict | None = None
-) -> Imported:
-    """``import_playbook`` from a Package already read (the upload, or a GitHub folder). ``source`` is recorded on the review
-    and the entry (``metadata_json["source"]``) as the draft's provenance."""
-    from marvin.schemas.platform import AssetUploadRequest
-    from marvin.services.ai.tools import list_tools
-    from marvin.services.assets.asset_storage_service import AssetRejected
-    from marvin.services.assets.scope import PLAYBOOK
-
+def _apply_name(package: Package, name: str | None) -> None:
+    """Rename the package's Playbook when the caller sent a new ``name`` for it."""
     if name is not None and name.strip():
         try:
             package.doc.name = check_name(name.strip())
         except SkillFormatError as e:
             raise ImportRefused(f"The new name can't be used: {e}") from None
-    doc = package.doc
-    if message := _taken_message(session, group_id, doc.name):
-        raise ImportRefused(message, 409)
 
-    review = review_package(package, {t.name for t in list_tools()})
-    review["source"] = {"kind": package.kind, "filename": (filename or "")[:200], "importedAt": datetime.now(UTC).isoformat()}
-    metadata = {"importReview": review}
+
+def _entry_metadata(package: Package, review: Review, source: GithubSource | None) -> dict:
+    """The entry's ``metadata_json``: the review, the provenance of a GitHub import, and the frontmatter keys the export writes back."""
+    metadata: dict = {"importReview": review}
     if source:
         review["source"] = {**review["source"], **source}
         metadata["source"] = dict(source)
-    if doc.extra:
-        metadata["frontmatterExtra"] = _json_safe(doc.extra)
-    entry = entries.create(
-        {
-            "entry_type_id": ensure_playbook_type(session, group_id),
-            "title": doc.name,
-            "slug": doc.name,
-            "status": "draft",
-            "data_json": doc.to_entry_data(),
-            "metadata_json": metadata,
-            "created_by": user_id,
-        }
-    )
+    if package.doc.extra:
+        metadata["frontmatterExtra"] = _json_safe(package.doc.extra)
+    return metadata
+
+
+def _attach_files(session, package: Package, entry, review: Review, *, group_id, user_id, assets) -> int:
+    """Upload each file as a Playbook-scope asset and attach it under its path. A file the asset store or the path rules turn
+    down is dropped from the review and listed in ``review["skipped"]``. Returns how many were kept."""
+    from marvin.schemas.platform import AssetUploadRequest
+    from marvin.services.assets.asset_storage_service import AssetRejected
+    from marvin.services.assets.scope import PLAYBOOK
 
     attached = 0
     for file in package.files:
-        slug = f"{doc.name}-{uuid.uuid4().hex[:10]}"
-        upload = _Upload(posixpath.basename(file.path), file.data)
+        name = posixpath.basename(file.path)
         try:
             asset = assets.upload_asset(
-                upload_file=upload,  # type: ignore[arg-type]
+                upload_file=_Upload(name, file.data),  # type: ignore[arg-type]
                 upload_request=AssetUploadRequest(
-                    slug=slug, name=posixpath.basename(file.path), metadata_json={"playbook": doc.name, "path": file.path}, scope=PLAYBOOK
+                    slug=f"{package.doc.name}-{uuid.uuid4().hex[:10]}",
+                    name=name,
+                    metadata_json={"playbook": package.doc.name, "path": file.path},
+                    scope=PLAYBOOK,
                 ),
                 group_id=group_id,
                 user_id=user_id,
@@ -440,13 +502,47 @@ def import_package(
             review["skipped"].append({"path": file.path, "reason": str(e)})
             review["files"] = [f for f in review["files"] if f["path"] != file.path]
             review["scripts"] = [p for p in review["scripts"] if p != file.path]
-    if attached != len(package.files):  # keep the stored review in step with what was kept
-        from sqlalchemy.orm.attributes import flag_modified
+    return attached
 
-        row = session.get(type(entry), entry.id)
-        row.metadata_json = {**(row.metadata_json or {}), "importReview": review}
-        flag_modified(row, "metadata_json")
-        session.commit()
+
+def _store_review(session, entry, review: Review) -> None:
+    """Rewrite the stored review: files dropped while attaching change what the editor should show."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    row = session.get(type(entry), entry.id)
+    row.metadata_json = {**(row.metadata_json or {}), "importReview": review}
+    flag_modified(row, "metadata_json")
+    session.commit()
+
+
+def import_package(
+    session, package: Package, *, group_id, user_id, filename: str, entries, assets, name: str | None = None, source: GithubSource | None = None
+) -> Imported:
+    """``import_playbook`` from a Package already read (the upload, or a GitHub folder). ``source`` is recorded on the review
+    and the entry (``metadata_json["source"]``) as the draft's provenance."""
+    from marvin.services.ai.tools import list_tools
+
+    _apply_name(package, name)
+    doc = package.doc
+    if message := _taken_message(session, group_id, doc.name):
+        raise ImportRefused(message, 409)
+
+    review = review_package(package, {t.name for t in list_tools()})
+    review["source"] = {"kind": package.kind, "filename": (filename or "")[:200], "importedAt": datetime.now(UTC).isoformat()}
+    entry = entries.create(
+        {
+            "entry_type_id": ensure_playbook_type(session, group_id),
+            "title": doc.name,
+            "slug": doc.name,
+            "status": "draft",
+            "data_json": doc.to_entry_data(),
+            "metadata_json": _entry_metadata(package, review, source),
+            "created_by": user_id,
+        }
+    )
+    attached = _attach_files(session, package, entry, review, group_id=group_id, user_id=user_id, assets=assets)
+    if attached != len(package.files):  # keep the stored review in step with what was kept
+        _store_review(session, entry, review)
     logger.info("playbooks: imported %s (%s, %d files) into workspace %s", doc.name, package.kind, attached, group_id)
     return Imported(entry=entry, review=review, file_count=attached)
 

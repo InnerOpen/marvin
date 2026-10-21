@@ -7,12 +7,14 @@ import { excerpt, timeAgo } from "./socialInbox.ts";
 
 export const PLAYBOOKS_PATH = "/workspace/settings/ai-playbooks";
 export const NEW_PLAYBOOK_PATH = `${PLAYBOOKS_PATH}/new`;
+// The Agent Skills limits on the standard fields. They mirror the backend's (services/playbooks/skill_md.py NAME_MAX,
+// DESCRIPTION_MAX, COMPATIBILITY_MAX), which enforces them on import and in the entry schema: change both together.
 export const NAME_MAX = 64;
 export const DESCRIPTION_MAX = 1024;
 export const COMPATIBILITY_MAX = 500;
 /** The Agent Skills spec's advice for a SKILL.md body: past this it is long for an agent to carry. A warning, never a block. */
 export const BODY_LINES_ADVISED = 500;
-/** The same pattern the backend's field schema holds (services/playbooks NAME_PATTERN): words of a-z and 0-9 joined by single hyphens. */
+/** The same pattern the backend holds (services/playbooks/skill_md.py NAME_PATTERN): words of a-z and 0-9 joined by single hyphens. */
 export const NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 export interface PlaybookItem {

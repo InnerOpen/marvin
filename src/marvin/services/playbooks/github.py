@@ -18,7 +18,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import unquote, urlparse
 
-from marvin.services.playbooks.importer import ARCHIVE_MAX, SKILL_FILE, ImportRefused, Package, read_repo_archive
+from marvin.services.playbooks.importer import ARCHIVE_MAX, SKILL_FILE, GithubSource, ImportRefused, Package, read_repo_archive
 
 API = "https://api.github.com"
 PAGE_HOSTS = {"github.com", "www.github.com"}
@@ -69,7 +69,7 @@ def _candidates(link: GithubLink) -> list[tuple[str | None, str]]:
         return [(None, "")]
     if link.kind == "blob" and (len(link.rest) < 2 or link.rest[-1] != SKILL_FILE):
         raise ImportRefused("A file link must point at a SKILL.md. To import a whole skill, link its folder instead.")
-    out = []
+    out: list[tuple[str | None, str]] = []
     for k in range(1, min(len(link.rest), REF_SPLITS_MAX) + 1):
         path = list(link.rest[k:])
         if link.kind == "blob":
@@ -126,7 +126,7 @@ def _resolve_commit(http, link: GithubLink, ref: str | None) -> str | None:
     return sha
 
 
-def fetch_package(url: str, http=None) -> tuple[Package, dict]:
+def fetch_package(url: str, http=None) -> tuple[Package, GithubSource]:
     """The Package for a GitHub link and its provenance ``{url, repo, path, commit}`` (the commit is the one the ref named just
     now, so the draft records exactly what was read). ``http`` is for tests; the default is the guarded client."""
     link = parse_github_url(url)
@@ -147,5 +147,5 @@ def fetch_package(url: str, http=None) -> tuple[Package, dict]:
     if not archive.ok:
         raise _refused(archive, "downloading the repository")
     package = read_repo_archive(archive.content, subdir)
-    source = {"url": url.strip()[:SOURCE_URL_MAX], "repo": f"{link.owner}/{link.repo}", "path": subdir, "commit": commit}
+    source: GithubSource = {"url": url.strip()[:SOURCE_URL_MAX], "repo": f"{link.owner}/{link.repo}", "path": subdir, "commit": commit}
     return package, source
