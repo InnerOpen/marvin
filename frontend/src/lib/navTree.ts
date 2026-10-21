@@ -184,6 +184,9 @@ const NODES: NavNode[] = [
     href: "/workspace/settings/ai-mcp-servers",
     parent: "settings.ai",
   },
+  { id: "settings.ai-playbooks", label: "Playbooks", href: "/workspace/settings/ai-playbooks", parent: "settings.ai" },
+  { id: "settings.ai-playbooks.edit", label: "Playbook", href: "/workspace/settings/ai-playbooks/[id]", parent: "settings.ai-playbooks" },
+  { id: "settings.ai-playbooks.new", label: "New", href: "/workspace/settings/ai-playbooks/new", parent: "settings.ai-playbooks", title: "New Playbook" },
 
   // Automation and Publishing pages sit directly under Settings: the hub's tabs aren't pages, so they're not crumbs.
   { id: "automation.workflows", label: "Workflows", href: "/automation/workflows", parent: "settings.automation" },
