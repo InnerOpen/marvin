@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.37 (2026-10-21)
+
+### Bug Fixes
+
+- **hooks**: Read an incoming webhook body a chunk at a time and stop at the cap
+  ([`99d876f`](https://github.com/InnerOpen/marvin/commit/99d876fa094eebbc8a53f6b561cd8aa627214673))
+
+
 ## v1.1.0-rc.36 (2026-10-21)
 
 ### Features
