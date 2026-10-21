@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.41 (2026-10-21)
+
+### Bug Fixes
+
+- **integrations**: Recipes really stack on a phone; the card footer wraps instead of breaking the
+  slug
+  ([`1529e98`](https://github.com/InnerOpen/marvin/commit/1529e98e668b7b9a62074b9ce0c2c2cc5dff78b4))
+
+
 ## v1.1.0-rc.40 (2026-10-21)
 
 ### Bug Fixes
