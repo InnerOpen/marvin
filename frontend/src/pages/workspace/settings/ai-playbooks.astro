@@ -43,6 +43,7 @@ const rows = items.map((item) => playbookRow(item));
     <form class="pb-github" id="pb-github-form" autocomplete="off">
       <input
         type="url"
+        class="input"
         id="pb-github-url"
         placeholder={GITHUB_IMPORT_PLACEHOLDER}
         aria-label="GitHub link to a skill folder or SKILL.md"
@@ -50,6 +51,15 @@ const rows = items.map((item) => playbookRow(item));
       />
       <button type="submit" class="button secondary" id="pb-github-go">Import from GitHub</button>
     </form>
+  )}
+
+  {!error && (
+    <p class="pb-import-help">
+      <strong>From GitHub:</strong> link a skill's folder or its SKILL.md. Either way the whole folder comes in, reference files
+      included. Public repositories only.
+      <strong>From your computer:</strong> Import takes one SKILL.md, or a .zip of one skill folder (use a zip when the skill has
+      reference files). Every import arrives as a draft for you to review before publishing.
+    </p>
   )}
 
   <p class="pb-import-msg" id="pb-import-msg" role="status" hidden></p>
@@ -64,7 +74,7 @@ const rows = items.map((item) => playbookRow(item));
   )}
 
   {rows.length > 0 && (
-    <div class="section-card">
+    <div class="pb-section">
       <p class="pb-summary">{listSummary(items)}</p>
       <ul class="pb-list">
         {rows.map((row) => (
@@ -92,15 +102,17 @@ const rows = items.map((item) => playbookRow(item));
   .pb-github { display: flex; gap: 8px; margin: 0 0 12px; max-width: 720px; }
   .pb-github input { flex: 1; min-width: 0; }
   @media (max-width: 720px) { .pb-github { flex-direction: column; } }
+  .pb-import-help { margin: -4px 0 16px; max-width: 720px; color: var(--muted); font-size: 13px; line-height: 1.5; }
   .pb-import-msg { margin: 0 0 12px; font-size: 14px; padding: 8px 12px; border-radius: var(--radius); border: 1px solid var(--line); }
   .pb-import-msg.error { color: var(--bad, #b91c1c); border-color: var(--bad, #b91c1c); }
-  .pb-summary { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
-  .pb-list { list-style: none; margin: 0; padding: 0; }
-  .pb-list li + li { border-top: 1px solid var(--line); }
-  .pb-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 2px; color: inherit; text-decoration: none; }
+  /* Slim cards, matching the Automation lists' .org-card (components/OrganizedSections.astro). */
+  .pb-summary { margin: 0 0 8px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .pb-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .pb-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; background: var(--bg); color: inherit; text-decoration: none; transition: border-color 0.15s; }
+  .pb-row:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
   .pb-row:hover .pb-name { color: var(--accent); }
-  .pb-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .pb-name { font-family: ui-monospace, monospace; font-size: 14px; overflow-wrap: anywhere; }
+  .pb-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+  .pb-name { font-size: 14.5px; font-weight: 600; overflow-wrap: anywhere; }
   .pb-desc { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
   .pb-used { font-size: 12px; color: var(--muted); }
   .pb-tags { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
