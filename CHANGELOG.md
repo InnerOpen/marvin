@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.24 (2026-10-21)
+
+### Features
+
+- **playbooks**: An agent that can draft learns Playbooks exist before any is published
+  ([`971196e`](https://github.com/InnerOpen/marvin/commit/971196e87664fe2af5098d1dd07d590e784544b2))
+
+
 ## v1.1.0-rc.23 (2026-10-21)
 
 ### Bug Fixes
