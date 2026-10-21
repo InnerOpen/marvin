@@ -5,7 +5,8 @@ import { getAuthToken } from "@/lib/api/client";
 import FilterBar from "@/components/FilterBar.astro";
 import OrganizedSections from "@/components/OrganizedSections.astro";
 import { listIntegrations, listProviders } from "@/lib/api/integrations";
-import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import { getCurrentWorkspace, listWorkspaces } from "@/lib/api/workspaces";
+import { canManageWorkspace } from "@/lib/workspaceRole";
 import { fromOptions, type Integrations, statusOptions } from "@/lib/organizedList";
 import { createSdkClient } from "@/lib/sdk";
 import { STARTS_OPTIONS, workflowAdapter } from "@/lib/workflowList";
@@ -18,6 +19,13 @@ let automations: any[] = [];
 let options: any = { triggers: [], conditionOps: [], actionKinds: [], operations: [] };
 let integrationInfo: Integrations = {};
 let error: string | null = null;
+// "Delete all of these" (From a removed integration) is ADMIN only; the API refuses anyone else.
+let canManage = false;
+try {
+  canManage = canManageWorkspace(await listWorkspaces(authToken), (await sdk.user.getProfile()) as any);
+} catch {
+  // unknown role: no button
+}
 
 try {
   workspace = await getCurrentWorkspace(authToken);
@@ -275,6 +283,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
 
   <script type="application/json" id="wf-options-data" is:inline set:html={optionsJson}></script>
   <script type="application/json" id="wf-list-data" is:inline set:html={listJson}></script>
+  <script type="application/json" id="wf-can-manage" is:inline set:html={JSON.stringify(canManage)}></script>
   <script type="application/json" id="wf-integration-names" is:inline set:html={integrationNamesJson}></script>
   <RecipeDialog />
  </div>
@@ -2426,6 +2435,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     storageKey: "marvin.automation.workflows.filters",
     linkedId: linkedWorkflow,
     renderItem: (wf, { linked }) => workflowCardHtml(wf, { summary: triggerSummary(wf, NAMES), details: summarize(wf), linked }),
+    removedDelete: { kind: "workflows", canDelete: read("wf-can-manage") === true },
     afterRender: attachCardHandlers,
   });
   const renderList = () => list.refresh();

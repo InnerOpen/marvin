@@ -6,7 +6,7 @@
  *
  * Classes (all global, so client-rendered HTML picks them up): `org-section`, `org-title`, `org-items`, `org-card`
  * (+ `off` to dim), `org-card-main`, `org-card-title`, `org-card-sub`, `org-card-actions`, `org-btn`
- * (+ `primary`), `org-switch`, `org-more-wrap`, `org-menu`, `org-menu-item` (+ `danger`).
+ * (+ `primary`, `danger`), `org-switch`, `org-more-wrap`, `org-menu`, `org-menu-item` (+ `danger`).
  */
 interface Props {
   /** Prefix for the element ids: `${id}-list`, `${id}-empty`, `${id}-none`. */
@@ -47,6 +47,15 @@ const { id, noun, emptyAll } = Astro.props;
   .org-btn { text-decoration: none; font-size: 12px; padding: 5px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--muted); cursor: pointer; font-weight: 500; }
   .org-btn:hover { color: var(--ink); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
   .org-btn.primary { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); font-weight: 600; }
+  .org-btn.danger { color: var(--color-error); }
+  .org-btn.danger:hover { border-color: var(--color-error); background: color-mix(in srgb, var(--color-error) 10%, transparent); }
+  .org-title .org-delete-removed { margin-left: auto; text-transform: none; letter-spacing: 0; }
+  dialog.org-confirm-dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: inherit; padding: 20px; width: min(460px, calc(100vw - 32px)); }
+  .org-confirm { display: flex; flex-direction: column; gap: 12px; }
+  .org-confirm h3, .org-confirm p { margin: 0; }
+  .org-confirm-list { margin: 0; padding-left: 20px; max-height: 40vh; overflow-y: auto; }
+  .org-confirm-error { color: var(--color-error); }
+  .org-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
   .org-btn:disabled { opacity: 0.55; cursor: default; }
 
   /* On/Off switch */
