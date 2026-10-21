@@ -178,6 +178,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
   import { groupThreads, handOffNote, highlight, SEARCH_MIN_CHARS } from "@/lib/askThreads";
   import { renderMarkdown } from "@/lib/marvin/capabilities";
   import { MAIN_AGENT } from "@/lib/marvin/cast";
+  import { type UsedPlaybook, usedHtml } from "@/lib/marvin/playbooksUsed";
   import { referralQuestion } from "@/lib/marvin/referrals";
   import { createSdkClient } from "@/lib/sdk";
   import { assetName, assetSlug } from "@/lib/share";
@@ -334,10 +335,6 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       }
       return links.length ? `<span>Sources:</span> ${links.join(" · ")}` : "";
     }
-    function usedHtml(tools: string[]): string {
-      const used = [...new Set(tools)];
-      return used.length ? `<span>Used:</span> ${used.map((t) => `<code>${esc(t)}</code>`).join(" ")}` : "";
-    }
     const agentName = (slug: string) =>
       slug === MAIN_AGENT && assistantName ? assistantName : (agents.find((a) => a.slug === slug)?.name ?? slug);
     const agentLabel = (slug: string) => {
@@ -373,10 +370,11 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       tokens: number | undefined | null,
       handoffs?: Handoff[] | null,
       referrals?: Referral[] | null,
+      playbooks?: UsedPlaybook[] | null,
     ): string {
       return [
         sourcesHtml(sources),
-        usedHtml(tools),
+        usedHtml(tools, playbooks),
         handoffsHtml(handoffs),
         referralsHtml(referrals),
         tokens ? `${Number(tokens).toLocaleString()} tokens` : "",
@@ -568,6 +566,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
                 m.metaJson?.totalTokens,
                 m.metaJson?.handoffs,
                 m.metaJson?.referrals,
+                m.metaJson?.playbooks,
               ),
             );
         }
@@ -891,7 +890,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       addTurn(
         "assistant",
         renderMarkdown(answer),
-        assistantMeta(res.sources, (res.steps ?? []).map((s) => s.tool), res.totalTokens, res.handoffs, res.referrals),
+        assistantMeta(res.sources, (res.steps ?? []).map((s) => s.tool), res.totalTokens, res.handoffs, res.referrals, res.playbooks),
       );
       if (opts.refreshThreads && !threadsPanel.hidden) void loadThreads();
       setStatus(attachments.length ? "Attachments stay with this conversation; remove one with ×." : "");
@@ -1120,6 +1119,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
   .transcript :global(.turn-meta code) { font-size: 12px; }
   .transcript :global(.meta-link) { border: 0; background: none; padding: 0; font: inherit; color: var(--accent); cursor: pointer; }
   .transcript :global(.meta-link:hover) { text-decoration: underline; }
+  .transcript :global(.playbook-used) { font-weight: 600; }
   .transcript :global(.turn-error) { color: var(--color-error); }
   .transcript :global(.turn.pending) { border-style: dashed; }
   .transcript :global(.steps) { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }

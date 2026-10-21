@@ -1670,8 +1670,13 @@ class AIOperationsController(BaseUserController):
                 execution.entity_id,
                 parent_thread_id=parent_thread_id,
             )
+        from marvin.services.playbooks.memory import META_KEY as PLAYBOOKS_META
+        from marvin.services.playbooks.memory import in_effect
+
         _, log_outputs = self._logging_policy()
         meta: dict = {"sources": sources, "totalTokens": tokens}
+        if remembered := in_effect(thread, steps):  # the Playbooks this reply used; later turns re-include them
+            meta[PLAYBOOKS_META] = remembered
         if handoffs:
             meta["handoffs"] = handoffs
         if referrals:
@@ -1882,6 +1887,17 @@ class AIOperationsController(BaseUserController):
             roster = roster_block(specs, agent_slug, self._user_role(), "agent", can_handoff="run_agent" in tool_names)
         return preamble, roster
 
+    def _thread_playbooks_block(self, thread, tool_names: set[str]) -> str:
+        """The Playbooks this thread loaded on earlier turns, as a system-prompt section ("" when none): a loaded
+        Playbook stays in effect for the whole conversation, though old tool results are not replayed to the model."""
+        from marvin.services.playbooks import LOAD_TOOL
+        from marvin.services.playbooks.memory import reload_block
+
+        if thread is None or LOAD_TOOL not in tool_names:
+            return ""
+        block = reload_block(self.session, self.group_id, thread)
+        return "\n\n" + block if block else ""
+
     @staticmethod
     def _framed(system: str, preamble: str, roster: str) -> str:
         framed = preamble + "\n\n" + system
@@ -1963,6 +1979,7 @@ class AIOperationsController(BaseUserController):
         # Environment facts come first, the agent's own persona after: what "the RAG" means here and which
         # of the bound tools answers which kind of question.
         system = self._framed(system, *self._system_frame(names, agent_slug))
+        system += self._thread_playbooks_block(thread, names)
         user_msg = body.message
         if context_block:
             system += (
@@ -2174,6 +2191,7 @@ class AIOperationsController(BaseUserController):
         from datetime import UTC, datetime
 
         from marvin.services.ai.threads import extract_handoffs, extract_sources
+        from marvin.services.playbooks.memory import in_effect as playbooks_in_effect
 
         execution.status = "completed"
         execution.completed_at = datetime.now(UTC)
@@ -2210,6 +2228,7 @@ class AIOperationsController(BaseUserController):
             "answer": result.answer,
             "steps": [{"tool": s.tool, "arguments": s.arguments, "result": s.result} for s in steps],
             "sources": sources,
+            "playbooks": playbooks_in_effect(thread, steps),
             "handoffs": handoffs,
             "referrals": referrals,
             "stoppedReason": result.stopped_reason,
