@@ -71,6 +71,8 @@ export interface EventConnectionCounts {
   name: string;
   category: string;
   senders: number;
+  /** The distinct kinds of thing that send it, sorted (lets a list group types by sender). */
+  senderKinds?: SenderKind[];
   reactions: number;
   activeReactions: number;
   builtinReactions: number;

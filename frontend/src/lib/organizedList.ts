@@ -13,7 +13,7 @@
 //
 // Rendering lives in organizedListHtml.ts (section headings, cards' ⋯ menu) and organizedListView.ts (the DOM wiring).
 
-export type SectionKind = "yours" | "library" | "integration" | "removed" | "system";
+export type SectionKind = "yours" | "library" | "integration" | "removed" | "system" | "group";
 
 /** Where an item came from. All read-only, as the server records them. */
 export interface ItemSource {
@@ -36,6 +36,9 @@ export interface ListAdapter<T> {
   attention?(item: T): boolean;
   /** Page-specific filters: facet id (the filter's key in `filters`) -> the item's value for it. */
   facets?: Record<string, (item: T) => string>;
+  /** For pages whose sections are not "where it came from" (custom events: what sends them): the sections' keys and
+   * titles, in order, and which one an item is in. The From filter then offers these. */
+  groups?: { choices: Choice[]; of(item: T): string };
 }
 
 export interface IntegrationInfo {
@@ -76,7 +79,7 @@ export interface Choice {
   label: string;
 }
 
-export const SECTION_TITLE: Record<Exclude<SectionKind, "integration">, string> = {
+export const SECTION_TITLE: Record<Exclude<SectionKind, "integration" | "group">, string> = {
   yours: "Yours",
   library: "From the Library",
   removed: "From a removed integration",
@@ -96,6 +99,22 @@ export function sectionKey(source: ItemSource | undefined, integrations: Integra
 }
 
 const kindOf = (key: string): SectionKind => (key.startsWith("integration:") ? "integration" : (key as SectionKind));
+
+/** The section an item is in: the page's own grouping if it has one, else by source. */
+function keyOf<T>(item: T, adapter: ListAdapter<T>, integrations: Integrations): string {
+  return adapter.groups ? adapter.groups.of(item) : sectionKey(adapter.source(item), integrations);
+}
+
+function titleFor<T>(key: string, adapter: ListAdapter<T>, integrations: Integrations): string {
+  return adapter.groups
+    ? (adapter.groups.choices.find((c) => c.value === key)?.label ?? key)
+    : titleOf(key, integrations);
+}
+
+function compareFor<T>(adapter: ListAdapter<T>, integrations: Integrations) {
+  const order = adapter.groups?.choices.map((c) => c.value);
+  return (a: string, b: string) => (order ? order.indexOf(a) - order.indexOf(b) : compareKeys(a, b, integrations));
+}
 
 const ORDER: SectionKind[] = ["yours", "library", "integration", "removed", "system"];
 
@@ -118,7 +137,7 @@ function matchesFilters<T>(
   filters: ListFilters,
   query: string,
 ): boolean {
-  if (filters.from && sectionKey(adapter.source(item), integrations) !== filters.from) return false;
+  if (filters.from && keyOf(item, adapter, integrations) !== filters.from) return false;
   const status = filters.status;
   if (status === "on" && !adapter.enabled(item)) return false;
   if (status === "off" && adapter.enabled(item)) return false;
@@ -147,42 +166,45 @@ export function organize<T>(
   for (const item of items) {
     const linked = linkedId !== null && adapter.id(item) === linkedId;
     if (!linked && !matchesFilters(item, adapter, integrations, filters, query)) continue;
-    const key = sectionKey(adapter.source(item), integrations);
+    const key = keyOf(item, adapter, integrations);
     groups.set(key, [...(groups.get(key) ?? []), item]);
     shown += 1;
     linkedShown ||= linked;
   }
-  const sections = [...groups.keys()]
-    .sort((a, b) => compareKeys(a, b, integrations))
-    .map((key): Section<T> => {
-      const sorted = [...(groups.get(key) ?? [])].sort(
-        (a, b) =>
-          Number(adapter.enabled(b)) - Number(adapter.enabled(a)) || adapter.name(a).localeCompare(adapter.name(b)),
-      );
-      return {
-        key,
-        kind: kindOf(key),
-        title: titleOf(key, integrations),
-        ...(key.startsWith("integration:") ? { integrationId: key.slice("integration:".length) } : {}),
-        items: sorted,
-        count: sorted.length,
-        on: sorted.filter((i) => adapter.enabled(i)).length,
-      };
-    });
+  const sections = [...groups.keys()].sort(compareFor(adapter, integrations)).map((key): Section<T> => {
+    const sorted = [...(groups.get(key) ?? [])].sort(
+      (a, b) =>
+        Number(adapter.enabled(b)) - Number(adapter.enabled(a)) || adapter.name(a).localeCompare(adapter.name(b)),
+    );
+    return {
+      key,
+      kind: adapter.groups ? "group" : kindOf(key),
+      title: titleFor(key, adapter, integrations),
+      ...(key.startsWith("integration:") ? { integrationId: key.slice("integration:".length) } : {}),
+      items: sorted,
+      count: sorted.length,
+      on: sorted.filter((i) => adapter.enabled(i)).length,
+    };
+  });
   return { sections, shown, linkedShown };
 }
 
 /** "5 workflows, 4 on" for a section heading. */
-export function countsText(section: Pick<Section<unknown>, "count" | "on">, noun: string): string {
-  return `${section.count} ${noun}${section.count === 1 ? "" : "s"}, ${section.on} on`;
+export function countsText(
+  section: Pick<Section<unknown>, "count" | "on">,
+  noun: string,
+  options: { onOff?: boolean } = {},
+): string {
+  const count = `${section.count} ${noun}${section.count === 1 ? "" : "s"}`;
+  return options.onOff === false ? count : `${count}, ${section.on} on`;
 }
 
 /** The From filter's choices: the sections that exist for these items, in section order. */
 export function fromOptions<T>(items: T[], adapter: ListAdapter<T>, integrations: Integrations): Choice[] {
-  const keys = new Set(items.map((item) => sectionKey(adapter.source(item), integrations)));
+  const keys = new Set(items.map((item) => keyOf(item, adapter, integrations)));
   return [...keys]
-    .sort((a, b) => compareKeys(a, b, integrations))
-    .map((key) => ({ value: key, label: titleOf(key, integrations) }));
+    .sort(compareFor(adapter, integrations))
+    .map((key) => ({ value: key, label: titleFor(key, adapter, integrations) }));
 }
 
 export const STATUS_OPTIONS: Choice[] = [
@@ -228,6 +250,18 @@ export function loadFilters(
       typeof saved[id] === "string" && values.includes(saved[id] as string) ? (saved[id] as string) : "",
     ]),
   );
+}
+
+/** Filters named by the page's URL (`?from=integration:<id>&status=off`): the way another page links here already filtered.
+ * Only values the page offers count; the rest are dropped. A filter that is not in the result is left to what was remembered. */
+export function urlFilters(search: string, allowed: Record<string, string[]>): Record<string, string> {
+  const params = new URLSearchParams(search);
+  const found: Record<string, string> = {};
+  for (const [id, values] of Object.entries(allowed)) {
+    const value = params.get(id);
+    if (value && values.includes(value)) found[id] = value;
+  }
+  return found;
 }
 
 export function saveFilters(store: KeyValueStore | null, key: string, filters: ListFilters): void {

@@ -627,12 +627,16 @@ def summary(session: Session, group_id, *, visible=None) -> list[EventConnection
         last_stmt = last_stmt.where(visible)
     last = dict(session.execute(last_stmt).all())
 
+    def kinds(e) -> list[str]:
+        return sorted(({"marvin"} if e.sent_by else set()) | {s.kind for s in data_senders.get(e.event_type, [])})
+
     return [
         EventConnectionCounts(
             event_type=e.event_type,
             name=e.name,
             category=e.category,
             senders=len(e.sent_by) + len(data_senders.get(e.event_type, [])),
+            sender_kinds=kinds(e),
             reactions=counts[e.event_type].reactions,
             active_reactions=counts[e.event_type].active,
             builtin_reactions=len(builtin(e.event_type)),

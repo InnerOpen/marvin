@@ -23,6 +23,7 @@ from .._model_utils.auto_init import auto_init
 from .._model_utils.datetime import AwareDateTime
 from .._model_utils.guid import GUID
 from .._model_utils.httpurl import HttpUrlType
+from .._model_utils.installed_by import InstalledByMixin
 
 if TYPE_CHECKING:
     from .groups import Groups
@@ -38,7 +39,7 @@ class Method(enum.Enum):
     POST = "POST"
 
 
-class GroupWebhooksModel(SqlAlchemyBase, BaseMixins):
+class GroupWebhooksModel(SqlAlchemyBase, BaseMixins, InstalledByMixin):
     """
     SQLAlchemy model representing a webhook configuration for a group.
 

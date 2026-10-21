@@ -263,7 +263,33 @@ WEBHOOK_KEYS = {
     "customPayload",
     "groupId",
     "id",
+    "sourceIntegrationId",
+    "sourceBlueprint",
 }
+
+
+def test_webhook_provenance_is_read_only_through_the_api(db_session, workspace):
+    from marvin.db.models.groups.integrations import IntegrationModel
+    from marvin.db.models.groups.webhooks import GroupWebhooksModel
+
+    integration = IntegrationModel(session=db_session, group_id=workspace, provider="acme", name="Acme", slug="acme", enabled=True, config={})
+    db_session.add(integration)
+    db_session.commit()
+    spoof = {"sourceIntegrationId": str(integration.id), "sourceBlueprint": "acme-hook"}
+    body = {"name": "Mine", "url": "https://hooks.example.test/mine", "webhookType": "event_driven", "subscribedEvents": ["entry_published"], **spoof}
+    created = _api("post", "/groups/webhooks", 201, body)
+    assert created["sourceIntegrationId"] is None and created["sourceBlueprint"] is None
+    updated = _api("put", f"/groups/webhooks/{created['id']}", 200, {**created, **spoof})
+    assert updated["sourceIntegrationId"] is None and updated["sourceBlueprint"] is None
+
+    # A row a blueprint stamped reads back labelled, and an edit through the API leaves the label alone.
+    row = db_session.get(GroupWebhooksModel, uuid.UUID(created["id"]))
+    row.source_integration_id, row.source_blueprint = integration.id, "acme-hook"
+    db_session.commit()
+    read = _api("get", f"/groups/webhooks/{created['id']}", 200)
+    assert (read["sourceIntegrationId"], read["sourceBlueprint"]) == (str(integration.id), "acme-hook")
+    edited = _api("put", f"/groups/webhooks/{created['id']}", 200, {**created, "name": "Renamed"})
+    assert (edited["sourceIntegrationId"], edited["sourceBlueprint"]) == (str(integration.id), "acme-hook")
 
 
 def test_webhook_api_reads_and_writes_subscribed_events(db_session, workspace):

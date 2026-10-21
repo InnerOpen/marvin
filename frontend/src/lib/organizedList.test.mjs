@@ -13,6 +13,7 @@ import {
   saveFilters,
   sectionKey,
   statusOptions,
+  urlFilters,
 } from "./organizedList.ts";
 
 const adapter = {
@@ -215,5 +216,75 @@ describe("remembered filters", () => {
     assert.deepEqual(loadFilters(blocked, "k", allowed), { from: "", status: "", starts: "" });
     assert.doesNotThrow(() => saveFilters(blocked, "k", { from: "yours" }));
     assert.doesNotThrow(() => saveFilters(null, "k", { from: "yours" }));
+  });
+});
+
+describe("filters set by the URL", () => {
+  const allowed = { from: ["yours", "integration:b1"], status: ["on", "off"], starts: ["event", "manual"] };
+
+  test("reads each filter's own query parameter", () => {
+    assert.deepEqual(urlFilters("?from=integration:b1&status=off", allowed), { from: "integration:b1", status: "off" });
+    assert.deepEqual(urlFilters("?starts=manual", allowed), { starts: "manual" });
+  });
+
+  test("a value that is not offered (an integration since removed) is dropped, not applied", () => {
+    assert.deepEqual(urlFilters("?from=integration:gone&status=on", allowed), { status: "on" });
+  });
+
+  test("unrelated parameters, an empty string and no query give nothing", () => {
+    assert.deepEqual(urlFilters("?workflow=abc&edit=1", allowed), {});
+    assert.deepEqual(urlFilters("?from=", allowed), {});
+    assert.deepEqual(urlFilters("", allowed), {});
+  });
+
+  test("an encoded colon works too", () => {
+    assert.deepEqual(urlFilters("?from=integration%3Ab1", allowed), { from: "integration:b1" });
+  });
+});
+
+describe("pages that group by something other than the source", () => {
+  const grouped = {
+    ...adapter,
+    groups: {
+      choices: [
+        { value: "workflow", label: "Sent by a workflow" },
+        { value: "webhook", label: "Sent by a webhook" },
+        { value: "none", label: "Nothing sends it yet" },
+      ],
+      of: (i) => i.sender ?? "none",
+    },
+  };
+  const rows = [
+    { id: "a", name: "Zed", sender: "webhook" },
+    { id: "b", name: "Bee" },
+    { id: "c", name: "Ant", sender: "workflow" },
+    { id: "d", name: "Bat", sender: "workflow" },
+  ];
+
+  test("sections follow the page's own order and titles, not the source", () => {
+    const result = organize(rows, grouped, {});
+    assert.deepEqual(keys(result), ["workflow", "webhook", "none"]);
+    assert.deepEqual(
+      result.sections.map((s) => s.title),
+      ["Sent by a workflow", "Sent by a webhook", "Nothing sends it yet"],
+    );
+    assert.deepEqual(ids(result.sections[0]), ["c", "d"]);
+  });
+
+  test("From offers only the groups that exist, and filters on them", () => {
+    assert.deepEqual(
+      fromOptions(rows.slice(1), grouped, {}).map((c) => c.value),
+      ["workflow", "none"],
+    );
+    assert.deepEqual(keys(organize(rows, grouped, {}, { from: "none" })), ["none"]);
+  });
+
+  test("search still reads the name and the extra text", () => {
+    assert.deepEqual(keys(organize(rows, grouped, {}, {}, { query: "ant" })), ["workflow"]);
+  });
+
+  test("counts can leave out the on/off tally", () => {
+    assert.equal(countsText({ count: 2, on: 2 }, "event", { onOff: false }), "2 events");
+    assert.equal(countsText({ count: 1, on: 1 }, "event", { onOff: false }), "1 event");
   });
 });

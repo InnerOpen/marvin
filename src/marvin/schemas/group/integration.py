@@ -320,3 +320,35 @@ class IntegrationHealthRow(_MarvinModel):
     open_alerts: int = 0
     alert_codes: list[str] = Field(default_factory=list)
     live_retries: int = 0
+
+
+class FootprintItem(_MarvinModel):
+    """One thing an integration's blueprint installed."""
+
+    id: UUID4
+    name: str
+    enabled: bool | None = None
+    """On/off; null for collections, which have no such switch."""
+
+
+class FootprintFieldChange(_MarvinModel):
+    """An entry type the integration's field blueprints changed."""
+
+    entry_type_slug: str
+    entry_type_name: str
+    label: str
+    """Ready to show, e.g. "Added fields to Newsletter Signup"."""
+
+
+class IntegrationFootprint(_MarvinModel):
+    """Everything an integration's blueprints installed in this workspace ("What it installed")."""
+
+    integration_id: UUID4
+    workflows: list[FootprintItem]
+    incoming_webhooks: list[FootprintItem]
+    outgoing_webhooks: list[FootprintItem]
+    scheduled_tasks: list[FootprintItem]
+    collections: list[FootprintItem]
+    field_changes: list[FootprintFieldChange]
+    total: int
+    """Rows across the five lists above (field changes edit existing types, so they aren't counted)."""
