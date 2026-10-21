@@ -30,6 +30,7 @@ const warning = lengthWarning(form.body);
     <p class="pb-hint" data-testid="playbook-replaces">
       Proposed change to <strong>{form.replaces}</strong>. Publishing it replaces that Playbook's text and archives this draft.
       <input type="hidden" name="replaces" value={form.replaces} />
+      <button type="button" class="button secondary" data-action="clear-replaces">Publish as a new Playbook instead</button>
     </p>
   )}
 
@@ -212,7 +213,11 @@ const warning = lengthWarning(form.body);
   formEl.querySelectorAll<HTMLButtonElement>("[data-action]").forEach((button) => {
     button.addEventListener("click", () => {
       const action = button.dataset.action;
-      if (action === "trash") void trash();
+      if (action === "clear-replaces") {
+        // Saving without the hidden field drops "Replaces", so this draft becomes a Playbook of its own.
+        formEl.querySelector("[data-testid=playbook-replaces]")?.remove();
+        say("This draft will be its own Playbook, not a change. Save or Publish to keep that.", "success");
+      } else if (action === "trash") void trash();
       else if (action === "export") void download();
       else void save(action as "save" | "publish" | "unpublish");
     });

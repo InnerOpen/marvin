@@ -177,6 +177,17 @@ def _draft_service(ctx: ToolContext):
     return AuthoringService(ctx.session, ctx.group_id, ctx.user, provider=None, model=None)
 
 
+def _draft_fields(entry_type, fields):
+    """The fields a new draft is saved with. A new Playbook never carries ``replaces``: only propose_playbook_change sets it,
+    and a stray one turns the draft into a change of a Playbook that may not be live (publishing it is then refused)."""
+    from marvin.services.playbooks import PLAYBOOK_TYPE
+    from marvin.services.playbooks.proposals import REPLACES_KEY
+
+    if getattr(entry_type, "slug", None) == PLAYBOOK_TYPE and isinstance(fields, dict):
+        return {k: v for k, v in fields.items() if k != REPLACES_KEY}
+    return fields
+
+
 @register_tool(
     name="create_draft",
     description=(
@@ -218,7 +229,7 @@ def create_draft(ctx: ToolContext, args: dict) -> str:
         asset_ids.append(str(aid))
     try:
         result = _draft_service(ctx).save_draft(
-            entry_type=et, title=str(args.get("title") or ""), fields=args.get("fields"), summary=args.get("summary"),
+            entry_type=et, title=str(args.get("title") or ""), fields=_draft_fields(et, args.get("fields")), summary=args.get("summary"),
             tags=args.get("tags"), resources=args.get("resources"), asset_ids=asset_ids,
         )  # fmt: skip
     except ValueError as e:

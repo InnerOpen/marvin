@@ -112,7 +112,7 @@ def test_a_change_whose_playbook_was_unpublished_is_not_published_as_a_new_one(w
 
     res = gates._sign_in(workspace, AD).patch(f"{P}/entries/{change.id}", json={"status": "published"})
 
-    assert res.status_code == 409 and "not published any more" in res.json()["detail"]
+    assert res.status_code == 409 and "isn't published" in res.json()["detail"]
     assert _row(db_session, id=change.id).status == "inbox"
 
 
@@ -140,7 +140,7 @@ def test_a_scheduled_change_whose_playbook_is_gone_is_skipped_and_the_run_goes_o
 
     stale = _row(db_session, id=change.id)
     assert stale.status == "inbox" and stale.publish_at is None  # not retried every five minutes
-    assert "not published any more" in stale.metadata_json["scheduled_publish_failed"]["reason"]
+    assert "isn't published" in stale.metadata_json["scheduled_publish_failed"]["reason"]
     assert _row(db_session, id=other.id).status == "published"  # the entry after it still went out
     assert "label-voice" in summary and _row(db_session, id=live.id).data_json["body"] == BENCH_BODY
 
@@ -226,3 +226,24 @@ def test_with_none_published_an_agent_that_can_draft_is_told_playbooks_exist_and
     assert all(field in text for field in ("name", "description", "body"))
     assert "admin" in text.lower()  # it only drafts; an admin publishes
     assert "load_playbook" not in text  # there is nothing to load yet
+
+
+def test_a_new_playbook_an_agent_drafts_never_carries_replaces(workspace, db_session):
+    """Mash & Burn 2026-10-21: the bubble filled the type's 'replaces' field with the Playbook's own name, so publishing it was
+    refused as a change to a Playbook that wasn't live. Only propose_playbook_change may set it."""
+    fields = {"name": "bench-note-writing", "description": "d", "body": "b", "replaces": "bench-note-writing"}
+    run = _invoke(workspace, "create_draft", {"entry_type": "playbook", "title": "bench-note-writing", "fields": fields}, ED)
+
+    assert "error" not in run, run
+    assert "replaces" not in _row(db_session, group_id=workspace.gid, slug="bench-note-writing").data_json
+
+
+def test_a_playbook_that_names_itself_in_replaces_publishes_as_itself(workspace, db_session):
+    draft = _playbook(db_session, workspace.gid, "bench-note-writing", status="inbox")
+    draft.data_json = {**draft.data_json, "replaces": "bench-note-writing"}
+    db_session.commit()
+
+    res = gates._sign_in(workspace, AD).patch(f"{P}/entries/{draft.id}", json={"status": "published"})
+
+    assert res.status_code == 200, res.text
+    assert _row(db_session, id=draft.id).status == "published"

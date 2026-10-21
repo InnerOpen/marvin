@@ -34,8 +34,8 @@ def change_target(session, entry):
     from marvin.db.models.platform.entries import Entries
 
     name = str((getattr(entry, "data_json", None) or {}).get(REPLACES_KEY) or "").strip().lower()
-    if not name or not is_playbook(session, entry):
-        return None
+    if not name or name == (entry.slug or "").lower() or not is_playbook(session, entry):
+        return None  # naming itself is no change (an agent once filled the field that way): it publishes as itself
     target = (
         session.query(Entries)
         .filter(Entries.group_id == entry.group_id, Entries.entry_type_id == entry.entry_type_id, Entries.slug == name, Entries.id != entry.id)
@@ -45,7 +45,7 @@ def change_target(session, entry):
         raise HTTPException(
             status_code=409,
             detail=(
-                f"This change replaces the Playbook '{name}', which is not published any more. "
+                f"This change replaces the Playbook '{name}', which isn't published. "
                 "Publish that one again, or clear 'Replaces' to publish this as a new Playbook."
             ),
         )
