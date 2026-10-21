@@ -195,11 +195,32 @@ class EntryService:
         old = self.repos.entries.get_one(entry_id)
         if not old:
             return None
+        if (data.get("status") if isinstance(data, dict) else getattr(data, "status", None)) == "published" and old.status != "published":
+            if (replaced := self._publish_playbook_change(old, reaction_depth)) is not None:
+                return replaced
         self._gate_publish(entry_id, old, data)
         data = self._trash_bookkeeping(old, data)
         entry = self.repos.entries.update(entry_id, data)
         self._emit_updated_and_transitions(old, entry, "updated", reaction_depth)
         return entry
+
+    def _publish_playbook_change(self, old, reaction_depth: int):
+        """Publishing a proposed Playbook change (a draft whose ``replaces`` names a published Playbook) replaces that
+        Playbook's content instead: it keeps its identity, status and history (an ``entry_updated`` with the diff), and the
+        change is archived, its metadata recording what it replaced. Returns the updated Playbook, or None when ``old`` is
+        not such a change."""
+        from marvin.db.models.platform.entries import Entries
+        from marvin.services.playbooks import change_target, changed_data
+
+        orm = self.session.get(Entries, old.id)
+        target = change_target(self.session, orm) if orm is not None else None
+        if target is None:
+            return None
+        merged = changed_data(target.data_json, orm.data_json)
+        updated = self.update(target.id, {"data_json": merged}, reaction_depth=reaction_depth)
+        meta = {**(orm.metadata_json or {}), "replaced_playbook": str(target.id)}
+        self.update(old.id, {"status": "archived", "metadata_json": meta}, reaction_depth=reaction_depth)
+        return updated
 
     def _trash_bookkeeping(self, old, data):
         """Record where an entry came from as it enters the Trash (metadata_json.trash), and drop that

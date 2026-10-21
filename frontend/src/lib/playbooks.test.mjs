@@ -218,3 +218,11 @@ describe("exportFilename", () => {
     assert.equal(exportFilename("attachment", "tidy-notes"), "tidy-notes.zip");
   });
 });
+
+test("a proposed change keeps the Playbook it replaces through the form and back", () => {
+  const form = formFromEntry({ slug: "n-change", status: "inbox", dataJson: { description: "d", body: "b", replaces: "n" } });
+  assert.equal(form.replaces, "n");
+  assert.equal(entryPayload(form, null).dataJson.replaces, "n");
+  assert.equal("replaces" in formFromEntry({ slug: "n", dataJson: {} }), false);
+  assert.equal("replaces" in entryPayload({ ...EMPTY_FORM, name: "n", description: "d" }, null).dataJson, false);
+});

@@ -79,6 +79,7 @@ CATEGORY_BY_TOOL: dict[str, str] = {
     "revise_entry": "entries_author",
     "create_draft": "entries_author",
     "update_draft": "entries_author",
+    "propose_playbook_change": "entries_author",  # a separate inbox draft naming the Playbook it would replace
     "add_embed": "entries_author",  # staged as a suggestion, like a staged revise
     "archive_entries": "entries_archive",
     "trash_entries": "entries_trash",

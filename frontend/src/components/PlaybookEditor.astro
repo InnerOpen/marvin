@@ -26,6 +26,13 @@ const warning = lengthWarning(form.body);
     </p>
   )}
 
+  {form.replaces && (
+    <p class="pb-hint" data-testid="playbook-replaces">
+      Proposed change to <strong>{form.replaces}</strong>. Publishing it replaces that Playbook's text and archives this draft.
+      <input type="hidden" name="replaces" value={form.replaces} />
+    </p>
+  )}
+
   <div class="pb-field">
     <label class="label" for="pb-name">Name</label>
     <input class="input" id="pb-name" name="name" value={form.name} maxlength={NAME_MAX + 20} autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="release-notes" />
@@ -136,6 +143,7 @@ const warning = lengthWarning(form.body);
     allowedTools: field("allowedTools").value,
     manualOnly: (field("manualOnly") as HTMLInputElement).checked,
     body: field("body").value,
+    ...(formEl.querySelector<HTMLInputElement>("[name=replaces]")?.value ? { replaces: formEl.querySelector<HTMLInputElement>("[name=replaces]")!.value } : {}),
   });
 
   function showErrors(): boolean {

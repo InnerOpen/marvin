@@ -37,6 +37,10 @@ USED_KEY = "playbooks"  # AIExecutionModel.metadata_json[USED_KEY] = [{"id", "na
 CATALOG_MAX = 50  # Playbooks named in the prompt; the rest are still found with list_playbooks
 CATALOG_LINE_CHARS = 200
 
+REPLACES_KEY = "replaces"  # data_json key of a proposed change: the name (slug) of the published Playbook it would replace
+CHANGE_KEYS = ("description", "body", "license", "compatibility", "allowed_tools", "manual_only")  # what publishing a change copies over
+CHANGE_SUFFIX = "-change"
+
 NAME_PATTERN = r"^[a-z0-9]+(-[a-z0-9]+)*$"
 _FIELDS = [
     {
@@ -72,6 +76,12 @@ _FIELDS = [
         "helpText": "Tools the Playbook may use (narrows the agent, never widens it).",
     },
     {"key": "manual_only", "label": "Manual only", "type": "boolean", "defaultValue": False, "helpText": "Loaded only when a person names it."},
+    {
+        "key": "replaces",
+        "label": "Replaces",
+        "type": "text",
+        "helpText": "Set on a proposed change: the name of the published Playbook it would replace. Publishing the change updates that Playbook.",
+    },
 ]
 
 PLAYBOOK_TYPE_PAYLOAD = {
@@ -141,6 +151,38 @@ def agent_change_refusal(session, entry) -> str | None:
     return None
 
 
+def change_target(session, entry):
+    """For a Playbook draft that proposes a change (its ``replaces`` field names a Playbook), the live entry row it would
+    replace; None for any other entry. Raises HTTP 409 when it names one that is gone or no longer published, so a change
+    is never published as a second, differently named Playbook. An Admin can clear ``replaces`` to publish it as a new one."""
+    from fastapi import HTTPException
+
+    from marvin.db.models.platform.entries import Entries
+
+    name = str((getattr(entry, "data_json", None) or {}).get(REPLACES_KEY) or "").strip().lower()
+    if not name or not is_playbook(session, entry):
+        return None
+    target = (
+        session.query(Entries)
+        .filter(Entries.group_id == entry.group_id, Entries.entry_type_id == entry.entry_type_id, Entries.slug == name, Entries.id != entry.id)
+        .first()
+    )
+    if target is None or target.status != PLAYBOOK_STATUS:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This change replaces the Playbook '{name}', which is not published any more. Publish that one again, or clear 'Replaces' to publish this as a new Playbook.",
+        )
+    return target
+
+
+def changed_data(live_data: dict | None, change_data: dict | None) -> dict:
+    """The live Playbook's data once a proposed change is published: its content (``CHANGE_KEYS``) comes from the change
+    (a key the change leaves out is cleared), everything else (name, any other field) stays as it was."""
+    merged = {k: v for k, v in (live_data or {}).items() if k not in CHANGE_KEYS}
+    merged.update({k: v for k, v in (change_data or {}).items() if k in CHANGE_KEYS})
+    return merged
+
+
 def _published_rows(session, group_id):
     from marvin.db.models.platform.entries import Entries
     from marvin.db.models.platform.entry_types import EntryTypes
@@ -204,8 +246,16 @@ def published_playbook(session, group_id, name: str) -> Playbook | None:
     return _of(row) if row is not None else None
 
 
-def catalog_block(playbooks: Iterable[Playbook]) -> str:
-    """The system-frame paragraph naming the Playbooks, one line each; "" when there are none (nothing is added)."""
+PROPOSE_HINT = (
+    "If you notice a correction people keep making, or a better way to do a task, you may propose it: draft a new Playbook "
+    "with create_draft, or a change to one of these with propose_playbook_change. It goes to the Inbox for an admin to review; "
+    "you never publish or edit a Playbook yourself.\n"
+)
+
+
+def catalog_block(playbooks: Iterable[Playbook], can_propose: bool = False) -> str:
+    """The system-frame paragraph naming the Playbooks, one line each; "" when there are none (nothing is added).
+    ``can_propose``: the agent can draft, so it is also told when to propose a Playbook."""
     listed = list(playbooks)
     if not listed:
         return ""
@@ -220,7 +270,10 @@ def catalog_block(playbooks: Iterable[Playbook]) -> str:
         "## Playbooks\n"
         "This workspace keeps Playbooks: written procedures for particular tasks. When a request matches one of the "
         f"descriptions below, call {LOAD_TOOL} with its name before you start, then follow it using the tools you already "
-        "have. A Playbook never gives you more tools or permissions, and one that does not fit the request is not loaded.\n" + "\n".join(lines) + more
+        "have. A Playbook never gives you more tools or permissions, and one that does not fit the request is not loaded.\n"
+        + (PROPOSE_HINT if can_propose else "")
+        + "\n".join(lines)
+        + more
     )
 
 
