@@ -679,7 +679,7 @@ const benchNote: Capability = {
       "Workspace and research:",
       "- First verify the active workspace is Mash & Burn Co. (slug: mash-burn-co). If it is not, do not create a draft; tell the user to switch workspaces.",
       "- Search the workspace for the projects, entries, resources, and assets the notes mention. Read relevant records before writing, and use their exact names and facts.",
-      "- Check the available entry types and collections. Use the existing bench-note entry type when present; otherwise use the existing article type and Bench Notes collection if available. Do not create types or collections.",
+      "- Check the available entry types and collections. Use the existing bench-note entry type when present; otherwise use the existing article type. Add the existing Bench Notes collection (for example, `on-the-bench` or `bench-notes`) only when it is present. Do not create types or collections.",
       "- Search for an existing note on the same subject to avoid creating a duplicate.",
       "",
       "Writing:",
