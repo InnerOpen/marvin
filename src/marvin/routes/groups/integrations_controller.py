@@ -5,8 +5,8 @@ CRUD for credentialed connections to external services, plus a provider catalog,
 health check, and an action test-fire. Credentials are written to the configured secret
 backend and referenced by `secret_ref` — never stored on the row or returned.
 
-Every route is workspace-admin only except the provider catalog (what can be installed, no workspace
-data) and the public logo route: connections carry config, checks and actions spend the workspace's
+Every route is workspace-admin only except the footprint (names of what it installed: EDITOR), the provider catalog (what can be
+installed, no workspace data) and the public logo route: connections carry config, checks and actions spend the workspace's
 credentials, and the workflow engine already requires ADMIN for integration actions.
 """
 
@@ -23,9 +23,11 @@ from marvin.core.root_logger import get_logger
 from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel
 from marvin.db.models.groups.integrations import IntegrationModel
 from marvin.routes._base import BaseUserController, controller
-from marvin.routes._base.checks import refuse_platform_events, require_workspace_admin
+from marvin.routes._base.checks import refuse_platform_events, require_workspace_admin, require_workspace_editor
 from marvin.routes._base.logo_response import logo_response
 from marvin.schemas.group.integration import (
+    FootprintFieldChange,
+    FootprintItem,
     HandledFailurePage,
     IntegrationActionResult,
     IntegrationAlertPage,
@@ -36,6 +38,7 @@ from marvin.schemas.group.integration import (
     IntegrationEventSubscriptionCreate,
     IntegrationEventSubscriptionRead,
     IntegrationEventSubscriptionUpdate,
+    IntegrationFootprint,
     IntegrationHealthRow,
     IntegrationOption,
     IntegrationOptionsRequest,
@@ -46,6 +49,7 @@ from marvin.schemas.group.integration import (
     IntegrationRetryRead,
     IntegrationUpdate,
 )
+from marvin.services.blueprints import footprint
 from marvin.services.integrations import (
     INTEGRATION_REGISTRY,
     IntegrationContext,
@@ -362,6 +366,23 @@ class IntegrationsController(BaseUserController):
         self._run_check(row)
         _social_plumbing(self.session, self.group_id)
         return _to_read(row, errors.open_alerts(self.session, self.group_id).get(row.id))
+
+    @router.get("/{integration_id}/footprint", response_model=IntegrationFootprint)
+    def get_footprint(self, integration_id: UUID4):
+        """What this integration's blueprints installed here: workflows, webhooks, scheduled tasks, collections, and the
+        entry types its field blueprints changed. Names only, no configuration — so an EDITOR may read it, unlike the rest
+        of this controller."""
+        require_workspace_editor(self.user, self.group_id)
+        row = self._get_or_404(integration_id)
+        found = footprint.installed_items(self.session, self.group_id, row.id)
+        changes = footprint.field_changes(self.session, self.group_id, row.id, row.provider)
+        as_items = {kind: [FootprintItem(id=i.id, name=i.name, enabled=i.enabled) for i in items] for kind, items in found.items()}
+        return IntegrationFootprint(
+            integration_id=row.id,
+            **as_items,
+            field_changes=[FootprintFieldChange(**asdict(c)) for c in changes],
+            total=sum(len(items) for items in found.values()),
+        )
 
     @router.patch("/{integration_id}", response_model=IntegrationRead)
     def update_integration(self, integration_id: UUID4, data: IntegrationUpdate):

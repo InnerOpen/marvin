@@ -230,6 +230,18 @@ export function loadFilters(
   );
 }
 
+/** Filters named by the page's URL (`?from=integration:<id>&status=off`): the way another page links here already filtered.
+ * Only values the page offers count; the rest are dropped. A filter that is not in the result is left to what was remembered. */
+export function urlFilters(search: string, allowed: Record<string, string[]>): Record<string, string> {
+  const params = new URLSearchParams(search);
+  const found: Record<string, string> = {};
+  for (const [id, values] of Object.entries(allowed)) {
+    const value = params.get(id);
+    if (value && values.includes(value)) found[id] = value;
+  }
+  return found;
+}
+
 export function saveFilters(store: KeyValueStore | null, key: string, filters: ListFilters): void {
   try {
     store?.setItem(key, JSON.stringify(filters));

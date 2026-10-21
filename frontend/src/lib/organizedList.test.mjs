@@ -13,6 +13,7 @@ import {
   saveFilters,
   sectionKey,
   statusOptions,
+  urlFilters,
 } from "./organizedList.ts";
 
 const adapter = {
@@ -215,5 +216,28 @@ describe("remembered filters", () => {
     assert.deepEqual(loadFilters(blocked, "k", allowed), { from: "", status: "", starts: "" });
     assert.doesNotThrow(() => saveFilters(blocked, "k", { from: "yours" }));
     assert.doesNotThrow(() => saveFilters(null, "k", { from: "yours" }));
+  });
+});
+
+describe("filters set by the URL", () => {
+  const allowed = { from: ["yours", "integration:b1"], status: ["on", "off"], starts: ["event", "manual"] };
+
+  test("reads each filter's own query parameter", () => {
+    assert.deepEqual(urlFilters("?from=integration:b1&status=off", allowed), { from: "integration:b1", status: "off" });
+    assert.deepEqual(urlFilters("?starts=manual", allowed), { starts: "manual" });
+  });
+
+  test("a value that is not offered (an integration since removed) is dropped, not applied", () => {
+    assert.deepEqual(urlFilters("?from=integration:gone&status=on", allowed), { status: "on" });
+  });
+
+  test("unrelated parameters, an empty string and no query give nothing", () => {
+    assert.deepEqual(urlFilters("?workflow=abc&edit=1", allowed), {});
+    assert.deepEqual(urlFilters("?from=", allowed), {});
+    assert.deepEqual(urlFilters("", allowed), {});
+  });
+
+  test("an encoded colon works too", () => {
+    assert.deepEqual(urlFilters("?from=integration%3Ab1", allowed), { from: "integration:b1" });
   });
 });

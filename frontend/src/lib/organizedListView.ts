@@ -17,6 +17,7 @@ import {
   loadFilters,
   organize,
   saveFilters,
+  urlFilters,
 } from "./organizedList.ts";
 import { type SectionsOptions, sectionsHtml } from "./organizedListHtml.ts";
 
@@ -48,7 +49,9 @@ export function mountOrganizedList<T>(options: MountOptions<T>) {
   const offered = (select: HTMLSelectElement | null) =>
     select ? Array.from(select.querySelectorAll("option"), (o) => o.value).filter(Boolean) : [];
   const allowed = Object.fromEntries(Object.entries(selects).map(([id, select]) => [id, offered(select)]));
-  const remembered = loadFilters(store, storageKey, allowed);
+  // The URL beats what was remembered (a link from another page, e.g. an integration's card, means "this one"),
+  // and is not remembered itself: the next visit without it opens the way it was left.
+  const remembered = { ...loadFilters(store, storageKey, allowed), ...urlFilters(location.search, allowed) };
   for (const [id, select] of Object.entries(selects)) if (select) select.value = remembered[id] ?? "";
 
   const filters = () => Object.fromEntries(Object.entries(selects).map(([id, select]) => [id, select?.value ?? ""]));
