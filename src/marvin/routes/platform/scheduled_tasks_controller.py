@@ -8,16 +8,20 @@ task-type catalog: a task runs handlers the automation engine reserves for ADMIN
 
 from typing import Annotated
 
+import sqlalchemy as sa
 from fastapi import APIRouter, HTTPException, Path, status
 from pydantic import UUID4
 
-from marvin.db.models.users.roles import PlatformRole
+from marvin.db.models.platform.scheduled_tasks import ScheduledTaskExecutionLogModel, ScheduledTaskModel
+from marvin.db.models.users.roles import PlatformRole, WorkspaceRole
 from marvin.routes._base import BaseUserController, controller
-from marvin.routes._base.checks import require_workspace_admin
+from marvin.routes._base.checks import require_workspace_admin, require_workspace_role
 from marvin.schemas.platform.scheduled_tasks import (
     ScheduledTaskCreate,
     ScheduledTaskExecutionLogRead,
+    ScheduledTaskOverview,
     ScheduledTaskRead,
+    ScheduledTaskRunRead,
     ScheduledTaskUpdate,
 )
 from marvin.services.event_bus_service.event_types import EventScheduledTaskData, EventTypes
@@ -94,6 +98,44 @@ class ScheduledTasksController(BaseUserController):
         """Get execution log for all tasks in the current workspace."""
         require_workspace_admin(self.user, self.group_id)
         return self.repos.scheduled_task_executions.get_workspace_log(limit=limit)
+
+    @router.get("/overview", response_model=list[ScheduledTaskOverview])
+    def overview(self):
+        """The workspace Scheduled tasks page: this workspace's tasks and Marvin's own (`system`, read-only), EDITOR and above.
+
+        Acting on a task (switch, run now, edit, delete) stays with the ADMIN routes below.
+        """
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.EDITOR)
+        from marvin.services.automation.attention import scheduled_task_reason_of
+
+        tasks = (
+            self.session.query(ScheduledTaskModel)
+            .filter(sa.or_(ScheduledTaskModel.group_id == self.group_id, ScheduledTaskModel.group_id.is_(None)))
+            .order_by(ScheduledTaskModel.name)
+            .all()
+        )
+        return [
+            ScheduledTaskOverview.model_validate(task).model_copy(
+                update={"system": task.group_id is None, "attention": scheduled_task_reason_of(task)}
+            )
+            for task in tasks
+        ]
+
+    @router.get("/overview/{task_id}/history", response_model=list[ScheduledTaskRunRead])
+    def overview_history(self, task_id: Annotated[UUID4, Path()], limit: int = 50):
+        """A run history for a task on the overview (this workspace's or Marvin's own), EDITOR and above; errors, no tracebacks."""
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.EDITOR)
+        task = self.session.get(ScheduledTaskModel, task_id)
+        if task is None or task.group_id not in (self.group_id, None):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scheduled task not found")
+        runs = (
+            self.session.query(ScheduledTaskExecutionLogModel)
+            .filter(ScheduledTaskExecutionLogModel.task_id == task.id)
+            .order_by(ScheduledTaskExecutionLogModel.executed_at.desc())
+            .limit(min(max(limit, 1), 200))
+            .all()
+        )
+        return [ScheduledTaskRunRead.model_validate(run) for run in runs]
 
     @router.get("/{id_or_slug}", response_model=ScheduledTaskRead)
     def get_task(self, id_or_slug: Annotated[str, Path()]):

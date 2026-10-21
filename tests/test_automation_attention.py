@@ -121,7 +121,7 @@ def test_the_summary_counts_each_kind_and_names_the_first_page(db_session, works
 
     assert found == {
         "total": 2,
-        "kinds": {"workflows": 2, "incoming_webhooks": 0, "outgoing_webhooks": 0},
+        "kinds": {"workflows": 2, "incoming_webhooks": 0, "outgoing_webhooks": 0, "scheduled_tasks": 0},
         "firstPage": "/automation/workflows?status=attention",
     }
 
@@ -131,7 +131,7 @@ def test_the_summary_is_empty_when_nothing_is_flagged(db_session, workspace):
 
     found = _client(workspace).get("/api/automations/attention").json()
 
-    assert found == {"total": 0, "kinds": {"workflows": 0, "incoming_webhooks": 0, "outgoing_webhooks": 0}, "firstPage": None}
+    assert found == {"total": 0, "kinds": {"workflows": 0, "incoming_webhooks": 0, "outgoing_webhooks": 0, "scheduled_tasks": 0}, "firstPage": None}
 
 
 def test_a_new_kind_plugs_into_the_summary_and_a_broken_one_counts_zero(db_session, workspace, monkeypatch):
@@ -143,7 +143,7 @@ def test_a_new_kind_plugs_into_the_summary_and_a_broken_one_counts_zero(db_sessi
 
     assert found == {
         "total": 3,
-        "kinds": {"workflows": 0, "incoming_webhooks": 0, "outgoing_webhooks": 0, "hooks": 3, "broken": 0},
+        "kinds": {"workflows": 0, "incoming_webhooks": 0, "outgoing_webhooks": 0, "scheduled_tasks": 0, "hooks": 3, "broken": 0},
         "first_page": "/automation/incoming-webhooks?status=attention",
     }
 

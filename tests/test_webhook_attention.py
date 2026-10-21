@@ -98,7 +98,7 @@ def test_the_summary_counts_them_under_outgoing_webhooks(db_session, workspace, 
 
     assert found == {
         "total": 1,
-        "kinds": {"workflows": 0, "incoming_webhooks": 0, "outgoing_webhooks": 1},
+        "kinds": {"workflows": 0, "incoming_webhooks": 0, "outgoing_webhooks": 1, "scheduled_tasks": 0},
         "firstPage": "/automation/webhooks?status=attention",
     }
 

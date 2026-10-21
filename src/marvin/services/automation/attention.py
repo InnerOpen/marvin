@@ -17,6 +17,7 @@ from marvin.db.models.groups.automation_executions import AutomationExecutionMod
 from marvin.db.models.groups.automations import WorkspaceAutomationModel
 from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookModel
 from marvin.db.models.groups.integrations import IntegrationModel
+from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
 
 # Why a workflow is flagged (the API's `attention` field; the page words them).
 LAST_RUN_FAILED = "last_run_failed"
@@ -99,6 +100,34 @@ def outgoing_webhooks_needing_a_look(session, group_id) -> int:
     return sum(1 for (url,) in urls if webhook_attention(True, url))
 
 
+def scheduled_task_reason(*, enabled: bool, last_status: str | None, system: bool, integration_id: Any, blueprint: str | None) -> str | None:
+    """Why a scheduled task needs a look, or None: it is on and its last run failed or timed out.
+
+    Marvin's own tasks are the platform's to watch, not the workspace's; a task a removed integration left behind (a blueprint, no
+    integration) is for "Delete all of these"; a task that is switched off was dealt with.
+    """
+    if system or not enabled or last_status not in ("failed", "timeout"):
+        return None
+    if blueprint and integration_id is None:
+        return None
+    return LAST_RUN_FAILED
+
+
+def scheduled_task_reason_of(task: ScheduledTaskModel) -> str | None:
+    return scheduled_task_reason(
+        enabled=task.enabled,
+        last_status=task.last_status,
+        system=task.group_id is None,
+        integration_id=task.source_integration_id,
+        blueprint=task.source_blueprint,
+    )
+
+
+def scheduled_tasks_needing_a_look(session, group_id) -> int:
+    tasks = session.query(ScheduledTaskModel).filter(ScheduledTaskModel.group_id == group_id).all()
+    return sum(1 for task in tasks if scheduled_task_reason_of(task))
+
+
 @dataclass(frozen=True)
 class Kind:
     key: str  # "workflows" …
@@ -135,4 +164,4 @@ def summary(session, group_id) -> dict:
 register("workflows", "/automation/workflows?status=attention", workflows_needing_a_look)
 register("incoming_webhooks", "/automation/incoming-webhooks?status=attention", incoming_webhooks_needing_a_look)
 register("outgoing_webhooks", "/automation/webhooks?status=attention", outgoing_webhooks_needing_a_look)
-# Later pages add theirs here: register("scheduled_tasks", …)
+register("scheduled_tasks", "/workspace/scheduled-tasks?status=attention", scheduled_tasks_needing_a_look)
