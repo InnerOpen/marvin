@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.40 (2026-10-21)
+
+### Bug Fixes
+
+- **integrations**: Recipes, How errors are handled and What you can do with this fit a phone
+  ([`928da70`](https://github.com/InnerOpen/marvin/commit/928da700ea699e29f2c00e37acf7aa54f12819c4))
+
+
 ## v1.1.0-rc.39 (2026-10-21)
 
 ### Bug Fixes
