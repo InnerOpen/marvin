@@ -200,6 +200,8 @@ def _cloudflare(world, event, deployment_id=DEPLOY_ID):
             "deployment_id": deployment_id,
             "project_name": PROJECT,
             "pages_dev_url": f"https://{deployment_id}.my-site.pages.dev",
+            "environment": "ENVIRONMENT_PREVIEW",
+            "deployment_trigger": {"metadata": {"branch": "develop", "commit_message": "Fix the feed\n\nA longer explanation."}},
         }
     }
     return _hook(world, "cloudflare-pages", payload)
@@ -243,8 +245,9 @@ def test_cloudflares_success_notification_settles_the_build_succeeded(world):
     assert _cloudflare(world, "EVENT_DEPLOYMENT_SUCCESS") == 1
 
     (row,) = _rows(world)  # the same record, not another
-    assert (row.status, row.remote_id, row.message, row.dismissed_at) == ("succeeded", DEPLOY_ID, None, None)
+    assert (row.status, row.remote_id, row.message, row.dismissed_at) == ("succeeded", DEPLOY_ID, "Preview on develop: Fix the feed", None)
     assert row.finished_at is not None and row.workflow_id is None
+    assert row.remote_url.startswith("https://dash.cloudflare.com/")  # the deploy's link to the build is kept, not replaced
 
 
 def test_cloudflares_failure_notification_settles_the_build_failed_with_the_build_log_tail(world):
