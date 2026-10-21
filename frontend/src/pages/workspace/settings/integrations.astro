@@ -454,19 +454,19 @@ function statusMeta(status: string): { text: string; cls: string } {
                           <tbody>
                             {rows.map((r) => (
                               <tr data-code={r.code} data-default-review={String(r.defaults.review)} data-default-notify={String(r.defaults.notify)}>
-                                <td><code>{r.label}</code></td>
-                                <td>
+                                <td class="policy-code"><code>{r.label}</code></td>
+                                <td class="policy-whatcell">
                                   {r.declared.map((d) => (
                                     <div class="policy-what"><span class="policy-scope">{d.scope}:</span> {d.summary}</div>
                                   ))}
                                 </td>
                                 {(["review", "notify"] as const).map((flag) => (
-                                  <td class="policy-flag">
+                                  <td class="policy-flag" data-label={flag === "review" ? "Review" : "Alert"}>
                                     <input type="checkbox" class="js-policy" data-flag={flag} checked={r.effective[flag]} aria-label={`${flag === "review" ? "Review" : "Alert"} on ${r.label}`} />
                                     <span class="policy-default">default {r.defaults[flag] ? "on" : "off"}</span>
                                   </td>
                                 ))}
-                                <td><button type="button" class="link-btn js-policy-reset" hidden={!r.overridden}>Reset to default</button></td>
+                                <td class="policy-reset"><button type="button" class="link-btn js-policy-reset" hidden={!r.overridden}>Reset to default</button></td>
                               </tr>
                             ))}
                           </tbody>
@@ -1251,6 +1251,17 @@ function statusMeta(status: string): { text: string; cls: string } {
   .policy-scope { opacity: 0.7; }
   .policy-flag { white-space: nowrap; }
   .policy-default { display: block; font-size: 11px; opacity: 0.65; }
+  /* On a phone the five columns can't fit: each error becomes a small card — name, what happens, then the switches. */
+  @media (max-width: 640px) {
+    .policy-table thead { display: none; }
+    .policy-table, .policy-table tbody, .policy-table tr, .policy-table td { display: block; width: auto; }
+    .policy-table tr { border-bottom: 1px solid var(--line); padding: 8px 0; }
+    .policy-table td { border-bottom: 0; padding: 2px 0; overflow-wrap: anywhere; }
+    .policy-table td.policy-flag { display: inline-flex; align-items: center; gap: 6px; margin-right: 16px; white-space: normal; }
+    .policy-table td.policy-flag::before { content: attr(data-label); font-weight: 600; }
+    .policy-table td.policy-flag .policy-default { display: inline; }
+    .policy-table td.policy-reset:has(button[hidden]) { display: none; }
+  }
   .link-btn { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font-size: 12px; }
 
   .conn-foot {
@@ -1451,6 +1462,8 @@ function statusMeta(status: string): { text: string; cls: string } {
   }
   /* On a phone the name and kind won't shrink, which squeezed the description to a sliver: stack them instead. */
   @media (max-width: 640px) {
+    .needs li.recipe-row { grid-template-columns: minmax(0, 1fr); gap: 0.1rem; }
+    .needs li.recipe-row > .needs-name { overflow-wrap: anywhere; }
     .needs li:not(.recipe-row) { grid-template-columns: 1rem minmax(0, 1fr) auto; }
     .needs li:not(.recipe-row) > .needs-name { grid-column: 2; grid-row: 1; overflow-wrap: anywhere; }
     .needs li:not(.recipe-row) > .needs-kind { grid-column: 2; grid-row: 2; }
@@ -1459,7 +1472,7 @@ function statusMeta(status: string): { text: string; cls: string } {
     .needs li:not(.recipe-row) > .js-update-blueprint,
     .needs li:not(.recipe-row) > .js-apply-needs { grid-column: 3; grid-row: 1; }
   }
-  .needs li.recipe-row { grid-template-columns: auto 1fr; }
+  .needs li.recipe-row { grid-template-columns: auto minmax(0, 1fr); }
   .needs li.recipe-row a { color: var(--accent); }
   .needs li.is-missing .needs-name {
     font-weight: 600;
@@ -1523,6 +1536,9 @@ function statusMeta(status: string): { text: string; cls: string } {
     display: block;
     border-left: 2px solid var(--mv-border, #e5e7eb);
     padding-left: 0.6rem;
+    min-width: 0;
+    /* action keys and the "takes:" list are long code-style words: let them break so the section fits a phone */
+    overflow-wrap: anywhere;
   }
   .act-head {
     display: flex;
