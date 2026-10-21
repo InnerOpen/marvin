@@ -178,3 +178,31 @@ def test_ensure_playbook_type_adds_missing_fields_and_keeps_the_users_changes(wo
     assert len(et.schema_json["fields"]) == len(by_key)  # no duplicates, and a second pass changes nothing
     ensure_playbook_type(db_session, workspace.gid)
     assert len(db_session.get(EntryTypes, type_id).schema_json["fields"]) == len(by_key)
+
+
+# ── People: the AI routes follow the same rule ───────────────────────────────
+
+
+def test_an_editor_cannot_revise_a_published_playbook_with_ai(workspace, db_session):
+    _playbook(db_session, workspace.gid, status="published")
+    res = gates._sign_in(workspace, ED).post("/api/ai/revise-entry", json={"entry": BENCH, "instruction": "tighten it"})
+    assert res.status_code == 403 and "ADMIN" in res.json()["detail"]
+
+
+def test_ai_write_back_is_not_applied_to_a_published_playbook_for_an_editor(workspace, db_session):
+    """In automatic-update mode an operation's output is written straight onto the entry, so who may change it matters."""
+    from marvin.routes.ai.operations_controller import AIOperationsController
+
+    live = _playbook(db_session, workspace.gid, status="published")
+    draft = _playbook(db_session, workspace.gid, "still-a-draft", status="draft")
+
+    def may_change(role, entry):
+        gates._sign_in(workspace, role)
+        ctl = object.__new__(AIOperationsController)
+        ctl.user = gates.app.dependency_overrides[gates.get_current_user]()
+        ctl.session = db_session
+        return ctl._may_change("entry", entry)
+
+    assert may_change(ED, live) is False
+    assert may_change(ED, draft) is True
+    assert may_change(AD, live) is True

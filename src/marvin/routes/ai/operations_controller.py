@@ -610,9 +610,10 @@ class AIOperationsController(BaseUserController):
         if not entry:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Entry '{body.entry}' not found.")
         # Revising is editing: an AUTHOR may revise only their own entries, and not approved/published ones.
-        from marvin.routes._base.checks import require_can_edit_entry
+        from marvin.routes._base.checks import require_can_edit_entry, require_playbook_rules
 
         require_can_edit_entry(self.user, self.group_id, entry)
+        require_playbook_rules(self.session, self.user, self.group_id, entry.entry_type_id, entry.status)  # a published Playbook is an Admin's
 
         provider = None
         try:
@@ -3198,13 +3199,14 @@ class AIOperationsController(BaseUserController):
 
     def _may_change(self, entity_type: str, obj) -> bool:
         """Whether the caller may edit this entry/asset/resource under the content roles (EDITOR+ any;
-        an AUTHOR only their own unpublished entries)."""
+        an AUTHOR only their own unpublished entries; a published Playbook only an ADMIN)."""
         from marvin.db.models.users.roles import WorkspaceRole
-        from marvin.routes._base.checks import require_can_edit_entry, require_workspace_role
+        from marvin.routes._base.checks import require_can_edit_entry, require_playbook_rules, require_workspace_role
 
         try:
             if entity_type == "entry":
                 require_can_edit_entry(self.user, self.group_id, obj)
+                require_playbook_rules(self.session, self.user, self.group_id, obj.entry_type_id, obj.status)
             else:
                 require_workspace_role(self.user, self.group_id, WorkspaceRole.EDITOR)
         except HTTPException:
