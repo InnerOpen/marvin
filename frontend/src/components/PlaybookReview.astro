@@ -1,0 +1,82 @@
+---
+// The review panel of an imported Playbook: what it asks for and what to check before an Admin publishes it. It reads the findings
+// the import stored on the entry (lib/playbookReview.ts builds the rows). The wording check is a heuristic and the panel says so.
+import type { ReviewView } from "@/lib/playbookReview";
+
+interface Props {
+  view: ReviewView;
+  status?: string | null;
+}
+const { view, status = null } = Astro.props;
+---
+
+<section class="section-card pb-review" data-testid="playbook-review" data-tone={view.tone}>
+  <h3>Import review</h3>
+  <p class:list={["pb-headline", view.tone]}>{view.headline}</p>
+  {status !== "published" && <p class="pb-sub">This is a draft. Agents don't see it until an Admin publishes it.</p>}
+  <p class="pb-disclaimer" data-testid="review-disclaimer">{view.disclaimer}</p>
+
+  <h4>Tools it asks for</h4>
+  {view.tools.length > 0 && (
+    <ul class="pb-rows">
+      {view.tools.map((t) => (
+        <li class:list={{ missing: t.missing }}><code>{t.name}</code><span>{t.note}</span></li>
+      ))}
+    </ul>
+  )}
+  {view.toolsNote && <p class="pb-sub">{view.toolsNote}</p>}
+
+  <h4>Warnings</h4>
+  {view.warnings.length === 0 && <p class="pb-sub">No risky wording found by the check.</p>}
+  {view.warnings.length > 0 && (
+    <ul class="pb-rows warn">
+      {view.warnings.map((w) => (
+        <li><strong>{w.label}</strong><span>{w.where}</span><code class="pb-excerpt">{w.excerpt}</code></li>
+      ))}
+    </ul>
+  )}
+  {view.warningsMore && <p class="pb-sub">{view.warningsMore}</p>}
+
+  <h4>Links and files</h4>
+  {view.links.length === 0 && view.files.length === 0 && <p class="pb-sub">No links, and no reference files.</p>}
+  {view.links.length > 0 && (
+    <ul class="pb-rows">
+      {view.links.map((l) => (
+        <li class:list={{ missing: l.broken }}><code>{l.target}</code><span>{l.note}, line {l.line}</span></li>
+      ))}
+    </ul>
+  )}
+  {view.files.length > 0 && (
+    <ul class="pb-rows">
+      {view.files.map((f) => (
+        <li class:list={{ missing: f.script }}><code>{f.path}</code><span>{f.size}, {f.note}</span></li>
+      ))}
+    </ul>
+  )}
+  {view.scripts.length > 0 && <p class="pb-sub pb-scripts">{view.scriptsNote}</p>}
+  {view.skipped.length > 0 && (
+    <>
+      <h4>Left out</h4>
+      <ul class="pb-rows">
+        {view.skipped.map((s) => <li><code>{s.path}</code><span>{s.reason}</span></li>)}
+      </ul>
+    </>
+  )}
+</section>
+
+<style>
+  .pb-review { margin-bottom: 16px; max-width: 820px; }
+  .pb-review h3 { margin: 0 0 6px; }
+  .pb-review h4 { margin: 16px 0 6px; font-size: 14px; }
+  .pb-headline { margin: 0 0 6px; font-weight: 600; }
+  .pb-headline.attention { color: #a16207; }
+  .pb-sub, .pb-disclaimer { margin: 4px 0; font-size: 13px; color: var(--muted); }
+  .pb-disclaimer { padding: 6px 10px; border-left: 3px solid var(--line); }
+  .pb-rows { list-style: none; margin: 0; padding: 0; }
+  .pb-rows li { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 5px 0; font-size: 13px; }
+  .pb-rows li + li { border-top: 1px solid var(--line); }
+  .pb-rows li.missing code { color: #a16207; }
+  .pb-rows span { color: var(--muted); }
+  .pb-rows code { overflow-wrap: anywhere; }
+  .pb-excerpt { flex-basis: 100%; color: var(--muted); }
+</style>

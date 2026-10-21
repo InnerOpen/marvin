@@ -3,6 +3,8 @@
 // names it, so this page never opens some other entry. Editors and above.
 import AppLayout from "@/layouts/AppLayout.astro";
 import PlaybookEditor from "@/components/PlaybookEditor.astro";
+import PlaybookReview from "@/components/PlaybookReview.astro";
+import { reviewFromMetadata, reviewView } from "@/lib/playbookReview";
 import { getAuthToken } from "@/lib/api/client";
 import { getPlaybook, listPlaybooks, listPlaybookUses, type PlaybookEntry } from "@/lib/api/playbooks";
 import { formFromEntry, NO_USES_NOTE, PLAYBOOKS_PATH, type PlaybookUse, useRow } from "@/lib/playbooks";
@@ -29,6 +31,8 @@ try {
   if (isForbidden(e)) restricted = true;
   else error = e instanceof Error ? e.message : String(e);
 }
+const review = entry ? reviewFromMetadata(entry.metadataJson) : null;
+const reviewRows = review ? reviewView(review) : null;
 const useRows = uses.map((use) => useRow(use));
 ---
 
@@ -52,6 +56,7 @@ const useRows = uses.map((use) => useRow(use));
           <p>Edits to a published Playbook reach agents as soon as you save.</p>
         </div>
       </div>
+      {reviewRows && <PlaybookReview view={reviewRows} status={entry.status} />}
       <PlaybookEditor form={formFromEntry(entry)} id={entry.id} status={entry.status} canPublish={canPublish} />
       <section class="section-card pb-uses" data-testid="playbook-uses">
         <h3>Used recently</h3>

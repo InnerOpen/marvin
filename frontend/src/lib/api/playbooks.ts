@@ -21,6 +21,8 @@ export interface PlaybookEntry {
   slug: string;
   status: string;
   dataJson?: Record<string, unknown> | null;
+  /** An imported Playbook keeps its review here (`importReview`, lib/playbookReview.ts). */
+  metadataJson?: Record<string, unknown> | null;
 }
 
 export const listPlaybooks = (authToken?: string) => fetchApi<PlaybookList>(BASE, {}, authToken);
@@ -42,3 +44,19 @@ export const updatePlaybook = (id: string, payload: object) =>
 
 /** To the Trash (restorable from the Trash page). */
 export const trashPlaybook = (id: string) => fetchApi<unknown>(`${ENTRIES}/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+export interface PlaybookImported {
+  id: string;
+  name: string;
+  status: string;
+  fileCount: number;
+  skipped: { path: string; reason: string }[];
+}
+
+/** Import a SKILL.md or a skill zip as a draft Playbook (EDITOR+). `name` picks another name when the file's is taken. */
+export function importPlaybook(file: File, name?: string) {
+  const body = new FormData();
+  body.append("file", file);
+  if (name) body.append("name", name);
+  return fetchApi<PlaybookImported>(`${BASE}/import`, { method: "POST", body });
+}
