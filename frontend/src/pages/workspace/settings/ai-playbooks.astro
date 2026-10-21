@@ -53,6 +53,15 @@ const rows = items.map((item) => playbookRow(item));
     </form>
   )}
 
+  {!error && (
+    <p class="pb-import-help">
+      <strong>From GitHub:</strong> link a skill's folder or its SKILL.md. Either way the whole folder comes in, reference files
+      included. Public repositories only.
+      <strong>From your computer:</strong> Import takes one SKILL.md, or a .zip of one skill folder (use a zip when the skill has
+      reference files). Every import arrives as a draft for you to review before publishing.
+    </p>
+  )}
+
   <p class="pb-import-msg" id="pb-import-msg" role="status" hidden></p>
   {error && <div class="alert"><strong>Couldn't load your Playbooks.</strong> {error}</div>}
 
@@ -93,6 +102,7 @@ const rows = items.map((item) => playbookRow(item));
   .pb-github { display: flex; gap: 8px; margin: 0 0 12px; max-width: 720px; }
   .pb-github input { flex: 1; min-width: 0; }
   @media (max-width: 720px) { .pb-github { flex-direction: column; } }
+  .pb-import-help { margin: -4px 0 16px; max-width: 720px; color: var(--muted); font-size: 13px; line-height: 1.5; }
   .pb-import-msg { margin: 0 0 12px; font-size: 14px; padding: 8px 12px; border-radius: var(--radius); border: 1px solid var(--line); }
   .pb-import-msg.error { color: var(--bad, #b91c1c); border-color: var(--bad, #b91c1c); }
   .pb-summary { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
