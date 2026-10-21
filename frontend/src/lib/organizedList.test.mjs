@@ -241,3 +241,50 @@ describe("filters set by the URL", () => {
     assert.deepEqual(urlFilters("?from=integration%3Ab1", allowed), { from: "integration:b1" });
   });
 });
+
+describe("pages that group by something other than the source", () => {
+  const grouped = {
+    ...adapter,
+    groups: {
+      choices: [
+        { value: "workflow", label: "Sent by a workflow" },
+        { value: "webhook", label: "Sent by a webhook" },
+        { value: "none", label: "Nothing sends it yet" },
+      ],
+      of: (i) => i.sender ?? "none",
+    },
+  };
+  const rows = [
+    { id: "a", name: "Zed", sender: "webhook" },
+    { id: "b", name: "Bee" },
+    { id: "c", name: "Ant", sender: "workflow" },
+    { id: "d", name: "Bat", sender: "workflow" },
+  ];
+
+  test("sections follow the page's own order and titles, not the source", () => {
+    const result = organize(rows, grouped, {});
+    assert.deepEqual(keys(result), ["workflow", "webhook", "none"]);
+    assert.deepEqual(
+      result.sections.map((s) => s.title),
+      ["Sent by a workflow", "Sent by a webhook", "Nothing sends it yet"],
+    );
+    assert.deepEqual(ids(result.sections[0]), ["c", "d"]);
+  });
+
+  test("From offers only the groups that exist, and filters on them", () => {
+    assert.deepEqual(
+      fromOptions(rows.slice(1), grouped, {}).map((c) => c.value),
+      ["workflow", "none"],
+    );
+    assert.deepEqual(keys(organize(rows, grouped, {}, { from: "none" })), ["none"]);
+  });
+
+  test("search still reads the name and the extra text", () => {
+    assert.deepEqual(keys(organize(rows, grouped, {}, {}, { query: "ant" })), ["workflow"]);
+  });
+
+  test("counts can leave out the on/off tally", () => {
+    assert.equal(countsText({ count: 2, on: 2 }, "event", { onOff: false }), "2 events");
+    assert.equal(countsText({ count: 1, on: 1 }, "event", { onOff: false }), "1 event");
+  });
+});

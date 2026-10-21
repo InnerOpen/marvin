@@ -19,6 +19,8 @@ export interface SectionsOptions<T> {
   linkedId?: string | null;
   /** Reads an item's id (needed with `linkedId`). */
   id?: (item: T) => string;
+  /** False for pages whose items have no On/Off: the counts then read "5 events". */
+  onOff?: boolean;
   /** One card, as HTML. Off items should carry the `off` class so they dim. */
   renderItem: (item: T, state: { linked: boolean }) => string;
 }
@@ -35,7 +37,7 @@ export function sectionsHtml<T>(sections: Section<T>[], options: SectionsOptions
         )
         .join("");
       return `<section class="org-section" data-section="${esc(section.key)}">
-        <h4 class="org-title">${mark}<span class="org-name">${esc(section.title)}</span><span class="org-counts">${esc(countsText(section, options.noun))}</span></h4>
+        <h4 class="org-title">${mark}<span class="org-name">${esc(section.title)}</span><span class="org-counts">${esc(countsText(section, options.noun, { onOff: options.onOff }))}</span></h4>
         <div class="org-items">${cards}</div>
       </section>`;
     })

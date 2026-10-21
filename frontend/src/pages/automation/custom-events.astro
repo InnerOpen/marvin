@@ -1,7 +1,11 @@
 ---
+import FilterBar from "@/components/FilterBar.astro";
+import OrganizedSections from "@/components/OrganizedSections.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { CUSTOM_EVENT_FIELD_TYPES, type CustomEvent, listCustomEvents } from "@/lib/api/customEvents";
+import { getEventConnectionsSummary } from "@/lib/api/eventConnections";
+import { SENDER_GROUPS } from "@/lib/customEventList";
 import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -17,13 +21,27 @@ try {
   error = e instanceof Error ? e.message : String(e);
 }
 
+// What sends each event (the connections counts, one call). If they can't be read the events still list, all under
+// "Nothing sends it yet" rather than the page failing.
+let senderKinds: Record<string, string[]> = {};
+if (!error) {
+  try {
+    const counts = await getEventConnectionsSummary(authToken);
+    senderKinds = Object.fromEntries(counts.filter((c) => c.eventType.startsWith("custom.")).map((c) => [c.eventType, c.senderKinds ?? []]));
+  } catch (e) {
+    console.error("[custom-events] Error loading senders:", e);
+  }
+}
+
 const listJson = JSON.stringify(events).replace(/</g, "\\u003c");
+const sendersJson = JSON.stringify(senderKinds).replace(/</g, "\\u003c");
 const typesJson = JSON.stringify(CUSTOM_EVENT_FIELD_TYPES);
 ---
 
 <AppLayout crumb="automation.custom-events" adminOnly={adminOnly}>
   <div class="ce-page">
     <script type="application/json" id="ce-list-data" is:inline set:html={listJson}></script>
+    <script type="application/json" id="ce-senders-data" is:inline set:html={sendersJson}></script>
     <script type="application/json" id="ce-types-data" is:inline set:html={typesJson}></script>
     <div class="toolbar">
       <div>
@@ -65,52 +83,47 @@ const typesJson = JSON.stringify(CUSTOM_EVENT_FIELD_TYPES);
       </div>
     </section>
 
-    <div id="ce-list" class="ce-list"></div>
-    <div id="ce-empty" class="empty" hidden>
-      No custom events yet. Register one, then send it from a workflow's Emit event step.
-    </div>
+    <FilterBar
+      searchId="ce-search"
+      searchPlaceholder="Search custom events…"
+      filters={[{ id: "ce-f-from", label: "senders", options: SENDER_GROUPS }]}
+    />
+    <OrganizedSections
+      id="ce"
+      noun="custom event"
+      emptyAll="No custom events yet. Register one, then send it from a workflow's Emit event step."
+    />
   </div>
 </AppLayout>
 
 <script>
   import { deleteCustomEvent, saveCustomEvent } from "@/lib/api/customEvents";
+  import { customEventAdapter, customEventCardHtml } from "@/lib/customEventList";
+  import { mountOrganizedList } from "@/lib/organizedListView";
 
   const $ = (id: string): any => document.getElementById(id);
   const esc = (s: unknown) =>
     String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
 
   let events: any[] = JSON.parse($("ce-list-data").textContent || "[]");
+  const senderKinds: Record<string, string[]> = JSON.parse($("ce-senders-data").textContent || "{}");
   const types: string[] = JSON.parse($("ce-types-data").textContent || "[]");
   let editing: string | null = null; // the name being changed; null: a new one
 
-  function card(e: any) {
-    const fields = e.fields.length
-      ? e.fields.map((f: any) => `<span class="chip" title="${esc(f.description || "")}">${esc(f.key)} <span class="muted">${esc(f.type)}</span></span>`).join("")
-      : `<span class="hint">No fields: the event just happens.</span>`;
-    const used = e.usedBy.length ? `<span class="hint">Used by ${e.usedBy.map((n: string) => esc(n)).join(", ")}</span>` : `<span class="hint">No workflow uses it yet.</span>`;
-    return `<div class="ce-card" data-name="${esc(e.name)}">
-      <div class="ce-head">
-        <div class="ce-title">
-          <strong>${esc(e.title || e.name)}</strong>
-          <code class="slug">${esc(e.eventType)}</code>
-          ${e.description ? `<span class="desc">${esc(e.description)}</span>` : ""}
-        </div>
-        <div class="ce-actions">
-          <a class="button ghost sm" href="/automation/events/${encodeURIComponent(e.eventType)}">Reactions</a>
-          <button class="button ghost sm" data-act="edit">Edit</button>
-          <button class="button ghost sm danger" data-act="delete">Remove</button>
-        </div>
-      </div>
-      <div class="chips">${fields}</div>
-      ${used}
-      <span class="hint error" data-status></span>
-    </div>`;
-  }
-
-  function render() {
-    $("ce-list").innerHTML = events.map(card).join("");
-    $("ce-empty").toggleAttribute("hidden", events.length > 0);
-  }
+  const list = mountOrganizedList({
+    host: $("ce-list"),
+    emptyFiltered: $("ce-empty"),
+    emptyAll: $("ce-none"),
+    search: $("ce-search"),
+    selects: { from: $("ce-f-from") },
+    items: () => events,
+    adapter: customEventAdapter(senderKinds),
+    integrations: {},
+    noun: "custom event",
+    onOff: false,
+    storageKey: "marvin.automation.custom-events.filters",
+    renderItem: (e) => customEventCardHtml(e),
+  });
 
   function fieldRow(f: any = { key: "", type: "string", description: "" }) {
     const row = document.createElement("div");
@@ -165,7 +178,7 @@ const typesJson = JSON.stringify(CUSTOM_EVENT_FIELD_TYPES);
         fields: fields as any,
       });
       events = [...events.filter((x) => x.name !== saved.name), saved].sort((a, b) => a.name.localeCompare(b.name));
-      render();
+      list.refresh();
       $("ce-form").setAttribute("hidden", "");
     } catch (e: any) {
       status.classList.add("error");
@@ -174,19 +187,19 @@ const typesJson = JSON.stringify(CUSTOM_EVENT_FIELD_TYPES);
   });
 
   $("ce-list").addEventListener("click", async (ev: Event) => {
-    const btn = (ev.target as HTMLElement).closest("[data-act]") as HTMLElement | null;
+    const btn = (ev.target as HTMLElement).closest(".js-edit, .js-delete") as HTMLElement | null;
     const cardEl = btn?.closest(".ce-card") as HTMLElement | null;
     const e = events.find((x) => x.name === cardEl?.dataset.name);
     if (!btn || !cardEl || !e) return;
-    if (btn.dataset.act === "edit") {
+    if (btn.classList.contains("js-edit")) {
       openForm(e);
       $("ce-form").scrollIntoView({ behavior: "smooth", block: "nearest" });
-    } else if (btn.dataset.act === "delete") {
+    } else {
       if (!confirm(`Remove ${e.eventType}? What the Event Log recorded stays; a subscription to it stops firing.`)) return;
       try {
         await deleteCustomEvent(e.name);
         events = events.filter((x) => x.name !== e.name);
-        render();
+        list.refresh();
       } catch (err: any) {
         const note = cardEl.querySelector("[data-status]");
         if (note) note.textContent = err?.message ?? String(err);
@@ -194,7 +207,7 @@ const typesJson = JSON.stringify(CUSTOM_EVENT_FIELD_TYPES);
     }
   });
 
-  render();
+  list.refresh();
 </script>
 
 <style>
@@ -226,24 +239,16 @@ const typesJson = JSON.stringify(CUSTOM_EVENT_FIELD_TYPES);
   .fields :global(.button) { padding: 4px 10px; border-radius: var(--radius); border: 1px solid var(--line); background: transparent; color: var(--ink); font-size: 12px; font-weight: 600; cursor: pointer; }
   .form-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
-  .ce-list { display: flex; flex-direction: column; gap: 12px; }
-  .ce-list :global(.ce-card) { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-  .ce-list :global(.ce-head) { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-  .ce-list :global(.ce-title) { min-width: 0; overflow-wrap: anywhere; }
-  .ce-list :global(.ce-title strong) { font-size: 15px; }
-  .ce-list :global(.slug) { margin-left: 8px; font-size: 12px; color: var(--muted); background: var(--bg); padding: 1px 6px; border-radius: 4px; }
-  .ce-list :global(.desc) { display: block; margin-top: 4px; font-size: 13px; color: var(--muted); }
-  .ce-list :global(.ce-actions) { display: flex; gap: 6px; flex-shrink: 0; align-items: center; }
-  .ce-list :global(.button) { padding: 4px 10px; border-radius: var(--radius); border: 1px solid var(--line); background: transparent; color: var(--ink); font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: none; }
-  .ce-list :global(.button.danger) { color: var(--color-error, #c0392b); border-color: var(--color-error, #c0392b); }
-  .ce-list :global(.chips) { display: flex; flex-wrap: wrap; gap: 6px; }
-  .ce-list :global(.chip) { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); font-size: 12px; overflow-wrap: anywhere; }
-  .ce-list :global(.muted) { color: var(--muted); font-weight: 400; }
-  .ce-list :global(.hint) { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
-  .ce-list :global(.hint.error) { color: var(--color-error, #c0392b); }
+  .ce-page :global(.ce-card) { flex-wrap: wrap; }
+  .ce-page :global(.ce-card .org-card-main) { display: flex; flex-direction: column; gap: 8px; }
+  .ce-page :global(.slug) { font-size: 12px; font-weight: 400; color: var(--muted); background: var(--panel); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+  .ce-page :global(.chips) { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ce-page :global(.chip) { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); font-size: 12px; overflow-wrap: anywhere; }
+  .ce-page :global(.muted) { color: var(--muted); font-weight: 400; }
+  .ce-page :global(.hint) { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .ce-page :global(.hint.error) { color: var(--color-error, #c0392b); }
   .hint { font-size: 12px; color: var(--muted); }
   .hint.error { color: var(--color-error, #c0392b); }
-  .empty { color: var(--muted); font-size: 14px; padding: 24px; text-align: center; border: 1px dashed var(--line); border-radius: var(--radius); }
 
   /* Phones: the field rows stack (key and type side by side, the note under them), the card's buttons wrap under
      the title, and the small buttons get finger-sized. */
@@ -251,8 +256,6 @@ const typesJson = JSON.stringify(CUSTOM_EVENT_FIELD_TYPES);
     .toolbar { flex-wrap: wrap; }
     .fields :global(.field-row) { grid-template-columns: 1fr 100px auto; }
     .fields :global(.field-row .f-desc) { grid-column: 1 / -1; grid-row: 2; }
-    .ce-list :global(.ce-head) { flex-wrap: wrap; }
-    .ce-list :global(.button.sm), .fields :global(.button), .button.sm { min-height: 36px; }
-    .ce-list :global(.button) { min-height: 36px; display: inline-flex; align-items: center; }
+    .fields :global(.button), .button.sm { min-height: 36px; }
   }
 </style>
