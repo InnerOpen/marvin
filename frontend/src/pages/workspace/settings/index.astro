@@ -289,7 +289,10 @@ const tabs = [
             </a>
             <a href={navHref("automation.scheduled-tasks")} class="link-card">
               <strong>{navTitle("automation.scheduled-tasks")}</strong>
-              <p>Automate recurring workspace operations</p>
+              <p>
+                Recurring jobs: yours, your integrations' and Marvin's own
+                {(automationAttention?.kinds?.scheduled_tasks ?? 0) > 0 && ` · ${automationAttention?.kinds?.scheduled_tasks} need a look`}
+              </p>
             </a>
             <a href={navHref("automation.event-log")} class="link-card">
               <strong>{navTitle("automation.event-log")}</strong>
