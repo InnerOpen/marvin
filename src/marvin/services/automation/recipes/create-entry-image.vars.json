@@ -1,0 +1,30 @@
+{
+  "recipe": "create-entry-image",
+  "variables": {
+    "image_integration": {
+      "type": "integration_slug",
+      "description": "Slug of a connected integration that can generate images (OpenAI Images…; Settings → Integrations).",
+      "example": "openai-images"
+    },
+    "role": {
+      "type": "text",
+      "description": "The role the picture is attached to the entry in.",
+      "example": "hero"
+    },
+    "style_prefix": {
+      "type": "text",
+      "description": "Put in front of the saved suggestion to set the look of the picture.",
+      "example": "Documentary photograph, natural light, no text, no logos, no people's faces."
+    },
+    "style_note": {
+      "type": "text",
+      "description": "The look of the photo, used when the entry has no saved suggestion yet and the AI writes one. May be blank.",
+      "example": "documentary workshop photo, warm light"
+    },
+    "suggestion_key": {
+      "type": "text",
+      "description": "The metadata key the image suggestion is saved under and read from.",
+      "example": "image_suggestion"
+    }
+  }
+}

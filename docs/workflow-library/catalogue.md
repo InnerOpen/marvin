@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-118 recipes: **106** verified-current, **8** supported-after-configuration, **3** needs-adapter, **1** needs-engine-capability.
+120 recipes: **108** verified-current, **8** supported-after-configuration, **3** needs-adapter, **1** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -124,6 +124,8 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [asset-upload-announcement](../../src/marvin/services/automation/recipes/asset-upload-announcement.json) — Post new uploads to a chat channel | verified-current | `asset_uploaded` | outgoing webhook | external post |
 | [share-published-entry](../../src/marvin/services/automation/recipes/share-published-entry.json) — Share a published entry everywhere | verified-current | `entry_published` | an integration that can social.post (Instagram, a Facebook Page, Bluesky or Mastodon); AI on for workflows (Settings → AI) | external post, paid call |
 | [triage-new-comments](../../src/marvin/services/automation/recipes/triage-new-comments.json) — Triage new comments | verified-current | `social_comment_received` | an integration that can social.comments (Instagram, a Facebook Page, Bluesky or Mastodon); an integration that can notify (Slack or Apprise); a connected network that reads comments: Marvin makes and enables the Social engagement scheduled task itself (Settings → Scheduled tasks), and it is what announces new comments; AI on for workflows (Settings → AI); scheduled task | external action, metric, notification, paid call |
+| [suggest-entry-image](../../src/marvin/services/automation/recipes/suggest-entry-image.json) — Suggest an image for new entries | verified-current | `entry_created` | AI available for workflows | content mutation, paid call |
+| [create-entry-image](../../src/marvin/services/automation/recipes/create-entry-image.json) — Create an image for this entry | verified-current | `manual` | an integration that can image.generate (OpenAI Images); AI available for workflows | content mutation, paid call |
 
 ## Waiting on a capability or an adapter
 
@@ -383,6 +385,17 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   Run it: every picture with your tag gets a watermarked copy (your text, in a corner or tiled), kept as a version of the original.
   - Position: a corner, center, or tiled (repeated diagonally so it can't be cropped away); opacity and size can be set on the step.
   - Versions (other copies) are left out unless the target asks for them.
+- [suggest-entry-image](../../src/marvin/services/automation/recipes/suggest-entry-image.json) — **Suggest an image for new entries** · verified-current · `entry_created`  
+  When a new entry of the chosen type has no image, the AI reads it and saves a one-or-two-sentence description of the photograph that should accompany it, in the entry's metadata. Nothing is generated and nothing is spent but the one AI call.
+  - The conditions read `not … exists` groups: skipped when the entry already has an image or already has a suggestion (so a replay never writes twice).
+  - The prompt keeps to what the entry says: no text or logos in the picture, no people's faces, nothing invented.
+  - Pairs with Create an image for this entry, which reads the same metadata key.
+- [create-entry-image](../../src/marvin/services/automation/recipes/create-entry-image.json) — **Create an image for this entry** · verified-current · `manual`  
+  Run it on an entry (the Run button, an agent's run_workflow, or an MCP client): once an editor approves, any connected image generator makes one picture from the entry's saved suggestion, kept as an asset and attached to the entry as the chosen role for review. When the entry has no suggestion yet, the AI writes and saves it first.
+  - Run inputs: the Run button asks for the entry; an agent's run_workflow (or marvin_run_workflow over MCP) passes it as `inputs: {entry: <id or slug>}`. Agents can't generate images themselves: they ask this workflow.
+  - The picture lands on the entry in the chosen role for review before anything is published.
+  - The step names a capability, so it works with any connection that can generate images. A connection whose generate action asks for approval (OpenAI Images) runs it after the Approval step.
+  - Reads the same metadata key as Suggest an image for new entries.
 
 ### Playful experiments
 

@@ -1065,6 +1065,7 @@ def _step_issues(
             else:
                 _gated_capability_issue(capability, after_approval, bad)
                 _engagement_args_issues(step, capability, bad)
+                _image_generate_issue(row, slug, capability, after_approval, bad)
         elif row["actions"] is not None and key not in {a["action"] for a in row["actions"]}:
             actions = ", ".join(a["action"] for a in row["actions"]) or "(none)"
             bad("action", f"“{slug}” has no action “{key}” a workflow can run. Actions: {actions}.")
@@ -1097,6 +1098,14 @@ def _templated_integration_issues(step: dict, after_approval: bool, bad) -> None
         return
     _gated_capability_issue(capability, after_approval, bad)
     _engagement_args_issues(step, capability, bad)
+
+
+def _image_generate_issue(row: dict, slug, capability: str, after_approval: bool, bad) -> None:
+    """`image.generate` on a connection whose generate action asks for approval (OpenAI Images spends credits) runs only
+    once a person approved the run: an Approval step before it, as with a named action."""
+    asks = any(a.get("capability") == capability and a.get("requires_approval") for a in row["actions"] or [])
+    if capability == "image.generate" and asks and not after_approval:
+        bad("capability", f"“{slug}” needs a person's approval to {capability}: put an Approval step before it (it runs once approved).")
 
 
 def _gated_capability_issue(capability: str, after_approval: bool, bad) -> None:

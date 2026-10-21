@@ -51,7 +51,7 @@ A workflow can start on the events that say something is failing or running shor
 
 ### Conditions and context
 
-Operators: `eq`, `neq`, `contains`, `in` (a comma-separated string is accepted), `starts_with`, `exists` (`value: false` inverts), `changed`, `changed_from`, `changed_to`, and the number comparisons `gt`, `gte`, `lt`, `lte` (**is more than**, **is at least**, **is less than**, **is at most**: both sides read as numbers, typed-in text too; anything that isn't a number never matches). `longer_than` and `shorter_than` (**is longer than**, **is shorter than**, in characters) compare a text's length — or a list's item count — with a number; nothing there counts as length 0. A top-level list is AND; `{"all": […]}`, `{"any": […]}` and `{"not": …}` nest. An unknown operator never matches. The `changed*` operators read `event.changed_fields`, `event.before` and `event.after` from an `entry_updated` event (and the publish, unpublish, archive, trash and restore events, which carry the same diff).
+Operators: `eq`, `neq`, `contains`, `in` (a comma-separated string is accepted), `starts_with`, `exists` (`value: false` inverts), `changed`, `changed_from`, `changed_to`, and the number comparisons `gt`, `gte`, `lt`, `lte` (**is more than**, **is at least**, **is less than**, **is at most**: both sides read as numbers, typed-in text too; anything that isn't a number never matches). `longer_than` and `shorter_than` (**is longer than**, **is shorter than**, in characters) compare a text's length — or a list's item count — with a number; nothing there counts as length 0. A top-level list is AND; `{"all": […]}`, `{"any": […]}` and `{"not": …}` nest (the validator checks the conditions inside a group like any other). An unknown operator never matches. The `changed*` operators read `event.changed_fields`, `event.before` and `event.after` from an `entry_updated` event (and the publish, unpublish, archive, trash and restore events, which carry the same diff).
 
 **A type's own field changing.** The diff covers `status`, `title` and `slug` and every changed field of the entry's type, as `data.<field>`: `entry.data.price` with `changed` is true when the price changed, `changed_from` / `changed_to` compare the old and new value, and `event.changed_fields` `contains` `data.price` says the same. The values are `${event.before.data.price}` and `${event.after.data.price}`. They are kept small, because an event outlives the edit (it goes to the Event Log and to webhooks): a number, yes/no or a short text (up to 160 characters) is carried as it is; a longer text such as a body, a list, an object, or a field whose name reads as a secret (`password`, `token`, `api_key`…) shows `‹elided›` — the field is still named in `changed_fields`, so “the body changed” works, but not what it said. An event names up to 100 changed fields and carries values for the first 25. The field picker offers `event.after.data.`, `event.before.data.` and `entry.data.`, and `describe_event` lists the diff fields.
 
@@ -680,6 +680,13 @@ edit takes `prompt`, `background` (`auto`, `transparent`, `opaque`) and `fidelit
 The Workflow Library's **Background remover**, **Product scene studio** and **Seasonal variation** use it; each asks an
 editor first (a paid edit). `source` on an action that doesn't work on pictures is refused.
 
+**Any image generator.** A step can name the capability instead of one provider's action:
+`{"kind": "integration", "integration": "<slug>", "capability": "image.generate", "args": {"prompt": …, "count": 1}, "attach_as": "hero"}`
+runs the generate action of whichever image connection it names (OpenAI Images today). A connection whose generate action
+asks for approval (OpenAI Images does) runs it after a [Wait for approval](#wait-for-approval) step, as a named action does;
+the draft check says so when the approval step is missing. The Workflow Library's **Create an image for this
+entry** is this shape, and **Suggest an image for new entries** writes the prompt it reads.
+
 ### Wait
 
 A **Wait** step (`wait`) keeps the run and goes on later, from the next step:
@@ -996,6 +1003,16 @@ Builder (an agent: ask "how do I…") gives these steps for your own types and f
 In the editor, **Start from a recipe…** opens the same recipes. Choose one to read what it does, then set it up: each setting is a picker of this workspace's own names (an entry type and its fields, a connected integration of the right kind, an outgoing webhook, a collection, a status), or a box for a number or text. **Use recipe** fills the builder with the workflow; nothing is saved until you press **Save workflow**, and it saves switched off, so dry-run it before you enable it. A note above the builder names the recipe and lists anything to check, such as a webhook this workspace doesn't have. A recipe the guided builder can't show in full opens in **Edit as JSON**. An event's page (**Subscribe → From the Library**) and a connected integration's card list the recipes for that event or provider.
 
 A workflow saved from a recipe (in the editor, or drafted by the agent with `draft_workflow(recipe=…)`) remembers which recipe and which version of it it came from (`sourceRecipe`, `sourceRecipeVersion` on the workflow). The recipe's card then says **In use:** with a link to each such workflow ("(off)" when it is switched off) and **recipe updated since** when the recipe has been improved after that workflow was made; **Start from a recipe…** shows the same under **Already in use here**, so a second copy is a choice. The notification recipes take any connected integration that can send notifications — Slack or Apprise.
+
+**Images for entries.** Two recipes keep an entry type's images coming without anything automatic spending credits.
+**Suggest an image for new entries** runs when an entry of the type you choose is created with no image: the AI reads it
+and saves one or two sentences describing the photograph that should go with it (metadata key `image_suggestion` by
+default; no text, no faces, nothing the entry doesn't say). **Create an image for this entry** is a manual workflow with
+one input, the entry: press **Run** and pick the entry, or have an agent call `run_workflow` (or an MCP client
+`marvin_run_workflow`) with `inputs: {"entry": "<id or slug>"}`. It writes the suggestion first when the entry has none,
+asks an editor to approve (the image costs credits on the connection you choose), then makes one picture with any
+connection that can generate images and attaches it to the entry (role `hero` by default) for review. Agents can't generate
+images themselves; they ask this workflow.
 
 ## API
 

@@ -15,7 +15,7 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 106,
+    "verified-current": 108,
     "needs-adapter": 3,
     "needs-engine-capability": 1,
     "supported-after-configuration": 8
@@ -11926,6 +11926,230 @@
         "test": "tests/test_workflow_library.py::TestExecution::test_triage_new_comments"
       },
       "brief": null
+    },
+    {
+      "category": "Images and files",
+      "category_slug": "media",
+      "target_entity": "entry",
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "dependencies": [],
+      "brief": null,
+      "id": "suggest-entry-image",
+      "title": "Suggest an image for new entries",
+      "outcome": "When a new entry of the chosen type has no image, the AI reads it and saves a one-or-two-sentence description of the photograph that should accompany it, in the entry's metadata. Nothing is generated and nothing is spent but the one AI call.",
+      "tags": [
+        "ai",
+        "images",
+        "suggestion"
+      ],
+      "trigger": {
+        "type": "event",
+        "event": "entry_created",
+        "builtin_event": true,
+        "custom_event": false
+      },
+      "recipe": "suggest-entry-image.json",
+      "vars": "suggest-entry-image.vars.json",
+      "setup_variables": [
+        {
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type that should always carry an image.",
+          "example": "article"
+        },
+        {
+          "name": "style_note",
+          "type": "text",
+          "description": "The look of the photo you want, in a few words. Leave it blank for no particular style.",
+          "example": "documentary workshop photo, warm light"
+        },
+        {
+          "name": "suggestion_key",
+          "type": "text",
+          "description": "The metadata key the suggestion is saved under (the Create-an-image recipe reads the same key).",
+          "example": "image_suggestion"
+        }
+      ],
+      "requires": {
+        "trigger": "event:entry_created",
+        "action_kinds": [
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "set_metadata"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "exists"
+        ]
+      },
+      "prerequisites": {
+        "features": [
+          "AI available for workflows"
+        ]
+      },
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per new entry of the type that has no image and no saved suggestion."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Saves the suggestion in the entry's metadata under the chosen key."
+        }
+      ],
+      "cost_notes": "One AI call per qualifying entry, from the workspace's monthly AI budget.",
+      "failure_behaviour": "An AI error fails the run and nothing is saved; the entry is untouched. Run it again by saving a fresh entry, or use Create an image for this entry, which writes the suggestion itself when it is missing.",
+      "notes": [
+        "The conditions read `not … exists` groups: skipped when the entry already has an image or already has a suggestion (so a replay never writes twice).",
+        "The prompt keeps to what the entry says: no text or logos in the picture, no people's faces, nothing invented.",
+        "Pairs with Create an image for this entry, which reads the same metadata key."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_suggest_entry_image"
+      }
+    },
+    {
+      "category": "Images and files",
+      "category_slug": "media",
+      "target_entity": "entry",
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "dependencies": [],
+      "brief": null,
+      "id": "create-entry-image",
+      "title": "Create an image for this entry",
+      "outcome": "Run it on an entry (the Run button, an agent's run_workflow, or an MCP client): once an editor approves, any connected image generator makes one picture from the entry's saved suggestion, kept as an asset and attached to the entry as the chosen role for review. When the entry has no suggestion yet, the AI writes and saves it first.",
+      "tags": [
+        "ai",
+        "images",
+        "manual",
+        "agents"
+      ],
+      "trigger": {
+        "type": "manual",
+        "event": null,
+        "custom_event": false
+      },
+      "recipe": "create-entry-image.json",
+      "vars": "create-entry-image.vars.json",
+      "setup_variables": [
+        {
+          "name": "image_integration",
+          "type": "integration_slug",
+          "description": "Slug of a connected integration that can generate images (OpenAI Images…; Settings → Integrations).",
+          "example": "openai-images"
+        },
+        {
+          "name": "role",
+          "type": "text",
+          "description": "The role the picture is attached to the entry in.",
+          "example": "hero"
+        },
+        {
+          "name": "style_prefix",
+          "type": "text",
+          "description": "Put in front of the saved suggestion to set the look of the picture.",
+          "example": "Documentary photograph, natural light, no text, no logos, no people's faces."
+        },
+        {
+          "name": "style_note",
+          "type": "text",
+          "description": "The look of the photo, used when the entry has no saved suggestion yet and the AI writes one. May be blank.",
+          "example": "documentary workshop photo, warm light"
+        },
+        {
+          "name": "suggestion_key",
+          "type": "text",
+          "description": "The metadata key the image suggestion is saved under and read from.",
+          "example": "image_suggestion"
+        }
+      ],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "operation",
+          "entry",
+          "approval",
+          "integration"
+        ],
+        "entry_ops": [
+          "set_metadata"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [
+          "image.generate"
+        ],
+        "condition_ops": [
+          "eq",
+          "exists"
+        ]
+      },
+      "prerequisites": {
+        "integrations": [
+          {
+            "capability": "image.generate",
+            "examples": "OpenAI Images",
+            "note": "Any connected integration that can generate images: the step names the `image.generate` capability, not one provider's action."
+          }
+        ],
+        "features": [
+          "AI available for workflows"
+        ]
+      },
+      "supporting_objects": [
+        {
+          "kind": "integration_connection",
+          "required": true,
+          "name": "An image generator (OpenAI Images…)",
+          "purpose": "Makes the picture (a paid call, asked for approval first).",
+          "referenced_by": "actions[3].integration",
+          "create": "Settings → Integrations → connect an image provider"
+        }
+      ],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One image on the chosen connection per approved run, and one AI call when the entry has no saved suggestion."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Saves the suggestion in the entry's metadata when it was missing, and attaches the picture to the entry in the chosen role."
+        }
+      ],
+      "cost_notes": "Image credits on the chosen connection, once per approved run; one AI call when the suggestion is missing. Nothing runs without a request, and nothing is generated before an editor approves.",
+      "failure_behaviour": "A denied or expired approval makes no picture. A provider error fails the step and the provider's error policy applies; the suggestion, if the AI wrote it, stays saved so a later run reuses it.",
+      "notes": [
+        "Run inputs: the Run button asks for the entry; an agent's run_workflow (or marvin_run_workflow over MCP) passes it as `inputs: {entry: <id or slug>}`. Agents can't generate images themselves: they ask this workflow.",
+        "The picture lands on the entry in the chosen role for review before anything is published.",
+        "The step names a capability, so it works with any connection that can generate images. A connection whose generate action asks for approval (OpenAI Images) runs it after the Approval step.",
+        "Reads the same metadata key as Suggest an image for new entries."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "integration:image.generate"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_create_entry_image"
+      }
     }
   ]
 }

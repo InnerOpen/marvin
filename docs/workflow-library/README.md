@@ -48,6 +48,16 @@ The agent's `draft_workflow(recipe=…)` and `configure` share one path, `recipe
 fill in a recipe the same way. Picker logic (`lib/workflowLibrary.ts`) is pure and tested (`workflowLibrary.test.mjs`).
 Provenance: a workflow saved from a recipe records `source_recipe` (its id) and `source_recipe_version` (`recipes.recipe_version`: a fingerprint of the recipe document and its variables), from the editor (`sourceRecipe` on `POST /api/automations`) and from `draft_workflow(recipe=…)`; `GET /api/automations/library` lists each recipe's `inUse` workflows, `outdated` when the recipe has changed since.
 
+### Image recipes
+
+`suggest-entry-image` (variables `entry_type`, `style_note`, `suggestion_key`) and `create-entry-image` (`image_integration`,
+`role`, `style_prefix`, `style_note`, `suggestion_key`) work as a pair on the metadata key `suggestion_key`. The second is the
+model for a recipe on a *capability* that has an approval: its prerequisite is `{"capability": "image.generate"}` (any
+connection that can generate images; OpenAI Images' generate action asks for approval, so the recipe puts an Approval step
+before a `capability: "image.generate"` step — `alert_routing.APPROVABLE_CAPABILITIES`), it starts manually with one `entry`
+input (so the Run button, `run_workflow` and `marvin_run_workflow` all pass the entry), and its `when` groups use
+`{"not": {…, "op": "exists"}}` (there is no `missing` operator).
+
 ## Statuses (exact definitions)
 
 - **verified-current** — the configured JSON passes `draft_issues` (the gate behind `draft_workflow` and
