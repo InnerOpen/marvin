@@ -46,6 +46,9 @@ class ToolContext:
     # The run's tone (a tone slug), so drafts the authoring tools write match the conversation's tone
     # rather than the workspace default. None → the workspace default.
     tone_register: str | None = None
+    # The Playbooks this run may see (services.playbooks.PlaybookScope: the agent's chosen set and the user's message).
+    # None → every published Playbook, none manual-only (MarvinMCP, the remote MCP server, the invoke route).
+    playbooks: Any = None
 
 
 # handler(ctx, args) -> str : returns a JSON string fed back to the model / returned to callers.

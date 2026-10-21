@@ -87,6 +87,8 @@ def _agent_columns(data, values: dict) -> dict:
         values["bubble_lines_source"] = SOURCE_EDITED if lines else None
     if "mood" in values:
         values["mood"] = data.mood.stored() if data.mood else None
+    if "playbooks" in values:
+        values["playbooks"] = data.playbooks.stored() if data.playbooks else None
     return values
 
 
@@ -825,6 +827,7 @@ class AIOperationsController(BaseUserController):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"An agent with slug '{data.slug}' already exists.")
         self._require_known_tone(data.default_register)
         columns = _agent_columns(data, data.model_dump())
+        self._check_playbook_settings(columns.get("playbooks"))
         row = WorkspaceAgentModel(session=self.session, group_id=self.group_id, created_by=self.user.id, **columns)
         self.session.add(row)
         self.session.commit()
@@ -844,6 +847,8 @@ class AIOperationsController(BaseUserController):
         row = self._agent_row_or_404(slug)
         self._require_known_tone(data.default_register)
         sent = _agent_columns(data, data.model_dump(exclude_unset=True))
+        if "playbooks" in sent:
+            self._check_playbook_settings(sent["playbooks"])
         before = {k: getattr(row, k) for k in sent}
         for k, v in sent.items():
             setattr(row, k, v)
@@ -855,6 +860,15 @@ class AIOperationsController(BaseUserController):
         if changed:
             self._record_agent_change([f"agents.{spec.slug}.{k}" for k in changed], self._agent_edit_message(spec.name, changed, policy_change))
         return self._agent_read(spec, self._agent_character(spec))
+
+    def _check_playbook_settings(self, settings: dict | None) -> None:
+        """A 422 for Playbook settings that can't be kept (a fourth always-load, one outside the set, one that can't load by itself)."""
+        from marvin.services.playbooks import PlaybookSettingsError, check_agent_settings
+
+        try:
+            check_agent_settings(self.session, self.group_id, settings)
+        except PlaybookSettingsError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
 
     @router.delete("/agents/{slug}/tool-policy", response_model=AgentRead, summary="Reset an agent's permission matrix to its default")
     def reset_agent_tool_policy(self, slug: str) -> AgentRead:
@@ -1142,11 +1156,13 @@ class AIOperationsController(BaseUserController):
         instructions = self._named_agent_instructions(spec, assistant_name)
         system = instructions + self._register_clause(register, persona_prompt)
         preamble = roster = ""
+        playbooks_warning = None
         tools: list = []
         if spec.kind != "model":
             # No provider: binding only builds the tool list; nothing runs, so nothing reaches a model.
             tools, _ = self._bind_agent_tools(None, agent=spec, role=self._user_role(), park_allowed=True)
-            preamble, roster = self._system_frame({tool.name for tool in tools}, spec.slug)
+            preamble, roster = self._system_frame({tool.name for tool in tools}, spec.slug, spec)
+            playbooks_warning = self._always_warning(spec)
             system = self._framed(system, preamble, roster)
         return AgentPromptPreview(
             system=system,
@@ -1158,6 +1174,7 @@ class AIOperationsController(BaseUserController):
             tone=t.preview(tones.resolve(register), persona_prompt),
             tone_source="agent" if spec.default_register and tones.get(spec.default_register) else "workspace",
             roster=roster,
+            playbooks_warning=playbooks_warning,
             tool_count=len(tools),
             ask_first_count=sum(1 for tool in tools if getattr(tool, "requires_approval", False)),
             tool_categories=self._tool_categories(tools),
@@ -1177,6 +1194,11 @@ class AIOperationsController(BaseUserController):
             if changes.get(key) is not None:
                 changes[key] = tuple(changes[key])
         return replace(spec, **changes)
+
+    def _always_warning(self, spec) -> str | None:
+        from marvin.services.playbooks import PlaybookScope, always_playbooks, always_warning
+
+        return always_warning(always_playbooks(self.session, self.group_id, PlaybookScope.of(spec.playbooks)))
 
     @staticmethod
     def _tool_categories(tools: list) -> list[AgentToolCategory]:
@@ -1805,6 +1827,7 @@ class AIOperationsController(BaseUserController):
             bubble_lines=spec.bubble_lines,
             bubble_lines_source=spec.bubble_lines_source,
             mood=spec.mood,
+            playbooks=spec.playbooks,
         )
 
     @staticmethod
@@ -1862,18 +1885,23 @@ class AIOperationsController(BaseUserController):
             return spec.system_prompt or model_agent_system_prompt(name, router_name=assistant_name)
         return spec.system_prompt or self._default_agent_system_prompt(name)
 
-    def _system_frame(self, tool_names: set[str], agent_slug: str) -> tuple[str, str]:
+    def _system_frame(self, tool_names: set[str], agent_slug: str, spec=None) -> tuple[str, str]:
         """(preamble, roster) around a persona run's own prompt. Environment facts come first — what "the
         RAG" means here and which of the bound tools answers which kind of question — then the catalog of
         Playbooks the agent may load (when it can load them and the workspace has any); the agents it may
-        hand off or refer to come last ("" when it can do neither)."""
-        from marvin.services.ai.agents import list_agents, roster_block, workspace_preamble
-        from marvin.services.playbooks import LOAD_TOOL, catalog_block, published_playbooks
+        hand off or refer to come last ("" when it can do neither). The agent's Playbook settings (`spec`, else the stored
+        agent `agent_slug`) narrow the catalog to its chosen set and put its "always load" Playbooks in full after it."""
+        from marvin.services.ai.agents import list_agents, resolve_agent, roster_block, workspace_preamble
+        from marvin.services.playbooks import LOAD_TOOL, PlaybookScope, always_block, always_playbooks, catalog_block, published_playbooks
 
         preamble = workspace_preamble(self._workspace_name(), tool_names)
+        spec = spec or resolve_agent(self.session, self.group_id, agent_slug)
+        scope = PlaybookScope.of(getattr(spec, "playbooks", None))
         if LOAD_TOOL in tool_names:  # the Playbooks this agent may load; nothing at all when there are none
-            if catalog := catalog_block(published_playbooks(self.session, self.group_id)):
+            if catalog := catalog_block(published_playbooks(self.session, self.group_id, scope)):
                 preamble += "\n\n" + catalog
+        if always := always_block(always_playbooks(self.session, self.group_id, scope)):
+            preamble += "\n\n" + always
         roster = ""
         if "run_agent" in tool_names or "suggest_agent" in tool_names:
             specs = list_agents(self.session, self.group_id)
@@ -1960,6 +1988,12 @@ class AIOperationsController(BaseUserController):
         attached = self._attached_assets(body.attachments)
         # Environment facts come first, the agent's own persona after: what "the RAG" means here and which
         # of the bound tools answers which kind of question.
+        if ctx is not None:  # the user's latest message decides which manual-only Playbook they named
+            from dataclasses import replace
+
+            from marvin.services.playbooks import PlaybookScope
+
+            ctx.playbooks = replace(ctx.playbooks or PlaybookScope(), asked=body.message or "")
         system = self._framed(system, *self._system_frame(names, agent_slug))
         user_msg = body.message
         if context_block:
@@ -2733,6 +2767,7 @@ class AIOperationsController(BaseUserController):
         from marvin.services.ai.agent import AgentTool
         from marvin.services.ai.tools import ToolContext, bulk_writes, list_tools
         from marvin.services.ai.tools.categories import category_of
+        from marvin.services.playbooks import PlaybookScope
 
         ctx = ToolContext(
             session=self.session,
@@ -2742,6 +2777,7 @@ class AIOperationsController(BaseUserController):
             logger=self.logger,
             depth=depth,
             source="agent",
+            playbooks=PlaybookScope.of(agent.playbooks) if agent is not None else None,
         )
         role = self._user_role()
         can_park = park_allowed

@@ -44,6 +44,25 @@ def _clean_allowlist(v: list[str] | None) -> list[str] | None:
     return list(dict.fromkeys(x.strip() for x in v if x and x.strip()))
 
 
+class AgentPlaybooks(_MarvinModel):
+    """Which Playbooks an agent may use. `names` null = every published one, a list = only those; `always` = up to three
+    put in full in its system frame (they must be in `names`, published and not manual-only: checked on save)."""
+
+    names: list[str] | None = Field(default=None, max_length=200)
+    always: list[str] = Field(default_factory=list, max_length=3)
+
+    @field_validator("names", "always")
+    @classmethod
+    def _v_names(cls, v):
+        if v is None:
+            return None
+        return list(dict.fromkeys(x.strip().lower() for x in v if x and x.strip()))
+
+    def stored(self) -> dict | None:
+        """As the column keeps it; None when it says nothing (all Playbooks, none always)."""
+        return None if self.names is None and not self.always else {"names": self.names, "always": self.always}
+
+
 class AgentBase(_MarvinModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=500)
@@ -69,6 +88,7 @@ class AgentBase(_MarvinModel):
     persona_prompt: str | None = Field(default=None, max_length=PERSONA_PROMPT_MAX_CHARS)
     bubble_lines: BubbleLines | None = None
     mood: MoodSettings | None = None
+    playbooks: AgentPlaybooks | None = None
 
     @field_validator("default_register")
     @classmethod
@@ -119,6 +139,7 @@ class AgentUpdate(_MarvinModel):
     persona_prompt: str | None = Field(default=None, max_length=PERSONA_PROMPT_MAX_CHARS)
     bubble_lines: BubbleLines | None = None
     mood: MoodSettings | None = None
+    playbooks: AgentPlaybooks | None = None
 
     @field_validator("default_register")
     @classmethod
@@ -192,6 +213,7 @@ class AgentPromptPreview(_MarvinModel):
     tone: TonePreview  # the Character / tone section, as the tone preview shows it
     tone_source: Literal["agent", "workspace"]  # the agent's default tone, or the workspace default
     roster: str = ""  # the agents it may hand off or refer to, when it can
+    playbooks_warning: str | None = None  # the "always load" Playbooks are long (they ride along with every run)
     tool_count: int = 0
     ask_first_count: int = 0  # of those, the ones that pause the run for approval
     tool_categories: list[AgentToolCategory] = Field(default_factory=list)
