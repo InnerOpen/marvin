@@ -32,6 +32,27 @@ logger = get_logger(__name__)
 _MAX_BODY_BYTES = 512 * 1024
 
 
+def _too_large() -> HTTPException:
+    return HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Payload too large.")
+
+
+async def _read_capped(request: Request, limit: int = _MAX_BODY_BYTES) -> bytes:
+    """The body, read a chunk at a time and abandoned as soon as it passes ``limit`` (413), so an oversized POST is
+    never buffered whole (``request.body()`` reads everything first). A declared Content-Length over the limit is
+    refused before reading anything; a missing or false one is caught by the running count."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > limit:
+        raise _too_large()
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > limit:
+            raise _too_large()
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def _check_signature(webhook: WorkspaceIncomingWebhookModel, raw: bytes, request: Request) -> None:
     """When the webhook names a signing secret, the request must carry a valid HMAC — fail closed:
     an unresolvable secret, a missing header or a mismatch all reject with 401."""
@@ -92,9 +113,7 @@ async def receive_hook(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This webhook is disabled.")
 
     # Read the body with a hard size cap, then parse JSON leniently (empty / non-JSON → {}).
-    raw = await request.body()
-    if len(raw) > _MAX_BODY_BYTES:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Payload too large.")
+    raw = await _read_capped(request)
     _check_signature(webhook, raw, request)
     payload: dict = {}
     if raw:
