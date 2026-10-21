@@ -53,8 +53,24 @@ class AutomationRead(_MarvinModel):
     """Read-only: the Workflow Library recipe it was made from, if it was."""
     source_recipe_version: str | None = None
     """Read-only: that recipe's version when it was made (the Library says when the recipe has changed since)."""
+    last_run_at: datetime | None = None
+    """Read-only, on the list only: when its newest run started (null: it has never run)."""
+    last_run_status: str | None = None
+    """Read-only, on the list only: how that run went (running | success | partial | failed | cancelled; null: never run)."""
+    attention: str | None = None
+    """Read-only, on the list only: why it needs a look (last_run_failed | off_while_integration_on; null: it doesn't). A failure an
+    integration's error policy handled doesn't count."""
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AutomationAttention(_MarvinModel):
+    """What in Automation needs a look: a count per kind of item, and where to go first."""
+
+    total: int = 0
+    kinds: dict[str, int] = {}
+    first_page: str | None = None
+    """The list page (filtered to Needs attention) of the first kind with something flagged; null when nothing is."""
 
 
 class AutomationActionOption(_MarvinModel):

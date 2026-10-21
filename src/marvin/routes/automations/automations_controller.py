@@ -18,6 +18,7 @@ from marvin.routes._base.checks import require_workspace_admin
 from marvin.routes._base.controller import controller
 from marvin.schemas.group.automation import (
     AutomationActionOption,
+    AutomationAttention,
     AutomationConditionField,
     AutomationCreate,
     AutomationExecutionDetail,
@@ -203,8 +204,22 @@ class AutomationsController(BaseUserController):
     @router.get("", response_model=list[AutomationRead], summary="List Automations")
     def list_automations(self) -> list[AutomationRead]:
         _require_admin(self.user, self.group_id)
-        rows = self.session.query(WorkspaceAutomationModel).filter_by(group_id=self.group_id).order_by(WorkspaceAutomationModel.name).all()
-        return [AutomationRead.model_validate(r) for r in rows]
+        from marvin.services.automation import attention
+
+        rows = attention.workflow_rows(self.session, self.group_id)
+        return [
+            AutomationRead.model_validate(r).model_copy(update={"last_run_at": at, "last_run_status": status, "attention": reason})
+            for r, at, status, reason in rows
+        ]
+
+    @router.get("/attention", response_model=AutomationAttention, summary="What in Automation needs a look")
+    def attention_summary(self) -> AutomationAttention:
+        """One count per kind of automation item that needs a look, and the first page with something flagged."""
+        _require_admin(self.user, self.group_id)
+        from marvin.services.automation import attention
+
+        counts = attention.summary(self.session, self.group_id)
+        return AutomationAttention(total=counts["total"], kinds=counts["kinds"], first_page=counts["first_page"])
 
     @router.get("/options", response_model=AutomationOptions, summary="Automation builder options")
     def options(self) -> AutomationOptions:

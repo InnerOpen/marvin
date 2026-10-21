@@ -1,0 +1,183 @@
+// The Workflows page's list: how each workflow starts (the Starts filter), its one-line trigger summary, and the
+// adapter that feeds the shared list kit (organizedList.ts). Pure, so `npm test` covers it (workflowList.test.mjs).
+
+import type { Choice, ListAdapter } from "./organizedList.ts";
+import { menuHtml, switchHtml } from "./organizedListHtml.ts";
+import { timeAgo } from "./socialInbox.ts";
+
+/** A workflow as the list API returns it (camelCase), as far as the list needs. */
+export interface WorkflowRow {
+  id: string;
+  name: string;
+  slug?: string;
+  enabled: boolean;
+  sourceRecipe?: string | null;
+  sourceIntegrationId?: string | null;
+  sourceBlueprint?: string | null;
+  /** When its newest run started, and how that run went (running | success | partial | failed | cancelled); null: never run. */
+  lastRunAt?: string | null;
+  lastRunStatus?: string | null;
+  /** Why it needs a look (the server decides): "last_run_failed" | "off_while_integration_on"; null/absent: it doesn't. */
+  attention?: string | null;
+  definition?: any;
+}
+
+export type StartsKind = "event" | "schedule" | "webhook" | "manual";
+
+export const STARTS_OPTIONS: Choice[] = [
+  { value: "event", label: "When something happens" },
+  { value: "schedule", label: "On a schedule" },
+  { value: "webhook", label: "From a webhook" },
+  { value: "manual", label: "By hand" },
+];
+
+/** How a workflow starts. Chained and on-error workflows start when something happens; MCP tools are run by hand. */
+export function triggerKind(wf: WorkflowRow): StartsKind {
+  switch (wf.definition?.trigger?.type) {
+    case "schedule":
+      return "schedule";
+    case "incoming_webhook":
+      return "webhook";
+    case "manual":
+    case "mcp":
+      return "manual";
+    default:
+      return "event";
+  }
+}
+
+export function humanInterval(secs: number): string {
+  if (!secs) return "—";
+  const [n, unit] =
+    secs % 86400 === 0
+      ? [secs / 86400, "day"]
+      : secs % 3600 === 0
+        ? [secs / 3600, "hour"]
+        : [Math.max(1, Math.round(secs / 60)), "minute"];
+  return `${n} ${unit}${n === 1 ? "" : "s"}`;
+}
+
+export const prettyEvent = (event: string): string => event.replace(/_/g, " ");
+
+/** Name lookups a summary needs (the page reads them from the options it loaded). */
+export interface NameLookup {
+  webhookName(ref: string | undefined): string;
+  automationName(ref: string | undefined): string;
+}
+
+/** "run manually", "every 1 day", "entry published", "after Nightly"… */
+export function triggerSummary(wf: WorkflowRow, names: NameLookup): string {
+  const t = wf.definition?.trigger ?? {};
+  switch (t.type) {
+    case "manual":
+      return "run manually";
+    case "mcp":
+      return "MCP tool";
+    case "schedule":
+      return `every ${humanInterval(t.schedule_config?.interval_seconds)}`;
+    case "chained":
+      return `after ${names.automationName(t.automation)}`;
+    case "on_error":
+      return `if ${names.automationName(t.automation)} fails`;
+    case "incoming_webhook":
+      return `${names.webhookName(t.webhook)} received`;
+    default:
+      return prettyEvent(t.event || "—");
+  }
+}
+
+/** The adapter for the shared list kit. `attention` is the server's flag (see attentionReason); the page passes
+ * `statusOptions({ attention: true })` to the filter bar. */
+export function workflowAdapter(names: NameLookup): ListAdapter<WorkflowRow> {
+  return {
+    id: (wf) => wf.id,
+    name: (wf) => wf.name,
+    search: (wf) => [wf.slug ?? "", triggerSummary(wf, names)],
+    source: (wf) => ({
+      integrationId: wf.sourceIntegrationId ?? null,
+      blueprint: wf.sourceBlueprint ?? null,
+      recipe: wf.sourceRecipe ?? null,
+    }),
+    enabled: (wf) => wf.enabled,
+    attention: (wf) => !!wf.attention,
+    facets: { starts: triggerKind },
+  };
+}
+
+const esc = (s: unknown): string =>
+  String(s ?? "").replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string,
+  );
+
+const RUN_OUTCOMES: Record<string, string> = {
+  success: "succeeded",
+  partial: "partly failed",
+  failed: "failed",
+  running: "running",
+  cancelled: "cancelled",
+};
+
+/** Whether a workflow's last run went wrong (failed, or only partly worked) — the card marks it, and Needs attention can use it. */
+export function lastRunFailed(wf: WorkflowRow): boolean {
+  return wf.lastRunStatus === "failed" || wf.lastRunStatus === "partial";
+}
+
+const ATTENTION_REASONS: Record<string, string> = {
+  last_run_failed: "The last run failed",
+  off_while_integration_on: "Off, but its integration is on",
+};
+
+/** The reason a flagged workflow needs a look, in words ("" when it doesn't). */
+export function attentionReason(wf: WorkflowRow): string {
+  return wf.attention ? (ATTENTION_REASONS[wf.attention] ?? "Needs a look") : "";
+}
+
+/** The small "Needs a look" marker with its reason (empty when the workflow is fine). */
+export function attentionHtml(wf: WorkflowRow): string {
+  const why = attentionReason(wf);
+  return why ? `<div class="wf-attention" title="${esc(why)}"><strong>Needs a look</strong> · ${esc(why)}</div>` : "";
+}
+
+/** "Last run 2 h ago · failed" (failed ones marked), or "Not run yet". */
+export function lastRunHtml(wf: WorkflowRow, now: Date = new Date()): string {
+  const when = timeAgo(wf.lastRunAt, now);
+  if (!when || !wf.lastRunStatus) return '<div class="wf-last none">Not run yet</div>';
+  const outcome = RUN_OUTCOMES[wf.lastRunStatus] ?? wf.lastRunStatus;
+  return `<div class="wf-last${lastRunFailed(wf) ? " failed" : ""}">Last run ${esc(when)} · ${esc(outcome)}</div>`;
+}
+
+/** One compact workflow card: name, one-line trigger, On/Off switch, Run and Edit, the rest under ⋯. The page
+ * attaches the handlers by class (js-run, js-edit, js-toggle, js-dryrun, js-history, js-copy, js-delete) and fills
+ * `.wf-history`. `details` is the When / If / Then flow, tucked under "Steps". */
+export function workflowCardHtml(
+  wf: WorkflowRow,
+  options: { summary: string; details: string; linked: boolean; now?: Date },
+): string {
+  return `<article class="org-card wf-card${wf.enabled ? "" : " off"}${options.linked ? " linked" : ""}" data-id="${esc(wf.id)}">
+    <div class="org-card-main">
+      <div class="org-card-title"><strong>${esc(wf.name)}</strong></div>
+      <div class="org-card-sub">${wf.enabled ? "" : "Off · "}${esc(options.summary)}</div>
+      ${attentionHtml(wf)}
+      ${lastRunHtml(wf, options.now)}
+      <details class="wf-steps"><summary>Steps</summary>${options.details}</details>
+      <div class="wf-history" hidden></div>
+    </div>
+    <div class="org-card-actions">
+      ${switchHtml({ on: wf.enabled, cls: "js-toggle", label: wf.name })}
+      <button type="button" class="org-btn primary js-run"${wf.enabled ? "" : ' disabled title="Switch the workflow on to run it"'}>Run</button>
+      <button type="button" class="org-btn js-edit">Edit</button>
+      ${menuHtml([
+        { cls: "js-dryrun", label: "Dry run", title: "Preview the plan — resolve inputs, execute nothing" },
+        { cls: "js-history", label: "Runs" },
+        {
+          cls: "js-copy",
+          label: "Copy JSON",
+          title:
+            "Copy the name, slug and definition as JSON — paste it into New workflow → Edit as JSON, here or in another workspace",
+        },
+        { cls: "js-delete", label: "Delete", danger: true },
+      ])}
+    </div>
+  </article>`;
+}

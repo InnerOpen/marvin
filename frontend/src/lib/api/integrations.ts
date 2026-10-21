@@ -17,6 +17,7 @@ import type {
 import type { InputOption } from "../integrationOptions";
 import type { ErrorOverrides, ErrorPolicyInfo, PolicyHandle } from "../integrationPolicy";
 import { createSdkClient } from "../sdk";
+import type { IntegrationFootprint } from "../integrationFootprint";
 import { fetchApi } from "./client";
 
 export type {
@@ -105,6 +106,11 @@ export async function updateIntegration(id: string, data: IntegrationUpdate, aut
 
 export async function deleteIntegration(id: string, authToken?: string): Promise<void> {
   return createSdkClient(authToken).integrations.delete(id);
+}
+
+/** What this integration's blueprints installed here (EDITOR+). */
+export async function getIntegrationFootprint(id: string, authToken?: string): Promise<IntegrationFootprint> {
+  return fetchApi(`/api/groups/integrations/${encodeURIComponent(id)}/footprint`, {}, authToken);
 }
 
 export async function checkIntegration(id: string, authToken?: string): Promise<IntegrationCheckResult> {

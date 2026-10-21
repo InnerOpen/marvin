@@ -2,9 +2,14 @@
 import RecipeDialog from "@/components/RecipeDialog.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
-import { listIntegrations } from "@/lib/api/integrations";
-import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import FilterBar from "@/components/FilterBar.astro";
+import OrganizedSections from "@/components/OrganizedSections.astro";
+import { listIntegrations, listProviders } from "@/lib/api/integrations";
+import { getCurrentWorkspace, listWorkspaces } from "@/lib/api/workspaces";
+import { canManageWorkspace } from "@/lib/workspaceRole";
+import { fromOptions, type Integrations, statusOptions } from "@/lib/organizedList";
 import { createSdkClient } from "@/lib/sdk";
+import { STARTS_OPTIONS, workflowAdapter } from "@/lib/workflowList";
 
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
@@ -12,20 +17,40 @@ const sdk = createSdkClient(authToken);
 let workspace: any = null;
 let automations: any[] = [];
 let options: any = { triggers: [], conditionOps: [], actionKinds: [], operations: [] };
-let integrationNames: Record<string, string> = {};
+let integrationInfo: Integrations = {};
 let error: string | null = null;
+// "Delete all of these" (From a removed integration) is ADMIN only; the API refuses anyone else.
+let canManage = false;
+try {
+  canManage = canManageWorkspace(await listWorkspaces(authToken), (await sdk.user.getProfile()) as any);
+} catch {
+  // unknown role: no button
+}
 
 try {
   workspace = await getCurrentWorkspace(authToken);
   if (workspace) {
-    let integrations: any[] = [];
-    [automations, options, integrations] = await Promise.all([
+    let integrations: any[] | null = [];
+    let providers: any[] = [];
+    [automations, options, integrations, providers] = await Promise.all([
       sdk.automations.list(),
       sdk.automations.options(),
-      // Names for the "Installed by" badge; without them the badge just says "an integration".
-      listIntegrations(authToken).catch(() => []),
+      // The sections' names and logos. If the integrations can't be read, their workflows still group (below)
+      // rather than all reading as "From a removed integration".
+      listIntegrations(authToken).catch((e) => (console.error("[workflows] integrations:", e), null)),
+      listProviders(authToken).catch(() => []),
     ]);
-    integrationNames = Object.fromEntries((integrations ?? []).map((i: any) => [i.id, i.name]));
+    const byProvider = new Map((providers ?? []).map((p: any) => [p.slug, p]));
+    integrationInfo = integrations
+      ? Object.fromEntries(
+          integrations.map((i: any) => {
+            const provider: any = byProvider.get(i.provider);
+            return [i.id, { name: i.name, slug: i.provider, icon: provider?.icon, hasLogo: provider?.hasLogo }];
+          }),
+        )
+      : Object.fromEntries(
+          automations.filter((w: any) => w.sourceIntegrationId).map((w: any) => [w.sourceIntegrationId, { name: "an integration" }]),
+        );
   }
 } catch (e) {
   console.error("[workflows] Error loading:", e);
@@ -35,7 +60,9 @@ try {
 // Serialize server data for the client script (read via JSON.parse, so the module script can import).
 const optionsJson = JSON.stringify(options).replace(/</g, "\\u003c");
 const listJson = JSON.stringify(automations).replace(/</g, "\\u003c");
-const integrationNamesJson = JSON.stringify(integrationNames).replace(/</g, "\\u003c");
+const integrationNamesJson = JSON.stringify(integrationInfo).replace(/</g, "\\u003c");
+// The filter bar's choices (the page script reads the same selects back): From only offers the sections that exist.
+const fromChoices = fromOptions(automations, workflowAdapter({ webhookName: (r) => r ?? "", automationName: (r) => r ?? "" }), integrationInfo);
 const aiActionsAvailable = (options.operations ?? []).length > 0;
 ---
 
@@ -239,13 +266,24 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       </div>
     </section>
 
-    <!-- Workflow list -->
-    <div id="wf-list" class="wf-list"></div>
-    <div id="wf-empty" class="empty" hidden>No workflows yet. Create one to automate a repetitive step.</div>
+    <!-- Workflow list: the shared list kit (lib/organizedList.ts) -->
+    {automations.length > 0 && (
+      <FilterBar
+        searchPlaceholder="Search workflows…"
+        searchId="wf-search"
+        filters={[
+          { id: "wf-f-from", label: "sources", options: fromChoices },
+          { id: "wf-f-status", label: "statuses", options: statusOptions({ attention: true }) },
+          { id: "wf-f-starts", label: "starts", options: STARTS_OPTIONS },
+        ]}
+      />
+    )}
+    <OrganizedSections id="wf" noun="workflow" emptyAll="No workflows yet. Create one to automate a repetitive step." />
   </div>
 
   <script type="application/json" id="wf-options-data" is:inline set:html={optionsJson}></script>
   <script type="application/json" id="wf-list-data" is:inline set:html={listJson}></script>
+  <script type="application/json" id="wf-can-manage" is:inline set:html={JSON.stringify(canManage)}></script>
   <script type="application/json" id="wf-integration-names" is:inline set:html={integrationNamesJson}></script>
   <RecipeDialog />
  </div>
@@ -278,11 +316,13 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   import { triggerableEvents, triggerFromQuery } from "@/lib/eventConnections";
   import { describeSaveError } from "@/lib/saveError";
   import { definitionDifferences, freeSlug, parseWorkflowJson, workflowDocument } from "@/lib/workflowJson";
+  import { mountOrganizedList } from "@/lib/organizedListView";
+  import { humanInterval, prettyEvent, triggerSummary, workflowAdapter, workflowCardHtml } from "@/lib/workflowList";
 
   const read = (id: string) => JSON.parse(document.getElementById(id)!.textContent || "null");
   const OPTIONS = read("wf-options-data") || { triggers: [], conditionOps: [], actionKinds: [], operations: [] };
   let workflows: any[] = read("wf-list-data") || [];
-  const INTEGRATION_NAMES: Record<string, string> = read("wf-integration-names") || {};
+  const INTEGRATIONS: Record<string, { name: string; slug?: string; icon?: string; hasLogo?: boolean }> = read("wf-integration-names") || {};
 
   const $ = (id: string) => document.getElementById(id)!;
   const esc = (s: unknown) =>
@@ -307,7 +347,6 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   function clearError() { $("wf-error").setAttribute("hidden", ""); }
 
   // ── Option-driven controls ────────────────────────────────────────────────
-  const prettyEvent = (e: string) => e.replace(/_/g, " ");
   const TRIGGER_TYPE_LABELS: Record<string, string> = WORKFLOW_LABELS.triggerTypes;
   function webhookName(ref: string | undefined): string {
     if (!ref || ref === "any") return "any incoming webhook";
@@ -319,14 +358,6 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     const a = (OPTIONS.automations || []).find((x: any) => x.slug === ref || x.id === ref);
     return a ? a.name : ref;
   }
-  function humanInterval(secs: number): string {
-    if (!secs) return "—";
-    const [n, unit] = secs % 86400 === 0 ? [secs / 86400, "day"]
-      : secs % 3600 === 0 ? [secs / 3600, "hour"]
-      : [Math.max(1, Math.round(secs / 60)), "minute"];
-    return `${n} ${unit}${n === 1 ? "" : "s"}`;
-  }
-
   function fillTriggers() {
     const typeSel = $("wf-trigger-type") as HTMLSelectElement;
     typeSel.innerHTML = (OPTIONS.triggerTypes || ["event"])
@@ -2147,14 +2178,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       (c: any) => `<span class="chip cond">${esc(c.field)} <em>${esc(OP_SYMBOL[c.op] || c.op)}</em> ${esc(c.value ?? "")}</span>`,
     );
     const steps = (d.actions || []).map(stepChip);
-    const t = d.trigger || {};
-    const trigText = t.type === "manual" ? "run manually"
-      : t.type === "mcp" ? "MCP tool"
-      : t.type === "schedule" ? `every ${humanInterval(t.schedule_config?.interval_seconds)}`
-      : t.type === "chained" ? `after ${automationName(t.automation)}`
-      : t.type === "on_error" ? `if ${automationName(t.automation)} fails`
-      : t.type === "incoming_webhook" ? `${webhookName(t.webhook)} received`
-      : prettyEvent(t.event || "—");
+    const trigText = triggerSummary(wf, NAMES);
     const trigChip = `<span class="chip trigger">${esc(trigText)}</span>`;
     const onChips = d.target ? [`<span class="chip target">${esc(targetSummary(d.target))}</span>`] : [];
     return `<div class="flow">
@@ -2392,41 +2416,34 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     }
   }
 
-  function renderList() {
-    const host = $("wf-list");
-    $("wf-empty").toggleAttribute("hidden", workflows.length > 0);
-    host.innerHTML = workflows.map((wf) => `
-      <div class="wf-card ${wf.enabled ? "" : "off"}" data-id="${esc(wf.id)}">
-        <div class="wf-main">
-          <div class="wf-title">
-            <strong>${esc(wf.name)}</strong>
-            <span class="badge ${wf.enabled ? "on" : "muted"}">${wf.enabled ? "Enabled" : "Disabled"}</span>
-          </div>
-          ${summarize(wf)}
-          <div class="wf-history" hidden></div>
-        </div>
-        <div class="wf-actions">
-          <button class="wf-btn primary js-run" ${wf.enabled ? "" : "disabled title=\"Enable the workflow to run it\""}>Run</button>
-          <button class="wf-btn js-dryrun" title="Preview the plan — resolve inputs, execute nothing">Dry run</button>
-          <button class="wf-btn js-history">Runs</button>
-          <button class="wf-btn js-toggle">${wf.enabled ? "Disable" : "Enable"}</button>
-          <button class="wf-btn js-edit">Edit</button>
-          <button class="wf-btn js-copy" title="Copy the name, slug and definition as JSON — paste it into New workflow → Edit as JSON, here or in another workspace">Copy JSON</button>
-          <button class="wf-btn danger js-delete">Delete</button>
-        </div>
-      </div>`).join("");
+  const NAMES = { webhookName, automationName };
+  const linkedWorkflow = new URLSearchParams(location.search).get("workflow");
+  const list = mountOrganizedList<any>({
+    host: $("wf-list"),
+    emptyFiltered: $("wf-empty"),
+    emptyAll: $("wf-none"),
+    search: document.getElementById("wf-search") as HTMLInputElement | null,
+    selects: {
+      from: document.getElementById("wf-f-from") as HTMLSelectElement | null,
+      status: document.getElementById("wf-f-status") as HTMLSelectElement | null,
+      starts: document.getElementById("wf-f-starts") as HTMLSelectElement | null,
+    },
+    items: () => workflows,
+    adapter: workflowAdapter(NAMES),
+    integrations: INTEGRATIONS,
+    noun: "workflow",
+    storageKey: "marvin.automation.workflows.filters",
+    linkedId: linkedWorkflow,
+    renderItem: (wf, { linked }) => workflowCardHtml(wf, { summary: triggerSummary(wf, NAMES), details: summarize(wf), linked }),
+    removedDelete: { kind: "workflows", canDelete: read("wf-can-manage") === true },
+    afterRender: attachCardHandlers,
+  });
+  const renderList = () => list.refresh();
 
+  function attachCardHandlers(host: HTMLElement) {
     host.querySelectorAll(".wf-card").forEach((card) => {
       const id = (card as HTMLElement).dataset.id!;
       const wf = workflows.find((w) => w.id === id);
-      // Made by an integration's blueprint: say which (text only — the name is the server's).
-      if (wf?.sourceIntegrationId) {
-        const badge = document.createElement("span");
-        badge.className = "badge installed";
-        badge.textContent = `Installed by ${INTEGRATION_NAMES[wf.sourceIntegrationId] ?? "an integration"}`;
-        if (wf.sourceBlueprint) badge.title = `Blueprint: ${wf.sourceBlueprint}`;
-        card.querySelector(".wf-title")?.append(badge);
-      }
       card.querySelector(".js-run")!.addEventListener("click", async (e) => {
         const btn = e.currentTarget as HTMLButtonElement;
         const asks = wf.definition?.trigger?.type === "manual" ? wf.definition.trigger.inputs ?? [] : [];
@@ -2758,25 +2775,14 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.linkish.danger:hover) { background: color-mix(in srgb, var(--color-error) 12%, transparent); }
 
   /* Workflow cards */
-  .workflows-page :global(.wf-list) { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
-  .workflows-page :global(.wf-card) { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; background: var(--bg); transition: border-color 0.15s, box-shadow 0.15s; }
-  .workflows-page :global(.wf-card:hover) { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); box-shadow: 0 2px 12px rgb(0 0 0 / 0.05); }
-  .workflows-page :global(.wf-card.off) { opacity: 0.6; }
-  .workflows-page :global(.wf-card.linked) { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
-  .workflows-page :global(.wf-main) { flex: 1; min-width: 0; }
-  .workflows-page :global(.wf-title) { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-bottom: 12px; }
-  .workflows-page :global(.wf-title strong) { font-size: 15px; }
-  .workflows-page :global(.wf-actions) { display: flex; flex-direction: row; align-items: center; gap: 6px; flex: none; }
-  .workflows-page :global(.wf-btn) { font-size: 12px; padding: 5px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--muted); cursor: pointer; font-weight: 500; transition: color 0.12s, border-color 0.12s, background 0.12s; }
-  .workflows-page :global(.wf-btn:hover) { color: var(--ink); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
-  .workflows-page :global(.wf-btn.primary) { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); font-weight: 600; }
-  .workflows-page :global(.wf-btn.primary:hover) { background: color-mix(in srgb, var(--accent) 12%, transparent); }
-  .workflows-page :global(.wf-btn:disabled) { opacity: 0.55; cursor: default; }
-  .workflows-page :global(.wf-btn.danger:hover) { color: var(--color-error); border-color: color-mix(in srgb, var(--color-error) 45%, var(--line)); background: color-mix(in srgb, var(--color-error) 8%, transparent); }
-  .workflows-page :global(.badge) { font-size: 10.5px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); }
-  .workflows-page :global(.badge.on) { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); border-color: transparent; }
-  .workflows-page :global(.badge.muted) { color: var(--muted); }
-  .workflows-page :global(.badge.installed) { text-transform: none; letter-spacing: 0; color: var(--muted); }
+  /* The cards, sections, switch and ⋯ menu come from components/OrganizedSections.astro. */
+  .workflows-page :global(.wf-steps) { margin-top: 6px; }
+  .workflows-page :global(.wf-steps summary) { cursor: pointer; font-size: 12px; color: var(--accent); width: fit-content; }
+  .workflows-page :global(.wf-attention) { margin-top: 2px; font-size: 12px; color: var(--color-error); }
+  .workflows-page :global(.wf-last) { margin-top: 2px; font-size: 12px; color: var(--muted); }
+  .workflows-page :global(.wf-last.failed) { color: var(--color-error); font-weight: 600; }
+  .workflows-page :global(.wf-steps .flow) { margin-top: 8px; }
+  .workflows-page :global(.org-card .wf-history) { margin-top: 10px; }
 
   /* When / If / Then lanes */
   .workflows-page :global(.flow) { display: flex; flex-direction: column; gap: 7px; }
@@ -2794,12 +2800,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.chip.k-handler) { background: color-mix(in srgb, #22c55e 14%, transparent); }
   .workflows-page :global(.chip.k-entry) { background: color-mix(in srgb, #f59e0b 16%, transparent); }
 
-  .workflows-page :global(.empty) { color: var(--muted); text-align: center; padding: 40px; border: 1px dashed var(--line); border-radius: 14px; margin-top: 8px; }
-
   @media (max-width: 640px) {
     .workflows-page :global(.cond-row) { grid-template-columns: 1fr 1fr; }
-    .workflows-page :global(.wf-card) { flex-direction: column; }
-    .workflows-page :global(.wf-actions) { flex-direction: row; flex-wrap: wrap; align-items: flex-start; }
     .workflows-page :global(.lane) { flex-direction: column; gap: 3px; }
     .workflows-page :global(.lane-label) { text-align: left; }
   }

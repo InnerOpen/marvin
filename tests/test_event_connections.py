@@ -656,6 +656,14 @@ def test_incoming_webhooks_that_start_a_sending_workflow_send_it(db_session, wor
     assert sorted(s.name for s in direct) == ["Host deploys", "Other"]
 
 
+def test_the_summary_names_the_kinds_of_sender_for_each_type(db_session, world):
+    incoming(db_session, world.a, "Host deploys", "deploys")
+    workflow(db_session, world.a, "Manual notice", {"type": "manual"}, actions=[EMIT])
+    workflow(db_session, world.a, "Hooked notice", {"type": "incoming_webhook", "webhook": "deploys"}, actions=[EMIT])
+    rows = {r.event_type: r for r in connections.summary(db_session, world.a)}
+    assert rows["site_deployment_completed"].sender_kinds == ["incoming_webhook", "marvin", "workflow"]
+
+
 def test_scheduled_tasks_whose_type_sends_it(db_session, world):
     from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
 
@@ -921,6 +929,7 @@ def test_summary_equals_detail_for_every_catalog_type(db_session, world):
             sum(r.enabled for r in data),
             len(reactions) - len(data),
         ), event_type
+        assert row.sender_kinds == sorted({s.kind for s in connections.senders(db_session, world.a, event_type)}), event_type
     assert rows["entry_published"].reactions >= 4 and rows["entry_published"].last_occurred_at is not None
     assert rows["entry_updated"].last_occurred_at is None  # B's event
 
@@ -962,7 +971,17 @@ def test_workspace_admins_read_both(db_session, world, role):
     res = client.get(f"{WS}/connections")
     assert res.status_code == 200, res.text
     row = next(r for r in res.json() if r["eventType"] == "entry_published")
-    assert set(row) == {"eventType", "name", "category", "senders", "reactions", "activeReactions", "builtinReactions", "lastOccurredAt"}
+    assert set(row) == {
+        "eventType",
+        "name",
+        "category",
+        "senders",
+        "senderKinds",
+        "reactions",
+        "activeReactions",
+        "builtinReactions",
+        "lastOccurredAt",
+    }
     assert (row["name"], row["category"]) == ("Entry Published", "Content")
 
     res = client.get(f"{WS}/entry_published/connections", params={"limit": 1})
