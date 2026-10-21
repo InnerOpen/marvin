@@ -60,3 +60,12 @@ export function importPlaybook(file: File, name?: string) {
   if (name) body.append("name", name);
   return fetchApi<PlaybookImported>(`${BASE}/import`, { method: "POST", body });
 }
+
+/** Import a skill from a public GitHub link as a draft Playbook (EDITOR+): the link is pinned to the commit it names now. */
+export function importPlaybookFromGithub(url: string, name?: string) {
+  return fetchApi<PlaybookImported>(`${BASE}/import-github`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(name ? { url, name } : { url }),
+  });
+}

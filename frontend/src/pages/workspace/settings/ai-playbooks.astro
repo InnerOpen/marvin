@@ -6,7 +6,7 @@
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { listPlaybooks, type PlaybookList } from "@/lib/api/playbooks";
-import { IMPORT_PATH_ACCEPT } from "@/lib/playbookReview";
+import { GITHUB_IMPORT_PLACEHOLDER, IMPORT_PATH_ACCEPT } from "@/lib/playbookReview";
 import { EMPTY_NOTICE, listSummary, NEW_PLAYBOOK_PATH, playbookRow, sortedItems } from "@/lib/playbooks";
 import { isForbidden } from "@/lib/workspaceRole";
 
@@ -38,6 +38,19 @@ const rows = items.map((item) => playbookRow(item));
       </div>
     )}
   </div>
+
+  {!error && (
+    <form class="pb-github" id="pb-github-form" autocomplete="off">
+      <input
+        type="url"
+        id="pb-github-url"
+        placeholder={GITHUB_IMPORT_PLACEHOLDER}
+        aria-label="GitHub link to a skill folder or SKILL.md"
+        title="A public github.com link to a skill folder or its SKILL.md"
+      />
+      <button type="submit" class="button secondary" id="pb-github-go">Import from GitHub</button>
+    </form>
+  )}
 
   <p class="pb-import-msg" id="pb-import-msg" role="status" hidden></p>
   {error && <div class="alert"><strong>Couldn't load your Playbooks.</strong> {error}</div>}
@@ -76,6 +89,9 @@ const rows = items.map((item) => playbookRow(item));
 
 <style>
   .pb-head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pb-github { display: flex; gap: 8px; margin: 0 0 12px; max-width: 720px; }
+  .pb-github input { flex: 1; min-width: 0; }
+  @media (max-width: 720px) { .pb-github { flex-direction: column; } }
   .pb-import-msg { margin: 0 0 12px; font-size: 14px; padding: 8px 12px; border-radius: var(--radius); border: 1px solid var(--line); }
   .pb-import-msg.error { color: var(--bad, #b91c1c); border-color: var(--bad, #b91c1c); }
   .pb-summary { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
@@ -97,8 +113,8 @@ const rows = items.map((item) => playbookRow(item));
 </style>
 
 <script>
-  import { importPlaybook } from "@/lib/api/playbooks";
-  import { importError } from "@/lib/playbookReview";
+  import { importPlaybook, importPlaybookFromGithub } from "@/lib/api/playbooks";
+  import { githubLink, importError } from "@/lib/playbookReview";
   import { editorPath } from "@/lib/playbooks";
 
   const button = document.getElementById("pb-import") as HTMLButtonElement | null;
@@ -110,6 +126,24 @@ const rows = items.map((item) => playbookRow(item));
     message.hidden = !text;
     message.classList.toggle("error", error);
   };
+
+  const githubForm = document.getElementById("pb-github-form") as HTMLFormElement | null;
+  const githubUrl = document.getElementById("pb-github-url") as HTMLInputElement | null;
+  const githubGo = document.getElementById("pb-github-go") as HTMLButtonElement | null;
+  githubForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const link = githubLink(githubUrl?.value ?? "");
+    if (!link) return say("Paste a GitHub link to a skill folder or a SKILL.md file.", true);
+    githubGo!.disabled = true;
+    say("Fetching from GitHub…");
+    try {
+      const made = await importPlaybookFromGithub(link);
+      location.assign(`${editorPath(made.id)}?imported=1`);
+    } catch (e) {
+      say(importError(e), true);
+      githubGo!.disabled = false;
+    }
+  });
 
   button?.addEventListener("click", () => input?.click());
   input?.addEventListener("change", async () => {
