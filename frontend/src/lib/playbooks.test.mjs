@@ -10,6 +10,7 @@ import {
   EMPTY_FORM,
   editorPath,
   entryPayload,
+  exportFilename,
   formFromEntry,
   isValid,
   lengthWarning,
@@ -205,5 +206,15 @@ describe("used recently", () => {
 
   test("the empty note explains itself", () => {
     assert.match(NO_USES_NOTE, /Not used lately/);
+  });
+});
+
+describe("exportFilename", () => {
+  test("reads the name the server gave the zip", () => {
+    assert.equal(exportFilename('attachment; filename="tidy-notes.zip"', "x"), "tidy-notes.zip");
+  });
+  test("falls back to the Playbook's name when there is no header", () => {
+    assert.equal(exportFilename(null, "tidy-notes"), "tidy-notes.zip");
+    assert.equal(exportFilename("attachment", "tidy-notes"), "tidy-notes.zip");
   });
 });

@@ -32,6 +32,8 @@ _NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 _FENCE = re.compile(r"^---[ \t]*$", re.MULTILINE)
 _KNOWN = ("name", "description", "license", "compatibility", "allowed-tools", "allowed_tools", "disable-model-invocation")
 _TRUE = {"true", "yes", "on", "1"}
+MARVIN_PREFIX = "marvin-"
+MARVIN_MANUAL_ONLY = "marvin-manual-only"
 
 
 class SkillFormatError(ValueError):
@@ -175,6 +177,8 @@ def parse_skill_md(text: str) -> SkillDoc:
     if len(compatibility) > COMPATIBILITY_MAX:
         raise SkillFormatError(f"The compatibility note is at most {COMPATIBILITY_MAX} characters.")
 
+    extra = {k: v for k, v in front.items() if k not in _KNOWN}
+    marvin = _take_marvin_settings(extra)
     manual = front.get("disable-model-invocation")
     body = rest.strip("\n")
     return SkillDoc(
@@ -184,9 +188,24 @@ def parse_skill_md(text: str) -> SkillDoc:
         license=_text(front, "license"),
         compatibility=compatibility,
         allowed_tools=_tools(front.get("allowed-tools", front.get("allowed_tools"))),
-        manual_only=manual is True or str(manual).strip().lower() in _TRUE,
-        extra={k: v for k, v in front.items() if k not in _KNOWN},
+        manual_only=any(str(v).strip().lower() in _TRUE for v in (manual, marvin.get(MARVIN_MANUAL_ONLY))),
+        extra=extra,
     )
+
+
+def _take_marvin_settings(extra: dict) -> dict:
+    """Remove Marvin's own keys from ``extra["metadata"]`` (they are Playbook fields, not another tool's keys) and return them.
+    Other tools' metadata stays; an emptied ``metadata`` goes."""
+    metadata = extra.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    marvin = {k: v for k, v in metadata.items() if str(k).startswith(MARVIN_PREFIX)}
+    rest = {k: v for k, v in metadata.items() if k not in marvin}
+    if rest:
+        extra["metadata"] = rest
+    elif marvin:
+        del extra["metadata"]
+    return marvin
 
 
 def render_skill_md(doc: SkillDoc) -> str:
@@ -201,6 +220,9 @@ def render_skill_md(doc: SkillDoc) -> str:
     if doc.manual_only:
         head["disable-model-invocation"] = True
     head.update({k: v for k, v in doc.extra.items() if k not in head})
+    if doc.manual_only and isinstance(head.get("metadata", {}), dict):
+        # Marvin's own settings: the standard's free-form `metadata` map (string keys and values), under keys other tools skip.
+        head["metadata"] = {**head.get("metadata", {}), MARVIN_MANUAL_ONLY: "true"}
     dumped = yaml.safe_dump(head, sort_keys=False, allow_unicode=True, width=10**6, default_flow_style=False)
     body = doc.body.strip("\n")
     return f"---\n{dumped}---\n" + (f"\n{body}\n" if body.strip() else "")

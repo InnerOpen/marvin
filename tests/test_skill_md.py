@@ -131,7 +131,16 @@ def test_writing_uses_the_standard_key_names_in_a_stable_order():
     doc = parse_skill_md("---\nname: a\ndescription: d\nallowed-tools: x y\ndisable-model-invocation: true\nlicense: MIT\nowner: me\n---\nBody\n")
     out = render_skill_md(doc)
     head = out.split("---\n")[1]
-    assert head.splitlines() == ["name: a", "description: d", "license: MIT", "allowed-tools: x y", "disable-model-invocation: true", "owner: me"]
+    assert head.splitlines() == [
+        "name: a",
+        "description: d",
+        "license: MIT",
+        "allowed-tools: x y",
+        "disable-model-invocation: true",
+        "owner: me",
+        "metadata:",
+        "  marvin-manual-only: 'true'",
+    ]
     assert out.endswith("---\n\nBody\n")
 
 
@@ -152,3 +161,41 @@ def test_an_entry_converts_to_a_document_and_back():
     doc = SkillDoc.from_entry_data(data, extra={"owner": "me"})
     assert doc.manual_only and doc.extra == {"owner": "me"}
     assert doc.to_entry_data() == {**data, "compatibility": ""}
+
+
+# ── Playbooks 10: Marvin-only settings live under `metadata` (string keys prefixed "marvin-") ───────────────────────
+
+
+def test_marvin_settings_are_written_under_metadata_as_strings():
+    import yaml
+
+    from marvin.services.playbooks.skill_md import SkillDoc
+
+    text = render_skill_md(SkillDoc(name="a", description="d", manual_only=True))
+    front = yaml.safe_load(text.split("---")[1])
+    assert front["metadata"] == {"marvin-manual-only": "true"}  # the standard's metadata is a string-to-string map
+    assert front["disable-model-invocation"] is True  # Claude Code's own key still says it
+
+
+def test_no_marvin_section_when_there_are_no_marvin_settings():
+    from marvin.services.playbooks.skill_md import SkillDoc
+
+    assert "metadata" not in render_skill_md(SkillDoc(name="a", description="d"))
+
+
+def test_marvin_settings_are_read_back_and_kept_out_of_extra():
+    doc = parse_skill_md("---\nname: a\ndescription: d\nmetadata:\n  marvin-manual-only: 'true'\n  author: me\n---\nB")
+    assert doc.manual_only is True
+    assert doc.extra == {"metadata": {"author": "me"}}  # another tool's metadata is kept, Marvin's is a field
+
+
+def test_a_marvin_only_flag_alone_sets_manual_only_and_leaves_no_extra():
+    doc = parse_skill_md("---\nname: a\ndescription: d\nmetadata:\n  marvin-manual-only: 'true'\n---\nB")
+    assert doc.manual_only and doc.extra == {}
+
+
+def test_other_tools_metadata_survives_next_to_the_marvin_section():
+    from marvin.services.playbooks.skill_md import SkillDoc
+
+    doc = SkillDoc(name="a", description="d", manual_only=True, extra={"metadata": {"author": "me"}})
+    assert parse_skill_md(render_skill_md(doc)) == doc

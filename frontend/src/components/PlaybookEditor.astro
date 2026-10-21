@@ -79,6 +79,7 @@ const warning = lengthWarning(form.body);
     {actions.map((a) => (
       <button type="button" class:list={["button", a.primary ? "" : "secondary"]} data-action={a.key}>{a.label}</button>
     ))}
+    {!isNew && <button type="button" class="button secondary" data-action="export" title="Download the saved Playbook as a standard skill folder (zip)">Export</button>}
     {!isNew && <button type="button" class="button secondary pb-trash" data-action="trash">Move to Trash</button>}
     <span class="save-status" id="pb-status" role="status"></span>
   </div>
@@ -111,7 +112,7 @@ const warning = lengthWarning(form.body);
 
 <script>
   import { describeSaveError } from "@/lib/saveError";
-  import { createPlaybook, ensurePlaybookType, trashPlaybook, updatePlaybook } from "@/lib/api/playbooks";
+  import { createPlaybook, ensurePlaybookType, exportPlaybook, trashPlaybook, updatePlaybook } from "@/lib/api/playbooks";
   import { bodyLines, editorPath, entryPayload, isValid, lengthWarning, PLAYBOOKS_PATH, validate, type PlaybookForm } from "@/lib/playbooks";
 
   const formEl = document.getElementById("playbook-form") as HTMLFormElement;
@@ -192,10 +193,19 @@ const warning = lengthWarning(form.body);
     }
   }
 
+  async function download() {
+    try {
+      await exportPlaybook(id, read().name);
+    } catch (e) {
+      say(e instanceof Error ? e.message : "The export failed.", "error");
+    }
+  }
+
   formEl.querySelectorAll<HTMLButtonElement>("[data-action]").forEach((button) => {
     button.addEventListener("click", () => {
       const action = button.dataset.action;
       if (action === "trash") void trash();
+      else if (action === "export") void download();
       else void save(action as "save" | "publish" | "unpublish");
     });
   });

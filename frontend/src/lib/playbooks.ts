@@ -246,3 +246,9 @@ export function actionsFor(
   if (status === "published") return [{ key: "save", label: "Save", primary: true }, { key: "unpublish", label: "Unpublish", primary: false }];
   return [{ key: "save", label: "Save draft", primary: false }, { key: "publish", label: "Publish", primary: true }];
 }
+
+/** The file name for an exported Playbook: the one in the response's Content-Disposition, else `<name>.zip`. */
+export function exportFilename(contentDisposition: string | null, name: string): string {
+  const found = /filename="([^"]+)"/.exec(contentDisposition ?? "");
+  return found ? found[1] : `${name}.zip`;
+}

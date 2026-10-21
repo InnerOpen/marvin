@@ -6,7 +6,7 @@ Playbook's status (internal entries are kept out of the entries list), and makin
 (reading never creates it). EDITOR and above.
 """
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
 from pydantic import UUID4
 
 from marvin.db.models.groups.ai_threads import AIThreadModel
@@ -17,7 +17,7 @@ from marvin.schemas.group.playbooks import PlaybookImported, PlaybookItem, Playb
 from marvin.services import playbooks
 from marvin.services.assets.asset_storage_service import AssetStorageService
 from marvin.services.entries.entry_service import EntryService
-from marvin.services.playbooks import importer
+from marvin.services.playbooks import exporter, importer
 from marvin.services.playbooks.memory import recent_uses
 
 router = APIRouter(prefix="/groups/playbooks")
@@ -68,6 +68,22 @@ class PlaybooksController(BaseUserController):
         openable = {str(row.id) for row in visible} if asked else set()
         found = [{**u, "thread_id": u["thread_id"] if u["thread_id"] in openable else None} for u in found]
         return PlaybookUses(items=[PlaybookUse(**u, agent_name=names.get(u["agent_slug"] or "")) for u in found])
+
+    @router.get(
+        "/{entry_id}/export",
+        summary="Export a Playbook as a skill folder (zip)",
+        response_class=Response,
+        responses={200: {"content": {"application/zip": {}}}},
+    )
+    def export_playbook(self, entry_id: UUID4) -> Response:
+        """A zip in the standard skill layout: ``<name>/SKILL.md`` and the reference files at their paths, with Marvin-only settings
+        under the frontmatter's ``metadata``. EDITOR and above, any status (drafts too); importing it gives back the Playbook."""
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.EDITOR)
+        entry = next((row for row in playbooks.all_playbooks(self.session, self.group_id) if row.id == entry_id), None)
+        if entry is None:
+            raise HTTPException(status_code=404, detail="No such Playbook.")
+        filename, data = exporter.export_playbook(self.session, entry, AssetStorageService.for_workspace(self.repos))
+        return Response(content=data, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
     @router.post("/import", response_model=PlaybookImported, status_code=201, summary="Import a SKILL.md or a skill zip as a draft Playbook")
     def import_playbook(self, file: UploadFile = File(...), name: str | None = Form(None)) -> PlaybookImported:

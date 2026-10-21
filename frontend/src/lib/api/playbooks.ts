@@ -5,8 +5,9 @@
  * routes. Pass authToken in SSR (from Astro.cookies); omit it in the browser.
  */
 
-import type { PlaybookItem, PlaybookUse } from "../playbooks";
+import { exportFilename, type PlaybookItem, type PlaybookUse } from "../playbooks";
 import { fetchApi } from "./client";
+import { getApiUrl } from "./config";
 
 const BASE = "/api/groups/playbooks";
 const ENTRIES = "/api/platform/entries";
@@ -59,4 +60,15 @@ export function importPlaybook(file: File, name?: string) {
   body.append("file", file);
   if (name) body.append("name", name);
   return fetchApi<PlaybookImported>(`${BASE}/import`, { method: "POST", body });
+}
+
+/** Download a Playbook as a skill folder zip (EDITOR+, any status). Browser only: it saves the file through a temporary link. */
+export async function exportPlaybook(id: string, name: string) {
+  const response = await fetch(getApiUrl(`${BASE}/${encodeURIComponent(id)}/export`), { credentials: "include" });
+  if (!response.ok) throw new Error(response.status === 404 ? "This Playbook no longer exists." : "The export failed. Try again.");
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(await response.blob());
+  link.download = exportFilename(response.headers.get("Content-Disposition"), name);
+  link.click();
+  URL.revokeObjectURL(link.href);
 }
