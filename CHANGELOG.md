@@ -6,6 +6,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.31 (2026-10-21)
+
+### Bug Fixes
+
+- **automation**: Draw the webhooks list on load
+  ([`7c0f15a`](https://github.com/InnerOpen/marvin/commit/7c0f15ad9753e2f779c222f97d0cf3331046f213))
+
+- **playbooks**: Cap the Playbook list at the Workflows list's width
+  ([`42d2a19`](https://github.com/InnerOpen/marvin/commit/42d2a192348d1a664ffe607fd68281bd61c10558))
+
+### Features
+
+- **automation**: Outgoing webhooks organised by source, with Mode and Needs attention
+  ([`acaf75c`](https://github.com/InnerOpen/marvin/commit/acaf75cb33547e1cfe0a5b8d89b2364e77f4efc8))
+
+- **automation**: Workspace Scheduled tasks page on the shared list kit
+  ([`0f3284d`](https://github.com/InnerOpen/marvin/commit/0f3284d627a098c1abee92491d79b18ef07b5273))
+
+### Testing
+
+- **automation**: Outgoing webhook summary test lists the scheduled_tasks kind
+  ([`b978ef4`](https://github.com/InnerOpen/marvin/commit/b978ef4fb378d633bc8dbc14efca01551d46546c))
+
+
 ## v1.1.0-rc.30 (2026-10-21)
 
 ### Bug Fixes
