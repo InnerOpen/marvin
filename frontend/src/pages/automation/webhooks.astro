@@ -157,7 +157,7 @@ const fromChoices = fromOptions(webhooks, webhookAdapter(), integrationInfo);
 
   const host = document.getElementById('wh-list');
   if (host) {
-    mountOrganizedList<any>({
+    const list = mountOrganizedList<any>({
       host,
       emptyFiltered: document.getElementById('wh-empty')!,
       emptyAll: document.getElementById('wh-none')!,
@@ -186,6 +186,7 @@ const fromChoices = fromOptions(webhooks, webhookAdapter(), integrationInfo);
         });
       },
     });
+    list.refresh();
   }
 </script>
 
