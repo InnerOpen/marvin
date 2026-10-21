@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.30 (2026-10-21)
+
+### Bug Fixes
+
+- **integrations**: What it installed items no longer squeezed into the checklist's tick column
+  ([`4fd84af`](https://github.com/InnerOpen/marvin/commit/4fd84afe1e2eb5a48496065105f7d5535d229352))
+
+
 ## v1.1.0-rc.29 (2026-10-21)
 
 ### Bug Fixes
