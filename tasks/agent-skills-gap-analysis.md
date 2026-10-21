@@ -497,3 +497,18 @@ Legend: skills are **instructions** (the `skill` entry). Tools are **operations*
 - Frontend behavior of the entry editor with a markdown field above a size threshold.
 - Trash behavior for a `skill` entry type that the catalog hides: not tested.
 - Effort figures are order-of-magnitude, based on the size of comparable existing modules, not estimates from a spike.
+
+## Decisions (2026-10-21)
+Settled with Jared in a grilling session (four rounds; every recommendation accepted). The full record is the Brain's
+`40-Engineering/decisions/ADR-002 marvin-playbooks-agent-skills.md`. In short:
+- Called **Playbooks** in the app; `SKILL.md` on the wire. Instructions and reference files only; no script execution, ever.
+- An internal (`listed: false`) `playbook` entry type with its own page; reference files attached with their paths kept;
+  per workspace. Editors draft and import, **Admins publish**; agents may draft into the Inbox, never publish.
+  Latest published version with rollback, no pinning. Over ~500 lines warns, never blocks.
+- Every agent sees all published Playbooks (limitable per agent); the agent loads one when it applies; up to three
+  "always load" per agent. A loaded Playbook stays in effect for its thread. `allowed-tools` only narrows. Use is shown
+  in replies, run history and on the Playbook.
+- Imports arrive as drafts behind a review screen (tools, links, file references, secret/exfiltration warnings).
+- Order: v1 in-app agents + file/GitHub import and export, proven on a "Mash & Burn Bench Note voice" Playbook; then
+  MCP exposure; then a workflow step; then packaging and plugin-shipped Playbooks.
+- This supersedes the open decisions above (listed vs not: **not listed**; who publishes: **Admin**).
