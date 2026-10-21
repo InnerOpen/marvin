@@ -207,3 +207,47 @@ class ScheduledTaskExecutionLogRead(_MarvinModel):
     """Retry attempt number (0 = first attempt)."""
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ScheduledTaskOverview(_MarvinModel):
+    """One row of the workspace Scheduled tasks page: a task of the workspace, or one of Marvin's own (`system`).
+
+    Everything the list shows and filters on, and nothing of how the task is configured (`task_config` stays with admins).
+    """
+
+    id: UUID4
+    name: str
+    slug: str
+    description: str | None = None
+    enabled: bool
+    schedule_type: str
+    schedule_config: dict
+    task_type: str
+    last_run_at: datetime | None = None
+    next_run_at: datetime | None = None
+    last_status: str | None = None
+    last_duration_ms: int | None = None
+    failure_count: int = 0
+    source_integration_id: UUID4 | None = None
+    source_blueprint: str | None = None
+    system: bool = False
+    """Marvin's own: a platform task (no workspace). Read-only here."""
+    attention: str | None = None
+    """Why it needs a look ("last_run_failed"), or null."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ScheduledTaskRunRead(_MarvinModel):
+    """One run in a task's history, as a workspace member sees it (the admin log keeps the traceback)."""
+
+    id: UUID4
+    task_id: UUID4
+    executed_at: datetime
+    status: str
+    duration_ms: int | None = None
+    error_message: str | None = None
+    output: str | None = None
+    retry_attempt: int = 0
+
+    model_config = ConfigDict(from_attributes=True)

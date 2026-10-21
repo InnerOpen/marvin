@@ -266,6 +266,7 @@ WEBHOOK_KEYS = {
     "id",
     "sourceIntegrationId",
     "sourceBlueprint",
+    "attention",
 }
 
 

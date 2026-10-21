@@ -269,7 +269,10 @@ const tabs = [
             </a>
             <a href={navHref("automation.webhooks")} class="link-card">
               <strong>{navTitle("automation.webhooks")}</strong>
-              <p>Outgoing HTTP callbacks on events and schedules</p>
+              <p>
+                Outgoing HTTP callbacks on events and schedules
+                {(automationAttention?.kinds?.outgoing_webhooks ?? 0) > 0 && ` · ${automationAttention?.kinds?.outgoing_webhooks} need a look`}
+              </p>
             </a>
             <a href={navHref("automation.custom-events")} class="link-card">
               <strong>{navTitle("automation.custom-events")}</strong>
@@ -281,7 +284,10 @@ const tabs = [
             </a>
             <a href={navHref("automation.incoming-webhooks")} class="link-card">
               <strong>{navTitle("automation.incoming-webhooks")}</strong>
-              <p>Tokened URLs external systems POST to, to trigger workflows</p>
+              <p>
+                Tokened URLs external systems POST to, to trigger workflows
+                {(automationAttention?.kinds?.incoming_webhooks ?? 0) > 0 && ` · ${automationAttention?.kinds?.incoming_webhooks} need a look`}
+              </p>
             </a>
             <a href={navHref("automation.notifications")} class="link-card">
               <strong>{navTitle("automation.notifications")}</strong>
@@ -289,7 +295,10 @@ const tabs = [
             </a>
             <a href={navHref("automation.scheduled-tasks")} class="link-card">
               <strong>{navTitle("automation.scheduled-tasks")}</strong>
-              <p>Automate recurring workspace operations</p>
+              <p>
+                Recurring jobs: yours, your integrations' and Marvin's own
+                {(automationAttention?.kinds?.scheduled_tasks ?? 0) > 0 && ` · ${automationAttention?.kinds?.scheduled_tasks} need a look`}
+              </p>
             </a>
             <a href={navHref("automation.event-log")} class="link-card">
               <strong>{navTitle("automation.event-log")}</strong>
