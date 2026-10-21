@@ -61,3 +61,43 @@ one query. That changes the OpenAPI, so the TS SDK is regenerated.
 Grouping and ordering (yours / library / per integration, enabled first), search and each filter, the linked card shown
 despite filters, empty result; the last-run fields (newest execution, none yet, workspace isolation) on both engines;
 frontend tests and astro check at baseline; a browser check at desktop and phone width.
+
+## Extended (2026-10-21): every Automation list, one pattern
+Jared: "Probably should organize webhooks, incoming webhooks, custom events and scheduled tasks too."
+
+**One shared pattern, built once:** a small list kit used by every page, so they look and behave alike.
+- `frontend/src/lib/organizedList.ts`: group items into sections by source, order sections (Yours → Library → each
+  integration, by name → Marvin's own), search, the common filters (From, Status), counts for section headings, the
+  "linked item shown whatever the filters" rule, remembered filters. Pure and tested; each page supplies how to read its
+  items (name, searchable text, source, enabled, extra filters).
+- The Library's `FilterBar` plus one `OrganizedSections` component (section heading with integration logo and counts,
+  empty-filter message). Each page keeps its own card.
+
+**Per page:**
+| Page | Sections | Extra filter |
+|---|---|---|
+| Workflows | Yours · From the Library · per integration | Starts (event, schedule, webhook, by hand) |
+| Incoming webhooks | Yours · per integration (`source_integration_id`) | Signed or not; received recently / never |
+| Scheduled tasks | Yours · per integration · Marvin's own (system tasks) | Schedule; last run failed |
+| Outgoing webhooks | Yours · per integration — **needs "installed by"** (below) | Mode (event-driven, scheduled, manual) |
+| Custom events | No sources today; one list, searchable, grouped by what sends it (workflow, webhook, nothing yet) | — |
+
+**Data gaps:**
+- **Outgoing webhooks** don't record who made them. Add the existing `InstalledByMixin` columns (`source_integration_id`,
+  `source_blueprint`) with a migration, and have blueprints that create webhooks set them (as they do for workflows). Older
+  rows stay "Yours" unless a plugin's blueprint slug matches (backfill where the blueprint is known).
+- **Custom events** live in a JSON list on the workspace preferences with no source; grouping by sender uses the existing
+  event-connections data (what sends each event), so no migration.
+- **Scheduled tasks** for a workspace are only visible on the admin page today. Decide whether a workspace-level
+  Automation › Scheduled tasks page is wanted (the organized list would live there) or the admin page alone gets the pattern.
+
+**Order of work:**
+1. The list kit + Workflows (as above, with last run).
+2. Incoming webhooks and Scheduled tasks (data already there).
+3. Outgoing webhooks (migration + blueprints set "installed by") and Custom events.
+
+**Added decisions:**
+5. Build the shared kit first rather than five one-off pages.
+6. Outgoing webhooks gain "installed by" (a migration).
+7. Scheduled tasks: a workspace page under Automation, or only the admin page? (Recommendation: a workspace page, read-mostly,
+   since plugins now install tasks per workspace.)
