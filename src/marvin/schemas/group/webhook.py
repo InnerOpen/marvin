@@ -7,12 +7,49 @@ import datetime
 import enum
 from typing import Any
 
-from pydantic import UUID4, ConfigDict, HttpUrl, ValidationInfo, field_validator, model_validator
+from pydantic import UUID4, ConfigDict, HttpUrl, ValidationInfo, computed_field, field_validator, model_validator
 
 from marvin.schemas._marvin import _MarvinModel
 from marvin.schemas._marvin.datetime_parser import parse_datetime as marvin_parse_datetime
 from marvin.schemas.response.pagination import PaginationBase
 from marvin.services.event_bus_service.event_types import WebhookMode  # noqa: F401 — re-exported for API consumers
+
+_BLOCKED_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "169.254.169.254"}
+
+
+def private_destinations_blocked() -> bool:
+    """Whether this deployment refuses webhooks to localhost and private networks: production does; a dev install may point at its own machine."""
+    from marvin.core.config import get_app_settings
+
+    return bool(get_app_settings().PRODUCTION)
+
+
+def private_destination(url: str) -> str | None:
+    """What kind of internal address the URL's host is ("localhost or internal addresses" / "private IP ranges"), or None for any other host.
+
+    The one rule for "the server must not post here": WebhookCreate refuses these in production, and the Automation summary flags stored
+    webhooks that have one. A host name is not looked up (no DNS on a read); only a name that is itself localhost, or an IP literal, counts.
+    """
+    import ipaddress
+    from urllib.parse import urlparse
+
+    hostname = urlparse(str(url)).hostname or ""
+    if hostname in _BLOCKED_HOSTS:
+        return "localhost or internal addresses"
+    try:
+        ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        return None  # a host name: fine
+    if ip.is_private or ip.is_loopback or ip.is_link_local:
+        return "private IP ranges"
+    return None
+
+
+def webhook_attention(enabled: bool | None, url: Any) -> str | None:
+    """Why an outgoing webhook needs a look ("unreachable_address": enabled, but its URL points somewhere the server won't post), or None."""
+    if enabled and private_destinations_blocked() and private_destination(str(url)):
+        return "unreachable_address"
+    return None
 
 
 class WebhookMethod(str, enum.Enum):
@@ -41,26 +78,10 @@ class WebhookCreate(_MarvinModel):
     @classmethod
     def validate_webhook_url(cls, v: Any) -> Any:
         """Block SSRF targets in production. Localhost/private IPs allowed when PRODUCTION=False."""
-        from marvin.core.config import get_app_settings
-
-        if get_app_settings().PRODUCTION:
-            import ipaddress
-            from urllib.parse import urlparse
-
-            url_str = str(v)
-            parsed = urlparse(url_str)
-            hostname = parsed.hostname or ""
-            blocked_hosts = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "169.254.169.254"}
-            if hostname in blocked_hosts:
-                raise ValueError("Webhook URL cannot target localhost or internal addresses in production")
-            try:
-                ip = ipaddress.ip_address(hostname)
-                if ip.is_private or ip.is_loopback or ip.is_link_local:
-                    raise ValueError("Webhook URL cannot target private IP ranges in production")
-            except ValueError as e:
-                if "cannot target" in str(e):
-                    raise
-                # Not an IP address — hostname is fine
+        if private_destinations_blocked():
+            problem = private_destination(str(v))
+            if problem:
+                raise ValueError(f"Webhook URL cannot target {problem} in production")
         return v
 
     @field_validator("scheduled_time", mode="before")
@@ -104,6 +125,12 @@ class WebhookRead(WebhookUpdate):
     source_blueprint: str | None = None
     """Read-only: the slug of the blueprint that created this, if one did."""
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def attention(self) -> str | None:
+        """Read-only: why it needs a look ("unreachable_address": enabled, but its URL is a localhost or private address), else null."""
+        return webhook_attention(self.enabled, self.url)
 
     @field_validator("url", mode="before")
     @classmethod
