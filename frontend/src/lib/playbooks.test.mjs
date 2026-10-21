@@ -169,5 +169,8 @@ describe("actions", () => {
   test("a draft publishes; a published one unpublishes", () => {
     assert.deepEqual(actionsFor("draft", false).map((a) => a.key), ["save", "publish"]);
     assert.deepEqual(actionsFor("published", false).map((a) => a.key), ["save", "unpublish"]);
+    assert.deepEqual(actionsFor("draft", false, false).map((a) => a.key), ["save"]); // an editor drafts, never publishes
+    assert.deepEqual(actionsFor(undefined, true, false).map((a) => a.key), ["save"]);
+    assert.deepEqual(actionsFor("published", false, false), []); // a live Playbook is an Admin's to change
   });
 });

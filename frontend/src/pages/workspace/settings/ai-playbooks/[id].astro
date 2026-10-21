@@ -6,14 +6,19 @@ import PlaybookEditor from "@/components/PlaybookEditor.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getPlaybook, listPlaybooks, type PlaybookEntry } from "@/lib/api/playbooks";
 import { formFromEntry, PLAYBOOKS_PATH } from "@/lib/playbooks";
-import { isForbidden } from "@/lib/workspaceRole";
+import { listWorkspaces } from "@/lib/api/workspaces";
+import { requireAuth } from "@/lib/auth";
+import { canManageWorkspace, isForbidden } from "@/lib/workspaceRole";
 
 const { id } = Astro.params;
+const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
 const authToken = getAuthToken(Astro.cookies);
+let canPublish = false;
 let entry: PlaybookEntry | null = null;
 let error: string | null = null;
 let restricted = false;
 try {
+  canPublish = canManageWorkspace(await listWorkspaces(authToken), user);
   const list = await listPlaybooks(authToken);
   if (id && list.items.some((item) => item.id === id)) entry = await getPlaybook(id, authToken);
 } catch (e) {
@@ -42,7 +47,7 @@ try {
           <p>Edits to a published Playbook reach agents as soon as you save.</p>
         </div>
       </div>
-      <PlaybookEditor form={formFromEntry(entry)} id={entry.id} status={entry.status} />
+      <PlaybookEditor form={formFromEntry(entry)} id={entry.id} status={entry.status} canPublish={canPublish} />
     </>
   )}
 </AppLayout>
