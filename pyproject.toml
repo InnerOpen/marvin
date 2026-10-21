@@ -21,7 +21,7 @@ dependencies = [
     # The plugin contract (integrations, storage, AI providers): pinned to a commit, since it isn't on PyPI. A
     # direct reference, so no installer ever looks the name up on an index. Bump it with the SDK.
     "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@v0.14.0",
-    "mcp[cli]>=1.28.1,<2",  # 2.x replaced the low-level Server API the remote MCP server is built on
+    "mcp[cli]>=1.30.0,<2",  # 2.x replaced the low-level Server API the remote MCP server is built on
     "numpy>=2.2.6",
     "pillow>=11.1.0",
     "pre-commit>=4.2.0",
