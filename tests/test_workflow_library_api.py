@@ -232,3 +232,26 @@ def test_a_name_that_is_not_a_recipe_records_nothing(ws):
     _sign_in(ws.gid, WorkspaceRole.ADMIN)
     saved = _save_from_recipe(ws, "hourly-site-rebuild", {"interval_seconds": 3600}, "Odd source", "../../etc/passwd")
     assert saved["sourceRecipe"] is None and saved["sourceRecipeVersion"] is None
+
+
+# ── what an agent step's pickers offer ───────────────────────────────────────
+
+
+def test_the_builder_options_offer_persona_agents_with_whether_they_may_draft_and_published_playbooks(ws):
+    from tests.test_playbooks import _playbook
+
+    _playbook(ws.session, ws.gid, "social-post", description="How we write social posts.")
+    _playbook(ws.session, ws.gid, "unfinished", status="draft")
+    options = TestClient(app).get("/api/automations/options").json()
+
+    agents = {a["slug"]: a for a in options["agents"]}
+    assert set(agents) == {"marvin", "ask", "builder"}  # `chat` is a plain model: no tools to work with
+    assert agents["marvin"]["canDraft"] is True and agents["ask"]["canDraft"] is False  # Ask's allowlist has no write tool
+    assert [(p["name"], p["manualOnly"]) for p in options["playbooks"]] == [("social-post", False)]
+    assert "agent" in options["actionKinds"]
+    assert "AgentAction" in str(options["definitionSchema"])
+
+
+def test_the_library_pickers_offer_the_agents_a_recipe_may_name(ws):
+    refs = TestClient(app).get(LIBRARY).json()["refs"]
+    assert {a["slug"] for a in refs["agents"]} == {"marvin", "ask", "builder"}

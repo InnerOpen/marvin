@@ -12200,7 +12200,8 @@
           "description": "Published Playbooks to load in full for this job, on top of the agent's own (up to 3). Leave empty for none.",
           "example": [
             "social-post"
-          ]
+          ],
+          "optional": true
         }
       ],
       "requires": {

@@ -21,7 +21,7 @@ export async function getWorkflowLibrary(authToken?: string): Promise<WorkflowLi
 }
 
 /** The recipe filled in with `vars`. 409: not usable here (the message says why); 422: a value is missing or wrong. */
-export async function configureRecipe(id: string, vars: Record<string, string | number>, authToken?: string): Promise<RecipeConfigureResult> {
+export async function configureRecipe(id: string, vars: Record<string, string | number | string[]>, authToken?: string): Promise<RecipeConfigureResult> {
   return fetchApi<RecipeConfigureResult>(
     `/api/automations/library/${encodeURIComponent(id)}/configure`,
     { method: "POST", body: JSON.stringify({ vars }), headers: { "Content-Type": "application/json" } },

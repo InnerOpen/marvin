@@ -9,6 +9,8 @@ export interface RecipeVariable {
   type: string;
   description: string;
   example?: unknown;
+  /** May be left blank: a list is then sent empty. */
+  optional?: boolean;
 }
 
 interface RecipeUse {
@@ -69,6 +71,8 @@ export interface LibraryRefs {
   outgoingWebhooks: { id?: string | null; name: string }[];
   incomingWebhooks: { slug?: string | null; name: string; enabled?: boolean | null }[];
   statuses: string[];
+  /** The persona agents an agent recipe may name. */
+  agents?: { slug?: string | null; name: string }[];
 }
 
 export interface WorkflowLibrary {
@@ -203,6 +207,11 @@ export function choicesFor(variable: RecipeVariable, recipe: Recipe, refs: Libra
         ],
         { text: "" },
       );
+    case "agent_slug":
+      return select(
+        (refs.agents ?? []).filter((a) => a.slug).map((a) => ({ value: String(a.slug), label: a.name })),
+        { text: "No agents yet.", href: "/workspace/settings/ai-agents" },
+      );
     case "collection_slug":
       return select(
         refs.collections.filter((c) => c.slug).map((c) => ({ value: String(c.slug), label: c.name })),
@@ -253,14 +262,29 @@ export function initialValues(recipe: Recipe, refs: LibraryRefs, current: Values
   return values;
 }
 
-/** The `vars` to send to configure (integers as numbers), or the variables still blank. */
-export function recipeVars(recipe: Recipe, values: Values): { vars: Record<string, string | number>; blank: string[] } {
-  const vars: Record<string, string | number> = {};
+/** The `vars` to send to configure (integers as numbers, a list as the comma-separated names typed), or the variables
+ * still blank. An optional variable may stay blank: a list is then sent empty. */
+export function recipeVars(
+  recipe: Recipe,
+  values: Values,
+): { vars: Record<string, string | number | string[]>; blank: string[] } {
+  const vars: Record<string, string | number | string[]> = {};
   const blank: string[] = [];
   for (const variable of recipe.setupVariables) {
     const raw = (values[variable.name] ?? "").trim();
-    if (!raw) {
+    if (!raw && !variable.optional) {
       blank.push(variable.name);
+      continue;
+    }
+    if (variable.type === "list") {
+      vars[variable.name] = raw
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      continue;
+    }
+    if (!raw) {
+      vars[variable.name] = "";
       continue;
     }
     const isNumber = variable.type === "integer" || variable.type === "number";

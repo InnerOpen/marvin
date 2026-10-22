@@ -200,6 +200,29 @@ describe("recipeVars", () => {
   });
 });
 
+describe("agent recipes' setup", () => {
+  test("an agent is picked from the workspace's agents", () => {
+    const withAgents = { ...refs, agents: [{ slug: "writer", name: "Writer" }] };
+    const picker = choicesFor({ name: "agent", type: "agent_slug", description: "" }, recipe(), withAgents);
+    assert.deepEqual(picker.choices, [{ value: "writer", label: "Writer" }]);
+    assert.equal(choicesFor({ name: "agent", type: "agent_slug", description: "" }, recipe(), refs).choices.length, 0);
+  });
+
+  test("a list is the names typed, comma-separated; an optional one may stay blank", () => {
+    const r = recipe({
+      setupVariables: [
+        { name: "playbooks", type: "list", description: "", optional: true },
+        { name: "categories", type: "list", description: "" },
+      ],
+    });
+    assert.deepEqual(recipeVars(r, { playbooks: " social-post , house-voice,, ", categories: "a, b" }), {
+      vars: { playbooks: ["social-post", "house-voice"], categories: ["a", "b"] },
+      blank: [],
+    });
+    assert.deepEqual(recipeVars(r, { playbooks: "", categories: "" }), { vars: { playbooks: [] }, blank: ["categories"] });
+  });
+});
+
 describe("readiness and search", () => {
   const ready = recipe();
   const needsSetup = recipe({ id: "a", missing: ["needs a connected n8n integration"] });
