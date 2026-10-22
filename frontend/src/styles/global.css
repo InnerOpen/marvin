@@ -1296,3 +1296,6 @@ code {
 
 /* "Nothing here yet": one look on every page — a dashed box, centred, muted. Pages style only what's inside it (icon, title, text). */
 .empty-state { padding: 40px 24px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: var(--radius); }
+
+/* A page header's buttons keep their label on one line; the title and lede beside them wrap instead. */
+.page-header .button, .toolbar .button, .header-actions .button { white-space: nowrap; }
