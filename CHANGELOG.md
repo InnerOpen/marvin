@@ -6,6 +6,41 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.44 (2026-10-22)
+
+### Bug Fixes
+
+- **playbooks**: A provider's Playbook prefix reads underscores as hyphens
+  ([`e3915de`](https://github.com/InnerOpen/marvin/commit/e3915ded4c6706d17ffd26c8feb098a363e11e12))
+
+- **playbooks**: Adding a Playbook needs a person recorded; the results test applies the wiring only
+  ([`02e9504`](https://github.com/InnerOpen/marvin/commit/02e9504a33b1bed6305a4b2271e3d8e987729e07))
+
+### Chores
+
+- **plugins**: SDK 0.15.0, Buttondown 0.10.0, Cloudflare Pages 0.5.0, Mastodon 0.3.0 (each ships a
+  Playbook)
+  ([`78a90fa`](https://github.com/InnerOpen/marvin/commit/78a90fa12450489db43ad1e9c1be5efb56198e03))
+
+### Documentation
+
+- Playbooks from an integration (manual Playbooks and Blueprints pages)
+  ([`3f353b2`](https://github.com/InnerOpen/marvin/commit/3f353b23d0ed8e5855aec64b7f377c5fd85f80e1))
+
+### Features
+
+- **frontend**: An integration's Playbooks on its card, the footprint and the Playbooks page
+  ([`33ee506`](https://github.com/InnerOpen/marvin/commit/33ee5064a97e8e05dee4f4f2997a2faafbfc5c81))
+
+- **playbooks**: Integrations ship their own Playbooks (playbook blueprint kind)
+  ([`b3fc4a6`](https://github.com/InnerOpen/marvin/commit/b3fc4a624a8e1bbef3435d0a4407174706412bc6))
+
+### Testing
+
+- Apply_many's stub takes the event bus apply_blueprint now accepts
+  ([`fde4a40`](https://github.com/InnerOpen/marvin/commit/fde4a40c8a8cbf79e57e0bc33aab03b4e3ec5408))
+
+
 ## v1.1.0-rc.43 (2026-10-22)
 
 ### Features
