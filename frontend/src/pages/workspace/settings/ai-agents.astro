@@ -2,7 +2,7 @@
 import CharacterPicker from "@/components/CharacterPicker.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { matrixState } from "@/lib/agentMatrix";
-import { type Agent, type Catalog, getCatalog, listAgents } from "@/lib/api/aiAgents";
+import { type Agent, type Catalog, getAgent, getCatalog, listAgents } from "@/lib/api/aiAgents";
 import { getTones } from "@/lib/api/aiTones";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { createSdkClient } from "@/lib/sdk";
@@ -11,6 +11,8 @@ import { BUILTIN_TONES, type Tone, toneOptions } from "@/lib/tones";
 const authToken = getAuthToken(Astro.cookies);
 
 let agents: Agent[] = [];
+// The permission holder for outside assistants (MCP clients): no agent, so it is not in the list above.
+let external: Agent | null = null;
 let catalog: Catalog = { categories: [], tools: [] };
 let models: { id: string; label: string; tools: boolean }[] = [];
 // Bubble characters: the platform's library to choose from, and the file names each state picks up.
@@ -21,7 +23,7 @@ let tones: Tone[] = BUILTIN_TONES;
 let error: string | null = null;
 
 try {
-  const [a, c, providers, lib, states, t] = await Promise.all([
+  const [a, c, providers, lib, states, t, ext] = await Promise.all([
     listAgents(authToken),
     getCatalog(authToken),
     createSdkClient(authToken)
@@ -32,8 +34,10 @@ try {
     getTones(authToken)
       .then((state) => state.tones)
       .catch(() => BUILTIN_TONES),
+    getAgent("external", authToken).catch(() => null),
   ]);
   agents = a;
+  external = ext;
   tones = t;
   catalog = c;
   characterLibrary = lib;
@@ -60,6 +64,7 @@ const ROLES = [
 const roleName = (n: number) => ROLES.find(([v]) => v === n)?.[1] ?? String(n);
 const custom = agents.filter((a) => !a.isSystem);
 const builtins = agents.filter((a) => a.isSystem);
+const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
 ---
 
 <AppLayout crumb="settings.ai-agents">
@@ -75,7 +80,7 @@ const builtins = agents.filter((a) => a.isSystem);
 
   {error && <div class="alert"><strong>Couldn't load agents.</strong> {error}</div>}
 
-  <div class="agents-root" data-catalog={JSON.stringify(catalog)} data-agents={JSON.stringify(agents)} data-tones={JSON.stringify(tones)} data-library={JSON.stringify(characterLibrary.map((p) => ({ id: p.id, name: p.name, persona: p.persona ?? null })))}>
+  <div class="agents-root" data-catalog={JSON.stringify(catalog)} data-agents={JSON.stringify(external ? [...agents, external] : agents)} data-tones={JSON.stringify(tones)} data-library={JSON.stringify(characterLibrary.map((p) => ({ id: p.id, name: p.name, persona: p.persona ?? null })))}>
     <!-- New agent -->
     <div class="section-card">
       <div class="section-header">
@@ -263,6 +268,37 @@ const builtins = agents.filter((a) => a.isSystem);
         </div>
       ))}
     </div>
+
+    <!-- External assistants: the permissions of calls from outside (MCP clients) -->
+    {external && (
+      <div class="section-card">
+        <div class="section-title"><h3>External assistants</h3><p>{external.description}</p></div>
+        <div class="agent builtin external" data-slug={external.slug} data-main-name={mainName}>
+          <div class="agent-top">
+            <div class="agent-id">
+              <div class="agent-name"><span class="agent-icon">🔌</span><strong>{external.name}</strong></div>
+              <div class="agent-desc">{external.toolPolicyOverridden ? "Has its own permissions." : `Inherits ${mainName}'s permissions until changed.`}</div>
+            </div>
+          </div>
+          <div class="agent-meta">
+            <div class="pills">
+              <span
+                class:list={["pill", "matrix-state", external.toolPolicyOverridden ? "changed" : ""]}
+                title={external.toolPolicyOverridden ? "This workspace changed its permissions" : `Follows ${mainName}'s permissions`}
+              >permissions: {external.toolPolicyOverridden ? "Changed" : `Same as ${mainName}`}</span>
+            </div>
+            <div class="agent-actions">
+              <button class="button secondary small perms-btn" type="button">Permissions</button>
+              <button class="button secondary small matrix-btn" type="button" aria-expanded="false">Edit permissions</button>
+              {external.toolPolicyOverridden && <button class="button secondary small reset-btn" type="button">Reset to {mainName}'s settings</button>}
+            </div>
+          </div>
+          <div class="perms" data-role="perms" hidden></div>
+          <div class="edit" data-role="matrix-edit" hidden></div>
+          <span class="save-status" data-role="status"></span>
+        </div>
+      </div>
+    )}
   </div>
 </AppLayout>
 
@@ -754,7 +790,7 @@ const builtins = agents.filter((a) => a.isSystem);
           return;
         }
         matrixBox.innerHTML = `<form class="agent-form">
-          <div class="form-field"><div class="section-title"><h4>${esc(agent.name)}'s permissions</h4><p>Each row starts at ${esc(agent.name)}'s built-in default. Override per group or per tool; <strong>Reset to default</strong> undoes every change. Ask first pauses the run for your approval on the Ask page; where nothing can pause (MCP, hand-off children) it behaves like Block.${slug === "marvin" ? " Direct MCP tool calls follow this matrix too: Allow lets them run, Ask first and Block refuse." : ""} Whatever you choose, a write still needs the person to be an Editor or above, and big bulk writes and archiving a published entry still ask first.</p></div><div class="matrix" data-role="matrix"></div></div>
+          <div class="form-field"><div class="section-title"><h4>${esc(agent.name)}'s permissions</h4><p>${slug === "external" ? `Applies only to calls from outside assistants. Until you save a change here it follows ${esc(card.dataset.mainName)}'s permissions; after that it is independent, and <strong>Reset to ${esc(card.dataset.mainName)}'s settings</strong> goes back. They can't show Marvin's Approve button, so Ask first refuses here, like Block.` : `Each row starts at ${esc(agent.name)}'s built-in default. Override per group or per tool; <strong>Reset to default</strong> undoes every change. Ask first pauses the run for your approval on the Ask page; where nothing can pause (MCP, hand-off children) it behaves like Block. Outside assistants (MCP clients) follow their own permissions: External assistants, below.`} Whatever you choose, a write still needs the person to be an Editor or above, and big bulk writes and archiving a published entry still ask first.</p></div><div class="matrix" data-role="matrix"></div></div>
           <div class="form-actions"><button type="submit" class="button small">Save permissions</button><button type="button" class="button secondary small m-cancel">Cancel</button><span class="save-status" data-role="mstatus"></span></div>
         </form>`;
         const form = matrixBox.querySelector("form") as HTMLFormElement;
@@ -777,7 +813,8 @@ const builtins = agents.filter((a) => a.isSystem);
         });
       });
       card.querySelector(".reset-btn")?.addEventListener("click", async () => {
-        if (!confirm(`Reset ${agent?.name ?? slug}'s permissions to the built-in defaults?`)) return;
+        const target = slug === "external" ? `${card.dataset.mainName}'s settings` : "the built-in defaults";
+        if (!confirm(`Reset ${agent?.name ?? slug}'s permissions to ${target}?`)) return;
         try {
           await resetAgentToolPolicy(slug);
           location.reload();

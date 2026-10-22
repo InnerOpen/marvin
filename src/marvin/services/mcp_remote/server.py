@@ -2,7 +2,7 @@
 
 Every tool call goes through the shared gateway (`services/ai/tool_gateway.py`), so a connection gets exactly what
 the local MarvinMCP gets with a personal token: the tool's role floor, the workspace's "External MCP hosts" switch,
-Marvin's permission matrix, the AI budget and the bulk-write gate. The connection's scope narrows it further: a
+the External assistants permission matrix, the AI budget and the bulk-write gate. The connection's scope narrows it further: a
 read-only connection sees and runs read tools only (`is_read_tool`), checked in `tools/list` and again in
 `tools/call`. Role and membership are read again on every call, so a demotion counts at once.
 
@@ -143,7 +143,7 @@ def list_tools_for(conn: Connection) -> list[types.Tool]:
         listed = visible_tools(session, conn.group_id, user, allow_writes=conn.can_write, extra=EXTRA_TOOLS)
         if not _has_semantic_search(session, conn.group_id):  # it would only answer "unavailable"; `search` falls back
             listed = [t for t in listed if t.name != "search_content"]
-        # An upload link follows import_asset's rules (write scope, Editor, Marvin's matrix): shown when that tool is.
+        # An upload link follows import_asset's rules (write scope, Editor, the External assistants matrix): shown when that tool is.
         uploading = [UPLOAD_LINK, CHECK_UPLOAD] if any(t.name == uploads.TOOL for t in listed) else []
         return [*(project_tool(t) for t in listed), *uploading, SHOW_IMAGE, SEARCH, FETCH]
 

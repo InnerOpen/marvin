@@ -13,7 +13,7 @@ The link is a bearer capability, so it is kept narrow:
 - 15 minutes, one use (claimed by one conditional UPDATE: two uploads can't both win), and bound to the grant that asked,
   its user and its workspace; a refused file (wrong type, too big) gives the attempt back, three refusals spend it;
 - checked again when used: the connection must be unrevoked and write-scoped, the user still a member with the role
-  `import_asset` needs, the workspace still allowing MCP hosts, and Marvin's matrix still allowing `import_asset`;
+  `import_asset` needs, the workspace still allowing MCP hosts, and the External assistants matrix still allowing `import_asset`;
 - no cookie is read or set, so there is nothing for a cross-site request to ride on (CSRF), and the secret is in the
   request body, never a query string.
 """
@@ -76,9 +76,9 @@ def size_cap() -> int:
 
 def refusal(session, user, group_id, *, can_write: bool) -> str | None:
     """Why this user/connection may not upload into the workspace, or None. Same rules as `import_asset` for a remote
-    connection: write scope, its role floor (Editor), and Marvin's permission matrix."""
-    from marvin.services.ai.agents import unattended_refusal
-    from marvin.services.ai.tool_gateway import READ_ONLY_REFUSAL, router_agent
+    connection: write scope, its role floor (Editor), and the External assistants permission matrix."""
+    from marvin.services.ai.agents import external_agent, unattended_refusal
+    from marvin.services.ai.tool_gateway import READ_ONLY_REFUSAL
     from marvin.services.ai.tools import get_tool
     from marvin.services.ai.tools.base import user_role
     from marvin.services.ai.tools.categories import category_of
@@ -89,8 +89,8 @@ def refusal(session, user, group_id, *, can_write: bool) -> str | None:
     role = user_role(user, group_id)
     if role < spec.min_role:
         return "Uploading needs the Editor role in this workspace."
-    blocked = unattended_refusal(router_agent(session, group_id), spec.name, category_of(spec.name, read_only=spec.read_only), role)
-    return None if blocked is None else str(blocked.get("error") or "Marvin's permissions don't allow uploads here.")
+    blocked = unattended_refusal(external_agent(session, group_id), spec.name, category_of(spec.name, read_only=spec.read_only), role)
+    return None if blocked is None else str(blocked.get("error") or "The External assistants permissions don't allow uploads here.")
 
 
 def create_link(session, conn, user, *, name: str | None, alt_text: str | None, ip: str | None) -> tuple[object, str]:

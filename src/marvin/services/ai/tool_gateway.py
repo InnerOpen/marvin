@@ -1,12 +1,12 @@
 """The gate every unattended registry-tool call goes through.
 
 An unattended call is one nobody can be asked about: MarvinMCP's `POST /api/ai/tools/{name}/invoke` today, the
-remote MCP server next (tasks/mcp-oauth-plan.md). Each call stands in for the workspace's main agent, `marvin`, so
-it passes, in order:
+remote MCP server next (tasks/mcp-oauth-plan.md). Each call is an outside assistant's, so it follows the External
+assistants matrix (`agents.external_agent`, which is the main agent's until edited), and passes, in order:
 
 1. the tool's role floor (`min_role`);
 2. the invocation source: the tool's declared sources ∩ the workspace's `invocation_sources` policy;
-3. Marvin's permission matrix (`agents.unattended_refusal`): Block and Ask first both refuse, and a write is
+3. the External assistants permission matrix (`agents.unattended_refusal`): Block and Ask first both refuse, and a write is
    refused below EDITOR;
 4. the connection's scope: a read-only connection (`allow_writes=False`) runs only read tools;
 5. the AI budget, for a tool that calls the workspace's AI provider (`ToolSpec.uses_ai`);
@@ -35,16 +35,6 @@ from marvin.services.playbooks import LIST_TOOL, LOAD_TOOL, READ_FILE_TOOL
 _logger = get_logger(__name__)
 
 READ_ONLY_REFUSAL = "This connection is read-only."
-
-
-def router_agent(session, group_id):
-    """The workspace's main agent, whose permission matrix an unattended call follows."""
-    from marvin.services.ai.agents import ROUTER_SLUG, resolve_agent
-
-    spec = resolve_agent(session, group_id, ROUTER_SLUG)
-    if spec is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No agent '{ROUTER_SLUG}'.")
-    return spec
 
 
 def check_invocation_source(session, group_id, source: str, declared_sources) -> str:
@@ -158,15 +148,15 @@ def is_read_tool(spec: ToolSpec) -> bool:
 
 def visible_tools(session, group_id, user, *, allow_writes: bool = True, extra: tuple[str, ...] = (), playbooks=()) -> list[ToolSpec]:
     """The registry tools an MCP caller is shown: declared for `mcp` (or named in `extra`, tools a caller projects
-    itself although they withhold `mcp`), within its role, not blocked by Marvin's matrix, and (on a read-only
+    itself although they withhold `mcp`), within its role, not blocked by External assistants' matrix, and (on a read-only
     connection) read tools only. An "Ask first" tool stays listed: calling it says where it can run. `playbooks` (the
     ones in effect, default none) narrow the list to what they allow."""
-    from marvin.services.ai.agents import POLICY_BLOCK, resolve_policy
+    from marvin.services.ai.agents import POLICY_BLOCK, external_agent, resolve_policy
     from marvin.services.ai.tools import list_tools
     from marvin.services.ai.tools.categories import category_of
 
     role = user_role(user, group_id)
-    marvin = router_agent(session, group_id)
+    external = external_agent(session, group_id)
     registry = list_tools()
     limit = playbook_tool_limit(playbooks, {t.name for t in registry})
     return [
@@ -175,7 +165,7 @@ def visible_tools(session, group_id, user, *, allow_writes: bool = True, extra: 
         if playbook_refusal(t.name, limit) is None
         and ("mcp" in t.sources or t.name in extra)
         and role >= t.min_role
-        and resolve_policy(marvin, t.name, category_of(t.name, read_only=t.read_only), role)[0] != POLICY_BLOCK
+        and resolve_policy(external, t.name, category_of(t.name, read_only=t.read_only), role)[0] != POLICY_BLOCK
         and (allow_writes or is_read_tool(t))
     ]
 
@@ -198,7 +188,7 @@ def invoke_unattended(
     Returns the tool's JSON result as a dict (`{"result": raw}` when it isn't JSON), or `{"error": …}` when the
     matrix, the scope or the bulk-write gate refuses or the handler raises.
     """
-    from marvin.services.ai.agents import unattended_refusal
+    from marvin.services.ai.agents import external_agent, unattended_refusal
     from marvin.services.ai.factory import get_workspace_ai_provider
     from marvin.services.ai.tools import bulk_writes, get_tool
     from marvin.services.ai.tools.categories import category_of
@@ -216,7 +206,7 @@ def invoke_unattended(
     # A tool named in `extra` runs from `source` although it withholds it (the remote MCP server's compose_entry).
     check_invocation_source(session, group_id, source, (*spec.sources, source) if spec.name in extra else spec.sources)
 
-    refusal = unattended_refusal(router_agent(session, group_id), spec.name, category_of(spec.name, read_only=spec.read_only), role)
+    refusal = unattended_refusal(external_agent(session, group_id), spec.name, category_of(spec.name, read_only=spec.read_only), role)
     if refusal is not None:
         return refusal
 

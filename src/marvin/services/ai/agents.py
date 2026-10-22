@@ -18,7 +18,7 @@ import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from marvin.schemas.group.agent import SYSTEM_AGENT_SLUGS
+from marvin.schemas.group.agent import EXTERNAL_SLUG, SYSTEM_AGENT_SLUGS
 from marvin.services.ai.operations.base import INVOCATION_SOURCES, ROLE_ADMIN, ROLE_EDITOR, ROLE_VIEWER
 
 ASK_SYSTEM_PROMPT = (
@@ -350,6 +350,13 @@ assert tuple(SYSTEM_AGENTS) == SYSTEM_AGENT_SLUGS
 # Built-ins whose permission matrix a workspace admin may change (and nothing else about them). `chat` is a
 # model agent: it binds no tools, so it has no matrix to change.
 BUILTIN_POLICY_SLUGS = tuple(slug for slug, spec in SYSTEM_AGENTS.items() if spec.kind == "persona")
+# Slugs `agent_tool_policies` may hold: those, plus the External assistants holder (see `external_agent`).
+POLICY_SLUGS = (*BUILTIN_POLICY_SLUGS, EXTERNAL_SLUG)
+EXTERNAL_NAME = "External assistants"
+EXTERNAL_DESCRIPTION = (
+    "Codex, ChatGPT, Claude.ai and other MCP clients connected to this workspace. They can't show Marvin's Approve button, "
+    "so Ask first means No here."
+)
 
 
 def spec_from_row(row) -> AgentSpec:
@@ -421,10 +428,11 @@ def _clean_policy(policy) -> dict[str, str] | None:
 
 
 def clean_builtin_policies(value) -> dict | None:
-    """An `agent_tool_policies` value (stored or imported) with only the editable built-ins' well-formed matrices."""
+    """An `agent_tool_policies` value (stored or imported) with only the editable built-ins' (and External
+    assistants') well-formed matrices."""
     if not isinstance(value, dict):
         return None
-    out = {slug: p for slug in BUILTIN_POLICY_SLUGS if (p := _clean_policy(value.get(slug)))}
+    out = {slug: p for slug in POLICY_SLUGS if (p := _clean_policy(value.get(slug)))}
     return out or None
 
 
@@ -491,6 +499,25 @@ def operation_label(operation_slug: str, names: dict[str, str]) -> str:
         return operation_slug
     slug = operation_slug.split(":", 1)[1]
     return f"agent:{names.get(slug, slug)}"
+
+
+def external_agent(session, group_id) -> AgentSpec:
+    """The policy holder for calls from outside assistants (MCP clients): not an agent anyone can pick or run
+    (it is in no list and `resolve_agent` never returns it), only a matrix the outside-call gates and the
+    Agents settings page read. With no override of its own it *is* the main agent's effective matrix (workspace
+    overrides included), so nothing changes until someone edits it; once edited it is independent of the main
+    agent's: the code defaults plus its own entries."""
+    from dataclasses import replace
+
+    settings = _ai_settings(session, group_id)
+    main = _system_agent(settings, SYSTEM_AGENTS[ROUTER_SLUG])
+    override = builtin_policy_override(settings, EXTERNAL_SLUG)
+    changes: dict = {"slug": EXTERNAL_SLUG, "name": EXTERNAL_NAME, "description": EXTERNAL_DESCRIPTION}
+    if override:
+        changes.update(tool_policy=dict(override), tool_policy_overridden=True)
+    else:
+        changes["tool_policy_overridden"] = False  # inherited, not changed: main's own override is not this card's
+    return replace(main, **changes)
 
 
 def resolve_agent(session, group_id, slug: str) -> AgentSpec | None:
@@ -583,6 +610,11 @@ HANDOFF_CATEGORY = "agents_run"
 ROUTER_ASK_CATEGORIES = ("automation_run", "automation_manage", "mcp", "mcp_destructive")
 
 
+def _is_router(spec: AgentSpec) -> bool:
+    """The main agent, or External assistants (whose code defaults are the main agent's)."""
+    return spec.is_system and spec.slug in (ROUTER_SLUG, EXTERNAL_SLUG)
+
+
 def default_policy(spec: AgentSpec, category_id: str) -> str:
     """What a category does when the matrix says nothing.
 
@@ -598,7 +630,7 @@ def default_policy(spec: AgentSpec, category_id: str) -> str:
     """
     from marvin.services.ai.tools.categories import category_writes
 
-    is_router = spec.is_system and spec.slug == ROUTER_SLUG
+    is_router = _is_router(spec)
     if category_id == HANDOFF_CATEGORY:
         return POLICY_ALLOW if is_router else POLICY_BLOCK
     if not category_writes(category_id):
@@ -635,7 +667,7 @@ def resolve_policy(spec: AgentSpec, tool_name: str, category_id: str, role: int)
         elif decision == POLICY_ASK:
             reason = "ask first (default)"
         elif decision == POLICY_ALLOW:
-            reason = "router default" if (spec.is_system and spec.slug == ROUTER_SLUG) else "category default"
+            reason = "router default" if _is_router(spec) else "category default"
         else:
             reason = "agent is read-only" if not spec.allow_writes else "category default"
     if decision in (POLICY_ALLOW, POLICY_ASK) and category_writes(category_id) and role < ROLE_EDITOR:

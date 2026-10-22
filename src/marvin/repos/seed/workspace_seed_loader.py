@@ -1153,13 +1153,13 @@ class WorkspaceSeedLoader:
         if not self.repos.group_id or not rows:
             return 0
         from marvin.db.models.groups.agents import WorkspaceAgentModel
-        from marvin.schemas.group.agent import SYSTEM_AGENT_SLUGS
+        from marvin.schemas.group.agent import RESERVED_AGENT_SLUGS
 
         session = self.repos.session
         n = 0
         for d in rows:
             slug = (d.get("slug") or "").strip().lower()
-            if not slug or slug in SYSTEM_AGENT_SLUGS or not d.get("name"):
+            if not slug or slug in RESERVED_AGENT_SLUGS or not d.get("name"):
                 continue
             fields = {
                 "name": d.get("name"),

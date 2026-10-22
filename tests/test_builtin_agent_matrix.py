@@ -215,7 +215,7 @@ def test_direct_invoke_ask_first_refusal_points_at_the_new_setting(workspace, ca
     calls.track("run_workflow")
     out = inv._invoke(workspace, AD, "run_workflow", {"workflow": "rebuild"})
     assert calls.ran == []
-    assert "or set “Automation: run” to Allow for Marvin (Settings → AI → Agents)." in out["error"]
+    assert "or set “Automation: run” to Allow for External assistants (Settings → AI → Agents)." in out["error"]
 
 
 def test_mcp_tool_listing_honours_a_stored_override(workspace):
