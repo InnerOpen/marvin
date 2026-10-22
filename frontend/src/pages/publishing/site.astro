@@ -257,8 +257,10 @@ const noPattern = (siteLinks?.problems ?? [])
       <section class="form-section" id="seo">
         <h3>SEO &amp; Social Sharing</h3>
         <p class="section-description">How search engines and social platforms present your site. Leave a field blank to fall back to the identity settings above.</p>
-        <div class="form-grid">
-          <p class="subgroup-label">Search</p>
+        <div class="subgroups">
+          <div class="subgroup">
+            <p class="subgroup-label">Search</p>
+            <div class="form-grid">
           <label class="span-2">
             <span>Meta Title</span>
             <input
@@ -309,7 +311,11 @@ const noPattern = (siteLinks?.problems ?? [])
             <small>Controls the robots meta tag.</small>
           </label>
 
-          <p class="subgroup-label">Social sharing</p>
+          </div>
+          </div>
+          <div class="subgroup">
+            <p class="subgroup-label">Social sharing</p>
+            <div class="form-grid">
           <label class="span-2">
             <span>Default Share Image URL</span>
             <input
@@ -389,7 +395,11 @@ const noPattern = (siteLinks?.problems ?? [])
             <small>fb:app_id — for Facebook domain insights.</small>
           </label>
 
-          <p class="subgroup-label">Branding &amp; structured data</p>
+          </div>
+          </div>
+          <div class="subgroup">
+            <p class="subgroup-label">Branding &amp; structured data</p>
+            <div class="form-grid">
           <label>
             <span>Theme Color</span>
             <input
@@ -411,7 +421,11 @@ const noPattern = (siteLinks?.problems ?? [])
             <small>Organization name for structured data (JSON-LD).</small>
           </label>
 
-          <p class="subgroup-label">Search engine verification</p>
+          </div>
+          </div>
+          <div class="subgroup">
+            <p class="subgroup-label">Search engine verification</p>
+            <div class="form-grid">
           <label>
             <span>Google</span>
             <input
@@ -452,14 +466,18 @@ const noPattern = (siteLinks?.problems ?? [])
             />
             <small>Yandex Webmaster.</small>
           </label>
+          </div>
+          </div>
         </div>
       </section>
 
       <section class="form-section" id="privacy">
         <h3>Privacy &amp; Cookies</h3>
         <p class="section-description">The facts your site's privacy and cookie policy pages need, served to your site as <code>site.privacy</code>. Disclosure only: Marvin does not show a consent banner. Leave this section empty to publish nothing.</p>
-        <div class="form-grid">
-          <p class="subgroup-label">Controller</p>
+        <div class="subgroups">
+          <div class="subgroup">
+            <p class="subgroup-label">Controller</p>
+            <div class="form-grid">
           <label>
             <span>Legal name</span>
             <input type="text" data-p="controller.legalName" value={privacyController.legalName || ""} />
@@ -482,11 +500,19 @@ const noPattern = (siteLinks?.problems ?? [])
             <input type="email" data-p="controller.dpoEmail" value={privacyController.dpoEmail || ""} />
           </label>
 
-          <p class="subgroup-label">Processors</p>
+          </div>
+          </div>
+          <div class="subgroup">
+            <p class="subgroup-label">Processors</p>
+            <div class="form-grid">
           <div class="span-2 repeat-list" id="privacy-processors" data-initial={JSON.stringify(privacyProcessors)}></div>
           <div class="span-2"><button type="button" class="button secondary" data-add="processors">Add processor</button></div>
 
-          <p class="subgroup-label">Cookies</p>
+          </div>
+          </div>
+          <div class="subgroup">
+            <p class="subgroup-label">Cookies</p>
+            <div class="form-grid">
           <div class="span-2 repeat-list" id="privacy-cookies" data-initial={JSON.stringify(privacyCookies)}></div>
           <div class="span-2"><button type="button" class="button secondary" data-add="cookies">Add cookie</button></div>
           <p class="span-2 banner-required">
@@ -494,7 +520,11 @@ const noPattern = (siteLinks?.problems ?? [])
             <small>Derived from the cookies above: yes when any cookie is not "necessary".</small>
           </p>
 
-          <p class="subgroup-label">Policy pages</p>
+          </div>
+          </div>
+          <div class="subgroup">
+            <p class="subgroup-label">Policy pages</p>
+            <div class="form-grid">
           <label>
             <span>Privacy policy entry slug</span>
             <input type="text" data-p="consent.policyEntrySlug" value={privacyConsent.policyEntrySlug || ""} />
@@ -507,6 +537,8 @@ const noPattern = (siteLinks?.problems ?? [])
             <span>Last reviewed</span>
             <input type="date" data-p="consent.lastReviewed" value={privacyConsent.lastReviewed || ""} />
           </label>
+          </div>
+          </div>
         </div>
 
         <template id="tpl-processors">
@@ -992,9 +1024,14 @@ const noPattern = (siteLinks?.problems ?? [])
     grid-column: 1 / -1;
   }
 
+  /* A section's sub-groups (SEO: Search, Social sharing…; Privacy: Controller, Cookies…) are darker cards inside its
+     grey card, the way the Agents page nests agents in its panels. */
+  .subgroups { display: grid; gap: 12px; }
+  .subgroup { padding: 14px 16px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+
   .subgroup-label {
     grid-column: 1 / -1;
-    margin: 8px 0 0;
+    margin: 0 0 12px;
     padding-bottom: 6px;
     border-bottom: 1px solid var(--line);
     font-size: 12px;
@@ -1059,6 +1096,7 @@ const noPattern = (siteLinks?.problems ?? [])
     padding: 12px;
     border: 1px solid var(--line);
     border-radius: var(--radius);
+    background: var(--panel); /* a row inside a darker sub-group: the levels alternate */
   }
 
   .repeat-row .span-2 {

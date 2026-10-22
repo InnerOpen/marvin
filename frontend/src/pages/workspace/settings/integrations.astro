@@ -758,7 +758,7 @@ function statusMeta(status: string): { text: string; cls: string } {
 
     const parts: string[] = [];
     if (p.credentials.length) {
-      if (grouped) parts.push('<p class="group-label">Credentials</p>');
+      if (grouped) parts.push('<div class="field-group"><p class="group-label">Credentials</p>');
       for (const c of p.credentials) {
         parts.push(
           fieldHtml({
@@ -772,9 +772,10 @@ function statusMeta(status: string): { text: string; cls: string } {
           }),
         );
       }
+      if (grouped) parts.push("</div>");
     }
     if (configKeys.length) {
-      if (grouped) parts.push('<p class="group-label">Settings</p>');
+      if (grouped) parts.push('<div class="field-group"><p class="group-label">Settings</p>');
       for (const key of configKeys) {
         const prop = props[key];
         const isUri = prop.format === "uri" || prop.format === "url";
@@ -791,6 +792,7 @@ function statusMeta(status: string): { text: string; cls: string } {
           }),
         );
       }
+      if (grouped) parts.push("</div>");
     }
     fieldsEl.innerHTML = parts.join("");
     overlay.hidden = false;
@@ -1403,6 +1405,9 @@ function statusMeta(status: string): { text: string; cls: string } {
     color: var(--muted);
   }
   .panel :global(.group-label:first-child) { margin-top: 0; }
+  /* Credentials and Settings, when a form has both, are darker cards inside the panel (as on Publishing → Site). */
+  .panel :global(.field-group) { display: grid; gap: 14px; padding: 14px 16px 16px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+  .panel :global(.field-group .group-label) { margin: 0; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 
   .panel :global(.field) { display: grid; gap: 7px; margin-bottom: 16px; }
   .panel :global(.field:last-of-type) { margin-bottom: 0; }
