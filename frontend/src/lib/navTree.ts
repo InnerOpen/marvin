@@ -291,6 +291,14 @@ export function navNode(id: string): NavNode {
   return node;
 }
 
+/** Whether `id` is `ancestor` or sits under it in the menu (Settings › Publishing › API Clients is under "settings"). */
+export function navUnder(id: string, ancestor: string): boolean {
+  for (let node: NavNode | undefined = NAV_NODES.get(id); node; node = node.parent ? NAV_NODES.get(node.parent) : undefined) {
+    if (node.id === ancestor) return true;
+  }
+  return false;
+}
+
 /** A node's link. Pass params for a route pattern ("/admin/users/[id]"). */
 export function navHref(id: string, params: Record<string, string> = {}): string {
   return navNode(id).href.replace(/\[(\w+)\]/g, (_, key: string) => encodeURIComponent(params[key] ?? ""));

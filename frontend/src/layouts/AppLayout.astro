@@ -16,7 +16,7 @@ import Pwa from "@/components/Pwa.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { getEnvironmentLabel, withEnvironmentPrefix } from "@/lib/environmentLabel";
 import { sourceAllowed } from "@/lib/marvin/gate";
-import { navTitle, navTrail } from "@/lib/navTree";
+import { navTitle, navTrail, navUnder } from "@/lib/navTree";
 import { createSdkClient } from "@/lib/sdk";
 import { listAssetTypes } from "@/lib/api/assets";
 import { listCollections } from "@/lib/api/collections";
@@ -83,8 +83,8 @@ const trail = crumb ? navTrail(crumb, { params: crumbParams, labels: crumbLabels
 const blockedNote = adminOnly ? ADMINS_ONLY : restrictedNote;
 const path = Astro.url.pathname;
 // Settings and Automation pages are "page" wide by where they sit in the menu (their crumb), not their URL: Members,
-// Invitations, Entry Types and Tags live outside /workspace/settings. The path test covers pages with no crumb.
-const underSettings = /^(settings|automation)(\.|$)/.test(crumb ?? "") || /^\/(workspace\/settings|automation)(\/|$)/.test(path);
+// Invitations, Entry Types, Tags and Publishing live outside /workspace/settings. The path test covers pages with no crumb.
+const underSettings = (crumb != null && (navUnder(crumb, "settings") || navUnder(crumb, "automation"))) || /^\/(workspace\/settings|automation)(\/|$)/.test(path);
 const width = Astro.props.width ?? (underSettings ? "page" : "full");
 // Non-production instances (backend ENVIRONMENT_LABEL) badge the header and prefix the tab title.
 const environmentLabel = await getEnvironmentLabel();
