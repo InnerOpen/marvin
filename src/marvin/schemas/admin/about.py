@@ -37,6 +37,18 @@ class AppStatistics(_MarvinModel):
     total_ai_tokens: int = 0  # Total AI tokens consumed platform-wide.
     total_ai_cost_usd: float = 0.0  # Total estimated AI cost (USD) platform-wide.
 
+    # Automation, agents and connections, platform-wide (defaults keep older clients valid).
+    total_workflows: int = 0  # Workflows (workspace automations), on or off.
+    enabled_workflows: int = 0  # Workflows switched on.
+    pending_approvals: int = 0  # Workflow approvals still waiting for a person.
+    total_agents: int = 0  # Workspace-made agents (built-ins are code, not counted).
+    total_playbooks: int = 0  # Playbooks not in the Trash.
+    total_integrations: int = 0  # Integration connections installed in workspaces.
+    total_scheduled_tasks: int = 0  # Workspace scheduled tasks.
+    total_incoming_webhooks: int = 0  # Incoming webhook URLs.
+    total_form_submissions: int = 0  # Form submissions received.
+    connected_apps: int = 0  # MCP apps connected and not disconnected.
+
 
 class AppInfo(_MarvinModel):
     """

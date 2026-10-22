@@ -89,6 +89,15 @@ class AdminAboutController(BaseAdminController):
         from sqlalchemy import func
 
         from marvin.db.models.groups.ai_executions import AIExecutionModel
+        from marvin.db.models.groups.agents import WorkspaceAgentModel
+        from marvin.db.models.groups.automations import WorkspaceAutomationModel
+        from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookModel
+        from marvin.db.models.groups.workflow_approvals import APPROVAL_PENDING, WorkflowApprovalModel
+        from marvin.db.models.platform.entries import Entries
+        from marvin.db.models.platform.entry_types import EntryTypes
+        from marvin.db.models.platform.oauth import OAuthGrantModel
+        from marvin.schemas.platform.entries import TRASHED
+        from marvin.services.playbooks import PLAYBOOK_TYPE
 
         session = self.repos.session
         ai_ops = session.query(AIExecutionModel).count()
@@ -96,6 +105,13 @@ class AdminAboutController(BaseAdminController):
             func.coalesce(func.sum(AIExecutionModel.total_tokens), 0),
             func.coalesce(func.sum(AIExecutionModel.estimated_cost_usd), 0.0),
         ).one()
+
+        playbooks = (
+            session.query(func.count(Entries.id))
+            .join(EntryTypes, Entries.entry_type_id == EntryTypes.id)
+            .filter(EntryTypes.slug == PLAYBOOK_TYPE, Entries.status != TRASHED)
+            .scalar()
+        )
 
         # Utilize repositories to fetch counts
         return AppStatistics(
@@ -117,6 +133,17 @@ class AdminAboutController(BaseAdminController):
             total_ai_operations=ai_ops,
             total_ai_tokens=int(ai_tokens or 0),
             total_ai_cost_usd=float(ai_cost or 0.0),
+            # Automation, agents and connections
+            total_workflows=session.query(WorkspaceAutomationModel).count(),
+            enabled_workflows=session.query(WorkspaceAutomationModel).filter(WorkspaceAutomationModel.enabled.is_(True)).count(),
+            pending_approvals=session.query(WorkflowApprovalModel).filter(WorkflowApprovalModel.status == APPROVAL_PENDING).count(),
+            total_agents=session.query(WorkspaceAgentModel).count(),
+            total_playbooks=int(playbooks or 0),
+            total_integrations=self.repos.integrations().count_all(),  # a method, not a cached property
+            total_scheduled_tasks=self.repos.scheduled_tasks.count_all(),
+            total_incoming_webhooks=session.query(WorkspaceIncomingWebhookModel).count(),
+            total_form_submissions=self.repos.form_submissions.count_all(),
+            connected_apps=session.query(OAuthGrantModel).filter(OAuthGrantModel.revoked_at.is_(None)).count(),
         )
 
     @router.get("/roles-matrix", summary="Workspace role → capability matrix")
