@@ -21,6 +21,8 @@ export interface IntegrationFootprint {
   outgoingWebhooks: FootprintItem[];
   scheduledTasks: FootprintItem[];
   collections: FootprintItem[];
+  /** Playbooks the integration shipped and the workspace added; `enabled` means published. */
+  playbooks: FootprintItem[];
   fieldChanges: FootprintFieldChange[];
   total: number;
 }
@@ -28,7 +30,7 @@ export interface IntegrationFootprint {
 export interface FootprintSection {
   kind: keyof Pick<
     IntegrationFootprint,
-    "workflows" | "incomingWebhooks" | "outgoingWebhooks" | "scheduledTasks" | "collections"
+    "workflows" | "incomingWebhooks" | "outgoingWebhooks" | "scheduledTasks" | "collections" | "playbooks"
   >;
   /** "3 workflows" */
   heading: string;
@@ -43,6 +45,7 @@ const KINDS = [
   ["outgoingWebhooks", "outgoing webhook", "outgoing webhooks", "/automation/webhooks"],
   ["scheduledTasks", "scheduled task", "scheduled tasks", "/workspace/scheduled-tasks"],
   ["collections", "collection", "collections", "/workspace/collections"],
+  ["playbooks", "Playbook", "Playbooks", "/workspace/settings/ai-playbooks"],
 ] as const;
 
 export function fromHref(page: string, integrationId: string): string {

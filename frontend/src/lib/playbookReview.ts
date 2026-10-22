@@ -7,7 +7,18 @@ export interface ReviewLink { target: string; kind: "url" | "file"; found: boole
 export interface ReviewFile { path: string; size: number; script: boolean; referenced: boolean }
 export interface ReviewWarning { kind: string; file: string; line: number; excerpt: string }
 export interface ImportReview {
-  source?: { kind?: string; filename?: string; importedAt?: string; url?: string; repo?: string; path?: string; commit?: string };
+  source?: {
+    kind?: string;
+    filename?: string;
+    importedAt?: string;
+    url?: string;
+    repo?: string;
+    path?: string;
+    commit?: string;
+    /** An integration's Playbook (`kind: "integration"`): the provider's slug and name. */
+    provider?: string;
+    name?: string;
+  };
   tools: ReviewTool[];
   narrowsTools: boolean;
   links: ReviewLink[];
@@ -90,8 +101,17 @@ export function sourceView(source: ImportReview["source"]): SourceView | null {
   };
 }
 
+/** "Installed by the Buttondown integration." for a Playbook an integration shipped, else null. */
+export function integrationNote(source: ImportReview["source"]): string | null {
+  if (source?.kind !== "integration") return null;
+  const name = (source.name || source.provider || "").trim();
+  return name ? `Installed by the ${name} integration.` : "Installed by an integration.";
+}
+
 export interface ReviewView {
   source: SourceView | null;
+  /** Set for a Playbook an integration shipped. */
+  integration: string | null;
   /** One sentence for the top of the panel: what needs a look. */
   headline: string;
   tone: "ok" | "attention";
@@ -118,6 +138,7 @@ export function reviewView(review: ImportReview): ReviewView {
   if (review.skipped.length) bits.push(plural(review.skipped.length, "file") + " left out");
   return {
     source: sourceView(review.source),
+    integration: integrationNote(review.source),
     headline: bits.length ? `Look at before publishing: ${bits.join(", ")}.` : "Nothing flagged. Still read it before you publish.",
     tone: bits.length ? "attention" : "ok",
     tools: review.tools.map((t) => ({

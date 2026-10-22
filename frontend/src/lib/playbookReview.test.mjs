@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { githubLink, importError, sourceView, NO_NARROWING_NOTE, NOT_A_MARVIN_TOOL, reviewFromMetadata, reviewView, sizeLabel, warningLabel } from "./playbookReview.ts";
+import { githubLink, importError, integrationNote, sourceView, NO_NARROWING_NOTE, NOT_A_MARVIN_TOOL, reviewFromMetadata, reviewView, sizeLabel, warningLabel } from "./playbookReview.ts";
 
 const review = (over = {}) => ({
   tools: [],
@@ -143,4 +143,16 @@ describe("sourceView", () => {
 test("githubLink trims and ignores an empty field", () => {
   assert.equal(githubLink("  https://github.com/o/r \n"), "https://github.com/o/r");
   assert.equal(githubLink("   "), null);
+});
+
+describe("integrationNote", () => {
+  test("a Playbook an integration shipped says which one", () => {
+    assert.equal(integrationNote({ kind: "integration", provider: "buttondown", name: "Buttondown" }), "Installed by the Buttondown integration.");
+    assert.equal(integrationNote({ kind: "integration", provider: "mastodon" }), "Installed by the mastodon integration.");
+    assert.equal(integrationNote({ kind: "integration" }), "Installed by an integration.");
+  });
+  test("an import says nothing", () => {
+    assert.equal(integrationNote({ kind: "zip" }), null);
+    assert.equal(integrationNote(undefined), null);
+  });
 });

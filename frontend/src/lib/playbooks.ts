@@ -26,6 +26,8 @@ export interface PlaybookItem {
   updatedAt?: string | null;
   /** When an agent last loaded it; null when not lately. */
   lastUsedAt?: string | null;
+  /** Set when an integration shipped it: which one, and whether that integration has since been removed. */
+  fromIntegration?: { source: string; name: string; integrationId?: string | null; removed?: boolean } | null;
 }
 
 export interface PlaybookForm {
@@ -78,6 +80,8 @@ export interface PlaybookRow {
   manualOnly: boolean;
   /** "Used 3 d ago", or "Not used lately". */
   used: string;
+  /** "From Buttondown" / "From a removed integration" for an integration's Playbook; null for a person's. */
+  origin: string | null;
 }
 
 /** The list's "used recently" words for a Playbook. */
@@ -96,7 +100,26 @@ export function playbookRow(item: PlaybookItem, now: Date = new Date()): Playboo
     tone: statusTone(item.status),
     manualOnly: item.manualOnly === true,
     used: usedLabel(item.lastUsedAt, now),
+    origin: originLabel(item),
   };
+}
+
+/** Where an integration's Playbook came from, in words. A Playbook of a removed integration stays (a published one keeps working). */
+export function originLabel(item: Pick<PlaybookItem, "fromIntegration">): string | null {
+  const from = item.fromIntegration;
+  if (!from) return null;
+  return from.removed ? "From a removed integration" : `From ${from.name || from.source}`;
+}
+
+/** `?from=integration:<id>` (the footprint's link): the id it names, or null. */
+export function fromIntegrationId(param: string | null | undefined): string | null {
+  const match = /^integration:(.+)$/.exec(param ?? "");
+  return match ? match[1] : null;
+}
+
+/** The Playbooks of one integration (the card's "What it installed" link), or all of them when none is named. */
+export function fromIntegration(items: PlaybookItem[], integrationId: string | null): PlaybookItem[] {
+  return integrationId ? items.filter((i) => i.fromIntegration?.integrationId === integrationId) : items;
 }
 
 // ── used recently (the editor page) ───────────────────────────────────────────────────────────────────────────────

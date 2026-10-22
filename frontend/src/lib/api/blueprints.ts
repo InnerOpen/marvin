@@ -23,7 +23,8 @@ type BlueprintKind =
   | "scheduled_task"
   | "event_subscription"
   | "incoming_webhook"
-  | "workflow";
+  | "workflow"
+  | "playbook";
 
 /** `entry_type`/`collection` render as a picker fed by the workspace's own content. */
 type ParameterKind = "entry_type" | "collection" | "integration" | "text" | "number";
@@ -56,7 +57,7 @@ export interface Blueprint {
   /** Already in this workspace. Always false for a parameterised blueprint: its slug
    *  is not known until the parameters are. */
   applied: boolean;
-  /** An Update is worth offering (workflows): `update`, `edited_update` or `differs`. */
+  /** An Update is worth offering (workflows and Playbooks): `update`, `edited_update` or `differs`. */
   outdated?: boolean;
   /** An applied workflow against the integration's current version. `edited`: changed in this workspace,
    *  nothing new from the integration; `edited_update`: changed here and a newer version exists; `differs`:
@@ -64,6 +65,11 @@ export interface Blueprint {
   state?: BlueprintState | null;
   /** The workspace changed it (`edited`, `edited_update`). */
   edited?: boolean;
+  /** A Playbook once added: the id of the draft it made (the card links to it) and its status (`draft` until published). */
+  installedId?: string | null;
+  installedStatus?: string | null;
+  /** A Playbook whose name something else already holds: why Add is refused (shown in place of Add). */
+  conflict?: string | null;
 }
 
 export type BlueprintState = "current" | "update" | "edited" | "edited_update" | "differs";
@@ -72,7 +78,7 @@ export interface BlueprintApplyResult {
   slug: string;
   kind: BlueprintKind;
   created: boolean;
-  /** An Update replaced an applied workflow's steps. */
+  /** An Update replaced an applied workflow's steps, or a Playbook's text and files. */
   updated?: boolean;
   /** An Update was refused because it would replace changes made here; repeat with `replaceEdits`. */
   needsConfirmation?: boolean;
@@ -123,17 +129,18 @@ export async function applyBlueprints(
 }
 
 /**
- * Replace an applied workflow's steps with what its integration declares now (keeps whether it's on).
- * A workflow changed in this workspace comes back `needsConfirmation` unless `replaceEdits`.
+ * Replace an applied workflow's steps (or a Playbook's text and files) with what its integration declares now; a workflow keeps
+ * whether it's on, a Playbook its status. One changed in this workspace comes back `needsConfirmation` unless `replaceEdits`.
  */
 export async function updateBlueprint(
   slug: string,
   source?: string,
   replaceEdits = false,
   authToken?: string,
+  integrationId?: string,
 ): Promise<BlueprintApplyResult> {
   return fetchApi<BlueprintApplyResult>(
-    `/api/groups/blueprints/${encodeURIComponent(slug)}/update${query({ source, replace_edits: replaceEdits || undefined })}`,
+    `/api/groups/blueprints/${encodeURIComponent(slug)}/update${query({ source, replace_edits: replaceEdits || undefined, integration_id: integrationId })}`,
     { method: "POST", body: JSON.stringify(null), headers: { "Content-Type": "application/json" } },
     authToken,
   );

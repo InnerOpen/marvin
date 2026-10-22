@@ -7,7 +7,7 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { listPlaybooks, type PlaybookList } from "@/lib/api/playbooks";
 import { GITHUB_IMPORT_PLACEHOLDER, IMPORT_PATH_ACCEPT } from "@/lib/playbookReview";
-import { EMPTY_NOTICE, listSummary, NEW_PLAYBOOK_PATH, playbookRow, sortedItems } from "@/lib/playbooks";
+import { EMPTY_NOTICE, fromIntegration, fromIntegrationId, listSummary, NEW_PLAYBOOK_PATH, playbookRow, PLAYBOOKS_PATH, sortedItems } from "@/lib/playbooks";
 import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -20,7 +20,11 @@ try {
   if (isForbidden(e)) restricted = true;
   else error = e instanceof Error ? e.message : String(e);
 }
-const items = sortedItems(list?.items ?? []);
+// `?from=integration:<id>`: the card's "What it installed" link, narrowed to one integration's Playbooks.
+const fromId = fromIntegrationId(Astro.url.searchParams.get("from"));
+const all = sortedItems(list?.items ?? []);
+const items = fromIntegration(all, fromId);
+const fromName = fromId ? (all.find((i) => i.fromIntegration?.integrationId === fromId)?.fromIntegration?.name ?? "this integration") : null;
 const rows = items.map((item) => playbookRow(item));
 ---
 
@@ -73,6 +77,12 @@ const rows = items.map((item) => playbookRow(item));
     </div>
   )}
 
+  {fromName && (
+    <p class="pb-from" data-testid="playbooks-from">
+      Showing the Playbooks {fromName} shipped. <a href={PLAYBOOKS_PATH}>Show all</a>
+    </p>
+  )}
+
   {rows.length > 0 && (
     <div class="pb-section">
       <p class="pb-summary">{listSummary(items)}</p>
@@ -84,6 +94,7 @@ const rows = items.map((item) => playbookRow(item));
                 <strong class="pb-name">{row.name}</strong>
                 {row.summary && <span class="pb-desc">{row.summary}</span>}
                 <span class="pb-used">{row.used}</span>
+                {row.origin && <span class="pb-origin" data-testid="playbook-origin">{row.origin}</span>}
               </span>
               <span class="pb-tags">
                 {row.manualOnly && <span class="pb-manual" title="Loaded only when a person names it">Manual only</span>}
@@ -116,6 +127,8 @@ const rows = items.map((item) => playbookRow(item));
   .pb-name { font-size: 14.5px; font-weight: 600; overflow-wrap: anywhere; }
   .pb-desc { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
   .pb-used { font-size: 12px; color: var(--muted); }
+  .pb-origin { font-size: 12px; color: var(--muted); }
+  .pb-from { margin: 0 0 12px; font-size: 13px; color: var(--muted); }
   .pb-tags { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
   .pb-manual { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
   .pb-empty h3 { margin: 0 0 6px; }
