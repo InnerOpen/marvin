@@ -187,6 +187,8 @@ class Blueprint(_MarvinModel):
 
             if self.required or self.parameters or self.requires:
                 raise ValueError("a playbook blueprint is never required and takes no parameters or requirements")
+            if self.payload.get("scope") == "system":
+                raise ValueError("a system Playbook is listed in system_playbooks (or a plugin's playbooks), not in content: it is never an Add item")
             if problem := payload_problem(self.payload, self.slug):
                 raise ValueError(problem)
         return self
