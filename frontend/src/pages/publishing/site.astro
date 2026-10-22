@@ -258,8 +258,8 @@ const noPattern = (siteLinks?.problems ?? [])
         <h3>SEO &amp; Social Sharing</h3>
         <p class="section-description">How search engines and social platforms present your site. Leave a field blank to fall back to the identity settings above.</p>
         <div class="subgroups">
-          <div class="subgroup">
-            <p class="subgroup-label">Search</p>
+          <details class="subgroup" open>
+            <summary class="subgroup-label">Search</summary>
             <div class="form-grid">
           <label class="span-2">
             <span>Meta Title</span>
@@ -312,9 +312,9 @@ const noPattern = (siteLinks?.problems ?? [])
           </label>
 
           </div>
-          </div>
-          <div class="subgroup">
-            <p class="subgroup-label">Social sharing</p>
+          </details>
+          <details class="subgroup" open>
+            <summary class="subgroup-label">Social sharing</summary>
             <div class="form-grid">
           <label class="span-2">
             <span>Default Share Image URL</span>
@@ -396,9 +396,9 @@ const noPattern = (siteLinks?.problems ?? [])
           </label>
 
           </div>
-          </div>
-          <div class="subgroup">
-            <p class="subgroup-label">Branding &amp; structured data</p>
+          </details>
+          <details class="subgroup" open>
+            <summary class="subgroup-label">Branding &amp; structured data</summary>
             <div class="form-grid">
           <label>
             <span>Theme Color</span>
@@ -422,9 +422,9 @@ const noPattern = (siteLinks?.problems ?? [])
           </label>
 
           </div>
-          </div>
-          <div class="subgroup">
-            <p class="subgroup-label">Search engine verification</p>
+          </details>
+          <details class="subgroup" open>
+            <summary class="subgroup-label">Search engine verification</summary>
             <div class="form-grid">
           <label>
             <span>Google</span>
@@ -467,7 +467,7 @@ const noPattern = (siteLinks?.problems ?? [])
             <small>Yandex Webmaster.</small>
           </label>
           </div>
-          </div>
+          </details>
         </div>
       </section>
 
@@ -475,8 +475,8 @@ const noPattern = (siteLinks?.problems ?? [])
         <h3>Privacy &amp; Cookies</h3>
         <p class="section-description">The facts your site's privacy and cookie policy pages need, served to your site as <code>site.privacy</code>. Disclosure only: Marvin does not show a consent banner. Leave this section empty to publish nothing.</p>
         <div class="subgroups">
-          <div class="subgroup">
-            <p class="subgroup-label">Controller</p>
+          <details class="subgroup" open>
+            <summary class="subgroup-label">Controller</summary>
             <div class="form-grid">
           <label>
             <span>Legal name</span>
@@ -501,17 +501,17 @@ const noPattern = (siteLinks?.problems ?? [])
           </label>
 
           </div>
-          </div>
-          <div class="subgroup">
-            <p class="subgroup-label">Processors</p>
+          </details>
+          <details class="subgroup" open>
+            <summary class="subgroup-label">Processors</summary>
             <div class="form-grid">
           <div class="span-2 repeat-list" id="privacy-processors" data-initial={JSON.stringify(privacyProcessors)}></div>
           <div class="span-2"><button type="button" class="button secondary" data-add="processors">Add processor</button></div>
 
           </div>
-          </div>
-          <div class="subgroup">
-            <p class="subgroup-label">Cookies</p>
+          </details>
+          <details class="subgroup" open>
+            <summary class="subgroup-label">Cookies</summary>
             <div class="form-grid">
           <div class="span-2 repeat-list" id="privacy-cookies" data-initial={JSON.stringify(privacyCookies)}></div>
           <div class="span-2"><button type="button" class="button secondary" data-add="cookies">Add cookie</button></div>
@@ -521,9 +521,9 @@ const noPattern = (siteLinks?.problems ?? [])
           </p>
 
           </div>
-          </div>
-          <div class="subgroup">
-            <p class="subgroup-label">Policy pages</p>
+          </details>
+          <details class="subgroup" open>
+            <summary class="subgroup-label">Policy pages</summary>
             <div class="form-grid">
           <label>
             <span>Privacy policy entry slug</span>
@@ -538,7 +538,7 @@ const noPattern = (siteLinks?.problems ?? [])
             <input type="date" data-p="consent.lastReviewed" value={privacyConsent.lastReviewed || ""} />
           </label>
           </div>
-          </div>
+          </details>
         </div>
 
         <template id="tpl-processors">
@@ -954,17 +954,7 @@ const noPattern = (siteLinks?.problems ?? [])
     border-bottom: 1px solid var(--line);
   }
 
-  .toolbar h2 {
-    margin: 0;
-    font-size: 24px;
-    font-weight: 600;
-  }
 
-  .toolbar p {
-    margin: 8px 0 0;
-    color: var(--muted);
-    font-size: 14px;
-  }
 
   .alert {
     padding: 16px;
@@ -1027,19 +1017,8 @@ const noPattern = (siteLinks?.problems ?? [])
   /* A section's sub-groups (SEO: Search, Social sharing…; Privacy: Controller, Cookies…) are darker cards inside its
      grey card, the way the Agents page nests agents in its panels. */
   .subgroups { display: grid; gap: 12px; }
-  .subgroup { padding: 14px 16px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+  .subgroups > .subgroup + .subgroup { margin-top: 0; } /* the grid's gap spaces them */
 
-  .subgroup-label {
-    grid-column: 1 / -1;
-    margin: 0 0 12px;
-    padding-bottom: 6px;
-    border-bottom: 1px solid var(--line);
-    font-size: 12px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--muted);
-  }
 
   .form-grid small code {
     font-size: 12px;

@@ -83,7 +83,7 @@ const optionsOpen = rowValues.length > 0 || view.versions || Boolean(view.status
     <>
       <div class="toolbar">
         <div>
-          <h2 style="margin:0;font-size:20px;">{view.source ? `Versions of ${sourceAsset?.name ?? "an asset"}` : view.status === "trashed" ? "Assets in the Trash" : "Media library"}</h2>
+          <h2>{view.source ? `Versions of ${sourceAsset?.name ?? "an asset"}` : view.status === "trashed" ? "Assets in the Trash" : "Media library"}</h2>
           <p style="margin:4px 0 0;color:var(--muted);">
             {view.source ? (
               <>Made from it by workflows and the media pipeline · <a href={viewHref(view, { source: "" })}>Back to the library</a></>

@@ -52,7 +52,7 @@ const isPdf = asset?.mimeType?.includes("pdf");
     <>
       <div class="toolbar">
         <div>
-          <h2 style="margin:0;font-size:20px;">{asset.name}</h2>
+          <h2>{asset.name}</h2>
           <p style="margin:4px 0 0;color:var(--muted);">{asset.mimeType}</p>
           <AssetLineage metadata={asset.metadataJson} authToken={authToken} />
           <AssetVersions assetId={asset.id} authToken={authToken} />

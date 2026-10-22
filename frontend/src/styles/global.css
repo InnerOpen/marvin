@@ -1295,7 +1295,26 @@ code {
 .persona-from button { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; }
 
 /* "Nothing here yet": one look on every page — a dashed box, centred, muted. Pages style only what's inside it (icon, title, text). */
-.empty-state { padding: 40px 24px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: var(--radius); }
+.empty-state { padding: 40px 24px; text-align: center; color: var(--muted); font-size: 14px; border: 1px dashed var(--line); border-radius: var(--radius); }
 
 /* A page header's buttons keep their label on one line; the title and lede beside them wrap instead. */
 .page-header .button, .toolbar .button, .header-actions .button { white-space: nowrap; }
+
+/* A page's header — the one style for every page: title and lede over a rule, actions on the right. Pages mark it with
+   .toolbar, .page-header, .page-head or .ss-head; only one holding an h2 counts (filter rows reuse .toolbar). */
+:is(.toolbar, .page-header, .page-head, .ss-head):has(h2) { align-items: flex-start; gap: 16px; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+:is(.toolbar, .page-header, .page-head, .ss-head):has(h2) h2 { margin: 0; font-size: 24px; font-weight: 600; }
+:is(.toolbar, .page-header, .page-head, .ss-head):has(h2) p { margin: 8px 0 0; color: var(--muted); font-size: 14px; max-width: 70ch; }
+
+/* A section's sub-group: a darker card inside its grey section card (Publishing → Site, AI Settings), the way Agents nests its
+   cards; a row inside one goes grey again. */
+.subgroup { padding: 14px 16px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+.subgroup + .subgroup { margin-top: 12px; }
+.subgroup-label { grid-column: 1 / -1; margin: 0 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+/* As a <details>: the label is the toggle (open by default); closed, it's just the label line. */
+summary.subgroup-label { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; }
+summary.subgroup-label::-webkit-details-marker { display: none; }
+summary.subgroup-label::before { content: "▸"; transition: transform 0.15s; }
+details.subgroup[open] > summary.subgroup-label::before { transform: rotate(90deg); }
+details.subgroup:not([open]) > summary.subgroup-label { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
+summary.subgroup-label:hover { color: var(--ink); }

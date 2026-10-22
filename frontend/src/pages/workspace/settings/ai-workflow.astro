@@ -319,6 +319,8 @@ const modCfg = s.moderationConfig ?? {};
         <h3>Persona</h3>
         <p>Who your assistant is: its name, look and character for this workspace. How it delivers a given piece of work is the tone's job (Tones, below).</p>
       </div>
+      <details class="subgroup" open>
+        <summary class="subgroup-label">Name and icon</summary>
       <div class="form-row">
         <label class="form-field">
           <span class="label">Assistant name</span>
@@ -335,8 +337,10 @@ const modCfg = s.moderationConfig ?? {};
           <small class="hint">An emoji, or an image (paste its URL — an image URL wins over the emoji). Leave both blank for 🤖.</small>
         </div>
       </div>
+      </details>
+      <details class="subgroup" open>
+        <summary class="subgroup-label">Bubble character</summary>
       <div class="form-field character-field">
-        <span class="label">Bubble character</span>
         <small class="hint">
           An animated character shown instead of the icon, one animation per state: one from the
           platform's library, or your own upload. Saved as you go. Viewers who prefer reduced motion
@@ -356,8 +360,10 @@ const modCfg = s.moderationConfig ?? {};
           </p>
         )}
       </div>
+      </details>
+      <details class="subgroup" open>
+        <summary class="subgroup-label">Character</summary>
       <label class="form-field">
-        <span class="label">Character</span>
         <textarea name="persona_prompt" class="input persona-prompt" rows="4"
           placeholder="e.g. A leathercraft studio's helper; warm and upbeat, a little dry.">{s.personaPrompt ?? ""}</textarea>
         <small class="hint">Who your assistant is and how it speaks — sent to the model as its "Character". The tone decides how far it reaches and wins on formality, length and mood. Leave blank for the default character — Marvin, the deadpan Paranoid Android (while the assistant is still named Marvin).</small>
@@ -369,8 +375,10 @@ const modCfg = s.moderationConfig ?? {};
         </div>
         <div class="prompt-preview" id="persona-preview" hidden aria-live="polite"></div>
       </div>
+      </details>
+      <details class="subgroup" open>
+        <summary class="subgroup-label">Bubble lines</summary>
       <div class="form-field bubble-lines" id="bubble-lines" data-state={JSON.stringify(bubbleState)}>
-        <span class="label">Bubble lines</span>
         <small class="hint">
           What the bubble says around its answers. When you save a character above, one AI call writes these
           in its voice; you can edit them here, one line per row. An empty list uses the built-in lines
@@ -396,6 +404,7 @@ const modCfg = s.moderationConfig ?? {};
           <span class="save-status" id="bubble-lines-msg"></span>
         </div>
       </div>
+      </details>
       <div class="form-field" id="persona-mood" set:html={moodFieldsHtml(s.mood)} />
     </div>
 
@@ -419,6 +428,8 @@ const modCfg = s.moderationConfig ?? {};
         <h3>Usage &amp; Limits</h3>
         <p>Estimated AI spend this month and runs today, against this workspace's limits. You get an activity toast at <span data-usage="warn">80</span>% of the monthly limit and when it is reached; at a limit new AI runs are refused until it resets.</p>
       </div>
+      <details class="subgroup" open>
+        <summary class="subgroup-label">Spend and limits</summary>
       <div class="usage-meters" id="usage-meters">
         <div class="usage-meter">
           <div class="usage-head"><strong>This month</strong><span class="usage-figure" data-usage="month">…</span></div>
@@ -453,7 +464,9 @@ const modCfg = s.moderationConfig ?? {};
             value={budgetCfg.max_tokens_per_request ?? ""} placeholder="App default" min="1" />
         </label>
       </div>
-      <h4 class="subhead">How agents behave</h4>
+      </details>
+      <details class="subgroup" open>
+        <summary class="subgroup-label">How agents behave</summary>
       <div class="form-row usage-limits">
         <label class="form-field">
           <span class="label">Steps per question</span>
@@ -482,6 +495,7 @@ const modCfg = s.moderationConfig ?? {};
         </span>
       </label>
       <p class="hint">Costs are estimates from Marvin's price table; search indexing isn't counted (a fraction of a cent per reindex). Your provider's own balance isn't visible here — if it runs out, the failed run says so and you get a toast.</p>
+      </details>
     </div>
 
     <!-- 7. Advanced (collapsible) -->
@@ -490,8 +504,8 @@ const modCfg = s.moderationConfig ?? {};
 
       <div class="advanced-body">
         <!-- Logging -->
-        <div class="sub-section">
-          <h4>Logging</h4>
+        <details class="sub-section subgroup" open>
+          <summary class="subgroup-label">Logging</summary>
           <div class="toggle-grid compact">
             <label class="source-toggle">
               <div class="source-info"><strong>Log inputs</strong><span>Record prompts sent to AI</span></div>
@@ -509,11 +523,11 @@ const modCfg = s.moderationConfig ?? {};
             <input type="number" name="logging.retention_days" class="input"
               value={logCfg.retention_days ?? ""} placeholder="e.g. 30" min="1" style="max-width:160px" />
           </label>
-        </div>
+        </details>
 
         <!-- Moderation -->
-        <div class="sub-section">
-          <h4>Moderation</h4>
+        <details class="sub-section subgroup" open>
+          <summary class="subgroup-label">Moderation</summary>
           <div class="toggle-grid compact">
             <label class="source-toggle">
               <div class="source-info"><strong>Enable moderation</strong><span>Run AI outputs through a content moderation layer</span></div>
@@ -526,7 +540,7 @@ const modCfg = s.moderationConfig ?? {};
               <span class="toggle-track"><span class="toggle-thumb"></span></span>
             </label>
           </div>
-        </div>
+        </details>
       </div>
     </details>
 
@@ -1028,8 +1042,6 @@ const modCfg = s.moderationConfig ?? {};
     gap: 16px;
   }
 
-  .page-header h2 { margin: 0 0 6px; font-size: 22px; font-weight: 600; }
-  .page-header p { margin: 0; color: var(--muted); font-size: 14px; }
 
   .alert {
     padding: 14px 16px; margin-bottom: 20px; border-radius: var(--radius);
@@ -1185,6 +1197,9 @@ const modCfg = s.moderationConfig ?? {};
 
   /* ── Form elements ── */
   .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  /* A row holding one field (Assistant name, Bubble icon) takes the card's width instead of half of it. */
+  .form-row:has(> :only-child) { grid-template-columns: minmax(0, 1fr); }
+  .form-row:has(> :only-child) :global(.input), .form-row:has(> :only-child) input { width: 100%; box-sizing: border-box; }
   .form-field { display: grid; gap: 8px; }
   .label { font-size: 13px; font-weight: 500; }
   .hint { font-size: 12px; color: var(--muted); }
@@ -1256,13 +1271,16 @@ const modCfg = s.moderationConfig ?? {};
   .input:focus { border-color: var(--accent); outline: none; }
 
   textarea.persona-prompt { resize: vertical; min-height: 84px; font-family: inherit; line-height: 1.5; }
-  .persona-preview { margin: -4px 0 16px; }
+  .persona-preview { margin: 8px 0 0; }
+  /* Mood is its own collapsible block: shown as one of Persona's sub-group cards rather than a dashed box inside one. */
+  #persona-mood { margin-top: 12px; }
+  #persona-mood :global(.mood-fields) { border: 1px solid var(--line); background: var(--bg); padding: 14px 16px 16px; } /* was -4px: it rode up onto the hint above */
   .persona-preview-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
   .bubble-lines-status { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
   .bubble-lines-warning { margin: 6px 0 0; font-size: 13px; color: var(--color-error); }
   .bubble-lines-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 12px; }
   textarea.bubble-lines-list { resize: vertical; min-height: 110px; font-family: inherit; line-height: 1.5; }
-  .bubble-lines-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+  .bubble-lines-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
 
   /* ── Advanced / collapsible ── */
   .advanced-section summary { list-style: none; }

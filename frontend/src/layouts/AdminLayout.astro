@@ -210,11 +210,7 @@ function isActive(item: AdminNavItem, currentPath: string): boolean {
     font-weight: 600;
   }
 
-  /* The admin page conventions, once: every page's header (title and lede over a rule, actions on the right), 14px body text
-     and section headings. A page's own rules still win (they are scoped, so more specific). */
+  /* Admin page conventions: 14px body text and section headings (the page header's style is global.css's). */
   .content { font-size: 14px; }
-  .content :global(> .toolbar) { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
-  .content :global(> .toolbar h2) { margin: 0; font-size: 24px; font-weight: 600; }
-  .content :global(> .toolbar p) { margin: 8px 0 0; color: var(--muted); font-size: 14px; max-width: 70ch; }
   .content :global(h3) { font-size: 16px; font-weight: 600; }
 </style>

@@ -62,7 +62,7 @@ const optionsOpen = rowValues.length > 0 || inTrash || view.sort !== "name";
 <AppLayout title="Resources" eyebrow="Content">
   <div class="toolbar">
     <div>
-      <h2 style="margin:0;font-size:20px;">{inTrash ? "Resources in the Trash" : "Resources"}</h2>
+      <h2>{inTrash ? "Resources in the Trash" : "Resources"}</h2>
       <p style="margin:4px 0 0;color:var(--muted);">
         {isFiltered(view) ? `${rows.length} ${rows.length === 1 ? "resource" : "resources"}` : "External references, suppliers, tools, and materials"}
       </p>

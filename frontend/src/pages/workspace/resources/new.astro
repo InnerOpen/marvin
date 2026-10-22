@@ -50,7 +50,7 @@ if (Astro.request.method === "POST") {
 <AppLayout restrictedNote={access.canEdit ? null : EDITORS_ONLY} title="New Resource" eyebrow="Resources">
   <div class="toolbar">
     <div>
-      <h2 style="margin:0;font-size:20px;">New Resource</h2>
+      <h2>New Resource</h2>
       <p style="margin:4px 0 0;color:var(--muted);">Add an external reference, supplier, tool, or material</p>
     </div>
     <a href="/workspace/resources" class="button secondary">Cancel</a>

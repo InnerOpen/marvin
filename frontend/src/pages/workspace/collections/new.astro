@@ -61,7 +61,7 @@ if (Astro.request.method === "POST") {
 <AppLayout restrictedNote={access.canEdit ? null : EDITORS_ONLY} title="Create Collection">
   <div class="toolbar">
     <div>
-      <h2 style="margin:0;font-size:20px;">New Collection</h2>
+      <h2>New Collection</h2>
       <p style="margin:4px 0 0;color:var(--muted);">Create a curated grouping of entries.</p>
     </div>
     <a class="button secondary" href="/workspace/collections">Cancel</a>

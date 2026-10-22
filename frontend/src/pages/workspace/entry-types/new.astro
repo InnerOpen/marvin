@@ -14,7 +14,7 @@ const adminOnly = !!authToken && !(await canManageCurrentWorkspace(authToken).ca
 <AppLayout crumb="settings.entry-types.new" adminOnly={adminOnly}>
   <div class="toolbar">
     <div>
-      <h2 style="margin:0;font-size:20px;">New Entry Type</h2>
+      <h2>New Entry Type</h2>
       <p style="margin:4px 0 0;color:var(--muted);">Define a new content type for your workspace.</p>
     </div>
     <a class="button secondary" href="/workspace/entry-types">Cancel</a>
