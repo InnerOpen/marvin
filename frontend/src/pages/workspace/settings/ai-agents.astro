@@ -74,23 +74,23 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
       <p>Define agents: what they're for, how they speak, which model they use, and exactly which tools they may touch. An agent never does more than the person using it.</p>
     </div>
     <div class="header-actions">
-      <a href="/workspace/settings/ai-ask" class="button secondary small">Open Ask</a>
+      <a href="/workspace/settings/ai-ask" class="button secondary">Open Ask</a>
+      <button id="new-toggle" class="button" type="button" aria-expanded="false" aria-controls="new-card">New Agent</button>
     </div>
   </div>
 
   {error && <div class="alert"><strong>Couldn't load agents.</strong> {error}</div>}
 
   <div class="agents-root" data-catalog={JSON.stringify(catalog)} data-agents={JSON.stringify(external ? [...agents, external] : agents)} data-tones={JSON.stringify(tones)} data-library={JSON.stringify(characterLibrary.map((p) => ({ id: p.id, name: p.name, persona: p.persona ?? null })))}>
-    <!-- New agent -->
-    <div class="section-card">
+    <!-- New agent: opened by the header's New Agent button, like New Secret / New Variable -->
+    <div class="section-card" id="new-card" hidden>
       <div class="section-header">
         <div>
           <h3>New agent</h3>
           <p>Instructions plus a tool matrix. Start read-only; turn on writes only when it needs to author or link.</p>
         </div>
-        <button id="new-toggle" class="button small" type="button" aria-expanded="false">+ New agent</button>
       </div>
-      <form id="new-form" class="agent-form" hidden>
+      <form id="new-form" class="agent-form">
         <div class="form-row icon-name">
           <div class="form-field">
             <label class="label" for="n-icon">Icon</label>
@@ -727,13 +727,17 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
       nameEl.addEventListener("input", () => {
         if (!slugTouched) slugEl.value = slugify(nameEl.value);
       });
-      newToggle?.addEventListener("click", () => {
-        newForm.hidden = !newForm.hidden;
-        newToggle.setAttribute("aria-expanded", String(!newForm.hidden));
-      });
-      document.getElementById("new-cancel")?.addEventListener("click", () => {
-        newForm.hidden = true;
-      });
+      const newCard = document.getElementById("new-card")!;
+      const showNew = (open: boolean) => {
+        newCard.hidden = !open;
+        newToggle?.setAttribute("aria-expanded", String(open));
+        if (open) {
+          newCard.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          nameEl.focus({ preventScroll: true });
+        }
+      };
+      newToggle?.addEventListener("click", () => showNew(newCard.hidden));
+      document.getElementById("new-cancel")?.addEventListener("click", () => showNew(false));
       const newSlug = () => String(new FormData(newForm).get("slug") ?? "").trim().toLowerCase();
       const newPreview = document.getElementById("new-preview-box");
       document.getElementById("new-preview")?.addEventListener("click", () => {
