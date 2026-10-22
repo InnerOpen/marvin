@@ -33,7 +33,8 @@ def _scope(ctx: ToolContext) -> PlaybookScope:
     name=LIST_TOOL,
     description=(
         "List this workspace's published Playbooks: written procedures for particular tasks, each with a name and a "
-        "one-line description of when to use it. Use it to check what exists; the catalog in your instructions is the same list."
+        "one-line description of when to use it. Call it before drafting, revising or reviewing something, then load_playbook "
+        "the one that matches the task. (Marvin's own agents also get this list in their instructions.)"
     ),
     input_schema={"type": "object", "properties": {}},
     min_role=ROLE_VIEWER,

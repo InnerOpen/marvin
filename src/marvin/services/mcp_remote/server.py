@@ -39,7 +39,9 @@ INSTRUCTIONS = (
     "with create_draft / update_draft (get_entry_type first, for the fields); compose_entry and revise_entry "
     "have Marvin's own AI do the writing instead. A photo in the chat can't be passed to a tool: call upload_link, "
     "give the user the link to open, then call check_upload with its linkId to get the new asset. Write tools make "
-    "drafts and links; they never publish, and trashing or archiving a published entry is refused."
+    "drafts and links; they never publish, and trashing or archiving a published entry is refused. This workspace "
+    "keeps Playbooks, its own written procedures (voice, structure, review rules): before you draft, revise or review "
+    "something, call list_playbooks and, when one matches the task, load_playbook it and follow it with the tools you have."
 )
 
 # Registry tools the remote server offers although they withhold the `mcp` source: compose_entry stays off the
