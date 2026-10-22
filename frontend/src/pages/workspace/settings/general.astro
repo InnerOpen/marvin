@@ -4,6 +4,7 @@ import { getAuthToken } from "@/lib/api/client";
 import type { WorkspaceRole } from "@/lib/api/types";
 import { getWorkspaceTrashSettings, type TrashAutoEmpty } from "@/lib/api/trash";
 import { listWorkspaceMembers } from "@/lib/api/workspaceMembers";
+import { getSiteLinks, type SiteLinksStatus } from "@/lib/api/siteLinks";
 import { getWorkspacePreferences } from "@/lib/api/workspaceSettings";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
 import { requireAuth } from "@/lib/auth";
@@ -18,6 +19,7 @@ let error: string | null = null;
 let currentUserRole: WorkspaceRole | null = null;
 let isPlatformAdmin = false;
 let trashSettings: TrashAutoEmpty | null = null;
+let siteLinks: SiteLinksStatus | null = null;
 
 try {
   workspace = await getCurrentWorkspace(authToken);
@@ -30,6 +32,7 @@ try {
       console.error("[settings] Error loading preferences:", e);
     }
     trashSettings = await getWorkspaceTrashSettings(workspace.id, authToken).catch(() => null);
+    siteLinks = await getSiteLinks(workspace.id, authToken).catch(() => null);
 
     // Get current user's role and admin status
     const members = await listWorkspaceMembers(workspace.id, authToken);
@@ -145,6 +148,7 @@ const success = urlParams.get("success") === "1";
             <label>
               <span>Canonical URL</span>
               <input
+                id="site-canonical-url"
                 type="url"
                 name="site_canonical_url"
                 value={preferences?.siteCanonicalUrl || ''}
@@ -294,6 +298,31 @@ const success = urlParams.get("success") === "1";
         </form>
       </section>
 
+      {siteLinks && (
+        <section class="settings-section" id="site-links" data-workspace-id={workspace.id}>
+          <h3>Site links</h3>
+          <p class="hint">
+            An entry's link is the Canonical URL above plus its entry type's Page URL pattern. Without both, links come back
+            empty in AI answers, workflows (<code>{"${entry.url}"}</code>) and "View on site".
+          </p>
+          <p id="site-links-ok" class="status-success" hidden={!siteLinks.ok}>Every publishable entry type has a page address.</p>
+          <ul id="site-links-problems" class="site-links-list">
+            {siteLinks.problems.map((p) => (
+              <li>
+                <span>{p.message}</span> <a href={p.fix.path}>{p.fix.label}</a>
+              </li>
+            ))}
+          </ul>
+          {canManage && (
+            <div class="form-actions">
+              <button type="button" id="site-links-probe-btn" class="button">Check the live links</button>
+              <small id="site-links-probe-note">Fetches one published entry per type from your site; takes a few seconds.</small>
+            </div>
+          )}
+          <ul id="site-links-probe-results" class="site-links-list"></ul>
+        </section>
+      )}
+
       {trashSettings && (
         <section class="settings-section" id="trash">
           <h3>Trash</h3>
@@ -376,10 +405,40 @@ const success = urlParams.get("success") === "1";
 
 <script>
   // HttpOnly cookie is automatically sent with credentials: 'include'
+  import { probeSiteLinks } from '@/lib/api/siteLinks';
   import { createSdkClient } from '@/lib/sdk';
   const sdk = createSdkClient();
   const siteForm = document.getElementById('site-settings-form') as HTMLFormElement;
   const submitSiteBtn = document.getElementById('submit-site-btn') as HTMLButtonElement;
+
+  // Site links: the live check fetches one published entry per type, so it runs on a click (never on load).
+  const probeBtn = document.getElementById('site-links-probe-btn') as HTMLButtonElement | null;
+  if (probeBtn) {
+    probeBtn.addEventListener('click', async () => {
+      const workspaceId = document.getElementById('site-links')?.dataset.workspaceId;
+      const note = document.getElementById('site-links-probe-note');
+      const results = document.getElementById('site-links-probe-results');
+      if (!workspaceId || !note || !results) return;
+      probeBtn.disabled = true;
+      note.textContent = 'Checking…';
+      results.replaceChildren();
+      try {
+        const { problems } = await probeSiteLinks(workspaceId);
+        note.textContent = problems.length ? 'These links did not answer 200:' : 'Every link answered 200.';
+        for (const p of problems) {
+          const li = document.createElement('li');
+          const link = document.createElement('a');
+          link.href = p.fix.path;
+          link.textContent = p.fix.label;
+          li.append(`${p.message} `, link);
+          results.appendChild(li);
+        }
+      } catch (err) {
+        note.textContent = 'Error: ' + (err instanceof Error ? err.message : 'The check failed');
+      }
+      probeBtn.disabled = false;
+    });
+  }
 
   // Trash settings: "" = inherit the platform default (null), else 0 (never) / 7 / 30 / 90 days.
   const trashForm = document.getElementById('trash-settings-form') as HTMLFormElement | null;
@@ -485,6 +544,8 @@ const success = urlParams.get("success") === "1";
 </script>
 
 <style>
+  .site-links-list { margin: 8px 0; padding-left: 18px; }
+  .site-links-list :global(li) { margin: 4px 0; }
   .checkbox-row input[type="checkbox"] { width: auto; margin: 0 6px 0 0; vertical-align: middle; }
   /* Beside a taller field (the JSON editors) the row's grid would spread its text to the bottom. */
   .form-grid label.checkbox-row { align-content: start; }
