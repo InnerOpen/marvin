@@ -15,7 +15,7 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 108,
+    "verified-current": 110,
     "needs-adapter": 3,
     "needs-engine-capability": 1,
     "supported-after-configuration": 8
@@ -12150,6 +12150,204 @@
         ],
         "test": "tests/test_workflow_library.py::TestExecution::test_create_entry_image"
       }
+    },
+    {
+      "id": "agent-on-publish",
+      "title": "An agent drafts from a published entry",
+      "outcome": "When an entry of a type is published, a named agent — with its own permissions and Playbooks, plus any you add — does a job from it (say, drafts the social posts); what it writes lands as drafts in the Inbox.",
+      "category": "Event-driven extensions",
+      "category_slug": "events",
+      "tags": [
+        "agent",
+        "playbooks",
+        "ai",
+        "create-entry"
+      ],
+      "target_entity": "entry",
+      "trigger": {
+        "type": "event",
+        "event": "entry_published",
+        "builtin_event": true,
+        "custom_event": false
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "agent-on-publish.json",
+      "vars": "agent-on-publish.vars.json",
+      "setup_variables": [
+        {
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "Which entries make the agent start when one is published.",
+          "example": "article"
+        },
+        {
+          "name": "agent",
+          "type": "agent_slug",
+          "description": "The agent that does the job (Settings → AI → Agents). Its permissions must let it save drafts: set Entries: author to Allow for it.",
+          "example": "writer"
+        },
+        {
+          "name": "message",
+          "type": "text",
+          "description": "The job, in a sentence or two. The entry's title and link are added for you, and so is the reminder to write the text itself and save it with create_draft rather than compose_entry (Playbooks only reach the agent's own writing).",
+          "example": "Draft a Bluesky post and a Mastodon post announcing it, each as its own draft."
+        },
+        {
+          "name": "playbooks",
+          "type": "list",
+          "description": "Published Playbooks to load in full for this job, on top of the agent's own (up to 3). Leave empty for none.",
+          "example": [
+            "social-post"
+          ],
+          "optional": true
+        }
+      ],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "agent"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {
+        "features": [
+          "AI available for workflows",
+          "An agent that may save drafts: Entries: author set to Allow for it"
+        ]
+      },
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One agent run per event: several AI calls, up to the step's max_steps tool calls (from the workspace's monthly AI budget)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Saves drafts through the agent's own tools (Inbox, for review); nothing is published."
+        }
+      ],
+      "cost_notes": "Several AI calls per run (one per tool step, at most the step's max_steps), from the workspace's monthly AI budget; the run's tokens and cost show on the run.",
+      "failure_behaviour": "An unknown or switched-off agent, a missing Playbook or an over-budget workspace fails the step before the agent runs; the run is recorded and the `workflow_failed` alert fires (if enabled). The agent's drafts are never published, and the step does not run for an event this same workflow caused.",
+      "dependencies": [],
+      "notes": [
+        "Only the tools the agent's permission matrix sets to Allow are offered: Ask-first tools aren't, so give the agent Entries: author → Allow.",
+        "The message tells the agent to write the text itself and save it with create_draft: compose_entry and revise_entry use Marvin's own AI, which never loads Playbooks.",
+        "Put an Approval step after the agent step to gate anything that goes public."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:agent"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_agent_on_publish"
+      },
+      "brief": null
+    },
+    {
+      "id": "agent-weekly-review",
+      "title": "An agent reviews the week's changes",
+      "outcome": "Every Monday a named agent reviews the entries of a type that changed in the last 7 days against its Playbooks; its answer is kept as the run's result and the findings it drafts land in the Inbox.",
+      "category": "Publishing and editorial",
+      "category_slug": "publishing",
+      "tags": [
+        "agent",
+        "playbooks",
+        "schedule",
+        "ai",
+        "review"
+      ],
+      "target_entity": "entry",
+      "trigger": {
+        "type": "schedule",
+        "event": null,
+        "custom_event": false,
+        "note": "A schedule trigger creates its own backing scheduled task (no separate object); interval, cron (in its time zone) and once all run."
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "agent-weekly-review.json",
+      "vars": "agent-weekly-review.vars.json",
+      "setup_variables": [
+        {
+          "name": "agent",
+          "type": "agent_slug",
+          "description": "The agent that reviews (Settings → AI → Agents). Its permissions must let it save drafts for what it finds: set Entries: author to Allow for it.",
+          "example": "copy-reviewer"
+        },
+        {
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "The entries reviewed (published and changed in the last 7 days).",
+          "example": "article"
+        },
+        {
+          "name": "message",
+          "type": "text",
+          "description": "What to check for. The week's changed entries, and the reminder to write each note itself and save it with create_draft, are added for you.",
+          "example": "Review them for typos, broken promises in the summary, and anything that breaks the house style."
+        },
+        {
+          "name": "timezone",
+          "type": "text",
+          "description": "The time zone the schedule runs in (IANA name).",
+          "example": "America/New_York"
+        }
+      ],
+      "requires": {
+        "trigger": "schedule",
+        "action_kinds": [
+          "collect",
+          "agent"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "gt"
+        ]
+      },
+      "prerequisites": {
+        "features": [
+          "AI available for workflows",
+          "An agent that may save drafts: Entries: author set to Allow for it"
+        ]
+      },
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One agent run per event: several AI calls, up to the step's max_steps tool calls (from the workspace's monthly AI budget)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Saves drafts through the agent's own tools (Inbox, for review); nothing is published."
+        }
+      ],
+      "cost_notes": "One agent run per week (several AI calls, at most the step's max_steps), from the workspace's monthly AI budget; skipped in a week when nothing changed.",
+      "failure_behaviour": "An unknown or switched-off agent or an over-budget workspace fails the run before the agent starts; the run is recorded and the `workflow_failed` alert fires (if enabled).",
+      "dependencies": [],
+      "notes": [
+        "Gathers up to 20 entries changed in the last 7 days and hands the list to the agent; a week with none skips the agent.",
+        "The agent's answer is the run's result (`steps.review.output.answer`); what it finds as drafts goes to the Inbox."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:agent"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_agent_weekly_review"
+      },
+      "brief": null
     }
   ]
 }

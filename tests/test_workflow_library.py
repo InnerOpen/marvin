@@ -272,6 +272,7 @@ def ws(db_session, monkeypatch):
     """A workspace with everything the library's setup variables can name: entry types, a collection,
     the three integration connections (fake providers), outgoing webhooks and AI on (fake provider)."""
     from marvin.db.models.groups import Groups
+    from marvin.db.models.groups.agents import WorkspaceAgentModel
     from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
     from marvin.db.models.groups.integrations import IntegrationModel
     from marvin.db.models.groups.webhooks import GroupWebhooksModel, Method
@@ -353,6 +354,13 @@ def ws(db_session, monkeypatch):
         db_session.flush()
         webhooks[name] = str(row.id)
     db_session.add(WorkspaceAISettingsModel(session=db_session, group_id=gid, enabled=True, model="fake-model", approval_mode="allow-draft-update"))
+    # The agent the agent recipes name: it may save drafts on its own (Entries: author → Allow).
+    db_session.add(
+        WorkspaceAgentModel(
+            session=db_session, group_id=gid, slug="writer", name="Writer", kind="persona", enabled=True, allow_writes=True,
+            tool_policy={"entries_author": "allow"},
+        )
+    )  # fmt: skip
     db_session.commit()
     # The workspace's own `custom.milestone` event (Achievement cabinet starts on it).
     from marvin.schemas.group.custom_events import CustomEventDefinition
@@ -429,6 +437,9 @@ def ws(db_session, monkeypatch):
         "compare_tag": "compare",
         "timezone": "America/New_York",
         "newsletter_body_field": "body",
+        "agent": "writer",
+        "message": "Draft a short post about it.",
+        "playbooks": [],
         "since": "-14d",
         "title": "Brand board",
         "index_slug": "series-index",
@@ -513,6 +524,7 @@ def ws(db_session, monkeypatch):
         groups=groups,
     )
 
+    from marvin.db.models.groups.agents import WorkspaceAgentModel
     from marvin.db.models.groups.automation_executions import AutomationActionExecutionModel, AutomationExecutionModel
     from marvin.db.models.groups.automations import WorkspaceAutomationModel
     from marvin.services.group.group_purge import purge_group_dependents
@@ -522,6 +534,7 @@ def ws(db_session, monkeypatch):
     db_session.query(AutomationExecutionModel).filter(AutomationExecutionModel.group_id == gid).delete()
     db_session.query(WorkspaceAutomationModel).filter(WorkspaceAutomationModel.group_id == gid).delete()
     db_session.query(IntegrationModel).filter(IntegrationModel.group_id == gid).delete()
+    db_session.query(WorkspaceAgentModel).filter(WorkspaceAgentModel.group_id.in_([gid, *groups])).delete()  # agent steps (no cascade)
     db_session.query(WorkspaceAISettingsModel).filter(WorkspaceAISettingsModel.group_id == gid).delete()
     purge_group_dependents(db_session, gid)
     from marvin.db.models.groups.workflow_email_sends import WorkflowEmailSendModel
@@ -3233,6 +3246,58 @@ class TestExecution:
         (board,) = self._rendered(ws, "moodboard")
         assert (collage.width, collage.height, board.width, board.height) == (1200, 1200, 1600, 1200)
         assert sorted(board.metadata_json["rendered_from"]["tiles"]) == sorted([str(sea.id), str(sand.id)])
+
+    def test_agent_on_publish(self, ws, monkeypatch):
+        from tests.test_workflow_agent_step import DRAFT_ARGS, Scripted, _agent, _turn
+
+        fake = Scripted(_turn("", ("create_draft", DRAFT_ARGS)), _turn("Drafted the post."))
+        monkeypatch.setattr("marvin.services.ai.factory.get_workspace_ai_provider", lambda *a, **k: fake)
+        _agent(ws)
+        _install(ws, "agent-on-publish")
+        article = _entry(ws, "article", "Brass lantern", status="published", data={"body": "x"})
+        other = _entry(ws, "newsletter-issue", "Not an article", status="published", data={"body": "x"})
+
+        _fire(ws, "entry_published", _entry_doc(other), entity=other.id, entity_type="entry")
+        assert fake.offered == []  # another type: the agent isn't asked
+        _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry", user_id=ws.uid)
+
+        asked = fake.users[0]
+        assert "Draft a short post about it." in asked and "“Brass lantern”" in asked
+        assert "create_draft" in asked and "compose_entry and revise_entry" in asked  # told to write the text itself
+        (run,) = _runs(ws, "agent-on-publish")
+        assert run.status == "success"
+        output = next(a for a in run.actions if a.kind == "agent").output_snapshot
+        assert output["answer"] == "Drafted the post." and [e["title"] for e in output["entries"]] == ["Launch post"]
+
+    def test_agent_weekly_review(self, ws, monkeypatch):
+        from zoneinfo import ZoneInfo
+
+        from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
+        from marvin.services.automation.workflows import sync_schedule
+        from tests.test_workflow_agent_step import Scripted, _agent, _turn
+
+        fake = Scripted(_turn("Two typos in Chore coat; the rest is fine."))
+        monkeypatch.setattr("marvin.services.ai.factory.get_workspace_ai_provider", lambda *a, **k: fake)
+        _agent(ws, "writer")
+        row = _install(ws, "agent-weekly-review")
+        sync_schedule(ws.session, ws.gid, row)
+        task = ws.session.query(ScheduledTaskModel).filter_by(group_id=ws.gid, slug=f"wf-{row.id}").one()
+        next_run = task.next_run_at if task.next_run_at.tzinfo else task.next_run_at.replace(tzinfo=UTC)
+        assert (next_run.astimezone(ZoneInfo("America/New_York")).weekday(), next_run.astimezone(ZoneInfo("America/New_York")).hour) == (0, 9)
+
+        self._run(ws, row, trigger_kind="schedule")  # nothing changed this week: the agent is not asked
+        assert fake.offered == []
+
+        self._aged(ws, _entry(ws, "article", "Chore coat", status="published", data={"body": "x"}), updated=0)
+        self._aged(ws, _entry(ws, "article", "Old loom", status="published", data={"body": "x"}), updated=30)
+        self._run(ws, row, trigger_kind="schedule")
+
+        asked = fake.users[0]
+        assert "Chore coat" in asked and "Old loom" not in asked and "create_draft" in asked
+        last = _runs(ws, row.slug)[-1]
+        assert next(a for a in last.actions if a.kind == "agent").output_snapshot["answer"].startswith("Two typos")
+        ws.session.delete(task)
+        ws.session.commit()
 
 
 # ── A dry run previews what an AI step's answer feeds ────────────────────────

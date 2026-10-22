@@ -51,6 +51,8 @@ def _branches(action: dict, limit: int) -> list[tuple[str, list[dict]]]:
             raise AutomationActionError(f"two branches are called “{name}”: each needs its own name")
         if not steps:
             raise AutomationActionError(f"branch “{name}” needs steps")
+        if any(s.get("kind") == "agent" for s in steps):
+            raise AutomationActionError(f"branch “{name}” can't hold an agent step: put it before or after the parallel step")
         if held := sorted({str(s.get("kind")) for s in steps} & set(NOT_IN_A_BRANCH)):
             raise AutomationActionError(f"branch “{name}” can't hold a {', '.join(held)} step: a run can't wait, or nest, in the middle of branches")
         out.append((name, steps))

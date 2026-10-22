@@ -310,6 +310,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   import { optionPicker } from "@/lib/integrationOptionPicker";
   import { fetchApi } from "@/lib/api/client";
   import { ANSWER_KINDS, type AnswerField, fieldsFromSchema, SEE_LABELS, schemaFromFields } from "@/lib/customStep";
+  import { AGENT_DEFAULT_STEPS, AGENT_MAX_PLAYBOOKS, AGENT_MAX_STEPS, agentRunView, agentSummary, costText, offeredAgents, offeredPlaybooks, readAgentStep } from "@/lib/agentStep";
   import { ASPECTS, filledRows, GRADE_PRESETS, MEDIA_FIELDS, MEDIA_OPS, mediaFields, OP_FIELDS, type RenderTemplate, SOURCE_LABELS, type SourceMode, sourceChoice, sourceFromChoice, templateRows, WATERMARK_POSITIONS } from "@/lib/mediaStep";
   import RENDER_TEMPLATES_JSON from "@/lib/renderTemplates.json";
   const RENDER_TEMPLATES = RENDER_TEMPLATES_JSON as Record<string, RenderTemplate>;
@@ -523,10 +524,10 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const COND_OP_LABELS: Record<string, string> = WORKFLOW_LABELS.conditionOps;
   // Most-useful-first (backend returns kinds alphabetically). New steps default to the first
   // available — an AI operation when AI is on, otherwise the first non-AI kind.
-  const KIND_ORDER = ["operation", "entry", "media", "collect", "repeat", "parallel", "fetch", "request", "schema_check", "email", "metric", "snapshot", "automation_result", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
+  const KIND_ORDER = ["operation", "agent", "entry", "media", "collect", "repeat", "parallel", "fetch", "request", "schema_check", "email", "metric", "snapshot", "automation_result", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
   // A repeat's or a parallel branch's inner steps: a run can't park mid-loop or mid-branch, so no wait, approval, repeat or
-  // parallel inside (backend: NOT_INSIDE, NOT_IN_A_BRANCH).
-  const NOT_IN_REPEAT = new Set(["wait", "approval", "repeat", "parallel"]);
+  // parallel inside (backend: NOT_INSIDE, NOT_IN_A_BRANCH); an agent step would run its AI loop once per item or branch.
+  const NOT_IN_REPEAT = new Set(["wait", "approval", "repeat", "parallel", "agent"]);
   const MAX_BRANCHES = 5;
   const MAX_BRANCH_STEPS = 5;
   const orderedKinds = (): string[] => {
@@ -807,6 +808,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         if (mediaOp === "zip") return ["asset.id", "asset.url", "files"];
         return ["asset.id", "asset.url"];
       }
+      case "agent":
+        return ["answer", "entries", "playbooks", "stopped"];
       case "approval":
         return (row.querySelector(".a-choices") as HTMLInputElement | null)?.value.trim() ? ["decision", "choice", "choice_index"] : ["decision"];
       case "wait":
@@ -1416,6 +1419,42 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       for (const branch of given) box.appendChild(branchBlock(branch, syncBranches));
       add.addEventListener("click", () => { box.appendChild(branchBlock({ name: `branch_${box.children.length + 1}` }, syncBranches)); syncBranches(); revalidate(); });
       syncBranches();
+    } else if (kind === "agent") {
+      const agents = offeredAgents(OPTIONS.agents, a.agent);
+      const playbooks = offeredPlaybooks(OPTIONS.playbooks);
+      const chosen = new Set<string>(Array.isArray(a.playbooks) ? a.playbooks : []);
+      if (!agents.length) {
+        wrap.innerHTML = `<p class="muted small">No agents to run yet — <a href="/workspace/settings/ai-agents">add one</a> first.</p>`;
+        return wrap;
+      }
+      const agentOpts = [...(a.agent && !agents.some((x) => x.slug === a.agent) ? [`<option value="${esc(a.agent)}" selected>${esc(a.agent)} (not found)</option>`] : []),
+        ...agents.map((x) => `<option value="${esc(x.slug)}" ${a.agent === x.slug ? "selected" : ""}>${esc(x.name)}${x.enabled === false ? " (switched off)" : ""}</option>`)].join("");
+      const pbRows = playbooks.length
+        ? playbooks.map((p) => `<label class="check small" title="${esc(p.description ?? "")}"><input type="checkbox" class="a-ag-pb" value="${esc(p.name)}" ${chosen.has(p.name) ? "checked" : ""} /> ${esc(p.name)}</label>`).join("")
+        : `<span class="muted small">No published Playbooks yet.</span>`;
+      const steps = Number(a.max_steps ?? AGENT_DEFAULT_STEPS);
+      wrap.innerHTML = `
+        <label class="tf"><span>Agent</span>
+          <select class="input a-ag-agent">${agentOpts}</select></label>
+        <span class="hint small a-ag-about"></span>
+        <label class="tf"><span>Job <span class="muted">(what to do — templates allowed, e.g. Draft a post for \${entry.title}. Tell it to write the text itself and save it with create_draft, not compose_entry)</span></span>
+          <textarea class="input a-ag-message" rows="4" placeholder="e.g. Draft a Bluesky post and a Mastodon post for \${entry.title} (\${entry.url}). Write the text yourself and save each with create_draft.">${esc(a.message ?? "")}</textarea></label>
+        <div class="tf"><span>Playbooks <span class="muted">(optional: up to ${AGENT_MAX_PLAYBOOKS} loaded in full for this run, on top of the agent's own)</span></span>
+          <div class="a-ag-pbs">${pbRows}</div></div>
+        <label class="tf"><span>Most tool calls <span class="muted">(1–${AGENT_MAX_STEPS}; default ${AGENT_DEFAULT_STEPS})</span></span>
+          <input class="input a-ag-steps" type="number" min="1" max="${AGENT_MAX_STEPS}" value="${Number.isFinite(steps) ? steps : AGENT_DEFAULT_STEPS}" /></label>
+        <label class="check small"><input type="checkbox" class="a-ag-entry" ${a.on_entry === false ? "" : "checked"} /> Tell it which entry this run is about</label>
+        <span class="hint small">The agent works alone with its own permissions and Playbooks: only the tools set to Allow for it (Settings → AI → Agents) are offered, never Ask first ones. What it writes lands as drafts. Later steps read <code>\${steps.&lt;step id&gt;.output.answer}</code>, <code>.entries</code>, <code>.playbooks</code> and <code>.stopped</code>. Put a Wait for approval step after it to gate anything that goes public.</span>`;
+      const pick = wrap.querySelector(".a-ag-agent") as HTMLSelectElement;
+      const about = wrap.querySelector(".a-ag-about") as HTMLElement;
+      const syncAgent = () => { about.textContent = agentSummary(agents.find((x) => x.slug === pick.value)); };
+      pick.addEventListener("change", syncAgent);
+      syncAgent();
+      // At most three Playbooks: the rest of the boxes lock once three are ticked.
+      const boxes = [...wrap.querySelectorAll(".a-ag-pb")] as HTMLInputElement[];
+      const lock = () => { const full = boxes.filter((b) => b.checked).length >= AGENT_MAX_PLAYBOOKS; boxes.forEach((b) => { b.disabled = full && !b.checked; }); };
+      boxes.forEach((b) => b.addEventListener("change", lock));
+      lock();
     } else if (kind === "approval") {
       const hours = Number(a.expires_in_hours ?? 72);
       wrap.innerHTML = `
@@ -1732,6 +1771,18 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         step.for = span;
       }
       return step;
+    }
+    if (kind === "agent") {
+      return readAgentStep(
+        {
+          agent: field(".a-ag-agent")?.value ?? "",
+          message: field(".a-ag-message")?.value ?? "",
+          playbooks: [...r.querySelectorAll(".a-ag-pb:checked")].map((b) => (b as HTMLInputElement).value),
+          maxSteps: field(".a-ag-steps")?.value ?? AGENT_DEFAULT_STEPS,
+          onEntry: (field(".a-ag-entry") as HTMLInputElement | null)?.checked !== false,
+        },
+        step,
+      );
     }
     if (kind === "approval") {
       const message = field(".a-message")?.value.trim();
@@ -2254,7 +2305,23 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     return `<div class="act-row">
       <span class="status-${esc(a.status)}">${stepMark(a.status)}</span>
       <span>${esc(a.kind)}${a.label ? ` · ${esc(a.label)}` : ""}</span>${ent}${until}${err}${dur}
-    </div>${handling}`;
+    </div>${handling}${a.kind === "agent" ? agentRunHtml(a.outputSnapshot) : ""}`;
+  }
+  // What an agent step did: its answer, the drafts it left (links), the Playbooks it used, cost, and the AI run behind it.
+  function agentRunHtml(output: any): string {
+    const v = agentRunView(output);
+    if (!v) return "";
+    if (v.skipped) return `<div class="act-agent hint small">Skipped: ${esc(v.skipped)}</div>`;
+    const drafts = v.entries.length
+      ? `<div>Drafts: ${v.entries.map((e) => `<a href="${esc(e.href)}">${esc(e.title)}</a>${e.status ? ` <span class="muted">(${esc(e.status)})</span>` : ""}`).join(", ")}</div>`
+      : `<div class="muted">No drafts.</div>`;
+    const used = v.playbooks.length ? `<div>Playbooks: ${v.playbooks.map(esc).join(", ")}</div>` : "";
+    const cost = costText(v.tokens, v.costUsd);
+    const ran = v.executionId ? ` <a href="/workspace/settings/ai-executions#exec-${esc(v.executionId)}">AI execution</a>` : "";
+    return `<div class="act-agent hint small">
+      ${v.answer ? `<div class="act-agent-answer">${esc(v.answer)}</div>` : ""}${drafts}${used}
+      <div class="muted">${esc(v.stopped.text)}${cost ? ` · ${esc(cost)}` : ""}${ran}</div>
+    </div>`;
   }
   // The original run and each retry of it, this one marked; then what its retry chains are doing.
   function retryChain(ex: any): string {
@@ -2692,6 +2759,9 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.run-err) { color: var(--color-error); }
   .workflows-page :global(.run-tag) { font-size: 10.5px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
   .workflows-page :global(.run-tag.handled) { border-color: var(--warn); color: var(--warn); }
+  .workflows-page :global(.act-agent) { margin: 2px 0 6px 22px; display: grid; gap: 2px; }
+  .workflows-page :global(.act-agent-answer) { white-space: pre-wrap; max-height: 12em; overflow: auto; color: var(--text, inherit); }
+  .workflows-page :global(.a-ag-pbs) { display: flex; flex-wrap: wrap; gap: 4px 14px; }
   .workflows-page :global(.act-handling) { margin: 0 0 2px 22px; font-size: 11.5px; color: var(--warn); }
   .workflows-page :global(.run-chain) { margin: 0 0 6px 18px; }
   .workflows-page :global(.run-chain code) { font-family: var(--mono, monospace); font-size: 11px; background: color-mix(in srgb, var(--ink) 8%, transparent); padding: 1px 5px; border-radius: 4px; }

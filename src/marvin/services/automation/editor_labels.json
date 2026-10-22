@@ -25,6 +25,7 @@
     "webhook": "Call webhook",
     "integration": "Run integration",
     "approval": "Wait for approval",
+    "agent": "Run an agent",
     "media": "Process an image",
     "collect": "Gather items",
     "fetch": "Check a web address",

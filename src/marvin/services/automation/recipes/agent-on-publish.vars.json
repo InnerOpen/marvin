@@ -1,0 +1,28 @@
+{
+  "recipe": "agent-on-publish",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "Which entries make the agent start when one is published.",
+      "example": "article"
+    },
+    "agent": {
+      "type": "agent_slug",
+      "description": "The agent that does the job (Settings → AI → Agents). Its permissions must let it save drafts: set Entries: author to Allow for it.",
+      "example": "writer"
+    },
+    "message": {
+      "type": "text",
+      "description": "The job, in a sentence or two. The entry's title and link are added for you, and so is the reminder to write the text itself and save it with create_draft rather than compose_entry (Playbooks only reach the agent's own writing).",
+      "example": "Draft a Bluesky post and a Mastodon post announcing it, each as its own draft."
+    },
+    "playbooks": {
+      "type": "list",
+      "description": "Published Playbooks to load in full for this job, on top of the agent's own (up to 3). Leave empty for none.",
+      "example": [
+        "social-post"
+      ],
+      "optional": true
+    }
+  }
+}

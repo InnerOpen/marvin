@@ -120,6 +120,29 @@ class AutomationIncomingWebhookOption(_MarvinModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AutomationAgentOption(_MarvinModel):
+    """A persona agent an agent step may name. `can_draft`: its permissions let it save drafts on its own, for the person
+    asking (Entries: author set to Allow) — what the step needs it to do."""
+
+    slug: str
+    name: str
+    description: str | None = None
+    enabled: bool = True
+    can_draft: bool = False
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AutomationPlaybookOption(_MarvinModel):
+    """A published Playbook an agent step may add to its run."""
+
+    name: str
+    description: str | None = None
+    manual_only: bool = False
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class AutomationConditionField(_MarvinModel):
     """A field a condition can reference, suggested per trigger context (guided builder)."""
 
@@ -146,6 +169,8 @@ class AutomationOptions(_MarvinModel):
     webhooks: list[AutomationWebhookOption] = []  # the workspace's configured (outgoing) webhooks
     automations: list[AutomationTargetOption] = []  # other automations (chained/on-error targets)
     incoming_webhooks: list[AutomationIncomingWebhookOption] = []  # ingress webhooks (incoming_webhook trigger)
+    agents: list[AutomationAgentOption] = []  # persona agents the agent step may name
+    playbooks: list[AutomationPlaybookOption] = []  # published Playbooks the agent step may add
     # JSON Schema of the definition (trigger/action/condition/target discriminated unions) — the one
     # structural declaration the builder + SDK mirror. dict-typed to pass the schema through verbatim.
     definition_schema: dict = {}
@@ -304,6 +329,7 @@ class WorkflowRecipeVariable(_MarvinModel):
     type: str
     description: str = ""
     example: Any = None
+    optional: bool = False  # may be left blank (a list then stays empty)
 
 
 class WorkflowRecipeTrigger(_MarvinModel):
@@ -414,6 +440,7 @@ class WorkflowLibraryRefs(_MarvinModel):
     outgoing_webhooks: list[WorkflowLibraryRef] = []
     incoming_webhooks: list[WorkflowLibraryRef] = []
     statuses: list[str] = []
+    agents: list[WorkflowLibraryRef] = []  # the persona agents an agent recipe may name (slug, name)
 
 
 class WorkflowLibraryRead(_MarvinModel):

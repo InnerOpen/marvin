@@ -146,7 +146,7 @@ function formatDuration(ms: number | null): string {
             const tools = toolsUsed(getField(exec, 'metadataJson', 'metadata_json'), outputJson);
             return (
               <>
-                <tr class:list={['log-row', { 'has-details': hasDetails }]}>
+                <tr id={`exec-${exec.id}`} class:list={['log-row', { 'has-details': hasDetails }]}>
                   <td class="expand-cell">
                     {hasDetails && (
                       <button class="expand-btn" data-target={`detail-${i}`}>▶</button>

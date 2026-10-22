@@ -1,0 +1,26 @@
+{
+  "name": "An agent drafts from a published entry",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "agent",
+        "id": "work",
+        "agent": "{{agent}}",
+        "message": "{{message}}\n\nThe entry is “${entry.title}” (${entry.url}). Write the text yourself, following your Playbooks, and save it with create_draft (or update_draft): compose_entry and revise_entry hand the writing to Marvin's own AI, which doesn't see Playbooks. Drafts only: never claim anything is published.",
+        "playbooks": "{{playbooks}}",
+        "max_steps": 8
+      }
+    ]
+  }
+}

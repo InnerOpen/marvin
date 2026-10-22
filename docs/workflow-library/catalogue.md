@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-120 recipes: **108** verified-current, **8** supported-after-configuration, **3** needs-adapter, **1** needs-engine-capability.
+122 recipes: **110** verified-current, **8** supported-after-configuration, **3** needs-adapter, **1** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -126,6 +126,8 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [triage-new-comments](../../src/marvin/services/automation/recipes/triage-new-comments.json) — Triage new comments | verified-current | `social_comment_received` | an integration that can social.comments (Instagram, a Facebook Page, Bluesky or Mastodon); an integration that can notify (Slack or Apprise); a connected network that reads comments: Marvin makes and enables the Social engagement scheduled task itself (Settings → Scheduled tasks), and it is what announces new comments; AI on for workflows (Settings → AI); scheduled task | external action, metric, notification, paid call |
 | [suggest-entry-image](../../src/marvin/services/automation/recipes/suggest-entry-image.json) — Suggest an image for new entries | verified-current | `entry_created` | AI available for workflows | content mutation, paid call |
 | [create-entry-image](../../src/marvin/services/automation/recipes/create-entry-image.json) — Create an image for this entry | verified-current | `manual` | an integration that can image.generate (OpenAI Images); AI available for workflows | content mutation, paid call |
+| [agent-on-publish](../../src/marvin/services/automation/recipes/agent-on-publish.json) — An agent drafts from a published entry | verified-current | `entry_published` | AI available for workflows; An agent that may save drafts: Entries: author set to Allow for it | content mutation, paid call |
+| [agent-weekly-review](../../src/marvin/services/automation/recipes/agent-weekly-review.json) — An agent reviews the week's changes | verified-current | `schedule` | AI available for workflows; An agent that may save drafts: Entries: author set to Allow for it | content mutation, paid call |
 
 ## Waiting on a capability or an adapter
 
@@ -206,6 +208,10 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - [evergreen-resurfacer](../../src/marvin/services/automation/recipes/evergreen-resurfacer.json) — **Evergreen resurfacer** · verified-current · `schedule`  
   Once a month, the three least recently touched entries published over a year ago get refresh ideas from the AI, saved as a draft entry.
   - Refreshing a piece (editing it) moves it to the back of the queue: the oldest updates come first.
+- [agent-weekly-review](../../src/marvin/services/automation/recipes/agent-weekly-review.json) — **An agent reviews the week's changes** · verified-current · `schedule`  
+  Every Monday a named agent reviews the entries of a type that changed in the last 7 days against its Playbooks; its answer is kept as the run's result and the findings it drafts land in the Inbox.
+  - Gathers up to 20 entries changed in the last 7 days and hands the list to the agent; a week with none skips the agent.
+  - The agent's answer is the run's result (`steps.review.output.answer`); what it finds as drafts goes to the Inbox.
 
 ### Social and community
 
@@ -590,6 +596,11 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - `api-token-rotation-notice` — **API token rotation notice** · supported-after-configuration · subscription: `api_client_token_rotated`  
   Admins are emailed when an API client's token is rotated; the payload carries the client name and token prefix, never the token.
   - api_client_* events are workspace-scope and audit-locked (always in the Event Log). Not a workflow trigger.
+- [agent-on-publish](../../src/marvin/services/automation/recipes/agent-on-publish.json) — **An agent drafts from a published entry** · verified-current · `entry_published`  
+  When an entry of a type is published, a named agent — with its own permissions and Playbooks, plus any you add — does a job from it (say, drafts the social posts); what it writes lands as drafts in the Inbox.
+  - Only the tools the agent's permission matrix sets to Allow are offered: Ask-first tools aren't, so give the agent Entries: author → Allow.
+  - The message tells the agent to write the text itself and save it with create_draft: compose_entry and revise_entry use Marvin's own AI, which never loads Playbooks.
+  - Put an Approval step after the agent step to gate anything that goes public.
 
 ### Starter examples
 

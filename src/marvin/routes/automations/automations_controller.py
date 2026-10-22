@@ -18,6 +18,7 @@ from marvin.routes._base.checks import require_workspace_admin
 from marvin.routes._base.controller import controller
 from marvin.schemas.group.automation import (
     AutomationActionOption,
+    AutomationAgentOption,
     AutomationAttention,
     AutomationConditionField,
     AutomationCreate,
@@ -25,6 +26,7 @@ from marvin.schemas.group.automation import (
     AutomationExecutionRead,
     AutomationIncomingWebhookOption,
     AutomationOptions,
+    AutomationPlaybookOption,
     AutomationPreviewMatch,
     AutomationPreviewRequest,
     AutomationPreviewResult,
@@ -81,6 +83,32 @@ def _get_or_404(session, automation_id: UUID4, group_id: UUID4) -> WorkspaceAuto
     if not row or row.group_id != group_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Automation not found.")
     return row
+
+
+def _agent_step_options(session, group_id, user) -> tuple[list[AutomationAgentOption], list[AutomationPlaybookOption]]:
+    """What an agent step's pickers offer: the persona agents (and whether each may save drafts for this person, by its
+    own permissions) and the published Playbooks."""
+    from types import SimpleNamespace
+
+    from marvin.services.ai.agents import list_agents
+    from marvin.services.ai.tools.base import user_role
+    from marvin.services.ai.tools.builtins_agents import standalone_tools
+    from marvin.services.playbooks import published_playbooks
+
+    role = user_role(user, group_id)
+    agents = []
+    for spec in list_agents(session, group_id):
+        if spec.kind != "persona":
+            continue
+        can_draft = any(t.name in ("create_draft", "update_draft") for t in standalone_tools(spec, SimpleNamespace(), role))
+        agents.append(
+            AutomationAgentOption(slug=spec.slug, name=spec.name, description=spec.description, enabled=bool(spec.enabled), can_draft=can_draft)
+        )
+    playbooks = [
+        AutomationPlaybookOption(name=p.name, description=p.description, manual_only=bool(p.manual_only))
+        for p in published_playbooks(session, group_id)
+    ]
+    return agents, playbooks
 
 
 def _recipe_uses(session, group_id) -> dict[str, list[dict]]:
@@ -284,6 +312,8 @@ class AutomationsController(BaseUserController):
             .all()
         ]
 
+        agents, playbooks = _agent_step_options(self.session, self.group_id, self.user)
+
         from marvin.schemas.group.automation_definition import TRIGGER_MODELS, definition_json_schema
         from marvin.services.automation.validation import condition_field_catalog
 
@@ -301,6 +331,8 @@ class AutomationsController(BaseUserController):
             webhooks=webhooks,
             automations=targets,
             incoming_webhooks=incoming_webhooks,
+            agents=agents,
+            playbooks=playbooks,
             # The definition's JSON Schema — the one structural declaration the builder + SDK mirror.
             definition_schema=definition_json_schema(),
         )
@@ -327,6 +359,7 @@ class AutomationsController(BaseUserController):
                 outgoing_webhooks=refs.outgoing_webhooks,
                 incoming_webhooks=refs.incoming_webhooks,
                 statuses=sorted(ENTRY_STATUSES - {TRASHED}),  # a workflow moves entries to the Trash with its own step
+                agents=[{"slug": a["slug"], "name": a["name"]} for a in refs.agents if a["enabled"]],
             ),
         )
 
@@ -405,7 +438,23 @@ class AutomationsController(BaseUserController):
         if not structural:
             issues += self._missing_chain_warnings(data.definition)
             issues += self._custom_event_warnings(data.definition)
+            issues += self._agent_step_warnings(data.definition)
         return AutomationValidateResult(issues=issues)
+
+    def _agent_step_warnings(self, definition: dict) -> list[dict]:
+        """An agent step naming an agent or Playbook this workspace lacks (or has switched off), or an agent whose permissions
+        leave it nothing to do the job with. Warnings: the workflow saves, and the step fails when it runs."""
+        from marvin.services.ai.tools.base import user_role
+        from marvin.services.automation.authoring import agent_step_warnings, reference_issues
+
+        if not any(isinstance(s, dict) and s.get("kind") == "agent" for key in ("actions", "on_failure") for s in definition.get(key) or []):
+            return []
+        named = [
+            {**issue, "level": "warning"}
+            for issue in reference_issues(self.session, self.group_id, definition)
+            if issue["path"].endswith((".agent", ".playbooks"))
+        ]
+        return named + agent_step_warnings(self.session, self.group_id, definition, user_role(self.user, self.group_id))
 
     def _custom_event_warnings(self, definition: dict) -> list[dict]:
         """A trigger or Emit event step naming a `custom.*` event this workspace hasn't registered (or sending a field it

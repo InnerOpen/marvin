@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 
 from marvin.services.ai.operations.base import ROLE_EDITOR
@@ -174,14 +174,8 @@ def _character_section(ctx: ToolContext, spec, tone: str | None) -> str:
 
 def _run_standalone(ctx: ToolContext, args: dict) -> str:
     """The stateless MCP/API runner: registry tools only, client-supplied history, no thread."""
-    from marvin.core.config import get_app_settings
-    from marvin.db.models.groups.ai_executions import AIExecutionModel
-    from marvin.services.ai.agent import run_agent_loop
     from marvin.services.ai.agents import may_talk, resolve_agent
-    from marvin.services.ai.base import CompletionOptions, Message
-    from marvin.services.ai.pricing import estimate_cost
-    from marvin.services.ai.tool_gateway import run_tool_limit
-    from marvin.services.playbooks import PlaybookScope, frame_block
+    from marvin.services.ai.base import Message
 
     spec = resolve_agent(ctx.session, ctx.group_id, str(args.get("agent") or ""))
     if spec is None:
@@ -206,9 +200,103 @@ def _run_standalone(ctx: ToolContext, args: dict) -> str:
         for h in (args.get("history") or [])[-12:]
         if isinstance(h, dict) and h.get("role") in ("user", "assistant")
     ]
+    referrals_mark = len(ctx.referrals)
+    try:
+        run = run_unattended(
+            ctx, spec, message, role=role, model=model, history=history, max_steps=max(1, min(int(args.get("max_steps") or 6), 12)),
+            tone=args.get("tone"), trigger_type="mcp",
+        )  # fmt: skip
+    except UnattendedRunError as e:
+        return json.dumps({"error": str(e), "executionId": e.execution_id})
+    return json.dumps(
+        {
+            "agent": spec.slug,
+            "answer": run.answer,
+            "steps": [{"tool": s.tool, "arguments": s.arguments} for s in run.steps],
+            "referrals": ctx.referrals[referrals_mark:],
+            "executionId": run.execution_id,
+            "totalTokens": run.total_tokens,
+        }
+    )
+
+
+class UnattendedRunError(Exception):
+    """An unattended agent run that failed after its execution was recorded (``execution_id``)."""
+
+    def __init__(self, message: str, execution_id: str | None = None) -> None:
+        super().__init__(message)
+        self.execution_id = execution_id
+
+
+@dataclass
+class UnattendedRun:
+    """What one unattended agent run did: its answer, trace, Playbooks, entries it made or changed, and what it cost."""
+
+    answer: str
+    steps: list
+    stopped: str  # "complete" | "max_steps" | "awaiting_approval" (a call nobody could approve)
+    execution_id: str
+    total_tokens: int = 0
+    cost_usd: float | None = None
+    playbooks: list[dict] = field(default_factory=list)  # {id, name}: loaded in full up front, or by the agent with load_playbook
+    entries: list[dict] = field(default_factory=list)  # {id, title, status, url, reviewLink}
+
+
+def entries_touched(steps) -> list[dict]:
+    """The entries a run's tool calls made or changed (a draft saved, revised, composed), first touch first, read from the
+    results that carry a `reviewLink`: what a person should look at afterwards."""
+    found: dict[str, dict] = {}
+    for step in steps:
+        try:
+            out = json.loads(step.result)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(out, dict) or out.get("error") or not out.get("entryId") or not out.get("reviewLink"):
+            continue
+        found.setdefault(
+            str(out["entryId"]),
+            {
+                "id": str(out["entryId"]),
+                "title": out.get("title"),
+                "status": out.get("status"),
+                "url": out.get("editUrl"),
+                "reviewLink": out["reviewLink"],
+            },
+        )
+    return list(found.values())
+
+
+def run_unattended(
+    ctx: ToolContext,
+    spec,
+    message: str,
+    *,
+    role: int,
+    model: str,
+    history=(),
+    max_steps: int = 6,
+    tone: str | None = None,
+    trigger_type: str = "mcp",
+    playbooks: tuple[str, ...] = (),
+    note: str = "",
+) -> UnattendedRun:
+    """Run one agent on one message with nobody to answer back: only the tools its matrix allows (`standalone_tools`), each
+    unattended, then record the AI execution. The runner behind MCP's `run_agent` and a workflow's agent step.
+
+    `playbooks` are loaded in full for this run on top of the agent's always-load ones; `note` is a paragraph for the end of the
+    system prompt (a workflow's framing). Raises `UnattendedRunError` when the provider or a tool loop fails."""
+    from marvin.core.config import get_app_settings
+    from marvin.db.models.groups.ai_executions import AIExecutionModel
+    from marvin.services.ai.agent import run_agent_loop
+    from marvin.services.ai.base import CompletionOptions, Message
+    from marvin.services.ai.pricing import estimate_cost
+    from marvin.services.ai.tool_gateway import run_tool_limit
+    from marvin.services.playbooks import USED_KEY, PlaybookScope, always_playbooks, frame_block, playbooks_used
+
+    provider = ctx.provider
     # The agent's Playbook settings and this message (which decides a manual-only Playbook the caller named) steer the run,
     # on a copy: the caller's context is not ours to change. `referrals` stays the one shared list.
-    scope = PlaybookScope.of(spec.playbooks).asking(message)
+    scope = replace(PlaybookScope.of(spec.playbooks).asking(message), also=tuple(playbooks))
     run_ctx = replace(ctx, playbooks=scope)
     tools = standalone_tools(spec, run_ctx, role) if spec.kind == "persona" else []
     system = spec.system_prompt or (
@@ -216,14 +304,15 @@ def _run_standalone(ctx: ToolContext, args: dict) -> str:
         "browse, and (only when asked) author content. Prefer tools over guessing and ground your answer in "
         "what they return. Authoring creates a DRAFT for human review — never claim anything is published. Be concise."
     )
-    system += _character_section(ctx, spec, args.get("tone"))
-    if playbooks := frame_block(ctx.session, ctx.group_id, scope, (t.name for t in tools)):
-        system = playbooks + "\n\n" + system  # as the Ask path frames a run: what Playbooks exist, before the agent's own prompt
+    system += _character_section(ctx, spec, tone)
+    if note:
+        system += "\n\n" + note
+    if framed := frame_block(ctx.session, ctx.group_id, scope, (t.name for t in tools)):
+        system = framed + "\n\n" + system  # as the Ask path frames a run: what Playbooks exist, before the agent's own prompt
     messages = [Message(role="system", content=system), *history, Message(role="user", content=message)]
 
     _app = get_app_settings()
     opts = CompletionOptions(temperature=_app.AI_DEFAULT_TEMPERATURE, max_tokens=None)
-    max_steps = max(1, min(int(args.get("max_steps") or 6), 12))
 
     execution = AIExecutionModel(
         session=ctx.session,
@@ -233,14 +322,14 @@ def _run_standalone(ctx: ToolContext, args: dict) -> str:
         model_id=model,
         status="running",
         triggered_by=getattr(ctx.user, "id", None),
-        trigger_type="mcp",
+        trigger_type=trigger_type,
         input_json={"message": message},
     )
     execution.started_at = datetime.now(UTC)
     ctx.session.add(execution)
     ctx.session.commit()
     start = time.monotonic()
-    referrals_mark = len(ctx.referrals)
+    stopped = "complete"
     try:
         if spec.kind == "model" or not tools:
             res = provider.complete(messages, model, opts)
@@ -251,7 +340,7 @@ def _run_standalone(ctx: ToolContext, args: dict) -> str:
             res = run_agent_loop(
                 provider, model, messages, tools, opts, max_steps=max_steps, tool_limit=run_tool_limit(ctx.session, ctx.group_id, None, scope)
             )
-            answer, steps = res.answer, [{"tool": s.tool, "arguments": s.arguments} for s in res.steps]
+            answer, steps, stopped = res.answer, list(res.steps), getattr(res, "stopped_reason", "complete")
             p_tok, c_tok, t_tok = res.prompt_tokens, res.completion_tokens, res.total_tokens
             cached_tok, written_tok = getattr(res, "cached_prompt_tokens", 0) or 0, getattr(res, "cache_write_tokens", 0) or 0
     except Exception as e:  # noqa: BLE001 — surface to the caller, never raise into a tool
@@ -260,25 +349,29 @@ def _run_standalone(ctx: ToolContext, args: dict) -> str:
         execution.completed_at = datetime.now(UTC)
         execution.duration_ms = int((time.monotonic() - start) * 1000)
         ctx.session.commit()
-        return json.dumps({"error": f"agent '{spec.slug}' failed: {e}", "executionId": str(execution.id)})
+        raise UnattendedRunError(f"agent '{spec.slug}' failed: {e}", str(execution.id)) from e
 
+    used = [{"id": p.id, "name": p.name} for p in always_playbooks(ctx.session, ctx.group_id, scope)]
+    used += [p for p in playbooks_used(steps) if p["id"] not in {u["id"] for u in used}]
+    tool_names = list(dict.fromkeys(s.tool for s in steps))
     execution.status = "completed"
     execution.completed_at = datetime.now(UTC)
     execution.duration_ms = int((time.monotonic() - start) * 1000)
     execution.prompt_tokens, execution.completion_tokens, execution.total_tokens = p_tok, c_tok, t_tok
     execution.cached_prompt_tokens, execution.cache_write_tokens = cached_tok, written_tok
     execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, p_tok, c_tok, cached_tok, written_tok)
-    execution.output_json = {"answer": answer, "steps": steps}
+    execution.output_json = {"answer": answer, "steps": [{"tool": s.tool, "arguments": s.arguments} for s in steps]}
+    execution.metadata_json = {"tools": tool_names, **({USED_KEY: used} if used else {})}
     ctx.session.commit()
-    return json.dumps(
-        {
-            "agent": spec.slug,
-            "answer": answer,
-            "steps": steps,
-            "referrals": ctx.referrals[referrals_mark:],
-            "executionId": str(execution.id),
-            "totalTokens": t_tok,
-        }
+    return UnattendedRun(
+        answer=answer,
+        steps=steps,
+        stopped=stopped,
+        execution_id=str(execution.id),
+        total_tokens=t_tok,
+        cost_usd=execution.estimated_cost_usd,
+        playbooks=used,
+        entries=entries_touched(steps),
     )
 
 
