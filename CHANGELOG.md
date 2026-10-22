@@ -6,6 +6,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.48 (2026-10-22)
+
+### Bug Fixes
+
+- **automation**: 'Needs: a connection to Buttondown' even where the plugin isn't installed
+  ([`6cffb1c`](https://github.com/InnerOpen/marvin/commit/6cffb1c052b98bb289b544cb8f53d8c506c22c15))
+
+### Documentation
+
+- **automation**: Plain-language recipe text across the Workflow Library
+  ([`b7738ad`](https://github.com/InnerOpen/marvin/commit/b7738ada160533a554a149ef7bc7a5683bbeb571))
+
+- **tasks**: Workflow canvas plan (release 1: view + run replay)
+  ([`9e4b002`](https://github.com/InnerOpen/marvin/commit/9e4b0025c559ed658e07e539aa7c44c1e1da977d))
+
+
 ## v1.1.0-rc.47 (2026-10-22)
 
 
