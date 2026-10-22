@@ -45,7 +45,6 @@ const NODES: NavNode[] = [
   { id: "admin.plugins", label: "Plugins", href: "/admin/plugins", parent: "admin" },
   { id: "admin.system-playbooks", label: "System Playbooks", href: "/admin/system-playbooks", parent: "admin" },
   { id: "admin.character-library", label: "Character Library", href: "/admin/character-library", parent: "admin" },
-  { id: "admin.system", label: "System", href: "/admin/system", parent: "admin", title: "Platform System" },
   { id: "admin.events", label: "Events", href: "/admin/events", parent: "admin" },
   { id: "admin.scheduled-tasks", label: "Scheduled Tasks", href: "/admin/scheduled-tasks", parent: "admin" },
   {
