@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.45 (2026-10-22)
+
+### Chores
+
+- **plugins**: SDK 0.16.0, marvin-storage-s3 0.5.0 (system Playbooks)
+  ([`f050761`](https://github.com/InnerOpen/marvin/commit/f050761126a363bc9445785d1f21f29ad8e9cf9c))
+
+### Features
+
+- **playbooks**: A proper read-only page for a system Playbook, with a way back
+  ([`4b78ed9`](https://github.com/InnerOpen/marvin/commit/4b78ed92b7d73518887ab378ff3b04d42256fecb))
+
+
 ## v1.1.0-rc.44 (2026-10-22)
 
 ### Bug Fixes
