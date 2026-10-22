@@ -6,6 +6,44 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.42 (2026-10-22)
+
+### Bug Fixes
+
+- **query**: Read the has_* flags by name (the spec-keys test scans for spec.get)
+  ([`34cbcf0`](https://github.com/InnerOpen/marvin/commit/34cbcf0ccd3d919c6b9a5dc05cf5c386c55941eb))
+
+### Documentation
+
+- **tasks**: Plan the workflow agent step (Playbooks step 3)
+  ([`a786f76`](https://github.com/InnerOpen/marvin/commit/a786f76c54f7c31734b827cefaf01e946d15201f))
+
+### Features
+
+- **ai**: Separate permission matrix for outside assistants (External assistants)
+  ([`1ad5b0c`](https://github.com/InnerOpen/marvin/commit/1ad5b0cc4ba41aab5211279216e0033f2578d99f))
+
+- **mcp**: Tell outside assistants to load a matching Playbook first
+  ([`8c980b5`](https://github.com/InnerOpen/marvin/commit/8c980b5d3aa08ed43f298fbeedbd2c519c2f6126))
+
+- **query**: Find entries with no images, assets or resources
+  ([`e1563a4`](https://github.com/InnerOpen/marvin/commit/e1563a4d7d69b73b4937d87b270e4b12a45f08cb))
+
+- **workflows**: An agent step runs a named agent on a job
+  ([`6fc21ab`](https://github.com/InnerOpen/marvin/commit/6fc21ab88ce15396c2f0508859031efa42014d0d))
+
+- **workflows**: The builder edits and the run shows an agent step
+  ([`f4c3427`](https://github.com/InnerOpen/marvin/commit/f4c34277aa43697147b809dbf3431a15efc9684e))
+
+### Testing
+
+- Bind the controller's matrix lookup in the character-library fixture
+  ([`5924b75`](https://github.com/InnerOpen/marvin/commit/5924b75fee396be2d82cce272d4ff28eaee2c7c5))
+
+- The action registry lists the agent kind
+  ([`c386252`](https://github.com/InnerOpen/marvin/commit/c3862520c2a11b034f51d278210d93b587f4e6ef))
+
+
 ## v1.1.0-rc.41 (2026-10-21)
 
 ### Bug Fixes
