@@ -17,6 +17,7 @@ Each blueprint has a `kind`, a `slug`, `name`, one-line `description`, a `catego
 | `event_subscription` | An event → integration action wiring, switched off | `event_type`, `action`, `args` |
 | `incoming_webhook` | An [incoming webhook](incoming-webhooks.md), switched off and without a token | `name`, `description`, `signature_scheme`, `signature_header`, `signing_secret_ref`, `signature_url`, `signature_config`; a `token` is refused |
 | `workflow` | A [workflow](workflows.md), switched off, authored by whoever applies it | `{"name": …, "definition": {trigger, conditions, actions}}`; the definition must pass structural validation |
+| `playbook` | A [Playbook](playbooks.md#from-an-integration), as a **draft** with its reference files (integrations only) | `{"skill_md": "<SKILL.md text>", "files": {"references/x.md": "<text>"}}`. Text files only (`.md .txt .json .csv .yaml`), no scripts, relative paths; `SKILL.md` at most 64 KB, at most 20 files of 64 KB, 256 KB in all. The SKILL.md `name` is the slug and starts with the provider's slug. Never required, no parameters. Marvin checks all of it again; one that fails is skipped with a warning and the provider's other content still loads |
 
 **Required vs suggested.** `required` defaults to `False` and is meant to be set sparingly: `True` only when the source cannot work without it, such as an entry type an action reads or writes. Everything else is a suggestion. Core blueprints are never required.
 
@@ -52,9 +53,11 @@ Status buckets are deliberately absent: every workspace already gets the locked 
 4. Read the result. A toast reports what was added and, for anything skipped, why; "already exists — left as it is" is information, not an error.
 5. Review what arrived switched off (scheduled tasks, event subscriptions, incoming webhooks, workflows) and turn it on. An incoming webhook also needs a token, created on its page.
 
-### Update an applied workflow
+### Update an applied workflow or Playbook
 
-When an integration ships a newer version of a workflow you applied, its row shows ↑ and an **Update** button. Update replaces the workflow's definition with the integration's current one and keeps whether it is switched on. Only workflows can be updated; everything else stays as you have it.
+When an integration ships a newer version of a workflow or Playbook you applied, its row shows ↑ and an **Update** button. Update replaces a workflow's definition with the integration's current one and keeps whether it is switched on. For a Playbook it replaces the text and the reference files, keeps its id and status and leaves the old version in its history. Everything else stays as you have it.
+
+A Playbook is an entry with files, and writing one commits, so adding a Playbook is the one exception to "apply never commits": it is applied last when several are added together.
 
 Marvin remembers the version it installed, so it can tell a new version from your own edits:
 
@@ -83,12 +86,12 @@ Workspace-scoped, under `/api/groups/blueprints`. Apply and update need workspac
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| GET | `` | Catalog annotated per workspace: `applied`, `outdated`, `state` (`current`, `update`, `edited`, `edited_update`, `differs`), `edited`, `available`, `missing_requirements`. Filters `?kind=`, `?category=`, `?source=core|<provider>`, `?integration_id=` |
+| GET | `` | Catalog annotated per workspace: `applied`, `outdated`, `state` (`current`, `update`, `edited`, `edited_update`, `differs`), `edited`, `available`, `missing_requirements`, and for a Playbook `installed_id`, `installed_status` and `conflict` (why Add is refused: the name is taken). Filters `?kind=`, `?category=`, `?source=core|<provider>`, `?integration_id=` |
 | GET | `/categories` | Category names in catalog order, core first then each provider |
 | GET | `/{slug}?source=` | One blueprint with its payload |
 | POST | `/{slug}/apply?source=&integration_id=` | Body: the `params` dict, e.g. `{"entry_type": "post"}`. Returns `BlueprintApplyResult` |
 | POST | `/apply?source=` | Body: `slugs` list and `params` keyed by slug. Returns a list of results, applied in dependency order |
-| POST | `/{slug}/update?source=&replace_edits=` | Workflows only: replace the applied workflow's definition with the declared one. A workflow changed in the workspace is refused (`needs_confirmation`) unless `replace_edits=true`. Returns `BlueprintApplyResult` with `updated` |
+| POST | `/{slug}/update?source=&replace_edits=&integration_id=` | Workflows and Playbooks: replace the applied workflow's definition (or the Playbook's text and files) with the declared one. One changed in the workspace is refused (`needs_confirmation`) unless `replace_edits=true`. `integration_id` re-attaches a Playbook to a connection added again. Returns `BlueprintApplyResult` with `updated` |
 
 A parameterised blueprint is judged `applied` by its default parameter values; one with a required parameter that has no default reads as not applied. `outdated` is true when an Update is worth offering: state `update`, `edited_update` or `differs`. Slugs are unique per source; pass `source` to disambiguate.
 

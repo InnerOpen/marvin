@@ -56,6 +56,19 @@ A draft that came from an import shows a review panel above the editor. It is a 
 
 The review is stored on the entry (`metadata.importReview`), so it is still there when you come back to publish.
 
+### From an integration
+
+An [integration](integrations.md) can ship Playbooks of its own: what makes a good Buttondown issue, how to read a failed Cloudflare Pages build, how a Mastodon post is counted. They are listed on the integration's card under **Content › Optional** with the kind "Playbook", and are never required.
+
+- **Add** (an Admin, on the card) makes a **draft** with its reference files and a review panel that says "Installed by the Buttondown integration". Nothing is published: an Admin reads it and publishes it on this page, like any other draft. The row on the card then reads "Draft: review and publish" and links here.
+- **Names.** An integration's Playbook name starts with the provider's slug (`buttondown-newsletter-issue`). A name already used by anything else in the workspace (a Playbook of your own, any entry, something in the Trash) is **refused, never renamed or taken over**; the card shows the reason in place of **Add**.
+- **Updates.** When the integration ships a newer version, the card shows **Update**, with the same states as a workflow (update available, edited here, edited and update available). Update replaces the text and the reference files, keeps the Playbook's id and status, and puts the old version in its history. If it is published, agents use the new version at once. A Playbook you changed asks first, because Update replaces your changes. The text, the description and the reference files count as changes; the status and the history do not.
+- **What it installed.** The integration's card lists its Playbooks (a draft shows as "draft"), linking here filtered to that integration (`?from=integration:<id>`). Each one is labelled "From Buttondown" on this page.
+- **Removed integration.** The Playbook stays, and a published one keeps working. It is labelled "From a removed integration" and is not part of "Delete all of these". Adding the provider again re-attaches it: it is listed under the new connection's **What it installed** and loses the label. **Update** on the card records the new connection on it.
+- **Agents.** A published integration Playbook is in every agent's catalog like any other, whether or not the integration is switched on. Its `allowed-tools` name Marvin's own tools and only narrow what an agent may use. An integration's actions are reached through that integration's workflows, so these Playbooks say which workflow to run by its slug.
+
+An older Marvin that does not know the kind skips the Playbook and loads the integration's other content.
+
 ### Export
 
 **Export** on a saved Playbook downloads a zip in the standard layout: `<name>/SKILL.md` and the reference files at their paths. It exports the saved version, not unsaved edits, in any status. Marvin-only settings travel under the frontmatter's `metadata` (`marvin-manual-only`), next to the standard `disable-model-invocation`, so other tools ignore them. Importing the zip gives the Playbook back.
@@ -124,6 +137,8 @@ Under `/api/groups/playbooks` (Editor and above):
 | GET | `/{id}/export` | The skill folder as a zip |
 | POST | `/import` | Multipart `file` (and optional `name`): a draft from a `SKILL.md` or zip. 201, 400, 409 or 413 |
 | POST | `/import-github` | JSON `{url, name?}`: a draft from a GitHub link. 201, 400, 404, 409, 413, 429 or 502 |
+
+The list's items also carry `fromIntegration` (`source`, `name`, `integrationId`, `removed`) for a Playbook an integration shipped, and null for the rest. An integration's Playbooks are added and updated through the [blueprints](blueprints.md) routes, not here.
 
 The editor saves through the ordinary entries API (`/api/platform/entries`), so its role rules (the 403 above) apply.
 
