@@ -120,15 +120,33 @@ CAPABILITY_WORDS = {
 }
 
 
+# The names of the integrations recipes ask for, for when the plugin isn't installed here (so the Library still says
+# "a connection to Buttondown", not "buttondown"). An installed plugin's own name wins.
+PROVIDER_NAMES = {
+    "apprise": "Apprise",
+    "bluesky": "Bluesky",
+    "buttondown": "Buttondown",
+    "cloudflare_pages": "Cloudflare Pages",
+    "facebook": "Facebook",
+    "instagram": "Instagram",
+    "mastodon": "Mastodon",
+    "n8n": "n8n",
+    "openai_images": "OpenAI Images",
+    "slack": "Slack",
+    "square": "Square",
+}
+
+
 def _provider_name(slug: str) -> str:
-    """An integration's display name (Buttondown, n8n…) when it's installed, else its slug."""
+    """An integration's display name (Buttondown, n8n…): the installed plugin's, else a known one, else its slug in words."""
     try:
         from marvin_integration_sdk import INTEGRATION_REGISTRY
 
-        provider = INTEGRATION_REGISTRY.get(slug)
-        return getattr(provider, "name", None) or slug
+        if name := getattr(INTEGRATION_REGISTRY.get(slug), "name", None):
+            return name
     except Exception:  # noqa: BLE001 — a name is a nicety
-        return slug
+        pass
+    return PROVIDER_NAMES.get(slug) or slug.replace("_", " ").title()
 
 
 def missing_prerequisites(item: dict, refs: WorkspaceRefs) -> list[str]:
