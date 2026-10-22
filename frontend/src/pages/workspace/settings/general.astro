@@ -329,8 +329,8 @@ const noPattern = (siteLinks?.problems ?? [])
             </div>
           )}
           {canManage && (
-            <div class="form-actions">
-              <button type="button" id="site-links-probe-btn" class="button">Check the live links</button>
+            <div class="sl-probe">
+              <button type="button" id="site-links-probe-btn" class="button secondary">Check the live links</button>
               <small id="site-links-probe-note">Fetches one published entry per type from your site; takes a few seconds.</small>
             </div>
           )}
@@ -569,6 +569,8 @@ const noPattern = (siteLinks?.problems ?? [])
   .sl-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .sl-chip { padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); font-size: 13px; text-decoration: none; }
   .sl-chip:hover { border-color: var(--accent); color: var(--accent); }
+  .sl-probe { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 14px; }
+  .sl-probe small { color: var(--muted); font-size: 13px; }
   .sl-results { list-style: none; margin: 8px 0 0; padding: 0; }
   .sl-results:empty { display: none; }
   .sl-results :global(li) { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 8px 12px; border-left: 3px solid var(--color-error); background: var(--panel-2); border-radius: var(--radius); margin-top: 6px; font-size: 14px; overflow-wrap: anywhere; }
