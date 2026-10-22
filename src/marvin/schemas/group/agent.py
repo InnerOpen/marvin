@@ -14,6 +14,9 @@ AgentKind = Literal["persona", "model"]
 PolicyValue = Literal["allow", "block", "ask"]  # ask = bound, but every call waits for the user (Ask threads)
 # Built-in agents are code, not rows; a user-defined agent may not shadow them.
 SYSTEM_AGENT_SLUGS = ("marvin", "ask", "builder", "chat")
+# The permission matrix for outside assistants (MCP clients): a policy holder, not an agent anyone can run.
+EXTERNAL_SLUG = "external"
+RESERVED_AGENT_SLUGS = (*SYSTEM_AGENT_SLUGS, EXTERNAL_SLUG)
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
 
 
@@ -115,7 +118,7 @@ class AgentCreate(AgentBase):
         v = v.strip().lower()
         if not SLUG_RE.match(v):
             raise ValueError("slug must be 2-64 chars of a-z, 0-9 and '-', starting with a letter or digit")
-        if v in SYSTEM_AGENT_SLUGS:
+        if v in RESERVED_AGENT_SLUGS:
             raise ValueError(f"'{v}' is a built-in agent; pick another slug")
         return v
 

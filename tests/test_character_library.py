@@ -154,7 +154,17 @@ def agents(db_session, workspace, storage):
     db_session.commit()
     c = SimpleNamespace(session=db_session, group_id=gid, user=SimpleNamespace(id=uid, admin=True), repos=get_repositories(db_session, group_id=gid))
     c._require_role = lambda *a: None
-    _bind(C, c, "_agent_row_or_404", "_agent_or_404", "_character_store", "_agent_character", "_character_admin_row", "_save_agent_character")
+    _bind(
+        C,
+        c,
+        "_agent_row_or_404",
+        "_agent_or_404",
+        "_matrix_agent_or_404",
+        "_character_store",
+        "_agent_character",
+        "_character_admin_row",
+        "_save_agent_character",
+    )
     c._agent_read = C._agent_read
     c._record_agent_change = lambda *a: None  # the Event Log line an agent edit adds: see test_agent_edit_events
     c.upload = lambda slug, *names: C.upload_agent_character(c, slug, _files(*names))

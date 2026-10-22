@@ -819,7 +819,7 @@ class AIOperationsController(BaseUserController):
     def agent_permissions(self, slug: str) -> dict:
         from marvin.services.ai.agents import permission_matrix
 
-        spec = self._agent_or_404(slug)
+        spec = self._matrix_agent_or_404(slug)
         role = self._user_role()
         return {
             "agent": spec.slug,
@@ -831,7 +831,7 @@ class AIOperationsController(BaseUserController):
 
     @router.get("/agents/{slug}", response_model=AgentRead, summary="Get an agent")
     def get_agent(self, slug: str) -> AgentRead:
-        spec = self._agent_or_404(slug)
+        spec = self._matrix_agent_or_404(slug)
         return self._agent_read(spec, self._agent_character(spec))
 
     @router.post("/agents", response_model=AgentRead, status_code=status.HTTP_201_CREATED, summary="Define an agent")
@@ -945,16 +945,17 @@ class AIOperationsController(BaseUserController):
 
     @staticmethod
     def _is_builtin(slug: str) -> bool:
-        from marvin.schemas.group.agent import SYSTEM_AGENT_SLUGS
+        from marvin.schemas.group.agent import RESERVED_AGENT_SLUGS
 
-        return (slug or "").strip().lower() in SYSTEM_AGENT_SLUGS
+        return (slug or "").strip().lower() in RESERVED_AGENT_SLUGS
 
     def _builtin_with_matrix(self, slug: str):
-        """The built-in agent `slug`, or a 400 when it has no matrix to change (`chat` binds no tools)."""
-        from marvin.services.ai.agents import BUILTIN_POLICY_SLUGS
+        """The built-in agent `slug` (or the External assistants holder), or a 400 when it has no matrix to
+        change (`chat` binds no tools)."""
+        from marvin.services.ai.agents import POLICY_SLUGS
 
-        spec = self._agent_or_404(slug)
-        if spec.slug not in BUILTIN_POLICY_SLUGS:
+        spec = self._matrix_agent_or_404(slug)
+        if spec.slug not in POLICY_SLUGS:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"'{spec.slug}' is a built-in agent with no tools, so it has no permission matrix to change.",
@@ -987,7 +988,7 @@ class AIOperationsController(BaseUserController):
         if row is not None:
             row.agent_tool_policies = with_builtin_override(row, spec.slug, policy)
             self.session.commit()
-        spec = self._agent_or_404(spec.slug)
+        spec = self._matrix_agent_or_404(spec.slug)
         self._record_policy_change(spec, before, spec.tool_policy, reset=reset)
         return self._agent_read(spec, self._agent_character(spec))
 
@@ -1799,6 +1800,16 @@ class AIOperationsController(BaseUserController):
         if spec is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No agent '{slug}'.")
         return spec
+
+    def _matrix_agent_or_404(self, slug: str):
+        """`_agent_or_404`, plus the External assistants holder: it has a matrix to read and edit but is no agent
+        (never listed, never run), so only the matrix routes resolve it."""
+        from marvin.schemas.group.agent import EXTERNAL_SLUG
+        from marvin.services.ai.agents import external_agent
+
+        if (slug or "").strip().lower() == EXTERNAL_SLUG:
+            return external_agent(self.session, self.group_id)
+        return self._agent_or_404(slug)
 
     def _agent_row_or_404(self, slug: str) -> WorkspaceAgentModel:
         from marvin.schemas.group.agent import SYSTEM_AGENT_SLUGS

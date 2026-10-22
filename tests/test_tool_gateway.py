@@ -85,7 +85,7 @@ def _legacy_marvin(session, gid):
     spec = resolve_agent(session, gid, ROUTER_SLUG)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"No agent '{ROUTER_SLUG}'.")
-    return spec
+    return replace(spec, name="External assistants")  # outside calls name the External assistants card; the rest is the main agent's
 
 
 def _legacy_list(session, gid, user) -> list[dict]:
