@@ -51,6 +51,10 @@ def blueprint_conflict(session, group_id, blueprint: Blueprint) -> str | None:
     or already applied."""
     if applied_row(session, group_id, blueprint) is not None:
         return None
+    from marvin.services.playbooks.system import name_clash_message
+
+    if clash := name_clash_message(blueprint.slug):
+        return clash
     where = taken_where(session, group_id, blueprint.slug)
     if where is None:
         return None

@@ -18,6 +18,8 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime
 
+from fastapi import HTTPException
+
 from marvin.core.root_logger import get_logger
 from marvin.services.ai.executions import parent_meta
 from marvin.services.ui_links import entry_edit_url, entry_review_link
@@ -527,6 +529,16 @@ class AuthoringService:
             )
         return {k: v for k, v in fields.items() if v not in ("", None)}
 
+    @staticmethod
+    def _refuse_system_replaces(entry_type, fields: dict) -> None:
+        """A Playbook draft may not propose to replace a system Playbook (those are read-only: copy it instead)."""
+        from marvin.services.playbooks import PLAYBOOK_TYPE, REPLACES_KEY
+        from marvin.services.playbooks.proposals import system_refusal
+
+        if entry_type is not None and entry_type.slug == PLAYBOOK_TYPE and (name := str((fields or {}).get(REPLACES_KEY) or "").strip().lower()):
+            if message := system_refusal(name):
+                raise ValueError(message)
+
     def save_draft(self, *, entry_type, title: str, fields: dict | None = None, summary: str | None = None, tags=None, resources=None,
                    asset_ids=()) -> dict:  # fmt: skip
         """Create an inbox draft from fields the caller wrote. Raises ValueError on an unknown field or a bad value."""
@@ -534,6 +546,7 @@ class AuthoringService:
         if not title:
             raise ValueError("title is required")
         data_json = self._known_fields(entry_type, fields)
+        self._refuse_system_replaces(entry_type, data_json)
         attachments = self.recipe_asset_attachments(list(asset_ids), entry_type) if asset_ids else None
         try:
             entry = self.repos.entries.create(
@@ -547,6 +560,9 @@ class AuthoringService:
                     "created_by": getattr(self.user, "id", None),
                 }
             )
+        except HTTPException as e:
+            self.session.rollback()
+            raise ValueError(str(e.detail)) from e
         except Exception as e:
             self.session.rollback()
             raise ValueError(f"the fields don't fit '{entry_type.slug}': {e}") from e
@@ -577,6 +593,7 @@ class AuthoringService:
             raise ValueError(f"'{entry.title}' is {entry.status}: only inbox, draft and needs-review entries can be changed here")
         entry_type = entry.entry_type
         new_fields = self._known_fields(entry_type, fields) if entry_type else {}
+        self._refuse_system_replaces(entry_type, new_fields)
         tag_list = [str(t).strip() for t in (tags or []) if str(t).strip()]
         resource_refs = [str(r).strip() for r in (resources or []) if str(r).strip()]
         title = (title or "").strip() or None
@@ -596,6 +613,9 @@ class AuthoringService:
             if update:
                 try:
                     self.repos.entries.update(entry.id, update)
+                except HTTPException as e:
+                    self.session.rollback()
+                    raise ValueError(str(e.detail)) from e
                 except Exception as e:
                     self.session.rollback()
                     raise ValueError(f"the fields don't fit '{entry_type.slug if entry_type else 'this entry'}': {e}") from e

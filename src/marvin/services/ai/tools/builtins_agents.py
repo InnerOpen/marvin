@@ -351,7 +351,7 @@ def run_unattended(
         ctx.session.commit()
         raise UnattendedRunError(f"agent '{spec.slug}' failed: {e}", str(execution.id)) from e
 
-    used = [{"id": p.id, "name": p.name} for p in always_playbooks(ctx.session, ctx.group_id, scope)]
+    used = [{"id": p.id, "name": p.name, **({"version": p.version} if p.version else {})} for p in always_playbooks(ctx.session, ctx.group_id, scope)]
     used += [p for p in playbooks_used(steps) if p["id"] not in {u["id"] for u in used}]
     tool_names = list(dict.fromkeys(s.tool for s in steps))
     execution.status = "completed"

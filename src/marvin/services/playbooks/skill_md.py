@@ -196,6 +196,23 @@ def parse_skill_md(text: str) -> SkillDoc:
     )
 
 
+def declares_invocation(text: str) -> bool:
+    """Whether the frontmatter says anything about model invocation (``disable-model-invocation``, either way, or Marvin's
+    ``metadata`` flag). A system Playbook that says nothing is manual-only; one that says ``false`` is listed."""
+    try:
+        head, _ = _split(text)
+    except SkillFormatError:
+        return False
+    try:
+        front = yaml.safe_load(head)
+    except yaml.YAMLError:
+        front = _lenient_pairs(head)
+    if not isinstance(front, dict):
+        return False
+    metadata = front.get("metadata")
+    return "disable-model-invocation" in front or (isinstance(metadata, dict) and MARVIN_MANUAL_ONLY in metadata)
+
+
 def _take_marvin_settings(extra: dict) -> dict:
     """Remove Marvin's own keys from ``extra["metadata"]`` (they are Playbook fields, not another tool's keys) and return them.
     Other tools' metadata stays; an emptied ``metadata`` goes."""

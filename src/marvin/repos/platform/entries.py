@@ -118,6 +118,16 @@ class EntriesRepository(SuggestionWritebackMixin, GroupRepositoryGeneric[EntryRe
                 detail=f"Content validation failed: {e.message}",
             ) from e
 
+    def _refuse_system_name(self, entry_type_id, slug) -> None:
+        """409 when a new Playbook would take the name of an installed system Playbook (it would shadow it): copy it instead."""
+        from marvin.services.playbooks import PLAYBOOK_TYPE
+        from marvin.services.playbooks.system import name_clash_message
+
+        if not slug or (message := name_clash_message(slug)) is None:
+            return
+        if self.session.query(EntryTypes.slug).filter(EntryTypes.id == entry_type_id).scalar() == PLAYBOOK_TYPE:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=message)
+
     def create(self, data: Any) -> EntryRead:
         from datetime import datetime
 
@@ -130,6 +140,8 @@ class EntriesRepository(SuggestionWritebackMixin, GroupRepositoryGeneric[EntryRe
         # Auto-generate slug from title if not provided
         if not data_dict.get("slug") and data_dict.get("title"):
             data_dict["slug"] = slugify(data_dict["title"])
+
+        self._refuse_system_name(data_dict.get("entry_type_id"), data_dict.get("slug"))
 
         # Ensure slug uniqueness within the group (append -2, -3, … on collision) so
         # two entries with the same title don't violate the (group_id, slug) constraint.
@@ -214,6 +226,9 @@ class EntriesRepository(SuggestionWritebackMixin, GroupRepositoryGeneric[EntryRe
                 if "title" in data_dict and data_dict.get("title"):
                     data_dict["slug"] = slugify(data_dict["title"])
             # else: user provided explicit slug, use it as-is
+
+        if data_dict.get("slug") and data_dict.get("slug") != existing_entry.slug:
+            self._refuse_system_name(data_dict.get("entry_type_id") or existing_entry.entry_type_id, data_dict["slug"])
 
         # Skip slug update if unchanged — SQLite re-checks UNIQUE constraints on every
         # UPDATE even when the value doesn't change, which causes spurious conflicts.

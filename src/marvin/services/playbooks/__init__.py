@@ -7,11 +7,13 @@ the standard frontmatter and the markdown ``body``; drafts, history, trash and b
 
 * ``ensure_playbook_type``: the type, created the first time a Playbook is written (the pattern of Social's rule type);
 * ``published_playbooks`` / ``published_playbook`` / ``find_published``: the one place that says which Playbooks a run may
-  see (an agent's chosen set, manual-only);
+  see (an agent's chosen set, manual-only). A run's catalog is the workspace's published Playbooks, then the system Playbooks
+  its workspace gets (``system.py``: read from the installed packages, no rows, id ``system:<name>``);
 * ``playbooks_used`` / ``playbooks_in_effect``: which Playbooks a run loaded, read back from its trace.
 
 The rest is split by concern and re-exported here, so callers import from ``marvin.services.playbooks``:
 
+* ``system``: system Playbooks (shipped by Marvin and its plugins), their lint and their switches;
 * ``catalog``: the system-frame paragraphs (the catalog, the "always load" Playbooks);
 * ``proposals``: an agent's proposed change to a published Playbook, and what agents may not change;
 * ``files``: reference files, assets linked to the Playbook entry by their relative path;
@@ -98,6 +100,14 @@ class Playbook:
     body: str
     manual_only: bool = False
     allowed_tools: str = ""  # the standard's `allowed-tools`: space-separated names, kept as written
+    source: str = "workspace"  # "workspace" (an entry) | "core" | "plugin" (a system Playbook: read-only, ``system:<name>`` id)
+    label: str = ""  # a system Playbook's "System · Marvin" / "System · S3 storage"
+    version: str = ""  # a system Playbook's package version
+    hash: str = ""  # a system Playbook's content hash
+
+    @property
+    def is_system(self) -> bool:
+        return self.source != "workspace"
 
 
 ALWAYS_MAX = 3  # "always load" Playbooks per agent
@@ -111,15 +121,18 @@ class PlaybookScope:
     * ``always``: Playbooks put in full in the system frame (at most ``ALWAYS_MAX``);
     * ``also``: Playbooks one run adds on top (a workflow's agent step names them): in the chosen set whatever it is, and
       put in full in the system frame after ``always`` (at most ``ALWAYS_MAX`` of their own);
-    * ``asked``: the user's latest message. A manual-only Playbook is loadable only when this *names* it (see ``is_named``).
+    * ``asked``: the user's latest message. A manual-only Playbook is loadable only when this *names* it (see ``is_named``),
+      when a workflow step named it in ``also``, or when the caller is ``direct``;
+    * ``direct``: a person driving the tools themselves (MarvinMCP, the remote MCP server, the invoke route: no agent decides what
+      to load), who may list and load a manual-only Playbook by name.
 
-    The default scope (no agent: MarvinMCP, the remote MCP server, the invoke route) is "all published, nothing asked", so a
-    manual-only Playbook never loads for those callers."""
+    The default scope is "all published, nothing asked": a manual-only Playbook loads only for a run that names it."""
 
     names: tuple[str, ...] | None = None
     always: tuple[str, ...] = ()
     asked: str = ""
     also: tuple[str, ...] = ()
+    direct: bool = False
 
     @classmethod
     def of(cls, settings: dict | None, asked: str = "") -> PlaybookScope:
@@ -134,6 +147,12 @@ class PlaybookScope:
 
     def allows(self, name: str) -> bool:
         return self.names is None or name in self.names or name in self.also
+
+    def reaches(self, playbook: Playbook) -> bool:
+        """May a run with this scope load ``playbook``? Manual-only ones only when named, chosen by a workflow step, or direct."""
+        return self.allows(playbook.name) and (
+            not playbook.manual_only or self.direct or playbook.name in self.also or is_named(playbook.name, self.asked)
+        )
 
     def asking(self, message: str | None) -> PlaybookScope:
         """This scope for a run answering ``message`` (the user's latest message)."""
@@ -240,51 +259,89 @@ def all_playbooks(session, group_id) -> list:
     )
 
 
-def published_playbooks(session, group_id, scope: PlaybookScope | None = None) -> list[Playbook]:
-    """The workspace's published Playbooks by name. A workspace with none (or never written one) gets [].
+def _system_playbook(p) -> Playbook:
+    return Playbook(
+        id=p.id,
+        name=p.name,
+        description=p.description,
+        body=p.body,
+        manual_only=p.manual_only,
+        allowed_tools=p.allowed_tools,
+        source=p.source,
+        label=p.label,
+        version=p.version,
+        hash=p.hash,
+    )
 
-    With a ``scope`` this is what that run's catalog lists: the chosen set only, and no manual-only Playbook (those are
-    never offered, only loaded when named). Without one it is every published Playbook, for the admin screens."""
+
+def _candidates(session, group_id, scope: PlaybookScope | None, system: bool) -> list[Playbook]:
+    """The workspace's published Playbooks by name, then (for a run, or when asked) the system ones its workspace gets."""
     found = [_playbook_from_row(row) for row in _published_rows(session, group_id)]
+    if scope is not None or system:
+        from marvin.services.playbooks.system import visible_system
+
+        found += [_system_playbook(p) for p in visible_system(session, group_id)]
+    return found
+
+
+def published_playbooks(session, group_id, scope: PlaybookScope | None = None, *, system: bool = False) -> list[Playbook]:
+    """The workspace's published Playbooks by name, then the system Playbooks it gets. A workspace with none gets [].
+
+    With a ``scope`` this is what that run's catalog lists: the chosen set only, system Playbooks included, and no manual-only
+    Playbook (those are never offered, only loaded when named) unless the caller is ``direct``. Without one it is the workspace's
+    own published Playbooks, for the admin screens (``system=True`` adds the system ones)."""
+    found = _candidates(session, group_id, scope, system)
     if scope is None:
         return found
-    return [p for p in found if scope.allows(p.name) and not p.manual_only]
+    return [p for p in found if scope.allows(p.name) and (not p.manual_only or scope.direct)]
 
 
-def find_published(session, group_id, name: str, scope: PlaybookScope | None = None):
-    """``(entry row, Playbook)`` of the published Playbook called ``name`` that a run with ``scope`` may see, else None: a draft,
-    another workspace's and a made-up name look the same. With a ``scope`` it is also None for one outside the agent's chosen
-    set and for a manual-only one the user's message did not name. The one lookup behind ``published_playbook`` and the files."""
+def find_published(session, group_id, name: str, scope: PlaybookScope | None = None, *, system: bool = False):
+    """``(entry row | SystemPlaybook, Playbook)`` of the published Playbook called ``name`` that a run with ``scope`` may see, else
+    None: a draft, another workspace's and a made-up name look the same. A workspace's own Playbook wins over a system one with the
+    name. With a ``scope`` it is also None for one outside the agent's chosen set and for a manual-only one the run was not given
+    (``PlaybookScope.reaches``). The one lookup behind ``published_playbook`` and the files. System Playbooks are looked up only
+    with a ``scope`` (or ``system=True``)."""
     from marvin.db.models.platform.entries import Entries
 
-    row = _published_rows(session, group_id).filter(Entries.slug == str(name or "").strip().lower()).first()
-    if row is None:
+    key = str(name or "").strip().lower()
+    row = _published_rows(session, group_id).filter(Entries.slug == key).first()
+    if row is not None:
+        playbook = _playbook_from_row(row)
+        found = (row, playbook)
+    elif scope is not None or system:
+        from marvin.services.playbooks.system import visible_system
+
+        mine = next((p for p in visible_system(session, group_id) if p.name == key), None)
+        if mine is None:
+            return None
+        found = (mine, _system_playbook(mine))
+    else:
         return None
-    playbook = _playbook_from_row(row)
-    if scope is not None and not (scope.allows(playbook.name) and (not playbook.manual_only or is_named(playbook.name, scope.asked))):
+    if scope is not None and not scope.reaches(found[1]):
         return None
-    return row, playbook
+    return found
 
 
-def published_playbook(session, group_id, name: str, scope: PlaybookScope | None = None) -> Playbook | None:
-    """One published Playbook of this workspace by name, or None (see ``find_published``)."""
-    found = find_published(session, group_id, name, scope)
+def published_playbook(session, group_id, name: str, scope: PlaybookScope | None = None, *, system: bool = False) -> Playbook | None:
+    """One published Playbook of this workspace (or a system one it gets) by name, or None (see ``find_published``)."""
+    found = find_published(session, group_id, name, scope, system=system)
     return found[1] if found is not None else None
 
 
 def manual_only_refusal(session, group_id, name: str, scope: PlaybookScope) -> str | None:
     """The message for a load refused only because the Playbook is manual-only and unnamed; None for any other refusal
     (an outside-the-set Playbook must look like a made-up name, so it gets no message of its own)."""
-    found = published_playbook(session, group_id, name)
-    if found is not None and found.manual_only and scope.allows(found.name) and not is_named(found.name, scope.asked):
+    found = published_playbook(session, group_id, name, system=True)
+    if found is not None and found.manual_only and scope.allows(found.name) and not scope.reaches(found):
         return f"'{found.name}' is a manual-only Playbook: it loads only when the user names it in their message. Ask them to name it."
     return None
 
 
 def always_playbooks(session, group_id, scope: PlaybookScope) -> list[Playbook]:
-    """The agent's "always load" Playbooks that can still be loaded (published, in its set, not manual-only), in its order,
-    then the run's own (``also``)."""
-    by_name = {p.name: p for p in published_playbooks(session, group_id, scope)}
+    """The agent's "always load" Playbooks that can still be loaded (published or system, in its set, not manual-only), in its
+    order, then the run's own (``also``: a workflow step names them, so a manual-only one counts)."""
+    by_name = {p.name: p for p in _candidates(session, group_id, scope, True) if scope.allows(p.name) and (not p.manual_only or p.name in scope.also)}
     named = [*scope.always[:ALWAYS_MAX], *(n for n in scope.also[:ALWAYS_MAX] if n not in scope.always[:ALWAYS_MAX])]
     return [by_name[name] for name in named if name in by_name]
 
@@ -303,13 +360,14 @@ def check_agent_settings(session, group_id, settings: dict | None) -> None:
         raise PlaybookSettingsError(f"An agent can always load at most {ALWAYS_MAX} Playbooks; remove one first.")
     if names is not None and (outside := [n for n in always if n not in names]):
         raise PlaybookSettingsError(f"Always-loaded Playbooks must be in the chosen set: {', '.join(outside)}.")
-    loadable = {p.name for p in published_playbooks(session, group_id, PlaybookScope())}
+    loadable = {p.name for p in published_playbooks(session, group_id, PlaybookScope())}  # the workspace's and the system ones it gets
     if missing := [n for n in always if n not in loadable]:
         raise PlaybookSettingsError(f"Not a published Playbook that loads by itself (manual-only ones do not): {', '.join(missing)}.")
 
 
 def playbooks_used(steps) -> list[dict]:
-    """The Playbooks a run loaded, in first-load order, as ``{"id", "name"}``, read from its trace (a refused load is not a use)."""
+    """The Playbooks a run loaded, in first-load order, as ``{"id", "name"}`` (a system Playbook's id is ``system:<name>`` and it also
+    has its ``version``), read from its trace (a refused load is not a use)."""
     used: dict[str, dict] = {}
     for step in steps:
         if getattr(step, "tool", None) != LOAD_TOOL:
@@ -319,7 +377,7 @@ def playbooks_used(steps) -> list[dict]:
         except (TypeError, ValueError):
             continue
         if isinstance(out, dict) and out.get("id") and not out.get("error"):
-            used.setdefault(out["id"], {"id": out["id"], "name": out.get("name")})
+            used.setdefault(out["id"], {"id": out["id"], "name": out.get("name"), **({"version": out["version"]} if out.get("version") else {})})
     return list(used.values())
 
 
@@ -357,7 +415,7 @@ def playbooks_in_effect(session, group_id, convo=(), thread=None, scope: Playboo
         names.setdefault(entry.get("name") or "", None)
     for name in loaded_playbook_names(convo):
         names.setdefault(name, None)
-    found = (published_playbook(session, group_id, name) for name in names if name and (scope is None or scope.allows(name)))
+    found = (published_playbook(session, group_id, name, system=True) for name in names if name and (scope is None or scope.allows(name)))
     return [p for p in found if p is not None]
 
 
@@ -386,6 +444,7 @@ from marvin.services.playbooks.files import (  # noqa: E402, F401
     PATH_MAX,
     PlaybookFileError,
     ReferenceFile,
+    SystemFile,
     attach_reference,
     normalize_path,
     published_playbook_file,

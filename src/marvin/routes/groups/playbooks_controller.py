@@ -13,8 +13,9 @@ from marvin.db.models.groups.ai_threads import AIThreadModel
 from marvin.db.models.groups.integrations import IntegrationModel
 from marvin.db.models.users.roles import WorkspaceRole
 from marvin.routes._base import BaseUserController, controller
-from marvin.routes._base.checks import has_workspace_role, require_workspace_editor
+from marvin.routes._base.checks import has_workspace_role, require_workspace_admin, require_workspace_editor
 from marvin.schemas.group.playbooks import (
+    PlaybookCopiedFrom,
     PlaybookGithubImport,
     PlaybookImported,
     PlaybookItem,
@@ -23,12 +24,18 @@ from marvin.schemas.group.playbooks import (
     PlaybookType,
     PlaybookUse,
     PlaybookUses,
+    SystemPlaybookCopy,
+    SystemPlaybookFile,
+    SystemPlaybookItem,
+    SystemPlaybookList,
+    SystemPlaybookRead,
+    SystemPlaybookSwitch,
 )
 from marvin.services import playbooks
 from marvin.services.assets.asset_storage_service import AssetStorageService
 from marvin.services.blueprints.playbook_apply import provider_name
 from marvin.services.entries.entry_service import EntryService
-from marvin.services.playbooks import exporter, importer
+from marvin.services.playbooks import exporter, importer, system, system_copy
 from marvin.services.playbooks import github as github_import
 from marvin.services.playbooks.blueprint import PROVENANCE_KEY
 from marvin.services.playbooks.memory import recent_uses
@@ -54,6 +61,7 @@ class PlaybooksController(BaseUserController):
                 updated_at=row.update_at,
                 last_used_at=(uses.get(str(row.id)) or [{}])[0].get("used_at"),
                 from_integration=self._origin(row, live),
+                copied_from=self._copied_from(row),
             )
             for row in playbooks.all_playbooks(self.session, self.group_id)
         ]
@@ -64,6 +72,81 @@ class PlaybooksController(BaseUserController):
         """The workspace's ``playbook`` entry type, created when missing (idempotent): call before saving the first Playbook."""
         require_workspace_editor(self.user, self.group_id)
         return PlaybookType(entry_type_id=playbooks.ensure_playbook_type(self.session, self.group_id))
+
+    @router.get("/system", response_model=SystemPlaybookList, summary="List the system Playbooks this workspace gets")
+    def list_system(self) -> SystemPlaybookList:
+        """The system Playbooks (shipped by Marvin and its plugins, read-only) with whether this workspace gets each one and why not.
+        Includes the ones switched off. EDITOR and above."""
+        require_workspace_editor(self.user, self.group_id)
+        return SystemPlaybookList(items=[self._system_item(s) for s in system.system_states(self.session, self.group_id)])
+
+    @router.get("/system/{name}", response_model=SystemPlaybookRead, summary="One system Playbook, read-only")
+    def read_system(self, name: str) -> SystemPlaybookRead:
+        require_workspace_editor(self.user, self.group_id)
+        state = self._system_state(name)
+        p = state.playbook
+        return SystemPlaybookRead(
+            **self._system_item(state).model_dump(),
+            source=p.source,
+            fingerprint=p.hash,
+            body=p.body,
+            files=[SystemPlaybookFile(path=path, text=text) for path, text in p.files],
+            warnings=list(p.warnings),
+        )
+
+    @router.get("/system/{name}/uses", response_model=PlaybookUses, summary="Where a system Playbook was used lately")
+    def system_uses(self, name: str) -> PlaybookUses:
+        """The runs of this workspace that loaded it, newest first (at most 20), as for a workspace Playbook."""
+        from marvin.services.ai.agents import agent_names
+
+        require_workspace_editor(self.user, self.group_id)
+        found = self._system_state(name).playbook
+        names = agent_names(self.session, self.group_id)
+        uses = recent_uses(self.session, self.group_id).get(found.id, [])
+        asked = [u["thread_id"] for u in uses if u["thread_id"]]
+        visible = self.session.query(AIThreadModel.id).filter(AIThreadModel.id.in_(asked), AIThreadModel.group_id == self.group_id)
+        if asked and not has_workspace_role(self.user, self.group_id, WorkspaceRole.ADMIN):
+            visible = visible.filter(AIThreadModel.created_by == self.user.id)
+        openable = {str(row.id) for row in visible} if asked else set()
+        uses = [{**u, "thread_id": u["thread_id"] if u["thread_id"] in openable else None} for u in uses]
+        return PlaybookUses(items=[PlaybookUse(**u, agent_name=names.get(u["agent_slug"] or "")) for u in uses])
+
+    @router.put("/system/{name}", response_model=SystemPlaybookItem, summary="Switch a system Playbook on or off for this workspace")
+    def switch_system(self, name: str, body: SystemPlaybookSwitch) -> SystemPlaybookItem:
+        """ADMIN and above. Off means absent everywhere in this workspace: the catalog, the tools, agents' chosen sets and always-load
+        lists. The switch is kept by name, so it survives the plugin being uninstalled and installed again."""
+        require_workspace_admin(self.user, self.group_id)
+        self._system_state(name)  # 404 for a name that is not installed
+        system.switch_here(self.session, self.group_id, name.strip().lower(), body.enabled)
+        return self._system_item(self._system_state(name))
+
+    @router.post("/system/{name}/copy", response_model=PlaybookImported, status_code=201, summary="Copy a system Playbook to customise it")
+    def copy_system(self, name: str, body: SystemPlaybookCopy | None = None) -> PlaybookImported:
+        """ADMIN and above. Makes a **draft** Playbook of this workspace from the system one (its text and files), named ``name`` (the
+        suggestion when omitted; 409 when taken). Once the copy is published it replaces the original here."""
+        require_workspace_admin(self.user, self.group_id)
+        found = self._system_state(name).playbook
+        try:
+            done = system_copy.copy_system_playbook(
+                self.session,
+                found,
+                group_id=self.group_id,
+                user_id=self.user.id,
+                entries=self._entries(),
+                assets=self._assets(),
+                name=body.name if body else None,
+            )
+        except importer.ImportRefused as e:
+            raise HTTPException(status_code=e.status_code, detail=str(e)) from e
+        return self._imported(done)
+
+    @router.post("/{entry_id}/upstream-seen", status_code=204, summary="Mark the changed original of a copy as seen")
+    def upstream_seen(self, entry_id: UUID4) -> Response:
+        """ADMIN and above. The copy remembers the original's current version, so its hint goes away until the original changes again."""
+        require_workspace_admin(self.user, self.group_id)
+        if not system_copy.mark_seen(self.session, self._find(entry_id)):
+            raise HTTPException(status_code=404, detail="This Playbook is not a copy of an installed system Playbook.")
+        return Response(status_code=204)
 
     @router.get("/{entry_id}/uses", response_model=PlaybookUses, summary="Where a Playbook was used lately")
     def playbook_uses(self, entry_id: UUID4) -> PlaybookUses:
@@ -141,6 +224,35 @@ class PlaybooksController(BaseUserController):
         except importer.ImportRefused as e:
             raise HTTPException(status_code=e.status_code, detail=str(e)) from e
         return self._imported(done)
+
+    @staticmethod
+    def _copied_from(row) -> PlaybookCopiedFrom | None:
+        found = system_copy.upstream(row.metadata_json)
+        return PlaybookCopiedFrom(**found) if found else None
+
+    def _system_state(self, name: str):
+        found = next((s for s in system.system_states(self.session, self.group_id) if s.playbook.name == str(name).strip().lower()), None)
+        if found is None:
+            raise HTTPException(status_code=404, detail="No such system Playbook.")
+        return found
+
+    def _system_item(self, state) -> SystemPlaybookItem:
+        p = state.playbook
+        suggestion = system_copy.suggested_name(p)
+        free = importer.taken_where(self.session, self.group_id, suggestion) is None and system.system_playbook(suggestion) is None
+        return SystemPlaybookItem(
+            name=p.name,
+            description=p.description,
+            label=p.label,
+            version=p.version,
+            manual_only=p.manual_only,
+            allowed_tools=p.allowed_tools,
+            state=state.state,
+            detail=state.detail,
+            enabled=state.enabled_here,
+            suggested_copy_name=suggestion if free else "",
+            file_count=len(p.files),
+        )
 
     @staticmethod
     def _origin(row, live: dict) -> PlaybookOrigin | None:

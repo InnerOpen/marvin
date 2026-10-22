@@ -137,13 +137,13 @@ def _message(action: dict, context: dict) -> str:
 
 
 def _playbook_names(session, group_id, action: dict) -> list[str]:
-    """The step's own Playbooks, each a published one that loads by itself (a manual-only Playbook loads only when named in the message)."""
+    """The step's own Playbooks, each a published one (or a system one the workspace gets). Naming a manual-only Playbook in the step loads it."""
     from marvin.services.playbooks import PlaybookScope, published_playbooks
 
     names = [str(n).strip() for n in action.get("playbooks") or () if str(n).strip()]
-    loadable = {p.name for p in published_playbooks(session, group_id, PlaybookScope())}
+    loadable = {p.name for p in published_playbooks(session, group_id, PlaybookScope(direct=True))}
     if missing := [n for n in names if n not in loadable]:
-        raise AutomationActionError(f"not a published Playbook that loads by itself: {', '.join(missing)}")
+        raise AutomationActionError(f"not a published Playbook: {', '.join(missing)}")
     return names
 
 

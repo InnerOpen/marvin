@@ -106,7 +106,7 @@ def _agent_step_options(session, group_id, user) -> tuple[list[AutomationAgentOp
         )
     playbooks = [
         AutomationPlaybookOption(name=p.name, description=p.description, manual_only=bool(p.manual_only))
-        for p in published_playbooks(session, group_id)
+        for p in published_playbooks(session, group_id, system=True)
     ]
     return agents, playbooks
 

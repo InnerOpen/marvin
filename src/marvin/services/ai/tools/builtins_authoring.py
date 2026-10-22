@@ -267,9 +267,19 @@ def propose_playbook_change(ctx: ToolContext, args: dict) -> str:
     from marvin.db.models.platform.entries import Entries
     from marvin.db.models.platform.entry_types import EntryTypes
     from marvin.services.playbooks import CHANGE_KEYS, CHANGE_SUFFIX, REPLACES_KEY, ensure_playbook_type, published_playbook
+    from marvin.services.playbooks.system import system_playbook
 
     name = str(args.get("playbook") or "").strip().lower()
     live = published_playbook(ctx.session, ctx.group_id, name)
+    if live is None and (system := system_playbook(name)) is not None:
+        return json.dumps(
+            {
+                "error": (
+                    f"'{name}' is a system Playbook ({system.label}) and is read-only: "
+                    "an admin copies it (Playbooks > System > Copy) and changes the copy."
+                )
+            }
+        )
     if live is None:
         return json.dumps({"error": f"'{name}' is not a published Playbook (list_playbooks lists them). For a new one use create_draft."})
     row = ctx.session.get(Entries, _uuid.UUID(live.id))

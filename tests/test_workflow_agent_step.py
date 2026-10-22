@@ -184,7 +184,7 @@ def test_a_draft_names_a_real_persona_agent_and_published_playbooks(ws):
     assert "No agent “chatty”" in issues(agent="chatty")[0]  # a plain model has no tools to work with
     assert "switched off" in issues(agent="asleep")[0]
     assert "No published Playbook “draft-only”" in issues(playbooks=["draft-only"])[0]
-    assert "manual-only" in issues(playbooks=["manual-one"])[0]
+    assert issues(playbooks=["manual-one"]) == []  # naming a manual-only Playbook in the step loads it
 
 
 def test_warnings_say_when_the_agent_cannot_do_the_job(ws):

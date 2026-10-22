@@ -8,11 +8,13 @@ only through these paths."""
 
 from __future__ import annotations
 
+import posixpath
 from dataclasses import dataclass
 
 from marvin.services.playbooks import PLAYBOOK_TYPE, PlaybookScope, find_published
 
 PATH_MAX = 255
+_MIME = {".md": "text/markdown", ".txt": "text/plain", ".json": "application/json", ".csv": "text/csv", ".yaml": "application/yaml"}
 FILES_MAX = 100  # reference files per Playbook
 
 
@@ -131,16 +133,37 @@ def remove_reference(session, group_id, entry_id, path) -> bool:
     return False
 
 
+@dataclass(frozen=True)
+class SystemFile:
+    """A system Playbook's reference file: text from its package, not an asset."""
+
+    path: str
+    text: str
+
+    @property
+    def name(self) -> str:
+        return posixpath.basename(self.path)
+
+
+def _system_index(playbook) -> list[ReferenceFile]:
+    return [
+        ReferenceFile(path, "", posixpath.basename(path), _MIME.get(posixpath.splitext(path)[1].lower(), "text/plain"), len(text.encode()))
+        for path, text in playbook.files
+    ]
+
+
 def published_playbook_files(session, group_id, name: str, scope: PlaybookScope | None = None) -> list[ReferenceFile] | None:
-    """The reference-file index of a published Playbook by name, or None when it isn't one (draft, other workspace, made up,
-    or outside the ``scope`` the run has)."""
+    """The reference-file index of a published Playbook by name (a system Playbook's too, for a run's ``scope``), or None when it
+    isn't one (draft, other workspace, made up, or outside the ``scope`` the run has)."""
     found = find_published(session, group_id, name, scope)
-    return reference_files(session, found[0].id) if found is not None else None
+    if found is None:
+        return None
+    return _system_index(found[0]) if found[1].is_system else reference_files(session, found[0].id)
 
 
 def published_playbook_file(session, group_id, name: str, path: str, scope: PlaybookScope | None = None):
-    """The asset at ``path`` of a published Playbook of this workspace, or None: a draft, another workspace's Playbook,
-    one outside the ``scope``, a path it doesn't hold and a malformed path all look the same."""
+    """The asset at ``path`` of a published Playbook of this workspace (a ``SystemFile`` for a system Playbook), or None: a draft,
+    another workspace's Playbook, one outside the ``scope``, a path it doesn't hold and a malformed path all look the same."""
     found = find_published(session, group_id, name, scope)
     if found is None:
         return None
@@ -148,6 +171,9 @@ def published_playbook_file(session, group_id, name: str, path: str, scope: Play
         wanted = normalize_path(path)
     except PlaybookFileError:
         return None
+    if found[1].is_system:
+        text = found[0].file(wanted)
+        return SystemFile(wanted, text) if text is not None else None
     for path_found, _link, asset in _links(session, found[0].id):
         if path_found == wanted and str(asset.group_id) == str(group_id):
             return asset

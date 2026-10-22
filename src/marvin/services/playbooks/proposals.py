@@ -41,6 +41,8 @@ def change_target(session, entry):
         .filter(Entries.group_id == entry.group_id, Entries.entry_type_id == entry.entry_type_id, Entries.slug == name, Entries.id != entry.id)
         .first()
     )
+    if target is None and (message := system_refusal(name)):
+        raise HTTPException(status_code=409, detail=message)
     if target is None or target.status != PLAYBOOK_STATUS:
         raise HTTPException(
             status_code=409,
@@ -50,6 +52,18 @@ def change_target(session, entry):
             ),
         )
     return target
+
+
+def system_refusal(name: str) -> str | None:
+    from marvin.services.playbooks.system import system_playbook
+
+    found = system_playbook(name)
+    if found is None:
+        return None
+    return (
+        f"'{name}' is a system Playbook ({found.label}) and is read-only: "
+        "copy it instead (Playbooks > System > Copy), then propose changes to the copy."
+    )
 
 
 def changed_data(live_data: dict | None, change_data: dict | None) -> dict:
