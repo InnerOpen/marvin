@@ -35,7 +35,7 @@ const { id, noun, emptyAll } = Astro.props;
   .org-counts { font-weight: 400; text-transform: none; letter-spacing: 0; }
   .org-items { display: flex; flex-direction: column; gap: 8px; }
 
-  .org-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; background: var(--bg); scroll-margin-top: 80px; transition: border-color 0.15s, box-shadow 0.15s; }
+  .org-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; background: var(--panel); scroll-margin-top: 80px; transition: border-color 0.15s, box-shadow 0.15s; }
   .org-card:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
   .org-card.off { opacity: 0.6; }
   .org-card.linked { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
