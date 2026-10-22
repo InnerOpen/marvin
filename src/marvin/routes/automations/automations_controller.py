@@ -429,6 +429,7 @@ class AutomationsController(BaseUserController):
         under a webhook trigger). The builder surfaces both; only errors gate the save."""
         _require_admin(self.user, self.group_id)
         from marvin.services.automation.validation import structural_issues, validate_definition
+        from marvin.services.site_links import workflow_url_issues
 
         # Errors first (most severe), then advisory warnings.
         structural = structural_issues(data.definition)
@@ -439,6 +440,7 @@ class AutomationsController(BaseUserController):
             issues += self._missing_chain_warnings(data.definition)
             issues += self._custom_event_warnings(data.definition)
             issues += self._agent_step_warnings(data.definition)
+            issues += workflow_url_issues(self.session, self.group_id, data.definition)
         return AutomationValidateResult(issues=issues)
 
     def _agent_step_warnings(self, definition: dict) -> list[dict]:
@@ -644,7 +646,7 @@ class AutomationsController(BaseUserController):
 
         inputs = (body.inputs if body else None) or None
         if dry_run and (entry_id or event_id or trigger_event(row)):
-            return {"status": "dry_run", **self._dry_run_with_sample(row, entry_id=entry_id, event_id=event_id)}
+            return {"status": "dry_run", **self._dry_run_with_sample(row, entry_id=entry_id, event_id=event_id), **self._dry_run_warnings(row)}
         try:
             resolve(self.session, self.group_id, row, inputs, dry_run=dry_run)  # refused now, not after answering
         except RunInputError as e:
@@ -664,7 +666,15 @@ class AutomationsController(BaseUserController):
             )
         except Exception as e:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
-        return {"status": "dry_run" if dry_run else "ran", **res}
+        return {"status": "dry_run" if dry_run else "ran", **res, **(self._dry_run_warnings(row) if dry_run else {})}
+
+    def _dry_run_warnings(self, row) -> dict:
+        """The advisory warnings a dry run adds beside the plan (`warnings`, messages; absent when there are none): what the
+        plan can't show, like `${entry.url}` resolving empty for an entry type with no page URL pattern."""
+        from marvin.services.site_links import workflow_url_issues
+
+        messages = [w["message"] for w in workflow_url_issues(self.session, self.group_id, row.definition)]
+        return {"warnings": messages} if messages else {}
 
     def _dry_run_with_sample(self, row, *, entry_id, event_id) -> dict:
         """An event-triggered dry run: against the picked (or default) sample event; with no sample
