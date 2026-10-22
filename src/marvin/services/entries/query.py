@@ -231,7 +231,7 @@ def build(session, group_id, spec: dict | None, *, exclude_types: tuple[str, ...
     # Attachments in the Trash don't count (their links stay for a restore; services/trash.py).
     asset_links = session.query(EntryAssets.entry_id).join(Assets, Assets.id == EntryAssets.asset_id).filter(Assets.trashed_at.is_(None))
     # true = has one, false = has none (e.g. "Bench Notes without an image"); anything else leaves the filter off.
-    images, assets, resources = (_yes_no(spec.get(k)) for k in ("has_images", "has_assets", "has_resources"))
+    images, assets, resources = _yes_no(spec.get("has_images")), _yes_no(spec.get("has_assets")), _yes_no(spec.get("has_resources"))
     image_links = asset_links.filter(Assets.asset_type == "image")
     if images is not None:
         q = q.filter(Entries.id.in_(image_links) if images else Entries.id.notin_(image_links))
