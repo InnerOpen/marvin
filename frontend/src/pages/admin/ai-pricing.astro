@@ -67,6 +67,17 @@ const unpricedTotal = prices.reduce((n, p) => n + (p.source === "none" ? p.unpri
         {feed.error && <div class="alert error">Last refresh failed ({feed.errorAt}): {feed.error}. The last good prices are still used.</div>}
       </section>
     )}
+    <section class="settings-section">
+      <h3>Add a price</h3>
+      <p class="hint">For a model not listed yet. Dated snapshots use their base model's price (<code>gpt-x</code> also prices <code>gpt-x-2026-10-01</code>).</p>
+      <form id="add-price" class="add-price">
+        <input class="input" name="provider" placeholder="provider (openai)" required />
+        <input class="input" name="model" placeholder="model id" required />
+        <input class="input" name="in" type="number" min="0" step="0.0001" placeholder="input $ / 1M" required />
+        <input class="input" name="out" type="number" min="0" step="0.0001" placeholder="output $ / 1M" required />
+        <button class="button" type="submit">Add</button>
+      </form>
+    </section>
     {groups.map(({ provider, rows }) => (
       <section class="settings-section">
         <h3>{provider}</h3>
@@ -97,18 +108,6 @@ const unpricedTotal = prices.reduce((n, p) => n + (p.source === "none" ? p.unpri
         </table>
       </section>
     ))}
-
-    <section class="settings-section">
-      <h3>Add a price</h3>
-      <p class="hint">For a model not listed yet. Dated snapshots use their base model's price (<code>gpt-x</code> also prices <code>gpt-x-2026-10-01</code>).</p>
-      <form id="add-price" class="add-price">
-        <input class="input" name="provider" placeholder="provider (openai)" required />
-        <input class="input" name="model" placeholder="model id" required />
-        <input class="input" name="in" type="number" min="0" step="0.0001" placeholder="input $ / 1M" required />
-        <input class="input" name="out" type="number" min="0" step="0.0001" placeholder="output $ / 1M" required />
-        <button class="button" type="submit">Add</button>
-      </form>
-    </section>
   </div>
 </AdminLayout>
 
@@ -197,6 +196,8 @@ const unpricedTotal = prices.reduce((n, p) => n + (p.source === "none" ? p.unpri
 </script>
 
 <style>
+  .settings-section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 24px; margin-bottom: 16px; }
+  .settings-section h3 { margin: 0 0 8px; }
   .table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .table th, .table td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--line); }
   tr.unpriced td { background: color-mix(in srgb, var(--color-warning, #d97706) 8%, transparent); }
