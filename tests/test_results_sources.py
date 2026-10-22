@@ -161,7 +161,8 @@ def world(db_session, workspace, monkeypatch):
         ("cloudflare_pages", pages, None),
         ("buttondown", news, {"buttondown", "buttondown-issue-on-publish", "buttondown-email-sent"}),
     ):
-        blueprints = [b for b in list_blueprints(source=provider) if only is None or b.slug in only]
+        # The wiring only: a Playbook is added by a person (it commits and needs one recorded), and nothing here reads it.
+        blueprints = [b for b in list_blueprints(source=provider) if b.kind != "playbook" and (only is None or b.slug in only)]
         applied = apply_many(db_session, gid, blueprints, integration_id=connection.id)
         assert all(r.created for r in applied), [(r.slug, r.detail) for r in applied]
     db_session.query(WorkspaceAutomationModel).filter_by(group_id=gid).update({"enabled": True})

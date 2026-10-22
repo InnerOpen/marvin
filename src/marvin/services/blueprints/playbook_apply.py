@@ -117,6 +117,8 @@ def _installed_by(blueprint: Blueprint, integration_id, package, entry_id, sessi
 def create_playbook(session, group_id, blueprint: Blueprint, integration_id, actor_id, event_bus=None) -> str:
     """Add the Playbook as a draft with its files and its review (source: the integration). Commits. Returns a note for the result
     (files the asset store turned down). Raises ``ValueError`` (the card shows it) when it can't be added."""
+    if actor_id is None:  # the entry's creator and the files' uploader are recorded: a Playbook is added by a person
+        raise ValueError("a Playbook is added by a person: no one is recorded as adding it")
     entries, assets = _services(session, group_id, actor_id, event_bus)
     package = package_of(blueprint)
     review_source = {"kind": "integration", "provider": blueprint.source, "name": provider_name(blueprint.source)}

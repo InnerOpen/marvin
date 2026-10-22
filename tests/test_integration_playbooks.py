@@ -184,6 +184,13 @@ def test_adding_again_is_a_no_op(workspace, db_session, monkeypatch):
     assert db_session.query(Entries).filter_by(group_id=workspace.gid, slug=NAME).count() == 1
 
 
+def test_adding_without_a_person_is_refused_in_words(workspace, db_session, monkeypatch):
+    register(monkeypatch, blueprint())
+    (result,) = apply_many(db_session, workspace.gid, list_blueprints(source="acme"))
+    assert result.created is False and "added by a person" in result.detail
+    assert entry(db_session, workspace.gid) is None
+
+
 def test_only_an_admin_adds_one(workspace, db_session, monkeypatch):
     register(monkeypatch, blueprint())
     assert add(gates._sign_in(workspace, EDITOR)).status_code == 403
