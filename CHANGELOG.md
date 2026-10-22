@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.43 (2026-10-22)
+
+### Features
+
+- Site links setup check and an entry.url warning on workflows
+  ([`deff401`](https://github.com/InnerOpen/marvin/commit/deff401e1e3c709bb62ce70adecaa17937708b90))
+
+- **frontend**: Site links status block and dry-run warnings
+  ([`3c94529`](https://github.com/InnerOpen/marvin/commit/3c94529ec2d39cfa65c1c94beb65d030dc9eabeb))
+
+
 ## v1.1.0-rc.42 (2026-10-22)
 
 ### Bug Fixes
