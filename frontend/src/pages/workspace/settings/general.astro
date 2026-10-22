@@ -107,7 +107,7 @@ const noPattern = (siteLinks?.problems ?? [])
         </div>
       </section>
 
-      <section class="settings-section">
+      <section class="settings-section" id="site-configuration">
         <h3>Site Configuration</h3>
         <form
           id="site-settings-form"
@@ -622,6 +622,9 @@ const noPattern = (siteLinks?.problems ?? [])
     color: var(--muted);
     font-size: 14px;
   }
+
+  /* A jump to a section (#site-configuration, #site-links, #trash) clears the sticky header. */
+  .settings-section[id] { scroll-margin-top: 80px; }
 
   .form-grid {
     display: grid;
