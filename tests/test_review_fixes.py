@@ -9,7 +9,9 @@ def test_apply_many_applies_with_the_chosen_connection(monkeypatch):
     from marvin.services.blueprints import apply as apply_mod
 
     seen = []
-    monkeypatch.setattr(apply_mod, "apply_blueprint", lambda s, g, b, p, integration_id=None, actor_id=None: seen.append(integration_id) or b.slug)
+    monkeypatch.setattr(
+        apply_mod, "apply_blueprint", lambda s, g, b, p, integration_id=None, actor_id=None, event_bus=None: seen.append(integration_id) or b.slug
+    )
     blueprints = [SimpleNamespace(slug="wf", kind="workflow"), SimpleNamespace(slug="hook", kind="incoming_webhook")]
 
     apply_mod.apply_many(None, "G", blueprints, integration_id="INTEG-2")
