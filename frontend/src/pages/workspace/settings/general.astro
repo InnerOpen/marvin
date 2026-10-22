@@ -732,12 +732,13 @@ const noPattern = (siteLinks?.problems ?? [])
     font-weight: 500;
   }
 
+  /* Red like the admin workspace page's Delete workspace panel, not the warning orange. */
   .danger-zone {
-    border-color: var(--warn);
+    border-color: var(--color-error);
   }
 
   .danger-zone h3 {
-    color: var(--warn);
+    color: var(--color-error);
   }
 
   .backup-actions {
@@ -752,6 +753,7 @@ const noPattern = (siteLinks?.problems ?? [])
 
   .danger-actions {
     display: grid;
+    justify-items: start;
     gap: 8px;
   }
 
@@ -761,13 +763,13 @@ const noPattern = (siteLinks?.problems ?? [])
   }
 
   .button.danger {
-    background: var(--warn);
-    color: white;
-    border: none;
+    background: transparent;
+    color: var(--color-error);
+    border: 1px solid var(--color-error);
   }
 
   .button.danger:hover:not(:disabled) {
-    background: var(--accent);
+    background: var(--color-error-bg);
   }
 
   .button.danger:disabled {
