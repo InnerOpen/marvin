@@ -128,6 +128,11 @@ def test_the_catalog_lists_playbooks_with_the_providers_prefix_and_skips_the_res
     assert found[NAME].kind == "playbook" and found[NAME].category == "Acme" and found[NAME].required is False
 
 
+def test_an_underscore_in_the_providers_slug_is_a_hyphen_in_the_prefix(monkeypatch):
+    register(monkeypatch, blueprint(slug="acme-pages-report"), slug="acme_pages")
+    assert [b.slug for b in list_blueprints(source="acme_pages")] == ["acme-pages-report"]
+
+
 # ── Add: a draft, with files, review and provenance ──────────────────────────
 
 

@@ -27,6 +27,12 @@ FILES_MAX = 20
 TOTAL_MAX = 256 * 1024
 
 
+def provider_prefix(slug: str) -> str:
+    """What the Playbook names of a provider start with: its slug with underscores as hyphens (a Playbook name has none), then a hyphen:
+    ``cloudflare_pages`` gives ``cloudflare-pages-``."""
+    return f"{str(slug).replace('_', '-')}-"
+
+
 def payload_problem(payload, slug: str) -> str | None:
     """Why a Playbook blueprint's payload can't be taken (safe to show), or None. Checks the shape, the caps, every path, the
     SKILL.md itself, and that its name is the blueprint's slug."""

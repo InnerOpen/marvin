@@ -179,8 +179,11 @@ def _provider_blueprints() -> list[Blueprint]:
         for raw in getattr(provider, "content", ()) or ():
             try:
                 data = raw if isinstance(raw, dict) else raw.__dict__
-                if data.get("kind") == "playbook" and not str(data.get("slug") or "").startswith(f"{provider.slug}-"):
-                    raise ValueError(f"a Playbook's name must start with '{provider.slug}-', got '{data.get('slug')}'")
+                if data.get("kind") == "playbook":
+                    from marvin.services.playbooks.blueprint import provider_prefix
+
+                    if not str(data.get("slug") or "").startswith(provider_prefix(provider.slug)):
+                        raise ValueError(f"a Playbook's name must start with '{provider_prefix(provider.slug)}', got '{data.get('slug')}'")
                 found.append(Blueprint(**{**data, "source": provider.slug, "category": data.get("category") or provider.name}))
             except Exception as e:  # noqa: BLE001 — one bad provider must not break the catalog
                 logger.warning("provider %s declared an unusable blueprint: %s", getattr(provider, "slug", "?"), e)
