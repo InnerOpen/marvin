@@ -49,7 +49,7 @@ const scheduleType = task ? (task.scheduleType ?? task.schedule_type) : "";
 const scheduleConfig = task ? (task.scheduleConfig ?? task.schedule_config) : null;
 ---
 
-<AppLayout crumb="automation.scheduled-tasks.task" adminOnly={adminOnly} title={task ? `Edit: ${task.name}` : 'Scheduled Task'}>
+<AppLayout width="wide" crumb="automation.scheduled-tasks.task" adminOnly={adminOnly} title={task ? `Edit: ${task.name}` : 'Scheduled Task'}>
   <div class="page-header">
     <h2>{task?.name || 'Edit Scheduled Task'}</h2>
     <p>Configure task settings and view execution history</p>

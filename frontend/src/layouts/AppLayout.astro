@@ -72,7 +72,7 @@ interface Props {
   restrictedNote?: string | null;
   /**
    * How wide the page body may grow: "page" 900px, "wide" 1200px (card grids, tables), "full" the whole window (logs).
-   * Defaults to "page" under Settings and Automation (so long lines stay readable on a big screen), else "full".
+   * Defaults to "page" for pages under Settings and Automation in the menu (so long lines stay readable on a big screen), else "full".
    */
   width?: "page" | "wide" | "full";
 }
@@ -82,8 +82,10 @@ const title = Astro.props.title ?? (crumb ? navTitle(crumb) : "");
 const trail = crumb ? navTrail(crumb, { params: crumbParams, labels: crumbLabels }) : null;
 const blockedNote = adminOnly ? ADMINS_ONLY : restrictedNote;
 const path = Astro.url.pathname;
-const width =
-  Astro.props.width ?? (/^\/(workspace\/settings|automation)(\/|$)|^\/workspace\/scheduled-tasks\/?$/.test(path) ? "page" : "full");
+// Settings and Automation pages are "page" wide by where they sit in the menu (their crumb), not their URL: Members,
+// Invitations, Entry Types and Tags live outside /workspace/settings. The path test covers pages with no crumb.
+const underSettings = /^(settings|automation)(\.|$)/.test(crumb ?? "") || /^\/(workspace\/settings|automation)(\/|$)/.test(path);
+const width = Astro.props.width ?? (underSettings ? "page" : "full");
 // Non-production instances (backend ENVIRONMENT_LABEL) badge the header and prefix the tab title.
 const environmentLabel = await getEnvironmentLabel();
 

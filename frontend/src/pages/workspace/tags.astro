@@ -26,7 +26,7 @@ if (!authToken) {
 const sortedTags = tags.sort((a, b) => a.name.localeCompare(b.name));
 ---
 
-<AppLayout crumb="settings.tags">
+<AppLayout width="wide" crumb="settings.tags">
   {error ? (
     <div class="error-banner">
       <p><strong>Error loading tags:</strong> {error}</p>
