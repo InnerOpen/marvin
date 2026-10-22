@@ -71,9 +71,9 @@ SPEC_KEY_NOTES: dict[str, str] = {
     "tags": "has any of these tags (slug or name)",
     "collection": "in this collection (slug or name; `collections`: a list)",
     "collections": "in any of these collections",
-    "has_images": "true: has an image attached",
-    "has_assets": "true: has any asset attached",
-    "has_resources": "true: has a resource linked",
+    "has_images": "true: has an image attached; false: has none",
+    "has_assets": "true: has any asset attached; false: has none",
+    "has_resources": "true: has a resource linked; false: has none",
     "entries": "exactly these (ids or slugs, a list or comma-separated text), e.g. ${entry.data.project}",
     "asset": "uses this asset (id or slug)",
     "resource": "has this resource linked (id or slug)",
@@ -101,6 +101,14 @@ class EntryQueryResult:
     groups: dict[str, int] | None = None
     scan_capped: bool = False
     unknown_ops: list[str] = field(default_factory=list)
+
+
+def _yes_no(value) -> bool | None:
+    """A has_* flag: True / False (also the words a template renders, "true" / "false"), else None (no filter)."""
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower() if value is not None else ""
+    return True if text == "true" else False if text == "false" else None
 
 
 def number_like(value: Any) -> float | None:
@@ -222,13 +230,17 @@ def build(session, group_id, spec: dict | None, *, exclude_types: tuple[str, ...
 
     # Attachments in the Trash don't count (their links stay for a restore; services/trash.py).
     asset_links = session.query(EntryAssets.entry_id).join(Assets, Assets.id == EntryAssets.asset_id).filter(Assets.trashed_at.is_(None))
-    if spec.get("has_images"):
-        q = q.filter(Entries.id.in_(asset_links.filter(Assets.asset_type == "image")))
-    elif spec.get("has_assets"):
-        q = q.filter(Entries.id.in_(asset_links))
-    if spec.get("has_resources"):
+    # true = has one, false = has none (e.g. "Bench Notes without an image"); anything else leaves the filter off.
+    images, assets, resources = (_yes_no(spec.get(k)) for k in ("has_images", "has_assets", "has_resources"))
+    image_links = asset_links.filter(Assets.asset_type == "image")
+    if images is not None:
+        q = q.filter(Entries.id.in_(image_links) if images else Entries.id.notin_(image_links))
+    if assets is not None and not (assets and images):  # "has images" already implies "has assets"
+        q = q.filter(Entries.id.in_(asset_links) if assets else Entries.id.notin_(asset_links))
+    if resources is not None:
         resource_links = session.query(EntryResources.entry_id).join(Resources, Resources.id == EntryResources.resource_id)
-        q = q.filter(Entries.id.in_(resource_links.filter(Resources.trashed_at.is_(None))))
+        resource_links = resource_links.filter(Resources.trashed_at.is_(None))
+        q = q.filter(Entries.id.in_(resource_links) if resources else Entries.id.notin_(resource_links))
 
     q, note = _linked(session, group_id, q, spec)
     if note:

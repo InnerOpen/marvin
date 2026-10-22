@@ -75,7 +75,7 @@ const FIELD_OPS: Record<string, string[]> = {
 export function opsFor(dim: string, field?: FieldDef): string[] {
   if (LIST_DIMS.has(dim)) return ["is"];
   if (dim === "title") return ["contains"];
-  if (dim === "images") return ["yes"];
+  if (dim === "images") return ["yes", "no"];
   if (DATE_DIMS.has(dim)) return ["after", "before", "within"];
   return FIELD_OPS[field?.kind ?? "text"] ?? FIELD_OPS.text;
 }
@@ -164,7 +164,7 @@ export function toSpec(conds: Cond[]): Record<string, unknown> {
     else if (c.dim === "tag") spec.tags = list(c.value);
     else if (c.dim === "collection") spec.collection = list(c.value);
     else if (c.dim === "title") spec.query = String(c.value ?? "");
-    else if (c.dim === "images") spec.has_images = true;
+    else if (c.dim === "images") spec.has_images = c.op !== "no";
     else if (DATE_DIMS.has(c.dim)) {
       if (c.op === "within") spec[`${c.dim}_after`] = `-${Math.max(1, Number(c.value) || 1)}d`;
       else spec[`${c.dim}_${c.op}`] = String(c.value ?? "");
@@ -210,7 +210,7 @@ export function condLabel(c: Cond, ctx: LabelContext = {}): string {
   if (c.dim === "tag") return `Tag is ${names(ctx.tags)}`;
   if (c.dim === "collection") return `Collection is ${names(ctx.collections)}`;
   if (c.dim === "title") return `Title contains “${c.value ?? ""}”`;
-  if (c.dim === "images") return "Has images";
+  if (c.dim === "images") return c.op === "no" ? "Has no images" : "Has images";
   if (DATE_DIMS.has(c.dim)) {
     const what = DIMENSIONS[c.dim];
     return c.op === "within" ? `${what} in the last ${c.value} days` : `${what} ${c.op} ${c.value}`;

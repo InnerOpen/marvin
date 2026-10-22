@@ -73,3 +73,10 @@ test("a status button turns its status on and off", () => {
   conds = toggleValue(toggleValue(conds, "status", "inbox"), "status", "draft");
   assert.deepEqual(conds, []);
 });
+
+test("the images chip can ask for entries with no images", () => {
+  assert.deepEqual(opsFor("images"), ["yes", "no"]);
+  assert.equal(toSpec([{ dim: "images", op: "no" }]).has_images, false);
+  assert.equal(toSpec([{ dim: "images", op: "yes" }]).has_images, true);
+  assert.equal(condLabel({ dim: "images", op: "no" }), "Has no images");
+});

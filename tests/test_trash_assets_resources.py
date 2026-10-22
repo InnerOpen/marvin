@@ -667,3 +667,33 @@ def test_type_counts_leave_the_trash_out(http, db_session):
     assert viewer.get("/api/platform/assets/types").json() == [{"type": "document", "count": 1}, {"type": "image", "count": 1}]
     assert viewer.get("/api/platform/resources/types").json() == [{"type": "material", "count": 1}, {"type": "tool", "count": 1}]
     assert a1 and r1
+
+
+def test_has_images_false_finds_entries_with_no_image_and_a_trashed_image_counts_as_none(ws):
+    from marvin.services.entries.query import run
+
+    with_image, bare = ws.entry("pictured"), ws.entry("bare")
+    aid = ws.asset("picture")
+    ws.session.add(EntryAssets(entry_id=with_image, asset_id=aid, position=0))
+    ws.session.flush()
+
+    without = {e.id for e in run(ws.session, ws.gid, {"has_images": False}).rows}
+    assert bare in without and with_image not in without
+    assert {e.id for e in run(ws.session, ws.gid, {"has_images": "false"}).rows} == without  # a template's rendered word
+
+    T.trash(ws.session, ws.gid, "asset", aid)  # an image in the Trash doesn't count
+    assert with_image in {e.id for e in run(ws.session, ws.gid, {"has_images": False}).rows}
+
+
+def test_has_assets_and_has_resources_false_and_unset_flags(ws):
+    from marvin.services.entries.query import run
+
+    linked, bare = ws.entry("linked"), ws.entry("plain")
+    ws.session.add(EntryAssets(entry_id=linked, asset_id=ws.asset("file"), position=0))
+    ws.session.add(EntryResources(entry_id=linked, resource_id=ws.resource("tool"), position=0))
+    ws.session.flush()
+
+    ids = lambda spec: {e.id for e in run(ws.session, ws.gid, spec).rows}  # noqa: E731
+    assert bare in ids({"has_assets": False}) and linked not in ids({"has_assets": False})
+    assert bare in ids({"has_resources": False}) and linked not in ids({"has_resources": False})
+    assert {bare, linked} <= ids({"has_images": None, "has_assets": ""})  # unset / blank leave the filter off

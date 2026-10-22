@@ -206,9 +206,9 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
               <label class="check small"><input type="checkbox" id="wf-t-trashed" /> in the Trash <span class="muted">(only Trash items — a Restore target)</span></label>
             </div>
             <div class="target-checks" data-for="entry">
-              <label class="check small"><input type="checkbox" id="wf-t-images" /> has images</label>
-              <label class="check small"><input type="checkbox" id="wf-t-assets" /> has assets</label>
-              <label class="check small"><input type="checkbox" id="wf-t-resources" /> has resources</label>
+              <label class="check small">Images <select class="input tiny" id="wf-t-images"><option value="">any</option><option value="yes">has some</option><option value="no">has none</option></select></label>
+              <label class="check small">Assets <select class="input tiny" id="wf-t-assets"><option value="">any</option><option value="yes">has some</option><option value="no">has none</option></select></label>
+              <label class="check small">Resources <select class="input tiny" id="wf-t-resources"><option value="">any</option><option value="yes">has some</option><option value="no">has none</option></select></label>
             </div>
             <div class="tf target-meta" data-for="entry">
               <span>Metadata equals <span class="muted">(key = value; values may be templates like <code>{"${event.payload.id}"}</code>)</span></span>
@@ -1896,9 +1896,11 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     setOrDrop("entry_type", ($("wf-t-type") as HTMLInputElement).value.trim());
     setOrDrop("status", ($("wf-t-status") as HTMLSelectElement).value);
     // Unchecked means "don't filter": left out, not stored as false.
-    setOrDrop("has_images", ($("wf-t-images") as HTMLInputElement).checked || null);
-    setOrDrop("has_assets", ($("wf-t-assets") as HTMLInputElement).checked || null);
-    setOrDrop("has_resources", ($("wf-t-resources") as HTMLInputElement).checked || null);
+    // "" = any (dropped), "yes" = has some (true), "no" = has none (false).
+    const yesNo = (id: string) => ({ yes: true, no: false } as Record<string, boolean>)[($(id) as HTMLSelectElement).value] ?? null;
+    setOrDrop("has_images", yesNo("wf-t-images"));
+    setOrDrop("has_assets", yesNo("wf-t-assets"));
+    setOrDrop("has_resources", yesNo("wf-t-resources"));
     const metadata = readKv($("wf-t-meta"));
     setOrDrop("metadata", Object.keys(metadata).length ? metadata : null);
     const data = readKv($("wf-t-data"));
@@ -2018,9 +2020,10 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     ($("wf-t-status") as HTMLSelectElement).value = tq.status ?? "";
     ($("wf-t-text") as HTMLInputElement).value = tq.text ?? tq.query ?? "";
     ($("wf-t-collection") as HTMLInputElement).value = tq.collection ?? "";
-    ($("wf-t-images") as HTMLInputElement).checked = !!tq.has_images;
-    ($("wf-t-assets") as HTMLInputElement).checked = !!tq.has_assets;
-    ($("wf-t-resources") as HTMLInputElement).checked = !!tq.has_resources;
+    const yesNoValue = (v: unknown) => (v === true || v === "true" ? "yes" : v === false || v === "false" ? "no" : "");
+    ($("wf-t-images") as HTMLSelectElement).value = yesNoValue(tq.has_images);
+    ($("wf-t-assets") as HTMLSelectElement).value = yesNoValue(tq.has_assets);
+    ($("wf-t-resources") as HTMLSelectElement).value = yesNoValue(tq.has_resources);
     const metaWrap = $("wf-t-meta"); metaWrap.innerHTML = "";
     metaWrap.appendChild(kvEditor(tq.metadata));
     const dataWrap = $("wf-t-data"); dataWrap.innerHTML = "";
@@ -2204,9 +2207,12 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     if (Array.isArray(q.tags) && q.tags.length) parts.push(`tagged ${q.tags.join(", ")}`);
     if (q.collection) parts.push(`in ${q.collection}`);
     if (q.text) parts.push(`titled “${q.text}”`);
-    if (q.has_images) parts.push("with images");
-    else if (q.has_assets) parts.push("with assets");
-    if (q.has_resources) parts.push("with resources");
+    if (q.has_images === true) parts.push("with images");
+    else if (q.has_assets === true) parts.push("with assets");
+    if (q.has_images === false) parts.push("without images");
+    if (q.has_assets === false) parts.push("without assets");
+    if (q.has_resources === true) parts.push("with resources");
+    else if (q.has_resources === false) parts.push("without resources");
     if (q.metadata && typeof q.metadata === "object") {
       parts.push(...Object.entries(q.metadata).map(([k, v]) => `${k} = ${typeof v === "string" ? v : JSON.stringify(v)}`));
     }

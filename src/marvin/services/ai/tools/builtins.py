@@ -261,7 +261,7 @@ from marvin.services.entries.query import WHERE_OPS  # noqa: E402 — the tool s
         "PUBLISH status (inbox, draft, needs_review, approved, published, archived — never a field's value); fields = exact "
         "match on the entry type's own fields {field_key: value}; where = comparisons on fields [{field, op, value}] with op "
         "eq|neq|in|contains|exists|missing|gt|gte|lt|lte (number-like text such as '$1,170' compares as 1170); query = "
-        "title/slug contains; tags; collection; has_images / has_assets / has_resources; entries = exactly these (ids or "
+        "title/slug contains; tags; collection; has_images / has_assets / has_resources (false = has none); entries = exactly these (ids or "
         "slugs — the entry a field names); asset / resource = the entries using this asset / resource; created_/updated_/"
         "published_ after|before (ISO dates, or relative: -7d, -2w, now). Field keys differ per type and per workspace — take "
         "them from get_entry_type. sort = {by: title|created_at|updated_at|published_at|position|<field_key>, direction: "
@@ -298,9 +298,9 @@ from marvin.services.entries.query import WHERE_OPS  # noqa: E402 — the tool s
                 "description": "only entries carrying ANY of these tags (slug or name) — exhaustive, not ranked",
             },
             "collection": {"type": "string", "description": "only entries in this collection (slug or name)"},
-            "has_images": {"type": "boolean", "description": "only entries that have an image asset"},
-            "has_assets": {"type": "boolean", "description": "only entries that have any attached asset"},
-            "has_resources": {"type": "boolean", "description": "only entries that have a linked resource"},
+            "has_images": {"type": "boolean", "description": "true: only entries that have an image asset; false: only entries with none"},
+            "has_assets": {"type": "boolean", "description": "true: only entries with any attached asset; false: only entries with none"},
+            "has_resources": {"type": "boolean", "description": "true: only entries with a linked resource; false: only entries with none"},
             "entries": {
                 "type": "array",
                 "items": {"type": "string"},
