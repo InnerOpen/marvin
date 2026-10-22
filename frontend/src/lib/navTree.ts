@@ -43,6 +43,7 @@ const NODES: NavNode[] = [
   { id: "admin.storage", label: "Storage", href: "/admin/storage", parent: "admin", title: "Asset Storage" },
   { id: "admin.ai-pricing", label: "AI Pricing", href: "/admin/ai-pricing", parent: "admin", title: "AI Pricing" },
   { id: "admin.plugins", label: "Plugins", href: "/admin/plugins", parent: "admin" },
+  { id: "admin.system-playbooks", label: "System Playbooks", href: "/admin/system-playbooks", parent: "admin" },
   { id: "admin.character-library", label: "Character Library", href: "/admin/character-library", parent: "admin" },
   { id: "admin.system", label: "System", href: "/admin/system", parent: "admin", title: "Platform System" },
   { id: "admin.events", label: "Events", href: "/admin/events", parent: "admin" },
@@ -186,6 +187,12 @@ const NODES: NavNode[] = [
   },
   { id: "settings.ai-playbooks", label: "Playbooks", href: "/workspace/settings/ai-playbooks", parent: "settings.ai" },
   { id: "settings.ai-playbooks.edit", label: "Playbook", href: "/workspace/settings/ai-playbooks/[id]", parent: "settings.ai-playbooks" },
+  {
+    id: "settings.ai-playbooks.system",
+    label: "System Playbook",
+    href: "/workspace/settings/ai-playbooks/system/[name]",
+    parent: "settings.ai-playbooks",
+  },
   { id: "settings.ai-playbooks.new", label: "New", href: "/workspace/settings/ai-playbooks/new", parent: "settings.ai-playbooks", title: "New Playbook" },
 
   // Automation and Publishing pages sit directly under Settings: the hub's tabs aren't pages, so they're not crumbs.

@@ -44,3 +44,16 @@ describe("playbookNames", () => {
     assert.deepEqual(playbookNames(null), []);
   });
 });
+
+describe("system Playbooks in the Used line", () => {
+  test("a system Playbook links to its read-only page; a workspace one stays plain text", () => {
+    const html = usedHtml([], [{ id: "system:marvin-alt-text", name: "marvin-alt-text", version: "1.42.0" }, bench]);
+    assert.match(html, /<a class="playbook-used" href="\/workspace\/settings\/ai-playbooks\/system\/marvin-alt-text" title="System Playbook">marvin-alt-text<\/a>/);
+    assert.match(html, /<span class="playbook-used" title="Playbook">bench-note-voice<\/span>/);
+  });
+
+  test("a name that needs escaping can't break out of the link", () => {
+    const html = usedHtml([], [{ id: "system:x", name: 'a"><script>' }]);
+    assert.ok(!html.includes("<script>") && !html.includes('"><'));
+  });
+});

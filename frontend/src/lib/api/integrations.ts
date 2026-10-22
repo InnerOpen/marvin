@@ -64,6 +64,8 @@ export type ProviderInfo = Omit<IntegrationProviderInfo, "actions"> & {
   emits?: ProviderEventInfo[];
   /** How the provider handles its errors (SDK 0.5.0+; null on an older SDK). */
   errorPolicy?: ErrorPolicyInfo | null;
+  /** System Playbooks the provider gives every workspace (read-only; never an Add item). */
+  systemPlaybooks?: { name: string; description?: string; label?: string }[];
 };
 
 /** An open alert on a connection: it needs attention. One per error code, counted. */

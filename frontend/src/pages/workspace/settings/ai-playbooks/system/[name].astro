@@ -1,0 +1,118 @@
+---
+// Settings › AI › Playbooks › one system Playbook: a read-only view of a procedure Marvin or a plugin gives every workspace (its text,
+// its files, where it comes from, where it was used lately). Editors and above. Backend: routes/groups/playbooks_controller.py (/system/{name}).
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { getSystemPlaybook, listSystemPlaybookUses } from "@/lib/api/playbooks";
+import { listWorkspaces } from "@/lib/api/workspaces";
+import { requireAuth } from "@/lib/auth";
+import { NO_SYSTEM_USES_NOTE, PLAYBOOKS_PATH, type PlaybookUse, sourceLine, type SystemPlaybookRead, systemRow, useRow } from "@/lib/playbooks";
+import { canManageWorkspace, isForbidden } from "@/lib/workspaceRole";
+
+const { name } = Astro.params;
+const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const authToken = getAuthToken(Astro.cookies);
+let playbook: SystemPlaybookRead | null = null;
+let uses: PlaybookUse[] = [];
+let canManage = false;
+let error: string | null = null;
+let restricted = false;
+try {
+  canManage = canManageWorkspace(await listWorkspaces(authToken), user);
+  if (name) {
+    playbook = await getSystemPlaybook(name, authToken).catch((e) => {
+      if (e?.status === 404) return null;
+      throw e;
+    });
+    if (playbook) uses = await listSystemPlaybookUses(name, authToken).catch(() => []);
+  }
+} catch (e) {
+  if (isForbidden(e)) restricted = true;
+  else error = e instanceof Error ? e.message : String(e);
+}
+const row = playbook ? systemRow(playbook) : null;
+const useRows = uses.map((use) => useRow(use));
+---
+
+<AppLayout crumb="settings.ai-playbooks.system" title={playbook?.name ?? "System Playbook"} restrictedNote={restricted ? "Playbooks are for editors and above." : null}>
+  {error && <div class="alert"><strong>Couldn't load this Playbook.</strong> {error}</div>}
+  {!error && !restricted && !playbook && (
+    <div class="section-card">
+      <h3>System Playbook not found</h3>
+      <p>It may belong to a plugin that is no longer installed. See all your <a href={PLAYBOOKS_PATH}>Playbooks</a>.</p>
+    </div>
+  )}
+  {playbook && row && (
+    <>
+      <div class="page-header">
+        <div>
+          <h2>{playbook.name}</h2>
+          <p>
+            A system Playbook: read-only here, updated with the release that ships it. To change it, copy it from the
+            <a href={PLAYBOOKS_PATH}> Playbooks page</a> and edit your copy.
+          </p>
+        </div>
+      </div>
+
+      <section class="section-card sp-facts" data-testid="system-facts">
+        <dl>
+          <dt>Comes from</dt>
+          <dd>{sourceLine(playbook)}</dd>
+          <dt>Loads</dt>
+          <dd>{row.manualOnly ? "Only when someone names it (manual only)" : "When a request matches its description"}</dd>
+          {row.allowedTools && (<><dt>Allowed tools</dt><dd><code>{row.allowedTools}</code>: while it is loaded the agent can use only these (and the Playbook tools).</dd></>)}
+          <dt>In this workspace</dt>
+          <dd>{row.on ? "On" : row.note}</dd>
+        </dl>
+        <p class="sp-description">{playbook.description}</p>
+        {playbook.warnings.length > 0 && (
+          <ul class="sp-warnings" data-testid="system-warnings">{playbook.warnings.map((w) => <li>{w}</li>)}</ul>
+        )}
+      </section>
+
+      <section class="section-card" data-testid="system-body">
+        <h3>Instructions</h3>
+        <pre class="sp-text">{playbook.body}</pre>
+      </section>
+
+      {playbook.files.map((file) => (
+        <section class="section-card" data-testid="system-file">
+          <h3><code>{file.path}</code></h3>
+          <pre class="sp-text">{file.text}</pre>
+        </section>
+      ))}
+
+      <section class="section-card sp-uses" data-testid="playbook-uses">
+        <h3>Used recently</h3>
+        {useRows.length === 0 && <p class="sp-none">{NO_SYSTEM_USES_NOTE}</p>}
+        {useRows.length > 0 && (
+          <ul>
+            {useRows.map((use) => (
+              <li>
+                <strong>{use.agent}</strong>
+                <span class="sp-when">{use.when}</span>
+                {use.href && <a href={use.href}>Open the conversation</a>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      {canManage && <p class="sp-none">Switch it off or copy it from the <a href={PLAYBOOKS_PATH}>Playbooks page</a>.</p>}
+    </>
+  )}
+</AppLayout>
+
+<style>
+  .section-card { margin-bottom: 16px; max-width: 900px; }
+  .sp-facts dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0 0 12px; font-size: 14px; }
+  .sp-facts dt { color: var(--muted); }
+  .sp-facts dd { margin: 0; overflow-wrap: anywhere; }
+  .sp-description { margin: 0; font-size: 14px; }
+  .sp-warnings { margin: 10px 0 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+  .sp-text { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono, ui-monospace, monospace); font-size: 13px; line-height: 1.5; margin: 0; }
+  .sp-uses ul { list-style: none; margin: 0; padding: 0; }
+  .sp-uses li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 6px 0; font-size: 14px; }
+  .sp-uses li + li { border-top: 1px solid var(--line); }
+  .sp-when, .sp-none { color: var(--muted); font-size: 13px; }
+  .sp-none { margin: 0 0 12px; }
+</style>
