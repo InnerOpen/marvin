@@ -3,7 +3,7 @@
   "variables": {
     "update_entry_type": {
       "type": "entry_type_slug",
-      "description": "Your project-update entry type: publishing one starts the post.",
+      "description": "Your project-update entry type. Publishing one starts the post.",
       "example": "project-update"
     },
     "draft_entry_type": {
@@ -13,7 +13,7 @@
     },
     "body_field": {
       "type": "field_key",
-      "description": "That type's field for the draft's text.",
+      "description": "The text field of the draft type.",
       "example": "body"
     }
   }

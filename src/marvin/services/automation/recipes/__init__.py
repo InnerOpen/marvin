@@ -108,6 +108,29 @@ def instantiate(recipe_id: str, values: dict[str, Any]) -> dict:
     return configure(load_recipe(recipe_id), values, load_vars(recipe_id))
 
 
+# What a capability lets an integration do, in the words the Library shows ("needs a connection that can send notifications").
+CAPABILITY_WORDS = {
+    "notify": "send notifications",
+    "comments": "read comments",
+    "social.post": "post to social media",
+    "social.comments": "read social media comments",
+    "social.reply": "reply to comments",
+    "image.generate": "generate images",
+    "image.edit": "edit images",
+}
+
+
+def _provider_name(slug: str) -> str:
+    """An integration's display name (Buttondown, n8n…) when it's installed, else its slug."""
+    try:
+        from marvin_integration_sdk import INTEGRATION_REGISTRY
+
+        provider = INTEGRATION_REGISTRY.get(slug)
+        return getattr(provider, "name", None) or slug
+    except Exception:  # noqa: BLE001 — a name is a nicety
+        return slug
+
+
 def missing_prerequisites(item: dict, refs: WorkspaceRefs) -> list[str]:
     """Why this workspace can't run the recipe as it stands: a provider it needs that isn't connected (and
     enabled), a custom event it hasn't registered, an AI operation it can't run here, a job not on the allowlist.
@@ -119,17 +142,19 @@ def missing_prerequisites(item: dict, refs: WorkspaceRefs) -> list[str]:
         # A provider by name (Buttondown, n8n…), or any connected integration that can do something (notify).
         if need.get("capability"):
             if need["capability"] not in able:
-                reasons.append(f"needs a connected integration that can {need['capability']} ({need.get('examples') or 'Slack or Apprise'})")
+                does = CAPABILITY_WORDS.get(need["capability"], need["capability"])
+                reasons.append(f"needs a connection that can {does} ({need.get('examples') or 'Slack or Apprise'})")
         elif need["provider"] not in connected:
-            reasons.append(f"needs a connected {need['provider']} integration")
+            reasons.append(f"needs a connection to {_provider_name(need['provider'])}")
     registered = {e["event_type"]: e["fields"] for e in refs.custom_events}
     for need in (item.get("prerequisites") or {}).get("custom_events") or []:
         # A workspace's own event the recipe starts on or sends: registered, with the fields the recipe reads.
         have = registered.get(need["event_type"])
         if have is None:
-            reasons.append(f"needs the custom event {need['event_type']} (Settings → Automation → Custom events)")
+            reasons.append(f"needs the custom event “{need['event_type']}” (Settings → Automation → Custom events)")
         elif missing := [f for f in need.get("fields") or [] if f not in have]:
-            reasons.append(f"needs the custom event {need['event_type']} to carry the field(s) {', '.join(missing)}")
+            fields = ", ".join(missing)
+            reasons.append(f"needs the custom event “{need['event_type']}” to include the field{'s' if len(missing) > 1 else ''} {fields}")
     requires = item.get("requires") or {}
     for op in requires.get("operations") or []:
         if refs.operations is None:

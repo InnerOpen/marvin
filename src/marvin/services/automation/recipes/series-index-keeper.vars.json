@@ -3,17 +3,17 @@
   "variables": {
     "collection_slug": {
       "type": "collection_slug",
-      "description": "The series: a collection, in the order the site shows it.",
+      "description": "The collection that holds the series, in the order your site shows it.",
       "example": "chore-coat-series"
     },
     "index_slug": {
       "type": "text",
-      "description": "Slug of the entry that holds the series' index (its list of parts is replaced).",
+      "description": "The last part of the web address of the entry that holds the series index. Its list of parts is replaced.",
       "example": "chore-coat-series-index"
     },
     "body_field": {
       "type": "field_key",
-      "description": "The index entry's text field.",
+      "description": "The text field of the index entry.",
       "example": "body"
     }
   }

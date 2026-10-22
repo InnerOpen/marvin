@@ -3532,9 +3532,9 @@ def test_guide_offers_the_recipes_this_workspace_can_run(ws):
     ws.session.commit()
     refs = workspace_refs(ws.session, ws.gid)
     assert "newsletter-delivery" not in {r["id"] for r in recipes.offered(refs)}
-    assert recipes.missing_prerequisites(recipes.entry("newsletter-delivery"), refs) == ["needs a connected buttondown integration"]
+    assert recipes.missing_prerequisites(recipes.entry("newsletter-delivery"), refs)[0].startswith("needs a connection to Buttondown")
     asked = authoring_guide(ws.session, ws.gid, "examples", "newsletter-delivery")["examples"]
-    assert "buttondown" in asked["error"] and "publication-ledger" in asked["available"]
+    assert "buttondown" in asked["error"].lower() and "publication-ledger" in asked["available"]
     assert "no such recipe" in authoring_guide(ws.session, ws.gid, "examples", "nope")["examples"]["error"]
     # An idea is never offered, however the workspace is set up.
     assert "status is needs-engine-capability" in authoring_guide(ws.session, ws.gid, "examples", "reply-drafting-desk")["examples"]["error"]
@@ -3551,7 +3551,7 @@ def test_create_entry_image_is_ready_only_with_a_connection_that_can_generate_im
     ws.session.commit()
     refs = workspace_refs(ws.session, ws.gid)
     assert "create-entry-image" not in {r["id"] for r in recipes.offered(refs)}
-    assert "image.generate" in recipes.missing_prerequisites(item, refs)[0]
+    assert "generate images" in recipes.missing_prerequisites(item, refs)[0]
     assert "suggest-entry-image" in {r["id"] for r in recipes.offered(refs)}  # the suggestion needs AI, not a connection
 
 

@@ -3,7 +3,7 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "The entries to make share links for (they need a page on the site).",
+      "description": "The entry type to make share links for. These entries need a page on your site.",
       "example": "article"
     },
     "voice": {
@@ -13,7 +13,7 @@
     },
     "mastodon_server": {
       "type": "text",
-      "description": "Your Mastodon server, for its share link (just the address, e.g. mastodon.social).",
+      "description": "Your Mastodon server address, such as `mastodon.social`.",
       "example": "mastodon.social"
     }
   }

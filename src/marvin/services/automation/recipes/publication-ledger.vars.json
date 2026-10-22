@@ -3,7 +3,7 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "Slug of the entry type whose publications are recorded.",
+      "description": "The entry type whose publications are recorded.",
       "example": "article"
     }
   }

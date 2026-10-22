@@ -8,7 +8,7 @@
     },
     "collection_name": {
       "type": "text",
-      "description": "Its name, as the AI should read it.",
+      "description": "The collection's name, as you want the AI to read it.",
       "example": "Workshop Reference"
     },
     "draft_entry_type": {
@@ -18,7 +18,7 @@
     },
     "draft_body_field": {
       "type": "field_key",
-      "description": "That type's text field.",
+      "description": "The text field on that type.",
       "example": "body"
     }
   }

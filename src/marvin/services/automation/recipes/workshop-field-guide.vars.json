@@ -3,17 +3,17 @@
   "variables": {
     "log_entry_type": {
       "type": "entry_type_slug",
-      "description": "The entries that log a project's progress (bench notes, updates).",
+      "description": "The entries that log a project's progress, such as bench notes or updates.",
       "example": "bench-note"
     },
     "project_field": {
       "type": "field_key",
-      "description": "Their field that names the project (its slug).",
+      "description": "The field on a log entry that names its project.",
       "example": "project"
     },
     "body_field": {
       "type": "field_key",
-      "description": "Their text field, for the AI to read.",
+      "description": "The text field on a log entry that the AI reads.",
       "example": "body"
     },
     "kicker": {
@@ -23,7 +23,7 @@
     },
     "footer": {
       "type": "text",
-      "description": "A line at the bottom, e.g. the site.",
+      "description": "A line at the bottom of each page, such as your website.",
       "example": "mashandburn.co"
     }
   }

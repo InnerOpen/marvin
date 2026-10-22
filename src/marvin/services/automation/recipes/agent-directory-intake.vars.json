@@ -3,17 +3,17 @@
   "variables": {
     "form_entry_type": {
       "type": "entry_type_slug",
-      "description": "The submittable entry type the agent form saves submissions as.",
+      "description": "The entry type the agent form saves submissions as.",
       "example": "agent-submission"
     },
     "document_url_field": {
       "type": "field_key",
-      "description": "Its field holding the address of the agent's capability document (JSON).",
+      "description": "The field that holds the web address of the agent's capability document.",
       "example": "capabilities_url"
     },
     "capability_schema": {
       "type": "object",
-      "description": "The JSON Schema a capability document must fit — what your directory requires of an agent (an object with `required` and `properties`).",
+      "description": "The rules a capability document must meet, describing what your directory requires of an agent.",
       "example": {
         "type": "object",
         "required": [
@@ -42,7 +42,7 @@
     },
     "notify_integration": {
       "type": "integration_slug",
-      "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
+      "description": "The connection used to send the notification, such as Slack or Apprise (Settings → Integrations).",
       "example": "alerts"
     }
   }

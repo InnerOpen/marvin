@@ -3,7 +3,7 @@
   "variables": {
     "product_type": {
       "type": "entry_type_slug",
-      "description": "The entries that are launches (products, releases).",
+      "description": "The entry type for launches (products, releases).",
       "example": "product"
     },
     "voice": {
@@ -18,7 +18,7 @@
     },
     "draft_body_field": {
       "type": "field_key",
-      "description": "That type's text field.",
+      "description": "The text field of that type.",
       "example": "body"
     },
     "newsletter_entry_type": {
@@ -28,17 +28,17 @@
     },
     "newsletter_body_field": {
       "type": "field_key",
-      "description": "That type's text field.",
+      "description": "The text field of that type.",
       "example": "body"
     },
     "image_role": {
       "type": "text",
-      "description": "The role of the product's picture for the launch card (a plain card without one).",
+      "description": "The role of the product's picture, used for the launch card. Without one, the card is plain.",
       "example": "hero"
     },
     "footer": {
       "type": "text",
-      "description": "A line at the bottom of the card, e.g. the shop.",
+      "description": "A line at the bottom of the card, such as your shop.",
       "example": "mashandburn.co"
     }
   }

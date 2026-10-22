@@ -3,17 +3,17 @@
   "variables": {
     "launch_entry_type": {
       "type": "entry_type_slug",
-      "description": "The entries that are launches (products, releases, shows).",
+      "description": "The entry type for launches (products, releases, shows).",
       "example": "product"
     },
     "launch_date": {
       "type": "entry_date",
-      "description": "The launch date: one of their date fields. Publish the entry ahead of it, as the announcement — a moment already past is skipped.",
+      "description": "The date field that holds the launch date. Publish the entry before that date as the announcement. Any post date already past is skipped.",
       "example": "data.launch_date"
     },
     "post_at": {
       "type": "text",
-      "description": "The time of day the posts are drafted, in the workspace's time zone.",
+      "description": "The time of day the posts are drafted, in your workspace's time zone, for example `09:00`.",
       "example": "09:00"
     },
     "voice": {
@@ -28,7 +28,7 @@
     },
     "draft_body_field": {
       "type": "field_key",
-      "description": "That type's text field.",
+      "description": "The text field of that type.",
       "example": "body"
     }
   }

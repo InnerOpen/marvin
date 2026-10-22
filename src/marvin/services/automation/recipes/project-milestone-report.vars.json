@@ -8,27 +8,27 @@
     },
     "status_field": {
       "type": "field_key",
-      "description": "The project's field that says where it stands.",
+      "description": "The project field that shows where it stands.",
       "example": "stage"
     },
     "done_value": {
       "type": "text",
-      "description": "Its value when the project is finished.",
+      "description": "The status value that means the project is finished.",
       "example": "complete"
     },
     "log_entry_type": {
       "type": "entry_type_slug",
-      "description": "The entries that log a project's progress (bench notes, updates).",
+      "description": "The entries that log a project's progress, such as bench notes or updates.",
       "example": "bench-note"
     },
     "project_field": {
       "type": "field_key",
-      "description": "Their field that names the project (its slug).",
+      "description": "The field on a log entry that names its project.",
       "example": "project"
     },
     "body_field": {
       "type": "field_key",
-      "description": "Their text field, for the AI to read.",
+      "description": "The text field on a log entry that the AI reads.",
       "example": "body"
     },
     "report_entry_type": {
@@ -38,7 +38,7 @@
     },
     "report_body_field": {
       "type": "field_key",
-      "description": "That type's text field.",
+      "description": "The text field on that type.",
       "example": "body"
     }
   }

@@ -3,12 +3,12 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "The entries to look back on (published a year ago today).",
+      "description": "The entry type to look back on. Entries published a year ago today are used.",
       "example": "article"
     },
     "body_field": {
       "type": "field_key",
-      "description": "Their text field, for the AI to read.",
+      "description": "The field that holds the entry's text, which the AI reads.",
       "example": "body"
     },
     "draft_entry_type": {
@@ -18,22 +18,22 @@
     },
     "draft_body_field": {
       "type": "field_key",
-      "description": "That type's text field.",
+      "description": "The text field on that entry type where the post goes.",
       "example": "body"
     },
     "card_title": {
       "type": "text",
-      "description": "The card's heading.",
+      "description": "The heading on the picture card.",
       "example": "On this day, a year ago"
     },
     "footer": {
       "type": "text",
-      "description": "A line at the bottom of the card, e.g. the site.",
+      "description": "A line at the bottom of the card, such as your website address.",
       "example": "gracemartinfranklinart.com"
     },
     "timezone": {
       "type": "text",
-      "description": "The time zone the 8am run is in (IANA name).",
+      "description": "The time zone for the 8am daily run, for example `America/New_York`.",
       "example": "America/New_York"
     }
   }

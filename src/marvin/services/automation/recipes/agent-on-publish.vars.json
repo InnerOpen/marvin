@@ -3,17 +3,17 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "Which entries make the agent start when one is published.",
+      "description": "The entry type that starts the agent when one is published.",
       "example": "article"
     },
     "agent": {
       "type": "agent_slug",
-      "description": "The agent that does the job (Settings → AI → Agents). Its permissions must let it save drafts: set Entries: author to Allow for it.",
+      "description": "The agent that does the job (Settings → AI → Agents). It needs permission to save drafts: set Entries: author to Allow.",
       "example": "writer"
     },
     "message": {
       "type": "text",
-      "description": "The job, in a sentence or two. The entry's title and link are added for you, and so is the reminder to write the text itself and save it with create_draft rather than compose_entry (Playbooks only reach the agent's own writing).",
+      "description": "The job, in a sentence or two. The entry's title and link are added for you, along with a reminder to write the text itself and save it as a draft.",
       "example": "Draft a Bluesky post and a Mastodon post announcing it, each as its own draft."
     },
     "playbooks": {

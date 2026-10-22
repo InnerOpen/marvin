@@ -3,7 +3,7 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "Which published entries get versions written.",
+      "description": "The entry type whose published entries get new versions.",
       "example": "article"
     },
     "draft_entry_type": {
@@ -13,7 +13,7 @@
     },
     "body_field": {
       "type": "field_key",
-      "description": "That type's field for the draft's text.",
+      "description": "The text field of the draft type.",
       "example": "body"
     }
   }

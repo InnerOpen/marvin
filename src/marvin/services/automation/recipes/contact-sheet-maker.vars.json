@@ -3,12 +3,12 @@
   "variables": {
     "tag": {
       "type": "text",
-      "description": "Tag of the images to put on the sheet (up to 48).",
+      "description": "The tag on the images to put on the sheet, up to 48.",
       "example": "october-shoot"
     },
     "title": {
       "type": "text",
-      "description": "The sheet's title.",
+      "description": "The title shown on the sheet.",
       "example": "October shoot"
     }
   }

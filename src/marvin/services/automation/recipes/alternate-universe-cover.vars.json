@@ -8,12 +8,12 @@
     },
     "image_integration": {
       "type": "integration_slug",
-      "description": "Slug of the connected OpenAI Images integration (Settings → Integrations).",
+      "description": "Your OpenAI Images connection (Settings → Integrations).",
       "example": "openai-images"
     },
     "style": {
       "type": "text",
-      "description": "The other universe: sci-fi, noir, botanical…",
+      "description": "The other universe to draw, such as sci-fi, noir or botanical.",
       "example": "a 1950s sci-fi pulp"
     }
   }

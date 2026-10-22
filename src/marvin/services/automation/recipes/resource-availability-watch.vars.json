@@ -3,22 +3,22 @@
   "variables": {
     "resource_type": {
       "type": "text",
-      "description": "The resources to watch (their type), e.g. supplier — each with a URL.",
+      "description": "The type of resources to watch, such as supplier. Each needs a web address.",
       "example": "supplier"
     },
     "unavailable_text": {
       "type": "text",
-      "description": "What their page says when an item is gone (case-insensitive).",
+      "description": "The words their page shows when an item is gone. Capitals don't matter.",
       "example": "sold out"
     },
     "notify_integration": {
       "type": "integration_slug",
-      "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
+      "description": "The connection used to send the notification, such as Slack or Apprise (Settings → Integrations).",
       "example": "alerts"
     },
     "timezone": {
       "type": "text",
-      "description": "The time zone the schedule runs in (IANA name).",
+      "description": "The time zone the daily schedule runs in, such as `America/New_York`.",
       "example": "America/New_York"
     }
   }

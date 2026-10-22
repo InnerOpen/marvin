@@ -3,7 +3,7 @@
   "variables": {
     "image_integration": {
       "type": "integration_slug",
-      "description": "The connected image-generation integration (Settings → Integrations).",
+      "description": "Your image-generation connection (Settings → Integrations).",
       "example": "openai-images"
     },
     "style": {

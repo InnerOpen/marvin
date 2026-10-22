@@ -126,10 +126,10 @@ def test_an_idea_says_which_capability_it_waits_on(ws):
 
 
 def test_missing_names_the_unconnected_provider_until_it_is_connected(ws):
-    assert _recipe(_library(), "newsletter-delivery")["missing"] == ["needs a connected buttondown integration"]
+    assert _recipe(_library(), "newsletter-delivery")["missing"] == ["needs a connection to Buttondown"]
 
     _connect(ws, "buttondown", "newsletter", enabled=False)
-    assert _recipe(_library(), "newsletter-delivery")["missing"] == ["needs a connected buttondown integration"]
+    assert _recipe(_library(), "newsletter-delivery")["missing"] == ["needs a connection to Buttondown"]
 
     _connect(ws, "buttondown", "newsletter-live")
     newsletter = _recipe(_library(), "newsletter-delivery")
@@ -193,7 +193,7 @@ def test_configure_refuses_what_this_workspace_cannot_use(ws):
         res = client.post(_configure(recipe_id), json={"vars": {}})
         assert res.status_code == 409 and "not runnable" in res.json()["detail"], res.text
     unconnected = client.post(_configure("newsletter-delivery"), json={"vars": {}})
-    assert unconnected.status_code == 409 and "buttondown" in unconnected.json()["detail"]
+    assert unconnected.status_code == 409 and "buttondown" in unconnected.json()["detail"].lower()
 
 
 # --- provenance: which recipe a workflow was made from -------------------------------------------------------------

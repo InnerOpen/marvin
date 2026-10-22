@@ -3,12 +3,12 @@
   "variables": {
     "form_entry_type": {
       "type": "entry_type_slug",
-      "description": "The entry type that takes public submissions (a contact or request form).",
+      "description": "The entry type that takes public submissions, such as a contact or request form.",
       "example": "contact-request"
     },
     "queues": {
       "type": "text",
-      "description": "Your queues, comma-separated — the AI puts each request in one.",
+      "description": "Your queues, separated by commas. The AI puts each request in one.",
       "example": "commissions, orders, press, workshops, other"
     }
   }

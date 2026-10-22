@@ -8,12 +8,12 @@
     },
     "status_field": {
       "type": "field_key",
-      "description": "The field that says where a project stands.",
+      "description": "The field that shows where a project stands.",
       "example": "stage"
     },
     "done_value": {
       "type": "text",
-      "description": "Its value when the project is finished.",
+      "description": "The status value that means the project is finished.",
       "example": "complete"
     },
     "card_series": {
@@ -23,7 +23,7 @@
     },
     "image_role": {
       "type": "text",
-      "description": "The role an entry's main picture is attached in.",
+      "description": "How an entry's main picture is attached (its role), such as `hero`.",
       "example": "hero"
     }
   }

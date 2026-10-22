@@ -3,17 +3,17 @@
   "variables": {
     "document_role": {
       "type": "text",
-      "description": "The role a PDF is attached to an entry in (its download).",
+      "description": "The role a PDF is attached in on an entry (its download).",
       "example": "download"
     },
     "preview_role": {
       "type": "text",
-      "description": "The role its first three pages are attached in, as pictures.",
+      "description": "The role the pictures of the first three pages are attached in.",
       "example": "preview"
     },
     "cover_role": {
       "type": "text",
-      "description": "The role its first page is attached in, as the cover.",
+      "description": "The role the picture of the first page is attached in, as the cover.",
       "example": "cover"
     }
   }

@@ -3,12 +3,12 @@
   "variables": {
     "task_entry_type": {
       "type": "entry_type_slug",
-      "description": "The entry type a repair task is drafted as.",
+      "description": "The entry type used for repair tasks.",
       "example": "task"
     },
     "body_field": {
       "type": "field_key",
-      "description": "That type's text field, where the details go.",
+      "description": "The text field on that entry type where the details go.",
       "example": "body"
     }
   }

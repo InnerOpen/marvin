@@ -99,7 +99,7 @@ def test_the_library_offers_it_once_connected_and_fills_it_in(ws, chatter):  # n
     def shown():
         return next(r for r in client.get(LIBRARY).json()["recipes"] if r["id"] == RECIPE)
 
-    assert shown()["missing"] == ["needs a connected chatter integration"] and shown()["source"]["name"] == "Chatter"
+    assert shown()["missing"] == ["needs a connection to Chatter"] and shown()["source"]["name"] == "Chatter"
     _connect(ws)
     assert shown()["missing"] == []
 

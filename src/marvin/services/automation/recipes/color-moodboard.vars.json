@@ -3,7 +3,7 @@
   "variables": {
     "tag": {
       "type": "text",
-      "description": "Tag of the images for the moodboard (up to 12).",
+      "description": "The tag on the images to use (up to 12).",
       "example": "coastal"
     },
     "title": {

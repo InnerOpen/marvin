@@ -3,7 +3,7 @@
   "variables": {
     "remixes": {
       "type": "list",
-      "description": "The forms the Run form offers — the only ones allowed.",
+      "description": "The forms offered when you run it. Only these can be chosen.",
       "example": [
         "a haiku",
         "a fairy tale",
@@ -18,7 +18,7 @@
     },
     "draft_body_field": {
       "type": "field_key",
-      "description": "That type's text field.",
+      "description": "The text field on that type.",
       "example": "body"
     }
   }

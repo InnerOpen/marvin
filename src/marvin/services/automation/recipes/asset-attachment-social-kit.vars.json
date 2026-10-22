@@ -3,12 +3,12 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "Which entries get a social kit when an image is attached to them.",
+      "description": "The entry type that gets a social kit when an image is attached.",
       "example": "article"
     },
     "caption_style": {
       "type": "text",
-      "description": "How captions should sound.",
+      "description": "How the captions should sound.",
       "example": "warm, plain words, one emoji at most"
     }
   }

@@ -143,177 +143,177 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 ### Publishing and editorial
 
 - [newsletter-delivery](../../src/marvin/services/automation/recipes/newsletter-delivery.json) — **Newsletter delivery** · verified-current · `entry_published`  
-  A published newsletter entry becomes a Buttondown issue; the issue id and delivery result are recorded on the entry.
+  Each published newsletter becomes a Buttondown issue, and the issue link and delivery result are saved on the entry.
   - Identical in shape to the Buttondown plugin's own `buttondown-issue-on-publish` blueprint; installing the plugin's content offers it with one click.
   - Replay-safe at the provider: the recorded `buttondown_email_id` is sent back as `email_id`, so a re-publish updates the issue instead of creating a second one.
   - `${site.url}` is the workspace's Canonical URL (None when unset): the provider uses it to absolutise relative links.
 - [publication-announcement](../../src/marvin/services/automation/recipes/publication-announcement.json) — **Publication announcement** · verified-current · `entry_published`  
-  A published entry is announced to a community channel through an outgoing webhook; the response code is recorded on the entry.
+  Each published entry is announced to your community channel through an outgoing webhook, and the response code is saved on the entry.
   - The brief's completion event (`newsletter_issue_processed`) is not a built-in event. Register your own (Settings → Automation → Custom events) and send it with an Emit event step, or use the run's own `automation_ran` event, with the run id, as the completion signal — a `chained` workflow can react to it.
   - `announcement.run` is the event's correlation id, shared with the run history row.
 - [editorial-approval-gate](../../src/marvin/services/automation/recipes/editorial-approval-gate.json) — **Editorial approval gate** · verified-current · `entry_updated`  
-  When an entry's status changes to approved it is published; if the publish gate refuses (missing required fields, expiry passed) the entry goes back to Needs review with the exact reasons.
+  When an entry's status changes to approved, it is published. If it can't be published (a required field is missing, or it has expired), it goes back to Needs review with the reasons.
   - Validation is Marvin's own publish gate (services/entries/completeness.py), not a workflow-level check: required fields, required asset roles, resource types, tags and the expiry date.
   - `approved` is a real entry status; the condition uses `changed_to`, so only the transition fires it, not every save of an approved entry.
 - [seo-assistant](../../src/marvin/services/automation/recipes/seo-assistant.json) — **SEO assistant** · verified-current · `entry_updated`  
-  When an entry is sent to review, AI proposes a search-result description (summary) and tags; the proposals are staged as suggestions for a person to accept.
+  When an entry is sent to review, AI suggests a search-result description and tags, and a person accepts or rejects them.
   - Title generation is not available: no operation writes `title`; summary (meta description) and tags are what the registry offers with a write-back map.
   - Body changes can now be detected (`changed_fields` contains `data.<field>`, 2026-10-18); this recipe still keys on the review transition.
   - Write-back follows the workspace approval mode (services/ai/approval.py): mid-review entries are always staged.
   - Blocked by: `custom-operation` (to generate a title)
 - [translation-desk](../../src/marvin/services/automation/recipes/translation-desk.json) — **Translation desk** · verified-current · `entry_published`  
-  A published entry gets a translation drafted as a new entry; an editor reviews it and, once approved, it is published.
+  Each published entry gets a translation drafted as a new entry, which an editor reviews and publishes once approved.
   - An approval step parks the run; Automation → Approvals and a push ask the editors; the steps after it read ${steps.ok.output.decision}.
 - `audio-edition` — **Audio edition** · needs-adapter · `entry_published`  
-  Publication → narrate article → attach audio → update podcast feed
+  Each published article is narrated, the audio is attached to it, and your podcast feed is updated.
   - Blocked by: `media-adapters` (a TTS provider action that returns an audio asset)
 - [series-index-keeper](../../src/marvin/services/automation/recipes/series-index-keeper.json) — **Series index keeper** · verified-current · `entry_published`  
-  When a part of a series (a collection) is published, the series' index entry is rewritten as a list of its published parts, in the collection's order, with their links.
+  When a part of a series is published, the series' index entry is rewritten as a linked list of its published parts, in the collection's order.
   - The first step checks membership: a one-row query for this entry in the collection.
   - Previous/next links are the site's: the publishing API serves the collection in the same order.
 - [weekly-digest](../../src/marvin/services/automation/recipes/weekly-digest.json) — **Weekly digest** · verified-current · `schedule`  
-  Every Monday morning, the week's published entries are gathered and an AI drafts a newsletter issue that introduces and links each one.
+  Every Monday morning, the week's published entries are gathered and AI drafts a newsletter issue that introduces and links to each one.
   - Gathers up to 20 entries published in the last 7 days (a relative date) and passes their text to the AI.
   - The issue is a draft for a person to edit and send.
 - [broken-link-patrol](../../src/marvin/services/automation/recipes/broken-link-patrol.json) — **Broken link patrol** · verified-current · `schedule`  
-  Every Monday, the links in each published entry are checked; an entry with broken links records how many, and a notification lists them.
+  Every Monday, the links in each published entry are checked. Entries with broken links record how many, and you get a notification listing them.
   - Broken = no answer, 404, 410 or 5xx. 401/403/429 aren't counted: those are servers refusing robots.
   - Relative links (/articles/x) are checked against the workspace's site URL.
   - It doesn't take the entry offline: request_review would unpublish it.
   - It notifies every Monday while an entry still has broken links.
 - [living-resource-collection](../../src/marvin/services/automation/recipes/living-resource-collection.json) — **Living resource collection** · verified-current · `resource_updated`  
-  When a resource changes, the entries that use it are gathered and an AI drafts the passages that may now be out of date, with new wording.
+  When a resource changes, the entries that use it are gathered and AI drafts the passages that may now be out of date, with suggested new wording.
   - Up to 20 entries using the resource (`resource: ${resource.id}`), with their text.
   - Every save of a resource is a change: one draft per save while entries use it.
 - [publication-release-gate](../../src/marvin/services/automation/recipes/publication-release-gate.json) — **Publication release gate** · verified-current · `entry_updated`  
-  When an entry is approved, its text, its pictures and its downloads are checked side by side; if all pass it is published, otherwise it goes back to Needs review with every check that failed named.
+  When an entry is approved, its text, pictures and downloads are checked. If every check passes it is published. Otherwise it goes back to Needs review, with each failed check listed.
   - The three checks are the branches of one parallel step (join all, on_branch_failure continue): they run one after another in the order written, each independent of the others, so a missing picture never hides a short text. The step then reports how many failed and one line per failed branch.
   - Text: the chosen field must hold at least min_characters. Images: at least one picture (jpeg, png, webp, gif) attached to the entry, each with alt text. Downloads (PDF, zip): optional, but each one attached needs a description.
   - This is on top of Marvin's own publish gate (completeness rules: required fields, asset roles, resource types); a refusal there is caught by the on_failure step.
   - Only the move to Approved starts the gate (changed_to), so fixing a held entry and approving it again runs it again.
 - [content-refresh](../../src/marvin/services/automation/recipes/content-refresh.json) — **Content refresh** · verified-current · `entry_updated`  
-  Every save of a published entry tells an external copy or search index to re-fetch it, through an outgoing webhook.
+  Each time a published entry is saved, an outgoing webhook tells an outside copy or search index to fetch it again.
   - It fires on every save of a published entry, including the publish itself and metadata writes made by other workflows; a `changed_fields contains data.<field>` condition (2026-10-18) would narrow it to one field.
   - If the external copy is the site itself, prefer the native rebuild: content changes already queue a coalesced rebuild (site_rebuild_queued → webhook_triggered).
   - Idempotency keys exist (2026-10-18) but dedupe identical calls; a burst of different saves is still one call each unless the key ignores what changed.
 - [featured-collection-curator](../../src/marvin/services/automation/recipes/featured-collection-curator.json) — **Featured collection curator** · verified-current · `entry_published`  
-  When the AI thinks a published entry fits a collection, an editor is asked; once approved it is added.
+  When the AI thinks a published entry belongs in a collection, an editor is asked. Once approved, the entry is added.
   - An approval step parks the run; Automation → Approvals and a push ask the editors; the steps after it read ${steps.ok.output.decision}.
 - [comment-discussion-starter](../../src/marvin/services/automation/recipes/comment-discussion-starter.json) — **Comment discussion starter** · verified-current · `entry_published`  
-  A published entry opens a discussion topic in a forum through an outgoing webhook; the topic URL from the response is recorded on the entry.
+  Each published entry opens a discussion topic in your forum through an outgoing webhook, and the topic link is saved on the entry.
   - The response field holding the topic URL is a setup variable (`discussion_url_path`) spliced into the `${steps.discussion.output.body.<path>}` template.
 - [editorial-task-maker](../../src/marvin/services/automation/recipes/editorial-task-maker.json) — **Editorial task maker** · verified-current · `entry_published`  
-  A published entry creates follow-up tasks in your task tool through an n8n flow; the n8n execution id is recorded on the entry.
+  Each published entry creates follow-up tasks in your task tool through an n8n flow, and the n8n run reference is saved on the entry.
   - Marvin has no task entity; n8n is the adapter to whichever task tool you use. The two task titles are templates — edit them in the recipe.
 - [evergreen-resurfacer](../../src/marvin/services/automation/recipes/evergreen-resurfacer.json) — **Evergreen resurfacer** · verified-current · `schedule`  
-  Once a month, the three least recently touched entries published over a year ago get refresh ideas from the AI, saved as a draft entry.
+  Once a month, the AI suggests refresh ideas for the three least recently updated entries published over a year ago, and saves them as a draft entry.
   - Refreshing a piece (editing it) moves it to the back of the queue: the oldest updates come first.
 - [agent-weekly-review](../../src/marvin/services/automation/recipes/agent-weekly-review.json) — **An agent reviews the week's changes** · verified-current · `schedule`  
-  Every Monday a named agent reviews the entries of a type that changed in the last 7 days against its Playbooks; its answer is kept as the run's result and the findings it drafts land in the Inbox.
+  Every Monday an agent reviews entries of your chosen type that changed in the last 7 days, using its Playbooks. Its answer is kept as the run's result and the findings it drafts land in the Inbox.
   - Gathers up to 20 entries changed in the last 7 days and hands the list to the agent; a week with none skips the agent.
   - The agent's answer is the run's result (`steps.review.output.answer`); what it finds as drafts goes to the Inbox.
 
 ### Social and community
 
 - [one-entry-many-voices](../../src/marvin/services/automation/recipes/one-entry-many-voices.json) — **One entry, many voices** · verified-current · `entry_published`  
-  A published entry gets a LinkedIn version, a short post and a community post written in its voice, saved together as a new draft to edit.
+  Each published entry gets a LinkedIn version, a short post and a community post written in its voice, saved together as a new draft for you to edit.
   - A custom AI step, then a create step: the new entry is a draft for a person to edit and publish.
 - [carousel-storyteller](../../src/marvin/services/automation/recipes/carousel-storyteller.json) — **Carousel storyteller** · verified-current · `entry_published`  
-  When an entry is published, the AI outlines it as five slides and each is rendered as a portrait card (1080×1350), attached to the entry as carousel-1 to carousel-5 for posting.
+  When an entry is published, the AI outlines it as five slides, and each slide is made into a portrait card (1080×1350) attached to the entry as carousel-1 to carousel-5, ready to post.
   - The first slide carries the entry's picture in the role you choose; the rest are plain cards.
   - Nothing is posted: download the five cards from the entry to post them as a carousel.
 - [thread-builder](../../src/marvin/services/automation/recipes/thread-builder.json) — **Thread builder** · verified-current · `entry_published`  
-  When an entry is published, it's turned into a thread of 3–8 short posts for the network you name, each within its length, saved as a draft to check and post.
+  When an entry is published, it becomes a thread of 3 to 8 short posts for the network you name, each within its length limit, saved as a draft to check and post.
   - Nothing is posted: the thread is a draft for a person to post. A social provider could later post it from metadata.thread.
 - [quote-card-studio](../../src/marvin/services/automation/recipes/quote-card-studio.json) — **Quote card studio** · verified-current · `entry_published`  
-  When an entry is published, the AI picks one sentence from its text; if that sentence really is in the text word for word, a quote card is rendered over the entry's picture and attached as quote-card.
+  When an entry is published, the AI picks one sentence from its text. If the sentence appears word for word, a quote card is made over the entry's picture and attached as quote-card.
   - The exact-quote check is a `when` on the render step: the entry's text must contain the AI's quote.
 - [teaser-ladder](../../src/marvin/services/automation/recipes/teaser-ladder.json) — **Teaser ladder** · verified-current · `entry_published`  
-  When a launch is announced, three posts are drafted on the way to its date: a teaser three days before, the launch post on the day and a follow-up a week after — skipping any moment already past.
+  When a launch is announced, three posts are drafted ahead of its date: a teaser three days before, a launch post on the day and a follow-up a week after. Any date already past is skipped.
   - The run waits (Wait step) and goes on at the time, in the workspace's time zone.
   - A changed date after publishing isn't followed: the waits were set when it was published. Other edits to the workflow apply when a wait goes on.
 - [behind-the-scenes-diary](../../src/marvin/services/automation/recipes/behind-the-scenes-diary.json) — **Behind the scenes diary** · verified-current · `entry_published`  
-  A published project update — its notes and process photos — becomes a draft behind-the-scenes workshop post.
+  Each published project update, with its notes and process photos, becomes a draft behind-the-scenes workshop post.
   - A custom AI step, then a create step: the new entry is a draft for a person to edit and publish.
 - [community-question](../../src/marvin/services/automation/recipes/community-question.json) — **Community question** · verified-current · `entry_published`  
-  A published entry gets one specific discussion question written for it, posted to your community channel through an outgoing webhook and kept in its metadata.
+  Each published entry gets one specific discussion question, which is posted to your community channel through an outgoing webhook and saved on the entry.
   - A custom AI step (`op: "custom"`): its own prompt and output fields; the answer is checked against them.
 - `poll-companion` — **Poll companion** · needs-adapter · `entry_published`  
-  Article → propose poll options → create poll draft
+  Each published article gets poll options suggested, and a poll draft is created from them.
   - Publishing to social networks exists (the social.post capability, 2026-10-19); what is missing is a provider action that creates a poll (social-adapters).
   - Blocked by: `social-adapters` (a poll-capable provider)
 - `reply-drafting-desk` — **Reply drafting desk** · needs-engine-capability · `comment_added`  
-  New comment → classify intent → suggest reply → wait for approval
+  Each new comment is sorted by what the person wants, a reply is suggested, and it waits for approval before it is used.
   - Instagram comments: Social in Marvin reads and answers them (keyword rules per network, auto-reply per network); a workflow replies with `social.reply` after an approval step.
   - Blocked by: `comments` (no comment events are ever sent)
 - `campaign-scoreboard` — **Campaign scoreboard** · needs-adapter · `schedule`  
-  After campaign → collect supported metrics → compare against baseline
+  After a campaign, the available numbers are collected and compared with your usual baseline.
   - Recording and listing the numbers exists (the `metric` step, 2026-10-18), and so does posting (social.post, 2026-10-19); what is missing is a provider action that collects the numbers from a network (social-adapters).
   - Blocked by: `social-adapters` (metrics actions)
 - [social-experiment-log](../../src/marvin/services/automation/recipes/social-experiment-log.json) — **Social experiment log** · verified-current · `manual`  
-  Run it on a post: an AI writes two versions that differ in one element, each drafted as an entry marked with the experiment id and its variant; run it again with what you observed for each and the numbers are recorded for the window (a repeat of the same window replaces the number, never adds), and a plain list of what was observed — not a verdict — is kept on the post.
+  Run on a post, the AI writes two versions that differ in one element and drafts each as an entry. Run it again with what you observed, and the numbers are recorded, with a plain list of results kept on the post.
   - Observations, not conclusions: the report lists what was recorded per window and variant and compares nothing; whether one version did better, and why, is for a person to judge.
   - Run it on a post once to draft the two variants (leave the numbers blank). Run it again, any time, with the numbers observed so far for A and B: the window defaults to the week (day or month on request), counted in the workspace's time zone.
   - Recording the same window again replaces the number rather than adding to it, so enter what the network shows to date, not the increase since last time; running it twice with the same numbers changes nothing.
   - A post that already carries metadata.experiment_id is not drafted again; remove that key (and the two drafts) to start a new experiment on it.
   - The numbers also appear on Settings → Automation → Metrics, one table of windows by variant.
 - [platform-preview-checker](../../src/marvin/services/automation/recipes/platform-preview-checker.json) — **Platform preview checker** · verified-current · `entry_updated`  
-  Each time a social-post draft is edited, it's checked for the network you name — too long, dead links, a picture the wrong shape — and sent to Needs review with each problem as a reason; a clean draft is left alone.
+  Each time a social-post draft is edited, it is checked for the network you name (too long, dead links, wrong picture shape). A draft with problems goes to Needs review with each problem listed, and a clean draft is left alone.
   - Runs on drafts only, when their fields change (not on a status change).
   - Picture shape is read from the picture in the role you name; a draft without one skips that check.
 - [launch-kit](../../src/marvin/services/automation/recipes/launch-kit.json) — **Launch kit** · verified-current · `entry_published`  
-  When a product is published, one AI pass drafts its announcement, an FAQ and a newsletter issue, and a launch card is made from its picture — all from what the entry says.
+  When a product is published, one AI pass drafts its announcement, an FAQ and a newsletter issue, and a launch card is made from its picture, all based on what the entry says.
   - The FAQ answers only from the entry and says when something isn't stated, rather than guessing.
 - [milestone-celebration](../../src/marvin/services/automation/recipes/milestone-celebration.json) — **Milestone celebration** · verified-current · `entry_updated`  
-  When a project's status field reaches its done value, the AI drafts a celebration post grounded in the entry; once an editor approves, OpenAI Images draws an illustration, attached as celebration, and the post is saved on the entry.
+  When a project's status reaches its done value, the AI drafts a celebration post from the entry. Once an editor approves, OpenAI Images draws an illustration, attached as celebration, and the post is saved on the entry.
   - metadata.celebrated makes it once per project: a later save while still complete doesn't fire again.
 - [event-countdown](../../src/marvin/services/automation/recipes/event-countdown.json) — **Event countdown** · verified-current · `entry_published`  
-  When an event is published, a reminder post is drafted a week before its date and another the day before, at the time you choose — skipping any moment already past.
+  When an event is published, a reminder post is drafted a week before its date and another the day before, at the time you choose. Any date already past is skipped.
   - The run waits (Wait step) — it's kept, and goes on at the time, in the workspace's time zone (Settings → Site).
   - A changed date after publishing isn't followed: the waits were set when it was published. Other edits to the workflow apply when a wait goes on.
 - [best-of-month](../../src/marvin/services/automation/recipes/best-of-month.json) — **Best of month** · verified-current · `schedule`  
-  On the 1st of each month, up to nine entries published in the last 30 days with a picture are laid out as one titled grid image.
+  On the 1st of each month, up to nine pictured entries published in the last 30 days are laid out as one titled grid image.
   - Each tile is the entry's main picture with its title. Post or attach the grid by hand, or add a step.
 - [utm-librarian](../../src/marvin/services/automation/recipes/utm-librarian.json) — **UTM librarian** · verified-current · `entry_created`  
-  A new campaign entry gets a tracking link built from its URL and UTM fields, recorded in metadata with the campaign mapping.
+  A new campaign entry gets a tracking link built from its URL and UTM fields, and the link is saved on the entry.
   - Pure string templating: `${entry.url}?utm_source=${entry.data.utm_source}&…` — values must already be URL-safe.
   - `entry.url` is absolute when the workspace Canonical URL is set, else the site path.
 - [community-welcome-pack](../../src/marvin/services/automation/recipes/community-welcome-pack.json) — **Community welcome pack** · verified-current · `member_added`  
-  When someone joins the workspace, a welcome note is drafted for them — hello by name, what the place is for, and the pieces in your start-here collection to read first, with their addresses.
+  When someone joins the workspace, a welcome note is drafted for them: a hello by name, what the place is for, and links to the pieces in your start-here collection.
   - Nothing is sent: the welcome is a draft addressed to them (their email in metadata.to) for you to send.
   - The new member's name, username and role go to the AI; their email doesn't.
 - [one-tap-share-links](../../src/marvin/services/automation/recipes/one-tap-share-links.json) — **One-tap share links** · verified-current · `entry_published`  
-  When an entry is published, a short post is written and the entry gets ready-made share links for Bluesky, Mastodon, Threads, LinkedIn and email — each opens that network's composer with the post and a tracked link, for a person to check and send.
+  When an entry is published, a short post is written and the entry gets ready-made share links for Bluesky, Mastodon, Threads, LinkedIn and email. Each link opens that network's composer with the post and a tracked link, so a person can check it and send.
   - Nothing is posted: each link opens the network's own composer, signed in as you, and you press send.
   - Each link carries utm_source=<network>, utm_medium=social and utm_campaign=<the entry's slug>, so your analytics can tell where visits came from.
   - LinkedIn's share link takes only the page address; the post text is for you to paste.
 - [on-this-day](../../src/marvin/services/automation/recipes/on-this-day.json) — **On this day** · verified-current · `schedule`  
-  Each morning, anything published a year ago today gets a throwback: an AI-drafted post looking back at it, with a picture card attached — nothing on days with nothing to remember.
+  Each morning, anything published a year ago today gets a throwback post drafted by AI, with a picture card attached. Nothing happens on days with nothing to look back on.
   - “A year ago today” is the 24 hours that ended exactly 365 days before the 8am run, so a leap year can shift it by a day.
   - The card uses the newest piece's main picture; without one it's a plain card.
 - [audience-milestone](../../src/marvin/services/automation/recipes/audience-milestone.json) — **Audience milestone** · verified-current · `entry_published`  
-  When your sign-ups reach 10, 25, 50, 100, 250, 500, 1000 and on, a thank-you post is drafted with a card to share — counts only, never names, and once per milestone.
+  When your sign-ups reach 10, 25, 50, 100, 250, 500, 1000 and so on, a thank-you post is drafted with a card to share. It uses counts only, never names, and runs once per milestone.
   - It counts the sign-up type's published entries: a sign-up confirmed by another workflow (e.g. Buttondown's) counts once it's published.
   - If two sign-ups are published at the same moment, the count can step over a milestone; the next one is still caught.
 - [collaborator-shout-out](../../src/marvin/services/automation/recipes/collaborator-shout-out.json) — **Collaborator shout-out** · verified-current · `entry_published`  
-  When a project is published, the people it lists who've agreed to be tagged are thanked in a drafted post, by their own handles — after an editor approves it — and each of them records the credit.
+  When a project is published, the people it lists who agreed to be tagged are thanked in a drafted post, using their own handles. An editor approves the post first, and each person thanked gets the credit noted on their entry.
   - People are entries of their own (a person type with a handle and a yes/no “OK to tag” field); a project lists theirs by slug, comma-separated.
   - Only people whose “OK to tag” is ticked are mentioned — anyone else is left out of the post and isn't sent to the AI.
 - [thank-you-notes](../../src/marvin/services/automation/recipes/thank-you-notes.json) — **Thank-you notes** · verified-current · `entry_published`  
-  When a project is published, each person it lists gets their own short thank-you note drafted — what they did and what it meant — one draft per person, addressed to them.
+  When a project is published, each person it lists gets their own short thank-you note drafted. It says what they did and what it meant, with one draft per person.
   - The notes are drafts for you to send however you like — nothing is sent.
   - Collaborator shout-out is the public version (one post thanking everyone); this one is private and personal.
 - [post-event-recap](../../src/marvin/services/automation/recipes/post-event-recap.json) — **Post-event recap** · verified-current · `entry_published`  
-  The day after an event, a recap post is drafted from its RSVPs (counts, no names) and each guest who RSVP'd gets a personal thank-you message drafted on their RSVP, asking for photos.
+  The day after an event, a recap post is drafted from its RSVPs (counts only, no names). Each guest who RSVP'd also gets a personal thank-you message drafted on their RSVP, asking for photos.
   - The run waits (Wait step) until the day after the event's date, in the workspace's time zone.
   - RSVPs are entries of their own (one per guest, published once confirmed) naming their event by slug; messages are drafted on them, not sent — guests' details never reach the public recap.
 - [share-published-entry](../../src/marvin/services/automation/recipes/share-published-entry.json) — **Share a published entry everywhere** · verified-current · `entry_published`  
-  An AI-drafted post for each published entry; once approved, it goes to every connected social network.
+  AI drafts a post for each published entry. Once you approve it, it goes to every connected social network.
   - Every social post needs a person's approval: the Approval step before the post step is required (a workflow without one is refused when saved).
   - The draft is kept under 280 characters so it fits Bluesky (300) and Mastodon (500). Add per_network to the post step to give one network its own text, e.g. {"instagram": {"text": "${entry.summary}"}}.
   - The entry's main picture is attached (${entry.image}); an entry without one posts text only, and Instagram refuses that.
 - [triage-new-comments](../../src/marvin/services/automation/recipes/triage-new-comments.json) — **Triage new comments** · verified-current · `social_comment_received`  
-  A new comment, reply or mention on a connected network is sorted by AI into question, praise, complaint or spam and counted as a metric; spam is hidden where the network allows it, and questions, complaints and spam you can't hide are sent to you.
+  AI sorts each new comment, reply or mention on a connected network into question, praise, complaint or spam, and counts it. Spam is hidden where the network allows. Questions, complaints and spam that can't be hidden are sent to you.
   - A comment is text from a stranger: the prompt tells the AI to classify it, never to follow it, and its answer is limited to the four categories.
   - Praise is counted (the social-comments metric) and left alone; add a step with `social.like` (not every network has one) or a reply behind an Approval step to answer it.
   - To answer a question, add an Approval step and an integration step {"integration": "${event.integration}", "capability": "social.reply", "args": {"comment_id": "${event.id}", "text": "…"}}.
@@ -322,82 +322,82 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 ### Images and files
 
 - [alt-text-assistant](../../src/marvin/services/automation/recipes/alt-text-assistant.json) — **Alt text assistant** · verified-current · `asset_uploaded`  
-  An uploaded image without alt text gets alt text written by the AI, describing what it shows; people can edit it on the asset.
+  An uploaded image without alt text gets alt text written by AI describing what it shows. People can edit it on the asset.
   - `write_back: {"alt_text": "alt_text"}` writes onto the asset; in the review-everything approval mode it is staged as a suggestion instead.
   - Images that already have alt text are skipped (`asset.alt_text` must not exist).
 - [responsive-image-factory](../../src/marvin/services/automation/recipes/responsive-image-factory.json) — **Responsive image factory** · verified-current · `asset_attached_to_entry`  
-  When a picture is attached to an entry in its main role, three WebP sizes (1600, 800, 400 px wide) are made and attached beside it as <role>-1600, -800 and -400.
+  When a picture is attached to an entry in its main role, three WebP sizes (1600, 800 and 400 pixels wide) are made and attached beside it. They use the role name followed by -1600, -800 and -400.
   - Never upscales: a picture narrower than a size keeps its own width.
   - Sizes from an earlier main picture stay attached; remove them by hand when the picture changes.
 - [background-remover](../../src/marvin/services/automation/recipes/background-remover.json) — **Background remover** · verified-current · `manual`  
-  Run it: each picture tagged with your tag is asked about, and once approved its background is removed — a transparent PNG kept as a version of the picture.
+  Each picture with your tag is checked with you first, and once approved its background is removed. The result is a transparent PNG kept as a version of the picture.
   - The edit keeps the subject unchanged (input fidelity high); a transparent background comes back as PNG.
 - [product-scene-studio](../../src/marvin/services/automation/recipes/product-scene-studio.json) — **Product scene studio** · verified-current · `manual`  
-  Run it: each tagged product picture is asked about, and once approved it's set in the scene you describe, the product itself kept exactly as it is.
+  Each tagged product picture is checked with you first, and once approved it is placed in the scene you describe. The product itself stays exactly as it is.
   - Change the scene variable for another setting; each run makes one scene per picture.
 - [smart-crop-pack](../../src/marvin/services/automation/recipes/smart-crop-pack.json) — **Smart crop pack** · verified-current · `asset_uploaded`  
   Every uploaded picture gets square (1:1), portrait (4:5) and landscape (16:9) crops centred on its subject, saved as new assets beside the original.
   - The crops are found in the Assets library; each says Made from the original.
 - [brand-recolor](../../src/marvin/services/automation/recipes/brand-recolor.json) — **Brand recolor** · verified-current · `manual`  
-  Run by hand: every image with the chosen tag gets a colour-graded copy in the workspace's preset, saved as a new asset.
+  Every image with the tag you choose gets a colour-graded copy in your preset, saved as a new asset. You run this by hand.
   - Presets: rustic-warm, warm, cool, muted, or the workspace's own media presets (AI settings).
   - Preview it first with a dry run: it lists what would be made.
 - [seasonal-variation](../../src/marvin/services/automation/recipes/seasonal-variation.json) — **Seasonal variation** · verified-current · `manual`  
-  Run it: each tagged graphic is asked about, and once approved a seasonal version is made — same layout, text and logo — kept as a version of the original.
+  Each tagged graphic is checked with you first, and once approved a seasonal version is made with the same layout, text and logo. It is kept as a version of the original.
   - The original and its lineage are kept; the variant names what it was made from.
 - [thumbnail-audition](../../src/marvin/services/automation/recipes/thumbnail-audition.json) — **Thumbnail audition** · verified-current · `manual`  
-  Run it on an entry: the AI proposes three thumbnail concepts, an editor okays the drawing, three pictures are made and attached, and an editor picks one — recorded on the entry as its thumbnail.
+  Run this on an entry and the AI suggests three thumbnail ideas. An editor approves the drawing, three pictures are made and attached, and an editor picks one, which is saved on the entry as its thumbnail.
   - The pick is recorded as the role of the chosen picture (thumbnail-option-N) — the site reads the entry's asset in that role.
   - The three options stay attached; detach the two not chosen on the entry page if you don't want them.
 - [image-quality-gate](../../src/marvin/services/automation/recipes/image-quality-gate.json) — **Image quality gate** · verified-current · `asset_uploaded`  
-  An uploaded picture that is too narrow or too blurry is reported to the team's notification channel, with its size and sharpness.
+  An uploaded picture that is too narrow or too blurry is reported to your team's notification channel, with its size and sharpness.
   - Sharpness is the variance of a Laplacian on a downscaled grey copy: blurry pictures score low. Check a few of yours with an Inspect step to pick the minimum.
   - Flagging the asset itself (metadata or a tag) waits for an asset metadata step.
 - [privacy-crop-desk](../../src/marvin/services/automation/recipes/privacy-crop-desk.json) — **Privacy crop desk** · verified-current · `asset_uploaded`  
-  When a picture is uploaded, the AI model looks for faces, number plates and personal details; an editor approves, and a blurred copy is saved beside it.
+  When a picture is uploaded, AI looks for faces, number plates and personal details. An editor approves, and a blurred copy is saved beside the original.
   - The original stays; publish the blurred copy instead (it's a version of the original in the library).
   - Pixelated in blocks, then softened: nothing readable survives.
 - [before-after-slider-kit](../../src/marvin/services/automation/recipes/before-after-slider-kit.json) — **Before and after kit** · verified-current · `manual`  
-  Run by hand: every version tagged for comparison gets a before/after image beside its original, saved as a new asset.
+  Every version tagged for comparison gets a before/after image beside its original, saved as a new asset. You run this by hand.
   - A comparison image, not a slider: an interactive slider is a site component.
 - [contact-sheet-maker](../../src/marvin/services/automation/recipes/contact-sheet-maker.json) — **Contact sheet maker** · verified-current · `manual`  
-  Up to 48 images with a tag are laid out, labelled, on one contact sheet image.
+  Up to 48 images with your tag are laid out, with labels, on one contact sheet image.
   - Versions (crops, sizes) are left out unless the query asks for them.
   - Change the tag to make a sheet of another set.
 - [ocr-notebook](../../src/marvin/services/automation/recipes/ocr-notebook.json) — **OCR notebook** · verified-current · `asset_uploaded`  
-  When a PDF is uploaded, its text is read page by page (scanned pages by the AI model) and an AI drafts study notes with page references.
+  When a PDF is uploaded, its text is read page by page (scanned pages are read by AI) and AI drafts study notes with page references.
   - PDFs only, so every uploaded photo doesn't cost an AI call; a media step reads a picture's text too (extract_text).
 - [document-preview-factory](../../src/marvin/services/automation/recipes/document-preview-factory.json) — **Document preview factory** · verified-current · `asset_uploaded`  
-  When a PDF is attached to an entry as its download, its first three pages become pictures attached as previews, and page one as the cover.
+  When a PDF is attached to an entry as its download, its first three pages become pictures attached as previews, and page one is also attached as the cover.
   - The cover is page one at 1600 px — its own picture, as an entry links each asset once.
 - [file-format-converter](../../src/marvin/services/automation/recipes/file-format-converter.json) — **File format converter (images)** · verified-current · `asset_uploaded`  
-  Every uploaded JPEG or PNG gets a WebP copy (smaller, same look) saved as a new asset beside it.
+  Every uploaded JPEG or PNG gets a WebP copy, smaller with the same look, saved as a new asset beside it.
   - Images only in this slice: documents, audio and video formats need adapters that don't exist yet.
 - [attribution-companion](../../src/marvin/services/automation/recipes/attribution-companion.json) — **Attribution companion** · verified-current · `asset_attached_to_entry`  
-  When an image with credit and licence metadata is attached to an entry, its credit line is recorded on the entry.
+  When an image with credit and licence details is attached to an entry, its credit line is saved on the entry.
   - Reads the asset through `${asset.metadata.<key>}`: asset events bind the asset as they bind the entry.
 - [duplicate-asset-scout](../../src/marvin/services/automation/recipes/duplicate-asset-scout.json) — **Duplicate asset scout** · verified-current · `asset_uploaded`  
-  When a file is uploaded that's already in the library (the same bytes), a notification names the existing copy.
+  When a file is uploaded that is already in the library (an identical file), a notification names the existing copy.
   - Same file = same sha256 checksum; a resized or re-saved copy isn't the same file.
   - It only tells you: keep the copy, or move it to the Trash yourself.
 - [image-prompt-archive](../../src/marvin/services/automation/recipes/image-prompt-archive.json) — **Image prompt archive** · verified-current · `asset_attached_to_entry`  
-  When a generated picture is attached to an entry, the entry records the prompt, model and integration that made it (and the picture keeps them too).
+  When a generated picture is attached to an entry, the entry records the prompt, model and connection that made it. The picture keeps them too.
   - Every image an integration step generates already carries generated_by, prompt, model and the run in its own metadata; this copies it onto the entry it illustrates.
 - [watermark-new-pictures](../../src/marvin/services/automation/recipes/watermark-new-pictures.json) — **Watermark new pictures** · verified-current · `asset_attached_to_entry`  
-  When a picture is attached to an entry in its main role, a watermarked copy (your text, in a corner or tiled) is made and attached beside it as <role>-watermarked.
+  When a picture is attached to an entry in its main role, a watermarked copy with your text, in a corner or tiled, is made and attached beside it. It uses the role name followed by -watermarked.
   - Position: a corner, center, or tiled (repeated diagonally so it can't be cropped away); opacity and size can be set on the step.
   - The original stays attached too: point your site or posts at the <role>-watermarked picture.
 - [watermark-a-set](../../src/marvin/services/automation/recipes/watermark-a-set.json) — **Watermark a set of pictures** · verified-current · `manual`  
-  Run it: every picture with your tag gets a watermarked copy (your text, in a corner or tiled), kept as a version of the original.
+  Every picture with your tag gets a watermarked copy with your text, in a corner or tiled, kept as a version of the original. You run this by hand.
   - Position: a corner, center, or tiled (repeated diagonally so it can't be cropped away); opacity and size can be set on the step.
   - Versions (other copies) are left out unless the target asks for them.
 - [suggest-entry-image](../../src/marvin/services/automation/recipes/suggest-entry-image.json) — **Suggest an image for new entries** · verified-current · `entry_created`  
-  When a new entry of the chosen type has no image, the AI reads it and saves a one-or-two-sentence description of the photograph that should accompany it, in the entry's metadata. Nothing is generated and nothing is spent but the one AI call.
+  When a new entry of your chosen type has no image, AI reads it and saves a short description of the photo that should go with it. The description is saved on the entry. Nothing is generated.
   - The conditions read `not … exists` groups: skipped when the entry already has an image or already has a suggestion (so a replay never writes twice).
   - The prompt keeps to what the entry says: no text or logos in the picture, no people's faces, nothing invented.
   - Pairs with Create an image for this entry, which reads the same metadata key.
 - [create-entry-image](../../src/marvin/services/automation/recipes/create-entry-image.json) — **Create an image for this entry** · verified-current · `manual`  
-  Run it on an entry (the Run button, an agent's run_workflow, or an MCP client): once an editor approves, any connected image generator makes one picture from the entry's saved suggestion, kept as an asset and attached to the entry as the chosen role for review. When the entry has no suggestion yet, the AI writes and saves it first.
+  Run it on an entry. Once an editor approves, your image generator makes one picture from the entry's saved suggestion. The picture is added to your assets and attached to the entry for review. If there's no suggestion yet, AI writes and saves one first.
   - Run inputs: the Run button asks for the entry; an agent's run_workflow (or marvin_run_workflow over MCP) passes it as `inputs: {entry: <id or slug>}`. Agents can't generate images themselves: they ask this workflow.
   - The picture lands on the entry in the chosen role for review before anything is published.
   - The step names a capability, so it works with any connection that can generate images. A connection whose generate action asks for approval (OpenAI Images) runs it after the Approval step.
@@ -406,106 +406,106 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 ### Playful experiments
 
 - [comic-strip-edition](../../src/marvin/services/automation/recipes/comic-strip-edition.json) — **Comic strip edition** · verified-current · `manual`  
-  Run by hand: the AI retells each published entry as four captions; once an editor approves, a four-panel comic is rendered (the entry's picture in the first panel) and attached.
+  The AI retells each published entry as four captions. Once an editor approves, a four-panel comic is made, with the entry's picture in the first panel, and attached. You run this by hand.
   - Panels 2–4 are halftone fills; drawn panels need image generation (OpenAI Images) per panel, a later step.
 - [marvin-margin-notes](../../src/marvin/services/automation/recipes/marvin-margin-notes.json) — **Marvin margin notes** · verified-current · `manual`  
-  Run it on your drafts of one type: each gets a short, dry, faintly pessimistic margin note in a voice you describe, kept in its metadata.
+  Each draft of the type you choose gets a short, dry, faintly pessimistic margin note in a voice you describe, saved on the entry. You run this by hand.
   - A custom AI step (`op: "custom"`): its own prompt and output fields; the answer is checked against them.
 - [ada-explains-it](../../src/marvin/services/automation/recipes/ada-explains-it.json) — **Ada explains it** · verified-current · `entry_published`  
-  A published technical article gets a warm, plain-language explanation drafted as a new entry, clearly marked as an AI adaptation.
+  Each published technical article gets a warm, plain-language explanation drafted as a new entry, clearly marked as an AI adaptation.
   - A custom AI step, then a create step: the new entry is a draft for a person to edit and publish.
 - [retro-poster-machine](../../src/marvin/services/automation/recipes/retro-poster-machine.json) — **Retro poster machine** · verified-current · `manual`  
-  Run by hand: every published project with a picture and no poster yet gets a vintage-style poster with its exact title, attached as poster.
+  When you run it, every published project that has a picture and no poster yet gets a vintage-style poster with its exact title, attached as `poster`.
   - The title is the entry's own, never generated. metadata.poster marks it done; clear it to make another.
 - [trading-card-collection](../../src/marvin/services/automation/recipes/trading-card-collection.json) — **Trading card collection** · verified-current · `entry_updated`  
-  When a project's status field reaches its done value, the AI writes three or four stats from the entry's own facts and a line of flavour text, and a trading card is rendered and attached.
+  When a project's status reaches its done value, the AI writes three or four stats and a line of flavour text from the entry's facts, and a trading card is made and attached.
   - The prompt allows only facts the entry states; check a card before sharing it.
 - [achievement-cabinet](../../src/marvin/services/automation/recipes/achievement-cabinet.json) — **Achievement cabinet** · verified-current · `custom.milestone`  
-  When a project reaches a milestone (a workflow sends your `custom.milestone` event for it), a badge is drafted for it and added to your cabinet collection — once per project and badge.
+  When a project reaches a milestone, a badge is drafted for it and added to your cabinet collection, once per project and badge.
   - Badges are drafts: publish the ones you want shown. The cabinet is a collection, so the site lists it in the collection's order.
   - Send the event from any workflow, e.g. one on entry_updated whose condition is `entry.data.stage` changed to `shipped`: an Emit event step with event custom.milestone and payload {"milestone": "Shipped", "badge": "First release"}. A workflow that sends an event is never woken by it, but another workflow is: that is how one workflow hands work to another.
 - [meme-workshop](../../src/marvin/services/automation/recipes/meme-workshop.json) — **Meme workshop** · verified-current · `manual`  
-  Run by hand: for each published entry with a picture, the AI proposes a kind two-line caption; once an editor approves it, the meme is rendered and attached.
+  When you run it, each published entry with a picture gets a kind two-line caption from the AI, and once an editor approves it the meme is made and attached.
   - One approval per entry — run it on a small set.
 - [choose-your-own-adventure](../../src/marvin/services/automation/recipes/choose-your-own-adventure.json) — **Choose your own adventure** · verified-current · `manual`  
-  Run it on a premise entry: an AI writes a branching adventure as a tree of passages, a schema check confirms every branch offers choices or ends, and only then is it drafted (as JSON in the entry's text field); a story with a branch that goes nowhere stops the run and names the branch.
+  Run on a premise entry, the AI writes a branching adventure, every branch is checked to offer choices or an ending, and only then is it saved as a draft; if a branch leads nowhere, the run stops and names it.
   - Reachability: the story is a tree (each passage is an ending or offers 2–3 choices that lead on), so every passage is reachable from the start by construction and the schema check holds every branch to an ending. A story whose choices loop back to an earlier passage (a graph) can't be written this way, and checking one would need a graph step the engine doesn't have.
   - The draft holds the story as JSON text (passages nested under choices) in the entry type's text field, for a person or a front end to turn into pages.
   - Run inputs: the Run button asks for the premise entry; the agent's run_workflow passes it as `inputs`.
   - Each run drafts a new adventure.
 - [future-newspaper](../../src/marvin/services/automation/recipes/future-newspaper.json) — **Future newspaper** · verified-current · `manual`  
-  Run by hand: each published project gets an imagined front page from ten years on — headline, deck and story written from the entry, under a banner that says it isn't real news.
+  When you run it, each published project gets an imagined front page from ten years on, with a headline, subheading and story written from the entry, under a banner saying it isn't real news.
   - The newspaper template always prints a banner saying the page is imagined.
 - [workshop-field-guide](../../src/marvin/services/automation/recipes/workshop-field-guide.json) — **Workshop field guide** · verified-current · `manual`  
-  Run it on a project: its log entries and pictures are gathered, an AI writes a guide (tools, numbered steps, tips) and it's printed to a multi-page A4 PDF attached to the project.
+  Run on a project, it gathers the project's log entries and pictures, has the AI write a guide (tools, numbered steps, tips), and prints it as a multi-page A4 PDF attached to the project.
   - The printable guide template: ## headings, - lists and 1. steps in the body; the project's pictures at the end.
   - Run inputs: the Run button asks for the project.
 - [color-moodboard](../../src/marvin/services/automation/recipes/color-moodboard.json) — **Color moodboard** · verified-current · `manual`  
-  Up to 12 tagged images become a collage, its main colours are read off, an AI writes short design notes, and all three are rendered as one moodboard.
+  Up to 12 images with your tag become a collage, their main colours are picked out, the AI writes short design notes, and all three are combined into one moodboard.
   - The palette is read from the collage, so it weighs every picture.
 - [soundtrack-brief](../../src/marvin/services/automation/recipes/soundtrack-brief.json) — **Soundtrack brief** · verified-current · `manual`  
-  Run it on stories of one type: each gets a soundtrack suggestion — mood, tempo, instruments and a short composer's brief — kept in its metadata.
+  When you run it on stories of one type, each gets a soundtrack suggestion (mood, tempo, instruments and a short brief for a composer), saved on the entry.
   - A custom AI step (`op: "custom"`): its own prompt and output fields; the answer is checked against them.
 - [alternate-universe-cover](../../src/marvin/services/automation/recipes/alternate-universe-cover.json) — **Alternate universe cover** · verified-current · `entry_published`  
-  When an entry is published, an editor is asked whether to make an alternate-universe cover; once approved, OpenAI Images draws it, the editor sees the picture and decides whether to use it, and only then is it attached to the entry as cover-variant.
+  When an entry is published, an editor is asked whether to make an alternate-universe cover. If they approve, OpenAI Images draws it, the editor reviews the picture, and only then is it attached as the cover variant.
   - Two approvals: the first spends the image, the second shows it (the approval step's `image`) and attaches it only on a yes — so an editor judges the actual picture, not the idea.
 - [time-capsule](../../src/marvin/services/automation/recipes/time-capsule.json) — **Time capsule** · verified-current · `entry_published`  
-  When a project is first published, what it says is sealed on the entry; months later (you choose, up to a year) a look back comparing then and now is drafted.
+  When a project is first published, what it says is sealed on the entry. After the time you choose (up to a year), a draft looking back at then and now is created.
   - The look back reads the entry as it is when the capsule opens, beside the sealed text.
   - The sealed text is kept in the entry's metadata, so it can be read (or edited) on the entry page.
   - Editing the workflow while capsules wait is fine: each opens with the steps as they are then.
 - [surprise-remix-button](../../src/marvin/services/automation/recipes/surprise-remix-button.json) — **Surprise remix button** · verified-current · `manual`  
-  Run it, pick an entry and one of the remixes you set up (a haiku, a fairy tale…): an AI retells the entry in that form as a new draft.
+  When you run it, you pick an entry and one of your remixes (a haiku, a fairy tale and so on), and the AI retells the entry in that form as a new draft.
   - Run inputs: the Run button asks for the entry and the remix; the agent's run_workflow passes them as `inputs`.
 - [fictional-debate-club](../../src/marvin/services/automation/recipes/fictional-debate-club.json) — **Fictional debate club** · verified-current · `manual`  
-  Run it on your published entries: each gets a short, clearly fictional dialogue between viewpoints you choose, as a new draft.
+  When you run it on your published entries, each gets a short, clearly fictional dialogue between the viewpoints you choose, saved as a new draft.
   - A custom AI step, then a create step: the new entry is a draft for a person to edit and publish.
 
 ### Operations and knowledge
 
 - [client-handoff](../../src/marvin/services/automation/recipes/client-handoff.json) — **Client handoff** · verified-current · `entry_updated`  
-  When an entry's status changes to the configured ready status it is posted to the client's intake endpoint; the endpoint's JSON response is stored on the entry as the receipt.
+  When an entry's status changes to your chosen ready status, it is sent to the client's intake address, and the reply is saved on the entry as the receipt.
   - `ready_status` must be one of Marvin's statuses (needs_review, approved, published); `changed_to` fires once on the transition.
   - The whole `entry.data` object is sent — review what the type's fields contain before enabling.
   - Idempotency keys exist (2026-10-18): an `idempotency_key` on the webhook step such as `handoff-${entry.id}` would make the call once per window; this recipe doesn't set one.
 - [agent-directory-intake](../../src/marvin/services/automation/recipes/agent-directory-intake.json) — **Agent directory intake** · verified-current · `form_submission_received`  
-  A form submission naming an agent's capability document: the page is fetched, its JSON is checked against your schema, the problems (or a clean bill) are recorded on the submission, it goes to review and a notification says which.
+  When a form submission names an agent's capability document, the page is fetched and checked against your rules, the problems (or a clean result) are noted on the submission, it goes to review, and a notification says which.
   - Possible today (partial): form-intake-desk covers the intake half (record, review, notify) when no document needs checking.
   - The “sandbox checks” of the idea (running the agent) are not part of this: the check is the document's shape — required fields, types, patterns — never a call to the agent itself.
   - The schema is a setup variable (a JSON Schema object, Draft 2020-12). To keep it in one place for several workflows, put it in a resource's metadata under `schema` and use schema_resource in the step instead.
   - Formats (email, uri…) are not asserted; use a `pattern`. A page's JSON is read up to 20 000 characters; a larger document is reported as not read.
 - [resource-availability-watch](../../src/marvin/services/automation/recipes/resource-availability-watch.json) — **Resource availability watch** · verified-current · `schedule`  
-  Every morning, each resource of a type with a URL has its page checked; one that doesn't answer or says it's sold out sends a notification.
+  Every morning, each resource of your chosen type that has a web address is checked, and any page that doesn't answer or says it's sold out triggers a notification.
   - `find` looks for the phrase on the page ignoring case (Sold Out, SOLD OUT).
   - It notifies every morning while a resource stays unavailable — it reports a state, not a change.
 - [project-milestone-report](../../src/marvin/services/automation/recipes/project-milestone-report.json) — **Project milestone report** · verified-current · `entry_updated`  
-  When a project is marked finished, its log entries (the ones whose field names it) and its linked materials are gathered and an AI drafts a project report.
+  When a project is marked finished, its log entries and linked materials are gathered and the AI drafts a project report.
   - A log entry belongs to the project when its field holds the project's slug (`data: {project: ${entry.slug}}`).
   - Materials are the resources linked to the project, in its order (`entry: ${entry.id}`).
 - [knowledge-gap-finder](../../src/marvin/services/automation/recipes/knowledge-gap-finder.json) — **Knowledge gap finder** · verified-current · `manual`  
-  The published pieces of a collection are gathered and an AI proposes three to five topics it's missing, saved as a draft backlog.
+  The published pieces in a collection are gathered, and the AI suggests three to five missing topics, saved as a draft backlog.
   - Up to 100 pieces, in the collection's order; the AI sees each title, summary and link.
 - [meeting-notes-to-tasks](../../src/marvin/services/automation/recipes/meeting-notes-to-tasks.json) — **Meeting notes to tasks** · verified-current · `entry_created`  
-  New meeting notes have their commitments pulled out; once an editor approves, they become a draft task list.
+  New meeting notes have their commitments pulled out, and once an editor approves, they become a draft task list.
   - An approval step parks the run; Automation → Approvals and a push ask the editors; the steps after it read ${steps.ok.output.decision}.
 - [release-notes-compiler](../../src/marvin/services/automation/recipes/release-notes-compiler.json) — **Release notes compiler** · verified-current · `manual`  
-  Entries changed since a date (relative, like -14d) are gathered and an AI groups them into release notes, saved as a draft entry.
+  Entries changed since a chosen date are gathered, and the AI groups them into release notes saved as a draft entry.
   - Up to 50 entries, most recently changed first; the AI sees each title, summary and link.
 - [intake-triage](../../src/marvin/services/automation/recipes/intake-triage.json) — **Intake triage** · verified-current · `form_submission_received`  
-  A new form submission is triaged by AI — what it asks, which of your queues, how urgent, and the questions to ask back with a draft reply — then sent to Needs review with that as the reason.
+  A new form submission is triaged by the AI (what it asks, which of your queues it fits, how urgent it is, questions to ask back and a draft reply), then sent to Needs review with that as the reason.
   - The submission's text is sent to the workspace's AI provider — say so in the form's privacy note.
   - Nothing is sent to the requester: the reply is a draft in metadata.triage.reply_draft.
 - [failure-repair-desk](../../src/marvin/services/automation/recipes/failure-repair-desk.json) — **Failure repair desk** · verified-current · `on_error` (`automation_failed`)  
-  When any workflow run fails on an entry and the integration's error policy did not handle it, the entry is sent to Needs review with the workflow name and error as the reason.
+  When a workflow run fails on an entry and the integration's error handling didn't cover it, the entry goes to Needs review, with the workflow name and error as the reason.
   - The on_error trigger listens to `automation_failed`; the failed run names its entry as `event.trigger_entity_type/id`, which the entry step targets explicitly (`entity_id`).
   - A “repair task” in an external tool is one more step away: add an n8n `trigger_workflow` step (see editorial-task-maker).
   - The native `workflow_failed` alert (Automation → Notifications) already emails/pushes admins once per incident; this recipe adds the in-content flag.
 - [publication-ledger](../../src/marvin/services/automation/recipes/publication-ledger.json) — **Publication ledger** · verified-current · `entry_published`  
-  Every publication of the configured type records who published, the run's correlation id, the URL and slug in the entry's metadata; the run history holds the per-step record.
+  Each time an entry of your chosen type is published, who published it, the link and the entry's last part of the web address are saved on the entry; the run history holds the step-by-step record.
   - “Expose execution history” exists natively: GET /api/automations/{id}/executions (+ /{execution_id}) lists runs, steps, outputs and retry chains; `run` here is the correlation id shared with the event log.
   - There is no timestamp template; the run history and event log carry the time.
 - [archive-packager](../../src/marvin/services/automation/recipes/archive-packager.json) — **Archive packager** · verified-current · `manual`  
-  Run it with a collection: its published entries — each with its attached files and facts — are bundled in collection order into a ZIP with a manifest.
+  When you run it with a collection, its published entries, with their attached files and facts, are bundled in collection order into a ZIP file with a contents list.
   - Each entry is a folder: its files and entry.json (its facts and text); manifest.json lists everything.
   - Run inputs: the Run button asks for the collection.
 - [personal-project-radar](../../src/marvin/services/automation/recipes/personal-project-radar.json) — **Personal project radar** · verified-current · `schedule`  
@@ -515,89 +515,89 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 ### Event-driven extensions
 
 - [blocked-publication-rescue](../../src/marvin/services/automation/recipes/blocked-publication-rescue.json) — **Blocked publication rescue** · verified-current · `entry_scheduled_publish_blocked`  
-  When a scheduled publish is held (unmet requirements, expiry, or approval-only publishing) the entry is sent to Needs review with the exact reason and an editor is notified with a link.
+  When a scheduled publish is held (requirements not met, expired, or approval-only publishing), the entry goes to Needs review with the exact reason, and an editor is notified with a link.
   - entry_scheduled_publish_blocked is sent once per distinct reason (and again after an edit), not every 5 minutes — so this does not spam.
   - Marvin already pushes this event to people with the app (services/push_notifications.py); this recipe adds the in-content flag and a channel notice.
   - `event.waiting_for` is `requirements` or `approval`; `event.reason` is the one-line explanation, `event.issues` the list.
 - [form-intake-desk](../../src/marvin/services/automation/recipes/form-intake-desk.json) — **Form intake desk** · verified-current · `form_submission_received`  
-  A public submission to the configured entry type is stamped with intake facts, sent to Needs review for triage, and the owner is notified with the message.
+  A public submission to your chosen entry type is stamped with intake details, sent to Needs review for triage, and the owner is notified with the message.
   - To classify submissions (spam, category, sentiment) as they arrive, use form-submission-sorter, which sorts with an AI step; this desk stays free of AI.
   - Marvin already creates the entry (status inbox, or needs_review when protection flagged it) and pushes form_submission_received to people with the app.
   - Legacy Forms (the Forms table) also send this event, but with no entry — the `entry.entry_type` condition keeps the recipe to submittable entry types.
 - [form-submission-sorter](../../src/marvin/services/automation/recipes/form-submission-sorter.json) — **Form submission sorter** · verified-current · `form_submission_received`  
-  A new submission is classified by AI — its category, whether it is spam, its sentiment, whether it needs a reply — recorded on the entry, and sent to Needs review when it looks like spam or needs action.
+  A new submission is sorted by the AI (category, spam or not, sentiment, whether it needs a reply), the result is saved on the entry, and spam or action-needed submissions go to Needs review.
   - The submission's text is sent to the workspace's AI provider — say so in the form's privacy note.
   - The classification is the AI's opinion: spam is sent to Needs review, never trashed. A submission that is neither spam nor needs action stays in Inbox with metadata.classified for a view or a later workflow.
   - It reads ${form_submission.*} (the submission as the public form saved it); the classify-form-submission step finds it itself.
 - [submission-surge-alert](../../src/marvin/services/automation/recipes/submission-surge-alert.json) — **Submission surge alert** · verified-current · `submission_surge_detected`  
-  When one form receives an unusual burst of submissions, the form owner is notified with the counts; nothing is deleted.
+  When one form gets an unusual burst of submissions, the form owner is notified with the counts. Nothing is deleted.
   - The event has no entry (entity_type entry_type); entry steps would fail here. The counts come straight from `$event.submission_count / threshold / window_minutes`.
 - `host-rebuild-dispatch` — **Host rebuild dispatch** · supported-after-configuration · subscription: `webhook_triggered`  
-  Once Marvin's coalesced rebuild is sent (webhook_triggered, “Site Rebuild Sent”), your host's deploy hook is called — through an event-driven outgoing webhook or an integration action subscription, never a workflow.
+  After Marvin sends its combined site rebuild, your host's deploy hook is called, using an outgoing webhook or an integration action rather than a workflow.
   - webhook_triggered is NOT a workflow trigger (event catalog `triggerable=False`); a workflow with `event: webhook_triggered` passes structural validation but never fires — the authoring validator rejects it.
   - Do not also subscribe to entry_updated or site_rebuild_queued: that is the double-deployment path the brief warns about.
 - [deployment-celebration](../../src/marvin/services/automation/recipes/deployment-celebration.json) — **Deployment celebration** · verified-current · `site_deployment_completed`  
-  When the host reports a successful deployment (site_deployment_completed) a success notice with the site URL and deployment id is sent.
+  A success notice with the site address and deployment reference is sent when your host reports a successful deployment.
   - “Optionally draft a release announcement” needs a create-entry action (roadmap).
   - No host reports deployments to Marvin by itself: there is no dedicated callback endpoint; the incoming webhook + emit_event pair is the path.
   - Blocked by: `create-entry` (to draft the announcement)
 - [deployment-failure-desk](../../src/marvin/services/automation/recipes/deployment-failure-desk.json) — **Deployment failure desk** · verified-current · `site_deployment_failed`  
-  When the host reports a failed deployment (site_deployment_failed) the maintainer is notified with the error, deployment id and site.
+  The maintainer is notified, with the error, deployment reference and site, when your host reports a failed deployment.
   - A repair task is one n8n step away (see editorial-task-maker); creating a Marvin entry for it needs the create-entry action.
   - Blocked by: `create-entry` (to open a repair task entry)
 - [integration-health-companion](../../src/marvin/services/automation/recipes/integration-health-companion.json) — **Integration health companion** · verified-current · `integration_attention_needed`  
-  When a connection needs attention, a repair task is drafted for it — once per connection and error code while the task is open; Marvin's own alerts (with reminders) still reach your channels.
+  A repair task is drafted when a connection needs attention. You get one per connection and error while its task is still open. Marvin's own alerts, with reminders, still reach your channels.
   - Marvin's alerts are unchanged: the Notifications page still sends the alert, its reminders and the “working again” note; this recipe adds the task beside them, so nothing is duplicated.
   - The task is a draft: the person who fixes the connection archives it. `integration_attention_resolved` is triggerable too, for a second workflow that closes tasks.
 - `connection-recovery-log` — **Connection recovery log** · supported-after-configuration · subscription: `integration_attention_resolved`  
-  When a connection that needed attention works again, the recovery is delivered to every channel that got the alert (native) and, optionally, recorded by an external log sink.
+  When a connection that needed attention works again, the recovery notice goes to every channel that got the alert. It can also be recorded by an external log service.
   - The recovery notice itself is native (services/integrations/errors.py `resolved_channel_rows`): nothing to configure for the channels that delivered the alert.
 - [webhook-repair-desk](../../src/marvin/services/automation/recipes/webhook-repair-desk.json) — **Webhook repair desk** · verified-current · `webhook_delivery_failed`  
-  When an outgoing webhook fails after its retries, a repair task is drafted for it on this workspace's own entries — once per webhook while the task is open.
+  A repair task is drafted in this workspace when an outgoing webhook still fails after its retries. You get one per webhook while its task is still open.
   - The webhook's own delivery log (Automation → Webhooks → Log, or GET /api/groups/webhooks/{id}/logs) is the repair context; the task names the webhook and the event it couldn't deliver.
   - The publisher never announces a failed delivery of `webhook_delivery_failed` itself, so a webhook subscribed to it can't make this fire again.
 - `scheduled-task-watchdog` — **Scheduled task watchdog** · supported-after-configuration · subscription: `scheduled_task_failed`  
-  A failing scheduled task alerts once per incident and announces its recovery; the task's history is the repair context.
+  A failing scheduled task sends one alert per problem, then announces when it recovers. The task's history shows what to repair.
   - The alert is native, one per incident. A workflow can start on `scheduled_task_failed` (the workspace's own tasks; a platform task belongs to no workspace) and reads `${event.task_name}`, `${event.error_message}` and `${event.consecutive_failures}`; it would run on every failed run, so gate it on `event.consecutive_failures`. A workflow run on a schedule that fails reports through `automation_failed` (the `workflow_failed` kind), not here.
 - `ai-spending-heads-up` — **AI spending heads-up** · supported-after-configuration · subscription: `ai_budget_threshold_reached`  
-  When the workspace crosses its AI budget warning percentage, admins get an email with the spend and limit.
+  Admins get an email with the spend and limit when the workspace reaches its AI budget warning level.
   - A workflow can start on this event (`${event.current_value}`, `${event.limit_value}`, `${event.percent}`). “Propose cheaper options” is a concept (would need the model list and pricing as event fields).
 - `ai-budget-pause-desk` — **AI budget pause desk** · supported-after-configuration · subscription: `ai_budget_exceeded`  
-  When the AI budget is exceeded admins are told; Marvin itself already refuses new AI runs (including workflow operation steps) until the month rolls over or the limit changes.
+  Admins are told when the AI budget is used up. Marvin already refuses new AI runs, including workflow AI steps, until the month rolls over or the limit changes.
   - The pause is native (services/ai/budget.py `blocked_reason`); there is no workflow action to pause or resume AI. “Identify blocked work” = the AI executions list filtered by failed.
 - `ai-quota-recovery-desk` — **AI quota recovery desk** · supported-after-configuration · subscription: `ai_provider_quota_exceeded`  
-  When the AI provider reports its quota exhausted, admins are told which operation hit it.
+  Admins are told which operation hit the limit when the AI provider reports its quota used up.
   - “Suggest configured provider alternatives” is a concept; the event carries provider_type and operation_slug only.
 - `agent-approval-inbox` — **Agent approval inbox** · supported-after-configuration · subscription: `approval_requested`  
-  People get a push notification with Approve / Deny when an agent asks for a tool approval; nothing approves automatically.
+  People get a push notification with Approve and Deny buttons when an agent asks for approval to use a tool. Nothing is approved automatically.
   - These are agent tool-call approvals; they are not a pause for arbitrary workflow steps (roadmap: workflow-approvals).
 - [collection-welcome-mat](../../src/marvin/services/automation/recipes/collection-welcome-mat.json) — **Collection welcome mat** · verified-current · `entry_added_to_collection`  
-  An entry added to the configured collection that has no summary gets one from AI (applied to drafts, staged as a suggestion for anything further along) — so the collection always reads well.
+  An entry added to your chosen collection without a summary gets one from AI, so the collection always reads well. Drafts are updated directly. Entries further along get a suggestion to review.
   - A narrower reading of the brief: the entry's summary is refreshed, not the collection's (a collection has no summary field and no step can read a collection's entries). A themed roundup needs collection-scope + create-entry.
   - The event carries `collection_name` (not the slug), so the condition compares the name.
   - Blocked by: `collection-scope` (a summary of the collection itself); `create-entry` (a roundup draft)
 - [resource-attachment-notes](../../src/marvin/services/automation/recipes/resource-attachment-notes.json) — **Resource attachment notes** · verified-current · `entry_resource_attached`  
-  When a resource is linked to an entry, the AI writes a short note on what it brings to that entry (material, technique, supplier), kept in the entry's metadata.
+  When a resource is linked to an entry, AI writes a short note on what it adds to that entry, such as material, technique or supplier. The note is saved on the entry.
   - A custom AI step (`op: "custom"`): its own prompt and output fields; the answer is checked against them.
 - [entry-schema-impact-report](../../src/marvin/services/automation/recipes/entry-schema-impact-report.json) — **Entry schema impact report** · verified-current · `entry_type_updated`  
-  When an entry type's fields change, its entries that no longer pass its rules are listed in a notification, each with the rule it breaks.
+  When an entry type's fields change, a notification lists the entries that no longer meet its rules, with the rule each one breaks.
   - It checks the entries against the type as it is now (after the change), up to 1,000 of them; up to 50 are listed.
   - Those entries keep their content; saving one asks for the fix.
 - [asset-attachment-social-kit](../../src/marvin/services/automation/recipes/asset-attachment-social-kit.json) — **Asset attachment social kit** · verified-current · `asset_attached_to_entry`  
-  When an image is attached to an entry, the AI looks at it and drafts a social caption plus square and story crop suggestions, kept in the entry's metadata.
+  When an image is attached to an entry, AI looks at it and drafts a social caption plus square and story crop suggestions, saved on the entry.
   - A custom AI step (`op: "custom"`): its own prompt and output fields; the answer is checked against them.
 - [new-member-welcome](../../src/marvin/services/automation/recipes/new-member-welcome.json) — **New member welcome** · verified-current · `member_added`  
-  When someone joins the workspace they get a welcome email addressed to them — hello by name, the role they joined as, your note on where to start, and a button for their role (the workspace for anyone who can write, the site for a reader). Sent once per person.
+  Each new workspace member gets one welcome email with their name, their role, your note on where to start, and a button for their role. Writers go to the workspace, readers to the site.
   - The member is addressed by their user id (${member.id}); the email goes to the address on their account, never to one typed into the workflow. A recipient who is no member of the workspace fails the step.
   - Two steps, one for each kind of member: anyone above a reader gets a button to the admin app (`${site.app_url}`, the configured FRONTEND_URL), a reader gets one to the public site (`${site.url}`). A button is left out when its address isn't set.
   - `once_per: welcome:${member.id}` makes the welcome once per person, ever — a member removed and added again isn't welcomed twice. Drop it for a welcome per join (the same event handled twice still sends once).
   - The email is the markdown body set in the workspace's email layout (its own, else Marvin's default); invited members already get Marvin's own invitation email, which this doesn't replace.
   - Community welcome pack drafts a welcome from the start-here collection with an AI; this one sends a fixed note.
 - `api-token-rotation-notice` — **API token rotation notice** · supported-after-configuration · subscription: `api_client_token_rotated`  
-  Admins are emailed when an API client's token is rotated; the payload carries the client name and token prefix, never the token.
+  Admins are emailed when an API client's token is rotated. The email names the client and the start of the token, never the whole token.
   - api_client_* events are workspace-scope and audit-locked (always in the Event Log). Not a workflow trigger.
 - [agent-on-publish](../../src/marvin/services/automation/recipes/agent-on-publish.json) — **An agent drafts from a published entry** · verified-current · `entry_published`  
-  When an entry of a type is published, a named agent — with its own permissions and Playbooks, plus any you add — does a job from it (say, drafts the social posts); what it writes lands as drafts in the Inbox.
+  When an entry of your chosen type is published, an agent does a job from it, such as drafting social posts. The agent uses its own permissions and Playbooks, plus any you add. What it writes lands as drafts in the Inbox.
   - Only the tools the agent's permission matrix sets to Allow are offered: Ask-first tools aren't, so give the agent Entries: author → Allow.
   - The message tells the agent to write the text itself and save it with create_draft: compose_entry and revise_entry use Marvin's own AI, which never loads Playbooks.
   - Put an Approval step after the agent step to gate anything that goes public.
@@ -605,29 +605,29 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 ### Starter examples
 
 - [unpublish-entries-with-images](../../src/marvin/services/automation/recipes/unpublish-entries-with-images.json) — **Move every entry with an image back to draft** · verified-current · `manual`  
-  A manual run selects every published entry that has an image attached and moves each back to draft.
+  Running it by hand moves every published entry that has an image attached back to draft.
   - A manual run skips the trigger gate but a `target` still applies its conditions as the WHERE clause.
   - Dry-run it first: POST /api/automations/{id}/run?dry_run=true lists the entries it would touch.
 - [summarise-and-feature-on-publish](../../src/marvin/services/automation/recipes/summarise-and-feature-on-publish.json) — **Summarise a published entry and add it to a collection** · verified-current · `entry_published`  
-  When an entry of the configured type is published, AI writes (or proposes) a summary and the entry joins the configured collection.
+  When an entry of your chosen type is published, AI writes or suggests a summary, and the entry joins your chosen collection.
   - A published entry is never a draft, so under allow-draft-update the summary is staged as a suggestion, not applied.
 - [hourly-site-rebuild](../../src/marvin/services/automation/recipes/hourly-site-rebuild.json) — **Every hour, rebuild the site** · verified-current · `schedule`  
-  On an interval, a site rebuild is requested; Marvin coalesces requests and sends one webhook_triggered to the deploy target.
+  A site rebuild is requested on a regular timer. Marvin combines requests and sends one call to your deploy target.
   - Interval, cron (in its time zone) and once schedules all fire.
   - The schedule's own run has no event: `${event.*}` is empty and conditions are skipped (a `target` still applies).
 - [archive-entry-from-webhook](../../src/marvin/services/automation/recipes/archive-entry-from-webhook.json) — **A webhook call finds an entry by slug and archives it** · verified-current · `incoming_webhook`  
-  An external system POSTs `{"slug": …}` to an incoming webhook URL; the named entry is archived, or sent to review with the error when it can't be.
+  An outside system sends an entry's address to an incoming webhook, and that entry is archived. If it can't be, the entry goes to review with the error.
   - `webhook: any` matches every incoming webhook of the workspace; name one slug to scope it.
 - [trash-unattached-images](../../src/marvin/services/automation/recipes/trash-unattached-images.json) — **Trash every unattached image** · verified-current · `manual`  
-  A manual run moves every image that no entry uses into the Trash, where it can be restored until the Trash is emptied.
+  Running it by hand moves every image that no entry uses into the Trash. You can restore them until the Trash is emptied.
   - A bare `trash` step acts on the current item: its entity_type follows the target.
   - Dry-run it first: POST /api/automations/{id}/run?dry_run=true lists the assets it would touch.
   - Versions made from an image still in the library (crops, sizes, conversions) are not unattached: they go with their original.
 - [restore-trashed-resources](../../src/marvin/services/automation/recipes/restore-trashed-resources.json) — **Restore all resources in the Trash** · verified-current · `manual`  
-  A manual run takes every trashed resource back out of the Trash.
+  Running it by hand takes every trashed resource out of the Trash.
   - `trashed: true` is the only way a target reaches the Trash; every other query leaves trashed rows out.
 - [asset-upload-announcement](../../src/marvin/services/automation/recipes/asset-upload-announcement.json) — **Post new uploads to a chat channel** · verified-current · `asset_uploaded`  
-  Every upload is announced in a chat channel with its type, name, MIME type and public URL.
+  Every upload is announced in a chat channel with its type, name, file format and public address.
   - `${asset.url}` is the public URL when the storage provider serves one, otherwise empty.
 
 ## Capability gaps

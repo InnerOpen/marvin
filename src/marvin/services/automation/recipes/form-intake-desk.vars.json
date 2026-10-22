@@ -3,7 +3,7 @@
   "variables": {
     "form_entry_type": {
       "type": "entry_type_slug",
-      "description": "Slug of the entry type that takes public submissions (capabilities.submittable).",
+      "description": "The entry type that takes public submissions (it must allow submissions).",
       "example": "contact-request"
     },
     "message_field": {
@@ -13,7 +13,7 @@
     },
     "notify_integration": {
       "type": "integration_slug",
-      "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
+      "description": "The connection used to notify the owner, such as Slack or Apprise (Settings → Integrations).",
       "example": "alerts"
     }
   }

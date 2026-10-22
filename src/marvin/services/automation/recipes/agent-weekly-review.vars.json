@@ -3,22 +3,22 @@
   "variables": {
     "agent": {
       "type": "agent_slug",
-      "description": "The agent that reviews (Settings → AI → Agents). Its permissions must let it save drafts for what it finds: set Entries: author to Allow for it.",
+      "description": "The agent that does the review (Settings → AI → Agents). It needs permission to save drafts: set Entries: author to Allow.",
       "example": "copy-reviewer"
     },
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "The entries reviewed (published and changed in the last 7 days).",
+      "description": "The entry type to review. Only published entries changed in the last 7 days are included.",
       "example": "article"
     },
     "message": {
       "type": "text",
-      "description": "What to check for. The week's changed entries, and the reminder to write each note itself and save it with create_draft, are added for you.",
+      "description": "What to check for. The week's changed entries are added for you, along with a reminder to write each note itself and save it as a draft.",
       "example": "Review them for typos, broken promises in the summary, and anything that breaks the house style."
     },
     "timezone": {
       "type": "text",
-      "description": "The time zone the schedule runs in (IANA name).",
+      "description": "The time zone the schedule runs in, for example `America/New_York`.",
       "example": "America/New_York"
     }
   }

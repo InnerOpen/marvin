@@ -3,7 +3,7 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "Slug of the entry type whose approved entries publish automatically.",
+      "description": "The entry type whose approved entries are published automatically.",
       "example": "article"
     }
   }

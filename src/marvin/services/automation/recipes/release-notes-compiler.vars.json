@@ -8,7 +8,7 @@
     },
     "since": {
       "type": "text",
-      "description": "How far back: a relative date like -14d, or an ISO date.",
+      "description": "How far back to look: a relative time like `-14d`, or a date such as 2026-01-31.",
       "example": "-14d"
     },
     "notes_entry_type": {
@@ -18,7 +18,7 @@
     },
     "body_field": {
       "type": "field_key",
-      "description": "That type's text field.",
+      "description": "The text field on that type.",
       "example": "body"
     }
   }

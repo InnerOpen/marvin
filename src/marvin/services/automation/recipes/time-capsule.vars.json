@@ -3,17 +3,17 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "The entries to seal in a time capsule when they're first published (projects, plans).",
+      "description": "The entries to seal when they are first published, such as projects or plans.",
       "example": "project"
     },
     "body_field": {
       "type": "field_key",
-      "description": "Their text field — what's kept, to compare with later.",
+      "description": "The text field to keep and compare with later.",
       "example": "body"
     },
     "open_after": {
       "type": "text",
-      "description": "How long until the look back: weeks (26w) or days (180d), up to a year.",
+      "description": "How long to wait before the look back: weeks (`26w`) or days (`180d`), up to a year.",
       "example": "26w"
     },
     "voice": {
@@ -28,7 +28,7 @@
     },
     "draft_body_field": {
       "type": "field_key",
-      "description": "That type's text field.",
+      "description": "The text field on that type.",
       "example": "body"
     }
   }

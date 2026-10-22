@@ -3,12 +3,12 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "Slug of the entry type whose publications are summarised and featured.",
+      "description": "The entry type whose published entries are summarised and featured.",
       "example": "recipe"
     },
     "collection_slug": {
       "type": "collection_slug",
-      "description": "Slug (or name) of the collection the entry joins.",
+      "description": "The collection the entry joins.",
       "example": "featured"
     }
   }

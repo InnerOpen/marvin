@@ -3,17 +3,17 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "Which technical articles get an explanation drafted when published.",
+      "description": "The technical articles that get an explanation drafted when published.",
       "example": "article"
     },
     "draft_entry_type": {
       "type": "entry_type_slug",
-      "description": "The entry type the new draft is made as.",
+      "description": "The entry type the new draft is created as.",
       "example": "article"
     },
     "body_field": {
       "type": "field_key",
-      "description": "That type's field for the draft's text.",
+      "description": "The field on that type that holds the draft's text.",
       "example": "body"
     }
   }

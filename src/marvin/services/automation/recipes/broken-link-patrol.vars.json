@@ -3,22 +3,22 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "The published entries whose links are checked.",
+      "description": "The entry type whose published entries are checked.",
       "example": "article"
     },
     "body_field": {
       "type": "field_key",
-      "description": "Their text field (markdown or HTML).",
+      "description": "The text field to check for links (Markdown or HTML).",
       "example": "body"
     },
     "notify_integration": {
       "type": "integration_slug",
-      "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
+      "description": "A connection that can send notifications, such as Slack or Apprise (Settings → Integrations).",
       "example": "alerts"
     },
     "timezone": {
       "type": "text",
-      "description": "The time zone the schedule runs in (IANA name).",
+      "description": "The time zone the schedule runs in, for example `America/New_York`.",
       "example": "America/New_York"
     }
   }

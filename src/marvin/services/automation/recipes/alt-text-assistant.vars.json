@@ -3,7 +3,7 @@
   "variables": {
     "image_context": {
       "type": "text",
-      "description": "Where these images are used, so the alt text fits (sent to the AI with each image).",
+      "description": "Where these images are used, so the alt text fits. It is sent to the AI with each image.",
       "example": "Photos of finished artwork on an artist's portfolio site"
     }
   }

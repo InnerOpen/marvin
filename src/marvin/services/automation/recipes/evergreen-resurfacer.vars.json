@@ -3,7 +3,7 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "The entries to resurface (published over a year ago).",
+      "description": "The entry type to resurface. Entries published over a year ago are considered.",
       "example": "article"
     },
     "notes_entry_type": {
@@ -13,12 +13,12 @@
     },
     "body_field": {
       "type": "field_key",
-      "description": "That type's text field.",
+      "description": "The text field of that type.",
       "example": "body"
     },
     "timezone": {
       "type": "text",
-      "description": "The time zone the schedule runs in (IANA name).",
+      "description": "The time zone the schedule runs in, for example `America/New_York`.",
       "example": "America/New_York"
     }
   }

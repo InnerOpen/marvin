@@ -720,10 +720,13 @@ GIST = 110  # characters of a recipe's outcome in the examples list
 
 
 def _gist(text: str) -> str:
-    """A recipe's outcome cut to its first clause, or to a word boundary near GIST characters, marked "…" when cut."""
+    """A recipe's outcome cut to its first sentence or clause, or to a word boundary near GIST characters, marked "…" when
+    cut mid-sentence (the plain-language outcomes are short sentences: the first one is the gist)."""
     if len(text) <= GIST:
         return text
     head = text[:GIST]
+    if (at := head.find(". ")) > GIST // 3:
+        return head[: at + 1]
     for stop in ("; ", " — ", ", "):
         if (at := head.find(stop)) > GIST // 2:
             return head[:at] + "…"

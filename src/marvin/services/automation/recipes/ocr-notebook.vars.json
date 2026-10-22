@@ -8,7 +8,7 @@
     },
     "notes_body_field": {
       "type": "field_key",
-      "description": "That type's text field.",
+      "description": "The text field on that entry type where the notes go.",
       "example": "body"
     }
   }

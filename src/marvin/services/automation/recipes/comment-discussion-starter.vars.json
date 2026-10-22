@@ -3,17 +3,17 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "Slug of the entry type whose publications open a discussion.",
+      "description": "The entry type whose published entries open a discussion.",
       "example": "article"
     },
     "forum_webhook_id": {
       "type": "webhook_id",
-      "description": "Id of the outgoing webhook (type `workflow`) that creates a topic in your forum; its headers carry the forum API key as a {{SECRET}} reference.",
+      "description": "The outgoing webhook (Settings → Webhooks, type `workflow`) that creates a topic in your forum. Keep the forum's API key in its headers as a secret reference.",
       "example": "<uuid of the outgoing webhook>"
     },
     "discussion_url_path": {
       "type": "text",
-      "description": "Dotted path, inside the forum's JSON response, of the new discussion's URL.",
+      "description": "Where the new topic's link appears in the forum's reply, written as a dotted path such as `topic_url`.",
       "example": "topic_url"
     }
   }

@@ -3,7 +3,7 @@
   "variables": {
     "compare_tag": {
       "type": "text",
-      "description": "Tag the versions to compare with their originals.",
+      "description": "The tag on the versions to compare with their originals.",
       "example": "compare"
     }
   }

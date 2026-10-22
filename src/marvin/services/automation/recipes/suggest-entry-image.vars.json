@@ -3,17 +3,17 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "The entry type that should always carry an image.",
+      "description": "The entry type that should always have an image.",
       "example": "article"
     },
     "style_note": {
       "type": "text",
-      "description": "The look of the photo you want, in a few words. Leave it blank for no particular style.",
+      "description": "The look you want for the photo, in a few words. Leave blank for no particular style.",
       "example": "documentary workshop photo, warm light"
     },
     "suggestion_key": {
       "type": "text",
-      "description": "The metadata key the suggestion is saved under (the Create-an-image recipe reads the same key).",
+      "description": "The name of the field on the entry where the suggestion is saved. The 'Create an image' recipe reads the same one.",
       "example": "image_suggestion"
     }
   }

@@ -3,7 +3,7 @@
   "variables": {
     "incoming_webhook": {
       "type": "incoming_webhook_slug",
-      "description": "Slug of the incoming webhook that carries `{\"slug\": …}` in its body, or `any`.",
+      "description": "The incoming webhook that receives the entry's address, or `any`.",
       "example": "any"
     }
   }

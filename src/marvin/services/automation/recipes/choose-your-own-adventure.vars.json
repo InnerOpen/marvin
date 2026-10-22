@@ -8,7 +8,7 @@
     },
     "draft_body_field": {
       "type": "field_key",
-      "description": "That type's text field; the story is saved in it as JSON.",
+      "description": "The text field on that type. The story is saved there in a structured form.",
       "example": "body"
     }
   }

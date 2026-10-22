@@ -3,12 +3,12 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "Slug of the entry type whose published entries are mirrored elsewhere.",
+      "description": "The entry type whose published entries are copied elsewhere.",
       "example": "article"
     },
     "refresh_webhook_id": {
       "type": "webhook_id",
-      "description": "Id of the outgoing webhook (type `workflow`) that tells the external copy or search index to re-fetch the entry.",
+      "description": "The outgoing webhook (Settings → Webhooks, type `workflow`) that tells the outside copy or search index to fetch the entry again.",
       "example": "<uuid of the outgoing webhook>"
     }
   }

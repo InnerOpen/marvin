@@ -3,17 +3,17 @@
   "variables": {
     "notify_integration": {
       "type": "integration_slug",
-      "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
+      "description": "The connection used to send notifications, such as Slack or Apprise (Settings → Integrations).",
       "example": "alerts"
     },
     "min_width": {
       "type": "integer",
-      "description": "Narrowest acceptable width in pixels.",
+      "description": "The narrowest acceptable width, in pixels.",
       "example": 1200
     },
     "min_sharpness": {
       "type": "integer",
-      "description": "Lowest acceptable sharpness (blurry pictures often score under 100; check a few of yours with an Inspect step).",
+      "description": "The lowest acceptable sharpness score. Blurry pictures often score under 100, so check a few of yours first.",
       "example": 60
     }
   }

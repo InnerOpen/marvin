@@ -3,17 +3,17 @@
   "variables": {
     "credit_key": {
       "type": "text",
-      "description": "The asset metadata key holding who made it (photographer, artist).",
+      "description": "The detail on the image that holds who made it (photographer or artist).",
       "example": "credit"
     },
     "license_key": {
       "type": "text",
-      "description": "The asset metadata key holding its licence.",
+      "description": "The detail on the image that holds its licence.",
       "example": "license"
     },
     "credit_metadata_key": {
       "type": "text",
-      "description": "The entry metadata key the credit line is written to.",
+      "description": "The detail on the entry where the credit line is saved.",
       "example": "image_credit"
     }
   }

@@ -3,7 +3,7 @@
   "variables": {
     "tag": {
       "type": "text",
-      "description": "Tag on the pictures to set in a scene (run it, and each tagged picture is asked about).",
+      "description": "The tag on the pictures to place in a scene. Each tagged picture is checked with you when you run this.",
       "example": "product"
     },
     "scene": {
@@ -13,7 +13,7 @@
     },
     "image_integration": {
       "type": "integration_slug",
-      "description": "Slug of a connected OpenAI Images integration (it needs v0.3.0+ for edit).",
+      "description": "Your OpenAI Images connection (Settings → Integrations). It needs version 0.3.0 or later to edit pictures.",
       "example": "openai-images"
     }
   }

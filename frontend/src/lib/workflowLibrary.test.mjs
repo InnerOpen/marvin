@@ -225,7 +225,7 @@ describe("agent recipes' setup", () => {
 
 describe("readiness and search", () => {
   const ready = recipe();
-  const needsSetup = recipe({ id: "a", missing: ["needs a connected n8n integration"] });
+  const needsSetup = recipe({ id: "a", missing: ["needs a connection to n8n"] });
   const elsewhere = recipe({ id: "b", shape: "configuration", status: "supported-after-configuration" });
   const idea = recipe({
     id: "c",

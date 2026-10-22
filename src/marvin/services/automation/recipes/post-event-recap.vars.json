@@ -3,27 +3,27 @@
   "variables": {
     "event_entry_type": {
       "type": "entry_type_slug",
-      "description": "The entry type of events.",
+      "description": "The entry type used for events.",
       "example": "event"
     },
     "event_date": {
       "type": "entry_date",
-      "description": "The event's date: one of its date fields.",
+      "description": "The date field that holds the event's date.",
       "example": "data.date"
     },
     "send_at": {
       "type": "text",
-      "description": "The time of day, the day after, the recap and messages are drafted (workspace time zone).",
+      "description": "The time of day, the day after the event, when the recap and messages are drafted (workspace time zone).",
       "example": "10:00"
     },
     "rsvp_type": {
       "type": "entry_type_slug",
-      "description": "The entry type of RSVPs (one per guest, published once confirmed).",
+      "description": "The entry type used for RSVPs, one per guest and published once confirmed.",
       "example": "rsvp"
     },
     "rsvp_event_field": {
       "type": "field_key",
-      "description": "The RSVP's field naming its event (the event's slug).",
+      "description": "The field on an RSVP that names its event (the last part of the event's web address).",
       "example": "event"
     },
     "voice": {
@@ -38,7 +38,7 @@
     },
     "draft_body_field": {
       "type": "field_key",
-      "description": "That type's text field.",
+      "description": "The text field on that entry type where the note goes.",
       "example": "body"
     }
   }

@@ -3,12 +3,12 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "Entries of this type get a quote card when published.",
+      "description": "The entry type that gets a quote card when published.",
       "example": "article"
     },
     "body_field": {
       "type": "field_key",
-      "description": "The field the quote must come from, word for word (the card is skipped otherwise).",
+      "description": "The field the quote must come from, word for word. The card is skipped if the sentence isn't found there.",
       "example": "body"
     },
     "attribution": {
@@ -18,7 +18,7 @@
     },
     "image_role": {
       "type": "text",
-      "description": "The role an entry's main picture is attached in.",
+      "description": "The role the entry's main picture is attached in.",
       "example": "hero"
     }
   }

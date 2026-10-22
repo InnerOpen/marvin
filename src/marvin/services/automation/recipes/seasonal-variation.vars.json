@@ -3,7 +3,7 @@
   "variables": {
     "tag": {
       "type": "text",
-      "description": "Tag on the pictures to make seasonal versions of (run it, and each tagged picture is asked about).",
+      "description": "The tag on the pictures to make seasonal versions of. Each tagged picture is checked with you when you run this.",
       "example": "product"
     },
     "season": {
@@ -13,12 +13,12 @@
     },
     "season_tag": {
       "type": "text",
-      "description": "Tag for the new versions.",
+      "description": "The tag to put on the new versions.",
       "example": "winter"
     },
     "image_integration": {
       "type": "integration_slug",
-      "description": "Slug of a connected OpenAI Images integration (it needs v0.3.0+ for edit).",
+      "description": "Your OpenAI Images connection (Settings → Integrations). It needs version 0.3.0 or later to edit pictures.",
       "example": "openai-images"
     }
   }

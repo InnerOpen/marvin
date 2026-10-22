@@ -3,12 +3,12 @@
   "variables": {
     "signup_type": {
       "type": "entry_type_slug",
-      "description": "The entry type of your sign-ups (subscribers, members, RSVPs); each published one counts.",
+      "description": "The entry type your sign-ups use (subscribers, members, RSVPs). Each published one counts.",
       "example": "newsletter-signup"
     },
     "audience_name": {
       "type": "text",
-      "description": "What to call them, plural (the card reads “100 subscribers”).",
+      "description": "What to call your sign-ups, in the plural. The card reads, for example, \"100 subscribers\".",
       "example": "subscribers"
     },
     "voice": {
@@ -18,17 +18,17 @@
     },
     "draft_entry_type": {
       "type": "entry_type_slug",
-      "description": "The entry type the thank-you is drafted as.",
+      "description": "The entry type the thank-you post is drafted as.",
       "example": "article"
     },
     "draft_body_field": {
       "type": "field_key",
-      "description": "That type's text field.",
+      "description": "The text field on that entry type where the post goes.",
       "example": "body"
     },
     "footer": {
       "type": "text",
-      "description": "A line at the bottom of the card, e.g. the site.",
+      "description": "A line at the bottom of the card, such as your website address.",
       "example": "gracemartinfranklinart.com"
     }
   }

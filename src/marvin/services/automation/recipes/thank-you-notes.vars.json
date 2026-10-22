@@ -3,22 +3,22 @@
   "variables": {
     "project_type": {
       "type": "entry_type_slug",
-      "description": "The entries whose people get a note when they're published (projects, pieces, releases).",
+      "description": "The entry type whose people get a note when an entry is published (projects, pieces, releases).",
       "example": "project"
     },
     "people_field": {
       "type": "field_key",
-      "description": "Its field naming the people who helped: their entries' slugs, comma-separated.",
+      "description": "The field on that entry type that names the people who helped, as the last part of each person's entry web address, separated by commas.",
       "example": "collaborators"
     },
     "person_type": {
       "type": "entry_type_slug",
-      "description": "The entry type of people.",
+      "description": "The entry type used for people.",
       "example": "person"
     },
     "role_field": {
       "type": "field_key",
-      "description": "Their field saying what they do (so each note can say what they did).",
+      "description": "The field on a person that says what they do, so each note can say what they did.",
       "example": "role"
     },
     "voice": {
@@ -33,7 +33,7 @@
     },
     "draft_body_field": {
       "type": "field_key",
-      "description": "That type's text field.",
+      "description": "The text field on that entry type where the note goes.",
       "example": "body"
     }
   }

@@ -8,7 +8,7 @@
     },
     "timezone": {
       "type": "text",
-      "description": "The time zone the schedule runs in (IANA name).",
+      "description": "The time zone the Monday schedule runs in, such as `America/New_York`.",
       "example": "America/New_York"
     }
   }

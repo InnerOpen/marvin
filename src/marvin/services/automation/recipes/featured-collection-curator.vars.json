@@ -3,7 +3,7 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "Which published entries are considered.",
+      "description": "The entry type whose published entries are considered.",
       "example": "article"
     },
     "collection_slug": {
@@ -13,7 +13,7 @@
     },
     "collection_purpose": {
       "type": "text",
-      "description": "What belongs in it, in a few words (the AI decides against this).",
+      "description": "A few words on what belongs in the collection. The AI judges entries against this.",
       "example": "our best, most useful pieces"
     }
   }

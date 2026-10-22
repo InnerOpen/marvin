@@ -3,12 +3,12 @@
   "variables": {
     "tag": {
       "type": "text",
-      "description": "Tag of the images to recolor (the run works on every image with it).",
+      "description": "The tag on the images to recolor. Every image with this tag is included.",
       "example": "brand"
     },
     "preset": {
       "type": "text",
-      "description": "Colour preset: rustic-warm, warm, cool, muted, or one of the workspace's own media presets.",
+      "description": "The colour preset to use: `rustic-warm`, `warm`, `cool`, `muted`, or one of your workspace's own media presets.",
       "example": "warm"
     }
   }

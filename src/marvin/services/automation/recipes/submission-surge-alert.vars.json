@@ -3,7 +3,7 @@
   "variables": {
     "notify_integration": {
       "type": "integration_slug",
-      "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
+      "description": "The connection used to send the alert, such as Slack or Apprise (Settings → Integrations).",
       "example": "alerts"
     }
   }

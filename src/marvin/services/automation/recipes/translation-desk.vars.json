@@ -3,12 +3,12 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "Which published entries get a translation (the draft is made as the same type).",
+      "description": "The entry type whose published entries get a translation. The draft uses the same type.",
       "example": "article"
     },
     "body_field": {
       "type": "field_key",
-      "description": "That type's field for the text.",
+      "description": "The field that holds the text to translate.",
       "example": "body"
     },
     "language": {

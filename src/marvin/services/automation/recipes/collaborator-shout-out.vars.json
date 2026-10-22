@@ -3,27 +3,27 @@
   "variables": {
     "project_type": {
       "type": "entry_type_slug",
-      "description": "The entries whose people get thanked when they're published (projects, pieces, releases).",
+      "description": "The entry type whose people get thanked when an entry is published (projects, pieces, releases).",
       "example": "project"
     },
     "people_field": {
       "type": "field_key",
-      "description": "Its field naming the people who helped: their entries' slugs, comma-separated.",
+      "description": "The field on that entry type that names the people who helped, as the last part of each person's entry web address, separated by commas.",
       "example": "collaborators"
     },
     "person_type": {
       "type": "entry_type_slug",
-      "description": "The entry type of people (collaborators, makers, guests).",
+      "description": "The entry type used for people (collaborators, makers, guests).",
       "example": "person"
     },
     "consent_field": {
       "type": "field_key",
-      "description": "Their yes/no field: ticked when they're happy to be tagged. Anyone without it ticked is left out.",
+      "description": "The yes/no field on a person that is ticked when they are happy to be tagged. Anyone without it ticked is left out.",
       "example": "ok_to_tag"
     },
     "handle_field": {
       "type": "field_key",
-      "description": "Their field with the handle to tag (e.g. @ada@mastodon.social).",
+      "description": "The field on a person that holds the handle to tag, such as `@ada@mastodon.social`.",
       "example": "handle"
     },
     "voice": {
@@ -33,12 +33,12 @@
     },
     "draft_entry_type": {
       "type": "entry_type_slug",
-      "description": "The entry type the thank-you is drafted as.",
+      "description": "The entry type the thank-you post is drafted as.",
       "example": "article"
     },
     "draft_body_field": {
       "type": "field_key",
-      "description": "That type's text field.",
+      "description": "The text field on that entry type where the post goes.",
       "example": "body"
     }
   }

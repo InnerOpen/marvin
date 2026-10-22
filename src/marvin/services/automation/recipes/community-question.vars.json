@@ -3,12 +3,12 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "Which entries get a discussion question when they are published.",
+      "description": "The entry type whose published entries get a discussion question.",
       "example": "article"
     },
     "announcement_webhook_id": {
       "type": "webhook_id",
-      "description": "The outgoing webhook that posts to your community channel (it receives text, title, url, entry_id).",
+      "description": "The outgoing webhook that posts to your community channel. It receives the question, title, link and entry.",
       "example": "<webhook id>"
     }
   }

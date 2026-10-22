@@ -3,12 +3,12 @@
   "variables": {
     "form_entry_type": {
       "type": "entry_type_slug",
-      "description": "The entry type that takes public submissions (a contact or request form).",
+      "description": "The entry type that takes public submissions, such as a contact or request form.",
       "example": "contact-request"
     },
     "categories": {
       "type": "list",
-      "description": "The kinds of submission you get — the AI puts each in one (a list of words).",
+      "description": "The kinds of submission you get. The AI puts each one in one of these.",
       "example": ["inquiry", "support", "feedback", "other"]
     }
   }

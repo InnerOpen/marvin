@@ -3,22 +3,22 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "Which published entries the debates are about (run it, it goes through each).",
+      "description": "The published entries the debates are about. The workflow goes through each one.",
       "example": "article"
     },
     "viewpoints": {
       "type": "text",
-      "description": "Who argues — two to four viewpoints.",
+      "description": "Who argues: two to four viewpoints.",
       "example": "a hopeful maker, a sceptical accountant"
     },
     "draft_entry_type": {
       "type": "entry_type_slug",
-      "description": "The entry type the new draft is made as.",
+      "description": "The entry type the new draft is created as.",
       "example": "article"
     },
     "body_field": {
       "type": "field_key",
-      "description": "That type's field for the draft's text.",
+      "description": "The field on that type that holds the draft's text.",
       "example": "body"
     }
   }

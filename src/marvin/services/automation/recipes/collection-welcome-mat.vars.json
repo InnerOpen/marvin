@@ -3,7 +3,7 @@
   "variables": {
     "collection_name": {
       "type": "collection_name",
-      "description": "Name of the collection (as shown in Marvin — the event carries the name, not the slug).",
+      "description": "The collection to watch, named as shown in Marvin.",
       "example": "Featured"
     }
   }

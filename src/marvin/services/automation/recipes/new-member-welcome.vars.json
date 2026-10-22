@@ -3,12 +3,12 @@
   "variables": {
     "workspace_name": {
       "type": "text",
-      "description": "What the new member's email calls the workspace (it goes in the subject and the first line).",
+      "description": "What the email calls the workspace. It appears in the subject and first line.",
       "example": "the Studio"
     },
     "welcome_note": {
       "type": "text",
-      "description": "The note they get under the greeting — a line or two on what the place is for and where to start (markdown).",
+      "description": "The note under the greeting. Say what the place is for and where to start (Markdown works).",
       "example": "Glad you're here. Start with the pieces in Start here, and ask in the team thread if you get stuck."
     }
   }

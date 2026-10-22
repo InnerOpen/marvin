@@ -3,22 +3,22 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "The entries to feature (published in the last 30 days, with a picture).",
+      "description": "The entry type to feature. Only entries published in the last 30 days that have a picture are used.",
       "example": "article"
     },
     "title": {
       "type": "text",
-      "description": "The sheet's title.",
+      "description": "The title shown on the grid.",
       "example": "New this month"
     },
     "footer": {
       "type": "text",
-      "description": "A line at the bottom, e.g. the site.",
+      "description": "A line at the bottom of the grid, such as your website address.",
       "example": "gracemartinfranklinart.com"
     },
     "timezone": {
       "type": "text",
-      "description": "The time zone the schedule runs in (IANA name).",
+      "description": "The time zone the monthly run follows, for example `America/New_York`.",
       "example": "America/New_York"
     }
   }

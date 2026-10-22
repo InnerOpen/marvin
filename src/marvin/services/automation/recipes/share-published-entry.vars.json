@@ -8,7 +8,7 @@
     },
     "voice": {
       "type": "text",
-      "description": "How the post should sound.",
+      "description": "How the posts should sound.",
       "example": "warm, plain and a little dry"
     }
   }

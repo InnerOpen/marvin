@@ -3,7 +3,7 @@
   "variables": {
     "find": {
       "type": "list",
-      "description": "What to look for: face, plate, text (personal details such as names and addresses).",
+      "description": "What to look for: `face`, `plate`, or `text` (personal details such as names and addresses).",
       "example": [
         "face",
         "plate",

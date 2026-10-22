@@ -3,17 +3,17 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "Slug of the entry type that is handed to the client.",
+      "description": "The entry type that is handed to the client.",
       "example": "article"
     },
     "ready_status": {
       "type": "status",
-      "description": "The status that means “ready for the client” — one of Marvin's statuses: needs_review, approved, published.",
+      "description": "The status that means ready for the client: `needs_review`, `approved` or `published`.",
       "example": "approved"
     },
     "handoff_webhook_id": {
       "type": "webhook_id",
-      "description": "Id of the outgoing webhook (type `workflow`) pointing at the client's intake endpoint. Its JSON response is stored as the receipt.",
+      "description": "The outgoing webhook that points to the client's intake address. Its reply is saved as the receipt.",
       "example": "<uuid of the outgoing webhook>"
     }
   }

@@ -3,17 +3,17 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "The entries to turn into a thread when they're published.",
+      "description": "The entry type to turn into a thread when it is published.",
       "example": "article"
     },
     "network": {
       "type": "text",
-      "description": "Where the thread is for (it shapes the tone and the hashtags).",
+      "description": "The network the thread is for. It shapes the tone and hashtags.",
       "example": "Bluesky"
     },
     "post_length": {
       "type": "integer",
-      "description": "The most characters a post may have (Bluesky 300, Mastodon 500, Threads 500).",
+      "description": "The most characters one post may have (Bluesky 300, Mastodon 500, Threads 500).",
       "example": 300
     },
     "voice": {
@@ -28,7 +28,7 @@
     },
     "draft_body_field": {
       "type": "field_key",
-      "description": "That type's text field.",
+      "description": "The text field of that type.",
       "example": "body"
     }
   }

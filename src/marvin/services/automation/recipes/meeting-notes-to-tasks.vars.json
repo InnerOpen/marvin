@@ -13,7 +13,7 @@
     },
     "body_field": {
       "type": "field_key",
-      "description": "That type's field for the list.",
+      "description": "The field on that type that holds the list.",
       "example": "body"
     }
   }

@@ -232,7 +232,7 @@ def test_a_recipe_prerequisite_counts_a_gated_social_post_action_as_provided(ws)
     item = {"prerequisites": {"integrations": [{"capability": "social.post", "examples": "Instagram, Bluesky or Mastodon"}]}}
     assert recipes.missing_prerequisites(item, refs) == []
     refs.integrations = []
-    assert recipes.missing_prerequisites(item, refs) == ["needs a connected integration that can social.post (Instagram, Bluesky or Mastodon)"]
+    assert recipes.missing_prerequisites(item, refs) == ["needs a connection that can post to social media (Instagram, Bluesky or Mastodon)"]
 
 
 def test_the_schema_lets_only_a_capability_step_leave_the_integration_out():

@@ -3,12 +3,12 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "The entries the digest gathers (published in the last 7 days).",
+      "description": "The entry type to gather. Entries published in the last 7 days are included.",
       "example": "article"
     },
     "body_field": {
       "type": "field_key",
-      "description": "Their text field, for the AI to read.",
+      "description": "The text field of those entries, which the AI reads.",
       "example": "body"
     },
     "newsletter_entry_type": {
@@ -18,12 +18,12 @@
     },
     "newsletter_body_field": {
       "type": "field_key",
-      "description": "That type's field for the newsletter text.",
+      "description": "The text field of that type, where the newsletter goes.",
       "example": "body"
     },
     "timezone": {
       "type": "text",
-      "description": "The time zone the schedule runs in (IANA name).",
+      "description": "The time zone the schedule runs in, for example `America/New_York`.",
       "example": "America/New_York"
     }
   }

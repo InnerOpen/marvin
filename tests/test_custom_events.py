@@ -471,9 +471,9 @@ def test_a_recipe_that_starts_on_a_custom_event_is_offered_once_the_event_is_reg
     item = recipes.entry("achievement-cabinet")
     missing = lambda: recipes.missing_prerequisites(item, workspace_refs(db_session, workspace.gid))  # noqa: E731
 
-    assert missing() == ["needs the custom event custom.milestone (Settings → Automation → Custom events)"]
+    assert missing() == ["needs the custom event “custom.milestone” (Settings → Automation → Custom events)"]
     _register(db_session, workspace, "milestone", fields=[{"key": "milestone"}])
-    assert missing() == ["needs the custom event custom.milestone to carry the field(s) badge"]
+    assert missing() == ["needs the custom event “custom.milestone” to include the field badge"]
     _register(db_session, workspace, "milestone", fields=[{"key": "milestone"}, {"key": "badge"}])
     assert missing() == []
 

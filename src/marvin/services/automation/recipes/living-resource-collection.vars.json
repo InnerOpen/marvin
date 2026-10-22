@@ -3,7 +3,7 @@
   "variables": {
     "body_field": {
       "type": "field_key",
-      "description": "The text field of the entries that use resources, for the AI to read.",
+      "description": "The text field of the entries that use resources, which the AI reads.",
       "example": "body"
     },
     "notes_entry_type": {
@@ -13,7 +13,7 @@
     },
     "notes_body_field": {
       "type": "field_key",
-      "description": "That type's text field.",
+      "description": "The text field of that type.",
       "example": "body"
     }
   }

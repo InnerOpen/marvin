@@ -3,12 +3,12 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "Which drafts get a margin note when you run it.",
+      "description": "The entry type whose drafts get a margin note when you run this.",
       "example": "article"
     },
     "voice": {
       "type": "text",
-      "description": "Who is writing the note (added to the workspace persona).",
+      "description": "Who is writing the note. This is added to the workspace persona.",
       "example": "a weary robot who has read every draft ever written"
     }
   }

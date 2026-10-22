@@ -3,17 +3,17 @@
   "variables": {
     "badge_entry_type": {
       "type": "entry_type_slug",
-      "description": "The entry type a badge is made as (its title is the badge's name).",
+      "description": "The entry type badges are created as. The entry title is the badge's name.",
       "example": "badge"
     },
     "badge_body_field": {
       "type": "field_key",
-      "description": "That type's text field, where the line saying who earned it goes.",
+      "description": "The text field on that type, where the line saying who earned the badge goes.",
       "example": "body"
     },
     "cabinet_collection": {
       "type": "collection_slug",
-      "description": "The collection every new badge is added to: the cabinet.",
+      "description": "The collection that every new badge is added to.",
       "example": "achievements"
     }
   }

@@ -204,4 +204,4 @@ def test_a_capability_is_what_the_library_matches_a_notify_recipe_against(db_ses
     item = recipes.entry("deployment-celebration")
     assert recipes.missing_prerequisites(item, refs) == []  # Slack-shaped is enough: no Apprise needed
     refs.integrations = [i for i in refs.integrations if i["slug"] != "chat"]
-    assert recipes.missing_prerequisites(item, refs) == ["needs a connected integration that can notify (Slack or Apprise)"]
+    assert recipes.missing_prerequisites(item, refs) == ["needs a connection that can send notifications (Slack or Apprise)"]

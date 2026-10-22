@@ -8,17 +8,17 @@
     },
     "body_field": {
       "type": "field_key",
-      "description": "Their text field.",
+      "description": "The text field of those drafts.",
       "example": "body"
     },
     "network": {
       "type": "text",
-      "description": "The network the posts are for (named in the review reasons).",
+      "description": "The network the posts are for. It is named in the review reasons.",
       "example": "Bluesky"
     },
     "max_length": {
       "type": "integer",
-      "description": "That network's limit: Bluesky 300, Mastodon 500, Threads 500, LinkedIn 3000.",
+      "description": "That network's character limit (Bluesky 300, Mastodon 500, Threads 500, LinkedIn 3000).",
       "example": 300
     },
     "image_role": {
@@ -28,7 +28,7 @@
     },
     "orientation": {
       "type": "text",
-      "description": "The picture shape that shows best there: landscape, portrait or square.",
+      "description": "The picture shape that works best on that network: `landscape`, `portrait` or `square`.",
       "example": "landscape"
     }
   }

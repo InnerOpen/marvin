@@ -3,7 +3,7 @@
   "variables": {
     "body_field": {
       "type": "field_key",
-      "description": "The entries' text field, kept in each entry's entry.json.",
+      "description": "The entries' text field, kept in each entry's file in the ZIP.",
       "example": "body"
     }
   }

@@ -3,12 +3,12 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "Slug of the entry type whose publications are announced.",
+      "description": "The entry type whose published entries are announced.",
       "example": "article"
     },
     "announcement_webhook_id": {
       "type": "webhook_id",
-      "description": "Id of the outgoing webhook (Settings → Webhooks, type `workflow`) that posts to your community channel. Its own `custom_payload`, when set, replaces the body above.",
+      "description": "The outgoing webhook that posts to your community channel (Settings → Webhooks, type `workflow`). If the webhook has its own custom message, that message is used instead.",
       "example": "<uuid of the outgoing webhook>"
     }
   }

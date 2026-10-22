@@ -3,17 +3,17 @@
   "variables": {
     "entry_type": {
       "type": "entry_type_slug",
-      "description": "The entries to make a carousel of when they're published.",
+      "description": "The entry type to make a carousel from when it is published.",
       "example": "article"
     },
     "image_role": {
       "type": "text",
-      "description": "The role of the picture for the first slide (left plain if the entry has none).",
+      "description": "The role of the picture used on the first slide. The slide stays plain if the entry has none.",
       "example": "hero"
     },
     "footer": {
       "type": "text",
-      "description": "A line at the bottom of each slide, e.g. the site (the slide number is added).",
+      "description": "A line at the bottom of each slide, such as your website. The slide number is added.",
       "example": "gracemartinfranklinart.com"
     },
     "voice": {

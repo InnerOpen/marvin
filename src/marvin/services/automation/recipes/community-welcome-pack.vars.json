@@ -3,7 +3,7 @@
   "variables": {
     "start_here_collection": {
       "type": "collection_slug",
-      "description": "The collection of pieces a newcomer should read first (in its order).",
+      "description": "The collection of pieces a newcomer should read first, in its order.",
       "example": "start-here"
     },
     "voice": {
@@ -13,12 +13,12 @@
     },
     "draft_entry_type": {
       "type": "entry_type_slug",
-      "description": "The entry type the welcome is drafted as.",
+      "description": "The entry type the welcome note is drafted as.",
       "example": "note"
     },
     "draft_body_field": {
       "type": "field_key",
-      "description": "That type's text field.",
+      "description": "The text field on that entry type where the note goes.",
       "example": "body"
     }
   }
