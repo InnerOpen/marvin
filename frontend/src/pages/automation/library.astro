@@ -86,8 +86,8 @@ const libraryJson = JSON.stringify(library.recipes).replace(/</g, "\\u003c");
 
         <div class="cat-groups">
           {groups.map((group) => (
-            <section class="cat-group" data-category={group.slug}>
-              <h4 class="cat-title">{group.category}</h4>
+            <details class="cat-group" data-category={group.slug} open>
+              <summary class="cat-title">{group.category} <span class="cat-count">{group.recipes.length}</span></summary>
               <div class="catalog">
                 {group.recipes.map((recipe) => {
                   const state = readiness(recipe);
@@ -172,7 +172,7 @@ const libraryJson = JSON.stringify(library.recipes).replace(/</g, "\\u003c");
                   );
                 })}
               </div>
-            </section>
+            </details>
           ))}
         </div>
         <div id="lib-empty" class="empty" hidden>No recipe matches. Try another search, or show all recipes.</div>
@@ -222,21 +222,29 @@ const libraryJson = JSON.stringify(library.recipes).replace(/</g, "\\u003c");
   [hidden] { display: none !important; }
 
   /* the catalog grid, as on Settings → Integrations */
-  .cat-groups { display: grid; gap: 22px; }
-  .cat-title { margin: 0 0 8px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .cat-groups { display: grid; gap: 16px; }
+  /* Each category is a grey card holding its recipes as darker cards, the way Agents nests its cards. */
+  .cat-group { padding: 16px 18px 18px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+  .cat-title { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; }
+  .cat-title::-webkit-details-marker { display: none; }
+  .cat-title::before { content: "▸"; transition: transform 0.15s; }
+  .cat-group[open] > .cat-title::before { transform: rotate(90deg); }
+  .cat-group:not([open]) > .cat-title { margin-bottom: 0; }
+  .cat-count { font-weight: 400; letter-spacing: 0; text-transform: none; }
+  .cat-title { margin: 0 0 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
   .catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
   .cat-card {
     display: flex;
     flex-direction: column;
     gap: 8px;
     padding: 16px;
-    background: var(--panel);
+    background: var(--bg);
     border: 1px solid var(--line);
     border-radius: var(--radius);
     scroll-margin-top: 80px;
   }
   .cat-card:target { outline: 2px solid var(--accent); }
-  .cat-card.is-idea { background: transparent; }
+  .cat-card.is-idea { background: transparent; border-style: dashed; }
   .cat-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
   .cat-head strong { font-size: 15px; }
   .cat-desc { margin: 0; font-size: 13px; color: var(--muted); flex: 1; line-height: 1.45; }
