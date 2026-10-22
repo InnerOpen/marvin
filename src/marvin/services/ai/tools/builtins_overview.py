@@ -190,3 +190,22 @@ def workspace_structure(s, g, *, settings: bool = True) -> dict:
         "agents": agent_rows,
         "note": "names and slugs only — use run_workflow / list_scheduled_tasks / list_agents etc. to act on or inspect one.",
     }
+
+
+@register_tool(
+    name="check_site_links",
+    description=(
+        "Check whether entries can have a link on the site: lists what is missing — the workspace's site address (Canonical "
+        "URL) and a page URL pattern on each publishable entry type. Without them an entry's `url` (and `${entry.url}` in a "
+        "workflow) is empty. Call it when a link comes back empty or before drafting a workflow that links to entries. "
+        "Reads settings only; it does not fetch the site. Each problem says where the user fixes it."
+    ),
+    input_schema={"type": "object", "properties": {}},
+    min_role=ROLE_VIEWER,
+    read_only=True,
+)
+def check_site_links(ctx: ToolContext, _args: dict) -> str:
+    from marvin.services.site_links import site_links_problems
+
+    problems = site_links_problems(ctx.session, ctx.group_id)
+    return json.dumps({"ok": not problems, "problems": problems})

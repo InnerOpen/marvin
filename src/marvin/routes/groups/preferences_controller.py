@@ -19,6 +19,7 @@ from marvin.schemas.group.preferences import (
     GroupPreferencesRead,
     GroupPreferencesUpdate,
 )
+from marvin.schemas.group.site_links import SiteLinksStatus
 from marvin.schemas.platform.submission_protection import (
     SubmissionProtectionOverride,
     SubmissionProtectionSettings,
@@ -122,6 +123,29 @@ class GroupPreferencesController(BaseUserController):
         from marvin.services.entries.trash import auto_empty_status
 
         return auto_empty_status(self.session, group_id)
+
+    @router.get("/site-links", response_model=SiteLinksStatus, summary="Check the workspace's site links setup")
+    def get_site_links(self, group_id: UUID4) -> SiteLinksStatus:
+        """What keeps entry links (`entry.url`, the AI tools' `url`, "View on site") from working: no site address (Canonical
+        URL), or a publishable entry type without a page URL pattern. Reads settings only, no network. Members may read it."""
+        if not self._user_has_workspace_access(group_id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this workspace")
+        from marvin.services.site_links import site_links_problems
+
+        problems = site_links_problems(self.session, group_id)
+        return SiteLinksStatus(ok=not problems, problems=problems)
+
+    @router.post("/site-links/probe", response_model=SiteLinksStatus, summary="Fetch one published entry's link per entry type")
+    def probe_site_links(self, group_id: UUID4) -> SiteLinksStatus:
+        """Fetches one published entry per entry type at its public link (the guarded HTTP client, a short timeout) and
+        reports each that doesn't answer 200. Makes outbound requests, so it runs on request (ADMIN/OWNER) and is not part of
+        the plain check."""
+        if not self._user_has_admin_access(group_id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You must be a workspace ADMIN or OWNER to probe site links.")
+        from marvin.services.site_links import probe_site_links
+
+        problems = probe_site_links(self.session, group_id)
+        return SiteLinksStatus(ok=not problems, problems=problems)
 
     @router.patch("", response_model=GroupPreferencesRead, summary="Update Workspace Preferences and Settings")
     def update_preferences(self, group_id: UUID4, data: GroupPreferencesUpdate) -> GroupPreferencesRead:

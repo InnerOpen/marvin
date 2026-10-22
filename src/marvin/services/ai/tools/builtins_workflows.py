@@ -190,8 +190,10 @@ def _saved(ctx: ToolContext, row, parsed, *, created: bool) -> str:
         ),
     }
     from marvin.services.automation.engine import workflow_max_steps
+    from marvin.services.site_links import workflow_url_issues
 
-    warnings = [w["message"] for w in validate_definition(row.definition, workflow_max_steps(ctx.session, ctx.group_id))]
+    issues = validate_definition(row.definition, workflow_max_steps(ctx.session, ctx.group_id))
+    warnings = [w["message"] for w in issues + workflow_url_issues(ctx.session, ctx.group_id, row.definition)]
     if warnings:
         out["warnings"] = warnings
     if not created:

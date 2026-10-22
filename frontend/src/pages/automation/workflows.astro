@@ -2448,7 +2448,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   function planBlock(res: any): string {
     const plan: any[] = res.plan ?? [];
     const head = `<div class="hint">Dry run — nothing executed. ${res.ran} target(s), ${plan.length} step(s)${res.ok ? "" : " · would fail"}.</div>`;
-    return head + (plan.length ? plan.map(planStepRow).join("") : `<span class="hint">No steps would run (target/conditions matched nothing).</span>`);
+    const warnings = (res.warnings || []).map((w: string) => `<div class="hint run-err">${esc(w)}</div>`).join("");
+    return head + warnings + (plan.length ? plan.map(planStepRow).join("") : `<span class="hint">No steps would run (target/conditions matched nothing).</span>`);
   }
   async function showDryRun(card: Element, wf: any, sample?: any) {
     const panel = card.querySelector(".wf-history") as HTMLElement;
