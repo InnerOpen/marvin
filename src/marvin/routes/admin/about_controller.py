@@ -88,8 +88,8 @@ class AdminAboutController(BaseAdminController):
         # Platform-wide AI usage — no group filter, so it spans every account.
         from sqlalchemy import func
 
-        from marvin.db.models.groups.ai_executions import AIExecutionModel
         from marvin.db.models.groups.agents import WorkspaceAgentModel
+        from marvin.db.models.groups.ai_executions import AIExecutionModel
         from marvin.db.models.groups.automations import WorkspaceAutomationModel
         from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookModel
         from marvin.db.models.groups.workflow_approvals import APPROVAL_PENDING, WorkflowApprovalModel
