@@ -51,7 +51,7 @@ const database = (r: BackupRun) =>
 const problems = health ? health.targets.filter((t) => t.state !== "ok" && t.state !== "unknown").length : 0;
 ---
 
-<AdminLayout width="wide" crumb="admin.backup-health">
+<AdminLayout width="full" crumb="admin.backup-health">
   <div class="toolbar">
     <div>
       <h2>Backup Health</h2>
@@ -216,22 +216,37 @@ oc logs -f job/marvin-backup-${t.name}-test -c backup; oc delete job marvin-back
             <table class="table runs">
               <thead>
                 <tr>
-                  <th>Started</th><th>Target</th><th>Status</th><th class="num">Duration</th><th>Database</th><th>Assets</th><th class="num">Pruned</th><th>Pod</th><th>Error</th>
+                  <th class="expand-col"><span class="sr-only">Details</span></th><th>Started</th><th>Target</th><th>Status</th><th class="num">Duration</th><th>Database</th><th>Assets</th>
                 </tr>
               </thead>
               <tbody>
                 {health.runs.map((r) => (
-                  <tr class:list={[stateBadge(r.status).tone]}>
-                    <td class="nowrap"><time datetime={r.startedAt} data-local>{utc(r.startedAt)}</time></td>
+                  <>
+                  <tr class:list={["run-row", stateBadge(r.status).tone]} data-run={r.id} tabindex="0" aria-expanded="false">
+                    <td class="expand-col"><span class="chev" aria-hidden="true">▸</span></td>
+                    <td class="nowrap"><time datetime={r.startedAt} data-local>{utc(r.startedAt)}</time>{r.errorSummary && <span class="err-dot" title="Has an error: expand for it" aria-label="has an error"></span>}</td>
                     <td>{r.targetName}</td>
                     <td><span class:list={["pill-status", stateBadge(r.status).tone]}>{stateBadge(r.status).label}</span></td>
                     <td class="num nowrap">{r.status === "missed" ? "—" : formatDuration(r.durationSeconds)}</td>
                     <td class="nowrap">{r.status === "missed" ? "—" : database(r)}</td>
                     <td>{r.status === "missed" ? "—" : assets(r)}</td>
-                    <td class="num">{r.pruned ?? "—"}</td>
-                    <td class="pod"><code class="small" title={r.host ?? undefined}>{r.host ?? (r.status === "missed" ? "Marvin" : "—")}</code></td>
-                    <td class="error-cell">{r.errorSummary ?? ""}</td>
                   </tr>
+                  <tr class="run-detail" data-detail={r.id} hidden>
+                    <td></td>
+                    <td colspan="6">
+                      {r.errorSummary && <p class="error-text run-error">{r.errorSummary}</p>}
+                      <dl class="run-facts">
+                        <div><dt>Pod</dt><dd><code class="small">{r.host ?? (r.status === "missed" ? "Marvin (no run arrived)" : "—")}</code></dd></div>
+                        <div><dt>Finished</dt><dd>{r.finishedAt ? <time datetime={r.finishedAt} data-local>{utc(r.finishedAt)}</time> : "—"}</dd></div>
+                        <div><dt>Database file</dt><dd>{r.dbKey ? <code class="small">{r.dbKey}</code> : "—"}{r.dbEngine && <span class="muted"> ({r.dbEngine})</span>}</dd></div>
+                        <div><dt>Config items</dt><dd>{r.configItems ?? "—"}</dd></div>
+                        <div><dt>Pruned</dt><dd>{r.pruned ?? "—"}</dd></div>
+                        <div><dt>Failures</dt><dd class:list={{ "bad-text": r.failures > 0 }}>{r.failures}</dd></div>
+                        {r.notifiedAt && <div><dt>Notified</dt><dd><time datetime={r.notifiedAt} data-local>{utc(r.notifiedAt)}</time></dd></div>}
+                      </dl>
+                    </td>
+                  </tr>
+                  </>
                 ))}
               </tbody>
             </table>
@@ -243,6 +258,23 @@ oc logs -f job/marvin-backup-${t.name}-test -c backup; oc delete job marvin-back
 </AdminLayout>
 
 <script>
+  // A run row expands in place to its details (pod, files, error), like the Event Log.
+  for (const row of document.querySelectorAll<HTMLElement>("tr.run-row")) {
+    const detail = document.querySelector<HTMLElement>(`tr.run-detail[data-detail="${row.dataset.run}"]`);
+    const toggle = () => {
+      if (!detail) return;
+      detail.hidden = !detail.hidden;
+      row.setAttribute("aria-expanded", String(!detail.hidden));
+    };
+    row.addEventListener("click", toggle);
+    row.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        toggle();
+      }
+    });
+  }
+
   // Times arrive in UTC; show them in the viewer's zone (the UTC text stays as the tooltip).
   const fmt = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
   for (const el of document.querySelectorAll<HTMLTimeElement>("time[data-local]")) {
@@ -256,7 +288,7 @@ oc logs -f job/marvin-backup-${t.name}-test -c backup; oc delete job marvin-back
 <style>
   .own-buckets { margin: 8px 0 0; padding-left: 18px; font-size: 14px; line-height: 1.6; }
   .bad-text { color: var(--color-error, #dc2626); }
-  .page { display: grid; gap: 20px; max-width: 1100px; }
+  .page { display: grid; gap: 20px; } /* a log: the whole window, like the other logs */
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
   .card h3 { margin: 0; font-size: 17px; font-weight: 600; }
   .card.empty p { color: var(--muted); font-size: 14px; margin: 8px 0 0; }
@@ -295,7 +327,17 @@ oc logs -f job/marvin-backup-${t.name}-test -c backup; oc delete job marvin-back
   .table th { color: var(--muted); font-weight: 600; white-space: nowrap; }
   .table .num { text-align: right; }
   .nowrap { white-space: nowrap; }
-  .pod code { display: inline-block; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
-  .error-cell { color: var(--color-error); min-width: 160px; overflow-wrap: anywhere; }
+  .expand-col { width: 24px; padding-right: 0; color: var(--muted); }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .run-row { cursor: pointer; }
+  .run-row:hover { background: var(--panel-2); }
+  .run-row[aria-expanded="true"] { background: var(--panel-2); }
+  .run-row[aria-expanded="true"] .chev { display: inline-block; transform: rotate(90deg); }
+  .err-dot { display: inline-block; width: 7px; height: 7px; margin-left: 8px; border-radius: 50%; background: var(--color-error); vertical-align: middle; }
+  .run-detail td { background: var(--panel-2); border-top: 0; }
+  .run-error { margin: 4px 0 10px; overflow-wrap: anywhere; }
+  .run-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px 24px; margin: 4px 0; font-size: 13px; }
+  .run-facts dt { color: var(--muted); font-size: 12px; }
+  .run-facts dd { margin: 0; overflow-wrap: anywhere; }
   .alert.error { padding: 12px 16px; border: 1px solid var(--color-error); border-radius: var(--radius); color: var(--color-error); background: var(--color-error-bg); }
 </style>
