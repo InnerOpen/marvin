@@ -28,7 +28,7 @@ try {
 <AdminLayout width="wide" crumb="admin.connected-apps">
   <div class="toolbar">
     <div>
-      <h2>Connected apps</h2>
+      <h2>Connected MCP apps</h2>
       <p>MCP apps users let use Marvin as them, each in one workspace. Disconnecting stops an app at once.</p>
     </div>
     <a class="button secondary" href={showRevoked ? "/admin/connected-apps" : "/admin/connected-apps?revoked=1"}>
@@ -38,9 +38,9 @@ try {
   {error ? (
     <div class="alert">{error}</div>
   ) : apps.length === 0 ? (
-    <p class="muted">No connected apps.</p>
+    <p class="empty-state">No connected apps.</p>
   ) : (
-    <div class="table-scroll">
+    <div class="card table-scroll">
       <table class="table stacks apps">
         <thead><tr><th>App</th><th>User</th><th>Workspace</th><th>Access</th><th>Last used</th><th></th></tr></thead>
         <tbody>
@@ -85,9 +85,11 @@ try {
 </script>
 
 <style>
-  .toolbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
-  .toolbar h2 { margin: 0; }
-  .toolbar p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+  /* The admin page header (as on Roles, Users): title and lede over a rule, the toggle on the right. */
+  .toolbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+  .toolbar h2 { margin: 0; font-size: 24px; font-weight: 600; }
+  .toolbar p { margin: 8px 0 0; color: var(--muted); font-size: 14px; max-width: 70ch; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 16px; }
   .muted { color: var(--muted); font-size: 13px; }
   /* A long client name (a hostname, say) wraps rather than stretching the table past the screen. */
   .apps td { overflow-wrap: anywhere; }
