@@ -138,6 +138,7 @@ A **webhook** or **integration** step can carry an `idempotency_key`, a template
 | `webhook` (Call webhook) | `webhook_id` or raw `url`; `method` (raw URL only; default `POST`), `body`, `secret_ref`, `auth_scheme` (`Bearer` default, or `Token`) | A configured webhook's URL, method, `{{SLUG}}` headers and custom payload are used, with `${event…}` templates resolved. Timeout 15 s. A non-2xx response fails the step. Output: `status_code`, `ok`, `webhook_id`, `body` (parsed JSON or text). Deliveries appear in the webhook log. |
 | `integration` (Run integration) | `integration` (the connection's slug from its card, not the provider's), `action` (the provider action key) — or `capability` instead: `notify` with `args` `title` and `body` sends through whatever message action that integration has (Slack's `send_message`, Apprise's `notify`), so one workflow works with either — `args` (templated). On a `capability` step `integration` may be a template, `${event.integration}`, so a run that starts on a [new comment](#new-comment-trigger) acts on the connection the comment came through | Runs one action of an enabled [integration](integrations.md) with its stored credentials; the provider's result is the step output. An action that requires approval runs only after a [Wait for approval](#wait-for-approval) step, and only when it was approved. An action that makes images (an `image.*` capability, such as OpenAI Images' **Generate image**) keeps each one as an asset — see [Generated images are kept](#generated-images-are-kept). A top-level arg whose whole value is `{{SLUG}}` is replaced by that workspace secret for the call only (the stored workflow keeps the reference); a secret that does not exist fails the step. A provider may give its error a stable code (Buttondown: `blocked`, `suppressed`, `spammy`, `unknown`), which on-failure steps read as `${error.code}`. An input the provider links to one of its read actions gets a searchable picker above the arguments (see [Pick a value from the service](integrations.md#pick-a-value-from-the-service)). `social.post` posts to social networks, and without an `integration` to every connected one — see [Post to social networks](#post-to-social-networks). |
 | `approval` (Wait for approval) | `message` (what is asked; templates allowed), `approvers` (`editor`, the default, or `admin`), `expires_in_hours` (1–720; default the workspace's **Approvals wait**, else 72) | The run waits here for a person — see [Wait for approval](#wait-for-approval). |
+| `agent` (Run an agent) | `agent` (a persona agent's slug), `message` (the job; templates allowed), `playbooks` (up to 3 published names), `max_steps` (1–15; default 8), `on_entry` (default true) | Hands a job to one of the workspace's agents and waits for its answer — see [Run an agent](#run-an-agent). |
 | `collect` (Gather items) | `entity` (`entry`, `asset`, `resource`), `query` (a target's keys), `fields`, `limit` (default 25, at most 250) | Gathers a set into one output so the steps after it see them all — see [Gather items](#gather-items-many-one). |
 | `wait` (Wait) | `for` (a span) or `until` (a date) with `offset` and `at` | Keeps the run and goes on later — see [Wait](#wait). |
 | `repeat` (Repeat for each) | `for_each` (a list), `as` (the item's name), `steps` (1–5), `limit`, `on_item_error` | Runs its steps once for each item — see [Repeat for each](#repeat-for-each). |
@@ -747,6 +748,27 @@ A **Repeat for each** step (`repeat`) runs a few steps once for each item of a l
   **At most** and **If one fails**, then the steps to repeat (indented, lettered a, b, c — **+ Add a step to repeat**,
   up to 5). An Entry action inside usually targets the item: **Target entry → By id** with `${person.id}`.
 
+### Run an agent {#run-an-agent}
+
+A **Run an agent** step (`agent`) hands a job to one of the workspace's [agents](agents-and-ask.md) and waits for its answer, so a workflow can do what a one-shot AI step can't: follow the agent's [Playbooks](playbooks.md), look things up across several tool calls, and leave drafts for a person:
+
+```json
+{ "kind": "agent", "id": "social", "agent": "writer",
+  "message": "Draft a Bluesky post and a Mastodon post for ${entry.title} (${entry.url}).",
+  "playbooks": ["social-post"], "max_steps": 8 }
+```
+
+- **It works alone, within its own permissions.** The agent gets only the tools its own permission matrix (Settings → AI → Agents) sets to **Allow**, at the role of the workflow's author, like an agent run from an MCP client. A tool set to **Ask first** or **Off** isn't offered, because nobody can approve a call in the middle of a run. So an agent that should save drafts needs **Entries: author** set to **Allow** for it; the editor warns when it isn't. Put a **Wait for approval** step after the agent step to gate anything that goes public.
+- **Playbooks.** The agent's own always-load Playbooks are in its instructions, as in any run. `playbooks` adds up to three more, loaded in full for this run (published, and not [manual-only](playbooks.md#manual-only)). The run's Playbooks are listed on the run.
+- **Write the text itself.** `compose_entry` and `revise_entry` hand the writing to Marvin's own AI, which never loads Playbooks, so an agent that follows a Playbook and then calls them loses the Playbook's voice. Tell the agent in the message to write the text itself and save it with `create_draft` or `update_draft`; the step adds the same reminder to the agent's instructions, and the two Library recipes below say it in their messages. The tools aren't removed from the agent.
+- **`on_entry`** (default on) tells the agent which entry the run is about (its id, slug, type, status and link) after your message. Turn it off for a run with no entry.
+- **Output** for later steps: `${steps.<id>.output.answer}` (the agent's text), `.entries` (the entries it saved or changed: `id`, `title`, `status`, `url`, `reviewLink`), `.playbooks` (the names it used), `.stopped` (`complete`, `max_steps` when it used its `max_steps` tool calls and had to answer with what it had, or `refused` when a call needed an approval nobody could give). The run also keeps `execution_id`, `tokens` and `cost_usd`. In the run detail the step shows the answer, the drafts with links, the Playbooks used, the tokens and cost, and a link to the AI execution (**Settings → AI → Executions**, trigger `automation`); the agent's thread is not shown in Ask.
+- **Drafts only.** What an agent writes is a draft, an inbox entry or a staged change; publishing isn't an agent tool.
+- **Guards.** The workspace's AI budget is checked before the run: over budget fails the step clearly and the workflow's **On failure** steps run. The entries the agent saves carry the run's reaction depth plus one, so the same depth limit as every other step applies, and the step never runs for an event this same workflow's own run caused (an agent that drafts an entry that starts the workflow again). An unknown, switched-off or model-only agent, or a Playbook that isn't published, fails the step. A **Run an agent** step can't be inside **Repeat for each** or **Parallel branches** (refused when saved).
+- **Dry run.** It shows the agent, the message as it would be sent, the tools it would be given and the Playbooks, and makes no AI call.
+
+Two [Library](#workflow-library) recipes use it: **An agent drafts from a published entry** (`agent-on-publish`) and **An agent reviews the week's changes** (`agent-weekly-review`, Mondays at 09:00); both need an agent that may save drafts.
+
 ### Parallel branches
 
 A **Parallel branches** step (`parallel`) runs two to five named branches of steps independently and joins them: the
@@ -1041,6 +1063,8 @@ A workflow is `enabled: false` when created. A disabled workflow does not run fr
 
 Operational events as triggers (**Operations** heading: `webhook_delivery_failed`, `integration_attention_*`, `scheduled_task_failed`, `ai_budget_*`; a workflow never answers a failure its own run caused; Integration health companion and Webhook repair desk recipes): 2026-10-18.
 Parallel branches (`parallel`; the Publication release gate recipe): 2026-10-18.
+
+Run an agent (`agent`; the An agent drafts from a published entry and An agent reviews the week's changes recipes): unreleased (2026-10-21).
 
 Custom events (`custom.<name>`: registered fields, Emit event `payload`, trigger and subscriptions, Achievement cabinet recipe): 2026-10-18.
 

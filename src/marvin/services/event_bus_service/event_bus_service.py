@@ -190,7 +190,12 @@ class EventBusService(BaseService):
         # Resolve the causal-chain id: an explicit arg wins, else inherit the ambient correlation
         # scope (a reaction cascade / an EntryService emit batch), else mint one (a fresh root). Read
         # synchronously here so it's baked into the Event even if publishing is deferred.
-        from marvin.services.event_bus_service.correlation import current_correlation_id, new_correlation_id, workflows_running
+        from marvin.services.event_bus_service.correlation import (
+            current_correlation_id,
+            new_correlation_id,
+            reaction_depth_floor,
+            workflows_running,
+        )
 
         resolved_correlation_id = correlation_id or current_correlation_id.get() or new_correlation_id()
         # Likewise the workflows running now: whatever they send says so, however late it is delivered.
@@ -209,7 +214,7 @@ class EventBusService(BaseService):
             user_id=user_id,
             entity_id=entity_id,
             entity_type=entity_type,
-            reaction_depth=reaction_depth,
+            reaction_depth=max(reaction_depth, reaction_depth_floor.get()),
             correlation_id=resolved_correlation_id,
             caused_by_workflows=causes,
         )

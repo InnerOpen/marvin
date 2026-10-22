@@ -41,6 +41,8 @@ def _check(action: dict) -> tuple[str, list[dict]]:
     steps = [s for s in action.get("steps") or [] if isinstance(s, dict)]
     if not steps:
         raise AutomationActionError("a repeat needs steps to repeat")
+    if any(s.get("kind") == "agent" for s in steps):
+        raise AutomationActionError("a repeat can't hold an agent step: it would run the agent once per item, unbounded")
     if inside := sorted({str(s.get("kind")) for s in steps} & NOT_INSIDE):
         raise AutomationActionError(f"a repeat can't hold a {', '.join(inside)} step: a run can't wait in the middle of a loop")
     return name, steps

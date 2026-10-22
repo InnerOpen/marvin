@@ -342,6 +342,42 @@ class ApprovalAction(_StepBase):
         return value
 
 
+MAX_AGENT_PLAYBOOKS = 3
+AGENT_DEFAULT_STEPS = 8
+AGENT_MAX_STEPS = 15
+MAX_AGENT_MESSAGE = 8000
+
+
+class AgentAction(_StepBase):
+    """Runs a named agent on a job. `agent` is its slug; it works alone, with its own tools, permissions and Playbooks
+    (`playbooks`: up to 3 more, loaded in full), on `message` (templates allowed), and what it writes lands as drafts.
+    `on_entry` (default true) tells it which entry the run is about. Not inside repeat or parallel. The `agent` note has the
+    output and the rules."""
+
+    kind: Literal["agent"]
+    agent: str = Field(min_length=1)
+    message: str
+    playbooks: list[str] = Field(default_factory=list, max_length=MAX_AGENT_PLAYBOOKS)
+    max_steps: int = Field(default=AGENT_DEFAULT_STEPS, ge=1, le=AGENT_MAX_STEPS)
+    on_entry: bool = True
+    id: str | None = None
+
+    @field_validator("message")
+    @classmethod
+    def _message_given(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("an agent step needs a message: the job the agent is given")
+        if len(value) > MAX_AGENT_MESSAGE:
+            raise ValueError(f"the message is {len(value)} characters; keep it under {MAX_AGENT_MESSAGE}")
+        return value
+
+
+def _no_agent_step(steps: Any, where: str) -> None:
+    """An agent step runs the AI loop for as long as its tools take: not once per item of a repeat or inside a branch."""
+    if isinstance(steps, list) and any(isinstance(s, dict) and s.get("kind") == "agent" for s in steps):
+        raise ValueError(f"an agent step can't run inside {where}: put it before or after, and pass what it needs in its message")
+
+
 class HandlerAction(_StepBase):
     """Runs an allowlisted internal job (`task`), e.g. request_site_rebuild."""
 
@@ -810,6 +846,13 @@ class RepeatAction(_StepBase):
     on_item_error: Literal["stop", "continue"] = "stop"
     id: str | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _no_agent_inside(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            _no_agent_step(data.get("steps"), "a repeat step")
+        return data
+
     @field_validator("as_")
     @classmethod
     def _not_reserved(cls, name: str) -> str:
@@ -836,6 +879,7 @@ class ParallelBranch(_DefnBase):
     @classmethod
     def _plain_steps_only(cls, data: Any) -> Any:
         steps = data.get("steps") if isinstance(data, dict) else None
+        _no_agent_step(steps, "a parallel step's branches")
         held = sorted({str(s.get("kind")) for s in steps if isinstance(s, dict)} & set(NOT_IN_A_BRANCH)) if isinstance(steps, list) else []
         if held:
             raise ValueError(
@@ -873,6 +917,7 @@ ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "webhook": WebhookAction,
     "integration": IntegrationAction,
     "approval": ApprovalAction,
+    "agent": AgentAction,
     "media": MediaAction,
     "collect": CollectAction,
     "fetch": FetchAction,
@@ -895,6 +940,7 @@ Action = Annotated[
     | WebhookAction
     | IntegrationAction
     | ApprovalAction
+    | AgentAction
     | MediaAction
     | CollectAction
     | FetchAction

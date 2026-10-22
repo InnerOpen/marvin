@@ -40,6 +40,7 @@ SECTIONS = (
     "media",
     "email",
     "records",
+    "agent",
     "social",
     "templates",
     "workspace",
@@ -64,6 +65,7 @@ SECTION_GUIDE: dict[str, str] = {
     ),
     "email": "the email step in full: who it may write to, sending once, links by role, what a dry run shows · when a step writes to a member",
     "records": "the metric, snapshot, schema_check and automation_result steps in full · for counts, versions, JSON checks and hand-off reports",
+    "agent": "the agent step in full: its fields, what the agent may do, Playbooks, output and guards · when a job goes to an agent",
     "social": "social.post and the engagement capabilities (comments, reply, like, hide, delete, repost, message) · when posting or answering",
     "templates": (
         "the ${…} names a step can read (event, entry, asset, steps, input, member…) and how they resolve · when a step reads the "
@@ -75,7 +77,7 @@ SECTION_GUIDE: dict[str, str] = {
     "examples": "the Library recipes this workspace can run; recipe=<id> shows one in full · first, to start from one instead of writing",
     "editor": "the workflow editor's own labels for each part · when telling a person what to click",
 }
-INDEX_BUDGET = 4_200  # characters: the index is read on every request
+INDEX_BUDGET = 4_500  # characters: the index is read on every request; each new step kind costs ~40 here and each section ~130 (was 4_200)
 SECTION_BUDGET = 16_500  # characters: the `actions` section lists every step kind, so each new kind costs ~120 here (was 16_000)
 
 # Workspace lists are capped, like workspace_overview's structure: the guide must stay one tool result.
@@ -138,6 +140,8 @@ class WorkspaceRefs:
     handlers: list[dict] = field(default_factory=list)
     grade_presets: list[str] = field(default_factory=list)  # a media step's `grade` presets: built-in + the workspace's
     custom_events: list[dict] = field(default_factory=list)  # the workspace's own events: {event_type, description, fields}
+    agents: list[dict] = field(default_factory=list)  # persona agents an agent step may name: {slug, name, enabled}; model-only ones left out
+    playbooks: list[dict] = field(default_factory=list)  # published Playbooks: {name, manual_only}
 
 
 def automation_operations(session, group_id) -> list | None:
@@ -302,6 +306,11 @@ def workspace_refs(session, group_id) -> WorkspaceRefs:
         }
         for e in custom_events.read(session, group_id)
     ]
+    from marvin.services.ai.agents import list_agents
+    from marvin.services.playbooks import published_playbooks
+
+    refs.agents = [{"slug": a.slug, "name": a.name, "enabled": bool(a.enabled)} for a in list_agents(session, group_id) if a.kind == "persona"]
+    refs.playbooks = [{"name": p.name, "manual_only": bool(p.manual_only)} for p in published_playbooks(session, group_id)][:REF_LIMIT]
     return refs
 
 
@@ -451,6 +460,7 @@ OWN_SECTION_KINDS = {
     "snapshot": "records",
     "schema_check": "records",
     "automation_result": "records",
+    "agent": "agent",
 }
 
 
@@ -577,6 +587,19 @@ SCHEMA_CHECK_NOTE = (
     "is refused when the workflow is saved. Formats aren't asserted; $ref reaches only into the schema; documents over "
     "100 KB are reported, not checked."
 )
+AGENT_NOTE = (
+    "agent hands a job to one of the workspace's agents (a persona: list its slugs in the workspace section) and waits: the agent works "
+    "alone with its own tools, permissions and Playbooks, at the role of the workflow's author, on `message` (templates allowed; "
+    "`on_entry` adds which entry the run is about). Only the tools its permission matrix sets to Allow are offered: Ask-first and off "
+    "ones aren't, so an agent that should draft needs Entries: author set to Allow (Settings → AI → Agents). What it writes lands as "
+    "drafts for a person; gate anything public with an Approval step after it. `playbooks` (≤ 3 published names) are loaded in full "
+    "for this run. `max_steps` is its tool-call budget (default 8, at most 15). Say in the message to write the text itself and save "
+    "it with create_draft / update_draft: compose_entry and revise_entry use Marvin's own AI, which never sees Playbooks, so the "
+    "Playbook's voice would be lost. Output ${steps.<id>.output.answer}, .entries (id, title, status, url, reviewLink), .playbooks "
+    "(names used), .stopped (complete | max_steps | refused). An over-budget workspace fails the step (on_failure runs); entries it "
+    "saves count as a reaction hop (loop guard), and the step never runs for an event this same workflow's run caused. Not inside "
+    "repeat or parallel."
+)
 PARALLEL_NOTE = (
     "parallel: ${steps.<id>.output.branches.<name>.output.<key>} is a branch's last step. A "
     "check that should block must fail its step (schema_check fail_on_invalid). Gate: on_branch_failure continue, then "
@@ -685,6 +708,8 @@ def _workspace(refs: WorkspaceRefs) -> dict:
             else refs.operations
         ),
         "handlers": refs.handlers,
+        "agents": [a["slug"] for a in refs.agents if a["enabled"]],  # what an agent step's `agent` names
+        "playbooks": [p["name"] for p in refs.playbooks if not p["manual_only"]],  # what an agent step's `playbooks` names
     }
 
 
@@ -779,6 +804,8 @@ def authoring_guide(session, group_id, section: str | None = None, recipe: str |
             "schema_check": {**_step_doc("schema_check"), "note": SCHEMA_CHECK_NOTE},
             "automation_result": {**_step_doc("automation_result"), "note": AUTOMATION_RESULT_NOTE},
         }
+    if "agent" in want:
+        out["agent"] = {"step": _step_doc("agent"), "note": AGENT_NOTE}
     if "social" in want:
         out["social"] = {"note": SOCIAL_NOTE}
     if "templates" in want:
@@ -1076,14 +1103,60 @@ def _step_issues(
             if declared is not None and not str(declared.get("capability") or "").startswith("image."):
                 field_name = next(f for f in ("source", "attach_as", "tags") if step.get(f))
                 bad(field_name, f"{field_name} goes with an action that makes images; “{slug}.{key}” doesn't.")
-    elif kind == "media":
-        _media_step_issues(step, refs, bad)
-    elif kind == "fetch":
-        _fetch_step_issues(step, bad)
-    elif kind == "request":
-        _request_step_issues(step, bad)
-    elif kind == "email":
-        _email_step_issues(step, bad)
+    elif kind in _CHECKS_BY_KIND:
+        _CHECKS_BY_KIND[kind](step, refs, bad)
+
+
+def _agent_step_issues(step: dict, refs: WorkspaceRefs, bad) -> None:
+    """An agent step names a persona agent that is switched on, and Playbooks that are published and load by themselves."""
+    slug = step.get("agent")
+    if not _templated(slug):
+        row = next((a for a in refs.agents if a["slug"] == str(slug).strip().lower()), None)
+        if row is None:
+            bad("agent", f"No agent “{slug}” that can work here. Agents: {_close(str(slug), [a['slug'] for a in refs.agents])}.")
+        elif not row["enabled"]:
+            bad("agent", f"Agent “{slug}” is switched off (Settings → AI → Agents).")
+    by_name = {p["name"]: p for p in refs.playbooks}
+    for name in step.get("playbooks") or ():
+        if _templated(name):
+            continue
+        if name not in by_name:
+            bad("playbooks", f"No published Playbook “{name}”. Playbooks: {_close(str(name), list(by_name))}.")
+        elif by_name[name]["manual_only"]:
+            bad("playbooks", f"“{name}” is manual-only: it loads only when the message names it. Name it in the message instead.")
+
+
+def agent_step_warnings(session, group_id, definition: dict, role: int) -> list[dict]:
+    """What would make an agent step do nothing, as warnings (the editor's check; a draft is held to errors only): an agent whose
+    permissions, at the author's `role`, offer no tool it could save a draft with, or no tool at all. The tools are those a
+    run offers (`standalone_tools`): the agent's Allow ones."""
+    from types import SimpleNamespace
+
+    from marvin.services.ai.agents import resolve_agent
+    from marvin.services.ai.tools.builtins_agents import standalone_tools
+
+    out = []
+    for list_key, where in (("actions", "action"), ("on_failure", "on_failure")):
+        for i, step in enumerate(definition.get(list_key) or []):
+            if not isinstance(step, dict) or step.get("kind") != "agent" or _templated(step.get("agent")):
+                continue
+            spec = resolve_agent(session, group_id, str(step.get("agent") or "").strip().lower())
+            if spec is None or spec.kind != "persona":
+                continue
+            tools = standalone_tools(spec, SimpleNamespace(), role)
+            issue = None
+            if not tools:
+                issue = f"“{spec.slug}” has no tool it may use on its own here: every one is Ask-first or off for it (Settings → AI → Agents)."
+            elif not any(t.name in ("create_draft", "update_draft") for t in tools) and any(
+                word in str(step.get("message") or "").lower() for word in ("draft", "write", "create", "save")
+            ):
+                issue = (
+                    f"The message asks “{spec.slug}” to write something, but it may not save drafts on its own here: "
+                    "set Entries: author to Allow for it (Settings → AI → Agents)."
+                )
+            if issue:
+                out.append({"level": "warning", "message": issue, "where": where, "index": i, "path": f"{list_key}[{i}].agent"})
+    return out
 
 
 def _templated_integration_issues(step: dict, after_approval: bool, bad) -> None:
@@ -1276,6 +1349,16 @@ def _entry_step_issues(step: dict, refs: WorkspaceRefs, bad) -> None:
                 unknown = sorted(k for k in (step.get("data") or {}) if k not in known[ref]["fields"])
                 if unknown:
                     bad("data", f"“{ref}” has no field {', '.join(unknown)}. Its fields: {', '.join(known[ref]['fields']) or '(none)'}.")
+
+
+# The checks of the kinds whose rules are one function: (step, refs, bad).
+_CHECKS_BY_KIND = {
+    "media": _media_step_issues,
+    "fetch": lambda step, refs, bad: _fetch_step_issues(step, bad),
+    "request": lambda step, refs, bad: _request_step_issues(step, bad),
+    "email": lambda step, refs, bad: _email_step_issues(step, bad),
+    "agent": _agent_step_issues,
+}
 
 
 def draft_issues(session, group_id, definition: dict) -> list[dict]:

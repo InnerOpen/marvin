@@ -109,6 +109,8 @@ class PlaybookScope:
 
     * ``names``: the chosen set (None = every published Playbook);
     * ``always``: Playbooks put in full in the system frame (at most ``ALWAYS_MAX``);
+    * ``also``: Playbooks one run adds on top (a workflow's agent step names them): in the chosen set whatever it is, and
+      put in full in the system frame after ``always`` (at most ``ALWAYS_MAX`` of their own);
     * ``asked``: the user's latest message. A manual-only Playbook is loadable only when this *names* it (see ``is_named``).
 
     The default scope (no agent: MarvinMCP, the remote MCP server, the invoke route) is "all published, nothing asked", so a
@@ -117,6 +119,7 @@ class PlaybookScope:
     names: tuple[str, ...] | None = None
     always: tuple[str, ...] = ()
     asked: str = ""
+    also: tuple[str, ...] = ()
 
     @classmethod
     def of(cls, settings: dict | None, asked: str = "") -> PlaybookScope:
@@ -130,7 +133,7 @@ class PlaybookScope:
         )
 
     def allows(self, name: str) -> bool:
-        return self.names is None or name in self.names
+        return self.names is None or name in self.names or name in self.also
 
     def asking(self, message: str | None) -> PlaybookScope:
         """This scope for a run answering ``message`` (the user's latest message)."""
@@ -279,9 +282,11 @@ def manual_only_refusal(session, group_id, name: str, scope: PlaybookScope) -> s
 
 
 def always_playbooks(session, group_id, scope: PlaybookScope) -> list[Playbook]:
-    """The agent's "always load" Playbooks that can still be loaded (published, in its set, not manual-only), in its order."""
+    """The agent's "always load" Playbooks that can still be loaded (published, in its set, not manual-only), in its order,
+    then the run's own (``also``)."""
     by_name = {p.name: p for p in published_playbooks(session, group_id, scope)}
-    return [by_name[name] for name in scope.always[:ALWAYS_MAX] if name in by_name]
+    named = [*scope.always[:ALWAYS_MAX], *(n for n in scope.also[:ALWAYS_MAX] if n not in scope.always[:ALWAYS_MAX])]
+    return [by_name[name] for name in named if name in by_name]
 
 
 class PlaybookSettingsError(ValueError):

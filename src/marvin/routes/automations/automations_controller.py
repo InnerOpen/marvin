@@ -405,7 +405,23 @@ class AutomationsController(BaseUserController):
         if not structural:
             issues += self._missing_chain_warnings(data.definition)
             issues += self._custom_event_warnings(data.definition)
+            issues += self._agent_step_warnings(data.definition)
         return AutomationValidateResult(issues=issues)
+
+    def _agent_step_warnings(self, definition: dict) -> list[dict]:
+        """An agent step naming an agent or Playbook this workspace lacks (or has switched off), or an agent whose permissions
+        leave it nothing to do the job with. Warnings: the workflow saves, and the step fails when it runs."""
+        from marvin.services.ai.tools.base import user_role
+        from marvin.services.automation.authoring import agent_step_warnings, reference_issues
+
+        if not any(isinstance(s, dict) and s.get("kind") == "agent" for key in ("actions", "on_failure") for s in definition.get(key) or []):
+            return []
+        named = [
+            {**issue, "level": "warning"}
+            for issue in reference_issues(self.session, self.group_id, definition)
+            if issue["path"].endswith((".agent", ".playbooks"))
+        ]
+        return named + agent_step_warnings(self.session, self.group_id, definition, user_role(self.user, self.group_id))
 
     def _custom_event_warnings(self, definition: dict) -> list[dict]:
         """A trigger or Emit event step naming a `custom.*` event this workspace hasn't registered (or sending a field it

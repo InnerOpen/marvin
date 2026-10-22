@@ -69,6 +69,10 @@ On the **Agents** page, a custom agent has a **Playbooks** section:
 
 The built-in agents (`marvin`, `ask`, `builder`) see all published Playbooks and always-load none.
 
+### In a workflow
+
+A workflow's [Run an agent](workflows.md#run-an-agent) step can name up to three published Playbooks (`playbooks`), loaded in full for that run on top of the agent's always-load ones. A manual-only Playbook can't be named there (it loads only when the message names it). Marvin's own `compose_entry` and `revise_entry` don't load Playbooks, so the step's message should tell the agent to write the text itself and save it with `create_draft` or `update_draft`; otherwise the Playbook's voice rules are lost.
+
 ### Manual-only
 
 A Playbook marked **Manual only** is left out of every agent's catalog and loads only when the person names it in their latest message: its name appears as whole words, in any case, with hyphens, underscores or spaces between them (`Refund Policy` and `refund_policy` name `refund-policy`; `refund-policies` does not). The agent's own output and tool results never count. Agents run from MCP or the API, which have no such message of their own, never load one. A run that stopped to ask your approval keeps the message that started it, so naming the Playbook still works after you approve.

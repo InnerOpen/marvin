@@ -1,0 +1,42 @@
+{
+  "name": "An agent reviews the week's changes",
+  "definition": {
+    "trigger": {
+      "type": "schedule",
+      "schedule_type": "cron",
+      "schedule_config": {
+        "cron_expression": "0 9 * * 1",
+        "timezone": "{{timezone}}"
+      }
+    },
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "week",
+        "entity": "entry",
+        "query": {
+          "entry_type": "{{entry_type}}",
+          "status": "published",
+          "updated_after": "-7d"
+        },
+        "fields": [
+          "summary"
+        ],
+        "limit": 20
+      },
+      {
+        "kind": "agent",
+        "id": "review",
+        "agent": "{{agent}}",
+        "message": "{{message}}\n\nThese entries changed in the last 7 days:\n${steps.week.output.text}\n\nRead each one you need with get_entry. Give a short plain answer: what is fine, and what needs a person. For each real problem, write the note yourself and save it as a draft with create_draft: compose_entry and revise_entry hand the writing to Marvin's own AI, which doesn't see your Playbooks. Drafts only: change nothing that is published.",
+        "on_entry": false,
+        "max_steps": 10,
+        "when": {
+          "field": "steps.week.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      }
+    ]
+  }
+}
