@@ -14,7 +14,7 @@ template the workspace is held to.
 
 from typing import Annotated, Literal
 
-from pydantic import Field, StringConstraints, field_validator, model_validator
+from pydantic import UUID4, Field, StringConstraints, field_validator, model_validator
 
 from marvin.schemas._marvin import _MarvinModel
 
@@ -26,6 +26,7 @@ BlueprintKind = Literal[
     "event_subscription",
     "incoming_webhook",
     "workflow",
+    "playbook",
 ]
 
 #: Kinds that wire up one *connection* rather than workspace content: they reference an integration
@@ -142,7 +143,11 @@ class Blueprint(_MarvinModel):
     - `incoming_webhook`: `{name?, description?, signature_scheme?, signature_header?,
       signing_secret_ref?}` — created disabled and without a token.
     - `workflow`: `{name?, definition: {trigger, conditions, actions, …}}` — created
-      disabled, authored by whoever applies it."""
+      disabled, authored by whoever applies it.
+    - `playbook`: `{"skill_md": "<SKILL.md text>", "files": {"references/x.md": "<text>"}}` — an integration's Playbook, created as a
+      **draft** (never published) with its reference files. The SKILL.md `name` is the slug and starts with the provider's slug
+      (checked in the catalog); text files only, capped, no scripts (`services/playbooks/blueprint.py`). Never required, no
+      parameters."""
 
     @field_validator("requires")
     @classmethod
@@ -177,6 +182,13 @@ class Blueprint(_MarvinModel):
                 _check_submission_hook(submission)
         if self.kind == "workflow" and not isinstance(self.payload.get("definition"), dict):
             raise ValueError("a workflow blueprint needs payload.definition")
+        if self.kind == "playbook":
+            from marvin.services.playbooks.blueprint import payload_problem
+
+            if self.required or self.parameters or self.requires:
+                raise ValueError("a playbook blueprint is never required and takes no parameters or requirements")
+            if problem := payload_problem(self.payload, self.slug):
+                raise ValueError(problem)
         return self
 
 
@@ -194,16 +206,26 @@ class BlueprintRead(Blueprint):
     A parameterised blueprint is judged by its defaults."""
 
     outdated: bool = False
-    """An Update is worth offering (workflows only): the state is `update`, `edited_update` or `differs`.
-    Update replaces the workflow's steps and keeps whether it's on."""
+    """An Update is worth offering (workflows and Playbooks): the state is `update`, `edited_update` or `differs`.
+    Update replaces the workflow's steps and keeps whether it's on; for a Playbook it replaces the text and files and keeps its status."""
 
     state: Literal["current", "update", "edited", "edited_update", "differs"] | None = None
-    """Where an applied workflow stands against the provider's current version (None: not applied, or not
-    a workflow). `edited`/`edited_update`: changed in this workspace since it was installed; `differs`:
+    """Where an applied workflow or Playbook stands against the provider's current version (None: not applied, or
+    neither). `edited`/`edited_update`: changed in this workspace since it was installed; `differs`:
     installed before that was recorded, so an old version can't be told from an edit."""
 
     edited: bool = False
     """True for `edited` and `edited_update` — the workspace has changed it."""
+
+    installed_id: UUID4 | None = None
+    """A Playbook blueprint once applied: the id of the Playbook it made (the card links to it)."""
+
+    installed_status: str | None = None
+    """That Playbook's status. A new one is a `draft` until someone publishes it."""
+
+    conflict: str | None = None
+    """A Playbook blueprint whose name is taken by something else (a person's Playbook, any entry, one in the Trash): why Add is
+    refused, in words the card shows in place of Add. None when it can be added or is already applied."""
 
 
 class BlueprintApplyResult(_MarvinModel):
@@ -215,7 +237,7 @@ class BlueprintApplyResult(_MarvinModel):
     """False when it already existed; the existing object is left exactly as it was."""
 
     updated: bool = False
-    """True when an Update replaced an applied workflow's steps with the provider's current version."""
+    """True when an Update replaced an applied workflow's steps (or a Playbook's text and files) with the provider's current version."""
 
     needs_confirmation: bool = False
     """True when an Update was refused because it would replace changes made in this workspace; repeat it

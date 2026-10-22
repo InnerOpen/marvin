@@ -14,6 +14,7 @@ const empty = {
   outgoingWebhooks: [],
   scheduledTasks: [],
   collections: [],
+  playbooks: [],
   fieldChanges: [],
   total: 0,
 };
@@ -27,7 +28,8 @@ describe("footprint sections", () => {
       outgoingWebhooks: [item("d")],
       scheduledTasks: [item("t"), item("u"), item("v")],
       collections: [item("c")],
-      total: 8,
+      playbooks: [item("p", false)],
+      total: 9,
     });
     assert.deepEqual(
       sections.map((s) => [s.heading, s.href]),
@@ -37,6 +39,7 @@ describe("footprint sections", () => {
         ["1 outgoing webhook", "/automation/webhooks?from=integration%3Ab1"],
         ["3 scheduled tasks", "/workspace/scheduled-tasks?from=integration%3Ab1"],
         ["1 collection", "/workspace/collections"],
+        ["1 Playbook", "/workspace/settings/ai-playbooks?from=integration%3Ab1"],
       ],
     );
     assert.deepEqual(

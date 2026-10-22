@@ -17,6 +17,9 @@ import {
   listSummary,
   NO_USES_NOTE,
   playbookRow,
+  originLabel,
+  fromIntegration,
+  fromIntegrationId,
   sortedItems,
   statusLabel,
   statusTone,
@@ -225,4 +228,27 @@ test("a proposed change keeps the Playbook it replaces through the form and back
   assert.equal(entryPayload(form, null).dataJson.replaces, "n");
   assert.equal("replaces" in formFromEntry({ slug: "n", dataJson: {} }), false);
   assert.equal("replaces" in entryPayload({ ...EMPTY_FORM, name: "n", description: "d" }, null).dataJson, false);
+});
+
+describe("integration Playbooks", () => {
+  const from = (extra = {}) => ({ source: "buttondown", name: "Buttondown", integrationId: "i1", removed: false, ...extra });
+  test("the row says which integration shipped it, or that it was removed", () => {
+    assert.equal(originLabel({ fromIntegration: from() }), "From Buttondown");
+    assert.equal(originLabel({ fromIntegration: from({ removed: true, integrationId: null }) }), "From a removed integration");
+    assert.equal(originLabel({}), null);
+    assert.equal(playbookRow({ id: "a", name: "n", description: "", status: "draft", fromIntegration: from() }).origin, "From Buttondown");
+    assert.equal(playbookRow({ id: "a", name: "n", description: "", status: "draft" }).origin, null);
+  });
+  test("the card's link narrows the list to one integration", () => {
+    const items = [
+      { id: "1", name: "a", status: "draft", fromIntegration: from() },
+      { id: "2", name: "b", status: "draft", fromIntegration: from({ integrationId: "i2" }) },
+      { id: "3", name: "c", status: "draft" },
+    ];
+    assert.equal(fromIntegrationId("integration:i1"), "i1");
+    assert.equal(fromIntegrationId("workflow:x"), null);
+    assert.equal(fromIntegrationId(null), null);
+    assert.deepEqual(fromIntegration(items, "i1").map((i) => i.id), ["1"]);
+    assert.equal(fromIntegration(items, null).length, 3);
+  });
 });

@@ -27,6 +27,7 @@ from marvin.services.blueprints import (
     update_blueprint,
 )
 from marvin.services.blueprints.apply import UPDATE_STATES
+from marvin.services.blueprints.playbook_apply import applied_row, blueprint_conflict
 
 router = APIRouter(prefix="/groups/blueprints")
 logger = get_logger(__name__)
@@ -39,6 +40,14 @@ class BlueprintsController(BaseUserController):
     def _to_read(self, blueprint, integration_id: UUID4 | None = None) -> BlueprintRead:
         missing = missing_requirements(self.session, self.group_id, blueprint)
         state = blueprint_state_of(self.session, self.group_id, blueprint)
+        playbook = {}
+        if blueprint.kind == "playbook":
+            row = applied_row(self.session, self.group_id, blueprint)
+            playbook = {
+                "installed_id": row.id if row is not None else None,
+                "installed_status": row.status if row is not None else None,
+                "conflict": blueprint_conflict(self.session, self.group_id, blueprint),
+            }
         return BlueprintRead(
             **blueprint.model_dump(),
             available=not missing,
@@ -47,6 +56,7 @@ class BlueprintsController(BaseUserController):
             outdated=state in UPDATE_STATES,
             state=state,
             edited=state in ("edited", "edited_update"),
+            **playbook,
         )
 
     @router.get("", response_model=list[BlueprintRead])
@@ -91,7 +101,7 @@ class BlueprintsController(BaseUserController):
 
         # Applying changes workspace structure (types, webhooks, workflows): owner/admin only.
         self.checks.can_manage_settings(self.group_id)
-        result = apply_blueprint(self.session, self.group_id, blueprint, params, integration_id, actor_id=self.user.id)
+        result = apply_blueprint(self.session, self.group_id, blueprint, params, integration_id, actor_id=self.user.id, event_bus=self.event_bus)
         self.session.commit()
         logger.info("Blueprint '%s' applied to %s: created=%s", slug, self.group_id, result.created)
         return result
@@ -102,15 +112,19 @@ class BlueprintsController(BaseUserController):
         slug: str,
         params: dict | None = Body(None),
         source: str | None = Query(None),
-        replace_edits: bool = Query(False, description="Go ahead although the workflow was changed in this workspace"),
+        replace_edits: bool = Query(False, description="Go ahead although the workflow or Playbook was changed in this workspace"),
+        integration_id: UUID4 | None = Query(None, description="A Playbook: the connection to record it under"),
     ):
-        """Replace an applied workflow's steps with what its integration declares now. A workflow changed in
-        this workspace is left alone (`needs_confirmation` in the result) unless `replace_edits`."""
+        """Replace an applied workflow's steps (or a Playbook's text and files) with what its integration declares now. One
+        changed in this workspace is left alone (`needs_confirmation` in the result) unless `replace_edits`. A Playbook keeps
+        its id and status: a published one is used by agents with the new text at once."""
         blueprint = get_blueprint(slug, source=source)
         if blueprint is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No blueprint '{slug}'.")
         self.checks.can_manage_settings(self.group_id)
-        result = update_blueprint(self.session, self.group_id, blueprint, params, replace_edits)
+        result = update_blueprint(
+            self.session, self.group_id, blueprint, params, replace_edits, integration_id, actor_id=self.user.id, event_bus=self.event_bus
+        )
         self.session.commit()
         logger.info("Blueprint '%s' update in %s: updated=%s (%s)", slug, self.group_id, result.updated, result.detail)
         return result
@@ -137,6 +151,6 @@ class BlueprintsController(BaseUserController):
             blueprints.append(blueprint)
 
         self.checks.can_manage_settings(self.group_id)
-        results = apply_many(self.session, self.group_id, blueprints, params, integration_id, actor_id=self.user.id)
+        results = apply_many(self.session, self.group_id, blueprints, params, integration_id, actor_id=self.user.id, event_bus=self.event_bus)
         self.session.commit()
         return results

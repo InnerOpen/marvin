@@ -369,13 +369,14 @@ class IntegrationsController(BaseUserController):
 
     @router.get("/{integration_id}/footprint", response_model=IntegrationFootprint)
     def get_footprint(self, integration_id: UUID4):
-        """What this integration's blueprints installed here: workflows, webhooks, scheduled tasks, collections, and the
+        """What this integration's blueprints installed here: workflows, webhooks, scheduled tasks, collections, Playbooks, and the
         entry types its field blueprints changed. Names only, no configuration — so an EDITOR may read it, unlike the rest
         of this controller."""
         require_workspace_editor(self.user, self.group_id)
         row = self._get_or_404(integration_id)
         found = footprint.installed_items(self.session, self.group_id, row.id)
         changes = footprint.field_changes(self.session, self.group_id, row.id, row.provider)
+        found["playbooks"] = footprint.playbooks_of(self.session, self.group_id, row.id)  # entries: not in the installed-by columns
         as_items = {kind: [FootprintItem(id=i.id, name=i.name, enabled=i.enabled) for i in items] for kind, items in found.items()}
         return IntegrationFootprint(
             integration_id=row.id,

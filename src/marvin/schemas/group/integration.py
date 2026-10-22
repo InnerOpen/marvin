@@ -349,6 +349,8 @@ class IntegrationFootprint(_MarvinModel):
     outgoing_webhooks: list[FootprintItem]
     scheduled_tasks: list[FootprintItem]
     collections: list[FootprintItem]
+    playbooks: list[FootprintItem] = Field(default_factory=list)
+    """Playbooks this integration shipped and the workspace added. `enabled` means published (agents can use it)."""
     field_changes: list[FootprintFieldChange]
     total: int
-    """Rows across the five lists above (field changes edit existing types, so they aren't counted)."""
+    """Rows across the six lists above (field changes edit existing types, so they aren't counted)."""

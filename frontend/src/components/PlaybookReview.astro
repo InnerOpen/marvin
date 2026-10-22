@@ -19,6 +19,7 @@ const { view, status = null } = Astro.props;
       <code title={view.source.fullCommit}>{view.source.commit}</code>.
     </p>
   )}
+  {view.integration && <p class="pb-sub" data-testid="review-integration">{view.integration} It can be updated from the integration's card.</p>}
   {status !== "published" && <p class="pb-sub">This is a draft. Agents don't see it until an Admin publishes it.</p>}
   <p class="pb-disclaimer" data-testid="review-disclaimer">{view.disclaimer}</p>
 

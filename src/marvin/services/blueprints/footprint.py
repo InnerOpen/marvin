@@ -1,7 +1,8 @@
 """An integration's footprint: everything its blueprints installed in a workspace.
 
 Rows made by a blueprint carry ``source_integration_id`` (see ``InstalledByMixin``), so each kind is one
-filtered select and the five of them go to the database as a single UNION ALL. Entry-type fields and form
+filtered select and the five of them go to the database as a single UNION ALL. Playbooks are entries, which have no such
+columns: theirs is ``metadata_json["installedBy"]``, listed apart by ``playbooks_of``. Entry-type fields and form
 settings are different: ``entry_fields`` blueprints change an existing row and leave no mark on it, so the
 only honest answer is "the integration's field blueprints whose fields and settings are all in place on the
 type now" (the same test the card's ticks use). A workspace that added the same fields by hand reads the same.
@@ -62,6 +63,24 @@ def installed_items(session, group_id, integration_id) -> dict[str, list[Footpri
     found: dict[str, list[FootprintItem]] = {kind: [] for kind in KINDS}
     for kind, id_, name, enabled in rows:
         found[kind].append(FootprintItem(id=id_, name=name, enabled=None if enabled is None else bool(enabled)))
+    return found
+
+
+def playbooks_of(session, group_id, integration_id) -> list[FootprintItem]:
+    """The Playbooks this integration shipped and the workspace added (``enabled``: published, so agents can use it), by name.
+    One whose integration was removed counts for the same provider's connection added again (``Playbooks`` page: same rule)."""
+    from marvin.db.models.groups.integrations import IntegrationModel
+    from marvin.services.playbooks import PLAYBOOK_STATUS, all_playbooks
+    from marvin.services.playbooks.blueprint import PROVENANCE_KEY
+
+    live = {str(i): provider for i, provider in session.query(IntegrationModel.id, IntegrationModel.provider).filter_by(group_id=group_id)}
+    here = str(integration_id)
+    found = []
+    for row in all_playbooks(session, group_id):
+        by = (row.metadata_json or {}).get(PROVENANCE_KEY) or {}
+        owner = str(by.get("integrationId") or "")
+        if owner == here or (owner not in live and by.get("source") and by.get("source") == live.get(here)):
+            found.append(FootprintItem(id=row.id, name=row.title or row.slug, enabled=row.status == PLAYBOOK_STATUS))
     return found
 
 

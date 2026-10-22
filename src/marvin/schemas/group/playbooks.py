@@ -8,6 +8,19 @@ from pydantic import UUID4, Field
 from marvin.schemas._marvin import _MarvinModel
 
 
+class PlaybookOrigin(_MarvinModel):
+    """An integration's Playbook: which integration shipped it (``metadata_json["installedBy"]``)."""
+
+    source: str
+    """The provider's slug (``buttondown``)."""
+    name: str
+    """The provider's name for display; its slug when the plugin is not installed."""
+    integration_id: UUID4 | None = None
+    """The workspace's connection of that provider; None once it was removed."""
+    removed: bool = False
+    """True when that integration is gone from this workspace: the Playbook stays (a published one keeps working)."""
+
+
 class PlaybookItem(_MarvinModel):
     id: UUID4
     name: str
@@ -17,6 +30,8 @@ class PlaybookItem(_MarvinModel):
     updated_at: datetime | None = None
     last_used_at: datetime | None = None
     """When an agent last loaded it (None: not lately, or never)."""
+    from_integration: PlaybookOrigin | None = None
+    """Set when an integration shipped this Playbook and the workspace added it from the integration's card."""
 
 
 class PlaybookUse(_MarvinModel):

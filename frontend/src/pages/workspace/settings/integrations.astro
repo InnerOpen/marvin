@@ -6,6 +6,7 @@ import { fetchApi, getAuthToken } from "@/lib/api/client";
 import type { IntegrationWithHealth, ProviderActionInfo, ProviderInfo } from "@/lib/api/integrations";
 import { getIntegrationFootprint, listIntegrations, listProviders } from "@/lib/api/integrations";
 import { footprintIsEmpty, footprintSections, footprintSummary } from "@/lib/integrationFootprint";
+import { playbookCardNote, updateConfirmText } from "@/lib/playbookBlueprint";
 import type { IntegrationFootprint } from "@/lib/integrationFootprint";
 import { CATEGORY_LABEL, focusedCategory, groupByCategory } from "@/lib/integrationCategories";
 import { policyRows } from "@/lib/integrationPolicy";
@@ -96,6 +97,7 @@ const KIND_NOUN: Record<string, string> = {
   event_subscription: "event connection",
   incoming_webhook: "incoming webhook",
   workflow: "workflow",
+  playbook: "Playbook",
 };
 
 const providersBySlug = new Map(providers.map((p) => [p.slug, p]));
@@ -220,9 +222,14 @@ function statusMeta(status: string): { text: string; cls: string } {
                         <span class="needs-name">
                           {b.name}
                           {b.applied && b.state && b.state !== "current" && <span class="needs-tag">{STATE_TAG[b.state]}</span>}
+                          {(() => {
+                            const note = playbookCardNote(b);
+                            if (!note) return null;
+                            return note.href ? <a class="needs-tag playbook-note" href={note.href}>{note.text}</a> : <span class="needs-tag">{note.text}</span>;
+                          })()}
                         </span>
                         <span class="needs-kind">{KIND_NOUN[b.kind] ?? b.kind}</span>
-                        <span class="needs-desc">{b.description}</span>
+                        <span class="needs-desc">{b.description}{!b.applied && b.conflict && <span class="needs-conflict" data-testid="blueprint-conflict">{b.conflict}</span>}</span>
                         {!b.applied && b.parameters.length > 0 && (
                           <span class="needs-params">
                             {b.parameters.map((p) => {
@@ -262,13 +269,15 @@ function statusMeta(status: string): { text: string; cls: string } {
                             data-source={it.provider}
                             data-slug={b.slug}
                             data-name={b.name}
+                            data-kind={b.kind}
+                            data-integration={it.id}
                             data-replaces={b.state === "update" ? undefined : "1"}
-                            title="The integration ships a newer version of this workflow"
+                            title={`The integration ships a newer version of this ${KIND_NOUN[b.kind] ?? "item"}`}
                           >
                             Update
                           </button>
                         )}
-                        {!b.applied && (
+                        {!b.applied && !b.conflict && (
                           <button
                             type="button"
                             class="button tiny secondary js-apply-needs"
@@ -342,7 +351,7 @@ function statusMeta(status: string): { text: string; cls: string } {
                                   {section.items.map((item) => (
                                     <li class={item.enabled === false ? "is-off" : ""}>
                                       {item.name || "Untitled"}
-                                      {item.enabled === false && <span class="needs-kind">off</span>}
+                                      {item.enabled === false && <span class="needs-kind">{section.kind === "playbooks" ? "draft" : "off"}</span>}
                                     </li>
                                   ))}
                                 </ul>
@@ -641,6 +650,7 @@ function statusMeta(status: string): { text: string; cls: string } {
   import { optionsHint } from "@/lib/integrationOptions";
   import { optionPicker } from "@/lib/integrationOptionPicker";
   import { applyBlueprints, updateBlueprint } from "@/lib/api/blueprints";
+  import { updateConfirmText } from "@/lib/playbookBlueprint";
   import type { IntegrationProviderInfo } from "@/lib/api/integrations";
 
   const providers: IntegrationProviderInfo[] = JSON.parse(
@@ -1083,7 +1093,7 @@ function statusMeta(status: string): { text: string; cls: string } {
       button.disabled = true;
       button.textContent = "Updating…";
       try {
-        const result = await updateBlueprint(button.dataset.slug!, button.dataset.source, replaceEdits);
+        const result = await updateBlueprint(button.dataset.slug!, button.dataset.source, replaceEdits, undefined, button.dataset.integration);
         toast(result.updated ? `Updated ${result.name || result.slug}.` : `Not updated: ${result.detail}`, !!result.updated);
         if (result.updated) {
           setTimeout(reload, 900);
@@ -1097,9 +1107,7 @@ function statusMeta(status: string): { text: string; cls: string } {
     };
     button.addEventListener("click", () => {
       if (!button.dataset.replaces) return void run(false);
-      updateSub.textContent =
-        `"${button.dataset.name}" was changed in this workspace. Updating replaces those changes with the integration's ` +
-        "current version. Whether it's switched on stays as it is.";
+      updateSub.textContent = updateConfirmText(button.dataset.kind ?? "workflow", button.dataset.name ?? "");
       confirmUpdate = () => void run(true);
       updateOverlay.hidden = false;
     });
@@ -1157,6 +1165,8 @@ function statusMeta(status: string): { text: string; cls: string } {
   .needs-tag { margin-left: 0.4rem; padding: 0 0.4rem; border: 1px solid var(--line); border-radius: 999px; font-size: 0.7rem; font-weight: 400; color: var(--mv-muted, #6b7280); white-space: normal; }
   .needs li > .js-update-blueprint,
   .needs li > .js-apply-needs { grid-column: -2; grid-row: 1; justify-self: end; align-self: center; }
+  .needs-conflict { display: block; margin-top: 2px; color: #b45309; font-size: 12px; }
+  .needs-tag.playbook-note { color: var(--accent); text-decoration: none; }
   .needs-params { display: flex; flex-wrap: wrap; gap: 6px 14px; grid-column: 2 / -2; grid-row: 2; }
   .needs-params label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
   .needs-params .input.tiny { padding: 3px 6px; font-size: 12px; min-width: 12ch; max-width: 24ch; }
