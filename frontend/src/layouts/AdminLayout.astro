@@ -18,9 +18,11 @@ interface Props {
   crumb: string;
   /** The H1 when it isn't the node's title (detail pages: the user's name, the task's name). */
   title?: string;
+  /** How wide the page body may grow, as in AppLayout: "page" 900px (the default), "wide" 1200px (tables, card grids), "full" (logs). */
+  width?: "page" | "wide" | "full";
 }
 
-const { crumb, title = navTitle(crumb) } = Astro.props;
+const { crumb, title = navTitle(crumb), width = "page" } = Astro.props;
 const trail = navTrail(crumb);
 const path = Astro.url.pathname;
 // Non-production instances (backend ENVIRONMENT_LABEL) badge the header and prefix the tab title.
@@ -164,7 +166,7 @@ function isActive(item: AdminNavItem, currentPath: string): boolean {
             </form>
           </div>
         </header>
-        <section class="content">
+        <section class:list={["content", width !== "full" && `width-${width}`]}>
           <slot />
         </section>
       </main>

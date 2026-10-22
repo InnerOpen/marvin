@@ -28,7 +28,7 @@ const groups = groupByProvider(prices);
 const unpricedTotal = prices.reduce((n, p) => n + (p.source === "none" ? p.unpricedRuns : 0), 0);
 ---
 
-<AdminLayout crumb="admin.ai-pricing">
+<AdminLayout width="wide" crumb="admin.ai-pricing">
   <div class="toolbar">
     <div>
       <h2>AI Pricing</h2>

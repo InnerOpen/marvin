@@ -51,7 +51,7 @@ const database = (r: BackupRun) =>
 const problems = health ? health.targets.filter((t) => t.state !== "ok" && t.state !== "unknown").length : 0;
 ---
 
-<AdminLayout crumb="admin.backup-health">
+<AdminLayout width="wide" crumb="admin.backup-health">
   <div class="toolbar">
     <div>
       <h2>Backup Health</h2>

@@ -40,7 +40,7 @@ const scheduleType = task ? ((task as any).scheduleType ?? (task as any).schedul
 const scheduleConfig = task ? ((task as any).scheduleConfig ?? (task as any).schedule_config) : null;
 ---
 
-<AdminLayout crumb="admin.scheduled-tasks.task" title={task ? `Edit: ${task.name}` : 'Scheduled Task'}>
+<AdminLayout width="wide" crumb="admin.scheduled-tasks.task" title={task ? `Edit: ${task.name}` : 'Scheduled Task'}>
   <div class="page-header">
     <h2>{task?.name || 'Edit Scheduled Task'}</h2>
     <p>

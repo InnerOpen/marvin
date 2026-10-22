@@ -49,7 +49,7 @@ const statusTone = (s?: string | null) => (!s ? "" : s === "success" ? "ok" : s 
 const unkept = report ? report.tables.filter((t) => !t.keptBy && t.kind === "log") : [];
 ---
 
-<AdminLayout crumb="admin.maintenance">
+<AdminLayout width="wide" crumb="admin.maintenance">
   <div class="toolbar">
     <div>
       <h2>Database &amp; cleanup</h2>

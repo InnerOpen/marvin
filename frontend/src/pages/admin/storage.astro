@@ -43,7 +43,7 @@ const selected = storage ? (storage.uploadProvider ?? "") : "";
 const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)?.name ?? slug;
 ---
 
-<AdminLayout crumb="admin.storage">
+<AdminLayout width="wide" crumb="admin.storage">
   <div class="toolbar">
     <div>
       <h2>Asset Storage</h2>
