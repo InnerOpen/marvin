@@ -120,14 +120,7 @@ const readinessLabel = ready === null ? NO_DATA : ready ? "Ready" : "Unavailable
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 ---
 
-<AdminLayout width="wide" crumb="admin">
-  <div class="toolbar">
-    <div>
-      <h2>Platform overview</h2>
-      <p>What needs attention across the platform. Each card opens its page.</p>
-    </div>
-  </div>
-
+<AdminLayout width="full" crumb="admin">
   <div class="page-container">
     {overview && overview.health.length > 0 && (
       <ul class="health-strip" aria-label="Platform health">
@@ -363,32 +356,13 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
   .swatch.cost { background: var(--accent); }
   .swatch.cached { background: #16a34a; opacity: 0.6; }
 
-  .toolbar {
-    margin-bottom: 32px;
-    padding-bottom: 20px;
-    border-bottom: 1px solid var(--line);
-  }
 
-  .toolbar h2 {
-    margin: 0;
-    font-size: 24px;
-    font-weight: 600;
-  }
 
-  .toolbar p {
-    margin: 8px 0 0;
-    color: var(--muted);
-    font-size: 14px;
-  }
-
-  .page-container {
-    max-width: 1200px;
-  }
 
   .status-grid {
     display: grid;
     gap: 16px;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); /* the tiles share the row however wide the window */
   }
 
   .status-card {
