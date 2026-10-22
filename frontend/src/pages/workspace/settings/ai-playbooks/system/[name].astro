@@ -6,7 +6,7 @@ import { getAuthToken } from "@/lib/api/client";
 import { getSystemPlaybook, listSystemPlaybookUses } from "@/lib/api/playbooks";
 import { listWorkspaces } from "@/lib/api/workspaces";
 import { requireAuth } from "@/lib/auth";
-import { NO_SYSTEM_USES_NOTE, PLAYBOOKS_PATH, type PlaybookUse, sourceLine, type SystemPlaybookRead, systemRow, useRow } from "@/lib/playbooks";
+import { NO_SYSTEM_USES_NOTE, PLAYBOOKS_PATH, type PlaybookUse, sourceLine, switchTitle, type SystemPlaybookRead, systemRow, useRow } from "@/lib/playbooks";
 import { canManageWorkspace, isForbidden } from "@/lib/workspaceRole";
 
 const { name } = Astro.params;
@@ -35,52 +35,74 @@ const useRows = uses.map((use) => useRow(use));
 ---
 
 <AppLayout crumb="settings.ai-playbooks.system" title={playbook?.name ?? "System Playbook"} restrictedNote={restricted ? "Playbooks are for editors and above." : null}>
+  <a class="sp-back" href={PLAYBOOKS_PATH}>← Playbooks</a>
   {error && <div class="alert"><strong>Couldn't load this Playbook.</strong> {error}</div>}
-  {!error && !restricted && !playbook && (
+  {!error && !playbook && !restricted && (
     <div class="section-card">
       <h3>System Playbook not found</h3>
-      <p>It may belong to a plugin that is no longer installed. See all your <a href={PLAYBOOKS_PATH}>Playbooks</a>.</p>
+      <p>No system Playbook named <code>{name}</code> is installed. <a href={PLAYBOOKS_PATH}>Back to Playbooks</a></p>
     </div>
   )}
   {playbook && row && (
     <>
-      <div class="page-header">
-        <div>
+      <header class="sp-head">
+        <div class="sp-title">
           <h2>{playbook.name}</h2>
-          <p>
-            A system Playbook: read-only here, updated with the release that ships it. To change it, copy it from the
-            <a href={PLAYBOOKS_PATH}> Playbooks page</a> and edit your copy.
-          </p>
+          <div class="sp-chips">
+            <span class="sp-chip">{row.label}</span>
+            {row.version && <span class="sp-chip">v{row.version}</span>}
+            <span class="sp-chip" title={row.manualOnly ? "Loaded only when someone names it" : "Listed for agents: loaded when a request matches its description"}>{row.manualOnly ? "Only when named" : "Listed"}</span>
+            <span class:list={["sp-chip", row.on ? "sp-on" : "sp-off"]}>{row.on ? "On here" : row.note || "Off here"}</span>
+            {row.allowedTools && <span class="sp-chip" title={`While loaded the agent can use only: ${row.allowedTools}`}>Allowed tools</span>}
+          </div>
         </div>
-      </div>
-
-      <section class="section-card sp-facts" data-testid="system-facts">
-        <dl>
-          <dt>Comes from</dt>
-          <dd>{sourceLine(playbook)}</dd>
-          <dt>Loads</dt>
-          <dd>{row.manualOnly ? "Only when someone names it (manual only)" : "When a request matches its description"}</dd>
-          {row.allowedTools && (<><dt>Allowed tools</dt><dd><code>{row.allowedTools}</code>: while it is loaded the agent can use only these (and the Playbook tools).</dd></>)}
-          <dt>In this workspace</dt>
-          <dd>{row.on ? "On" : row.note}</dd>
-        </dl>
-        <p class="sp-description">{playbook.description}</p>
-        {playbook.warnings.length > 0 && (
-          <ul class="sp-warnings" data-testid="system-warnings">{playbook.warnings.map((w) => <li>{w}</li>)}</ul>
+        {canManage && (
+          <div class="sp-actions">
+            <label class="sp-switch" title={switchTitle(row)}>
+              <input type="checkbox" id="sp-switch" data-name={playbook.name} checked={row.enabled} disabled={row.serverOff} />
+              <span>{row.enabled ? "On" : "Off"}</span>
+            </label>
+            <button type="button" class="button secondary small" id="sp-copy" data-name={playbook.name} data-suggested={row.suggestedName}>Copy to edit</button>
+          </div>
         )}
-      </section>
+      </header>
+      <p class="sp-description">{playbook.description}</p>
+      <p class="sp-meta" data-testid="system-facts">
+        From {sourceLine(playbook)}. Read-only here and updated with the release that ships it{canManage ? "; copy it to make your own version" : ""}.
+        {row.allowedTools && <> While loaded, the agent can use only <code>{row.allowedTools}</code> (and the Playbook tools).</>}
+      </p>
+      <p class="sp-msg" id="sp-msg" role="status" hidden></p>
+      {playbook.warnings.length > 0 && (
+        <ul class="sp-warnings" data-testid="system-warnings">{playbook.warnings.map((w) => <li>{w}</li>)}</ul>
+      )}
 
       <section class="section-card" data-testid="system-body">
-        <h3>Instructions</h3>
-        <pre class="sp-text">{playbook.body}</pre>
+        <div class="sp-card-head">
+          <h3>Instructions</h3>
+          <button type="button" class="link-btn sp-source-toggle" data-for="sp-body">Show source</button>
+        </div>
+        <div class="sp-rendered md" data-markdown data-id="sp-body"></div>
+        <pre class="sp-text" data-source data-id="sp-body">{playbook.body}</pre>
       </section>
 
-      {playbook.files.map((file) => (
-        <section class="section-card" data-testid="system-file">
-          <h3><code>{file.path}</code></h3>
-          <pre class="sp-text">{file.text}</pre>
+      {playbook.files.length > 0 && (
+        <section class="section-card" data-testid="system-files">
+          <h3>Reference files <span class="sp-count">{playbook.files.length}</span></h3>
+          {playbook.files.map((file, i) => (
+            <details class="sp-file" data-testid="system-file">
+              <summary><code>{file.path}</code></summary>
+              {file.path.toLowerCase().endsWith(".md") ? (
+                <>
+                  <div class="sp-rendered md" data-markdown data-id={`sp-file-${i}`}></div>
+                  <pre class="sp-text" data-source data-id={`sp-file-${i}`}>{file.text}</pre>
+                </>
+              ) : (
+                <pre class="sp-text">{file.text}</pre>
+              )}
+            </details>
+          ))}
         </section>
-      ))}
+      )}
 
       <section class="section-card sp-uses" data-testid="playbook-uses">
         <h3>Used recently</h3>
@@ -97,22 +119,103 @@ const useRows = uses.map((use) => useRow(use));
           </ul>
         )}
       </section>
-      {canManage && <p class="sp-none">Switch it off or copy it from the <a href={PLAYBOOKS_PATH}>Playbooks page</a>.</p>}
     </>
   )}
 </AppLayout>
 
+<script>
+  import DOMPurify from "dompurify";
+  import { marked } from "marked";
+  import { copySystemPlaybook, switchSystemPlaybook } from "@/lib/api/playbooks";
+  import { copyError, editorPath } from "@/lib/playbooks";
+
+  // Render each Markdown block from its source <pre> (sanitized: the text ships with a plugin or Marvin, but is still HTML input).
+  document.querySelectorAll<HTMLElement>("[data-markdown]").forEach((target) => {
+    const source = document.querySelector<HTMLElement>(`[data-source][data-id="${target.dataset.id}"]`);
+    target.innerHTML = DOMPurify.sanitize(marked.parse(source?.textContent ?? "", { async: false }) as string);
+    if (source) source.hidden = true; // the raw text stays visible if this script never runs
+  });
+  document.querySelectorAll<HTMLButtonElement>(".sp-source-toggle").forEach((toggle) =>
+    toggle.addEventListener("click", () => {
+      const id = toggle.dataset.for;
+      const rendered = document.querySelector<HTMLElement>(`[data-markdown][data-id="${id}"]`)!;
+      const source = document.querySelector<HTMLElement>(`[data-source][data-id="${id}"]`)!;
+      const showSource = source.hidden;
+      source.hidden = !showSource;
+      rendered.hidden = showSource;
+      toggle.textContent = showSource ? "Show formatted" : "Show source";
+    }),
+  );
+
+  const message = document.getElementById("sp-msg") as HTMLElement | null;
+  const say = (text: string) => {
+    if (!message) return;
+    message.textContent = text;
+    message.hidden = !text;
+  };
+  const box = document.getElementById("sp-switch") as HTMLInputElement | null;
+  box?.addEventListener("change", async () => {
+    box.disabled = true;
+    try {
+      await switchSystemPlaybook(box.dataset.name!, box.checked);
+      location.reload();
+    } catch (e) {
+      box.checked = !box.checked;
+      box.disabled = false;
+      say(copyError(e));
+    }
+  });
+  const copy = document.getElementById("sp-copy") as HTMLButtonElement | null;
+  copy?.addEventListener("click", async () => {
+    const chosen = window.prompt(`Name for your copy of ${copy.dataset.name}`, copy.dataset.suggested ?? "");
+    if (chosen === null) return;
+    copy.disabled = true;
+    try {
+      const made = await copySystemPlaybook(copy.dataset.name!, chosen.trim() || undefined);
+      location.assign(`${editorPath(made.id)}?imported=1`);
+    } catch (e) {
+      say(copyError(e));
+      copy.disabled = false;
+    }
+  });
+</script>
+
 <style>
-  .section-card { margin-bottom: 16px; max-width: 900px; }
-  .sp-facts dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0 0 12px; font-size: 14px; }
-  .sp-facts dt { color: var(--muted); }
-  .sp-facts dd { margin: 0; overflow-wrap: anywhere; }
-  .sp-description { margin: 0; font-size: 14px; }
-  .sp-warnings { margin: 10px 0 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+  .section-card { margin-bottom: 16px; }
+  .sp-back { display: inline-block; margin-bottom: 12px; font-size: 14px; color: var(--muted); text-decoration: none; }
+  .sp-back:hover { color: var(--accent); }
+  .sp-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 24px; margin-bottom: 8px; }
+  .sp-title h2 { margin: 0 0 8px; font-size: 1.4rem; overflow-wrap: anywhere; }
+  .sp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .sp-chip { font-size: 12px; padding: 2px 9px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); white-space: nowrap; }
+  .sp-chip.sp-on { color: var(--mv-ok, #059669); border-color: color-mix(in srgb, var(--mv-ok, #059669) 45%, var(--line)); }
+  .sp-chip.sp-off { color: var(--color-error, #b91c1c); border-color: color-mix(in srgb, var(--color-error, #b91c1c) 45%, var(--line)); }
+  .sp-actions { display: flex; align-items: center; gap: 12px; }
+  .sp-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  .sp-description { margin: 4px 0 6px; font-size: 15px; }
+  .sp-meta { margin: 0 0 16px; font-size: 13px; color: var(--muted); }
+  .sp-msg { margin: 0 0 12px; font-size: 14px; color: var(--color-error, #b91c1c); }
+  .sp-warnings { margin: 0 0 16px; padding-left: 18px; font-size: 13px; color: var(--muted); }
+  .sp-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .sp-card-head h3 { margin: 0 0 8px; }
+  .sp-count { font-size: 12px; font-weight: 400; color: var(--muted); margin-left: 4px; }
+  .sp-rendered { line-height: 1.6; overflow-wrap: anywhere; }
+  .sp-rendered :global(h1), .sp-rendered :global(h2), .sp-rendered :global(h3), .sp-rendered :global(h4) { margin: 1.1em 0 0.4em; line-height: 1.3; }
+  .sp-rendered :global(h1) { font-size: 1.3rem; }
+  .sp-rendered :global(h2) { font-size: 1.15rem; }
+  .sp-rendered :global(h3) { font-size: 1.05rem; }
+  .sp-rendered :global(:first-child) { margin-top: 0; }
+  .sp-rendered :global(table) { border-collapse: collapse; width: 100%; font-size: 14px; display: block; overflow-x: auto; }
+  .sp-rendered :global(th), .sp-rendered :global(td) { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+  .sp-rendered :global(code) { font-size: 0.9em; }
+  .sp-rendered :global(pre) { overflow-x: auto; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2, var(--panel)); }
   .sp-text { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono, ui-monospace, monospace); font-size: 13px; line-height: 1.5; margin: 0; }
+  .sp-file { border-top: 1px solid var(--line); padding: 10px 0; }
+  .sp-file summary { cursor: pointer; }
+  .sp-file[open] summary { margin-bottom: 10px; }
   .sp-uses ul { list-style: none; margin: 0; padding: 0; }
   .sp-uses li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 6px 0; font-size: 14px; }
   .sp-uses li + li { border-top: 1px solid var(--line); }
   .sp-when, .sp-none { color: var(--muted); font-size: 13px; }
-  .sp-none { margin: 0 0 12px; }
+  .sp-none { margin: 0; }
 </style>
