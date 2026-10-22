@@ -20,7 +20,7 @@ from typing import Any
 from marvin.services.entry_urls import best_entry_url, site_base_url
 
 # Where each problem is fixed, for a link next to it: the site address, or an entry type's editor.
-SITE_ADDRESS_FIX = {"label": "Set the Canonical URL", "path": "/workspace/settings/general#site-canonical-url"}
+SITE_ADDRESS_FIX = {"label": "Set the Canonical URL", "path": "/publishing/site#site-canonical-url"}
 PROBE_TIMEOUT_SECONDS = 5
 PROBE_MAX_BYTES = 2_000_000  # a page is read only to be counted as answered, so the cap is generous
 _ENTRY_URL = re.compile(r"(?<![\w.])entry\.url\b")

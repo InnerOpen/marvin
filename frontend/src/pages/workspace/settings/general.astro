@@ -4,9 +4,9 @@ import { getAuthToken } from "@/lib/api/client";
 import type { WorkspaceRole } from "@/lib/api/types";
 import { getWorkspaceTrashSettings, type TrashAutoEmpty } from "@/lib/api/trash";
 import { listWorkspaceMembers } from "@/lib/api/workspaceMembers";
-import { getSiteLinks, type SiteLinksStatus } from "@/lib/api/siteLinks";
 import { getWorkspacePreferences } from "@/lib/api/workspaceSettings";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import { navHref } from "@/lib/navTree";
 import { requireAuth } from "@/lib/auth";
 import { AUTO_EMPTY_CHOICES, autoEmptyLabel } from "@/lib/trash";
 
@@ -19,7 +19,6 @@ let error: string | null = null;
 let currentUserRole: WorkspaceRole | null = null;
 let isPlatformAdmin = false;
 let trashSettings: TrashAutoEmpty | null = null;
-let siteLinks: SiteLinksStatus | null = null;
 
 try {
   workspace = await getCurrentWorkspace(authToken);
@@ -32,7 +31,6 @@ try {
       console.error("[settings] Error loading preferences:", e);
     }
     trashSettings = await getWorkspaceTrashSettings(workspace.id, authToken).catch(() => null);
-    siteLinks = await getSiteLinks(workspace.id, authToken).catch(() => null);
 
     // Get current user's role and admin status
     const members = await listWorkspaceMembers(workspace.id, authToken);
@@ -54,11 +52,6 @@ const canManage = currentUserRole && (currentUserRole === "OWNER" || currentUser
 
 const urlParams = Astro.url.searchParams;
 const success = urlParams.get("success") === "1";
-// The many "X has no page URL pattern" problems fold into one callout with a chip per type (named from the message).
-const NO_PATTERN_SUFFIX = " has no page URL pattern";
-const noPattern = (siteLinks?.problems ?? [])
-  .filter((p) => p.kind === "no_page_pattern")
-  .map((p) => ({ ...p, name: p.message.includes(NO_PATTERN_SUFFIX) ? p.message.split(NO_PATTERN_SUFFIX)[0] : (p.entryType ?? p.fix.label) }));
 ---
 
 <AppLayout crumb="settings.general">
@@ -107,124 +100,15 @@ const noPattern = (siteLinks?.problems ?? [])
         </div>
       </section>
 
-      <section class="settings-section" id="site-configuration">
-        <h3>Site Configuration</h3>
+      <section class="settings-section" id="publishing-workflows">
+        <h3>Publishing &amp; workflows</h3>
+        <p>How publishing and workflows behave in this workspace. The site itself (title, address, logo, SEO, links) is set on <a href={navHref("publishing.site")}>Publishing → Site</a>.</p>
         <form
           id="site-settings-form"
           data-workspace-id={workspace.id}
           class="settings-form"
         >
           <div class="form-grid">
-            <label>
-              <span>Site Title</span>
-              <input
-                type="text"
-                name="site_title"
-                value={preferences?.siteTitle || ''}
-                disabled={!canManage}
-                placeholder="My Awesome Site"
-              />
-              <small>The public title of your site</small>
-            </label>
-
-            <label>
-              <span>Site Tagline</span>
-              <input
-                type="text"
-                name="site_tagline"
-                value={preferences?.siteTagline || ''}
-                disabled={!canManage}
-                placeholder="Building amazing things"
-              />
-              <small>A short tagline or slogan</small>
-            </label>
-
-            <label>
-              <span>Site Description</span>
-              <textarea
-                name="site_description"
-                rows="3"
-                disabled={!canManage}
-                placeholder="A comprehensive description of your site"
-              >{preferences?.siteDescription || ''}</textarea>
-              <small>Description for SEO and social sharing</small>
-            </label>
-
-            <label>
-              <span>Canonical URL</span>
-              <input
-                id="site-canonical-url"
-                type="url"
-                name="site_canonical_url"
-                value={preferences?.siteCanonicalUrl || ''}
-                disabled={!canManage}
-                placeholder="https://example.com"
-              />
-              <small>The canonical URL where this site is published. Also the base for entry links when an entry type has a Page URL pattern.</small>
-            </label>
-
-            <label>
-              <span>Site Logo</span>
-              <input
-                type="text"
-                name="site_logo"
-                value={preferences?.siteLogo || ''}
-                disabled={!canManage}
-                placeholder="logo"
-              />
-              <small>An asset's slug (follows the asset wherever it's stored), or a path or URL</small>
-            </label>
-
-            <label>
-              <span>Site Favicon</span>
-              <input
-                type="text"
-                name="site_favicon"
-                value={preferences?.siteFavicon || ''}
-                disabled={!canManage}
-                placeholder="favicon"
-              />
-              <small>An asset's slug (follows the asset wherever it's stored), or a path or URL</small>
-            </label>
-
-            <label>
-              <span>Locale</span>
-              <input
-                type="text"
-                name="site_locale"
-                value={preferences?.siteLocale || 'en-US'}
-                disabled={!canManage}
-                placeholder="en-US"
-              />
-              <small>The locale for your site (e.g., en-US, en-GB, fr-FR)</small>
-            </label>
-
-            <label>
-              <span>Timezone</span>
-              <input
-                type="text"
-                name="site_timezone"
-                value={preferences?.siteTimezone || 'America/New_York'}
-                disabled={!canManage}
-                placeholder="America/New_York"
-                list="tz-list"
-              />
-              <small>Your site's time zone: workflow waits ("at 09:00", "next Monday") and scheduled times are read in it. Pick from the list — an unknown name falls back to the default.</small>
-            </label>
-            <datalist id="tz-list"></datalist>
-
-            <label>
-              <span>Contact Email</span>
-              <input
-                type="email"
-                name="site_contact_email"
-                value={preferences?.siteContactEmail || ''}
-                disabled={!canManage}
-                placeholder="contact@example.com"
-              />
-              <small>Primary contact email for the site</small>
-            </label>
-
             <label class="checkbox-row">
               <span>Rebuild the site automatically</span>
               <span>
@@ -269,74 +153,16 @@ const noPattern = (siteLinks?.problems ?? [])
               <span class="hint">How long a workflow's approval waits for a decision when its step doesn't say (1–720, default 72).</span>
             </label>
 
-            <label>
-              <span>Social Links (JSON)</span>
-              <textarea
-                name="site_social_json"
-                rows="6"
-                disabled={!canManage}
-                placeholder='{"twitter": "https://twitter.com/...", "github": "https://github.com/..."}'
-                class="metadata-editor"
-              >{preferences?.siteSocialJson ? JSON.stringify(preferences.siteSocialJson, null, 2) : ''}</textarea>
-              <small>Social media links as JSON (deprecated - use Site Metadata instead)</small>
-            </label>
-
-            <label>
-              <span>Site Metadata (JSON)</span>
-              <textarea
-                name="site_metadata_json"
-                rows="8"
-                disabled={!canManage}
-                placeholder='{"social": {"twitter": "...", "github": "..."}, "seo": {"keywords": [...]}}'
-                class="metadata-editor"
-              >{preferences?.siteMetadataJson ? JSON.stringify(preferences.siteMetadataJson, null, 2) : ''}</textarea>
-              <small>Flexible metadata for framework-specific settings (include social links under 'social' key)</small>
-            </label>
           </div>
 
           {canManage && (
             <div class="form-actions">
-              <button type="submit" id="submit-site-btn" class="button">Save Site Settings</button>
+              <button type="submit" id="submit-site-btn" class="button">Save</button>
               <button type="reset" class="button secondary">Reset</button>
             </div>
           )}
         </form>
       </section>
-
-      {siteLinks && (
-        <section class="settings-section" id="site-links" data-workspace-id={workspace.id}>
-          <h3>Site links</h3>
-          <p class="hint">
-            An entry's link is the Canonical URL above plus its entry type's Page URL pattern. Without both, links come back
-            empty in AI answers, workflows (<code>{"${entry.url}"}</code>) and "View on site".
-          </p>
-          <p id="site-links-ok" class="status-success" hidden={!siteLinks.ok}>Every publishable entry type has a page address.</p>
-          {siteLinks.problems.filter((p) => p.kind !== "no_page_pattern").map((p) => (
-            <div class="sl-callout">
-              <span>{p.message}</span>
-              <a class="sl-fix" href={p.fix.path}>{p.fix.label} →</a>
-            </div>
-          ))}
-          {noPattern.length > 0 && (
-            <div class="sl-callout" data-testid="site-links-no-pattern">
-              <span>
-                {noPattern.length === 1 ? "1 entry type has" : `${noPattern.length} entry types have`} no page URL pattern, so
-                {noPattern.length === 1 ? " its" : " their"} entries have no link. Pick one to set it; a type that is only part of a page (a hero, a band) can stay without.
-              </span>
-              <div class="sl-chips">
-                {noPattern.map((p) => <a class="sl-chip" href={p.fix.path} title={p.fix.label}>{p.name}</a>)}
-              </div>
-            </div>
-          )}
-          {canManage && (
-            <div class="sl-probe">
-              <button type="button" id="site-links-probe-btn" class="button secondary">Check the live links</button>
-              <small id="site-links-probe-note">Fetches one published entry per type from your site; takes a few seconds.</small>
-            </div>
-          )}
-          <ul id="site-links-probe-results" class="sl-results"></ul>
-        </section>
-      )}
 
       {trashSettings && (
         <section class="settings-section" id="trash">
@@ -420,43 +246,10 @@ const noPattern = (siteLinks?.problems ?? [])
 
 <script>
   // HttpOnly cookie is automatically sent with credentials: 'include'
-  import { probeSiteLinks } from '@/lib/api/siteLinks';
   import { createSdkClient } from '@/lib/sdk';
   const sdk = createSdkClient();
   const siteForm = document.getElementById('site-settings-form') as HTMLFormElement;
   const submitSiteBtn = document.getElementById('submit-site-btn') as HTMLButtonElement;
-
-  // Site links: the live check fetches one published entry per type, so it runs on a click (never on load).
-  const probeBtn = document.getElementById('site-links-probe-btn') as HTMLButtonElement | null;
-  if (probeBtn) {
-    probeBtn.addEventListener('click', async () => {
-      const workspaceId = document.getElementById('site-links')?.dataset.workspaceId;
-      const note = document.getElementById('site-links-probe-note');
-      const results = document.getElementById('site-links-probe-results');
-      if (!workspaceId || !note || !results) return;
-      probeBtn.disabled = true;
-      note.textContent = 'Checking…';
-      results.replaceChildren();
-      try {
-        const { problems } = await probeSiteLinks(workspaceId);
-        note.textContent = problems.length ? 'These links did not answer 200:' : 'Every link answered 200.';
-        for (const p of problems) {
-          const li = document.createElement('li');
-          const text = document.createElement('span');
-          text.textContent = p.message;
-          const link = document.createElement('a');
-          link.className = 'sl-fix';
-          link.href = p.fix.path;
-          link.textContent = `${p.fix.label} →`;
-          li.append(text, link);
-          results.appendChild(li);
-        }
-      } catch (err) {
-        note.textContent = 'Error: ' + (err instanceof Error ? err.message : 'The check failed');
-      }
-      probeBtn.disabled = false;
-    });
-  }
 
   // Trash settings: "" = inherit the platform default (null), else 0 (never) / 7 / 30 / 90 days.
   const trashForm = document.getElementById('trash-settings-form') as HTMLFormElement | null;
@@ -480,18 +273,6 @@ const noPattern = (siteLinks?.problems ?? [])
 
   // Site settings form submission
   if (siteForm && submitSiteBtn) {
-    // The zones this browser knows, as suggestions for the free-text field: a mistyped zone falls back
-    // to the default in workflow waits without a word, so pick from the list.
-    const tzList = document.getElementById('tz-list');
-    const intl = Intl as any;
-    if (tzList && typeof intl.supportedValuesOf === 'function') {
-      for (const zone of intl.supportedValuesOf('timeZone') as string[]) {
-        const opt = document.createElement('option');
-        opt.value = zone;
-        tzList.appendChild(opt);
-      }
-    }
-
     siteForm.addEventListener('submit', async (e) => {
       e.preventDefault();
 
@@ -506,75 +287,27 @@ const noPattern = (siteLinks?.problems ?? [])
 
       try {
         const formData = new FormData(siteForm);
+        // Only this section's settings: the site's own (title, address, SEO…) are saved on Publishing → Site, and the update is partial.
         const data: any = {
-          site_title: formData.get('site_title') as string || null,
-          site_tagline: formData.get('site_tagline') as string || null,
-          site_description: formData.get('site_description') as string || null,
-          site_canonical_url: formData.get('site_canonical_url') as string || null,
-          site_logo: formData.get('site_logo') as string || null,
-          site_favicon: formData.get('site_favicon') as string || null,
-          site_locale: formData.get('site_locale') as string || null,
-          site_timezone: formData.get('site_timezone') as string || null,
-          site_contact_email: formData.get('site_contact_email') as string || null,
           site_auto_rebuild: formData.has('site_auto_rebuild'),
           scheduled_publish_requires_approval: formData.has('scheduled_publish_requires_approval'),
           // Blank goes back to the platform default (null).
           workflow_max_steps: Number(formData.get('workflow_max_steps')) || null,
           approval_expires_hours: Number(formData.get('approval_expires_hours')) || null,
         };
-
-        // Parse JSON fields
-        const socialJson = formData.get('site_social_json') as string;
-        const metadataJson = formData.get('site_metadata_json') as string;
-
-        if (socialJson && socialJson.trim()) {
-          try {
-            data.site_social_json = JSON.parse(socialJson);
-          } catch (e) {
-            alert('Invalid JSON in Social Links field');
-            submitSiteBtn.disabled = false;
-            submitSiteBtn.textContent = 'Save Site Settings';
-            return;
-          }
-        }
-
-        if (metadataJson && metadataJson.trim()) {
-          try {
-            data.site_metadata_json = JSON.parse(metadataJson);
-          } catch (e) {
-            alert('Invalid JSON in Site Metadata field');
-            submitSiteBtn.disabled = false;
-            submitSiteBtn.textContent = 'Save Site Settings';
-            return;
-          }
-        }
-
         await sdk.workspaces.updatePreferences(workspaceId, data);
 
-        window.location.href = '/workspace/settings?success=1';
+        window.location.href = '/workspace/settings/general?success=1#publishing-workflows';
       } catch (err) {
         alert('Error: ' + (err instanceof Error ? err.message : 'Failed to update site settings'));
         submitSiteBtn.disabled = false;
-        submitSiteBtn.textContent = 'Save Site Settings';
+        submitSiteBtn.textContent = 'Save';
       }
     });
   }
 </script>
 
 <style>
-  /* Site links: problems as callouts (the many "no page URL pattern" ones folded into one, with a chip per type) */
-  .sl-callout { display: grid; gap: 10px; margin: 10px 0; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--warn, #d97706); border-radius: var(--radius); background: var(--panel-2); font-size: 14px; color: var(--muted); }
-  .sl-callout > span { color: var(--ink); }
-  .sl-fix { color: var(--accent); font-size: 13px; text-decoration: none; justify-self: start; }
-  .sl-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .sl-chip { padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); font-size: 13px; text-decoration: none; }
-  .sl-chip:hover { border-color: var(--accent); color: var(--accent); }
-  .sl-probe { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 14px; }
-  .sl-probe small { color: var(--muted); font-size: 13px; }
-  .sl-results { list-style: none; margin: 8px 0 0; padding: 0; }
-  .sl-results:empty { display: none; }
-  .sl-results :global(li) { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 8px 12px; border-left: 3px solid var(--color-error); background: var(--panel-2); border-radius: var(--radius); margin-top: 6px; font-size: 14px; overflow-wrap: anywhere; }
-  .sl-results :global(.sl-fix) { color: var(--accent); font-size: 13px; text-decoration: none; }
   .checkbox-row input[type="checkbox"] { width: auto; margin: 0 6px 0 0; vertical-align: middle; }
   /* Beside a taller field (the JSON editors) the row's grid would spread its text to the bottom. */
   .form-grid label.checkbox-row { align-content: start; }
@@ -623,7 +356,7 @@ const noPattern = (siteLinks?.problems ?? [])
     font-size: 14px;
   }
 
-  /* A jump to a section (#site-configuration, #site-links, #trash) clears the sticky header. */
+  /* A jump to a section (#publishing-workflows, #trash) clears the sticky header. */
   .settings-section[id] { scroll-margin-top: 80px; }
 
   .form-grid {
@@ -797,7 +530,6 @@ const noPattern = (siteLinks?.problems ?? [])
     padding: 16px;
     margin-bottom: 24px;
   }
-
 
   .muted {
     color: var(--muted);
