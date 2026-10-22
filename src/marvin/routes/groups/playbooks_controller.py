@@ -10,15 +10,27 @@ from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
 from pydantic import UUID4
 
 from marvin.db.models.groups.ai_threads import AIThreadModel
+from marvin.db.models.groups.integrations import IntegrationModel
 from marvin.db.models.users.roles import WorkspaceRole
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import has_workspace_role, require_workspace_editor
-from marvin.schemas.group.playbooks import PlaybookGithubImport, PlaybookImported, PlaybookItem, PlaybookList, PlaybookType, PlaybookUse, PlaybookUses
+from marvin.schemas.group.playbooks import (
+    PlaybookGithubImport,
+    PlaybookImported,
+    PlaybookItem,
+    PlaybookList,
+    PlaybookOrigin,
+    PlaybookType,
+    PlaybookUse,
+    PlaybookUses,
+)
 from marvin.services import playbooks
 from marvin.services.assets.asset_storage_service import AssetStorageService
+from marvin.services.blueprints.playbook_apply import provider_name
 from marvin.services.entries.entry_service import EntryService
 from marvin.services.playbooks import exporter, importer
 from marvin.services.playbooks import github as github_import
+from marvin.services.playbooks.blueprint import PROVENANCE_KEY
 from marvin.services.playbooks.memory import recent_uses
 
 router = APIRouter(prefix="/groups/playbooks")
@@ -31,6 +43,7 @@ class PlaybooksController(BaseUserController):
         """Every Playbook of this workspace outside the Trash, by name, with its status. Creates nothing."""
         require_workspace_editor(self.user, self.group_id)
         uses = recent_uses(self.session, self.group_id, per_playbook=1)
+        live = {str(i.id): i for i in self.session.query(IntegrationModel).filter_by(group_id=self.group_id)}
         items = [
             PlaybookItem(
                 id=row.id,
@@ -40,6 +53,7 @@ class PlaybooksController(BaseUserController):
                 manual_only=(row.data_json or {}).get("manual_only") is True,
                 updated_at=row.update_at,
                 last_used_at=(uses.get(str(row.id)) or [{}])[0].get("used_at"),
+                from_integration=self._origin(row, live),
             )
             for row in playbooks.all_playbooks(self.session, self.group_id)
         ]
@@ -127,6 +141,21 @@ class PlaybooksController(BaseUserController):
         except importer.ImportRefused as e:
             raise HTTPException(status_code=e.status_code, detail=str(e)) from e
         return self._imported(done)
+
+    @staticmethod
+    def _origin(row, live: dict) -> PlaybookOrigin | None:
+        """Where an integration's Playbook came from; ``removed`` when its integration is no longer in the workspace."""
+        found = ((row.metadata_json or {}).get(PROVENANCE_KEY)) or {}
+        source = found.get("source") if isinstance(found, dict) else None
+        if not source:
+            return None
+        integration = live.get(str(found.get("integrationId") or "")) or next((i for i in live.values() if i.provider == source), None)
+        return PlaybookOrigin(
+            source=source,
+            name=provider_name(source),
+            integration_id=integration.id if integration is not None else None,
+            removed=integration is None,
+        )
 
     def _find(self, entry_id: UUID4):
         """The Playbook entry (any status but trashed) of this workspace; 404 when there is none."""

@@ -5,7 +5,8 @@ exists.** A workspace may have customised its copy of a blueprint's object, and 
 starting point rather than a template the workspace is held to. Applying twice is therefore safe,
 and so is applying a newer provider's blueprint over an older install.
 
-Nothing here commits — the caller owns the transaction, as with the smart-collection helpers.
+Nothing here commits — the caller owns the transaction, as with the smart-collection helpers — except a ``playbook`` blueprint: a
+Playbook is an entry with files, and the entry and asset writers commit, so it is applied last and commits (``playbook_apply``).
 """
 
 import re
@@ -171,11 +172,13 @@ def already_applied(session, group_id, blueprint: Blueprint, params: dict | None
     return _existing(session, group_id, blueprint, slug, target, resolved) is not None
 
 
-def apply_blueprint(session, group_id, blueprint: Blueprint, params: dict | None = None, integration_id=None, actor_id=None) -> BlueprintApplyResult:
+def apply_blueprint(
+    session, group_id, blueprint: Blueprint, params: dict | None = None, integration_id=None, actor_id=None, event_bus=None
+) -> BlueprintApplyResult:
     """Create the blueprint's object in this workspace, unless it is already there.
 
     `actor_id` is who applied it — recorded as a workflow's author, since a workflow runs with its
-    author's privileges."""
+    author's privileges, and as a Playbook's creator. `event_bus` is the request's, for the events a Playbook's entry emits."""
     result = BlueprintApplyResult(slug=blueprint.slug, kind=blueprint.kind, created=False)
 
     try:
@@ -194,6 +197,13 @@ def apply_blueprint(session, group_id, blueprint: Blueprint, params: dict | None
         result.detail = f"needs {', '.join(missing)}"
         return result
 
+    if blueprint.kind == "playbook" and _existing(session, group_id, blueprint, slug) is None:
+        from .playbook_apply import blueprint_conflict
+
+        if conflict := blueprint_conflict(session, group_id, blueprint):
+            result.detail = conflict
+            return result
+
     if _existing(session, group_id, blueprint, slug, target, resolved) is not None:
         noun = blueprint.kind.replace("_", " ")
         if blueprint.kind in PER_INTEGRATION_KINDS:
@@ -207,7 +217,7 @@ def apply_blueprint(session, group_id, blueprint: Blueprint, params: dict | None
 
     try:
         provenance = installed_by(session, group_id, blueprint, target or integration_id)
-        result.detail = _create(session, group_id, blueprint, resolved, slug, name, target, actor_id, provenance) or ""
+        result.detail = _create(session, group_id, blueprint, resolved, slug, name, target, actor_id, provenance, event_bus) or ""
     except BlueprintParameterError as e:
         result.detail = str(e)
         return result
@@ -216,16 +226,19 @@ def apply_blueprint(session, group_id, blueprint: Blueprint, params: dict | None
     return result
 
 
-def apply_many(session, group_id, blueprints, params: dict | None = None, integration_id=None, actor_id=None) -> list[BlueprintApplyResult]:
+def apply_many(
+    session, group_id, blueprints, params: dict | None = None, integration_id=None, actor_id=None, event_bus=None
+) -> list[BlueprintApplyResult]:
     """Apply several, in order. Entry types (and their added fields) first so the collections, tasks
-    and workflows that reference them fit; webhooks before the workflows they trigger.
+    and workflows that reference them fit; webhooks before the workflows they trigger; Playbooks last, because
+    adding one commits (the one exception to "apply never commits").
 
     `params` is keyed by blueprint slug: {"<slug>": {"entry_type": "..."}}.
     """
-    order = {"entry_type": 0, "entry_fields": 1, "collection": 2, "scheduled_task": 3, "incoming_webhook": 4, "workflow": 5}
+    order = {"entry_type": 0, "entry_fields": 1, "collection": 2, "scheduled_task": 3, "incoming_webhook": 4, "workflow": 5, "playbook": 6}
     by_slug = params or {}
     return [
-        apply_blueprint(session, group_id, b, by_slug.get(b.slug), integration_id=integration_id, actor_id=actor_id)
+        apply_blueprint(session, group_id, b, by_slug.get(b.slug), integration_id=integration_id, actor_id=actor_id, event_bus=event_bus)
         for b in sorted(blueprints, key=lambda b: order.get(b.kind, 99))
     ]
 
@@ -250,6 +263,12 @@ def _models():
 
 
 def _existing(session, group_id, blueprint: Blueprint, slug: str, integration_id=None, params: dict | None = None):
+    if blueprint.kind == "playbook":
+        # Applied = this provider's Playbook of that name, not in the Trash; any other entry with the name is a conflict.
+        from .playbook_apply import applied_row
+
+        return applied_row(session, group_id, blueprint)
+
     if blueprint.kind == "entry_fields":
         # "Applied" means every declared field is already on the type and every declared submission setting stored;
         # a type with only some of them still has work to do.
@@ -282,11 +301,29 @@ def _existing(session, group_id, blueprint: Blueprint, slug: str, integration_id
 
 
 def _create(
-    session, group_id, blueprint: Blueprint, params: dict, slug: str, name: str, integration_id=None, actor_id=None, provenance: dict | None = None
+    session,
+    group_id,
+    blueprint: Blueprint,
+    params: dict,
+    slug: str,
+    name: str,
+    integration_id=None,
+    actor_id=None,
+    provenance: dict | None = None,
+    event_bus=None,
 ) -> str | None:
     """Create the object, stamped with `provenance` (see `installed_by`). Returns an optional note for
     the result (what fields were added)."""
     provenance = provenance or {}
+
+    if blueprint.kind == "playbook":
+        from .playbook_apply import create_playbook
+
+        try:
+            return create_playbook(session, group_id, blueprint, provenance.get("source_integration_id"), actor_id, event_bus)
+        except ValueError as e:
+            raise BlueprintParameterError(str(e)) from e
+
     payload = substitute(blueprint.payload, params)
 
     if blueprint.kind == "entry_fields":
@@ -484,9 +521,10 @@ def _add_fields(session, group_id, blueprint: Blueprint, params: dict) -> str:
 #
 # Apply never overwrites, so a workspace keeps whatever version of a blueprint it applied. When the
 # provider ships a new version, the card offers an explicit Update instead — for workflows, whose
-# steps are the provider's logic (a fix there should reach everyone who applied it).
+# steps are the provider's logic (a fix there should reach everyone who applied it), and for Playbooks,
+# the provider's written know-how (``playbook_apply``).
 
-UPDATABLE_KINDS = ("workflow",)
+UPDATABLE_KINDS = ("workflow", "playbook")
 
 
 def _canonical(value) -> str:
@@ -514,7 +552,13 @@ def definition_hash(definition) -> str:
 
 
 def blueprint_state(row_definition, stored_hash: str | None, declared_definition) -> str:
-    """How an applied workflow stands against its provider's current version:
+    """``state_from_hashes`` for a workflow's definition."""
+    return state_from_hashes(definition_hash(row_definition), stored_hash, definition_hash(declared_definition))
+
+
+def state_from_hashes(have: str, stored_hash: str | None, declared: str) -> str:
+    """How an applied workflow or Playbook stands against its provider's current version, from the hash of what it is now
+    (`have`), of what was installed (`stored_hash`) and of what the provider declares now:
 
     - `current`: the same steps as the provider declares now.
     - `update`: untouched since install, and the provider has a newer version — safe to update.
@@ -522,7 +566,6 @@ def blueprint_state(row_definition, stored_hash: str | None, declared_definition
     - `edited_update`: changed here *and* the provider has a newer version — updating replaces the edits.
     - `differs`: no install hash recorded (installed before it was) — can't tell an edit from an old version.
     """
-    have, declared = definition_hash(row_definition), definition_hash(declared_definition)
     if have == declared:
         return "current"
     if not stored_hash:
@@ -543,6 +586,10 @@ def blueprint_state_of(session, group_id, blueprint: Blueprint, params: dict | N
     declared, row = _declared_and_existing(session, group_id, blueprint, params)
     if row is None:
         return None
+    if blueprint.kind == "playbook":
+        from .playbook_apply import state_of
+
+        return state_of(session, row, blueprint)
     return blueprint_state(row.definition, row.source_definition_hash, declared.get("definition"))
 
 
@@ -552,9 +599,21 @@ def outdated(session, group_id, blueprint: Blueprint, params: dict | None = None
     return blueprint_state_of(session, group_id, blueprint, params) in UPDATE_STATES
 
 
-def update_blueprint(session, group_id, blueprint: Blueprint, params: dict | None = None, replace_edits: bool = False) -> BlueprintApplyResult:
+def update_blueprint(
+    session,
+    group_id,
+    blueprint: Blueprint,
+    params: dict | None = None,
+    replace_edits: bool = False,
+    integration_id=None,
+    actor_id=None,
+    event_bus=None,
+) -> BlueprintApplyResult:
     """Replace an applied workflow's steps with the provider's current version. Whether it is
     switched on is kept; the new definition must pass structural validation first.
+
+    A Playbook's update replaces its text and files, keeps its id and status, and commits (see ``playbook_apply``);
+    ``integration_id`` rebinds it to that connection (a Playbook whose integration was removed and added again).
 
     A workflow changed in this workspace (`edited`, `edited_update`) or of unknown history (`differs`)
     is refused unless `replace_edits`: the update would silently discard those changes. `edited` has
@@ -568,6 +627,10 @@ def update_blueprint(session, group_id, blueprint: Blueprint, params: dict | Non
     if row is None:
         result.detail = "not applied in this workspace — add it instead"
         return result
+    if blueprint.kind == "playbook":
+        from .playbook_apply import update_playbook
+
+        return update_playbook(session, group_id, blueprint, row, integration_id, actor_id, replace_edits, event_bus)
     definition = declared.get("definition") or {}
     from marvin.services.automation.validation import structural_issues
 

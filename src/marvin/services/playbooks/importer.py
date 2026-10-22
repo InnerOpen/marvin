@@ -91,7 +91,7 @@ class GithubSource(TypedDict):
 class ImportSource(TypedDict):
     """``review["source"]``: how the Playbook arrived. A GitHub import also carries the ``GithubSource`` keys."""
 
-    kind: str  # "skill_md" | "zip" | "github"
+    kind: str  # "skill_md" | "zip" | "github" | "integration"
     filename: NotRequired[str]
     importedAt: NotRequired[str]
     url: NotRequired[str]
@@ -125,7 +125,7 @@ class PackageFile:
 
 @dataclass
 class Package:
-    kind: str  # "skill_md" | "zip"
+    kind: str  # "skill_md" | "zip" | "github" | "integration"
     doc: SkillDoc
     text: str
     files: list[PackageFile] = field(default_factory=list)
@@ -429,16 +429,22 @@ class Imported:
     file_count: int
 
 
-def _taken_message(session, group_id, name) -> str | None:
+def taken_where(session, group_id, name) -> str | None:
+    """None when no entry of the workspace has this slug; else '' (one does) or ' (it is in the Trash)'."""
     from marvin.db.models.platform.entries import Entries
 
     row = session.query(Entries.status).filter(Entries.group_id == group_id, Entries.slug == name).first()
     if row is None:
         return None
-    where = " (it is in the Trash)" if row[0] == "trashed" else ""
-    return (
-        f"The name '{name}' is already used by a Playbook or entry in this workspace{where}. "
-        "A Playbook's name must be unique: change the name in SKILL.md, or choose a new name for this import."
+    return " (it is in the Trash)" if row[0] == "trashed" else ""
+
+
+def _taken_message(session, group_id, name, advice: str | None = None) -> str | None:
+    where = taken_where(session, group_id, name)
+    if where is None:
+        return None
+    return f"The name '{name}' is already used by a Playbook or entry in this workspace{where}. " + (
+        advice or "A Playbook's name must be unique: change the name in SKILL.md, or choose a new name for this import."
     )
 
 
@@ -509,7 +515,9 @@ def _store_review(session, entry, review: Review) -> None:
     """Rewrite the stored review: files dropped while attaching change what the editor should show."""
     from sqlalchemy.orm.attributes import flag_modified
 
-    row = session.get(type(entry), entry.id)
+    from marvin.db.models.platform.entries import Entries
+
+    row = session.get(Entries, entry.id)  # `entry` is the service's read model, not the row
     row.metadata_json = {**(row.metadata_json or {}), "importReview": review}
     flag_modified(row, "metadata_json")
     session.commit()
@@ -520,15 +528,44 @@ def import_package(
 ) -> Imported:
     """``import_playbook`` from a Package already read (the upload, or a GitHub folder). ``source`` is recorded on the review
     and the entry (``metadata_json["source"]``) as the draft's provenance."""
+    _apply_name(package, name)
+    return create_playbook_from_package(
+        session,
+        package,
+        group_id=group_id,
+        user_id=user_id,
+        entries=entries,
+        assets=assets,
+        review_source={"kind": package.kind, "filename": (filename or "")[:200], "importedAt": datetime.now(UTC).isoformat()},
+        source=source,
+    )
+
+
+def create_playbook_from_package(
+    session,
+    package: Package,
+    *,
+    group_id,
+    user_id,
+    entries,
+    assets,
+    review_source: dict,
+    source: GithubSource | None = None,
+    metadata: dict | None = None,
+    taken_advice: str | None = None,
+) -> Imported:
+    """The one writer of a draft Playbook from a Package, for an import and for an integration's Playbook blueprint: refuses a taken
+    name (``ImportRefused`` 409, ``taken_advice`` replaces the import's hint), reviews it (``review_source`` is what the review
+    says it came from), creates the **draft** entry, attaches the files and stores the review. ``metadata`` is merged into the
+    entry's ``metadata_json`` (the blueprint's ``installedBy``). Commits."""
     from marvin.services.ai.tools import list_tools
 
-    _apply_name(package, name)
     doc = package.doc
-    if message := _taken_message(session, group_id, doc.name):
+    if message := _taken_message(session, group_id, doc.name, taken_advice):
         raise ImportRefused(message, 409)
 
     review = review_package(package, {t.name for t in list_tools()})
-    review["source"] = {"kind": package.kind, "filename": (filename or "")[:200], "importedAt": datetime.now(UTC).isoformat()}
+    review["source"] = review_source
     entry = entries.create(
         {
             "entry_type_id": ensure_playbook_type(session, group_id),
@@ -536,14 +573,14 @@ def import_package(
             "slug": doc.name,
             "status": "draft",
             "data_json": doc.to_entry_data(),
-            "metadata_json": _entry_metadata(package, review, source),
+            "metadata_json": {**_entry_metadata(package, review, source), **(metadata or {})},
             "created_by": user_id,
         }
     )
     attached = _attach_files(session, package, entry, review, group_id=group_id, user_id=user_id, assets=assets)
     if attached != len(package.files):  # keep the stored review in step with what was kept
         _store_review(session, entry, review)
-    logger.info("playbooks: imported %s (%s, %d files) into workspace %s", doc.name, package.kind, attached, group_id)
+    logger.info("playbooks: created %s (%s, %d files) in workspace %s", doc.name, package.kind, attached, group_id)
     return Imported(entry=entry, review=review, file_count=attached)
 
 
