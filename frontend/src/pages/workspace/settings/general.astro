@@ -54,6 +54,11 @@ const canManage = currentUserRole && (currentUserRole === "OWNER" || currentUser
 
 const urlParams = Astro.url.searchParams;
 const success = urlParams.get("success") === "1";
+// The many "X has no page URL pattern" problems fold into one callout with a chip per type (named from the message).
+const NO_PATTERN_SUFFIX = " has no page URL pattern";
+const noPattern = (siteLinks?.problems ?? [])
+  .filter((p) => p.kind === "no_page_pattern")
+  .map((p) => ({ ...p, name: p.message.includes(NO_PATTERN_SUFFIX) ? p.message.split(NO_PATTERN_SUFFIX)[0] : (p.entryType ?? p.fix.label) }));
 ---
 
 <AppLayout crumb="settings.general">
@@ -306,20 +311,30 @@ const success = urlParams.get("success") === "1";
             empty in AI answers, workflows (<code>{"${entry.url}"}</code>) and "View on site".
           </p>
           <p id="site-links-ok" class="status-success" hidden={!siteLinks.ok}>Every publishable entry type has a page address.</p>
-          <ul id="site-links-problems" class="site-links-list">
-            {siteLinks.problems.map((p) => (
-              <li>
-                <span>{p.message}</span> <a href={p.fix.path}>{p.fix.label}</a>
-              </li>
-            ))}
-          </ul>
+          {siteLinks.problems.filter((p) => p.kind !== "no_page_pattern").map((p) => (
+            <div class="sl-callout">
+              <span>{p.message}</span>
+              <a class="sl-fix" href={p.fix.path}>{p.fix.label} →</a>
+            </div>
+          ))}
+          {noPattern.length > 0 && (
+            <div class="sl-callout" data-testid="site-links-no-pattern">
+              <span>
+                {noPattern.length === 1 ? "1 entry type has" : `${noPattern.length} entry types have`} no page URL pattern, so
+                {noPattern.length === 1 ? " its" : " their"} entries have no link. Pick one to set it; a type that is only part of a page (a hero, a band) can stay without.
+              </span>
+              <div class="sl-chips">
+                {noPattern.map((p) => <a class="sl-chip" href={p.fix.path} title={p.fix.label}>{p.name}</a>)}
+              </div>
+            </div>
+          )}
           {canManage && (
             <div class="form-actions">
               <button type="button" id="site-links-probe-btn" class="button">Check the live links</button>
               <small id="site-links-probe-note">Fetches one published entry per type from your site; takes a few seconds.</small>
             </div>
           )}
-          <ul id="site-links-probe-results" class="site-links-list"></ul>
+          <ul id="site-links-probe-results" class="sl-results"></ul>
         </section>
       )}
 
@@ -427,10 +442,13 @@ const success = urlParams.get("success") === "1";
         note.textContent = problems.length ? 'These links did not answer 200:' : 'Every link answered 200.';
         for (const p of problems) {
           const li = document.createElement('li');
+          const text = document.createElement('span');
+          text.textContent = p.message;
           const link = document.createElement('a');
+          link.className = 'sl-fix';
           link.href = p.fix.path;
-          link.textContent = p.fix.label;
-          li.append(`${p.message} `, link);
+          link.textContent = `${p.fix.label} →`;
+          li.append(text, link);
           results.appendChild(li);
         }
       } catch (err) {
@@ -544,8 +562,17 @@ const success = urlParams.get("success") === "1";
 </script>
 
 <style>
-  .site-links-list { margin: 8px 0; padding-left: 18px; }
-  .site-links-list :global(li) { margin: 4px 0; }
+  /* Site links: problems as callouts (the many "no page URL pattern" ones folded into one, with a chip per type) */
+  .sl-callout { display: grid; gap: 10px; margin: 10px 0; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--warn, #d97706); border-radius: var(--radius); background: var(--panel-2); font-size: 14px; color: var(--muted); }
+  .sl-callout > span { color: var(--ink); }
+  .sl-fix { color: var(--accent); font-size: 13px; text-decoration: none; justify-self: start; }
+  .sl-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .sl-chip { padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); font-size: 13px; text-decoration: none; }
+  .sl-chip:hover { border-color: var(--accent); color: var(--accent); }
+  .sl-results { list-style: none; margin: 8px 0 0; padding: 0; }
+  .sl-results:empty { display: none; }
+  .sl-results :global(li) { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 8px 12px; border-left: 3px solid var(--color-error); background: var(--panel-2); border-radius: var(--radius); margin-top: 6px; font-size: 14px; overflow-wrap: anywhere; }
+  .sl-results :global(.sl-fix) { color: var(--accent); font-size: 13px; text-decoration: none; }
   .checkbox-row input[type="checkbox"] { width: auto; margin: 0 6px 0 0; vertical-align: middle; }
   /* Beside a taller field (the JSON editors) the row's grid would spread its text to the bottom. */
   .form-grid label.checkbox-row { align-content: start; }
