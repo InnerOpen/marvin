@@ -29,11 +29,11 @@ try {
 const none = summary && !summary.show ? emptyNotice(summary, false) : null;
 ---
 
-<AppLayout crumb="automation.results" restrictedNote={restricted ? "Results are for editors and above." : null}>
+<AppLayout width="full" crumb="automation.results" restrictedNote={restricted ? "Results are for editors and above." : null}>
   <div class="social-page">
     <p class="si-lede">
       The work Marvin handed to another system, and whether it came back: in flight until the other side reports, then succeeded or
-      failed. One still in flight after 24 hours shows as No reply. Open one for the details; an admin can retry a failure or dismiss it.
+      failed. One still in flight after 24 hours shows as No reply. Click one to expand its details; an admin can retry a failure or dismiss it.
     </p>
     {error && <div class="si-alert">Could not load the results: {error}</div>}
     {none && (

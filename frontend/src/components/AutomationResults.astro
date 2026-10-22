@@ -2,7 +2,7 @@
 // Automation › Results: the work Marvin handed to another system, newest first. A row is compact on every screen (the entry, the
 // connection and target, the message or where it stands, when, a status badge); tapping it opens the result: where it stands, the
 // facts, "Open entry" and "Open the run", and for an admin Retry (runs the workflow's hand-off step again for that entry) and Dismiss
-// (a failure that has been dealt with). A refused retry shows the reason in the dialog.
+// (a failure that has been dealt with). A refused retry shows the reason under the row.
 // Backend: routes/groups/automation_results_controller.py. Pure logic: lib/automationResults.ts (automationResults.test.mjs).
 import type { ResultList } from "@/lib/api/automationResults";
 import {
@@ -83,14 +83,6 @@ const data = JSON.stringify({ summary: counts, list, filters }).replace(/</g, "\
   </div>
 </div>
 
-<dialog id="ar-dialog" class="si-dialog" aria-labelledby="ar-d-title">
-  <div class="si-d-head">
-    <h3 id="ar-d-title">Hand-off</h3>
-    <button type="button" class="si-d-close" data-close aria-label="Close">×</button>
-  </div>
-  <div class="si-d-body" id="ar-d-body"></div>
-</dialog>
-
 <script>
   import * as api from "@/lib/api/automationResults";
   import {
@@ -123,7 +115,7 @@ const data = JSON.stringify({ summary: counts, list, filters }).replace(/</g, "\
   const filters: Filters = init.filters;
   let items: ResultItem[] = init.list?.items ?? [];
   let total: number = init.list?.total ?? 0;
-  let openId: string | null = null;
+  const openIds = new Set<string>(); // rows expanded in place, like a log
 
   const badge = (b: { label: string; tone: string; title?: string }) =>
     `<span class="si-badge ${esc(b.tone)}"${b.title ? ` title="${esc(b.title)}"` : ""}>${esc(b.label)}</span>`;
@@ -132,14 +124,15 @@ const data = JSON.stringify({ summary: counts, list, filters }).replace(/</g, "\
 
   function rowHtml(item: ResultItem): string {
     const r = resultRow(item);
-    return `<li><button type="button" class="si-row${r.unread ? " unread" : ""}" data-id="${esc(r.id)}" aria-haspopup="dialog">
+    const isOpen = openIds.has(r.id);
+    return `<li class="ar-item${isOpen ? " open" : ""}" data-id="${esc(r.id)}"><button type="button" class="si-row${r.unread ? " unread" : ""}" data-id="${esc(r.id)}" aria-expanded="${isOpen}">
       <span class="si-mark" aria-hidden="true">${mark(r.provider)}</span>
       <span class="si-main">
         <span class="si-line"><strong class="si-author">${esc(r.title)}</strong>${r.connection ? `<span class="si-kind ar-conn">${esc(r.connection)}${r.target ? ` · ${esc(r.target)}` : ""}</span>` : ""}</span>
         <span class="si-text">${esc(r.text)}</span>
       </span>
       <span class="si-meta"><time datetime="${esc(r.at)}" title="${esc(new Date(r.at).toLocaleString())}">${esc(timeAgo(r.at))}</time><span class="si-badges">${badge(r.badge)}</span></span>
-    </button></li>`;
+    </button><div class="ar-detail"${isOpen ? "" : " hidden"}>${isOpen ? detailHtml(item) : ""}</div></li>`;
   }
 
   function render() {
@@ -200,10 +193,8 @@ const data = JSON.stringify({ summary: counts, list, filters }).replace(/</g, "\
     }
   }
 
-  // ── the result ───────────────────────────────────────────────────────────────────────────────────────────────────
-  const dialog = $("ar-dialog") as HTMLDialogElement;
-  const body = $("ar-d-body") as HTMLElement;
-  const current = () => items.find((i) => i.id === openId) ?? null;
+  // ── the result: a row expands in place to its details and actions ───────────────────────────────────────────────
+  const rowEl = (id: string) => [...$("ar-list").querySelectorAll("li.ar-item")].find((li: HTMLElement) => li.dataset.id === id) as HTMLElement | undefined;
 
   function detailHtml(item: ResultItem): string {
     const r = resultRow(item);
@@ -212,10 +203,7 @@ const data = JSON.stringify({ summary: counts, list, filters }).replace(/</g, "\
     const entryHref = openEntryHref(item, returnTo);
     const tone = stateOf(item) === "failed" ? "bad" : stateOf(item) === "no_reply" ? "warn" : stateOf(item) === "succeeded" ? "good" : "";
     const message = (item.message ?? "").trim();
-    return `<div class="si-d-who"><span class="si-mark ar-dialog-mark" aria-hidden="true">${mark(r.provider)}</span><div><strong>${esc(r.title)}</strong>
-        <div class="si-muted si-small">${esc(r.connection)}${r.target ? ` · ${esc(r.target)}` : ""}</div></div>
-        <span class="si-badges">${badge(r.badge)}</span></div>
-      <p class="ar-standing ${tone}">${esc(standing(item))}</p>
+    return `<p class="ar-standing ${tone}">${esc(standing(item))}</p>
       ${message ? `<p class="ar-message">${esc(message)}</p>` : ""}
       <dl class="sr-facts ar-facts">${detailLines(item).map((l) => `<dt>${esc(l.label)}</dt><dd>${esc(l.value)}</dd>`).join("")}</dl>
       <div class="si-actions">
@@ -223,51 +211,50 @@ const data = JSON.stringify({ summary: counts, list, filters }).replace(/</g, "\
         ${entryHref ? `<a class="button secondary si-btn-sm" href="${esc(entryHref)}">Open entry</a>` : ""}
         ${item.remoteUrl ? `<a class="button secondary si-btn-sm" href="${esc(item.remoteUrl)}" target="_blank" rel="noopener noreferrer">Open the run</a>` : ""}
       </div>
-      <p class="si-result" id="ar-result" role="status" hidden></p>`;
+      <p class="si-result ar-result" role="status" hidden></p>`;
   }
 
   function show(item: ResultItem, result?: { text: string; bad: boolean }) {
-    $("ar-d-title").textContent = resultRow(item).title;
-    body.innerHTML = detailHtml(item);
-    installLogoFallback();
+    const box = rowEl(item.id)?.querySelector<HTMLElement>(".ar-detail");
+    if (!box) return;
+    box.innerHTML = detailHtml(item);
     if (result) {
-      const out = $("ar-result");
+      const out = box.querySelector<HTMLElement>(".ar-result")!;
       out.hidden = false;
       out.className = `si-result ${result.bad ? "bad" : "ok"}`;
       out.textContent = result.text;
     }
   }
 
-  function open(item: ResultItem) {
-    openId = item.id;
-    show(item);
-    dialog.showModal();
+  function toggle(item: ResultItem) {
+    const li = rowEl(item.id);
+    if (!li) return;
+    const opening = !openIds.has(item.id);
+    if (opening) openIds.add(item.id);
+    else openIds.delete(item.id);
+    li.classList.toggle("open", opening);
+    li.querySelector(".si-row")?.setAttribute("aria-expanded", String(opening));
+    const box = li.querySelector<HTMLElement>(".ar-detail")!;
+    box.hidden = !opening;
+    if (opening) show(item);
   }
 
-  $("ar-list").addEventListener("click", (event: Event) => {
-    const row = (event.target as HTMLElement).closest<HTMLElement>(".si-row");
-    const item = row ? items.find((i) => i.id === row.dataset.id) : null;
-    if (item) open(item);
-  });
-
-  dialog.addEventListener("click", (event) => {
-    if (event.target === dialog || (event.target as HTMLElement).closest("[data-close]")) dialog.close();
-  });
-  dialog.addEventListener("close", () => {
-    openId = null;
-  });
-
-  body.addEventListener("click", async (event: Event) => {
-    const act = (event.target as HTMLElement).closest<HTMLElement>("[data-act]")?.dataset.act;
-    const item = current();
-    if ((act !== "retry" && act !== "dismiss") || !item) return;
-    body.querySelectorAll("button").forEach((b: HTMLButtonElement) => (b.disabled = true));
+  $("ar-list").addEventListener("click", async (event: Event) => {
+    const target = event.target as HTMLElement;
+    const li = target.closest<HTMLElement>("li.ar-item");
+    const item = li ? items.find((i) => i.id === li.dataset.id) : null;
+    if (!li || !item) return;
+    if (target.closest(".si-row")) return toggle(item);
+    const act = target.closest<HTMLElement>("[data-act]")?.dataset.act;
+    if (act !== "retry" && act !== "dismiss") return;
+    li.querySelectorAll<HTMLButtonElement>(".ar-detail button").forEach((b) => (b.disabled = true));
     try {
       const out = act === "retry" ? await api.retry(item.id) : await api.dismiss(item.id);
       items = items.map((i) => (i.id === item.id ? out.result : i));
       // a dismissed one leaves the Failed, In flight and No reply views, which don't list them
       if (act === "dismiss" && ["failed", "in_flight", "no_reply"].includes(filters.status)) {
         items = items.filter((i) => i.id !== item.id);
+        openIds.delete(item.id);
         total = Math.max(0, total - 1);
       }
       render();
