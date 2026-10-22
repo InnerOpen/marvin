@@ -183,7 +183,7 @@ export function workflowCardHtml(
           cls: "js-copy",
           label: "Copy JSON",
           title:
-            "Copy the name, slug and definition as JSON — paste it into New workflow → Edit as JSON, here or in another workspace",
+            "Copy the name, slug and definition as JSON — paste it into New Workflow → Edit as JSON, here or in another workspace",
         },
         { cls: "js-delete", label: "Delete", danger: true },
       ])}

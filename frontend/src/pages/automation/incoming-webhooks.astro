@@ -79,7 +79,7 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
       <h2>Incoming Webhooks</h2>
       <p>Give an external system a secret URL. When it POSTs, Marvin fires an event your workflows can react to.</p>
     </div>
-    <button id="iw-new" class="button">New webhook</button>
+    <button id="iw-new" class="button">New Webhook</button>
   </div>
 
   <div class="page-container">
@@ -532,6 +532,7 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
   .iw-page :global(.button) { padding: 8px 14px; border-radius: var(--radius); border: 1px solid var(--line); background: transparent; color: var(--ink); font-size: 14px; font-weight: 600; cursor: pointer; }
   .iw-page :global(.button.sm) { padding: 4px 10px; font-size: 12px; }
   .iw-page :global(.button.danger) { color: var(--color-error, #c0392b); border-color: var(--color-error, #c0392b); }
+  .iw-page #iw-new { background: var(--accent); border-color: var(--accent); color: #fff; } /* the page's primary action, like New … elsewhere */
   .iw-page :global(.token-live) { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .iw-page :global(.token-live .url) { flex: 1; min-width: 240px; font-family: var(--mono, monospace); font-size: 12px; }
   .iw-page :global(.token-none) { display: flex; gap: 10px; align-items: center; }
