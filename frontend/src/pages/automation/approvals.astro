@@ -28,7 +28,7 @@ try {
     </div>
   </div>
   {error && <div class="alert error">Could not load approvals: {error}</div>}
-  {!error && approvals.length === 0 && <p class="muted empty">Nothing is waiting for you.</p>}
+  {!error && approvals.length === 0 && <p class="empty-state">Nothing is waiting for you.</p>}
   <div class="approvals">
     {approvals.map((a) => (
       <article class="approval" data-id={a.id}>
@@ -108,5 +108,4 @@ try {
   .decide { display: flex; flex-wrap: wrap; gap: 8px; }
   .decide .note { flex: 1 1 220px; }
   .result { margin: 8px 0 0; font-size: 13px; }
-  .empty { margin-top: 12px; }
 </style>

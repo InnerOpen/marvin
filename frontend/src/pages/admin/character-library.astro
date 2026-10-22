@@ -91,7 +91,7 @@ const nameOf = (p: Pack) => p.persona?.assistantName || p.name;
       </div>
     </form>
 
-    {!error && !packs.length && <p class="empty">No packs yet.</p>}
+    {!error && !packs.length && <p class="empty-state">No packs yet.</p>}
 
     {packs.map((p) => (
       <section class="settings-section pack" data-pack={p.id}>
@@ -341,7 +341,6 @@ const nameOf = (p: Pack) => p.persona?.assistantName || p.name;
     border-top: 1px solid var(--line);
   }
   .status-text { font-size: 13px; color: var(--muted); }
-  .empty { color: var(--muted); font-size: 14px; }
   .alert.error {
     padding: 12px 16px;
     border: 1px solid #c33;

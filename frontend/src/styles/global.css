@@ -1293,3 +1293,6 @@ code {
 .mood-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
 .persona-from { margin: 0; font-size: 13px; color: var(--muted); }
 .persona-from button { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; }
+
+/* "Nothing here yet": one look on every page — a dashed box, centred, muted. Pages style only what's inside it (icon, title, text). */
+.empty-state { padding: 40px 24px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: var(--radius); }
