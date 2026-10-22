@@ -359,28 +359,32 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
   .new-character-hint { margin: -6px 0 16px; font-size: 12px; color: var(--muted); }
   .agent-character { height: 28px; width: auto; max-width: 56px; object-fit: contain; }
   /* Injected via innerHTML → :global */
-  .pb-pick :global(.pb-pick-group) { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+  :global(.pb-pick .pb-pick-group) { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
   /* The Playbook picker (wirePlaybookPicker): one list, Use + Always load per row; the text boxes behind it are hidden. */
-  :global(.pb-store) { display: none; }
-  .pb-pick :global(.pb-pick-head) { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 6px; }
-  .pb-pick :global(.pb-pick-group h5) { margin: 12px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
-  .pb-pick :global(.pb-pick-group ul) { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; }
-  .pb-pick :global(.pb-row) { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 4px 12px; padding: 8px 12px; }
-  .pb-pick :global(.pb-row + .pb-row) { border-top: 1px solid var(--line); }
-  .pb-pick :global(.pb-row.is-off) { opacity: 0.6; }
-  .pb-pick :global(.pb-row-main) { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
-  .pb-pick :global(.pb-row-name) { font-size: 13px; overflow-wrap: anywhere; }
-  .pb-pick :global(.pb-row-desc) { flex-basis: 100%; font-size: 12px; color: var(--muted); }
-  .pb-pick :global(.pb-badge) { font-size: 11px; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
-  .pb-pick :global(.pb-always) { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; color: var(--muted); }
-  .pb-pick :global(.pb-use), .pb-pick :global(.pb-always) { padding-top: 1px; }
-  .pb-pick.pb-mode-all :global(.pb-use) { visibility: hidden; } /* "All published": every Playbook is used; only Always load applies */
-  .pb-pick :global(.pb-missing) { margin-top: 8px; font-size: 13px; color: var(--color-error, #b91c1c); }
-  .pb-pick :global(.pb-missing-name) { margin-right: 8px; white-space: nowrap; }
+  .edit :global(.form-field.pb-store) { display: none; } /* out-ranks .edit .form-field's display */
+  :global(.pb-pick .pb-pick-head) { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+  :global(.pb-pick .pb-pick-group h5) { margin: 12px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  :global(.pb-pick .pb-pick-group ul) { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; }
+  :global(.pb-pick .pb-row) { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 4px 12px; padding: 8px 12px; }
+  :global(.pb-pick .pb-row + .pb-row) { border-top: 1px solid var(--line); }
+  :global(.pb-pick .pb-row.is-off) { opacity: 0.6; }
+  :global(.pb-pick .pb-row-main) { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
+  :global(.pb-pick .pb-row-name) { font-size: 13px; overflow-wrap: anywhere; }
+  :global(.pb-pick .pb-row-desc) { flex-basis: 100%; font-size: 12px; color: var(--muted); }
+  :global(.pb-pick .pb-badge) { font-size: 11px; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
+  :global(.pb-pick .pb-always) { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; color: var(--muted); }
+  :global(.pb-pick .pb-use), :global(.pb-pick .pb-always) { padding-top: 1px; }
+  /* "All published": every Playbook is used, so the Use column goes; only Always load applies */
+  :global(.pb-pick.pb-mode-all .pb-use) { display: none; }
+  :global(.pb-pick.pb-mode-all .pb-row) { grid-template-columns: minmax(0, 1fr) auto; }
+  :global(.pb-pick .pb-missing) { margin-top: 8px; font-size: 13px; color: var(--color-error, #b91c1c); }
+  :global(.pb-pick .pb-missing-name) { margin-right: 8px; white-space: nowrap; }
   :global(.sr-only) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   @media (max-width: 640px) {
-    .pb-pick :global(.pb-row) { grid-template-columns: auto minmax(0, 1fr); }
-    .pb-pick :global(.pb-always) { grid-column: 2; }
+    :global(.pb-pick .pb-row) { grid-template-columns: auto minmax(0, 1fr); }
+    :global(.pb-pick .pb-always) { grid-column: 2; }
+    :global(.pb-pick.pb-mode-all .pb-row) { grid-template-columns: minmax(0, 1fr); }
+    :global(.pb-pick.pb-mode-all .pb-always) { grid-column: 1; }
   }
   .matrix :global(.mx-group), .perms :global(.mx-group) { border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 8px; overflow: hidden; }
   .matrix :global(.mx-head), .perms :global(.mx-head) { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; background: var(--panel-2); font-size: 13px; }
@@ -400,6 +404,16 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
   .perms :global(.mx-why) { color: var(--muted); font-size: 12px; margin-left: 6px; }
   .perms :global(.mx-title) { font-size: 13px; margin-bottom: 10px; color: var(--muted); }
   .edit :global(.agent-form) { margin-top: 0; padding-top: 0; border-top: 0; }
+  /* The Edit form's collapsible sections (built via innerHTML → :global) */
+  .edit :global(.e-sec) { border: 1px solid var(--line); border-radius: 10px; padding: 0 16px; margin-bottom: 12px; }
+  .edit :global(.e-sec > summary) { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin: 0 -16px; padding: 12px 16px; cursor: pointer; list-style: none; }
+  .edit :global(.e-sec > summary::-webkit-details-marker) { display: none; }
+  .edit :global(.e-sec > summary::before) { content: "▸"; color: var(--muted); transition: transform 0.15s; }
+  .edit :global(.e-sec[open] > summary::before) { transform: rotate(90deg); }
+  .edit :global(.e-sec[open] > summary) { border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+  .edit :global(.e-sec-title) { font-size: 14px; font-weight: 600; }
+  .edit :global(.e-sec-hint) { font-size: 12px; color: var(--muted); }
+  .edit :global(.e-sec .character-box) { margin: 0 0 16px; padding-top: 0; border-top: 0; }
   .edit :global(.form-row) { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
   .edit :global(.form-row.icon-name) { grid-template-columns: 90px 1fr; }
   .edit :global(.form-row.four) { grid-template-columns: repeat(4, 1fr); }
@@ -820,6 +834,7 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
       card.querySelector(".character-btn")?.addEventListener("click", () => {
         if (!characterBox) return;
         if (editBox && !editBox.hidden && editBox.contains(characterBox)) {
+          characterBox.closest("details")?.setAttribute("open", ""); // it lives in the Edit form's Character section
           characterBox.scrollIntoView({ block: "nearest", behavior: "smooth" });
           return;
         }
@@ -977,6 +992,7 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
           .join("");
         if (characterBox) card.append(characterBox);
         editBox.innerHTML = `<form class="agent-form">
+          <details class="e-sec" open><summary><span class="e-sec-title">Basics</span><span class="e-sec-hint">Name, description, instructions</span></summary>
           <div class="form-row icon-name">
             <div class="form-field"><label class="label">Icon</label><input class="input" name="icon" maxlength="4" value="${esc(agent.icon ?? "")}" /></div>
             <div class="form-field"><label class="label">Name</label><input class="input" name="name" required value="${esc(agent.name)}" /></div>
@@ -984,10 +1000,14 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
           <div class="form-field"><label class="label">Description</label><textarea class="input" name="description" rows="2">${esc(agent.description ?? "")}</textarea></div>
           <div class="form-field"><label class="label">Hand off when…</label><input class="input" name="handoffHint" maxlength="300" value="${esc(agent.handoffHint ?? "")}" /></div>
           <div class="form-field"><label class="label">Instructions</label><textarea class="input" name="systemPrompt" rows="6">${esc(agent.systemPrompt ?? "")}</textarea></div>
+          </details>
+          <details class="e-sec" data-role="sec-character"><summary><span class="e-sec-title">Character</span><span class="e-sec-hint">How it speaks, bubble lines, mood, suggested prompts</span></summary>
           <div class="form-field"><label class="label">Character <span class="muted">(who it is and how it speaks — empty uses the workspace's)</span></label><textarea class="input" name="personaPrompt" rows="4" maxlength="8000">${esc(agent.personaPrompt ?? "")}</textarea>${fromNote(agent)}</div>
           <div class="form-field"><label class="label">Bubble lines <span class="muted">(while it talks; an empty list uses the workspace's)</span></label>${linesFieldsHtml(agent.bubbleLines, voiceFor(agent.name))}<div><button type="button" class="button secondary small e-lines">Write lines from the Character</button> <span class="save-status" data-role="lstatus"></span></div></div>
           <div class="form-field">${moodFieldsHtml(agent.mood)}</div>
           <div class="form-field"><label class="label">Suggested prompts (one per line)</label><textarea class="input" name="suggestions" rows="3">${esc((agent.suggestions ?? []).join("\n"))}</textarea></div>
+          </details>
+          <details class="e-sec"><summary><span class="e-sec-title">Model and access</span><span class="e-sec-hint">Model, kind, tone, who may talk to it, writes</span></summary>
           <div class="form-row four">
             <div class="form-field"><label class="label">Model</label><select class="input" name="modelOverride">${modelOptions}</select></div>
             <div class="form-field"><label class="label">Kind</label><select class="input" name="kind"><option value="persona"${agent.kind === "persona" ? " selected" : ""}>Persona — instructions + tools</option><option value="model"${agent.kind === "model" ? " selected" : ""}>Model — plain chat</option></select></div>
@@ -998,7 +1018,9 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
             <label class="toggle-label"><input type="checkbox" name="allowWrites" class="toggle-input"${agent.allowWrites ? " checked" : ""} /><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-text">Allow writes</span></label>
             <label class="toggle-label"><input type="checkbox" name="enabled" class="toggle-input"${agent.enabled ? " checked" : ""} /><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-text">Enabled</span></label>
           </div>
-          <div class="form-field"><div class="section-title"><h4>Playbooks</h4><p>Written procedures this agent can load. Pick all published ones or a chosen set. Up to ${ALWAYS_MAX} can be always loaded: their full text rides along with every run (the prompt preview warns when that gets long). A Playbook marked manual-only is never offered or loaded unless the person's message names it. System Playbooks (shipped by Marvin and its plugins) are picked by name like your own.</p></div>
+          </details>
+          <details class="e-sec"><summary><span class="e-sec-title">Playbooks</span><span class="e-sec-hint">Which procedures it can load</span></summary>
+          <div class="form-field"><div class="section-title"><p>Written procedures this agent can load. Pick all published ones or a chosen set. Up to ${ALWAYS_MAX} can be always loaded: their full text rides along with every run (the prompt preview warns when that gets long). A Playbook marked manual-only is never offered or loaded unless the person's message names it. System Playbooks (shipped by Marvin and its plugins) are picked by name like your own.</p></div>
             <div class="form-row">
               <div class="form-field"><label class="label">Available</label><select class="input" name="playbooksMode"><option value="all"${agent.playbooks?.names ? "" : " selected"}>All published Playbooks</option><option value="chosen"${agent.playbooks?.names ? " selected" : ""}>Only these</option></select></div>
               <div class="form-field" data-role="pb-always-field"><label class="label">Always load <span class="muted">(names, one per line or comma-separated; up to ${ALWAYS_MAX})</span></label><textarea class="input mono" name="playbookAlways" rows="2" placeholder="bench-note-voice">${esc((agent.playbooks?.always ?? []).join("\n"))}</textarea></div>
@@ -1006,13 +1028,16 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
             <div class="form-field" data-role="playbook-names"${agent.playbooks?.names ? "" : " hidden"}><label class="label">Chosen Playbooks <span class="muted">(names, one per line)</span></label><textarea class="input mono" name="playbookNames" rows="3">${esc((agent.playbooks?.names ?? []).join("\n"))}</textarea></div>
             <div class="form-field pb-pick" data-role="pb-pick" hidden><div class="pb-pick-head"><span class="label">Playbooks</span><span class="muted" data-role="pb-always-count"></span></div><div data-role="pb-pick-groups"></div><div class="pb-missing" data-role="pb-missing" hidden></div><p class="muted" data-role="pb-off" hidden></p></div>
           </div>
-          <div class="form-field"><div class="section-title"><h4>Tools</h4><p>Inherit follows the group default (with writes on, write groups ask first); override per group or per tool. Ask first binds the tool but pauses the run for your approval on the Ask page; where there is no conversation to pause (bubble, MCP, hand-off children) it behaves like Block.</p></div><div class="matrix" data-role="matrix"></div></div>
+          </details>
+          <details class="e-sec"><summary><span class="e-sec-title">Tools</span><span class="e-sec-hint">What it may do, and what asks first</span></summary>
+          <div class="form-field"><div class="section-title"><p>Inherit follows the group default (with writes on, write groups ask first); override per group or per tool. Ask first binds the tool but pauses the run for your approval on the Ask page; where there is no conversation to pause (bubble, MCP, hand-off children) it behaves like Block.</p></div><div class="matrix" data-role="matrix"></div></div>
+          </details>
           <div class="form-actions"><button type="submit" class="button small">Save changes</button><button type="button" class="button secondary small e-preview">Preview prompt</button><button type="button" class="button secondary small e-cancel">Cancel</button><span class="save-status" data-role="estatus"></span></div>
           <div class="prompt-preview" data-role="epreview" hidden aria-live="polite"></div>
         </form>`;
         const form = editBox.querySelector("form") as HTMLFormElement;
         if (characterBox) {
-          form.querySelector(".form-row.icon-name")?.after(characterBox);
+          form.querySelector('[data-role="sec-character"] > summary')?.after(characterBox);
           characterBox.hidden = false;
         }
         const matrix = editBox.querySelector<HTMLElement>('[data-role="matrix"]')!;
