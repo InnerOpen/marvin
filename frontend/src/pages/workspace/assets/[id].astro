@@ -201,7 +201,7 @@ const showAiPanel = aiEnabled && isImage;
           </form>
         </section>
 
-        <aside class="sidebar">
+        <aside class="side-col">
           <div class="sidebar-section">
             <h3>Preview</h3>
             {asset.publicUrl && asset.mimeType?.startsWith('image/') ? (
@@ -339,7 +339,7 @@ const showAiPanel = aiEnabled && isImage;
     border-top: 1px solid var(--line);
   }
 
-  .sidebar {
+  .side-col { /* not .sidebar: global.css gives that the nav column's full-height strip */
     display: grid;
     gap: 1.5rem;
     align-content: start;
@@ -440,7 +440,7 @@ const showAiPanel = aiEnabled && isImage;
       grid-template-columns: 1fr;
     }
 
-    .sidebar {
+    .side-col {
       order: -1;
     }
   }

@@ -183,7 +183,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
           )}
         </section>
 
-        <aside class="sidebar">
+        <aside class="side-col">
           <div class="panel">
             <h3>Info</h3>
             <dl class="info-list">
@@ -323,8 +323,8 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
 </script>
 
 <style>
-  .danger-panel {
-    border-color: var(--color-error);
+  .panel.danger-panel {
+    border-color: var(--color-error); /* .panel (below) would otherwise win and drop the red edge */
   }
 
   .stakes {
@@ -404,8 +404,8 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    margin-bottom: 2rem;
-    padding-bottom: 1.5rem;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
     border-bottom: 1px solid var(--line);
   }
 
@@ -433,25 +433,25 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
   .layout-grid {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 320px;
-    gap: 2rem;
+    gap: 20px;
   }
 
   .main-section {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 2rem;
+    gap: 20px;
   }
 
   .panel {
-    padding: 2rem;
+    padding: 20px 24px;
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: var(--radius);
   }
 
   .panel h3 {
-    margin: 0 0 1.5rem;
-    font-size: 18px;
+    margin: 0 0 16px;
+    font-size: 16px;
     font-weight: 600;
   }
 
@@ -532,10 +532,11 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
     background: var(--color-error-bg);
   }
 
-  .sidebar {
+  /* Not .sidebar: that is the app's navigation column in global.css (full-height, panel-coloured), which drew a strip here. */
+  .side-col {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 1.5rem;
+    gap: 20px;
     align-content: start;
   }
 
@@ -565,7 +566,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
       grid-template-columns: minmax(0, 1fr);
     }
 
-    .sidebar {
+    .side-col {
       order: -1;
     }
   }
