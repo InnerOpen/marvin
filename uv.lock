@@ -3,7 +3,7 @@ revision = 5
 requires-python = "==3.12.*"
 
 [manifest]
-overrides = [{ name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.15.0" }]
+overrides = [{ name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.16.0" }]
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -1218,7 +1218,7 @@ requires-dist = [
     { name = "isodate", specifier = ">=0.7.2" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "jsonschema", specifier = ">=4.26,<5" },
-    { name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.15.0" },
+    { name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.16.0" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.30.0,<2" },
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "pillow", specifier = ">=11.1.0" },
@@ -1285,7 +1285,7 @@ plugins = [
     { name = "marvin-integration-openai-images", git = "https://github.com/InnerOpen/marvin-integration-openai-images?rev=v0.4.0" },
     { name = "marvin-integration-slack", git = "https://github.com/InnerOpen/marvin-integration-slack?rev=v0.5.0" },
     { name = "marvin-integration-square", git = "https://github.com/InnerOpen/marvin-integration-square?rev=v0.5.0" },
-    { name = "marvin-storage-s3", git = "https://github.com/InnerOpen/marvin-storage-s3?rev=v0.4.0" },
+    { name = "marvin-storage-s3", git = "https://github.com/InnerOpen/marvin-storage-s3?rev=v0.5.0" },
 ]
 vault = [{ name = "hvac", specifier = ">=2.0" }]
 
@@ -1401,8 +1401,8 @@ dependencies = [
 
 [[package]]
 name = "marvin-integration-sdk"
-version = "0.15.0"
-source = { git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.15.0#bf29b29c516407bc3a3204aa901a55214019e8de" }
+version = "0.16.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.16.0#fb63db43096e73b524b96fb96ce15f38e92761d0" }
 
 [[package]]
 name = "marvin-integration-slack"
@@ -1422,8 +1422,8 @@ dependencies = [
 
 [[package]]
 name = "marvin-storage-s3"
-version = "0.4.0"
-source = { git = "https://github.com/InnerOpen/marvin-storage-s3?rev=v0.4.0#ef9ef911a37a9fa5494764ca01a2abaf80a46b57" }
+version = "0.5.0"
+source = { git = "https://github.com/InnerOpen/marvin-storage-s3?rev=v0.5.0#fe984707a1610d94df821e91121b1b988abe94f8" }
 dependencies = [
     { name = "boto3" },
     { name = "marvin-integration-sdk" },
