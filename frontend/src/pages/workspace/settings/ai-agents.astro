@@ -360,9 +360,28 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
   .agent-character { height: 28px; width: auto; max-width: 56px; object-fit: contain; }
   /* Injected via innerHTML → :global */
   .pb-pick :global(.pb-pick-group) { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
-  .pb-pick :global(.pb-chip) { font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: inherit; cursor: pointer; }
-  .pb-pick :global(.pb-chip:hover:not(:disabled)) { border-color: var(--accent); }
-  .pb-pick :global(.pb-chip.is-off) { opacity: 0.55; cursor: not-allowed; }
+  /* The Playbook picker (wirePlaybookPicker): one list, Use + Always load per row; the text boxes behind it are hidden. */
+  :global(.pb-store) { display: none; }
+  .pb-pick :global(.pb-pick-head) { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+  .pb-pick :global(.pb-pick-group h5) { margin: 12px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .pb-pick :global(.pb-pick-group ul) { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; }
+  .pb-pick :global(.pb-row) { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 4px 12px; padding: 8px 12px; }
+  .pb-pick :global(.pb-row + .pb-row) { border-top: 1px solid var(--line); }
+  .pb-pick :global(.pb-row.is-off) { opacity: 0.6; }
+  .pb-pick :global(.pb-row-main) { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
+  .pb-pick :global(.pb-row-name) { font-size: 13px; overflow-wrap: anywhere; }
+  .pb-pick :global(.pb-row-desc) { flex-basis: 100%; font-size: 12px; color: var(--muted); }
+  .pb-pick :global(.pb-badge) { font-size: 11px; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
+  .pb-pick :global(.pb-always) { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; color: var(--muted); }
+  .pb-pick :global(.pb-use), .pb-pick :global(.pb-always) { padding-top: 1px; }
+  .pb-pick.pb-mode-all :global(.pb-use) { visibility: hidden; } /* "All published": every Playbook is used; only Always load applies */
+  .pb-pick :global(.pb-missing) { margin-top: 8px; font-size: 13px; color: var(--color-error, #b91c1c); }
+  .pb-pick :global(.pb-missing-name) { margin-right: 8px; white-space: nowrap; }
+  :global(.sr-only) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  @media (max-width: 640px) {
+    .pb-pick :global(.pb-row) { grid-template-columns: auto minmax(0, 1fr); }
+    .pb-pick :global(.pb-always) { grid-column: 2; }
+  }
   .matrix :global(.mx-group), .perms :global(.mx-group) { border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 8px; overflow: hidden; }
   .matrix :global(.mx-head), .perms :global(.mx-head) { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; background: var(--panel-2); font-size: 13px; }
   .matrix :global(.mx-head strong), .perms :global(.mx-head strong) { font-weight: 600; }
@@ -478,32 +497,88 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
       if (!box) return;
       const [own, system] = await Promise.all([listPlaybooks().then((l) => l.items).catch(() => []), listSystemPlaybooks().catch(() => [])]);
       const groups = pickerGroups(own, system);
-      if (!groups.length) return;
+      if (!groups.length) return; // nothing to list: the text boxes stay as they are
       const chosen = form.querySelector<HTMLTextAreaElement>('[name="playbookNames"]')!;
       const always = form.querySelector<HTMLTextAreaElement>('[name="playbookAlways"]')!;
-      const chip = (e: PickerEntry) =>
-        `<button type="button" class="pb-chip${e.off ? " is-off" : ""}" data-name="${esc(e.name)}" title="${esc(e.title)}"${e.off ? " disabled" : ""}>${esc(e.name)}${e.off ? " (off)" : ""}${e.manualOnly ? " · manual" : ""}</button>`;
+      const mode = form.querySelector<HTMLSelectElement>('[name="playbooksMode"]')!;
+      const known = new Map(groups.flatMap((g) => g.entries).map((e) => [e.name, e]));
+      const split = (v: string) => [...new Set(v.split(/[\n,]+/).map((n) => n.trim().toLowerCase()).filter(Boolean))];
+      // The list replaces typing: the text boxes stay in the form (what is saved) but out of sight.
+      form.querySelector<HTMLElement>('[data-role="playbook-names"]')!.classList.add("pb-store");
+      form.querySelector<HTMLElement>('[data-role="pb-always-field"]')!.classList.add("pb-store");
+      const row = (e: PickerEntry) => {
+        const cantAlways = e.off || e.manualOnly;
+        const why = e.off ? "Switched off" : e.manualOnly ? "Loaded only when named, so it can't be always loaded" : `Always load (up to ${ALWAYS_MAX})`;
+        return `<li class="pb-row${e.off ? " is-off" : ""}">
+          <label class="pb-use" title="Use: in this agent's chosen set"><input type="checkbox" data-pb-use="${esc(e.name)}"${e.off ? " disabled" : ""} /> <span class="sr-only">Use</span></label>
+          <span class="pb-row-main"><code class="pb-row-name">${esc(e.name)}</code>${e.manualOnly ? ' <span class="pb-badge">only when named</span>' : ""}${e.off ? ' <span class="pb-badge">off</span>' : ""}<span class="pb-row-desc">${esc(e.title)}</span></span>
+          <label class="pb-always" title="${esc(why)}"><input type="checkbox" data-pb-always="${esc(e.name)}"${cantAlways ? " disabled" : ""} /> Always load</label>
+        </li>`;
+      };
       form.querySelector('[data-role="pb-pick-groups"]')!.innerHTML = groups
-        .map((g) => `<div class="pb-pick-group"><span class="muted">${esc(g.label === "Yours" ? "Yours" : g.label)}</span> ${g.entries.map(chip).join(" ")}</div>`)
+        .map((g) => `<div class="pb-pick-group"><h5>${esc(g.label)}</h5><ul>${g.entries.map(row).join("")}</ul></div>`)
         .join("");
-      box.hidden = false;
-      form.querySelectorAll<HTMLButtonElement>(".pb-chip").forEach((b) =>
-        b.addEventListener("click", () => {
-          const names = chosen.value.split(/[\n,]+/).map((n) => n.trim()).filter(Boolean);
-          if (!names.includes(b.dataset.name!)) chosen.value = [...names, b.dataset.name!].join("\n");
-          chosen.closest<HTMLElement>('[data-role="playbook-names"]')!.hidden = false;
-          (form.querySelector('[name="playbooksMode"]') as HTMLSelectElement).value = "chosen";
-        }),
-      );
+      const uses = [...form.querySelectorAll<HTMLInputElement>("[data-pb-use]")];
+      const alwayses = [...form.querySelectorAll<HTMLInputElement>("[data-pb-always]")];
+      const count = form.querySelector<HTMLElement>('[data-role="pb-always-count"]')!;
+      const missingBox = form.querySelector<HTMLElement>('[data-role="pb-missing"]')!;
       const warn = form.querySelector<HTMLElement>('[data-role="pb-off"]')!;
-      const showOff = () => {
+
+      // From the text boxes to the list (on open), and back on every change.
+      const fromText = () => {
+        const pickedNames = split(chosen.value);
+        const alwaysNames = split(always.value);
+        uses.forEach((u) => (u.checked = pickedNames.includes(u.dataset.pbUse!)));
+        alwayses.forEach((a) => (a.checked = alwaysNames.includes(a.dataset.pbAlways!)));
+      };
+      const unknown = () => [...new Set([...split(chosen.value), ...split(always.value)])].filter((n) => !known.has(n));
+      const refresh = () => {
+        const all = mode.value !== "chosen";
+        box.classList.toggle("pb-mode-all", all);
+        const n = alwayses.filter((a) => a.checked).length;
+        count.textContent = `Always load: ${n} of ${ALWAYS_MAX}`;
+        alwayses.forEach((a) => {
+          const entry = known.get(a.dataset.pbAlways!)!;
+          a.disabled = entry.off || entry.manualOnly || (!a.checked && n >= ALWAYS_MAX);
+        });
+        const lost = unknown();
+        missingBox.hidden = lost.length === 0;
+        missingBox.innerHTML = lost.length
+          ? `Not available (unpublished, renamed or uninstalled): ${lost.map((m) => `<span class="pb-missing-name"><code>${esc(m)}</code> <button type="button" class="link-btn" data-pb-drop="${esc(m)}">Remove</button></span>`).join(" ")}`
+          : "";
+        missingBox.querySelectorAll<HTMLButtonElement>("[data-pb-drop]").forEach((b) =>
+          b.addEventListener("click", () => {
+            const drop = b.dataset.pbDrop!;
+            chosen.value = split(chosen.value).filter((x) => x !== drop).join("\n");
+            always.value = split(always.value).filter((x) => x !== drop).join("\n");
+            refresh();
+          }),
+        );
         const off = [...new Set([...offNames(chosen.value, system), ...offNames(always.value, system)])];
         warn.hidden = off.length === 0;
-        warn.textContent = off.length ? `Switched off, so not available to this agent: ${off.join(", ")} (off).` : "";
+        warn.textContent = off.length ? `Switched off, so not available to this agent: ${off.join(", ")}.` : "";
       };
-      chosen.addEventListener("input", showOff);
-      always.addEventListener("input", showOff);
-      showOff();
+      const toText = () => {
+        const keep = (names: string[]) => names.filter((x) => !known.has(x)); // names the list doesn't show stay until removed
+        chosen.value = [...keep(split(chosen.value)), ...uses.filter((u) => u.checked).map((u) => u.dataset.pbUse!)].join("\n");
+        always.value = [...keep(split(always.value)), ...alwayses.filter((a) => a.checked).map((a) => a.dataset.pbAlways!)].join("\n");
+      };
+      uses.forEach((u) => u.addEventListener("change", () => { toText(); refresh(); }));
+      alwayses.forEach((a) =>
+        a.addEventListener("change", () => {
+          // Always-loaded implies used: tick Use too, so a chosen set never leaves out an always-loaded Playbook.
+          if (a.checked) {
+            const use = uses.find((u) => u.dataset.pbUse === a.dataset.pbAlways);
+            if (use) use.checked = true;
+          }
+          toText();
+          refresh();
+        }),
+      );
+      mode.addEventListener("change", refresh);
+      fromText();
+      box.hidden = false;
+      refresh();
     }
 
     // ── Matrix editor (inherit | allow | block per group and per tool) ──
@@ -926,10 +1001,10 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
           <div class="form-field"><div class="section-title"><h4>Playbooks</h4><p>Written procedures this agent can load. Pick all published ones or a chosen set. Up to ${ALWAYS_MAX} can be always loaded: their full text rides along with every run (the prompt preview warns when that gets long). A Playbook marked manual-only is never offered or loaded unless the person's message names it. System Playbooks (shipped by Marvin and its plugins) are picked by name like your own.</p></div>
             <div class="form-row">
               <div class="form-field"><label class="label">Available</label><select class="input" name="playbooksMode"><option value="all"${agent.playbooks?.names ? "" : " selected"}>All published Playbooks</option><option value="chosen"${agent.playbooks?.names ? " selected" : ""}>Only these</option></select></div>
-              <div class="form-field"><label class="label">Always load <span class="muted">(names, up to ${ALWAYS_MAX})</span></label><textarea class="input mono" name="playbookAlways" rows="2" placeholder="bench-note-voice">${esc((agent.playbooks?.always ?? []).join("\n"))}</textarea></div>
+              <div class="form-field" data-role="pb-always-field"><label class="label">Always load <span class="muted">(names, one per line or comma-separated; up to ${ALWAYS_MAX})</span></label><textarea class="input mono" name="playbookAlways" rows="2" placeholder="bench-note-voice">${esc((agent.playbooks?.always ?? []).join("\n"))}</textarea></div>
             </div>
             <div class="form-field" data-role="playbook-names"${agent.playbooks?.names ? "" : " hidden"}><label class="label">Chosen Playbooks <span class="muted">(names, one per line)</span></label><textarea class="input mono" name="playbookNames" rows="3">${esc((agent.playbooks?.names ?? []).join("\n"))}</textarea></div>
-            <div class="form-field pb-pick" data-role="pb-pick" hidden><label class="label">Available <span class="muted">(click to add to the chosen set)</span></label><div data-role="pb-pick-groups"></div><p class="muted" data-role="pb-off" hidden></p></div>
+            <div class="form-field pb-pick" data-role="pb-pick" hidden><div class="pb-pick-head"><span class="label">Playbooks</span><span class="muted" data-role="pb-always-count"></span></div><div data-role="pb-pick-groups"></div><div class="pb-missing" data-role="pb-missing" hidden></div><p class="muted" data-role="pb-off" hidden></p></div>
           </div>
           <div class="form-field"><div class="section-title"><h4>Tools</h4><p>Inherit follows the group default (with writes on, write groups ask first); override per group or per tool. Ask first binds the tool but pauses the run for your approval on the Ask page; where there is no conversation to pause (bubble, MCP, hand-off children) it behaves like Block.</p></div><div class="matrix" data-role="matrix"></div></div>
           <div class="form-actions"><button type="submit" class="button small">Save changes</button><button type="button" class="button secondary small e-preview">Preview prompt</button><button type="button" class="button secondary small e-cancel">Cancel</button><span class="save-status" data-role="estatus"></span></div>

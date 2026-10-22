@@ -40,7 +40,7 @@ const useRows = uses.map((use) => useRow(use));
   {!error && !playbook && !restricted && (
     <div class="section-card">
       <h3>System Playbook not found</h3>
-      <p>No system Playbook named <code>{name}</code> is installed. <a href={PLAYBOOKS_PATH}>Back to Playbooks</a></p>
+      <p>No system Playbook named <code>{name}</code> is installed. See the <a href={PLAYBOOKS_PATH}>Playbooks</a> page.</p>
     </div>
   )}
   {playbook && row && (
@@ -181,7 +181,10 @@ const useRows = uses.map((use) => useRow(use));
 </script>
 
 <style>
-  .section-card { margin-bottom: 16px; }
+  /* section-card has no global style; this matches the other Settings pages (e.g. ai-agents). */
+  .section-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 24px; margin-bottom: 16px; }
+  .section-card h3 { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
+  @media (max-width: 640px) { .section-card { padding: 16px; } }
   .sp-back { display: inline-block; margin-bottom: 12px; font-size: 14px; color: var(--muted); text-decoration: none; }
   .sp-back:hover { color: var(--accent); }
   .sp-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 24px; margin-bottom: 8px; }
@@ -197,7 +200,7 @@ const useRows = uses.map((use) => useRow(use));
   .sp-msg { margin: 0 0 12px; font-size: 14px; color: var(--color-error, #b91c1c); }
   .sp-warnings { margin: 0 0 16px; padding-left: 18px; font-size: 13px; color: var(--muted); }
   .sp-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-  .sp-card-head h3 { margin: 0 0 8px; }
+  .sp-card-head h3 { margin: 0 0 12px; }
   .sp-count { font-size: 12px; font-weight: 400; color: var(--muted); margin-left: 4px; }
   .sp-rendered { line-height: 1.6; overflow-wrap: anywhere; }
   .sp-rendered :global(h1), .sp-rendered :global(h2), .sp-rendered :global(h3), .sp-rendered :global(h4) { margin: 1.1em 0 0.4em; line-height: 1.3; }
