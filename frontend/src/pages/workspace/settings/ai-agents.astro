@@ -350,7 +350,7 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
   .pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
   .pill.warn { color: #a16207; border-color: rgba(234,179,8,0.45); background: rgba(234,179,8,0.1); }
   .pill.matrix-state.changed { color: var(--accent); border-color: var(--accent); }
-  .agent-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .agent-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; } /* stays on the right when it wraps under the pills */
   .perms, .edit { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
   .agent-preview { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
   /* On the card (Character button) it's a section of its own; inside the Edit form it sits under Icon and Name. */
