@@ -141,7 +141,7 @@ class WorkspaceRefs:
     grade_presets: list[str] = field(default_factory=list)  # a media step's `grade` presets: built-in + the workspace's
     custom_events: list[dict] = field(default_factory=list)  # the workspace's own events: {event_type, description, fields}
     agents: list[dict] = field(default_factory=list)  # persona agents an agent step may name: {slug, name, enabled}; model-only ones left out
-    playbooks: list[dict] = field(default_factory=list)  # published Playbooks: {name, manual_only}
+    playbooks: list[dict] = field(default_factory=list)  # published Playbooks, system ones included: {name, manual_only}
 
 
 def automation_operations(session, group_id) -> list | None:
@@ -310,7 +310,7 @@ def workspace_refs(session, group_id) -> WorkspaceRefs:
     from marvin.services.playbooks import published_playbooks
 
     refs.agents = [{"slug": a.slug, "name": a.name, "enabled": bool(a.enabled)} for a in list_agents(session, group_id) if a.kind == "persona"]
-    refs.playbooks = [{"name": p.name, "manual_only": bool(p.manual_only)} for p in published_playbooks(session, group_id)][:REF_LIMIT]
+    refs.playbooks = [{"name": p.name, "manual_only": bool(p.manual_only)} for p in published_playbooks(session, group_id, system=True)][:REF_LIMIT]
     return refs
 
 
@@ -709,7 +709,7 @@ def _workspace(refs: WorkspaceRefs) -> dict:
         ),
         "handlers": refs.handlers,
         "agents": [a["slug"] for a in refs.agents if a["enabled"]],  # what an agent step's `agent` names
-        "playbooks": [p["name"] for p in refs.playbooks if not p["manual_only"]],  # what an agent step's `playbooks` names
+        "playbooks": [p["name"] for p in refs.playbooks],  # what an agent step's `playbooks` names (a step naming a manual-only one loads it)
     }
 
 
@@ -1108,7 +1108,7 @@ def _step_issues(
 
 
 def _agent_step_issues(step: dict, refs: WorkspaceRefs, bad) -> None:
-    """An agent step names a persona agent that is switched on, and Playbooks that are published and load by themselves."""
+    """An agent step names a persona agent that is switched on, and Playbooks that are published (a manual-only one counts: the step loads it)."""
     slug = step.get("agent")
     if not _templated(slug):
         row = next((a for a in refs.agents if a["slug"] == str(slug).strip().lower()), None)
@@ -1122,8 +1122,6 @@ def _agent_step_issues(step: dict, refs: WorkspaceRefs, bad) -> None:
             continue
         if name not in by_name:
             bad("playbooks", f"No published Playbook “{name}”. Playbooks: {_close(str(name), list(by_name))}.")
-        elif by_name[name]["manual_only"]:
-            bad("playbooks", f"“{name}” is manual-only: it loads only when the message names it. Name it in the message instead.")
 
 
 def agent_step_warnings(session, group_id, definition: dict, role: int) -> list[dict]:

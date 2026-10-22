@@ -242,11 +242,13 @@ def test_naming_a_manual_only_playbook_in_the_message_lets_it_load(workspace, db
     assert [p["name"] for p in _used(run)] == [MANUAL]
 
 
-def test_manual_only_never_loads_for_callers_without_an_agent_message(workspace, db_session):
+def test_a_person_driving_the_tools_directly_may_list_and_load_a_manual_only_playbook_by_name(workspace, db_session):
+    """MarvinMCP, the remote MCP server and the invoke route have no agent deciding what to load: the caller is the person, so a
+    manual-only Playbook is listed (flagged ``manualOnly``) and loads by name. An agent's run still needs the message to name it."""
     _manual(db_session, workspace.gid)
-    out = _invoke(workspace, "load_playbook", {"name": MANUAL})
-    assert "manual-only" in str(out)
-    assert MANUAL not in str(_invoke(workspace, "list_playbooks", {}))
+    listed = _invoke(workspace, "list_playbooks", {})["playbooks"]
+    assert [p for p in listed if p["name"] == MANUAL] == [{"name": MANUAL, "description": "How to handle a refund.", "manualOnly": True}]
+    assert _invoke(workspace, "load_playbook", {"name": MANUAL})["name"] == MANUAL
 
 
 def test_a_manual_only_playbook_outside_the_chosen_set_is_not_acknowledged(workspace, db_session, model):

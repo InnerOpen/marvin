@@ -5,17 +5,37 @@
 // Pure logic: lib/playbooks.ts.
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
-import { listPlaybooks, type PlaybookList } from "@/lib/api/playbooks";
+import { listPlaybooks, listSystemPlaybooks, type PlaybookList } from "@/lib/api/playbooks";
+import { listWorkspaces } from "@/lib/api/workspaces";
+import { requireAuth } from "@/lib/auth";
 import { GITHUB_IMPORT_PLACEHOLDER, IMPORT_PATH_ACCEPT } from "@/lib/playbookReview";
-import { EMPTY_NOTICE, fromIntegration, fromIntegrationId, listSummary, NEW_PLAYBOOK_PATH, playbookRow, PLAYBOOKS_PATH, sortedItems } from "@/lib/playbooks";
-import { isForbidden } from "@/lib/workspaceRole";
+import {
+  EMPTY_NOTICE,
+  fromIntegration,
+  fromIntegrationId,
+  listSummary,
+  NEW_PLAYBOOK_PATH,
+  playbookRow,
+  PLAYBOOKS_PATH,
+  sortedItems,
+  SYSTEM_INTRO,
+  type SystemPlaybookItem,
+  switchTitle,
+  systemGroups,
+} from "@/lib/playbooks";
+import { canManageWorkspace, isForbidden } from "@/lib/workspaceRole";
 
+const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
 const authToken = getAuthToken(Astro.cookies);
 let list: PlaybookList | null = null;
+let system: SystemPlaybookItem[] = [];
+let canManage = false;
 let error: string | null = null;
 let restricted = false;
 try {
   list = await listPlaybooks(authToken);
+  system = await listSystemPlaybooks(authToken).catch(() => []); // the System section is a nicety: the page works without it
+  canManage = canManageWorkspace(await listWorkspaces(authToken), user);
 } catch (e) {
   if (isForbidden(e)) restricted = true;
   else error = e instanceof Error ? e.message : String(e);
@@ -26,6 +46,7 @@ const all = sortedItems(list?.items ?? []);
 const items = fromIntegration(all, fromId);
 const fromName = fromId ? (all.find((i) => i.fromIntegration?.integrationId === fromId)?.fromIntegration?.name ?? "this integration") : null;
 const rows = items.map((item) => playbookRow(item));
+const systemSections = fromId ? [] : systemGroups(system);
 ---
 
 <AppLayout crumb="settings.ai-playbooks" restrictedNote={restricted ? "Playbooks are for editors and above." : null}>
@@ -69,7 +90,7 @@ const rows = items.map((item) => playbookRow(item));
   <p class="pb-import-msg" id="pb-import-msg" role="status" hidden></p>
   {error && <div class="alert"><strong>Couldn't load your Playbooks.</strong> {error}</div>}
 
-  {!error && rows.length === 0 && (
+  {!error && rows.length === 0 && systemSections.length === 0 && (
     <div class="section-card pb-empty">
       <h3>{EMPTY_NOTICE.title}</h3>
       <p>{EMPTY_NOTICE.body}</p>
@@ -95,6 +116,7 @@ const rows = items.map((item) => playbookRow(item));
                 {row.summary && <span class="pb-desc">{row.summary}</span>}
                 <span class="pb-used">{row.used}</span>
                 {row.origin && <span class="pb-origin" data-testid="playbook-origin">{row.origin}</span>}
+                {row.copied && <span class="pb-origin" data-testid="playbook-copied">{row.copied}</span>}
               </span>
               <span class="pb-tags">
                 {row.manualOnly && <span class="pb-manual" title="Loaded only when a person names it">Manual only</span>}
@@ -104,6 +126,56 @@ const rows = items.map((item) => playbookRow(item));
           </li>
         ))}
       </ul>
+      {rows.some((r) => r.upstream) && (
+        <ul class="pb-upstream-list">
+          {rows.filter((r) => r.upstream).map((row) => (
+            <li class="pb-upstream" data-testid="playbook-upstream">
+              <span><strong>{row.name}.</strong> {row.upstream}</span>
+              <span class="pb-upstream-actions">
+                {row.upstreamHref && <a href={row.upstreamHref}>View it</a>}
+                {canManage && <button type="button" class="button secondary small pb-seen" data-id={row.id}>Mark as seen</button>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )}
+
+  {!error && systemSections.length > 0 && (
+    <div class="pb-section pb-system" data-testid="playbooks-system">
+      <h3 class="pb-system-title">System</h3>
+      <p class="pb-import-help">{SYSTEM_INTRO}</p>
+      {systemSections.map((group) => (
+        <div class="pb-group">
+          <p class="pb-summary">{group.label}</p>
+          <ul class="pb-list">
+            {group.rows.map((row) => (
+              <li class:list={["pb-row", "pb-row-system", { "pb-off": !row.on }]} data-testid="system-playbook" data-name={row.name}>
+                <span class="pb-main">
+                  <strong class="pb-name">{row.name}</strong>
+                  {row.summary && <span class="pb-desc">{row.summary}</span>}
+                  {row.note && <span class="pb-used" data-testid="system-note">{row.note}</span>}
+                  <span class="pb-used">{row.label}{row.version ? ` · ${row.version}` : ""}</span>
+                </span>
+                <span class="pb-tags">
+                  {row.manualOnly && <span class="pb-manual" title="Loaded only when a person names it">Manual only</span>}
+                  {row.allowedTools && <span class="pb-manual" title={`Limits an agent to: ${row.allowedTools}`}>Allowed tools</span>}
+                  {canManage && (
+                    <label class="pb-switch" title={switchTitle(row)}>
+                      <input type="checkbox" class="pb-system-switch" data-name={row.name} checked={row.enabled} disabled={row.serverOff} />
+                      <span>{row.enabled ? "On" : "Off"}</span>
+                    </label>
+                  )}
+                  <a class="button secondary small" href={row.href}>View</a>
+                  {canManage && <button type="button" class="button secondary small pb-copy" data-name={row.name} data-suggested={row.suggestedName}>Copy</button>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      <p class="pb-import-msg" id="pb-system-msg" role="status" hidden></p>
     </div>
   )}
 </AppLayout>
@@ -132,6 +204,16 @@ const rows = items.map((item) => playbookRow(item));
   .pb-tags { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
   .pb-manual { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
   .pb-empty h3 { margin: 0 0 6px; }
+  .pb-system { margin-top: 28px; }
+  .pb-system-title { margin: 0 0 4px; }
+  .pb-group { margin-bottom: 14px; }
+  .pb-row-system { cursor: default; }
+  .pb-row-system:hover .pb-name { color: inherit; }
+  .pb-off { opacity: 0.75; }
+  .pb-switch { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+  .pb-upstream-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .pb-upstream { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; }
+  .pb-upstream-actions { display: flex; gap: 10px; align-items: center; }
   @media (max-width: 720px) {
     .pb-row { align-items: flex-start; flex-direction: column; gap: 6px; }
     .pb-tags { flex-wrap: wrap; }
@@ -139,9 +221,9 @@ const rows = items.map((item) => playbookRow(item));
 </style>
 
 <script>
-  import { importPlaybook, importPlaybookFromGithub } from "@/lib/api/playbooks";
+  import { copySystemPlaybook, importPlaybook, importPlaybookFromGithub, markUpstreamSeen, switchSystemPlaybook } from "@/lib/api/playbooks";
   import { githubLink, importError } from "@/lib/playbookReview";
-  import { editorPath } from "@/lib/playbooks";
+  import { copyError, editorPath } from "@/lib/playbooks";
 
   const button = document.getElementById("pb-import") as HTMLButtonElement | null;
   const input = document.getElementById("pb-import-file") as HTMLInputElement | null;
@@ -170,6 +252,54 @@ const rows = items.map((item) => playbookRow(item));
       githubGo!.disabled = false;
     }
   });
+
+  const systemMessage = document.getElementById("pb-system-msg") as HTMLElement | null;
+  const sayAbout = (text: string, error = false) => {
+    if (!systemMessage) return;
+    systemMessage.textContent = text;
+    systemMessage.hidden = !text;
+    systemMessage.classList.toggle("error", error);
+  };
+  document.querySelectorAll<HTMLInputElement>(".pb-system-switch").forEach((box) =>
+    box.addEventListener("change", async () => {
+      box.disabled = true;
+      try {
+        await switchSystemPlaybook(box.dataset.name!, box.checked);
+        location.reload();
+      } catch (e) {
+        box.checked = !box.checked;
+        box.disabled = false;
+        sayAbout(copyError(e), true);
+      }
+    }),
+  );
+  document.querySelectorAll<HTMLButtonElement>(".pb-copy").forEach((copy) =>
+    copy.addEventListener("click", async () => {
+      const name = copy.dataset.name!;
+      const chosen = window.prompt(`Name for your copy of ${name}`, copy.dataset.suggested ?? "");
+      if (chosen === null) return;
+      copy.disabled = true;
+      try {
+        const made = await copySystemPlaybook(name, chosen.trim() || undefined);
+        location.assign(`${editorPath(made.id)}?imported=1`);
+      } catch (e) {
+        sayAbout(copyError(e), true);
+        copy.disabled = false;
+      }
+    }),
+  );
+  document.querySelectorAll<HTMLButtonElement>(".pb-seen").forEach((seen) =>
+    seen.addEventListener("click", async () => {
+      seen.disabled = true;
+      try {
+        await markUpstreamSeen(seen.dataset.id!);
+        location.reload();
+      } catch (e) {
+        sayAbout(copyError(e), true);
+        seen.disabled = false;
+      }
+    }),
+  );
 
   button?.addEventListener("click", () => input?.click());
   input?.addEventListener("change", async () => {

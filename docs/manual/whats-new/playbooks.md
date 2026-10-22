@@ -84,11 +84,11 @@ The built-in agents (`marvin`, `ask`, `builder`) see all published Playbooks and
 
 ### In a workflow
 
-A workflow's [Run an agent](workflows.md#run-an-agent) step can name up to three published Playbooks (`playbooks`), loaded in full for that run on top of the agent's always-load ones. A manual-only Playbook can't be named there (it loads only when the message names it). Marvin's own `compose_entry` and `revise_entry` don't load Playbooks, so the step's message should tell the agent to write the text itself and save it with `create_draft` or `update_draft`; otherwise the Playbook's voice rules are lost.
+A workflow's [Run an agent](workflows.md#run-an-agent) step can name up to three published Playbooks (`playbooks`), system ones included, loaded in full for that run on top of the agent's always-load ones. Naming a [manual-only](#manual-only) Playbook there loads it: the step is the person choosing it. Marvin's own `compose_entry` and `revise_entry` don't load Playbooks, so the step's message should tell the agent to write the text itself and save it with `create_draft` or `update_draft`; otherwise the Playbook's voice rules are lost.
 
 ### Manual-only
 
-A Playbook marked **Manual only** is left out of every agent's catalog and loads only when the person names it in their latest message: its name appears as whole words, in any case, with hyphens, underscores or spaces between them (`Refund Policy` and `refund_policy` name `refund-policy`; `refund-policies` does not). The agent's own output and tool results never count. Agents run from MCP or the API, which have no such message of their own, never load one. A run that stopped to ask your approval keeps the message that started it, so naming the Playbook still works after you approve.
+A Playbook marked **Manual only** is left out of every agent's catalog and loads only when the person names it in their latest message: its name appears as whole words, in any case, with hyphens, underscores or spaces between them (`Refund Policy` and `refund_policy` name `refund-policy`; `refund-policies` does not). The agent's own output and tool results never count. A workflow's [Run an agent](workflows.md#run-an-agent) step that names it in `playbooks` loads it too, and so does a person driving the tools directly (MarvinMCP, the remote MCP server, the invoke route): `list_playbooks` shows it there with `manualOnly: true` and `load_playbook` loads it by name. An agent's own run needs the message to name it. A run that stopped to ask your approval keeps the message that started it, so naming the Playbook still works after you approve.
 
 ### allowed-tools
 
@@ -119,10 +119,39 @@ The live Playbook is untouched; agents can never update, revise, archive or tras
 
 The same rule holds for AI revise and write-back (an Editor's AI operation does not write onto a published Playbook) and for workflows: a workflow step that publishes, unpublishes, archives, trashes, restores or sets data on a Playbook needs its author to be an Admin now, since a workflow runs with its author's current role.
 
+### System Playbooks
+
+Some procedures nobody should have to install. **System Playbooks** are written by Marvin and its plugins and offered in **every** workspace automatically: no Add, no draft, no review. They are read-only, labelled **System · Marvin**, **System · Social** or **System · <plugin>** (for example **System · S3 storage**), and updated with the release that ships them. A plugin's are removed when the plugin is uninstalled.
+
+They are not rows in your workspace. Marvin reads them from the installed packages, so they are not in your entries, trash, history or backups; only your switches are saved, and a workspace export carries them as `systemPlaybooksOff`.
+
+- **Where they show.** Settings › AI › Playbooks has a **System** section, grouped by label: the name, the description, a **Manual only** and an **Allowed tools** badge where they apply, a switch, **View** and **Copy**. **View** opens a read-only page with the text, its files, the version, where it comes from and where it was used lately. The integration's card says "Also gives every workspace: <name> (System Playbook, read-only)" and never offers it as an Add.
+- **Who sees it.** Agents see a system Playbook like one of the workspace's own: after them in the catalog, in a chosen set only when the set names it, in an always-load list when it is not manual-only (never platform-wide), and an `allowed-tools` narrows as it does for any Playbook. A workspace's own Playbook with the same name comes first. Run traces and the use lists record it as `system:<name>` with its version.
+- **Manual-only by default.** A system Playbook is manual-only unless its frontmatter says `disable-model-invocation: false`. `marvin-alt-text` is the one listed in every catalog; `social-auto-reply-rule` and `s3-workspace-bucket` load when someone names them.
+- **Switching off.** An Admin switches one off for the workspace (`PUT /groups/playbooks/system/{name}`), and a platform super admin can switch one off for the whole server (**Admin › System Playbooks**). Off is absent everywhere: the catalog, `list_playbooks`, `load_playbook`, `read_playbook_file`, chosen sets, always-load lists and the tool limit. The row says **Off for this workspace** or **Off for this platform**, and an agent's settings show it as "(off)". A switch is kept by name, so it survives the plugin being uninstalled and installed again.
+- **Names.** A new Playbook of your own (the editor, an import, Add on an integration card, or an agent's `create_draft`) can't take the name of a system Playbook: it is refused with "copy it instead". A Playbook you already had with that name **shadows** the system one in your workspace: the row says "Hidden: your Playbook <name> has this name".
+- **Copy to customise.** **Copy** (an Admin) makes a **draft** Playbook of your own from it, with its text and files, named without the prefix (`marvin-alt-text` gives `alt-text`; a taken name is refused, never suffixed) and reviewed as "Copied from System · Marvin 1.42.0". The copy is yours: editable, exportable, with no update link. Once the copy is **published** it replaces its original in your workspace, and unpublishing or trashing it brings the original back. When the original changes later the copy shows a hint ("1.40.0 → 1.42.0", **View it**, **Mark as seen**); nothing is merged, you read the new version and edit your copy.
+- **Read-only.** `propose_playbook_change` on a system Playbook, or a draft whose `replaces` names one, is refused and points to Copy.
+- **Platform admin.** **Admin › System Playbooks** lists them by source with the version, the badges, how many workspaces switched each off, the server switch, and a **Couldn't load** list (a bad name, a script, over the size caps, a name another source already holds). **Admin › Plugins** shows "N system Playbooks" on a plugin's row.
+
+A plugin declares them with SDK 0.16.0 (`playbook_blueprint(..., scope="system")` in a provider's `system_playbooks`, or a storage or AI plugin's `playbooks`; Marvin's own live in `src/marvin/system_playbooks/<area>/<name>/`). The names start with the plugin's slug and a hyphen (`s3-workspace-bucket`) or the area (`marvin-`, `social-`).
+
+**The Rules.** Marvin checks the ones a program can (the SDK's `check_playbook(scope="system")` and Marvin's loader, which skips a bad one and lists it under Couldn't load):
+
+1. A plugin's `guide.md` stays the reference for building workflows. A skill covers doing a job and points to it (`read_doc` the page `plugins/<provider>.md`); it never restates actions or recipes.
+2. The manual explains what a feature is. A skill is a procedure (steps, checks, what a good result looks like) and links the page.
+3. Workflow authoring stays with `workflow_authoring_guide` and the Builder: no "how to set up a workflow" skill, or at most 20 lines that call the guide and `draft_workflow` (a longer one is refused).
+4. Instructions say who, skills say how. A system skill never sets voice or tone ("if this workspace has a voice Playbook in your list, load it") and never says who the agent is.
+5. Manual-only by default (no key means manual-only); `disable-model-invocation: false` only for broadly useful ones.
+6. `allowed-tools` is rarely right. It is allowed (narrowing is a safety feature) but warned about, and the admin page shows it.
+7. Write it yourself: a drafting skill saves with `create_draft` / `update_draft`. `compose_entry` / `revise_entry` in `allowed-tools` is refused; in the body it is warned about.
+8. Slugs only: a UUID-looking token is refused, since ids differ in every workspace.
+
 ## Where
 
 - **Settings › AI › Playbooks** (`/workspace/settings/ai-playbooks`, Editor and above); the editor at `/new` and `/{id}`.
 - **Settings › AI › Agents** for each agent's Playbooks section.
+- **Settings › AI › Playbooks › System**; **Admin › System Playbooks** (super admins).
 - Agent tools: `list_playbooks`, `load_playbook`, `read_playbook_file`, `propose_playbook_change`.
 
 ## API
@@ -137,8 +166,16 @@ Under `/api/groups/playbooks` (Editor and above):
 | GET | `/{id}/export` | The skill folder as a zip |
 | POST | `/import` | Multipart `file` (and optional `name`): a draft from a `SKILL.md` or zip. 201, 400, 409 or 413 |
 | POST | `/import-github` | JSON `{url, name?}`: a draft from a GitHub link. 201, 400, 404, 409, 413, 429 or 502 |
+| GET | `/system` | The system Playbooks with `state` (`on`, `off`, `off_server`, `hidden`, `replaced`), `label`, `version`, `manualOnly`, `allowedTools`, `suggestedCopyName` |
+| GET | `/system/{name}` | One in full (`body`, `files`, `fingerprint`, `warnings`), read-only |
+| GET | `/system/{name}/uses` | The runs that loaded it, newest first |
+| PUT | `/system/{name}` | Admin. `{enabled}`: switch it on or off for this workspace |
+| POST | `/system/{name}/copy` | Admin. `{name?}`: a draft copy. 201, 400, 409 |
+| POST | `/{id}/upstream-seen` | Admin. Mark a copy's changed original as seen (204) |
 
-The list's items also carry `fromIntegration` (`source`, `name`, `integrationId`, `removed`) for a Playbook an integration shipped, and null for the rest. An integration's Playbooks are added and updated through the [blueprints](blueprints.md) routes, not here.
+`GET/PUT /api/admin/system-playbooks[/{name}]` (super admins) lists them by source with the server switch and how many workspaces switched each off, and sets the server switch.
+
+The list's items also carry `fromIntegration` (`source`, `name`, `integrationId`, `removed`) for a Playbook an integration shipped, and null for the rest, and `copiedFrom` (`name`, `label`, `version`, `currentVersion`, `upstreamChanged`) on a copy of a system Playbook. An integration's Playbooks are added and updated through the [blueprints](blueprints.md) routes, not here.
 
 The editor saves through the ordinary entries API (`/api/platform/entries`), so its role rules (the 403 above) apply.
 

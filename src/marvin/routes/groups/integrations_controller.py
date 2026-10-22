@@ -172,7 +172,19 @@ class IntegrationsController(BaseUserController):
     def list_provider_catalog(self):
         """The available integration providers (the 'add integration' catalog)."""
         # has_logo is core's verdict, not the SDK's: a logo the validator refused reads as none.
-        return [IntegrationProviderInfo(**{**p.info(), "has_logo": logos.has_logo(p.slug)}) for p in list_providers()]
+        from marvin.services.playbooks.system import system_playbooks
+
+        shipped = system_playbooks().values()
+        return [
+            IntegrationProviderInfo(
+                **{
+                    **p.info(),
+                    "has_logo": logos.has_logo(p.slug),
+                    "system_playbooks": [{"name": s.name, "description": s.description, "label": s.label} for s in shipped if s.owner == p.slug],
+                }
+            )
+            for p in list_providers()
+        ]
 
     @router.get("/plugins", response_model=list[IntegrationPluginInfo])
     def list_plugins(self):

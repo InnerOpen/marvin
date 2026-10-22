@@ -440,6 +440,10 @@ def taken_where(session, group_id, name) -> str | None:
 
 
 def _taken_message(session, group_id, name, advice: str | None = None) -> str | None:
+    from marvin.services.playbooks.system import name_clash_message
+
+    if clash := name_clash_message(name):
+        return clash
     where = taken_where(session, group_id, name)
     if where is None:
         return None

@@ -113,6 +113,8 @@ def test_the_blueprint_schema_refuses_a_bad_playbook_and_never_requires_one():
         Blueprint(kind="playbook", slug=NAME, name="N", payload=payload(files={"scripts/a.sh": "x"}))
     with pytest.raises(ValueError, match="never required"):
         Blueprint(kind="playbook", slug=NAME, name="N", required=True, payload=payload())
+    with pytest.raises(ValueError, match="system Playbook"):  # a system one in `content` is never an Add item
+        Blueprint(kind="playbook", slug=NAME, name="N", payload={**payload(), "scope": "system"})
 
 
 def test_the_catalog_lists_playbooks_with_the_providers_prefix_and_skips_the_rest(monkeypatch, caplog):

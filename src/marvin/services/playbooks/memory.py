@@ -52,7 +52,7 @@ def reload_block(session, group_id, thread, skip: Iterable[str] = ()) -> str:
     for entry in thread_playbooks(thread):
         if (entry.get("name") or "") in skip:
             continue
-        found = published_playbook(session, group_id, entry.get("name") or "")
+        found = published_playbook(session, group_id, entry.get("name") or "", system=True)
         if found is None or found.id != entry["id"]:
             continue
         if len(found.body) > room:

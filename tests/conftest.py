@@ -147,6 +147,38 @@ def _no_plugin_update_check(monkeypatch) -> None:
 
 
 @fixture(autouse=True)
+def _no_system_playbooks(request, monkeypatch) -> Generator[None, None, None]:
+    """The system Playbooks of the installed packages (Marvin's own folder, any plugin) would show up in every catalog, tool list and
+    prompt, so by default there are none. A test that wants some uses the ``system_playbooks`` fixture (fakes) or the ``real_system_playbooks``
+    marker (the packages as installed)."""
+    from marvin.services.playbooks import system
+
+    if request.node.get_closest_marker("real_system_playbooks"):
+        system.reset()
+        yield
+        system.reset()
+        return
+    empty = system.SystemCatalog()
+    monkeypatch.setattr(system, "catalog", lambda: empty)
+    yield
+
+
+@fixture
+def system_playbooks(monkeypatch):
+    """Install system Playbooks for a test: ``system_playbooks(*declared)`` takes ``system.Declared`` (plugins, with their prefix as the
+    second item of a tuple) and returns the catalog. Core's own folder is not read."""
+    from marvin.services.playbooks import system
+
+    def install(*declared, skipped=()) -> system.SystemCatalog:
+        plugins = [d if isinstance(d, tuple) else (d, f"{d.owner}-") for d in declared]
+        built = system.build(([], list(skipped)), plugins)
+        monkeypatch.setattr(system, "catalog", lambda: built)
+        return built
+
+    return install
+
+
+@fixture(autouse=True)
 def _no_ambient_smtp(monkeypatch) -> None:
     """A developer's .env often points SMTP_* at a local Mailpit. With nothing listening on it (or a port that drops
     packets, as WSL's forwarding does) every test that sends mail waits out the 10 s SMTP timeout: a 56-minute suite.

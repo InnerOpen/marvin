@@ -8,7 +8,13 @@ import { escapeHtml as esc } from "../askThreads.ts";
 export interface UsedPlaybook {
   id: string;
   name?: string | null;
+  version?: string | null;
 }
+
+// A system Playbook (id `system:<name>`) has a read-only page to open; a workspace Playbook's id is its entry's, and it is not linked here.
+// Kept in step with lib/playbooks.ts `systemPath` (this module can't import it: it must load in `npm test` without the page libraries).
+const SYSTEM_PREFIX = "system:";
+const SYSTEM_PAGE = "/workspace/settings/ai-playbooks/system/";
 
 
 /** Playbook names in the order given, each once; entries without a name are skipped. */
@@ -29,6 +35,11 @@ export function usedHtml(tools: string[] | null | undefined, playbooks?: UsedPla
   const names = playbookNames(playbooks);
   const used = [...new Set(tools ?? [])].filter((t) => !(names.length && t === "load_playbook"));
   if (!names.length && !used.length) return "";
-  const books = names.map((n) => `<span class="playbook-used" title="Playbook">${esc(n)}</span>`);
+  const system = new Set((playbooks ?? []).filter((p) => p?.id?.startsWith(SYSTEM_PREFIX) && (p.name ?? "").trim()).map((p) => (p.name ?? "").trim()));
+  const books = names.map((n) =>
+    system.has(n)
+      ? `<a class="playbook-used" href="${SYSTEM_PAGE}${encodeURIComponent(n)}" title="System Playbook">${esc(n)}</a>`
+      : `<span class="playbook-used" title="Playbook">${esc(n)}</span>`,
+  );
   return `<span>Used:</span> ${[...books, ...used.map((t) => `<code>${esc(t)}</code>`)].join(" ")}`;
 }

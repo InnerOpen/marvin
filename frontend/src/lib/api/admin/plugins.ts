@@ -15,6 +15,8 @@ interface PluginProviderRead {
   hasLogo?: boolean;
   actions: number;
   blueprints: number;
+  /** System Playbooks this provider or plugin gives every workspace. */
+  systemPlaybooks?: number;
   /** Distinct workspaces with at least one connection to this provider. */
   workspaces: number;
   /** Storage plugins: "assets" (asset storage provider) and/or "backups" (backup target). */

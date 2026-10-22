@@ -64,6 +64,7 @@ def _storage_provider_read(plugin: Any, active: str) -> PluginProviderRead:
         slug=plugin.slug,
         name=plugin.name or plugin.slug,
         provides=[side for side, cls in (("assets", plugin.provider), ("backups", plugin.target)) if cls is not None],
+        system_playbooks=_system_counts().get(plugin.slug, 0),
         # Backup targets are configured per CronJob (Helm values), which the backend can't see yet.
         in_use=["assets"] if plugin.slug == active and plugin.provider is not None else [],
     )
@@ -103,6 +104,7 @@ def _ai_provider_read(plugin: Any, usage: dict[str, int]) -> PluginProviderRead:
         name=plugin.name or plugin.slug,
         provides=[name for name, on in plugin.provider.capabilities().items() if on],
         workspaces=usage.get(plugin.slug, 0),
+        system_playbooks=_system_counts().get(plugin.slug, 0),
         has_logo=_has_ai_logo(plugin.slug),
     )
 
@@ -125,6 +127,17 @@ def _has_logo(slug: str) -> bool:
     return logos.has_logo(slug)
 
 
+def _system_counts() -> dict[str, int]:
+    """Owner slug → how many system Playbooks its plugin gives every workspace."""
+    from marvin.services.playbooks.system import SOURCE_PLUGIN, system_playbooks
+
+    counts: dict[str, int] = {}
+    for p in system_playbooks().values():
+        if p.source == SOURCE_PLUGIN:
+            counts[p.owner] = counts.get(p.owner, 0) + 1
+    return counts
+
+
 def _provider_read(provider: Any, usage: dict[str, int]) -> PluginProviderRead:
     # getattr with defaults: a provider built against an older SDK may predate `content`.
     return PluginProviderRead(
@@ -134,6 +147,7 @@ def _provider_read(provider: Any, usage: dict[str, int]) -> PluginProviderRead:
         has_logo=_has_logo(provider.slug),
         actions=len(getattr(provider, "actions", ()) or ()),
         blueprints=len(getattr(provider, "content", ()) or ()),
+        system_playbooks=_system_counts().get(provider.slug, 0),
         workspaces=usage.get(provider.slug, 0),
     )
 

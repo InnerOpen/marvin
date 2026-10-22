@@ -5,7 +5,7 @@
  * routes. Pass authToken in SSR (from Astro.cookies); omit it in the browser.
  */
 
-import { exportFilename, type PlaybookItem, type PlaybookUse } from "../playbooks";
+import { exportFilename, type PlaybookItem, type PlaybookUse, type SystemPlaybookItem, type SystemPlaybookRead } from "../playbooks";
 import { fetchApi } from "./client";
 import { getApiUrl } from "./config";
 
@@ -81,3 +81,30 @@ export function importPlaybookFromGithub(url: string, name?: string) {
     body: JSON.stringify(name ? { url, name } : { url }),
   });
 }
+
+// ── system Playbooks (shipped by Marvin and its plugins; read-only) ─────────────────────────────────────────────────
+
+/** The system Playbooks with whether this workspace gets each (EDITOR+). Includes the ones switched off. */
+export const listSystemPlaybooks = async (authToken?: string) =>
+  (await fetchApi<{ items: SystemPlaybookItem[] }>(`${BASE}/system`, {}, authToken)).items;
+
+export const getSystemPlaybook = (name: string, authToken?: string) =>
+  fetchApi<SystemPlaybookRead>(`${BASE}/system/${encodeURIComponent(name)}`, {}, authToken);
+
+/** The runs that loaded a system Playbook lately, newest first. */
+export const listSystemPlaybookUses = async (name: string, authToken?: string) =>
+  (await fetchApi<{ items: PlaybookUse[] }>(`${BASE}/system/${encodeURIComponent(name)}/uses`, {}, authToken)).items;
+
+/** Switch a system Playbook on or off for this workspace (ADMIN+). */
+export const switchSystemPlaybook = (name: string, enabled: boolean) =>
+  fetchApi<SystemPlaybookItem>(`${BASE}/system/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ enabled }) });
+
+/** Copy a system Playbook into a draft of this workspace's own (ADMIN+). `name` picks the copy's name; the suggestion otherwise. */
+export const copySystemPlaybook = (name: string, copyName?: string) =>
+  fetchApi<PlaybookImported>(`${BASE}/system/${encodeURIComponent(name)}/copy`, {
+    method: "POST",
+    body: JSON.stringify(copyName ? { name: copyName } : {}),
+  });
+
+/** Mark a copy's changed original as seen (ADMIN+): its hint goes until the original changes again. */
+export const markUpstreamSeen = (id: string) => fetchApi<unknown>(`${BASE}/${encodeURIComponent(id)}/upstream-seen`, { method: "POST" });

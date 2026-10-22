@@ -21,6 +21,8 @@ class PluginProviderRead(_MarvinModel):
     actions: int = 0
     blueprints: int = 0
     """Content blueprints the provider offers workspaces on connect."""
+    system_playbooks: int = 0
+    """System Playbooks this provider (or plugin) gives every workspace, as loaded now."""
     workspaces: int = 0
     """Distinct workspaces with at least one connection to this provider (AI providers: workspaces with AI on that use it)."""
     provides: list[str] = Field(default_factory=list)

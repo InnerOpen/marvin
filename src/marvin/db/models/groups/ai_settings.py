@@ -88,6 +88,9 @@ class WorkspaceAISettingsModel(SqlAlchemyBase, BaseMixins):
     # {agent_slug: {category_id | tool_name: "allow" | "ask" | "block"}}. Merged over the code default by
     # services/ai/agents.py:resolve_agent; None → every built-in runs its code matrix.
     agent_tool_policies: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
+    # Names of the system Playbooks (shipped by Marvin and its plugins, read from the installed packages) this workspace
+    # switched off. None or [] → all on. Kept for names no longer installed. services/playbooks/system.py.
+    system_playbooks_off: Mapped[list | None] = mapped_column(sa.JSON, nullable=True)
 
     @auto_init()
     def __init__(self, session: Session, **kwargs) -> None:

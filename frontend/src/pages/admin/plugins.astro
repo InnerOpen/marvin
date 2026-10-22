@@ -27,6 +27,8 @@ const AI_CAPABILITIES: Record<string, string> = {
   tool_calls: "Tool calls",
   model_pull: "Model downloads",
 };
+/** "2 system Playbooks" for a provider or plugin that gives every workspace some; "" otherwise. */
+const systemNote = (n?: number) => (n ? `${n} system Playbook${n === 1 ? "" : "s"}` : "");
 const capabilities = (list?: string[]) => (list ?? []).map((c) => AI_CAPABILITIES[c] ?? c).join(", ") || "—";
 
 let plugins: PluginRead[] = [];
@@ -111,6 +113,7 @@ try {
                         <td class="name-col">
                           {provider.name}
                           <code>{provider.slug}</code>
+                          {provider.systemPlaybooks ? <a class="sys-note" href="/admin/system-playbooks">{systemNote(provider.systemPlaybooks)}</a> : null}
                         </td>
                         <td>{sides(provider.provides)}</td>
                         <td>{sides(provider.inUse)}</td>
@@ -140,6 +143,7 @@ try {
                             {provider.name}
                           </span>
                           <code>{provider.slug}</code>
+                          {provider.systemPlaybooks ? <a class="sys-note" href="/admin/system-playbooks">{systemNote(provider.systemPlaybooks)}</a> : null}
                         </td>
                         <td>{capabilities(provider.provides)}</td>
                         <td>{provider.workspaces}</td>
@@ -170,6 +174,7 @@ try {
                             {provider.name}
                           </span>
                           <code>{provider.slug}</code>
+                          {provider.systemPlaybooks ? <a class="sys-note" href="/admin/system-playbooks">{systemNote(provider.systemPlaybooks)}</a> : null}
                         </td>
                         <td>{provider.actions}</td>
                         <td>{provider.blueprints}</td>
@@ -201,6 +206,7 @@ try {
 
   .page-container { max-width: 900px; }
   .note { margin: 0 0 24px; font-size: 14px; color: var(--muted); max-width: 70ch; }
+  .sys-note { font-size: 12px; color: var(--muted); }
   .muted { margin: 12px 0 0; font-size: 13px; color: var(--muted); }
 
   .empty-state { padding: 64px 24px; text-align: center; }

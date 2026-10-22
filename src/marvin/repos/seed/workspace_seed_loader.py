@@ -879,6 +879,9 @@ class WorkspaceSeedLoader:
                 from marvin.services.ai.agents import clean_builtin_policies
 
                 row.agent_tool_policies = clean_builtin_policies(ai_data["agentToolPolicies"])
+            if "systemPlaybooksOff" in ai_data:  # names are kept even when not installed here: a plugin may be installed later
+                off = ai_data["systemPlaybooksOff"]
+                row.system_playbooks_off = sorted({str(n) for n in off if isinstance(n, str) and n}) or None if isinstance(off, list) else None
             self.repos.session.commit()
             self.logger.info("Imported AI settings")
             return True

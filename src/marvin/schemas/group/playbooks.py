@@ -21,6 +21,20 @@ class PlaybookOrigin(_MarvinModel):
     """True when that integration is gone from this workspace: the Playbook stays (a published one keeps working)."""
 
 
+class PlaybookCopiedFrom(_MarvinModel):
+    """A Playbook made by copying a system Playbook (``metadata_json["copiedFrom"]``)."""
+
+    name: str
+    """The system Playbook it was copied from."""
+    label: str = ""
+    version: str = ""
+    """The version it was copied at."""
+    current_version: str | None = None
+    """The installed version of that system Playbook now; None when it is gone."""
+    upstream_changed: bool = False
+    """The system Playbook changed since the copy was made (or last marked as seen). A hint only: nothing is merged."""
+
+
 class PlaybookItem(_MarvinModel):
     id: UUID4
     name: str
@@ -32,6 +46,8 @@ class PlaybookItem(_MarvinModel):
     """When an agent last loaded it (None: not lately, or never)."""
     from_integration: PlaybookOrigin | None = None
     """Set when an integration shipped this Playbook and the workspace added it from the integration's card."""
+    copied_from: PlaybookCopiedFrom | None = None
+    """Set on a copy of a system Playbook."""
 
 
 class PlaybookUse(_MarvinModel):
@@ -75,3 +91,55 @@ class PlaybookImported(_MarvinModel):
     """Files left out, each ``{path, reason}``."""
     review: dict[str, Any]
     """The findings (services/playbooks/importer.py ``review_package``); camelCase keys, also stored on the entry's metadata."""
+
+
+class SystemPlaybookItem(_MarvinModel):
+    """A system Playbook as this workspace sees it (the Playbooks page's System section)."""
+
+    name: str
+    description: str = ""
+    label: str
+    """Where it comes from: "System · Marvin", "System · Social", "System · <plugin>"."""
+    version: str = ""
+    manual_only: bool = True
+    allowed_tools: str = ""
+    state: str
+    """"on" | "off" (this workspace switched it off) | "off_server" (the platform did) | "hidden" (a Playbook of yours has its name)
+    | "replaced" (your published copy stands in for it)."""
+    detail: str = ""
+    """The sentence for a state other than "on"."""
+    enabled: bool = True
+    """Whether this workspace's own switch is on (it can be on while the platform's is off)."""
+    suggested_copy_name: str = ""
+    """What Copy proposes as the name (the name without its prefix), when that is free."""
+    file_count: int = 0
+
+
+class SystemPlaybookList(_MarvinModel):
+    items: list[SystemPlaybookItem] = Field(default_factory=list)
+
+
+class SystemPlaybookFile(_MarvinModel):
+    path: str
+    text: str
+
+
+class SystemPlaybookRead(SystemPlaybookItem):
+    """One system Playbook in full, read-only."""
+
+    source: str = "core"
+    """"core" (Marvin's own folder) or "plugin"."""
+    fingerprint: str = ""
+    """A fingerprint of the text and files: it changes when the Playbook does (what a copy compares against)."""
+    body: str = ""
+    files: list[SystemPlaybookFile] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class SystemPlaybookSwitch(_MarvinModel):
+    enabled: bool
+
+
+class SystemPlaybookCopy(_MarvinModel):
+    name: str | None = None
+    """The copy's name; the suggestion (the name without its prefix) when omitted. 409 when taken."""

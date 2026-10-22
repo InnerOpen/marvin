@@ -112,19 +112,30 @@ def read_asset_text(asset, max_chars_arg=None) -> dict:
     if (asset.file_size or 0) > MAX_FILE_BYTES:
         return {"error": f"the file is too large to read ({asset.file_size // (1024 * 1024)} MB)", "asset": about}
 
-    try:
-        max_chars = max(1, min(int(max_chars_arg or DEFAULT_MAX_CHARS), DEFAULT_MAX_CHARS))
-    except (TypeError, ValueError):
-        max_chars = DEFAULT_MAX_CHARS
+    max_chars = _max_chars(max_chars_arg)
     try:
         with provider_for(asset).get(asset.storage_key) as fh:
             data = fh.read()
         text = extract_text(kind, data, max_chars).strip()
     except Exception as e:  # noqa: BLE001 — an unreadable file is data for the model, never an exception in the loop
         return {"error": f"could not read the file: {e}", "asset": about}
+    return cut_text(text, max_chars, about, scanned_pdf=kind == "pdf")
 
+
+def _max_chars(arg) -> int:
+    try:
+        return max(1, min(int(arg or DEFAULT_MAX_CHARS), DEFAULT_MAX_CHARS))
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_CHARS
+
+
+def cut_text(text: str, max_chars: int | str | None, about: dict, *, scanned_pdf: bool = False) -> dict:
+    """The answer for text already read: it, cut at ``max_chars`` (the answer says when). Shared with a system Playbook's files, which
+    live in memory rather than in an asset."""
+    max_chars = max_chars if isinstance(max_chars, int) else _max_chars(max_chars)
+    text = text.strip()
     if not text:
-        note = "no text found — a scanned PDF holds only images of its pages" if kind == "pdf" else "the document is empty"
+        note = "no text found — a scanned PDF holds only images of its pages" if scanned_pdf else "the document is empty"
         return {"asset": about, "text": "", "note": note}
     if len(text) > max_chars:
         return {"asset": about, "text": text[:max_chars], "truncated": True, "note": f"cut at {max_chars} characters"}

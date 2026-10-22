@@ -578,6 +578,7 @@ class WorkspaceExporter:
             "tones": row.tones,
             "hiddenTones": row.hidden_tones,
             "agentToolPolicies": row.agent_tool_policies,
+            "systemPlaybooksOff": row.system_playbooks_off,  # only the switches: the system Playbooks themselves live in the packages
         }
 
     def _export_secrets(self) -> list[dict[str, Any]]:

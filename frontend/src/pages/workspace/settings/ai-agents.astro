@@ -359,6 +359,10 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
   .new-character-hint { margin: -6px 0 16px; font-size: 12px; color: var(--muted); }
   .agent-character { height: 28px; width: auto; max-width: 56px; object-fit: contain; }
   /* Injected via innerHTML → :global */
+  .pb-pick :global(.pb-pick-group) { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .pb-pick :global(.pb-chip) { font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: inherit; cursor: pointer; }
+  .pb-pick :global(.pb-chip:hover:not(:disabled)) { border-color: var(--accent); }
+  .pb-pick :global(.pb-chip.is-off) { opacity: 0.55; cursor: not-allowed; }
   .matrix :global(.mx-group), .perms :global(.mx-group) { border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 8px; overflow: hidden; }
   .matrix :global(.mx-head), .perms :global(.mx-head) { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; background: var(--panel-2); font-size: 13px; }
   .matrix :global(.mx-head strong), .perms :global(.mx-head strong) { font-weight: 600; }
@@ -435,6 +439,8 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
   import { inheritedDefaults, inheritLabel, matrixCategories, matrixTools, policyFromChoices } from "@/lib/agentMatrix";
   import { agentPreviewView, promptPreviewHtml, promptPreviewMessage } from "@/lib/promptPreview";
   import { type Tone, toneOptions } from "@/lib/tones";
+  import { listPlaybooks, listSystemPlaybooks } from "@/lib/api/playbooks";
+  import { offNames, type PickerEntry, pickerGroups } from "@/lib/playbooks";
 
   const ALWAYS_MAX = 3; // services/playbooks ALWAYS_MAX
   import { type BubbleLines, fillLines, fillMood, linesFieldsHtml, moodFieldsHtml, readLines, readMood } from "@/lib/marvin/characterSheet";
@@ -465,6 +471,40 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
     };
     const slugify = (s: string) =>
       s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
+
+    // The Playbook picker under the names: yours, then a "System" group per label; a system one switched off is marked "(off)".
+    async function wirePlaybookPicker(form: HTMLFormElement) {
+      const box = form.querySelector<HTMLElement>('[data-role="pb-pick"]');
+      if (!box) return;
+      const [own, system] = await Promise.all([listPlaybooks().then((l) => l.items).catch(() => []), listSystemPlaybooks().catch(() => [])]);
+      const groups = pickerGroups(own, system);
+      if (!groups.length) return;
+      const chosen = form.querySelector<HTMLTextAreaElement>('[name="playbookNames"]')!;
+      const always = form.querySelector<HTMLTextAreaElement>('[name="playbookAlways"]')!;
+      const chip = (e: PickerEntry) =>
+        `<button type="button" class="pb-chip${e.off ? " is-off" : ""}" data-name="${esc(e.name)}" title="${esc(e.title)}"${e.off ? " disabled" : ""}>${esc(e.name)}${e.off ? " (off)" : ""}${e.manualOnly ? " · manual" : ""}</button>`;
+      form.querySelector('[data-role="pb-pick-groups"]')!.innerHTML = groups
+        .map((g) => `<div class="pb-pick-group"><span class="muted">${esc(g.label === "Yours" ? "Yours" : g.label)}</span> ${g.entries.map(chip).join(" ")}</div>`)
+        .join("");
+      box.hidden = false;
+      form.querySelectorAll<HTMLButtonElement>(".pb-chip").forEach((b) =>
+        b.addEventListener("click", () => {
+          const names = chosen.value.split(/[\n,]+/).map((n) => n.trim()).filter(Boolean);
+          if (!names.includes(b.dataset.name!)) chosen.value = [...names, b.dataset.name!].join("\n");
+          chosen.closest<HTMLElement>('[data-role="playbook-names"]')!.hidden = false;
+          (form.querySelector('[name="playbooksMode"]') as HTMLSelectElement).value = "chosen";
+        }),
+      );
+      const warn = form.querySelector<HTMLElement>('[data-role="pb-off"]')!;
+      const showOff = () => {
+        const off = [...new Set([...offNames(chosen.value, system), ...offNames(always.value, system)])];
+        warn.hidden = off.length === 0;
+        warn.textContent = off.length ? `Switched off, so not available to this agent: ${off.join(", ")} (off).` : "";
+      };
+      chosen.addEventListener("input", showOff);
+      always.addEventListener("input", showOff);
+      showOff();
+    }
 
     // ── Matrix editor (inherit | allow | block per group and per tool) ──
     function sel(key: string, value: PolicyValue | null | undefined, inheritLabel: string) {
@@ -883,12 +923,13 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
             <label class="toggle-label"><input type="checkbox" name="allowWrites" class="toggle-input"${agent.allowWrites ? " checked" : ""} /><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-text">Allow writes</span></label>
             <label class="toggle-label"><input type="checkbox" name="enabled" class="toggle-input"${agent.enabled ? " checked" : ""} /><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-text">Enabled</span></label>
           </div>
-          <div class="form-field"><div class="section-title"><h4>Playbooks</h4><p>Written procedures this agent can load. Pick all published ones or a chosen set. Up to ${ALWAYS_MAX} can be always loaded: their full text rides along with every run (the prompt preview warns when that gets long). A Playbook marked manual-only is never offered or loaded unless the person's message names it.</p></div>
+          <div class="form-field"><div class="section-title"><h4>Playbooks</h4><p>Written procedures this agent can load. Pick all published ones or a chosen set. Up to ${ALWAYS_MAX} can be always loaded: their full text rides along with every run (the prompt preview warns when that gets long). A Playbook marked manual-only is never offered or loaded unless the person's message names it. System Playbooks (shipped by Marvin and its plugins) are picked by name like your own.</p></div>
             <div class="form-row">
               <div class="form-field"><label class="label">Available</label><select class="input" name="playbooksMode"><option value="all"${agent.playbooks?.names ? "" : " selected"}>All published Playbooks</option><option value="chosen"${agent.playbooks?.names ? " selected" : ""}>Only these</option></select></div>
               <div class="form-field"><label class="label">Always load <span class="muted">(names, up to ${ALWAYS_MAX})</span></label><textarea class="input mono" name="playbookAlways" rows="2" placeholder="bench-note-voice">${esc((agent.playbooks?.always ?? []).join("\n"))}</textarea></div>
             </div>
             <div class="form-field" data-role="playbook-names"${agent.playbooks?.names ? "" : " hidden"}><label class="label">Chosen Playbooks <span class="muted">(names, one per line)</span></label><textarea class="input mono" name="playbookNames" rows="3">${esc((agent.playbooks?.names ?? []).join("\n"))}</textarea></div>
+            <div class="form-field pb-pick" data-role="pb-pick" hidden><label class="label">Available <span class="muted">(click to add to the chosen set)</span></label><div data-role="pb-pick-groups"></div><p class="muted" data-role="pb-off" hidden></p></div>
           </div>
           <div class="form-field"><div class="section-title"><h4>Tools</h4><p>Inherit follows the group default (with writes on, write groups ask first); override per group or per tool. Ask first binds the tool but pauses the run for your approval on the Ask page; where there is no conversation to pause (bubble, MCP, hand-off children) it behaves like Block.</p></div><div class="matrix" data-role="matrix"></div></div>
           <div class="form-actions"><button type="submit" class="button small">Save changes</button><button type="button" class="button secondary small e-preview">Preview prompt</button><button type="button" class="button secondary small e-cancel">Cancel</button><span class="save-status" data-role="estatus"></span></div>
@@ -909,6 +950,7 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
         editBox.querySelector(".e-preview")?.addEventListener("click", () => void showPreview(ePreview, () => previewAgentPrompt(slug, readForm(form, matrix))));
         const chosenBox = form.querySelector<HTMLElement>('[data-role="playbook-names"]')!;
         form.querySelector('[name="playbooksMode"]')?.addEventListener("change", (ev) => (chosenBox.hidden = (ev.target as HTMLSelectElement).value !== "chosen"));
+        void wirePlaybookPicker(form);
         wirePersona(form, agent);
         form.addEventListener("submit", async (ev) => {
           ev.preventDefault();

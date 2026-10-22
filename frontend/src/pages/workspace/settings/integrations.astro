@@ -7,6 +7,7 @@ import type { IntegrationWithHealth, ProviderActionInfo, ProviderInfo } from "@/
 import { getIntegrationFootprint, listIntegrations, listProviders } from "@/lib/api/integrations";
 import { footprintIsEmpty, footprintSections, footprintSummary } from "@/lib/integrationFootprint";
 import { playbookCardNote, updateConfirmText } from "@/lib/playbookBlueprint";
+import { alsoGives, SYSTEM_PATH } from "@/lib/playbooks";
 import type { IntegrationFootprint } from "@/lib/integrationFootprint";
 import { CATEGORY_LABEL, focusedCategory, groupByCategory } from "@/lib/integrationCategories";
 import { policyRows } from "@/lib/integrationPolicy";
@@ -328,6 +329,15 @@ function statusMeta(status: string): { text: string; cls: string } {
                         </p>
                       </details>
                     );
+                  })()}
+
+                  {(() => {
+                    const also = alsoGives(prov?.systemPlaybooks);
+                    return also ? (
+                      <p class="conn-meta" data-testid="also-gives">
+                        {also.text}. <a href={SYSTEM_PATH}>See them</a>
+                      </p>
+                    ) : null;
                   })()}
 
                   {(() => {

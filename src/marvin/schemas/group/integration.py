@@ -94,6 +94,14 @@ class ProviderActionInfo(_MarvinModel):
     """This action's own error policy: {code: Handle.to_dict()} (SDK 0.5.0+)."""
 
 
+class ProviderSystemPlaybook(_MarvinModel):
+    """A system Playbook a provider gives every workspace (SDK 0.16.0 ``system_playbooks``)."""
+
+    name: str
+    description: str = ""
+    label: str = ""
+
+
 class IntegrationProviderInfo(_MarvinModel):
     """A provider catalog entry — what the 'add integration' screen renders from."""
 
@@ -110,6 +118,8 @@ class IntegrationProviderInfo(_MarvinModel):
     credentials: list[ProviderCredentialInfo] = Field(default_factory=list)
     emits: list[ProviderEventInfo] = Field(default_factory=list)
     actions: list[ProviderActionInfo] = Field(default_factory=list)
+    system_playbooks: list[ProviderSystemPlaybook] = Field(default_factory=list)
+    """System Playbooks this provider gives every workspace (read-only; never an Add item), as loaded now."""
     error_policy: dict | None = None
     """How the provider handles its errors — {"provider": {code: Handle}, "actions": {key: {code: Handle}}}
     (SDK 0.5.0+; None on an older SDK). Each Handle carries a human `summary`."""

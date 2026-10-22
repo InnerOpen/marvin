@@ -18,6 +18,7 @@ from . import (
     scheduled_tasks_controller,
     storage_controller,
     submission_protection_controller,
+    system_playbooks_controller,
     trash_controller,
     user_controller,
     workspace_members_controller,
@@ -27,6 +28,7 @@ router = AdminAPIRouter(prefix="/admin")
 
 router.include_router(about_controller.router, tags=["Admin: About"])
 router.include_router(platform_policy_controller.router, tags=["Admin: Platform Policy"])
+router.include_router(system_playbooks_controller.router, tags=["Admin: System Playbooks"])
 router.include_router(overview_controller.router, tags=["Admin: Overview"])
 router.include_router(ai_prices_controller.router, tags=["Admin: AI Pricing"])
 router.include_router(alerts_controller.router, tags=["Admin: Platform Alerts"])

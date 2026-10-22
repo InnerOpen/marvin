@@ -1,0 +1,131 @@
+---
+// Admin › System Playbooks: the procedures Marvin and its plugins give every workspace, by source, with the platform switch, how many
+// workspaces switched each off, and what couldn't be loaded. Super admins only. Backend: routes/admin/system_playbooks_controller.py.
+import AdminLayout from "@/layouts/AdminLayout.astro";
+import { type AdminSystemPlaybooks, listSystemPlaybooks } from "@/lib/api/admin/systemPlaybooks";
+import { getAuthToken } from "@/lib/api/client";
+import { adminGroups, SWITCH_TITLE, summary } from "@/lib/adminSystemPlaybooks";
+import { requireAdmin } from "@/lib/auth";
+
+await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const authToken = getAuthToken(Astro.cookies);
+
+let page: AdminSystemPlaybooks = { items: [], skipped: [] };
+let error: string | null = null;
+try {
+  page = await listSystemPlaybooks(authToken);
+} catch (e) {
+  console.error("[admin/system-playbooks] Failed to load:", e);
+  error = e instanceof Error ? e.message : String(e);
+}
+const groups = adminGroups(page.items);
+---
+
+<AdminLayout crumb="admin.system-playbooks">
+  <div class="toolbar">
+    <div>
+      <h2>System Playbooks</h2>
+      <p>Written procedures Marvin and its plugins give every workspace.</p>
+    </div>
+  </div>
+
+  {error && <div class="alert alert-error"><strong>Error:</strong> {error}</div>}
+
+  <div class="page-container">
+    <p class="note">
+      They are read from the installed packages, so a release replaces them everywhere and uninstalling a plugin removes its own.
+      A workspace can switch one off or copy it to customise; switching one off here turns it off in <strong>every</strong> workspace,
+      whatever each one chose. Most are manual-only: they load when someone names them.
+    </p>
+
+    {!error && <p class="summary" data-testid="system-summary">{summary(page.items, page.skipped.length)}</p>}
+
+    {!error && groups.length === 0 && page.skipped.length === 0 && (
+      <div class="empty-state"><p class="empty-title">No system Playbooks</p></div>
+    )}
+
+    {groups.map((group) => (
+      <section class="card" data-testid="system-group">
+        <header class="group-head">
+          <strong>{group.label}</strong>
+          {group.version && <span class="version">v{group.version}</span>}
+        </header>
+        <div class="table-scroll">
+          <table class="providers">
+            <thead>
+              <tr><th>Playbook</th><th>Version</th><th>Badges</th><th>Workspaces</th><th>Platform</th></tr>
+            </thead>
+            <tbody>
+              {group.rows.map((row) => (
+                <tr data-name={row.name} class:list={{ off: row.serverOff }}>
+                  <td class="name-col">
+                    <code>{row.name}</code>
+                    <span class="desc">{row.description}</span>
+                    {row.warnings.map((w) => <span class="warn">{w}</span>)}
+                  </td>
+                  <td>{row.version || "—"}</td>
+                  <td>{row.badges.length ? row.badges.join(" · ") : "—"}</td>
+                  <td>{row.offNote || "On everywhere"}</td>
+                  <td>
+                    <label class="switch" title={row.serverOff ? SWITCH_TITLE.off : SWITCH_TITLE.on}>
+                      <input type="checkbox" class="sp-switch" data-name={row.name} checked={!row.serverOff} />
+                      <span>{row.serverOff ? "Off" : "On"}</span>
+                    </label>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    ))}
+
+    {page.skipped.length > 0 && (
+      <section class="card failed" data-testid="system-skipped">
+        <header class="group-head"><strong>Couldn't load</strong></header>
+        <ul class="skipped">
+          {page.skipped.map((s) => <li><code>{s.name}</code> <span class="desc">({s.label})</span>: {s.reason}</li>)}
+        </ul>
+      </section>
+    )}
+    <p class="msg" id="sp-msg" role="status" hidden></p>
+  </div>
+</AdminLayout>
+
+<style>
+  .summary { margin: 0 0 12px; font-size: 13px; color: var(--muted); }
+  .card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; margin-bottom: 14px; background: var(--bg); }
+  .card.failed { border-color: var(--bad, #b91c1c); }
+  .group-head { display: flex; gap: 10px; align-items: baseline; margin-bottom: 8px; }
+  .version { font-size: 12px; color: var(--muted); }
+  .providers { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .providers th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 4px 8px; }
+  .providers td { padding: 6px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+  .name-col { display: flex; flex-direction: column; gap: 2px; }
+  .desc { color: var(--muted); font-size: 12.5px; }
+  .warn { color: var(--muted); font-size: 12px; font-style: italic; }
+  tr.off { opacity: 0.7; }
+  .switch { display: inline-flex; gap: 6px; align-items: center; }
+  .skipped { margin: 0; padding-left: 18px; font-size: 13.5px; }
+  .msg { margin: 10px 0 0; font-size: 14px; color: var(--bad, #b91c1c); }
+</style>
+
+<script>
+  import { switchSystemPlaybookForPlatform } from "@/lib/api/admin/systemPlaybooks";
+
+  const message = document.getElementById("sp-msg") as HTMLElement;
+  document.querySelectorAll<HTMLInputElement>(".sp-switch").forEach((box) =>
+    box.addEventListener("change", async () => {
+      box.disabled = true;
+      try {
+        await switchSystemPlaybookForPlatform(box.dataset.name!, box.checked);
+        location.reload();
+      } catch (e) {
+        box.checked = !box.checked;
+        box.disabled = false;
+        message.textContent = e instanceof Error ? e.message : "The switch failed. Try again.";
+        message.hidden = false;
+      }
+    }),
+  );
+</script>

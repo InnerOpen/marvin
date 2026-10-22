@@ -129,6 +129,7 @@ python_classes = 'Test*'
 python_files = 'test_*'
 python_functions = 'test_*'
 testpaths = ["tests"]
+markers = ["real_system_playbooks: read the system Playbooks of the installed packages instead of none (tests/conftest.py)"]
 
 [tool.coverage.report]
 skip_empty = true

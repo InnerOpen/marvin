@@ -1,8 +1,9 @@
 """Playbook tools (category `playbooks_read`): the catalog and the full text of published Playbooks.
 
 A Playbook is guidance, not a capability: loading one returns text and grants nothing, so both tools are read-only and
-open to any role. What may be seen is decided in `services/playbooks` (published only, this workspace only), so the
-agent, MarvinMCP and the remote MCP server — which all project the registry — answer the same way.
+open to any role. What may be seen is decided in `services/playbooks` (published only, this workspace only, plus the system
+Playbooks its workspace gets), so the agent, MarvinMCP and the remote MCP server — which all project the registry — answer the same
+way. A caller with no agent (MCP, the invoke route) is a person driving the tools: it may list and load a manual-only Playbook by name.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from marvin.services.playbooks import (
     LOAD_TOOL,
     READ_FILE_TOOL,
     PlaybookScope,
+    SystemFile,
     manual_only_refusal,
     published_playbook,
     published_playbook_file,
@@ -23,17 +25,19 @@ from marvin.services.playbooks import (
 )
 
 from .base import ToolContext, register_tool
+from .builtins_attachments import cut_text
 
 
 def _scope(ctx: ToolContext) -> PlaybookScope:
-    return ctx.playbooks or PlaybookScope()
+    return ctx.playbooks or PlaybookScope(direct=True)  # no agent: a person drives the tools
 
 
 @register_tool(
     name=LIST_TOOL,
     description=(
-        "List this workspace's published Playbooks: written procedures for particular tasks, each with a name and a "
-        "one-line description of when to use it. Call it before drafting, revising or reviewing something, then load_playbook "
+        "List this workspace's published Playbooks (its own, and the system Playbooks Marvin and its plugins give every "
+        "workspace): written procedures for particular tasks, each with a name and a one-line description of when to use it. "
+        "Call it before drafting, revising or reviewing something, then load_playbook "
         "the one that matches the task. (Marvin's own agents also get this list in their instructions.)"
     ),
     input_schema={"type": "object", "properties": {}},
@@ -42,7 +46,16 @@ def _scope(ctx: ToolContext) -> PlaybookScope:
 )
 def list_playbooks(ctx: ToolContext, _args: dict) -> str:
     found = published_playbooks(ctx.session, ctx.group_id, _scope(ctx))
-    return json.dumps({"playbooks": [{"name": p.name, "description": p.description} for p in found]})
+    return json.dumps({"playbooks": [_listed(p) for p in found]})
+
+
+def _listed(p) -> dict:
+    return {
+        "name": p.name,
+        "description": p.description,
+        **({"system": p.label} if p.is_system else {}),
+        **({"manualOnly": True} if p.manual_only else {}),
+    }
 
 
 @register_tool(
@@ -74,6 +87,7 @@ def load_playbook(ctx: ToolContext, args: dict) -> str:
         {
             "id": found.id,
             "name": found.name,
+            **({"source": found.label, "version": found.version, "hash": found.hash} if found.is_system else {}),
             "description": found.description,
             "body": found.body,
             "files": [{"path": f.path, "mimeType": f.mime_type, "size": f.size} for f in files],
@@ -119,5 +133,8 @@ def read_playbook_file(ctx: ToolContext, args: dict) -> str:
                 }
             )
         return json.dumps({"error": f"The Playbook '{name}' has no file '{path}'.", "files": [f.path for f in files]})
-    out = read_asset_text(asset, args.get("max_chars"))
+    if isinstance(asset, SystemFile):
+        out = cut_text(asset.text, args.get("max_chars"), {"name": asset.name})
+    else:
+        out = read_asset_text(asset, args.get("max_chars"))
     return json.dumps({"playbook": name, "path": path, **out})

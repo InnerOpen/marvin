@@ -6,6 +6,17 @@ import { describe, test } from "node:test";
 
 import {
   actionsFor,
+  alsoGives,
+  copiedLabel,
+  offNames,
+  pickerGroups,
+  sourceLine,
+  switchTitle,
+  systemGroups,
+  systemPath,
+  systemRow,
+  upstreamHint,
+  usedPlaybookHref,
   bodyLines,
   EMPTY_FORM,
   editorPath,
@@ -250,5 +261,89 @@ describe("integration Playbooks", () => {
     assert.equal(fromIntegrationId(null), null);
     assert.deepEqual(fromIntegration(items, "i1").map((i) => i.id), ["1"]);
     assert.equal(fromIntegration(items, null).length, 3);
+  });
+});
+
+
+// ── system Playbooks ──────────────────────────────────────────────────────────────────────────────────────────────
+
+const ALT = { name: "marvin-alt-text", description: "Use when writing alt text.", label: "System · Marvin", version: "1.42.0", manualOnly: false, state: "on", enabled: true, suggestedCopyName: "alt-text" };
+const RULE = { name: "social-auto-reply-rule", description: "Use for an auto-reply rule.", label: "System · Social", version: "1.42.0", manualOnly: true, state: "on", enabled: true };
+const S3 = { name: "s3-workspace-bucket", description: "Use for bucket setup.", label: "System · S3 storage", version: "0.5.0", manualOnly: true, state: "off", detail: "Off for this workspace", enabled: false, allowedTools: "get_entry" };
+
+describe("system Playbooks", () => {
+  test("a row says what a person needs: label, version, badges, the state's sentence and the copy name", () => {
+    const row = systemRow(ALT);
+    assert.equal(row.href, "/workspace/settings/ai-playbooks/system/marvin-alt-text");
+    assert.deepEqual([row.label, row.version, row.manualOnly, row.on, row.note, row.suggestedName], ["System · Marvin", "1.42.0", false, true, "", "alt-text"]);
+    const off = systemRow(S3);
+    assert.deepEqual([off.on, off.enabled, off.note, off.allowedTools, off.serverOff], [false, false, "Off for this workspace", "get_entry", false]);
+  });
+
+  test("the platform's switch shows as off with the workspace's own switch still its own", () => {
+    const row = systemRow({ ...ALT, state: "off_server", detail: "Off for this platform", enabled: true });
+    assert.deepEqual([row.serverOff, row.enabled, row.note], [true, true, "Off for this platform"]);
+    assert.match(switchTitle(row), /whole platform/);
+    assert.match(switchTitle({ enabled: true, serverOff: false }), /off for this workspace/);
+    assert.match(switchTitle({ enabled: false, serverOff: false }), /on for this workspace/);
+  });
+
+  test("groups follow the labels in the order they first appear", () => {
+    const groups = systemGroups([ALT, RULE, S3, { ...ALT, name: "marvin-other" }]);
+    assert.deepEqual(groups.map((g) => [g.label, g.rows.map((r) => r.name)]), [
+      ["System · Marvin", ["marvin-alt-text", "marvin-other"]],
+      ["System · Social", ["social-auto-reply-rule"]],
+      ["System · S3 storage", ["s3-workspace-bucket"]],
+    ]);
+    assert.deepEqual(systemGroups([]), []);
+  });
+
+  test("a system name is a path, escaped", () => {
+    assert.equal(systemPath("a b"), "/workspace/settings/ai-playbooks/system/a%20b");
+    assert.equal(sourceLine(ALT), "System · Marvin, 1.42.0");
+    assert.equal(sourceLine({ label: "System · Social" }), "System · Social");
+  });
+
+  test("a copy says where it came from and hints when the original changed", () => {
+    const copy = { id: "1", name: "alt-text", description: "", status: "draft", copiedFrom: { name: "marvin-alt-text", label: "System · Marvin", version: "1.40.0", currentVersion: "1.42.0", upstreamChanged: true } };
+    assert.equal(copiedLabel(copy), "Copied from System · Marvin 1.40.0");
+    assert.equal(upstreamHint(copy), "The system Playbook changed: 1.40.0 → 1.42.0. Your copy is unchanged.");
+    const row = playbookRow(copy);
+    assert.deepEqual([row.copied, row.upstreamHref], ["Copied from System · Marvin 1.40.0", "/workspace/settings/ai-playbooks/system/marvin-alt-text"]);
+    const quiet = { ...copy, copiedFrom: { ...copy.copiedFrom, upstreamChanged: false } };
+    assert.equal(upstreamHint(quiet), null);
+    assert.equal(playbookRow(quiet).upstreamHref, null);
+    assert.equal(upstreamHint({ copiedFrom: { name: "x", upstreamChanged: true, version: "1", currentVersion: "1" } }), "The system Playbook changed. Your copy is unchanged.");
+    assert.equal(copiedLabel({ id: "2", name: "mine", description: "", status: "draft" }), null);
+  });
+
+  test("the agent picker lists yours, then a System group per label, and marks the ones switched off", () => {
+    const own = [
+      { id: "1", name: "house-voice", description: "Voice.", status: "published" },
+      { id: "2", name: "wip", description: "", status: "draft" },
+    ];
+    const groups = pickerGroups(own, [ALT, S3, { ...RULE, state: "off_server" }]);
+    assert.deepEqual(groups.map((g) => g.label), ["Yours", "System · Marvin", "System · S3 storage", "System · Social"]);
+    assert.deepEqual(groups[0].entries.map((e) => e.name), ["house-voice"]);
+    assert.deepEqual(groups.flatMap((g) => g.entries.filter((e) => e.off).map((e) => e.name)), ["s3-workspace-bucket", "social-auto-reply-rule"]);
+    assert.deepEqual(pickerGroups([], []), []);
+  });
+
+  test("names typed into an agent's settings are flagged when the system Playbook is off", () => {
+    assert.deepEqual(offNames("house-voice\ns3-workspace-bucket, marvin-alt-text", [ALT, S3]), ["s3-workspace-bucket"]);
+    assert.deepEqual(offNames("", [S3]), []);
+  });
+
+  test("a run's trace links a system Playbook and leaves a workspace one alone", () => {
+    assert.equal(usedPlaybookHref({ id: "system:marvin-alt-text", name: "marvin-alt-text" }), "/workspace/settings/ai-playbooks/system/marvin-alt-text");
+    assert.equal(usedPlaybookHref({ id: "5c0d", name: "house-voice" }), null);
+    assert.equal(usedPlaybookHref({ id: "system:x" }), null);
+  });
+
+  test("the integration card names what a provider gives every workspace", () => {
+    assert.equal(alsoGives([]), null);
+    assert.equal(alsoGives(undefined), null);
+    assert.equal(alsoGives([{ name: "s3-workspace-bucket" }]).text, "Also gives every workspace: s3-workspace-bucket (System Playbook, read-only)");
+    assert.equal(alsoGives([{ name: "a" }, { name: "b" }]).text, "Also gives every workspace: a, b (System Playbooks, read-only)");
   });
 });
