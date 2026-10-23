@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.57 (2026-10-23)
+
+### Bug Fixes
+
+- **social**: A rule answers only DMs sent after it was published; a customisable cool-down per
+  person
+  ([`6390be5`](https://github.com/InnerOpen/marvin/commit/6390be54cca35abf0207687cf4b4d04f7aabacce))
+
+
 ## v1.1.0-rc.56 (2026-10-23)
 
 ### Bug Fixes
