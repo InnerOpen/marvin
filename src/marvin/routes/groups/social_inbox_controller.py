@@ -102,6 +102,7 @@ def _reads(session, group_id, rows: list[Item]) -> list[SocialInboxItemRead]:
                 post_url=r.post_url,
                 author={"id": r.author_id, "handle": r.author_handle, "name": r.author_name},
                 text=r.text,
+                attachments=r.attachments,
                 created_at=r.posted_at,
                 first_seen_at=r.first_seen_at,
                 url=r.url,
@@ -157,7 +158,7 @@ class SocialInboxController(BaseUserController):
         self,
         integration: str | None = Query(None, description="One integration, by slug."),
         network: str | None = Query(None, description="One network (instagram, mastodon…)."),
-        kind: Literal["comment", "reply", "mention"] | None = Query(None),
+        kind: Literal["comment", "reply", "mention", "message", "story_reply", "story_mention", "reaction", "live_comment"] | None = Query(None),
         item_status: list[Literal["new", "seen", "replied", "hidden", "liked"]] | None = Query(
             None, alias="status", description="One or more statuses (repeat the parameter)."
         ),

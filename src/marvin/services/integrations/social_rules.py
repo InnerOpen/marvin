@@ -37,6 +37,14 @@ PRIVATE, PUBLIC, BOTH = "private", "public", "both"
 REPLY_MODES = (PRIVATE, PUBLIC, BOTH)
 KIND_COMMENT, KIND_REPLY, KIND_MENTION = "comment", "reply", "mention"
 ITEM_KINDS = (KIND_COMMENT, KIND_REPLY, KIND_MENTION)
+"""What the engagement poll reads (`social.comments`) and a rule may answer."""
+KIND_MESSAGE, KIND_STORY_REPLY, KIND_STORY_MENTION, KIND_REACTION, KIND_LIVE_COMMENT = (
+    "message", "story_reply", "story_mention", "reaction", "live_comment",
+)  # fmt: skip
+DIRECT_KINDS = (KIND_MESSAGE, KIND_STORY_REPLY, KIND_STORY_MENTION, KIND_REACTION)
+"""Items that arrive in the account's direct messages: answered by a message to their author, never by a comment reply."""
+INBOX_KINDS = (*ITEM_KINDS, *DIRECT_KINDS, KIND_LIVE_COMMENT)
+"""Everything the Social inbox keeps: the poll's kinds, and what a network pushes by webhook (integration SDK INBOX_KINDS)."""
 DEFAULT_KINDS = frozenset({KIND_COMMENT, KIND_REPLY})
 
 REASON_ALREADY_REPLIED = "already_replied"

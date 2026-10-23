@@ -41,11 +41,13 @@ class SocialInboxItemRead(_MarvinModel):
     """The integration's slug."""
     network: str
     kind: str
-    """comment | reply | mention."""
+    """comment | reply | mention, and what a network pushes: message | story_reply | story_mention | reaction | live_comment."""
     post_id: str | None = None
     post_url: str | None = None
     author: SocialInboxAuthor
     text: str
+    attachments: list[dict] | None = None
+    """What it arrived with: {type, url, title} — a message's picture, a shared post and its caption."""
     created_at: datetime
     """When the network says it was written."""
     first_seen_at: datetime

@@ -81,7 +81,7 @@ Like posting, each plugin declares the capabilities it has, each on one action (
 | `social.repost` | `post_id` | `reposted`, `url`, `network` | yes |
 | `social.message` | `to` (`{id?, handle?}`), `text`, `dry_run` | `sent`, `message_id`, `network` | yes |
 
-`social.comments` returns items oldest to newest: `id` (what the other capabilities take as `comment_id`), `kind` (`comment`, `reply` or `mention`), `post_id`, `post_url`, `author` (`id`, `handle`, `name`), `text`, `created_at` (ISO, UTC), `url`, `network`. A mode a network can't do is refused with the error code `unsupported`. "Gated" means approval-gated: Marvin treats a gated action as `requires_approval` even when the plugin forgot to say so, and a workflow runs it only after a **Wait for approval** step ([Workflows → Answer comments and reach out](workflows.md#social-engagement)). Posting reaches every network that offers it; the engagement capabilities name one `integration`, because a comment id means something to one network only. A workflow posts with [Workflows → Post to social networks](workflows.md#post-to-social-networks).
+`social.comments` returns items oldest to newest: `id` (what the other capabilities take as `comment_id`), `kind` (`comment`, `reply` or `mention`; an integration's `inbox_items_from_webhook` may also return `message`, `story_reply`, `story_mention`, `reaction` and `live_comment`, and `attachments`: `{type, url, title}`), `post_id`, `post_url`, `author` (`id`, `handle`, `name`), `text`, `created_at` (ISO, UTC), `url`, `network`. A mode a network can't do is refused with the error code `unsupported`. "Gated" means approval-gated: Marvin treats a gated action as `requires_approval` even when the plugin forgot to say so, and a workflow runs it only after a **Wait for approval** step ([Workflows → Answer comments and reach out](workflows.md#social-engagement)). Posting reaches every network that offers it; the engagement capabilities name one `integration`, because a comment id means something to one network only. A workflow posts with [Workflows → Post to social networks](workflows.md#post-to-social-networks).
 
 | | Read comments | Private reply | Public reply | Like | Hide | Delete | Repost | Message |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -107,7 +107,20 @@ The same poll announces each new comment, reply or mention as the event `social_
 
 ## The inbox {#inbox}
 
-The comments, replies and mentions of every connected network, and what was answered. **Every network read the poll makes is kept** in `social_inbox_items` (one row per network item, unique on integration and item id, one batch insert per read), except the account's own items and items older than 30 days; the daily prune (`prune_social_inbox_items`) deletes what is older, except items with a live reply (above). An item records its author, text, kind, post, link, when it was written, when Marvin first saw it, a **status** and the reply. Keeping items can't fail a poll.
+The comments, replies and mentions of every connected network, and what was answered. **Every network read the poll makes is kept** in `social_inbox_items` (one row per network item, unique on integration and item id, one batch insert per read), except the account's own items and items older than 30 days; the daily prune (`prune_social_inbox_items`) deletes what is older, except items with a live reply (above). An item records its author, text, kind, post, link, what it arrived with (`attachments`), when it was written, when Marvin first saw it, a **status** and the reply. Keeping items can't fail a poll.
+
+**What a network pushes.** A delivery to an integration's own incoming webhook (one its blueprint created, such as **Instagram webhooks**) reaches the inbox too, as it happens: after the signature passes, the integration says what the delivery holds (`inbox_items_from_webhook`, integration SDK 0.18.0) and the items are kept as the poll's are — deduplicated with them, the account's own skipped. Core never reads the network's payload. That brings kinds a poll can't read:
+
+| Kind | What it is |
+| --- | --- |
+| `comment`, `reply`, `mention` | As the poll reads them, but as they happen. On Instagram an @mention arrives only this way; Meta sends its ids, not its text. |
+| `message` | A direct message: its text, or a shared post or reel (its caption as the text, its picture attached) |
+| `story_reply` | Someone replied to your story |
+| `story_mention` | Someone mentioned you in their story |
+| `reaction` | Someone reacted to your message |
+| `live_comment` | A comment on your live video |
+
+An item that came in by direct message (a message, a story reply, a story mention, a reaction) is answered only by **Reply**, which sends a direct message back (`social.message`) and records it on the item as its reply; it never offers **Make a rule**, and no auto-reply rule answers it. Networks allow such a message only for a while after the person's last one (Instagram: 24 hours). Workflows on the webhook start as before, whatever the inbox keeps; a failure turning a delivery into items never fails the delivery.
 
 Compact rows (network logo, who, an excerpt, the kind and when, status and **Sent** / **Rehearsal** badges; a new item has a dot and a bold name). Filter by network (on the all-networks page), kind, status and text; the filters live in the page's address. Tap a row to open it: the whole text, links to the post and to the item on the network, the rule that answered, and the actions. Opening a new item marks it seen; **Mark all seen** clears the rest.
 
@@ -117,7 +130,7 @@ Compact rows (network logo, who, an excerpt, the kind and when, status and **Sen
 | **Like** | `social.like` | EDITOR | New or seen items become `liked`; a reply or a hide is never downgraded. |
 | **Hide** / **Unhide** | `social.hide` | EDITOR | Comments under your own posts only (not mentions). Hidden wins over every other status. |
 | **Delete** | `social.delete_comment` | ADMIN | Asks first; removes the comment on the network and drops the item. Not for mentions. |
-| **Message** | `social.message` | ADMIN | A direct message to the author, not a reply to the comment. |
+| **Message** | `social.message` | ADMIN | A direct message to the author, not a reply to the comment. On an item that came in by direct message the button is **Reply**: the message is the answer, recorded on the item (status `replied`). |
 | **Make a rule** | none | EDITOR | A **draft** `social-auto-reply` entry: keywords suggested from the text, that comment's integration, private replies, and your reply box text as the reply. It does nothing until published. |
 
 **Status** is `new`, `seen`, `liked`, `replied` or `hidden`: seeing never undoes anything, a like never downgrades a reply, a reply never unhides, hiding wins, unhiding goes back to `replied` or `seen`.

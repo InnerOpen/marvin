@@ -6,6 +6,9 @@ read, deduplicated by the unique key); the account's own items are never stored;
 (``prune_social_inbox_items``) drops rows older than the retention window (30 days). Deleted with the workspace and with
 the integration.
 
+Items a network pushes by webhook (an integration's ``inbox_items_from_webhook``) are kept the same way, with the kinds a
+poll can't read: message, story_reply, story_mention, reaction, live_comment (``social_rules.INBOX_KINDS``).
+
 ``status`` is new | seen | replied | hidden | liked (see ``social_inbox.next_status`` for how an action moves it).
 
 **The reply is recorded on the row** (``reply_*``, ``replied_at``, ``replied_by``): the item is the reply log. A live reply
@@ -48,6 +51,8 @@ class SocialInboxItemModel(SqlAlchemyBase, BaseMixins):
     author_handle: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     author_name: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     text: Mapped[str] = mapped_column(sa.Text, nullable=False, default="")
+    attachments: Mapped[list | None] = mapped_column(sa.JSON, nullable=True)
+    """What the item arrived with: a list of {type, url, title} — a message's picture, a shared post and its caption."""
     posted_at: Mapped[datetime] = mapped_column(AwareDateTime, nullable=False)
     """When the network says it was written; the time first seen when the network gives none. What the list sorts on."""
     url: Mapped[str | None] = mapped_column(sa.String, nullable=True)

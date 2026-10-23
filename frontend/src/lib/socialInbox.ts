@@ -6,7 +6,17 @@ export const SOCIAL_INBOX_PATH = "/workspace/social";
 /** Where a workspace connects a network (Social has no setup of its own). */
 export const INTEGRATIONS_HREF = "/workspace/settings/integrations";
 
-export type ItemKind = "comment" | "reply" | "mention";
+export type ItemKind = "comment" | "reply" | "mention" | "message" | "story_reply" | "story_mention" | "reaction" | "live_comment";
+
+/** Kinds that arrive in the account's direct messages: answered by a message, never by a rule or a comment reply. */
+export const DIRECT_KINDS: ReadonlySet<string> = new Set(["message", "story_reply", "story_mention", "reaction"]);
+
+/** Something an item arrived with: a picture, a shared post and its caption. */
+export interface Attachment {
+  type?: string | null;
+  url?: string | null;
+  title?: string | null;
+}
 export type ItemStatus = "new" | "seen" | "replied" | "hidden" | "liked";
 export type ActionKey = "reply" | "like" | "hide" | "delete" | "message";
 
@@ -37,6 +47,7 @@ export interface InboxItem {
   postUrl?: string | null;
   author: { id?: string | null; handle?: string | null; name?: string | null };
   text: string;
+  attachments?: Attachment[] | null;
   createdAt: string;
   firstSeenAt?: string;
   url?: string | null;
@@ -83,6 +94,11 @@ export const KINDS: { value: ItemKind; label: string }[] = [
   { value: "comment", label: "Comments" },
   { value: "reply", label: "Replies" },
   { value: "mention", label: "Mentions" },
+  { value: "message", label: "Messages" },
+  { value: "story_reply", label: "Story replies" },
+  { value: "story_mention", label: "Story mentions" },
+  { value: "reaction", label: "Reactions" },
+  { value: "live_comment", label: "Live comments" },
 ];
 
 export const STATUSES: { value: ItemStatus; label: string }[] = [
@@ -93,7 +109,48 @@ export const STATUSES: { value: ItemStatus; label: string }[] = [
   { value: "hidden", label: "Hidden" },
 ];
 
-const KIND_LABEL: Record<string, string> = { comment: "Comment", reply: "Reply", mention: "Mention" };
+const KIND_LABEL: Record<string, string> = {
+  comment: "Comment",
+  reply: "Reply",
+  mention: "Mention",
+  message: "Message",
+  story_reply: "Story reply",
+  story_mention: "Story mention",
+  reaction: "Reaction",
+  live_comment: "Live comment",
+};
+
+const ATTACHMENT_LABEL: Record<string, string> = {
+  ig_post: "The shared post",
+  ig_reel: "The shared reel",
+  reel: "The shared reel",
+  share: "The shared post",
+  story: "The story",
+  story_mention: "The story",
+  image: "The picture",
+  video: "The video",
+  audio: "The voice message",
+};
+
+/** An item's attachments as links: only http(s) addresses, each with a label; `picture` when it can show as an image. */
+export function attachmentLinks(item: Pick<InboxItem, "attachments">): { href: string; label: string; picture: boolean }[] {
+  return (item.attachments ?? [])
+    .filter((a) => /^https?:\/\//i.test((a.url ?? "").trim()))
+    .map((a) => ({
+      href: (a.url ?? "").trim(),
+      label: ATTACHMENT_LABEL[a.type ?? ""] ?? "Attachment",
+      picture: ["ig_post", "share", "image", "story", "story_mention"].includes(a.type ?? ""),
+    }));
+}
+
+/** What a row says for an item with no text of its own: a shared post's caption, else what it carried. */
+export function itemText(item: Pick<InboxItem, "text" | "attachments" | "kind">): string {
+  if ((item.text ?? "").trim()) return item.text;
+  const first = (item.attachments ?? [])[0];
+  if (first?.title) return first.title;
+  if (first) return `(${(ATTACHMENT_LABEL[first.type ?? ""] ?? "an attachment").replace(/^The /, "a ")})`;
+  return item.kind === "mention" ? "(mentioned you)" : "";
+}
 
 export function kindLabel(kind: string): string {
   return KIND_LABEL[kind] ?? kind;
@@ -197,15 +254,16 @@ const ORDER: ActionKey[] = ["reply", "like", "hide", "delete", "message"];
 
 /** The buttons for one item: what its network offers, limited to what the caller's role may do, "Make a rule" last. An item
  *  that is hidden offers Unhide in place of Hide. Opening the item on its network is a link, not a button (`openHref`). */
-export function actionButtons(item: Pick<InboxItem, "actions" | "status">, can: Can): ActionButton[] {
+export function actionButtons(item: Pick<InboxItem, "actions" | "status"> & { kind?: string }, can: Can): ActionButton[] {
   const offered = new Set(item.actions);
   const buttons: ActionButton[] = ORDER.filter((key) => offered.has(key) && can[key] === true).map((key) => ({
     key,
-    label: key === "hide" && item.status === "hidden" ? "Unhide" : ACTION_LABEL[key],
+    label: key === "hide" && item.status === "hidden" ? "Unhide" : key === "message" && DIRECT_KINDS.has(item.kind ?? "") ? "Reply" : ACTION_LABEL[key],
     ...(key === "delete" ? { destructive: true } : {}),
     ...(NEEDS_TEXT.has(key) ? { needsText: true } : {}),
   }));
-  if (can.rule === true) buttons.push({ key: "rule", label: "Make a rule" });
+  // A rule answers comments; an item that came in by direct message is answered only by a message.
+  if (can.rule === true && !DIRECT_KINDS.has(item.kind ?? "")) buttons.push({ key: "rule", label: "Make a rule" });
   return buttons;
 }
 

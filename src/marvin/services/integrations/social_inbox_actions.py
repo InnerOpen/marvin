@@ -36,7 +36,7 @@ from .social import (
     engagement_args,
 )
 from .social_engagement import EngineCallError, PluginCaller
-from .social_rules import KIND_MENTION, PRIVATE, PUBLIC, suggest_keywords
+from .social_rules import DIRECT_KINDS, KIND_MENTION, PRIVATE, PUBLIC, suggest_keywords
 from .social_setup import ensure_rule_type
 
 HUMAN_CAPABILITIES = frozenset({SOCIAL_REPLY, SOCIAL_LIKE, SOCIAL_HIDE, SOCIAL_DELETE_COMMENT, SOCIAL_MESSAGE})
@@ -115,10 +115,12 @@ def reply_modes(provider) -> list[str]:
 def offers(item: Item, provider) -> dict:
     """What can be done with this item on its network: ``actions`` (reply, like, hide, delete, message) and ``reply_modes``. Only what
     the plugin has: hide and delete answer comments under the account's own posts, so a mention isn't offered them, and a message
-    needs someone to send it to."""
+    needs someone to send it to. An item that came in by direct message (a message, a story reply…) is answered only by a message."""
     if provider is None:
         return {"actions": [], "reply_modes": []}
     has = {name: any(getattr(a, "capability", None) == cap for a in getattr(provider, "actions", ()) or ()) for name, cap in _CAPABILITY_OF.items()}
+    if item.kind in DIRECT_KINDS:  # it came in by direct message: the only answer is a message back
+        return {"actions": [MESSAGE] if has[MESSAGE] and bool(item.author_id or item.author_handle) else [], "reply_modes": []}
     own_post = item.kind != KIND_MENTION
     actions = [
         name
@@ -237,7 +239,8 @@ def delete(session, group_id, item: Item, *, user_id) -> dict:
 
 
 def message(session, group_id, item: Item, *, text: str, user_id) -> dict:
-    """A direct message to the item's author (not a reply to the comment; no log entry, no status change beyond seen)."""
+    """A direct message to the item's author. For a comment it is a side message (no reply recorded, seen at most); for an item
+    that came in by direct message it *is* the answer, recorded on the item as its reply (status replied)."""
     text = (text or "").strip()
     if not text:
         raise InboxError("say what to send")
@@ -246,8 +249,13 @@ def message(session, group_id, item: Item, *, text: str, user_id) -> dict:
     out = _call(actor, SOCIAL_MESSAGE, {"to": to, "text": text}, user_id)
     if out.get("sent") is False:
         raise InboxError(f"{item.network} did not send the message", 502)
-    _event(item, social_inbox.EVENT_SEEN)
-    session.commit()
+    if item.kind in DIRECT_KINDS:
+        social_inbox.record_reply(
+            session, actor.row, item, mode="message", rehearsal=False, reply_id=out.get("message_id"), text=text, when=datetime.now(UTC), by=user_id
+        )
+    else:
+        _event(item, social_inbox.EVENT_SEEN)
+        session.commit()
     return {"sent": True, "message_id": out.get("message_id")}
 
 

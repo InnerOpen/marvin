@@ -100,6 +100,9 @@ const data = JSON.stringify({ summary, list, filters, basePath, network }).repla
     type InboxItem,
     type InboxSummary,
     kindLabel,
+    attachmentLinks,
+    itemText,
+    DIRECT_KINDS,
     openHref,
     replyAgainText,
     replyBadge,
@@ -146,7 +149,7 @@ const data = JSON.stringify({ summary, list, filters, basePath, network }).repla
       <span class="si-mark">${mark(item)}</span>
       <span class="si-main">
         <span class="si-line"><strong class="si-author">${esc(authorLabel(item.author))}</strong><span class="si-kind">${esc(kindLabel(item.kind))}</span></span>
-        <span class="si-text">${esc(excerpt(item.text))}</span>
+        <span class="si-text">${esc(excerpt(itemText(item)))}</span>
       </span>
       <span class="si-meta"><time datetime="${esc(item.createdAt)}" title="${esc(new Date(item.createdAt).toLocaleString())}">${esc(timeAgo(item.createdAt))}</time><span class="si-badges">${badgesHtml(item)}</span></span>
     </button></li>`;
@@ -224,11 +227,18 @@ const data = JSON.stringify({ summary, list, filters, basePath, network }).repla
     const buttons = actionButtons(item, can);
     const reply = buttons.some((b) => b.key === "reply") ? replyForm(item.replyModes) : null;
     const canMessage = buttons.some((b) => b.key === "message");
+    const direct = DIRECT_KINDS.has(item.kind);
+    const carried = attachmentLinks(item);
     return `
       <div class="si-d-who">${mark(item)}<div><strong>${esc(authorLabel(item.author))}</strong>${item.author.name && item.author.handle ? ` <span class="si-muted">${esc(item.author.name)}</span>` : ""}
         <div class="si-muted si-small">${esc(kindLabel(item.kind))} on ${esc(item.network)}${item.integration && item.integration !== item.network ? ` (${esc(item.integration)})` : ""} · <time title="${esc(new Date(item.createdAt).toLocaleString())}">${esc(timeAgo(item.createdAt))}</time></div></div>
         <span class="si-badges">${badgesHtml(item)}</span></div>
-      <p class="si-full">${esc(item.text)}</p>
+      <p class="si-full">${esc(itemText(item))}</p>
+      ${carried.length
+        ? `<div class="si-attachments">${carried
+            .map((a) => `<a href="${esc(a.href)}" target="_blank" rel="noopener noreferrer">${a.picture ? `<img src="${esc(a.href)}" alt="${esc(a.label)}" loading="lazy" referrerpolicy="no-referrer" />` : ""}<span>${esc(a.label)}</span></a>`)
+            .join("")}</div>`
+        : ""}
       <p class="si-muted si-small si-links">${item.postUrl ? `<a href="${esc(item.postUrl)}" target="_blank" rel="noopener noreferrer">The post</a>` : ""}${open ? `${item.postUrl ? " · " : ""}<a href="${esc(open)}" target="_blank" rel="noopener noreferrer">Open on ${esc(item.network)}</a>` : ""}${item.reply?.ruleEntryId ? ` · <a href="/workspace/entries/${esc(item.reply.ruleEntryId)}">The rule that answered</a>` : ""}</p>
       <div class="si-actions">${buttons.map(buttonHtml).join("")}</div>
       ${
@@ -250,10 +260,12 @@ const data = JSON.stringify({ summary, list, filters, basePath, network }).repla
       ${
         canMessage
           ? `<form class="si-form" data-form="message" hidden>
-              <label for="si-msg-text">Message ${esc(authorLabel(item.author))}</label>
+              <label for="si-msg-text">${direct ? "Reply to" : "Message"} ${esc(authorLabel(item.author))}</label>
               <textarea id="si-msg-text" class="input" rows="3" maxlength="10000" required></textarea>
               <div class="si-form-actions"><button class="button si-btn-sm" type="submit">Send message</button><button class="button secondary si-btn-sm" type="button" data-cancel>Cancel</button></div>
-              <p class="si-muted si-small">A direct message, not a reply to this comment.</p>
+              <p class="si-muted si-small">${direct
+                ? "Sent as a direct message and recorded on this item. Networks allow it only for a while after their last message (Instagram: 24 hours)."
+                : "A direct message, not a reply to this comment."}</p>
             </form>`
           : ""
       }

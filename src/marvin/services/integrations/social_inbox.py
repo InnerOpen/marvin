@@ -37,7 +37,7 @@ from sqlalchemy.exc import IntegrityError
 from marvin.core.root_logger import get_logger
 from marvin.db.models.groups.social_inbox import SocialInboxItemModel as Item
 
-from .social_rules import ITEM_KINDS, KIND_COMMENT, is_own, parse_time
+from .social_rules import INBOX_KINDS, KIND_COMMENT, is_own, own_identities, parse_time
 
 logger = get_logger(__name__)
 
@@ -51,6 +51,7 @@ NEW, SEEN, REPLIED, HIDDEN, LIKED = "new", "seen", "replied", "hidden", "liked"
 STATUSES = (NEW, SEEN, LIKED, REPLIED, HIDDEN)
 EVENT_SEEN, EVENT_LIKED, EVENT_REPLIED, EVENT_HIDDEN, EVENT_UNHIDDEN = "seen", "liked", "replied", "hidden", "unhidden"
 TEXT_MAX = 5000
+MAX_ATTACHMENTS = 10
 FIELD_MAX = 2000
 _CHUNK = 400  # ids per IN (...): well under SQLite's variable limit
 
@@ -91,19 +92,62 @@ def _mapping(row, item: dict, posted: datetime, now: datetime) -> dict:
         "integration_slug": row.slug,
         "network": _s(item.get("network")) or row.provider,
         "item_id": str(item["id"])[:FIELD_MAX],
-        "kind": kind if kind in ITEM_KINDS else KIND_COMMENT,
+        "kind": kind if kind in INBOX_KINDS else KIND_COMMENT,
         "post_id": _s(item.get("post_id")),
         "post_url": _s(item.get("post_url")),
         "author_id": _s(author.get("id")),
         "author_handle": _s(author.get("handle")),
         "author_name": _s(author.get("name")),
         "text": str(item.get("text") or "")[:TEXT_MAX],
+        "attachments": _attachments(item.get("attachments")),
         "posted_at": posted,
         "url": _s(item.get("url")),
         "first_seen_at": now,
         "status": NEW,
         "reply_rehearsal": False,
     }
+
+
+def _attachments(value) -> list[dict] | None:
+    """An item's attachments as stored: each {type, url, title}, text only and capped; None when there are none."""
+    if not isinstance(value, list):
+        return None
+    kept = [{key: _s(a.get(key)) for key in ("type", "url", "title") if _s(a.get(key))} for a in value[:MAX_ATTACHMENTS] if isinstance(a, dict)]
+    return [a for a in kept if a] or None
+
+
+def keep_webhook_items(session, integration_id, group_id, payload: dict, *, now: datetime | None = None) -> int:
+    """A delivery to an integration's own incoming webhook, kept as inbox items: the integration (its plugin's
+    ``inbox_items_from_webhook``) says what the delivery holds, and the items are stored as a poll's are — deduplicated with
+    them, the account's own skipped. Returns how many were new. Never raises: the delivery and its workflows go on whatever
+    happens here (a plugin that offers nothing, a connection switched off, a parsing failure)."""
+    from datetime import UTC
+
+    from marvin.db.models.groups.integrations import IntegrationModel
+    from marvin.services.integrations import INTEGRATIONS_AVAILABLE
+
+    if not INTEGRATIONS_AVAILABLE:
+        return 0
+    try:
+        from marvin.services.integrations import IntegrationContext, build_http, get_provider
+
+        row = session.get(IntegrationModel, integration_id)
+        if row is None or row.group_id != group_id or not row.enabled:
+            return 0
+        provider = get_provider(row.provider)
+        parse = getattr(provider, "inbox_items_from_webhook", None)
+        if parse is None:
+            return 0
+        ctx = IntegrationContext(config=row.config or {}, secret=None, logger=logger, http=build_http())  # no secret: it parses, never calls
+        items = parse(payload, ctx) or []
+        if not items:
+            return 0
+        handles, ids = own_identities(row.config)
+        return persist_items(session, row, items, handles=handles, ids=ids, now=now or datetime.now(UTC))
+    except Exception as e:  # noqa: BLE001 — the inbox is a convenience; the delivery goes on without it
+        session.rollback()
+        logger.warning("social inbox: could not keep the items of a webhook delivery (integration %s): %s", integration_id, e)
+        return 0
 
 
 def persist_items(session, row, items: Iterable[dict], *, handles: set[str], ids: set[str], now: datetime) -> int:

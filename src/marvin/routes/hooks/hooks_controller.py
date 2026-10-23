@@ -198,6 +198,13 @@ async def receive_hook(
     webhook.last_received_at = datetime.now(UTC)
     session.commit()
 
+    # A webhook an integration's blueprint created: that integration may say what the delivery holds for the Social inbox
+    # (a DM, a comment, a mention). Best effort — it never fails the delivery, and the workflows below start either way.
+    if webhook.source_integration_id and payload:
+        from marvin.services.integrations.social_inbox import keep_webhook_items
+
+        keep_webhook_items(session, webhook.source_integration_id, webhook.group_id, payload)
+
     document_data = EventIncomingWebhookData(
         webhook_id=webhook.id,
         webhook_slug=webhook.slug,

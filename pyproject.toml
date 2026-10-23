@@ -20,7 +20,7 @@ dependencies = [
     "jsonschema>=4.26,<5",  # the schema_check workflow step (also AI-operation answers); was only a transitive dependency of mcp
     # The plugin contract (integrations, storage, AI providers): pinned to a commit, since it isn't on PyPI. A
     # direct reference, so no installer ever looks the name up on an index. Bump it with the SDK.
-    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@v0.17.0",
+    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@v0.18.0",
     "mcp[cli]>=1.30.0,<2",  # 2.x replaced the low-level Server API the remote MCP server is built on
     "numpy>=2.2.6",
     "pillow>=11.1.0",
@@ -94,7 +94,7 @@ plugins = [
     "marvin-integration-apprise @ git+https://github.com/InnerOpen/marvin-integration-apprise@v0.3.1",
     "marvin-integration-slack @ git+https://github.com/InnerOpen/marvin-integration-slack@v0.5.0",
     "marvin-integration-openai-images @ git+https://github.com/InnerOpen/marvin-integration-openai-images@v0.4.0",
-    "marvin-integration-instagram @ git+https://github.com/InnerOpen/marvin-integration-instagram@v0.10.1",
+    "marvin-integration-instagram @ git+https://github.com/InnerOpen/marvin-integration-instagram@v0.11.0",
     "marvin-integration-facebook @ git+https://github.com/InnerOpen/marvin-integration-facebook@v0.4.1",
     "marvin-integration-bluesky @ git+https://github.com/InnerOpen/marvin-integration-bluesky@v0.3.1",
     "marvin-integration-mastodon @ git+https://github.com/InnerOpen/marvin-integration-mastodon@v0.3.1",
@@ -118,7 +118,7 @@ bitwarden = ["bitwarden-sdk>=1.0.0"]
 # Every plugin builds against the one SDK commit Marvin pins above: their own pyproject points the SDK at a
 # sibling checkout (or another commit) for local development, which uv would otherwise follow.
 override-dependencies = [
-    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@v0.17.0",
+    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@v0.18.0",
 ]
 
 [tool.pytest.ini_options]

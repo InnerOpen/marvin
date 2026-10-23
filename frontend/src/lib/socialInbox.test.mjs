@@ -5,6 +5,8 @@ import { describe, test } from "node:test";
 
 import {
   actionButtons,
+  attachmentLinks,
+  itemText,
   apiQuery,
   authorLabel,
   confirmText,
@@ -276,5 +278,36 @@ describe("errors", () => {
     assert.equal(errorMessage(new Error("  ")), "Something went wrong.");
     assert.equal(errorMessage(undefined), "Something went wrong.");
     assert.equal(errorMessage("plain"), "plain");
+  });
+});
+
+describe("items a network pushes (messages, story replies…)", () => {
+  const can = { message: true, rule: true, reply: true };
+
+  test("a direct message offers Reply (a message back) and never Make a rule", () => {
+    const buttons = actionButtons({ actions: ["message"], status: "new", kind: "message" }, can);
+    assert.deepEqual(buttons.map((b) => [b.key, b.label]), [["message", "Reply"]]);
+  });
+
+  test("a comment keeps Message and Make a rule", () => {
+    const keys = actionButtons({ actions: ["reply", "message"], status: "new", kind: "comment" }, can).map((b) => [b.key, b.label]);
+    assert.deepEqual(keys, [["reply", "Reply"], ["message", "Message"], ["rule", "Make a rule"]]);
+  });
+
+  test("attachments link only http(s) addresses, a shared post as a picture", () => {
+    const links = attachmentLinks({ attachments: [{ type: "ig_post", url: "https://cdn.example/p.jpg", title: "Cap" }, { type: "image", url: "javascript:alert(1)" }] });
+    assert.deepEqual(links, [{ href: "https://cdn.example/p.jpg", label: "The shared post", picture: true }]);
+  });
+
+  test("an item with no text shows its shared post's caption, or what it carried", () => {
+    assert.equal(itemText({ text: "", kind: "message", attachments: [{ type: "ig_post", title: "Designers, tailors…" }] }), "Designers, tailors…");
+    assert.equal(itemText({ text: "", kind: "story_mention", attachments: [{ type: "story_mention", url: "https://x" }] }), "(a story)");
+    assert.equal(itemText({ text: "", kind: "mention", attachments: null }), "(mentioned you)");
+    assert.equal(itemText({ text: "Hi", kind: "message", attachments: [] }), "Hi");
+  });
+
+  test("the new kinds have labels", () => {
+    assert.equal(kindLabel("story_reply"), "Story reply");
+    assert.equal(kindLabel("live_comment"), "Live comment");
   });
 });
