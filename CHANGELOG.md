@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.50 (2026-10-23)
+
+### Features
+
+- **workflows**: Variables in any step's text, and a Send an alert step
+  ([`c67aba6`](https://github.com/InnerOpen/marvin/commit/c67aba6db3497a3d60a1821b56fff24c24076352))
+
+
 ## v1.1.0-rc.49 (2026-10-23)
 
 ### Features
