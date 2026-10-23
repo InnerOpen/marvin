@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.56 (2026-10-23)
+
+### Bug Fixes
+
+- **deps**: Bluesky integration 0.4.1 — a chat failure no longer stops the comments read
+  ([`6de2df1`](https://github.com/InnerOpen/marvin/commit/6de2df1b04ac1d74c8fc1731c2caed8b1c1d576f))
+
+
 ## v1.1.0-rc.55 (2026-10-23)
 
 ### Features
