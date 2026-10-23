@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.52 (2026-10-23)
+
+### Bug Fixes
+
+- Keep hook credentials out of the access log; no false "has no entry" warnings
+  ([`237e533`](https://github.com/InnerOpen/marvin/commit/237e533c1ca1d1255861b30d126b012ae1c4680f))
+
+### Chores
+
+- **deps**: Instagram integration 0.10.0 — offers an Instagram webhooks incoming webhook set to the
+  meta schemes
+  ([`26698a2`](https://github.com/InnerOpen/marvin/commit/26698a29799b6eebdf8eff7b765cb6a1e08aecde))
+
+
 ## v1.1.0-rc.51 (2026-10-23)
 
 ### Features
