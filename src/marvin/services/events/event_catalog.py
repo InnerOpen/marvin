@@ -1265,6 +1265,21 @@ CATALOG: list[CatalogEntry] = [
         ],
     ),
     CatalogEntry(
+        event_type="incoming_webhook_verified",
+        name="Incoming Webhook Verified",
+        description="A sender checked one of the workspace's incoming webhook URLs before delivering (a GET with a challenge "
+        "and the verify token it was given) and Marvin answered it. Deliveries are separate (Incoming Webhook Received); "
+        "senders repeat checks now and then.",
+        category="Connect",
+        sent_by=["A sender's verification request to an incoming webhook URL"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("webhook_slug", "Slug of the incoming webhook that was checked", "instagram-inbox", type="string"),
+            EventVariable("webhook_name", "Name of the incoming webhook", "Instagram inbox", type="name"),
+            EventVariable("source_ip", "IP address the request came from", "203.0.113.7", type="string"),
+        ],
+    ),
+    CatalogEntry(
         event_type="webhook_created",
         name="Webhook Created",
         description="An outgoing webhook was added.",

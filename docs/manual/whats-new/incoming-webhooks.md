@@ -69,6 +69,32 @@ A `custom` config takes `mode` (`hmac`, the default, or `token`, which needs onl
 
 A scheme that signs `{url}` needs `signature_url`: the exact public URL you gave the sender. Behind a proxy or tunnel the backend sees a different URL, so it is not derived from the request. A non-empty `signature_header` overrides the scheme's header.
 
+### Verification requests
+
+Some senders check the URL before they deliver anything. They send a `GET` carrying a challenge and the verify token you gave them, and expect the challenge back. Under **Verification** on the webhook's card:
+
+1. Pick how your sender does it. An installed integration offers its senders' schemes; for example, the Instagram and Facebook integrations offer `meta`. Or pick `custom` and describe it in `verification_config`.
+2. Name the workspace secret holding the verify token, or use **Generate phrase** to create one and copy it into the sender.
+
+Marvin then answers a request whose token matches, with the challenge (plain text, or JSON when the scheme says so), and records an **Incoming Webhook Verified** event (`incoming_webhook_verified`). That event is separate from deliveries: workflows triggered by **Incoming Webhook Received** never start on a check, but a workflow can trigger on the verified event itself, for example to tell you a sender confirmed the URL. The verify token is never recorded. Senders repeat checks now and then.
+
+Any other `GET` is refused. A link preview or a browser opening the bare URL carries no token, so it does nothing. With no scheme or no secret, every `GET` is refused.
+
+A `custom` config names the query parameters:
+
+| Key | Required | Notes |
+|---|---|---|
+| `challenge_param` | yes | Echoed back. |
+| `token_param` | yes | Compared with the secret, in constant time. |
+| `mode_param`, `mode_values` | no | A parameter that must be present with one of these values. |
+| `content_type` | no | `text/plain` (default) or `application/json`. |
+
+```json
+{"challenge_param": "hub.challenge", "token_param": "hub.verify_token", "mode_param": "hub.mode", "mode_values": ["subscribe"]}
+```
+
+An integration declares the same keys, by name, as `verification_schemes` (integration SDK 0.17.0). An unusable scheme or config is refused with `422`.
+
 ## API
 
 Receiver (no session; the token is the credential):
@@ -77,14 +103,16 @@ Receiver (no session; the token is the credential):
 |---|---|
 | `POST /api/hooks/{token}` | `202 {"status": "accepted", "webhook": "<slug>"}`. The token may instead be sent as `Authorization: Bearer <token>`, in which case the path segment is ignored. |
 | `POST /api/hooks/{token}?wait=1` | Runs subscribers inline; `202 {"status": "processed", …}`. |
+| `GET /api/hooks/{token}?…` | A sender's verification request, as the webhook's verification scheme describes it: `200` with the challenge when the token matches (and an `incoming_webhook_verified` event); `403` when it doesn't, when no secret is set or the webhook is disabled. A `GET` that doesn't carry the scheme's challenge, or to a webhook with no scheme, is `405`. Never a delivery. |
 | Errors | `401` unknown token or bad signature · `403` webhook disabled · `413` body over 512 KB |
 
 Management (workspace ADMIN or OWNER):
 
 | Method and path | Purpose |
 |---|---|
-| `GET` / `POST /api/incoming-webhooks` | List; create (`name`, `slug?`, `description?`, `enabled`, `signingSecretRef?`, `signatureHeader?`, `signatureScheme?`, `signatureUrl?`, `signatureConfig?`). `409` on a duplicate slug, `422` on an unusable scheme. |
+| `GET` / `POST /api/incoming-webhooks` | List; create (`name`, `slug?`, `description?`, `enabled`, `signingSecretRef?`, `signatureHeader?`, `signatureScheme?`, `signatureUrl?`, `signatureConfig?`, `verificationScheme?`, `verificationConfig?`, `verifyTokenRef?`). `409` on a duplicate slug, `422` on an unusable scheme. |
 | `GET /api/incoming-webhooks/signature-schemes` | Every scheme a webhook can pick: `name`, `notes`, `source` (`core` or the providing integration). |
+| `GET /api/incoming-webhooks/verification-schemes` | Every verification scheme: installed integrations' (`source` is the integration), then `custom` (`core`). |
 | `GET` / `PATCH` / `DELETE /api/incoming-webhooks/{id}` | Read, update, delete. |
 | `POST /api/incoming-webhooks/{id}/token` | Mint or rotate the token. |
 | `DELETE /api/incoming-webhooks/{id}/token` | Revoke the token. |
@@ -102,10 +130,13 @@ Management (workspace ADMIN or OWNER):
 | `signature_header` | the scheme's header | Overrides where the signature arrives. |
 | `signature_url` | none | Only for schemes whose message includes `{url}`. |
 | `signature_config` | none | The construction, for `custom` only. |
+| `verification_scheme` | none | An integration's scheme, or `custom`. None: `GET`s are refused. |
+| `verification_config` | none | The query parameters, for `custom` only. |
+| `verify_token_ref` | none | Slug of a workspace secret: the token a verification request must present. Blank: `GET`s are refused. |
 
 ## Since
 
-Incoming webhooks with HMAC verification: v1.0.0-rc.55 (`a2754652`). Generated signing keys and card editing: rc.56 (`d5bbc5d7`, `ccbf5caa`). Signature-rejection logging: rc.57 (`41f9f98a`). Payload key-structure logging: rc.58 (`4223e107`). Signature schemes (core presets, integration presets, `custom`): rc.111 and rc.113. `static_token` and token-mode schemes: rc.144.
+Incoming webhooks with HMAC verification: v1.0.0-rc.55 (`a2754652`). Generated signing keys and card editing: rc.56 (`d5bbc5d7`, `ccbf5caa`). Signature-rejection logging: rc.57 (`41f9f98a`). Payload key-structure logging: rc.58 (`4223e107`). Signature schemes (core presets, integration presets, `custom`): rc.111 and rc.113. `static_token` and token-mode schemes: rc.144. Verification requests (`verification_scheme`, `verification_config`, `verify_token_ref`, migration `d7a2b9e4f310`) and the `incoming_webhook_verified` event: unreleased (2026-10-23).
 
 ## Related
 

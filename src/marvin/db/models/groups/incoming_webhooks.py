@@ -60,6 +60,13 @@ class WorkspaceIncomingWebhookModel(SqlAlchemyBase, BaseMixins, InstalledByMixin
     signature_scheme: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     signature_url: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     signature_config: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
+    # Optional answer to a sender's verification request (services/webhooks/incoming_verification.py): a GET carrying a
+    # challenge and a verify token matching `verify_token_ref` (a workspace secret) gets the challenge back. Where they
+    # arrive comes from `verification_scheme` (an integration's, or `custom` with `verification_config`). Null: a GET is
+    # refused, as before. A GET never delivers; it records an `incoming_webhook_verified` event.
+    verification_scheme: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    verification_config: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
+    verify_token_ref: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 
     # Observability — surfaced in the management UI so an admin can confirm deliveries land.
     received_count: Mapped[int] = mapped_column(sa.Integer, default=0, nullable=False)

@@ -17,6 +17,7 @@ const sdk = createSdkClient(authToken);
 let workspace: any = null;
 let webhooks: any[] = [];
 let schemes: any[] = [];
+let verifySchemes: any[] = [];
 let integrationInfo: Integrations = {};
 let error: string | null = null;
 // "Delete all of these" (From a removed integration) is ADMIN only; the API refuses anyone else.
@@ -53,6 +54,8 @@ try {
   }
   // Core presets, presets from installed integrations, then "custom".
   if (workspace) schemes = await fetchApi<any[]>("/api/incoming-webhooks/signature-schemes", {}, authToken);
+  // How senders check the URL before delivering: installed integrations' schemes, then "custom".
+  if (workspace) verifySchemes = await fetchApi<any[]>("/api/incoming-webhooks/verification-schemes", {}, authToken);
 } catch (e) {
   console.error("[incoming-webhooks] Error loading:", e);
   error = e instanceof Error ? e.message : String(e);
@@ -60,6 +63,7 @@ try {
 
 const listJson = JSON.stringify(webhooks).replace(/</g, "\\u003c");
 const schemesJson = JSON.stringify(schemes).replace(/</g, "\\u003c");
+const verifySchemesJson = JSON.stringify(verifySchemes).replace(/</g, "\\u003c");
 const integrationNamesJson = JSON.stringify(integrationInfo).replace(/</g, "\\u003c");
 // The filter bar's choices (the page script reads the same selects back): From only offers the sections that exist.
 const fromChoices = fromOptions(webhooks, incomingWebhookAdapter(), integrationInfo);
@@ -72,6 +76,7 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
  <div class="iw-page" data-hook-base={hookBase}>
   <script type="application/json" id="iw-list-data" is:inline set:html={listJson}></script>
   <script type="application/json" id="iw-schemes-data" is:inline set:html={schemesJson}></script>
+  <script type="application/json" id="iw-verify-schemes-data" is:inline set:html={verifySchemesJson}></script>
   <script type="application/json" id="iw-integration-names" is:inline set:html={integrationNamesJson}></script>
   <script type="application/json" id="iw-can-manage" is:inline set:html={JSON.stringify(canManage)}></script>
   <div class="toolbar">
@@ -157,6 +162,11 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
   const INTEGRATIONS = JSON.parse($("iw-integration-names").textContent || "{}");
   const canManage = JSON.parse($("iw-can-manage").textContent || "false") === true;
   const schemes: any[] = JSON.parse($("iw-schemes-data").textContent || "[]");
+  const verifySchemes: any[] = JSON.parse($("iw-verify-schemes-data").textContent || "[]");
+  const verifyLabel = (name: string) => {
+    const found = verifySchemes.find((x) => x.name === name);
+    return found && found.source !== "core" ? `${name} (from ${found.source})` : name;
+  };
   // What the sender must do, in the selected scheme's own words (its notes), so the hint never
   // describes a different scheme than the one picked.
   // Whether the sender makes the key and shows it (Stripe, Slack, Square…): then there is nothing to generate,
@@ -245,6 +255,29 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
           <span class="hint">Shown once. Paste it into the sender's signing-key field now; Marvin keeps only the encrypted secret.</span>
         </div>
       </div>
+      <div class="signing-row">
+        <span class="hint">Verification: ${w.verificationScheme && w.verifyTokenRef
+          ? `${esc(verifyLabel(w.verificationScheme))} with secret <code>${esc(w.verifyTokenRef)}</code>`
+          : "off — a GET to this URL is refused"}</span>
+        <button class="button ghost sm" data-act="edit-verify">${w.verificationScheme ? "Change" : "Set up"}</button>
+      </div>
+      <div class="verify-edit" hidden>
+        <select class="input" data-verify-scheme title="How the sender checks the URL">
+          <option value="">Off</option>
+          ${verifySchemes.map((s) => `<option value="${esc(s.name)}" title="${esc(s.notes || "")}" ${w.verificationScheme === s.name ? "selected" : ""}>${esc(verifyLabel(s.name))}${s.notes ? ` — ${esc(s.notes)}` : ""}</option>`).join("")}
+        </select>
+        <input class="input" data-verify-ref placeholder="Secret slug, e.g. INBOX_VERIFY_TOKEN" value="${esc(w.verifyTokenRef || "")}" />
+        <textarea class="input mono" data-verify-config rows="4" spellcheck="false" ${w.verificationScheme === "custom" ? "" : "hidden"} placeholder='{"challenge_param": "challenge", "token_param": "verify_token"}'>${esc(w.verificationConfig ? JSON.stringify(w.verificationConfig, null, 2) : "")}</textarea>
+        <button class="button sm" data-act="save-verify">Save</button>
+        <button class="button ghost sm" data-act="gen-verify" title="Create a random phrase, store it as that secret, and show it once so you can paste it into the sender">Generate phrase</button>
+        <button class="button ghost sm" data-act="cancel-verify">Cancel</button>
+        <span class="hint">Some senders check the URL before they deliver anything: a GET carrying a challenge and the verify token you gave them. Pick how your sender does it (an installed integration offers its own, or describe it with custom), and name the secret holding that token: Marvin answers the check and records it as an <em>Incoming Webhook Verified</em> event. A GET never runs a delivery's workflows.</span>
+        <div class="signing-reveal" hidden>
+          <input class="input url" readonly data-verify-value />
+          <button class="button ghost sm" data-act="copy-verify">Copy</button>
+          <span class="hint">Shown once. Paste it into the sender's verify-token field now; Marvin keeps only the encrypted secret.</span>
+        </div>
+      </div>
       <div class="iw-meta">
         ${w.receivedCount
           ? `<button type="button" class="link-btn" data-act="deliveries" aria-expanded="false" title="What the last calls carried">${w.receivedCount} received ▾</button>`
@@ -313,9 +346,13 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
     } catch (e) { status.textContent = `Error: ${e?.message ?? e}`; }
   });
 
-  // Custom is the only scheme with settings of its own — show its JSON box only when it's picked.
+  // Custom is the only scheme (signing or verification) with settings of its own — show its JSON box only when it's picked.
   $("iw-list").addEventListener("change", (ev: Event) => {
     const sel = ev.target as HTMLElement;
+    if (sel.matches?.("[data-verify-scheme]")) {
+      sel.closest(".verify-edit")?.querySelector("[data-verify-config]")?.toggleAttribute("hidden", (sel as HTMLSelectElement).value !== "custom");
+      return;
+    }
     if (!sel.matches?.("[data-signing-scheme]")) return;
     const box = sel.closest(".signing-edit");
     const picked = (sel as HTMLSelectElement).value;
@@ -421,6 +458,51 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
         (reveal.querySelector("[data-signing-value]") as HTMLInputElement).value = value;
         reveal.removeAttribute("hidden");
         setStatus("");
+      } else if (act === "edit-verify" || act === "cancel-verify") {
+        btn.closest(".iw-card, .iw-item, [data-id]")?.querySelector(".verify-edit")?.toggleAttribute("hidden", act === "cancel-verify");
+      } else if (act === "save-verify") {
+        const box = btn.closest(".verify-edit");
+        const verificationScheme = (box.querySelector("[data-verify-scheme]") as HTMLSelectElement).value || null;
+        const verifyTokenRef = (box.querySelector("[data-verify-ref]") as HTMLInputElement).value.trim() || null;
+        let verificationConfig = null;
+        if (verificationScheme === "custom") {
+          try { verificationConfig = JSON.parse((box.querySelector("[data-verify-config]") as HTMLTextAreaElement).value || "{}"); }
+          catch { setStatus("Custom config must be valid JSON.", true); return; }
+        }
+        setStatus("Saving…");
+        upsert(await sdk().incomingWebhooks.update(id, { verificationScheme, verificationConfig, verifyTokenRef } as any));
+        setStatus("");
+      } else if (act === "gen-verify") {
+        const box = btn.closest(".verify-edit");
+        const refInput = box.querySelector("[data-verify-ref]") as HTMLInputElement;
+        const slug = (refInput.value.trim() || `${w.slug}_VERIFY_TOKEN`).toUpperCase().replace(/[^A-Z0-9_]+/g, "_");
+        const bytes = new Uint8Array(24); crypto.getRandomValues(bytes);
+        const value = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+        setStatus("Creating secret…");
+        try {
+          await sdk().secrets.create({ name: `${w.name} verify token`, slug, description: `Subscription check phrase for incoming webhook "${w.slug}"`, value });
+        } catch (err) {
+          if (!/already exists|409/.test(String((err as Error)?.message ?? err))) throw err;
+          if (!confirm(`A secret named ${slug} already exists. Replace its value with a new phrase? A sender using the old one fails its next check.`)) {
+            setStatus("");
+            return;
+          }
+          const existing = (await sdk().secrets.list()).find((x: any) => x.slug === slug);
+          if (!existing) throw err;
+          await sdk().secrets.update(existing.id, { value } as any);
+        }
+        const updated = await sdk().incomingWebhooks.update(id, { verifyTokenRef: slug } as any);
+        // Re-render would drop the one-time reveal, so patch the card in place instead.
+        webhooks = webhooks.map((x) => (x.id === id ? updated : x));
+        refInput.value = slug;
+        const reveal = box.querySelector(".signing-reveal") as HTMLElement;
+        (reveal.querySelector("[data-verify-value]") as HTMLInputElement).value = value;
+        reveal.removeAttribute("hidden");
+        setStatus("");
+      } else if (act === "copy-verify") {
+        const v = (btn.closest(".signing-reveal").querySelector("[data-verify-value]") as HTMLInputElement).value;
+        await navigator.clipboard.writeText(v);
+        setStatus("Phrase copied.");
       } else if (act === "copy-signing") {
         const v = (btn.closest(".signing-reveal").querySelector("[data-signing-value]") as HTMLInputElement).value;
         await navigator.clipboard.writeText(v);
@@ -535,8 +617,8 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
   .iw-page :global(.token-live .url) { flex: 1; min-width: 240px; font-family: var(--mono, monospace); font-size: 12px; }
   .iw-page :global(.token-none) { display: flex; gap: 10px; align-items: center; }
   .iw-page :global(.signing-row) { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 13px; }
-  .iw-page :global(.signing-edit) { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
-  .iw-page :global(.signing-edit .input) { flex: 1; min-width: 200px; }
+  .iw-page :global(:is(.signing-edit, .verify-edit)) { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+  .iw-page :global(:is(.signing-edit, .verify-edit) .input) { flex: 1; min-width: 200px; }
   .iw-page :global(.signing-reveal) { flex-basis: 100%; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .iw-page :global(.test-panel) { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
   .iw-page :global(.test-panel[hidden]) { display: none; }
@@ -562,6 +644,6 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
     .iw-page :global(.button.sm),
     .button.sm { min-height: 36px; }
     .iw-page :global(.token-live .url) { min-width: 0; flex-basis: 100%; }
-    .iw-page :global(.signing-edit .input) { min-width: 0; flex-basis: 100%; }
+    .iw-page :global(:is(.signing-edit, .verify-edit) .input) { min-width: 0; flex-basis: 100%; }
   }
 </style>

@@ -29,6 +29,11 @@ class IncomingWebhookCreate(_MarvinModel):
     signature_scheme: SignatureScheme | None = None
     signature_url: str | None = None
     signature_config: dict | None = None
+    # Answering a sender's verification request (a GET): an integration's scheme or `custom` (+ verification_config), and
+    # the workspace secret the sender's verify token must match.
+    verification_scheme: str | None = None
+    verification_config: dict | None = None
+    verify_token_ref: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -42,6 +47,11 @@ class IncomingWebhookUpdate(_MarvinModel):
     signature_scheme: SignatureScheme | None = None
     signature_url: str | None = None
     signature_config: dict | None = None
+    # Answering a sender's verification request (a GET): an integration's scheme or `custom` (+ verification_config), and
+    # the workspace secret the sender's verify token must match.
+    verification_scheme: str | None = None
+    verification_config: dict | None = None
+    verify_token_ref: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -59,6 +69,11 @@ class IncomingWebhookRead(_MarvinModel):
     signature_scheme: SignatureScheme | None = None
     signature_url: str | None = None
     signature_config: dict | None = None
+    verification_scheme: str | None = None
+    """How the sender's verification request (a GET) carries its challenge and token: an integration's scheme or `custom`."""
+    verification_config: dict | None = None
+    verify_token_ref: str | None = None
+    """The workspace secret the sender's verify token must match; with no scheme or secret, a GET is refused."""
     received_count: int = 0
     last_received_at: datetime | None = None
     source_integration_id: UUID4 | None = None

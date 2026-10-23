@@ -52,6 +52,14 @@ def _require_usable_scheme(scheme: str | None, config: dict | None) -> None:
     raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail)
 
 
+def _require_usable_verification(scheme: str | None, config: dict | None) -> None:
+    """Refuse a verification scheme nothing can answer with (services/webhooks/incoming_verification.py)."""
+    from marvin.services.webhooks.incoming_verification import usable
+
+    if problem := usable(scheme, config):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=problem)
+
+
 def _slugify(name: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
     return s or "webhook"
@@ -83,10 +91,20 @@ class IncomingWebhooksController(BaseUserController):
         _require_admin(self.user, self.group_id)
         return available_schemes()
 
+    @router.get("/verification-schemes", summary="Verification schemes a webhook can answer with")
+    def verification_schemes(self) -> list[dict]:
+        """Schemes contributed by installed integrations, then `custom`: how a sender's verification request (a GET)
+        carries its challenge and verify token."""
+        from marvin.services.webhooks.incoming_verification import available_schemes as verification_schemes
+
+        _require_admin(self.user, self.group_id)
+        return verification_schemes()
+
     @router.post("", response_model=IncomingWebhookRead, status_code=status.HTTP_201_CREATED, summary="Create Incoming Webhook")
     def create_webhook(self, data: IncomingWebhookCreate) -> IncomingWebhookRead:
         _require_admin(self.user, self.group_id)
         _require_usable_scheme(data.signature_scheme, data.signature_config)
+        _require_usable_verification(data.verification_scheme, data.verification_config)
         slug = data.slug or _slugify(data.name)
         if self.session.query(WorkspaceIncomingWebhookModel).filter_by(group_id=self.group_id, slug=slug).first():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Incoming webhook slug '{slug}' already exists.")
@@ -111,6 +129,10 @@ class IncomingWebhooksController(BaseUserController):
         changes = data.model_dump(exclude_unset=True)
         if "signature_scheme" in changes or "signature_config" in changes:
             _require_usable_scheme(changes.get("signature_scheme", row.signature_scheme), changes.get("signature_config", row.signature_config))
+        if "verification_scheme" in changes or "verification_config" in changes:
+            _require_usable_verification(
+                changes.get("verification_scheme", row.verification_scheme), changes.get("verification_config", row.verification_config)
+            )
         for field, value in changes.items():
             setattr(row, field, value)
         self.session.commit()

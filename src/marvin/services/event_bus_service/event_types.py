@@ -298,6 +298,9 @@ class EventTypes(EventTypeBase):
     """Event dispatched when an API client is enabled."""
     api_client_disabled = auto()
     """Event dispatched when an API client is disabled."""
+    incoming_webhook_verified = auto()
+    """A sender's verification request to an incoming webhook (a GET with a challenge and a matching verify token) was
+    answered. Separate from deliveries: a workflow on `incoming_webhook` never starts on one."""
     incoming_webhook = auto()
     """An external system POSTed to a tokened incoming-webhook URL. Carries the request payload so
     automations (and any other subscriber) can react — the ingress side of the webhook story."""

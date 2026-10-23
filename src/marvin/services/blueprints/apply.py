@@ -374,7 +374,10 @@ def _create(
         from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookModel
 
         # No token: minting one is what opens the endpoint, and that stays an admin's deliberate act.
-        allowed = ("name", "description", "signature_scheme", "signature_header", "signing_secret_ref", "signature_url", "signature_config")
+        allowed = (
+            "name", "description", "signature_scheme", "signature_header", "signing_secret_ref", "signature_url", "signature_config",
+            "verification_scheme", "verification_config", "verify_token_ref",
+        )  # fmt: skip
         session.add(
             WorkspaceIncomingWebhookModel(
                 session=session,
