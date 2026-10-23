@@ -151,6 +151,20 @@ def test_incoming_webhook_is_created_disabled_without_a_token(db_session, worksp
     assert hook.signature_scheme == "square" and hook.signing_secret_ref == "SHOP_SIGNATURE_KEY"
 
 
+def test_incoming_webhook_blueprint_carries_its_verification_settings(db_session, workspace):
+    meta = WEBHOOK.model_copy(
+        update={
+            "slug": "shop-hub",
+            "payload": {"name": "Shop hub", "verification_scheme": "meta", "verify_token_ref": "SHOP_VERIFY", "verification_config": None},
+        }
+    )
+
+    apply_blueprint(db_session, workspace.id, meta)
+
+    hook = db_session.query(WorkspaceIncomingWebhookModel).filter_by(group_id=workspace.id, slug="shop-hub").one()
+    assert (hook.verification_scheme, hook.verify_token_ref, hook.token) == ("meta", "SHOP_VERIFY", None)
+
+
 def test_incoming_webhook_blueprint_cannot_carry_a_token():
     with pytest.raises(ValueError, match="token"):
         Blueprint(kind="incoming_webhook", slug="x", name="X", payload={"token": "leaked"})
