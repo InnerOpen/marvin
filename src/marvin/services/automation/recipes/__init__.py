@@ -120,33 +120,10 @@ CAPABILITY_WORDS = {
 }
 
 
-# The names of the integrations recipes ask for, for when the plugin isn't installed here (so the Library still says
-# "a connection to Buttondown", not "buttondown"). An installed plugin's own name wins.
-PROVIDER_NAMES = {
-    "apprise": "Apprise",
-    "bluesky": "Bluesky",
-    "buttondown": "Buttondown",
-    "cloudflare_pages": "Cloudflare Pages",
-    "facebook": "Facebook",
-    "instagram": "Instagram",
-    "mastodon": "Mastodon",
-    "n8n": "n8n",
-    "openai_images": "OpenAI Images",
-    "slack": "Slack",
-    "square": "Square",
-}
-
-
-def _provider_name(slug: str) -> str:
-    """An integration's display name (Buttondown, n8n…): the installed plugin's, else a known one, else its slug in words."""
-    try:
-        from marvin_integration_sdk import INTEGRATION_REGISTRY
-
-        if name := getattr(INTEGRATION_REGISTRY.get(slug), "name", None):
-            return name
-    except Exception:  # noqa: BLE001 — a name is a nicety
-        pass
-    return PROVIDER_NAMES.get(slug) or slug.replace("_", " ").title()
+def _integration_name(need: dict) -> str:
+    """The integration a recipe needs, by its display name: the recipe's own data says it (`"name"` beside `"provider"`;
+    a plugin's recipes carry their plugin's name), else the slug in words. Core code names no integration."""
+    return need.get("name") or need["provider"].replace("_", " ").title()
 
 
 def missing_prerequisites(item: dict, refs: WorkspaceRefs) -> list[str]:
@@ -163,7 +140,7 @@ def missing_prerequisites(item: dict, refs: WorkspaceRefs) -> list[str]:
                 does = CAPABILITY_WORDS.get(need["capability"], need["capability"])
                 reasons.append(f"needs a connection that can {does} ({need.get('examples') or 'Slack or Apprise'})")
         elif need["provider"] not in connected:
-            reasons.append(f"needs a connection to {_provider_name(need['provider'])}")
+            reasons.append(f"needs a connection to {_integration_name(need)}")
     registered = {e["event_type"]: e["fields"] for e in refs.custom_events}
     for need in (item.get("prerequisites") or {}).get("custom_events") or []:
         # A workspace's own event the recipe starts on or sends: registered, with the fields the recipe reads.
@@ -303,7 +280,7 @@ def _plugin_entry(rid: str, recipe, provider) -> dict:
         "shape": "workflow",
         "runnable": True,
         "setup_variables": [{"name": name, **spec} for name, spec in recipe.variables.items()],
-        "prerequisites": {"integrations": [{"provider": provider.slug}]},
+        "prerequisites": {"integrations": [{"provider": provider.slug, "name": provider.name}]},
         "side_effects": [dict(e) for e in recipe.side_effects],
         "supporting_objects": [
             {"kind": "integration_connection", "name": provider.name, "required": True, "purpose": f"The {provider.name} connection it runs through."}

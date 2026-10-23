@@ -88,7 +88,7 @@ def test_valid_recipes_join_the_library_tagged_with_their_plugin_and_broken_ones
     assert (item["status"], item["category"], item["prerequisites"]) == (
         "supported-after-configuration",
         "Chatter",
-        {"integrations": [{"provider": "chatter"}]},
+        {"integrations": [{"provider": "chatter", "name": "Chatter"}]},
     )
     assert len(recipes.recipe_version(RECIPE)) == 16
 
