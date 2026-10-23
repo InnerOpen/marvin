@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.54 (2026-10-23)
+
+### Features
+
+- **social**: Social.inbox_items — a workflow step keeps a webhook delivery in the Social inbox;
+  Facebook's Page webhooks reach it too
+  ([`3f36102`](https://github.com/InnerOpen/marvin/commit/3f3610290b44f66db273a3847bbf1730c9832e4e))
+
+
 ## v1.1.0-rc.53 (2026-10-23)
 
 ### Features
