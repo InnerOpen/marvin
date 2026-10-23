@@ -450,11 +450,29 @@ class HealthCheckAccessFilter(logging.Filter):
         return True
 
 
+class HookAccessRedactFilter(logging.Filter):
+    """Keep incoming webhooks' credentials out of Uvicorn's access log.
+
+    `/api/hooks/<token>` carries the hook's token in its path (the URL is the credential), and a sender's verification
+    request carries its verify token in the query string. The access line keeps the method, status and that it was a
+    hook call; the token and the query string become ‹redacted›.
+    """
+
+    _PREFIX = "/api/hooks/"
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str) and args[2].startswith(self._PREFIX):
+            record.args = (*args[:2], f"{self._PREFIX}‹redacted›", *args[3:])
+        return True
+
+
 def _uvicorn_log_config() -> dict:
-    """Uvicorn's default logging config with a filter that silences health-probe access lines."""
+    """Uvicorn's default logging config, with filters that silence health-probe access lines and redact hook credentials."""
     config = copy.deepcopy(uvicorn.config.LOGGING_CONFIG)
     config.setdefault("filters", {})["health_probes"] = {"()": f"{__name__}.HealthCheckAccessFilter"}
-    config["handlers"]["access"].setdefault("filters", []).append("health_probes")
+    config["filters"]["hook_credentials"] = {"()": f"{__name__}.HookAccessRedactFilter"}
+    config["handlers"]["access"].setdefault("filters", []).extend(["health_probes", "hook_credentials"])
     return config
 
 

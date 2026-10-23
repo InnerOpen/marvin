@@ -377,6 +377,15 @@ def unattended_trash_issues(definition: dict | None) -> list[dict]:
     ]
 
 
+def _needs_an_entry(act: dict) -> bool:
+    """Whether the step acts on an existing entry. Creating one doesn't; nor does a custom AI step that reads only its
+    prompt (`see` set, without "item") — an incoming webhook's run can summarise its payload into a new entry."""
+    if act.get("kind") == "entry" and act.get("op") == "create":
+        return False
+    see = act.get("see")
+    return not (act.get("kind") == "operation" and act.get("op") == "custom" and isinstance(see, list) and "item" not in see)
+
+
 def _step_issues(act, i: int, where: str, ttype: str, has_entry: bool, subject: str = "entry") -> list[dict]:
     """Advisory issues for one step (of `actions` or `on_failure`)."""
     issues: list[dict] = []
@@ -389,7 +398,7 @@ def _step_issues(act, i: int, where: str, ttype: str, has_entry: bool, subject: 
     # (entity_slug — preferred, human-readable), by id (entity_id), or by a run-time lookup (entity_query,
     # entry actions).
     targets_own_entry = any(act.get(k) for k in ("entity_slug", "entity_id", "entity_query"))
-    if kind in ("operation", "entry") and not has_entry and subject == "entry" and not targets_own_entry:
+    if kind in ("operation", "entry") and not has_entry and subject == "entry" and not targets_own_entry and _needs_an_entry(act):
         what = act.get("op", kind)
         issues.append(
             _issue(
