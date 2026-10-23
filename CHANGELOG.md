@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.55 (2026-10-23)
+
+### Features
+
+- **social**: Auto-reply to DMs on every network (opt-in per rule); Mastodon and Bluesky DMs; the
+  inbox's Trash
+  ([`856d1d0`](https://github.com/InnerOpen/marvin/commit/856d1d08a5452be2bcb4ecc67b30eca19fb78437))
+
+- **workflows**: Conditions you can read — a labelled field picker, value choices, and the
+  conditions in words
+  ([`1eb3c58`](https://github.com/InnerOpen/marvin/commit/1eb3c581340593b7e4ab06873e98f44f276216f9))
+
+
 ## v1.1.0-rc.54 (2026-10-23)
 
 ### Features
