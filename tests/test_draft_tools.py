@@ -88,13 +88,22 @@ def test_update_draft_changes_only_what_it_is_given(db_session, bench):
     assert db_session.get(Entries, uuid.UUID(made["entryId"])).data_json == {"body": "old", "price": 450}
 
 
+def test_update_draft_reads_back_what_it_saved(db_session, bench):
+    """The answer keeps its keys and gains `saved`: the stored values (applied) or the proposed ones (staged)."""
+    _approval(db_session, bench, "allow-draft-update")
+    made = _invoke(db_session, bench, "create_draft", {"entry_type": "bench-note", "title": "T", "fields": {"body": "old", "price": 1}})
+    out = _invoke(db_session, bench, "update_draft", {"entry": made["entryId"], "title": "New title", "fields": {"price": 450}})
+    assert {"entryId", "outcome", "changed", "warnings", "editUrl", "reviewLink"} <= set(out)
+    assert out["saved"]["title"] == "New title" and out["saved"]["fields"] == {"price": 450} and out["saved"]["status"] == "inbox"
+
+
 def test_update_draft_follows_the_approval_policy_and_leaves_published_entries_alone(db_session, bench):
     from marvin.db.models.platform import Entries
 
     _approval(db_session, bench, "suggest-only")
     made = _invoke(db_session, bench, "create_draft", {"entry_type": "bench-note", "title": "T", "fields": {"body": "old"}})
     staged = _invoke(db_session, bench, "update_draft", {"entry": made["entryId"], "fields": {"body": "new"}})
-    assert staged["outcome"] == "staged"
+    assert staged["outcome"] == "staged" and staged["saved"] == {"fields": {"body": "new"}, "status": "proposed for review"}
     db_session.expire_all()
     entry = db_session.get(Entries, uuid.UUID(made["entryId"]))
     assert entry.data_json == {"body": "old"} and entry.suggestion_json["data_json.body"] == "new"

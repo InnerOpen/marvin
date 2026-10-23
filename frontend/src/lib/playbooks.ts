@@ -473,3 +473,20 @@ export function alsoGives(playbooks: { name: string }[] | null | undefined): { t
   if (!names.length) return null;
   return { text: `Also gives every workspace: ${names.join(", ")} (System ${names.length === 1 ? "Playbook" : "Playbooks"}, read-only)`, names };
 }
+
+
+/** The Done when heading an agent checks its work against (services/ai/work_check.py reads it). */
+export const DONE_WHEN_HEADING = "## Done when";
+const DONE_WHEN_RE = /^\s{0,3}#{1,6}\s*(done[\s-]*when|definition of done)\b/im;
+
+/** Whether the instructions already have a Done when section. */
+export function hasDoneWhen(body: string): boolean {
+  return DONE_WHEN_RE.test(body ?? "");
+}
+
+/** The instructions with a Done when section to fill in appended (unchanged when there already is one). */
+export function withDoneWhen(body: string): string {
+  if (hasDoneWhen(body)) return body;
+  const text = (body ?? "").replace(/\s+$/, "");
+  return `${text}${text ? "\n\n" : ""}${DONE_WHEN_HEADING}\n- \n`;
+}

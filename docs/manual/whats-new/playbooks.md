@@ -86,6 +86,26 @@ The built-in agents (`marvin`, `ask`, `builder`) see all published Playbooks and
 
 A workflow's [Run an agent](workflows.md#run-an-agent) step can name up to three published Playbooks (`playbooks`), system ones included, loaded in full for that run on top of the agent's always-load ones. Naming a [manual-only](#manual-only) Playbook there loads it: the step is the person choosing it. Marvin's own `compose_entry` and `revise_entry` don't load Playbooks, so the step's message should tell the agent to write the text itself and save it with `create_draft` or `update_draft`; otherwise the Playbook's voice rules are lost.
 
+### Done when: an agent checks its work
+
+A Playbook can end with a **Done when** section: a `## Done when` heading (also "Done-when" or "Definition of done") and a few
+short bullet points that can be checked, such as "the draft has a title, a body and at least one tag". The editor's **Add a Done
+when section** button appends one.
+
+An agent with **Check its work before finishing** on (Agents → Edit → Model and access; a workflow agent step has the same
+box) checks its work when it stops calling tools, before it answers:
+
+- Marvin looks for gaps itself, without asking the model: a tool whose last answer was an error, and a draft written in the
+  run that still can't be published (what blocks it is what `create_draft` / `update_draft` report as warnings).
+- Once, it asks the agent to go through the Done when items of the Playbooks in effect (always-load ones, ones the thread
+  remembers, ones loaded in the run), checking each with its tools or pointing to a result, and to end its answer with a
+  short "Checked:" list.
+
+Anything left goes back to the agent and it carries on, at most twice, and only while a step of its budget is left. Gaps
+still open when it answers are listed under the answer ("Still to do"). What was checked is stored with the run (AI
+Executions shows it under **Checked its work**; a workflow step's output has `check`). The switch is off by default, so
+nothing changes until you turn it on.
+
 ### Manual-only
 
 A Playbook marked **Manual only** is left out of every agent's catalog and loads only when the person names it in their latest message: its name appears as whole words, in any case, with hyphens, underscores or spaces between them (`Refund Policy` and `refund_policy` name `refund-policy`; `refund-policies` does not). The agent's own output and tool results never count. A workflow's [Run an agent](workflows.md#run-an-agent) step that names it in `playbooks` loads it too, and so does a person driving the tools directly (MarvinMCP, the remote MCP server, the invoke route): `list_playbooks` shows it there with `manualOnly: true` and `load_playbook` loads it by name. An agent's own run needs the message to name it. A run that stopped to ask your approval keeps the message that started it, so naming the Playbook still works after you approve.
@@ -181,7 +201,8 @@ The editor saves through the ordinary entries API (`/api/platform/entries`), so 
 
 ## Settings
 
-An agent's `playbooks` field (`{"names": [...] | null, "always": [...]}`) on the Agents API. Nothing else is configurable.
+An agent's `playbooks` field (`{"names": [...] | null, "always": [...]}`) and `checkWork` (true / false, default false) on the
+Agents API; a workflow agent step's `check_work`.
 
 ## Related
 

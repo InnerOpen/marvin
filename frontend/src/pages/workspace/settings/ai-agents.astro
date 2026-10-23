@@ -159,6 +159,11 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
             <span class="toggle-track"><span class="toggle-thumb"></span></span>
             <span class="toggle-text">Enabled</span>
           </label>
+          <label class="toggle-label" title="Before it answers, Marvin checks for failed tools and drafts that can't be published yet, and the agent goes through the Done when list of the Playbooks it follows.">
+            <input type="checkbox" id="n-check-work" name="checkWork" class="toggle-input" />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            <span class="toggle-text">Check its work before finishing</span>
+          </label>
         </div>
         <div class="form-field">
           <div class="section-title"><h4>Tools</h4><p>Each row inherits the group default (reads allow; with writes on, every write group asks first). Override per group or per tool. Ask first binds the tool but pauses the run for your approval on the Ask page; where there is no conversation to pause (bubble, MCP, hand-off children) it behaves like Block.</p></div>
@@ -682,6 +687,8 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
         minRole: Number(str("minRole") || 1),
         allowWrites: fd.get("allowWrites") === "on",
         enabled: fd.get("enabled") === "on",
+        // Sent only by forms that have the switch (a custom agent's New and Edit forms).
+        ...(form.querySelector('[name="checkWork"]') ? { checkWork: fd.get("checkWork") === "on" } : {}),
         toolPolicy: collectPolicy(matrix),
         // Only the Edit form has the Playbooks fields; the New form leaves them out (all published, none always).
         ...(form.querySelector('[name="playbooksMode"]') ? { playbooks: readPlaybooks(form) } : {}),
@@ -1019,6 +1026,7 @@ const mainName = builtins.find((a) => a.slug === "marvin")?.name ?? "Marvin";
           <div class="form-row toggles">
             <label class="toggle-label"><input type="checkbox" name="allowWrites" class="toggle-input"${agent.allowWrites ? " checked" : ""} /><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-text">Allow writes</span></label>
             <label class="toggle-label"><input type="checkbox" name="enabled" class="toggle-input"${agent.enabled ? " checked" : ""} /><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-text">Enabled</span></label>
+            <label class="toggle-label" title="Before it answers, Marvin checks for failed tools and drafts that can't be published yet, and the agent goes through the Done when list of the Playbooks it follows."><input type="checkbox" name="checkWork" class="toggle-input"${(agent as any).checkWork ? " checked" : ""} /><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-text">Check its work before finishing</span></label>
           </div>
           </details>
           <details class="e-sec"><summary><span class="e-sec-title">Playbooks</span><span class="e-sec-hint">Which procedures it can load</span></summary>

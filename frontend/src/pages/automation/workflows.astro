@@ -1444,6 +1444,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         <label class="tf"><span>Most tool calls <span class="muted">(1–${AGENT_MAX_STEPS}; default ${AGENT_DEFAULT_STEPS})</span></span>
           <input class="input a-ag-steps" type="number" min="1" max="${AGENT_MAX_STEPS}" value="${Number.isFinite(steps) ? steps : AGENT_DEFAULT_STEPS}" /></label>
         <label class="check small"><input type="checkbox" class="a-ag-entry" ${a.on_entry === false ? "" : "checked"} /> Tell it which entry this run is about</label>
+        <label class="check small" title="Before it answers, Marvin checks for failed tools and drafts that can't be published yet, and the agent goes through the Done when list of the Playbooks it follows."><input type="checkbox" class="a-ag-check" ${a.check_work === true ? "checked" : ""} /> Check its work before finishing</label>
         <span class="hint small">The agent works alone with its own permissions and Playbooks: only the tools set to Allow for it (Settings → AI → Agents) are offered, never Ask first ones. What it writes lands as drafts. Later steps read <code>\${steps.&lt;step id&gt;.output.answer}</code>, <code>.entries</code>, <code>.playbooks</code> and <code>.stopped</code>. Put a Wait for approval step after it to gate anything that goes public.</span>`;
       const pick = wrap.querySelector(".a-ag-agent") as HTMLSelectElement;
       const about = wrap.querySelector(".a-ag-about") as HTMLElement;
@@ -1780,6 +1781,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
           playbooks: [...r.querySelectorAll(".a-ag-pb:checked")].map((b) => (b as HTMLInputElement).value),
           maxSteps: field(".a-ag-steps")?.value ?? AGENT_DEFAULT_STEPS,
           onEntry: (field(".a-ag-entry") as HTMLInputElement | null)?.checked !== false,
+          checkWork: (field(".a-ag-check") as HTMLInputElement | null)?.checked ?? undefined,
         },
         step,
       );

@@ -102,7 +102,7 @@ def run_agent_step(session, group_id, action: dict, context: dict, *, user_id=No
         with reaction_depth_at_least(int(context.get("depth", 0)) + 1):
             run = run_unattended(
                 tool_ctx, spec, message, role=role, model=model, max_steps=int(action.get("max_steps") or 8),
-                trigger_type=AUTOMATION_SOURCE, playbooks=tuple(names), note=FRAMING,
+                trigger_type=AUTOMATION_SOURCE, playbooks=tuple(names), note=FRAMING, check_work=bool(action.get("check_work")),
             )  # fmt: skip
     except UnattendedRunError as e:
         raise AutomationActionError(str(e)) from e
@@ -116,6 +116,7 @@ def run_agent_step(session, group_id, action: dict, context: dict, *, user_id=No
         "tokens": run.total_tokens,
         "cost_usd": run.cost_usd,
         "steps": len(run.steps),
+        **({"check": run.check} if run.check else {}),
     }
 
 

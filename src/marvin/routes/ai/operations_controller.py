@@ -90,6 +90,8 @@ def _agent_columns(data, values: dict) -> dict:
         values["mood"] = data.mood.stored() if data.mood else None
     if "playbooks" in values:
         values["playbooks"] = data.playbooks.stored() if data.playbooks else None
+    if "check_work" in values:
+        values["check_work"] = bool(values["check_work"])  # absent or null = off (the column is not nullable)
     return values
 
 
@@ -1510,6 +1512,7 @@ class AIOperationsController(BaseUserController):
                 resume=ResumeState(convo=deserialize_messages(pending.get("convo")), pending=calls, decisions=own, outputs=outputs),
                 load_on_demand=self._tools_on_demand(spec.slug),
                 tool_limit=run_tool_limit(self.session, self.group_id, thread, getattr(ctx, "playbooks", None)),
+                **self._work_check(spec.slug, thread, ctx),
             )
         except HTTPException:
             raise
@@ -1850,6 +1853,7 @@ class AIOperationsController(BaseUserController):
             bubble_lines_source=spec.bubble_lines_source,
             mood=spec.mood,
             playbooks=spec.playbooks,
+            check_work=spec.check_work,
         )
 
     @staticmethod
@@ -1977,6 +1981,20 @@ class AIOperationsController(BaseUserController):
         group = self.session.query(Groups).filter(Groups.id == self.group_id).first()
         return getattr(group, "name", None)
 
+    def _work_check(self, agent_slug: str, thread, ctx) -> dict:
+        """`{"work_check": …}` for `run_agent_loop` when the run's agent has `check_work` on (services/ai/work_check.py),
+        else nothing at all — off, the call (and the run) is exactly what it was."""
+        from marvin.services.ai.work_check import for_run
+
+        try:
+            with self.session.no_autoflush:  # a lookup mid-run: don't flush what the run hasn't saved yet
+                spec = self._agent_or_404(agent_slug)
+        except HTTPException:
+            return {}
+        if not getattr(spec, "check_work", False):
+            return {}
+        return {"work_check": for_run(self.session, self.group_id, thread, getattr(ctx, "playbooks", None))}
+
     def _run_agent_core(
         self,
         *,
@@ -2103,6 +2121,7 @@ class AIOperationsController(BaseUserController):
                 on_event=on_event,
                 load_on_demand=self._tools_on_demand(agent_slug),
                 tool_limit=run_tool_limit(self.session, self.group_id, thread, getattr(ctx, "playbooks", None)),
+                **self._work_check(agent_slug, thread, ctx),
             )
         except HTTPException as e:
             self._finish_progress(run_id, "failed", self._http_error_text(e))
@@ -2249,6 +2268,8 @@ class AIOperationsController(BaseUserController):
         execution.output_json = (
             {"answer": result.answer, "steps": [{"tool": s.tool, "arguments": s.arguments} for s in steps]} if log_outputs else {"steps": len(steps)}
         )
+        if (check := getattr(result, "check", None)) is not None:
+            execution.output_json = {**execution.output_json, "check": check}
         execution.metadata_json = _with_run_trace(execution.metadata_json, steps)
         sources = extract_sources(steps)
         handoffs, child_referrals = extract_handoffs(steps)
@@ -2286,6 +2307,7 @@ class AIOperationsController(BaseUserController):
             "threadId": str(thread.id) if thread is not None else None,
             "totalTokens": execution.total_tokens,
             "estimatedCostUsd": execution.estimated_cost_usd,
+            **({"check": getattr(result, "check", None)} if getattr(result, "check", None) is not None else {}),
         }
 
     def _park_agent_run(

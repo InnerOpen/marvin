@@ -638,6 +638,7 @@ class AuthoringService:
         return {
             "entryId": str(entry.id),
             "outcome": outcome,  # "applied", or "staged" for review (the workspace's approval policy)
+            "saved": self._saved_state(entry.id, outcome, title, summary, new_fields),
             "changed": {
                 "fields": sorted(new_fields),
                 "title": bool(title),
@@ -649,6 +650,29 @@ class AuthoringService:
             "editUrl": entry_edit_url(entry.id),
             "reviewLink": entry_review_link(entry.id, "Review the entry"),
         }
+
+    def _saved_state(self, entry_id, outcome: str, title, summary, new_fields: dict) -> dict:
+        """What the change left behind, so an agent can see its write worked without another call: the entry's title,
+        summary, status and the changed fields' values as stored (applied), or the values proposed for review (staged).
+        Best-effort: a read that fails leaves the rest of the answer as it was."""
+        if outcome != "applied":
+            return {
+                **({"title": title} if title else {}),
+                **({"summary": summary} if summary is not None else {}),
+                "fields": dict(new_fields),
+                "status": "proposed for review",
+            }
+        try:
+            from marvin.db.models.platform.entries import Entries
+
+            orm = self.session.get(Entries, entry_id)
+            if orm is None:
+                return {}
+            self.session.refresh(orm)
+            data = orm.data_json or {}
+            return {"title": orm.title, "summary": orm.summary, "status": orm.status, "fields": {k: data.get(k) for k in new_fields}}
+        except Exception:  # noqa: BLE001 — a read-back is a nicety
+            return {}
 
     def _draft_warnings(self, entry_id, entry_type) -> list[str]:
         """What would still block publishing (required fields, assets, resources, tags). Best-effort."""

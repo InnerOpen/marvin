@@ -80,6 +80,10 @@ class AgentBase(_MarvinModel):
     # Bind non-read-only tools (authoring, links, AI ops, external MCP)? Off by default; the caller
     # still needs AUTHOR+ for them to actually bind.
     allow_writes: bool = False
+    # Check its work before it finishes: gaps Marvin sees and the Playbooks' "Done when" checklist go back to it
+    # (services/ai/work_check.py). Off by default; optional on the wire (absent or null = off), so clients that don't know it
+    # are unaffected.
+    check_work: bool | None = None
     # Permission matrix overrides keyed by category id or tool name.
     tool_policy: dict[str, PolicyValue] | None = None
     icon: str | None = Field(default=None, max_length=16)
@@ -135,6 +139,7 @@ class AgentUpdate(_MarvinModel):
     sources: list[str] | None = None
     enabled: bool | None = None
     allow_writes: bool | None = None
+    check_work: bool | None = None
     tool_policy: dict[str, PolicyValue] | None = None
     icon: str | None = Field(default=None, max_length=16)
     suggestions: list[str] | None = Field(default=None, max_length=8)

@@ -48,6 +48,8 @@ export interface AgentForm {
   playbooks: string[];
   maxSteps: string | number;
   onEntry: boolean;
+  /** Check its work before it finishes; absent (a form without the box) leaves the step as it was. */
+  checkWork?: boolean;
 }
 
 /** The step the form describes laid over the one it was opened with (null: not filled in enough to be one).
@@ -66,6 +68,8 @@ export function readAgentStep(form: AgentForm, original: Record<string, any> = {
   else step.max_steps = steps;
   if (form.onEntry) delete step.on_entry;
   else step.on_entry = false;
+  if (form.checkWork === true) step.check_work = true;
+  else if (form.checkWork === false) delete step.check_work;
   return step;
 }
 

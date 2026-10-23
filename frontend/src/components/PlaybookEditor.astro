@@ -57,6 +57,10 @@ const warning = lengthWarning(form.body);
     <textarea class="input pb-body" id="pb-body" name="body" rows="18" spellcheck="true">{form.body}</textarea>
     <div class="pb-preview" id="pb-preview" hidden></div>
     <span class="hint"><span id="pb-lines">0 lines</span>. Markdown. Aim for about {BODY_LINES_ADVISED} lines or fewer.</span>
+    <span class="hint pb-done-when">
+      End with a <strong>Done when</strong> list of short, checkable items: an agent set to check its work goes through it before it answers.
+      <button type="button" class="linkish" id="pb-add-done-when">Add a Done when section</button>
+    </span>
     <div class="pb-warning" id="pb-warning" role="status" hidden={!warning}>{warning}</div>
   </div>
 
@@ -105,6 +109,8 @@ const warning = lengthWarning(form.body);
   .pb-field .input { width: 100%; box-sizing: border-box; }
   .pb-body { font-family: ui-monospace, monospace; font-size: 13px; line-height: 1.5; resize: vertical; }
   .pb-body[hidden] { display: none; }
+  .pb-done-when { display: block; margin-top: 2px; }
+  .pb-done-when .linkish { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
   .pb-tabs { display: flex; gap: 4px; margin: 0 0 6px; }
   .pb-tab { background: none; border: 1px solid var(--line); border-radius: 6px; padding: 4px 12px; font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; min-height: 32px; }
   .pb-tab.active { background: var(--panel); color: var(--text); border-color: var(--accent, var(--line)); }
@@ -147,7 +153,7 @@ const warning = lengthWarning(form.body);
   import { describeSaveError } from "@/lib/saveError";
   import { renderPreviewInto } from "@/lib/mediaEmbedsBrowser";
   import { createPlaybook, ensurePlaybookType, exportPlaybook, trashPlaybook, updatePlaybook } from "@/lib/api/playbooks";
-  import { bodyLines, editorPath, entryPayload, isValid, lengthWarning, PLAYBOOKS_PATH, validate, type PlaybookForm } from "@/lib/playbooks";
+  import { bodyLines, editorPath, entryPayload, isValid, lengthWarning, PLAYBOOKS_PATH, validate, withDoneWhen, type PlaybookForm } from "@/lib/playbooks";
 
   const formEl = document.getElementById("playbook-form") as HTMLFormElement;
   const field = (name: string) => formEl.elements.namedItem(name) as HTMLInputElement | HTMLTextAreaElement;
@@ -155,6 +161,18 @@ const warning = lengthWarning(form.body);
   const linesEl = document.getElementById("pb-lines") as HTMLElement;
   const warnEl = document.getElementById("pb-warning") as HTMLElement;
   const id = formEl.dataset.id || "";
+
+  // Append a Done when section to fill in (nothing when there is one), then put the cursor on its first item.
+  document.getElementById("pb-add-done-when")?.addEventListener("click", () => {
+    const body = field("body") as HTMLTextAreaElement;
+    const next = withDoneWhen(body.value);
+    if (next !== body.value) {
+      body.value = next;
+      body.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    body.focus();
+    body.setSelectionRange(body.value.length - 1, body.value.length - 1);
+  });
 
   const say = (msg: string, kind: "" | "success" | "error" = "") => {
     statusEl.textContent = msg;

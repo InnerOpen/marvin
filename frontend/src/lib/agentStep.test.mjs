@@ -52,6 +52,13 @@ describe("reading the step back from its form", () => {
     assert.deepEqual(step.playbooks, ["a", "b", "c"]);
   });
 
+  test("check its work is saved only when ticked, and a form without the box leaves the step alone", () => {
+    assert.equal(readAgentStep(form({ checkWork: true })).check_work, true);
+    assert.equal("check_work" in readAgentStep(form({ checkWork: false }), { check_work: true }), false);
+    assert.equal(readAgentStep(form(), { check_work: true }).check_work, true);
+    assert.equal("check_work" in readAgentStep(form()), false);
+  });
+
   test("max steps is clamped to 1-15 and falls back to 8", () => {
     assert.equal(readAgentStep(form({ maxSteps: "40" })).max_steps, 15);
     assert.equal(readAgentStep(form({ maxSteps: 3 })).max_steps, 3);

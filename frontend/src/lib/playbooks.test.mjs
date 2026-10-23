@@ -7,36 +7,38 @@ import { describe, test } from "node:test";
 import {
   actionsFor,
   alsoGives,
+  bodyLines,
   copiedLabel,
+  editorPath,
+  EMPTY_FORM,
+  entryPayload,
+  exportFilename,
+  formFromEntry,
+  fromIntegration,
+  fromIntegrationId,
+  hasDoneWhen,
+  isValid,
+  lengthWarning,
+  listSummary,
+  NO_USES_NOTE,
   offNames,
+  originLabel,
   pickerGroups,
+  playbookRow,
+  sortedItems,
   sourceLine,
+  statusLabel,
+  statusTone,
   switchTitle,
   systemGroups,
   systemPath,
   systemRow,
   upstreamHint,
-  usedPlaybookHref,
-  bodyLines,
-  EMPTY_FORM,
-  editorPath,
-  entryPayload,
-  exportFilename,
-  formFromEntry,
-  isValid,
-  lengthWarning,
-  listSummary,
-  NO_USES_NOTE,
-  playbookRow,
-  originLabel,
-  fromIntegration,
-  fromIntegrationId,
-  sortedItems,
-  statusLabel,
-  statusTone,
-  useRow,
   usedLabel,
+  usedPlaybookHref,
+  useRow,
   validate,
+  withDoneWhen,
 } from "./playbooks.ts";
 
 const ok = { name: "release-notes", description: "How we write release notes.", compatibility: "" };
@@ -347,3 +349,15 @@ describe("system Playbooks", () => {
     assert.equal(alsoGives([{ name: "a" }, { name: "b" }]).text, "Also gives every workspace: a, b (System Playbooks, read-only)");
   });
 });
+
+describe("the Done when section", () => {
+  test("it is appended once, after the instructions", () => {
+    assert.equal(withDoneWhen("Write it.\n\n"), "Write it.\n\n## Done when\n- \n");
+    assert.equal(withDoneWhen(""), "## Done when\n- \n");
+    const has = "Write it.\n\n### Done-when\n- a title";
+    assert.equal(withDoneWhen(has), has);
+    assert.equal(hasDoneWhen("## Definition of done\n- x"), true);
+    assert.equal(hasDoneWhen("done when you like"), false);
+  });
+});
+

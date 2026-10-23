@@ -240,6 +240,7 @@ class UnattendedRun:
     cost_usd: float | None = None
     playbooks: list[dict] = field(default_factory=list)  # {id, name}: loaded in full up front, or by the agent with load_playbook
     entries: list[dict] = field(default_factory=list)  # {id, title, status, url, reviewLink}
+    check: dict | None = None  # with a work check: what it checked and what is still unmet (services/ai/work_check.py)
 
 
 def entries_touched(steps) -> list[dict]:
@@ -279,12 +280,14 @@ def run_unattended(
     trigger_type: str = "mcp",
     playbooks: tuple[str, ...] = (),
     note: str = "",
+    check_work: bool = False,
 ) -> UnattendedRun:
     """Run one agent on one message with nobody to answer back: only the tools its matrix allows (`standalone_tools`), each
     unattended, then record the AI execution. The runner behind MCP's `run_agent` and a workflow's agent step.
 
     `playbooks` are loaded in full for this run on top of the agent's always-load ones; `note` is a paragraph for the end of the
-    system prompt (a workflow's framing). Raises `UnattendedRunError` when the provider or a tool loop fails."""
+    system prompt (a workflow's framing). `check_work` (or the agent's own `check_work`) has it check its work before it finishes
+    (services/ai/work_check.py). Raises `UnattendedRunError` when the provider or a tool loop fails."""
     from marvin.core.config import get_app_settings
     from marvin.db.models.groups.ai_executions import AIExecutionModel
     from marvin.services.ai.agent import run_agent_loop
@@ -330,6 +333,7 @@ def run_unattended(
     ctx.session.commit()
     start = time.monotonic()
     stopped = "complete"
+    check = None
     try:
         if spec.kind == "model" or not tools:
             res = provider.complete(messages, model, opts)
@@ -337,9 +341,19 @@ def run_unattended(
             p_tok, c_tok, t_tok = getattr(res, "prompt_tokens", 0), getattr(res, "completion_tokens", 0), getattr(res, "total_tokens", 0)
             cached_tok, written_tok = getattr(res, "cached_prompt_tokens", 0) or 0, getattr(res, "cache_write_tokens", 0) or 0
         else:
+            from marvin.services.ai.work_check import for_run
+
             res = run_agent_loop(
-                provider, model, messages, tools, opts, max_steps=max_steps, tool_limit=run_tool_limit(ctx.session, ctx.group_id, None, scope)
+                provider,
+                model,
+                messages,
+                tools,
+                opts,
+                max_steps=max_steps,
+                tool_limit=run_tool_limit(ctx.session, ctx.group_id, None, scope),
+                **({"work_check": for_run(ctx.session, ctx.group_id, None, scope)} if (check_work or getattr(spec, "check_work", False)) else {}),
             )
+            check = getattr(res, "check", None)
             answer, steps, stopped = res.answer, list(res.steps), getattr(res, "stopped_reason", "complete")
             p_tok, c_tok, t_tok = res.prompt_tokens, res.completion_tokens, res.total_tokens
             cached_tok, written_tok = getattr(res, "cached_prompt_tokens", 0) or 0, getattr(res, "cache_write_tokens", 0) or 0
@@ -361,6 +375,8 @@ def run_unattended(
     execution.cached_prompt_tokens, execution.cache_write_tokens = cached_tok, written_tok
     execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, p_tok, c_tok, cached_tok, written_tok)
     execution.output_json = {"answer": answer, "steps": [{"tool": s.tool, "arguments": s.arguments} for s in steps]}
+    if check:
+        execution.output_json["check"] = check
     execution.metadata_json = {"tools": tool_names, **({USED_KEY: used} if used else {})}
     ctx.session.commit()
     return UnattendedRun(
@@ -372,6 +388,7 @@ def run_unattended(
         cost_usd=execution.estimated_cost_usd,
         playbooks=used,
         entries=entries_touched(steps),
+        check=check,
     )
 
 

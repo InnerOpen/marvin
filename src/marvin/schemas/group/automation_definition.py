@@ -360,6 +360,8 @@ class AgentAction(_StepBase):
     playbooks: list[str] = Field(default_factory=list, max_length=MAX_AGENT_PLAYBOOKS)
     max_steps: int = Field(default=AGENT_DEFAULT_STEPS, ge=1, le=AGENT_MAX_STEPS)
     on_entry: bool = True
+    # Check its work before it finishes (services/ai/work_check.py), even when the agent itself doesn't. Off by default.
+    check_work: bool = False
     id: str | None = None
 
     @field_validator("message")

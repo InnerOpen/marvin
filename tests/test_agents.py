@@ -772,3 +772,13 @@ def test_a_read_only_agent_is_told_how_to_hand_a_change_over_and_a_writing_one_i
     assert HANDOFF_WRITE_RULE in workspace_preamble("W", ["search_content", "suggest_agent"])
     assert HANDOFF_WRITE_RULE not in workspace_preamble("W", ["search_content", "suggest_agent", "attach_asset"])
     assert HANDOFF_WRITE_RULE not in workspace_preamble("W", ["search_content"])  # nobody to hand it to
+
+
+def test_check_work_is_off_unless_turned_on():
+    """An agent checks its work only when asked (services/ai/work_check.py): off on the wire, on a row without the column
+    set, and on every built-in."""
+    assert not AgentCreate.model_validate({"slug": "writer2", "name": "W"}).check_work
+    assert AgentCreate.model_validate({"slug": "writer2", "name": "W", "checkWork": True}).check_work is True
+    assert AgentUpdate.model_validate({}).model_dump(exclude_unset=True) == {}
+    assert spec_from_row(_row()).check_work is False and spec_from_row(_row(check_work=True)).check_work is True
+    assert not any(s.check_work for s in SYSTEM_AGENTS.values())

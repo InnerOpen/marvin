@@ -264,6 +264,7 @@ class AgentSpec:
     sources: tuple[str, ...] = INVOCATION_SOURCES
     enabled: bool = True
     allow_writes: bool = False  # bind non-read-only tools? (caller still needs AUTHOR+)
+    check_work: bool = False  # check its work before it finishes (services/ai/work_check.py)
     tool_policy: dict | None = None  # {category_id | tool_name: allow|block} overrides
     icon: str | None = None
     suggestions: tuple[str, ...] | None = None
@@ -388,6 +389,7 @@ def spec_from_row(row) -> AgentSpec:
         bubble_lines_source=getattr(row, "bubble_lines_source", None) or None,
         mood=getattr(row, "mood", None) or None,
         playbooks=getattr(row, "playbooks", None) or None,
+        check_work=bool(getattr(row, "check_work", False)),
     )
 
 

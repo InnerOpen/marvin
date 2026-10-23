@@ -16,6 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
 from marvin.services.ai.base import AIProvider, CompletionOptions, Message, ToolDefinition
+from marvin.services.ai.work_check import WorkCheck, with_unmet
 
 DEFAULT_MAX_STEPS = 6
 
@@ -119,6 +120,8 @@ class AgentResult:
     # Set when stopped_reason == "awaiting_approval": what is waiting, and the transcript to resume from.
     pending_calls: list[PendingCall] = field(default_factory=list)
     convo: list[Message] = field(default_factory=list)
+    # Set when the run had a work check (`run_agent_loop(work_check=…)`): what it checked and what is still unmet.
+    check: dict | None = None
 
 
 @dataclass
@@ -395,6 +398,26 @@ def _answer_of(completion, provider: AIProvider, convo: list[Message], model: st
     return EMPTY_ANSWER
 
 
+def _send_back(completion, convo, has_tools: bool, state: dict, work_check: WorkCheck | None, steps_left: int) -> str | None:
+    """When the model stops calling tools: the message that sends it back to work (a stall it announced but didn't do —
+    once; then the work check, while a step is left), or None to let it answer."""
+    if has_tools and not state["nudged"] and looks_like_deferral(completion.content):
+        state["nudged"] = True
+        return NUDGE
+    if work_check is not None and steps_left > 0:
+        return work_check.follow_up(convo)
+    return None
+
+
+def _finished(result: AgentResult, answer: str, work_check: WorkCheck | None, convo) -> AgentResult:
+    """Close a run with its answer; with a work check, record what it checked and list what is still unmet."""
+    result.answer = answer
+    if work_check is not None:
+        result.check = work_check.summary(convo)
+        result.answer = with_unmet(result.answer, result.check)
+    return result
+
+
 def run_agent_loop(
     provider: AIProvider,
     model: str,
@@ -406,6 +429,7 @@ def run_agent_loop(
     resume: ResumeState | None = None,
     load_on_demand: bool = False,
     tool_limit: Callable[[list[Message], set[str]], Callable[[str], str | None] | None] | None = None,
+    work_check: WorkCheck | None = None,
 ) -> AgentResult:
     """Drive the tool-calling loop and return the final answer plus the tool-call trace.
 
@@ -430,6 +454,11 @@ def run_agent_loop(
     model call and each tool call with the transcript so far and the names of every tool the run has, and returns None
     (no limit) or a function from a tool name to a refusal (a JSON string the model gets instead of the tool's result)
     or None when the tool may run. It only removes: a tool the run was not bound to stays unknown.
+
+    `work_check` (optional, off by default) checks the run's work when the model stops calling tools: gaps Marvin sees
+    in the transcript and the "Done when" checklist of the Playbooks in effect go back to the model, and the loop carries
+    on — at most `MAX_GATE_ROUNDS` times, and only while a step is left (services/ai/work_check.py). The result's `check`
+    records what was checked and what is unmet; unmet gaps are listed under the answer. Without it, nothing changes.
     """
     # load_on_demand: start with CORE_CATEGORIES and let the model load the rest (split_on_demand, `load_tools`).
     loaded, on_demand = split_on_demand(tools) if load_on_demand else (tools, None)
@@ -437,7 +466,7 @@ def run_agent_loop(
     tools, tool_defs, by_name, ensure_loaded = toolset.tools, toolset.defs, toolset.by_name, toolset.ensure_loaded
     result = AgentResult(answer="")
     convo: list[Message] = list(resume.convo) if resume is not None else list(messages)
-    nudged = False
+    stop_state = {"nudged": False}
 
     def account(completion) -> None:
         result.prompt_tokens += completion.prompt_tokens or 0
@@ -514,13 +543,11 @@ def run_agent_loop(
         account(completion)
 
         if not completion.tool_calls:
-            if tools and not nudged and looks_like_deferral(completion.content):
-                nudged = True
+            if (sent_back := _send_back(completion, convo, bool(tools), stop_state, work_check, max_steps - 1 - _step)) is not None:
                 convo.append(Message(role="assistant", content=completion.content or ""))
-                convo.append(Message(role="user", content=NUDGE))
+                convo.append(Message(role="user", content=sent_back))
                 continue
-            result.answer = _answer_of(completion, provider, convo, model, tool_defs, options, account)
-            return result
+            return _finished(result, _answer_of(completion, provider, convo, model, tool_defs, options, account), work_check, convo)
 
         convo.append(Message(role="assistant", content=completion.content or "", tool_calls=completion.tool_calls))
         pending: list[PendingCall] = []
@@ -544,6 +571,5 @@ def run_agent_loop(
     _notify(on_event, {"type": "thinking"})
     final = provider.complete_with_tools(convo, model, tool_defs, options, tool_choice="none")
     account(final)
-    result.answer = _answer_of(final, provider, convo, model, tool_defs, options, account)
     result.stopped_reason = "max_steps"
-    return result
+    return _finished(result, _answer_of(final, provider, convo, model, tool_defs, options, account), work_check, convo)
