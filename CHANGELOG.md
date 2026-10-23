@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.53 (2026-10-23)
+
+### Features
+
+- **social**: What a network pushes reaches the Social inbox — messages, story replies and mentions,
+  reactions, live comments
+  ([`e470d67`](https://github.com/InnerOpen/marvin/commit/e470d678e4d10dbaf54f8243a4ac6a2d610cf031))
+
+
 ## v1.1.0-rc.52 (2026-10-23)
 
 ### Bug Fixes
