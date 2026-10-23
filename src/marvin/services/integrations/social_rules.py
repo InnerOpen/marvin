@@ -50,6 +50,8 @@ RULE_KINDS = (*ITEM_KINDS, KIND_MESSAGE, KIND_STORY_REPLY, KIND_STORY_MENTION)
 and story mentions, answered by a direct message back. Never by default (``DEFAULT_KINDS``)."""
 """Everything the Social inbox keeps: the poll's kinds, and what a network pushes by webhook (integration SDK INBOX_KINDS)."""
 DEFAULT_KINDS = frozenset({KIND_COMMENT, KIND_REPLY})
+DEFAULT_COOLDOWN_HOURS = 24.0
+MAX_COOLDOWN_HOURS = 24 * 30
 
 REASON_ALREADY_REPLIED = "already_replied"
 REASON_TOO_OLD = "too_old"
@@ -75,6 +77,10 @@ class SocialRule:
     """Which item kinds the rule answers (comment, reply, mention; message, story_reply, story_mention by a direct message)."""
     published: bool = True
     """False for a draft: never fires. The engine only loads published entries, and re-checks this before it sends."""
+    cooldown_hours: float = DEFAULT_COOLDOWN_HOURS
+    """Direct messages: after a person is answered (by any rule or a person), no rule answers them again for this long. 0: none."""
+    since: datetime | None = field(default=None, compare=False)
+    """When the rule was published: it answers only direct messages written after it (a new rule never replies to old chats)."""
     order: int = field(default=0, compare=False)
 
 
@@ -86,7 +92,16 @@ def _words(value) -> list[str]:
     return [str(i).strip() for i in items if str(i).strip()]
 
 
-def rule_from_data(data: dict, *, id: str, published: bool = True, order: int = 0) -> SocialRule | None:
+def _cooldown(value) -> float:
+    """A rule's cool-down in hours: a number from 0 (none) to MAX_COOLDOWN_HOURS; the default when unset or unreadable."""
+    try:
+        hours = float(value)
+    except (TypeError, ValueError):
+        return DEFAULT_COOLDOWN_HOURS
+    return min(max(hours, 0.0), MAX_COOLDOWN_HOURS)
+
+
+def rule_from_data(data: dict, *, id: str, published: bool = True, order: int = 0, since: datetime | None = None) -> SocialRule | None:
     """A rule from a ``social-auto-reply`` entry's data. None when it has no usable keywords or reply."""
     if not isinstance(data, dict):
         return None
@@ -112,6 +127,8 @@ def rule_from_data(data: dict, *, id: str, published: bool = True, order: int = 
         also_like=also_like,
         kinds=kinds,
         published=published,
+        cooldown_hours=_cooldown(data.get("cooldown_hours")) if data.get("cooldown_hours") not in (None, "") else DEFAULT_COOLDOWN_HOURS,
+        since=since,
         order=order,
     )
 
@@ -163,8 +180,13 @@ def covers(rule: SocialRule, item: dict, names: set[str]) -> bool:
     ``network``, lowercased), kind and post."""
     if rule.networks and not (rule.networks & names):
         return False
-    if str(item.get("kind") or KIND_COMMENT).lower() not in rule.kinds:
+    kind = str(item.get("kind") or KIND_COMMENT).lower()
+    if kind not in rule.kinds:
         return False
+    if kind in DIRECT_KINDS and rule.since is not None:  # a new rule never answers a chat that was there before it
+        written = parse_time(item.get("created_at"))
+        if written is None or written < rule.since:
+            return False
     return not rule.post or _same_post(rule.post, item)
 
 

@@ -305,7 +305,8 @@ def load_rules(session, group_id) -> list[SocialRule]:
     """The published ``social-auto-reply`` rules, oldest first. Drafts never fire."""
     rules = []
     for entry in _rule_entries(session, group_id):
-        rule = rule_from_data(entry.data_json or {}, id=entry.slug, order=len(rules))
+        published = entry.published_at.replace(tzinfo=UTC) if entry.published_at and entry.published_at.tzinfo is None else entry.published_at
+        rule = rule_from_data(entry.data_json or {}, id=entry.slug, order=len(rules), since=published)
         if rule is not None:
             rules.append(rule)
     return rules
@@ -413,6 +414,10 @@ def _reply(run: _Run, net: _Network, row, state: dict, cache: dict, *, rehearsal
     fresh = {str(i["id"]) for i in items}
     candidates = [p["item"] for p in pending if str(p["item"]["id"]) not in fresh] + items
     candidates += _inbox_direct(run, row, {str(c["id"]) for c in candidates})
+    # A person's newest direct message first: it is the one answered, and their earlier ones are covered by that reply.
+    direct = sorted((c for c in candidates if str(c.get("kind") or "") in DIRECT_KINDS), key=lambda c: str(c.get("created_at") or ""), reverse=True)
+    candidates = [c for c in candidates if str(c.get("kind") or "") not in DIRECT_KINDS] + direct
+    people: set[str] = set()  # the people answered by direct message in this run
     report.checked += len(items)
 
     handles, ids = own_identities(row.config)
@@ -432,12 +437,16 @@ def _reply(run: _Run, net: _Network, row, state: dict, cache: dict, *, rehearsal
             report.skipped[REASON_TOO_OLD] += 1
         elif (hit := match_item(item, run.rules, names | {str(item.get("network") or "").lower()})) is None:
             report.skipped[REASON_NO_MATCH] += 1
+        elif str(item.get("kind") or "") in DIRECT_KINDS and _held_by_cooldown(run, row, item, hit[0], people, rehearsal):
+            report.skipped["cooldown"] += 1
         else:
             report.matched += 1
             if run.budget <= 0:
                 keep.append({"item": item, "attempts": attempts.get(cid, 0)})  # the cap held it back: next run
                 continue
             run.budget -= 1
+            if str(item.get("kind") or "") in DIRECT_KINDS:
+                people.add(_person_key(item))  # one direct reply per person per run: the newest message's
             if _answer(run, net, row, item, *hit, rehearsal=rehearsal):
                 tries = attempts.get(cid, 0) + 1
                 if tries < MAX_ATTEMPTS:
@@ -549,6 +558,23 @@ def _inbox_direct(run: _Run, row, have: set[str]) -> list[dict]:
     return [i for i in social_inbox.unanswered_direct(run.session, row, kinds, since=since) if i["id"] not in have]
 
 
+def _person_key(item: dict) -> str:
+    author = item.get("author") if isinstance(item.get("author"), dict) else {}
+    return str(author.get("id") or "") or f"@{author.get('handle') or ''}"
+
+
+def _held_by_cooldown(run: _Run, row, item: dict, rule: SocialRule, people: set[str], rehearsal: bool) -> bool:
+    """Whether a direct message waits: its author was answered in this run (their newer message), or by direct message within
+    the rule's cool-down (by any rule or a person)."""
+    if _person_key(item) in people:
+        return True
+    if rule.cooldown_hours <= 0:
+        return False
+    author = item.get("author") if isinstance(item.get("author"), dict) else {}
+    since = run.now - timedelta(hours=rule.cooldown_hours)
+    return social_inbox.answered_recently(run.session, row, author, since, rehearsal_counts=rehearsal)
+
+
 def _answer_direct(run: _Run, net: _Network, row, item: dict, rule: SocialRule, *, rehearsal: bool) -> bool:
     """Answer a direct message (a message, a story reply or mention) with a direct message to its author — the rule's reply, in the
     network's mode (a dry run when it is rehearsing). Networks allow it only for a while after the person's last message: a refusal
@@ -565,10 +591,13 @@ def _answer_direct(run: _Run, net: _Network, row, item: dict, rule: SocialRule, 
         return _failed(report, row, item, [(True, e)], rehearsal)
     if not rehearsal and out.get("sent") is False:
         return _failed(report, row, item, [(True, EngineCallError(f"{row.slug}: the network did not send the message"))], rehearsal)
+    when = datetime.now(UTC)
     social_inbox.record_reply(
-        run.session, row, item, mode="message", rehearsal=rehearsal, reply_id=out.get("message_id"), text=rule.reply, rule=rule.id,
-        when=datetime.now(UTC),
+        run.session, row, item, mode="message", rehearsal=rehearsal, reply_id=out.get("message_id"), text=rule.reply, rule=rule.id, when=when,
     )  # fmt: skip
+    if not rehearsal:  # their earlier unanswered messages are answered by this one
+        written = parse_time(item.get("created_at")) or when
+        social_inbox.cover_earlier_direct(run.session, row, author, written, reply_id=out.get("message_id"), rule=rule.id, when=when)
     if rehearsal:
         report.rehearsed += 1
     else:

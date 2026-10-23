@@ -260,6 +260,17 @@ def test_a_poll_keeps_a_direct_message_announces_no_comment_for_it_and_no_rule_a
     assert [a["comment_id"] for a in net.sent("reply")] == ["c1"]  # the rule answered the comment, never the message
 
 
+def _dm_rule(ws, slug="r1", *, published=None, **data):
+    """A published rule (its publish time a day before the engine's clock unless given): a rule answers only the direct messages
+    written after it was published."""
+    from marvin.db.models.platform.entries import Entries
+
+    se.rule(ws, slug, **data)
+    entry = ws.session.query(Entries).filter_by(group_id=ws.gid, slug=slug).one()
+    entry.published_at = (published or se.NOW - timedelta(days=1)).replace(tzinfo=None)
+    ws.session.commit()
+
+
 # ── auto-reply to direct messages: only a rule that names them, answered by a message ────────────────────────────
 
 
@@ -271,7 +282,7 @@ def _run(ws, now):
 
 def test_a_rule_that_names_messages_answers_a_polled_dm_with_a_message(ws):
     net = _declares_messages(ws)
-    se.rule(ws, keywords="price", kinds="comment, reply, message")
+    _dm_rule(ws, keywords="price", kinds="comment, reply, message")
     net.feed = [se.item("dm1", "What is the price?", kind="message", network="mastodon", handle="ada")]
 
     _run(ws, se.NOW)
@@ -287,7 +298,7 @@ def test_a_rule_that_names_messages_answers_a_polled_dm_with_a_message(ws):
 
 
 def test_a_rule_answers_a_dm_a_webhook_brought(ws):
-    se.rule(ws, keywords="price", kinds="message")
+    _dm_rule(ws, keywords="price", kinds="message")
     _parser(ws, [_dm(text="Love it, what's the price?", sender="u-bea", when=se.NOW - timedelta(hours=1))])
     social_inbox.keep_webhook_items(ws.session, _ig(ws).id, ws.gid, PAYLOAD, now=se.NOW)
 
@@ -299,7 +310,7 @@ def test_a_rule_answers_a_dm_a_webhook_brought(ws):
 
 def test_rehearsal_records_the_dm_answer_but_sends_nothing(ws):
     net = _declares_messages(ws)
-    se.rule(ws, keywords="price", kinds="message")
+    _dm_rule(ws, keywords="price", kinds="message")
     se.mode(ws, "rehearsal", "m-main")
     net.feed = [se.item("dm1", "price?", kind="message", network="mastodon")]
 
@@ -368,3 +379,73 @@ def test_a_poll_never_brings_a_trashed_comment_back(ws):
 
     inbox, _ = social_inbox.query(ws.session, ws.gid)
     assert "c1" not in [r.item_id for r in inbox]
+
+
+# ── the cut-off and the cool-down ─────────────────────────────────────────────────────────────────────────────────
+
+
+def _webhook_dms(ws, *dms):
+    _parser(ws, list(dms))
+    social_inbox.keep_webhook_items(ws.session, _ig(ws).id, ws.gid, PAYLOAD, now=se.NOW)
+
+
+def test_a_new_rule_never_answers_a_dm_written_before_it_was_published(ws):
+    _dm_rule(ws, keywords="price", kinds="message", published=se.NOW - timedelta(minutes=30))
+    _webhook_dms(
+        ws, _dm("old", text="price?", when=se.NOW - timedelta(hours=2)), _dm("new", text="price?", sender="u-bea", when=se.NOW - timedelta(minutes=5))
+    )
+
+    _run(ws, se.NOW)
+
+    assert [m["to"] for m in ws.nets["instagram"].sent("message")] == [{"id": "u-bea"}]
+
+
+def test_only_a_persons_newest_dm_is_answered_and_their_earlier_ones_are_covered(ws):
+    _dm_rule(ws, keywords="price", kinds="message")
+    _webhook_dms(
+        ws,
+        _dm("m1", text="whats the price", when=se.NOW - timedelta(minutes=9)),
+        _dm("m2", text="Whats the price", when=se.NOW - timedelta(minutes=2)),
+    )
+
+    _run(ws, se.NOW)
+
+    assert len(ws.nets["instagram"].sent("message")) == 1
+    rows = {r.item_id: r for r in _rows(ws)}
+    assert rows["m2"].reply_note is None and rows["m2"].status == "replied"
+    assert rows["m1"].status == "replied" and "newer message" in rows["m1"].reply_note
+    _run(ws, se.NOW + timedelta(minutes=5))
+    assert len(ws.nets["instagram"].sent("message")) == 1  # nothing left for a rule to answer
+
+
+def test_the_cool_down_holds_a_persons_next_dm_and_zero_turns_it_off(ws):
+    _dm_rule(ws, keywords="price", kinds="message", cooldown_hours=24)
+    _webhook_dms(ws, _dm("m1", text="price?", when=se.NOW - timedelta(minutes=30)))
+    _run(ws, se.NOW)
+    _webhook_dms(ws, _dm("m2", text="and the price in blue?", when=se.NOW + timedelta(minutes=10)))
+
+    _run(ws, se.NOW + timedelta(minutes=15))
+    assert len(ws.nets["instagram"].sent("message")) == 1  # held: answered 15 minutes ago
+
+    from marvin.db.models.platform.entries import Entries
+
+    entry = ws.session.query(Entries).filter_by(group_id=ws.gid, slug="r1").one()
+    entry.data_json = {**entry.data_json, "cooldown_hours": 0}
+    ws.session.commit()
+    _run(ws, se.NOW + timedelta(minutes=20))
+    assert len(ws.nets["instagram"].sent("message")) == 2
+
+
+def test_an_existing_rule_type_gains_the_cool_down_field(ws):
+    from marvin.db.models.platform.entry_types import EntryTypes
+    from marvin.services.integrations.social_setup import ensure_rule_type
+
+    rule_type = ws.session.query(EntryTypes).filter_by(group_id=ws.gid, slug="social-auto-reply").one()
+    rule_type.schema_json = {"fields": [f for f in rule_type.schema_json["fields"] if f["key"] != "cooldown_hours"]}
+    ws.session.commit()
+
+    ensure_rule_type(ws.session, ws.gid)
+
+    ws.session.refresh(rule_type)
+    keys = [f["key"] for f in rule_type.schema_json["fields"]]
+    assert keys[-1] == "cooldown_hours" and keys.count("cooldown_hours") == 1

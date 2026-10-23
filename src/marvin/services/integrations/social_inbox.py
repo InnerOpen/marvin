@@ -275,6 +275,50 @@ def unanswered_direct(session, row, kinds, *, since: datetime) -> list[dict]:
     ]  # fmt: skip
 
 
+def _same_person(author: dict):
+    """The rows written by this author (by id, else by handle); None when the item names nobody."""
+    author_id, handle = str(author.get("id") or ""), str(author.get("handle") or "")
+    if author_id:
+        return Item.author_id == author_id
+    return Item.author_handle == handle if handle else None
+
+
+def answered_recently(session, row, author: dict, since: datetime, *, rehearsal_counts: bool = False) -> bool:
+    """Whether this person had a direct message answered on this integration since ``since`` — by a rule or a person (a
+    rehearsal counts only in rehearsal). The cool-down a rule waits before it answers them again."""
+    person = _same_person(author)
+    if person is None:
+        return False
+    from .social_rules import DIRECT_KINDS
+
+    q = session.query(Item.id).filter(Item.integration_id == row.id, Item.kind.in_(list(DIRECT_KINDS)), person, Item.replied_at >= since)
+    if not rehearsal_counts:
+        q = q.filter(Item.reply_rehearsal.is_(False))
+    return q.first() is not None
+
+
+def cover_earlier_direct(session, row, author: dict, before: datetime, *, reply_id, rule: str | None, when: datetime) -> int:
+    """This person's earlier unanswered direct messages, recorded as answered by the reply to their newer one (so a rule never
+    answers them later, one by one). Returns how many."""
+    person = _same_person(author)
+    if person is None:
+        return 0
+    from .social_rules import DIRECT_KINDS
+
+    rows = (
+        session.query(Item)
+        .filter(Item.integration_id == row.id, Item.kind.in_(list(DIRECT_KINDS)), person, Item.replied_at.is_(None), Item.posted_at < before)
+        .all()
+    )
+    for r in rows:
+        r.reply_mode, r.reply_rehearsal, r.reply_id, r.reply_rule = "message", False, reply_id, rule
+        r.reply_note, r.replied_at = "Answered with the reply to their newer message", when
+        r.status = next_status(r.status, EVENT_REPLIED)
+    if rows:
+        session.commit()
+    return len(rows)
+
+
 def trashed_ids(session, row, ids: list[str]) -> set[str]:
     """Which of these item ids a person moved to the Trash — a rule leaves them alone."""
     found: set[str] = set()

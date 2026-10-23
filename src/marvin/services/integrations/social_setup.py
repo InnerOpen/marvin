@@ -88,6 +88,16 @@ _RULE_FIELDS = [
             "(story_reply, story_mention) to answer direct messages — by a direct message back."
         ),
     },
+    {
+        "key": "cooldown_hours",
+        "label": "Cool-down for direct messages (hours)",
+        "type": "number",
+        "defaultValue": 24,
+        "helpText": (
+            "After someone is answered by direct message, no rule answers them again for this long; only their newest message is "
+            "answered. 0 turns it off. A rule answers only messages sent after it was published."
+        ),
+    },
 ]
 
 RULE_TYPE_PAYLOAD = {
@@ -188,14 +198,26 @@ def ensure_rule_type(session, group_id):
     """The workspace's ``social-auto-reply`` entry type, created when it is missing (committed). Returns its id."""
     from marvin.db.models.platform.entry_types import EntryTypes
 
-    found = session.query(EntryTypes.id).filter_by(group_id=group_id, slug=RULE_TYPE).scalar()
+    found = session.query(EntryTypes).filter_by(group_id=group_id, slug=RULE_TYPE).first()
     if found is not None:
-        return found
+        _add_missing_fields(session, found)
+        return found.id
     created = EntryTypes(session=session, group_id=group_id, slug=RULE_TYPE, **RULE_TYPE_PAYLOAD)
     session.add(created)
     session.commit()
     logger.info("social: created the %s entry type for workspace %s", RULE_TYPE, group_id)
     return created.id
+
+
+def _add_missing_fields(session, entry_type) -> None:
+    """A rule type made before a field existed (the cool-down) gains it, after the fields it has; nothing it has changes."""
+    schema = dict(entry_type.schema_json or {})
+    fields = list(schema.get("fields") or [])
+    have = {f.get("key") for f in fields if isinstance(f, dict)}
+    missing = [f for f in _RULE_FIELDS if f["key"] not in have]
+    if missing:
+        entry_type.schema_json = {**schema, "fields": fields + [dict(f) for f in missing]}
+        session.commit()
 
 
 def engine_task(session, group_id):
