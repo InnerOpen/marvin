@@ -15,8 +15,9 @@ Beyond Instagram's, a rule says which networks it covers (``networks``: empty is
 a rule made from a network's page holds — or network names such as ``instagram``), how to answer (``reply_as``: private,
 public or both), whether to like the comment too (``also_like``) and which kinds of item it answers (``kinds``, default
 "comment, reply": answers on your own posts). A ``mention`` — someone tagging the account elsewhere — is answered only by a
-rule that lists it, so a keyword rule never replies to strangers unasked. (Networks differ: Instagram yields comment and
-reply, Mastodon reply and mention — never "comment".)
+rule that lists it, so a keyword rule never replies to strangers unasked; so is a direct message (``message``, ``story_reply``,
+``story_mention``), answered by a direct message to its author, never by a comment reply. (Networks differ: Instagram yields
+comment and reply, Mastodon reply and mention — never "comment".)
 
 A rule's source is the shared ``social-auto-reply`` entry. (Instagram's old ``ig-auto-reply`` entries are no longer read: the
 plugin stopped shipping them and a migration removed the leftovers.)
@@ -44,6 +45,9 @@ KIND_MESSAGE, KIND_STORY_REPLY, KIND_STORY_MENTION, KIND_REACTION, KIND_LIVE_COM
 DIRECT_KINDS = (KIND_MESSAGE, KIND_STORY_REPLY, KIND_STORY_MENTION, KIND_REACTION)
 """Items that arrive in the account's direct messages: answered by a message to their author, never by a comment reply."""
 INBOX_KINDS = (*ITEM_KINDS, *DIRECT_KINDS, KIND_LIVE_COMMENT)
+RULE_KINDS = (*ITEM_KINDS, KIND_MESSAGE, KIND_STORY_REPLY, KIND_STORY_MENTION)
+"""What a rule may answer (its ``kinds``): the poll's comment kinds, and — when a rule names them — direct messages, story replies
+and story mentions, answered by a direct message back. Never by default (``DEFAULT_KINDS``)."""
 """Everything the Social inbox keeps: the poll's kinds, and what a network pushes by webhook (integration SDK INBOX_KINDS)."""
 DEFAULT_KINDS = frozenset({KIND_COMMENT, KIND_REPLY})
 
@@ -68,7 +72,7 @@ class SocialRule:
     reply_as: str = PRIVATE
     also_like: bool = False
     kinds: frozenset[str] = DEFAULT_KINDS
-    """Which item kinds the rule answers (comment, reply, mention)."""
+    """Which item kinds the rule answers (comment, reply, mention; message, story_reply, story_mention by a direct message)."""
     published: bool = True
     """False for a draft: never fires. The engine only loads published entries, and re-checks this before it sends."""
     order: int = field(default=0, compare=False)
@@ -97,7 +101,7 @@ def rule_from_data(data: dict, *, id: str, published: bool = True, order: int = 
     mode = str(data.get("reply_as") or PRIVATE).strip().lower()
     reply_as = mode if mode in REPLY_MODES else PRIVATE
     also_like = data.get("also_like") in (True, "true", "True", 1, "1", "yes")
-    kinds = frozenset(k.lower() for k in _words(data.get("kinds")) if k.lower() in ITEM_KINDS) or DEFAULT_KINDS
+    kinds = frozenset(k.lower() for k in _words(data.get("kinds")) if k.lower() in RULE_KINDS) or DEFAULT_KINDS
     return SocialRule(
         id=id,
         keywords=keywords,

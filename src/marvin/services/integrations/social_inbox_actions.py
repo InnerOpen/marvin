@@ -47,6 +47,7 @@ ACTION_ROLES: dict[str, WorkspaceRole] = {
     "seen": WorkspaceRole.EDITOR,
     "like": WorkspaceRole.EDITOR,
     "hide": WorkspaceRole.EDITOR,
+    "trash": WorkspaceRole.EDITOR,
     "rule": WorkspaceRole.EDITOR,
     "rules": WorkspaceRole.EDITOR,
     "publish": WorkspaceRole.EDITOR,
@@ -227,6 +228,14 @@ def hide(session, group_id, item: Item, *, hidden: bool, user_id) -> dict:
     return {"hidden": hidden}
 
 
+def trash(session, group_id, item: Item, *, trashed: bool) -> dict:
+    """Move the item to the inbox's Trash, or restore it. Marvin only: nothing on the network changes (that is Delete), and the
+    item keeps its status, so restoring brings back what it was. A trashed item is never answered by a rule."""
+    item.trashed_at = datetime.now(UTC) if trashed else None
+    session.commit()
+    return {"trashed": trashed}
+
+
 def delete(session, group_id, item: Item, *, user_id) -> dict:
     """Delete the comment on the network and drop the item (it no longer exists there)."""
     actor = _actor(session, group_id, item, DELETE)
@@ -275,7 +284,7 @@ def make_rule(session, group_id, item: Item, *, reply_text: str = "", user_id=No
         "post": "",
         "reply_as": PRIVATE,
         "also_like": False,
-        "kinds": "comment, reply",
+        "kinds": item.kind if item.kind in DIRECT_KINDS else "comment, reply",  # a rule made from a DM answers DMs
     }
     slug = f"social-rule-{uuid.uuid4().hex[:8]}"
     fields = {

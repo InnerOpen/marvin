@@ -396,7 +396,7 @@ def test_the_summary_lists_the_networks_with_their_mode_and_new_count(ws, api):
     assert (by_slug["m-main"]["autoReply"], by_slug["m-main"]["readsComments"], by_slug["m-main"]["canReply"]) == ("on", True, True)
     assert by_slug["m-main"]["provider"] == "mastodon" and "social.comments" in by_slug["m-main"]["capabilities"]
     assert body["can"] == {
-        "seen": True, "like": True, "hide": True, "rule": True, "rules": True, "publish": True,
+        "seen": True, "like": True, "hide": True, "trash": True, "rule": True, "rules": True, "publish": True,
         "auto_reply": False, "reply": False, "delete": False, "message": False,
     }  # fmt: skip
     assert api(ADMIN).get(f"{API}/summary").json()["can"]["reply"] is True
@@ -643,9 +643,11 @@ def test_the_door_cant_be_pointed_at_another_comment_or_network_from_the_request
 
 def test_the_engines_own_door_stays_as_narrow_as_it_was(ws):
     net = se._net(ws)
-    for capability in actions.HUMAN_CAPABILITIES - {"social.reply", "social.like"}:
+    for capability in actions.HUMAN_CAPABILITIES - {"social.reply", "social.like", "social.message"}:
         with pytest.raises(se.EngineCallError, match="can't"):
             net.call(capability, {"comment_id": "c1", "text": "x"})
+    with pytest.raises(se.EngineCallError, match="messages only to answer"):  # a message only answers a DM a rule matched
+        net.call("social.message", {"to": {"id": "u"}, "text": "x"})
     with pytest.raises(se.EngineCallError, match="no way to social.reply"):
         net.call("social.reply", {"comment_id": "c1", "text": "x", "private": True, "dry_run": False})  # no rule: not approved
 

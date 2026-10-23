@@ -255,6 +255,35 @@ def answered_ids(session, row, ids: list[str], *, rehearsal_counts: bool) -> set
     return found
 
 
+def unanswered_direct(session, row, kinds, *, since: datetime) -> list[dict]:
+    """This integration's direct-message items of these kinds with no reply yet, written since ``since`` — the ones a webhook
+    brought (and a poll's), in the normalised shape a rule matches, oldest first."""
+    rows = (
+        session.query(Item)
+        .filter(Item.integration_id == row.id, Item.kind.in_(list(kinds)), Item.replied_at.is_(None), Item.posted_at >= since)
+        .filter(Item.status != HIDDEN, Item.trashed_at.is_(None))
+        .order_by(Item.posted_at)
+        .limit(200)
+        .all()
+    )
+    return [
+        {
+            "id": r.item_id, "kind": r.kind, "text": r.text, "network": r.network, "created_at": r.posted_at.isoformat(),
+            "author": {"id": r.author_id or "", "handle": r.author_handle or "", "name": r.author_name or ""},
+        }
+        for r in rows
+    ]  # fmt: skip
+
+
+def trashed_ids(session, row, ids: list[str]) -> set[str]:
+    """Which of these item ids a person moved to the Trash — a rule leaves them alone."""
+    found: set[str] = set()
+    for chunk in _chunks(list(ids)):
+        q = session.query(Item.item_id).filter(Item.integration_id == row.id, Item.item_id.in_(chunk), Item.trashed_at.isnot(None))
+        found.update(r[0] for r in q)
+    return found
+
+
 def has_live_reply(item: Item) -> bool:
     """Whether a real reply was sent (a rehearsal's pointer doesn't count)."""
     return item.replied_at is not None and not item.reply_rehearsal
@@ -291,11 +320,13 @@ def query(
     until: datetime | None = None,
     limit: int = 50,
     offset: int = 0,
+    trashed: bool = False,
 ) -> tuple[list[Item], int]:
     """A workspace's items, newest first, filtered; ``(page, total matching)``. ``text`` searches the item's text and its
     author's handle and name, case-insensitively; ``since`` / ``until`` bound the time it was written. ``replied=True`` is the
     Replies view: items with a reply, the latest reply first (``rehearsal`` narrows it to dry runs or to real replies)."""
     q = session.query(Item).filter(Item.group_id == group_id)
+    q = q.filter(Item.trashed_at.isnot(None) if trashed else Item.trashed_at.is_(None))  # the Trash, or the inbox
     if integration:
         q = q.filter(Item.integration_slug == integration)
     if network:
@@ -324,7 +355,7 @@ def query(
 
 def new_count(session, group_id, integration: str | None = None) -> int:
     """How many items are still new — the nav badge (one count on the (group, status) index), of one integration when named."""
-    q = session.query(sa.func.count(Item.id)).filter(Item.group_id == group_id, Item.status == NEW)
+    q = session.query(sa.func.count(Item.id)).filter(Item.group_id == group_id, Item.status == NEW, Item.trashed_at.is_(None))
     if integration:
         q = q.filter(Item.integration_slug == integration)
     return q.scalar() or 0
@@ -332,7 +363,9 @@ def new_count(session, group_id, integration: str | None = None) -> int:
 
 def new_counts(session, group_id) -> dict[str, int]:
     """New items per integration slug (what the sidebar shows beside each network)."""
-    rows = session.query(Item.integration_slug, sa.func.count(Item.id)).filter(Item.group_id == group_id, Item.status == NEW)
+    rows = session.query(Item.integration_slug, sa.func.count(Item.id)).filter(
+        Item.group_id == group_id, Item.status == NEW, Item.trashed_at.is_(None)
+    )
     return dict(rows.group_by(Item.integration_slug).all())
 
 

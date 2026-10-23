@@ -83,7 +83,10 @@ _RULE_FIELDS = [
         "label": "Answers (comma-separated)",
         "type": "text",
         "defaultValue": "comment, reply",
-        "helpText": "comment and reply are answers on your own posts. Add mention to also answer people tagging you elsewhere.",
+        "helpText": (
+            "comment and reply are answers on your own posts. Add mention to also answer people tagging you elsewhere, and message "
+            "(story_reply, story_mention) to answer direct messages — by a direct message back."
+        ),
     },
 ]
 

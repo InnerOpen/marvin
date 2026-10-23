@@ -61,15 +61,16 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from marvin.core.root_logger import get_logger
 
 from . import social_inbox
-from .social import SOCIAL_COMMENTS, SOCIAL_LIKE, SOCIAL_REPLY
+from .social import SOCIAL_COMMENTS, SOCIAL_LIKE, SOCIAL_MESSAGE, SOCIAL_REPLY
 from .social_rules import (
     BOTH,
     DEFAULT_MAX_AGE_DAYS,
+    DIRECT_KINDS,
     ITEM_KINDS,
     PRIVATE,
     PUBLIC,
@@ -90,8 +91,9 @@ from .social_setup import OFF, REHEARSAL, get_mode
 
 logger = get_logger(__name__)
 
-ENGINE_CAPABILITIES = frozenset({SOCIAL_COMMENTS, SOCIAL_REPLY, SOCIAL_LIKE})
-"""The only capabilities the engine calls. Message, repost and delete have no way in."""
+ENGINE_CAPABILITIES = frozenset({SOCIAL_COMMENTS, SOCIAL_REPLY, SOCIAL_LIKE, SOCIAL_MESSAGE})
+"""The only capabilities the engine calls. A message only answers a direct message a published rule matched, to its author
+(``_rule_approves_message``); repost and delete have no way in."""
 DEFAULT_MAX_REPLIES = 20
 DEFAULT_LIMIT = 50
 MAX_ATTEMPTS = 3
@@ -209,6 +211,20 @@ def _rule_approves(rule, args: dict) -> bool:
     )
 
 
+def _rule_approves_message(rule, args: dict) -> bool:
+    """Whether a published rule approves this ``social.message``: the answer to a direct message (``_answer_direct``), to its
+    author, with the rule's reply exactly."""
+    to = args.get("to") if isinstance(args.get("to"), dict) else {}
+    return (
+        isinstance(rule, SocialRule)
+        and rule.published
+        and bool(rule.reply.strip())
+        and args.get("text") == rule.reply
+        and bool(to.get("id") or to.get("handle"))
+        and bool(rule.kinds & set(DIRECT_KINDS))
+    )
+
+
 class PluginCaller:
     """One integration as a caller reaches it: the plugin's action for a capability, run with the connection's own config and
     secret. It is not a door by itself — the engine's is ``_Network.call`` and a person's is
@@ -258,7 +274,11 @@ class _Network(PluginCaller):
             raise EngineCallError(f"the engagement engine can't {capability}", "refused")
         from .alert_routing import capability_action
 
-        approved = capability == SOCIAL_REPLY and _rule_approves(rule, args)
+        approved = (capability == SOCIAL_REPLY and _rule_approves(rule, args)) or (
+            capability == SOCIAL_MESSAGE and _rule_approves_message(rule, args)
+        )
+        if capability == SOCIAL_MESSAGE and not approved:
+            raise EngineCallError(f"'{self.row.slug}': the engine messages only to answer a direct message a published rule matched", "refused")
         found = capability_action(self.provider, capability, args, approved=approved)
         if found is None:
             raise EngineCallError(f"'{self.row.slug}' has no way to {capability} that a published rule approves", "unsupported")
@@ -348,6 +368,15 @@ class _Run:
     budget: int = 0
 
 
+def poll_kinds(provider) -> list[str]:
+    """What a read asks the plugin for: the comment kinds, and the direct-message kinds its `social.comments` action declares
+    (its `kinds` enum) — a plugin refuses a kind it doesn't know, so only what it offers is asked for."""
+    action = next((a for a in getattr(provider, "actions", ()) or () if getattr(a, "capability", None) == SOCIAL_COMMENTS), None)
+    declared = ((((getattr(action, "input_schema", None) or {}).get("properties") or {}).get("kinds") or {}).get("items") or {}).get("enum")
+    offered = set(declared) if isinstance(declared, list) else set()
+    return [*ITEM_KINDS, *(k for k in DIRECT_KINDS if k in offered)]
+
+
 def _read_once(run: _Run, net: _Network, row, cursor: str | None, kinds: list[str], cache: dict) -> tuple[list[dict], str | None, bool]:
     """``_read``, remembered for the rest of this integration's pass: the replying and announcing jobs read the network
     once when they stand at the same cursor and ask for the same kinds. Each network read is kept for the Social inbox."""
@@ -377,22 +406,26 @@ def _engage(run: _Run, row, provider) -> None:
 def _reply(run: _Run, net: _Network, row, state: dict, cache: dict, *, rehearsal: bool) -> None:
     report, settings, session = run.report, run.settings, run.session
     cursor_key = "rehearsal_cursor" if rehearsal else "cursor"
-    # Every kind is read (the Social inbox keeps mentions too); a rule's own ``kinds`` decide what it answers.
-    items, cursor, dropped = _read_once(run, net, row, state.get(cursor_key), list(ITEM_KINDS), cache)
+    # Every kind is read (the Social inbox keeps mentions and direct messages too); a rule's own ``kinds`` decide what it answers.
+    items, cursor, dropped = _read_once(run, net, row, state.get(cursor_key), poll_kinds(net.provider), cache)
     pending = [] if rehearsal else [p for p in state.get("pending") or [] if isinstance(p, dict) and isinstance(p.get("item"), dict)]
     attempts = {str(p["item"]["id"]): int(p.get("attempts") or 0) for p in pending}
     fresh = {str(i["id"]) for i in items}
     candidates = [p["item"] for p in pending if str(p["item"]["id"]) not in fresh] + items
+    candidates += _inbox_direct(run, row, {str(c["id"]) for c in candidates})
     report.checked += len(items)
 
     handles, ids = own_identities(row.config)
     names = {row.slug.lower(), row.provider.lower()}
     answered = _answered(session, row, [str(i["id"]) for i in candidates], rehearsal)
+    trashed = social_inbox.trashed_ids(session, row, [str(i["id"]) for i in candidates])
     keep: list[dict] = []
     for item in candidates:
         cid = str(item["id"])
         if cid in answered:
             report.skipped[REASON_ALREADY_REPLIED] += 1
+        elif cid in trashed:
+            report.skipped["trashed"] += 1  # a person moved it to the Trash: leave it alone
         elif is_own(item, handles, ids):
             report.skipped[REASON_OWN_COMMENT] += 1
         elif too_old(item, run.now, settings.max_age_days):
@@ -425,7 +458,7 @@ def _reply(run: _Run, net: _Network, row, state: dict, cache: dict, *, rehearsal
 def _announce(run: _Run, net: _Network, row, state: dict, cache: dict, *, count: bool) -> None:
     """Send ``social_comment_received`` for each item the integration's events cursor hasn't passed (see the module docstring)."""
     report, settings, session = run.report, run.settings, run.session
-    items, cursor, dropped = _read_once(run, net, row, state.get("events_cursor"), list(ITEM_KINDS), cache)
+    items, cursor, dropped = _read_once(run, net, row, state.get("events_cursor"), poll_kinds(net.provider), cache)
     if count:
         report.checked += len(items)
     seen = [str(i) for i in state.get("events_seen") or []]
@@ -446,6 +479,8 @@ def _announce(run: _Run, net: _Network, row, state: dict, cache: dict, *, count:
         known.add(cid)
         seen.append(cid)
         created = parse_time(item.get("created_at"))
+        if str(item.get("kind") or "") in DIRECT_KINDS:
+            continue  # a direct message is the inbox's, not a new comment: social_comment_received is for comments
         if is_own(item, handles, ids):
             report.skipped[REASON_EVENT_OWN] += 1
         elif created is not None and created < started:
@@ -504,12 +539,51 @@ def _send_event(run: _Run, row, item: dict) -> None:
     run.report.announced += 1
 
 
+def _inbox_direct(run: _Run, row, have: set[str]) -> list[dict]:
+    """The direct messages a webhook brought (Instagram, Facebook) that no poll reads: unanswered inbox items of the kinds some
+    rule answers, within the answer window — so a rule answers a DM however it arrived. None when no rule answers DMs."""
+    kinds = {k for r in run.rules for k in r.kinds} & set(DIRECT_KINDS)
+    if not kinds:
+        return []
+    since = run.now - timedelta(days=run.settings.max_age_days)
+    return [i for i in social_inbox.unanswered_direct(run.session, row, kinds, since=since) if i["id"] not in have]
+
+
+def _answer_direct(run: _Run, net: _Network, row, item: dict, rule: SocialRule, *, rehearsal: bool) -> bool:
+    """Answer a direct message (a message, a story reply or mention) with a direct message to its author — the rule's reply, in the
+    network's mode (a dry run when it is rehearsing). Networks allow it only for a while after the person's last message: a refusal
+    skips it for good. True when it should be retried next run."""
+    report = run.report
+    author = item.get("author") if isinstance(item.get("author"), dict) else {}
+    to = {k: v for k, v in (("id", author.get("id")), ("handle", author.get("handle"))) if v}
+    if not to or not net.has(SOCIAL_MESSAGE):
+        report.skipped["unsupported"] += 1
+        return False
+    try:
+        out = net.call(SOCIAL_MESSAGE, {"to": to, "text": rule.reply, "dry_run": rehearsal}, rule)
+    except EngineCallError as e:
+        return _failed(report, row, item, [(True, e)], rehearsal)
+    if not rehearsal and out.get("sent") is False:
+        return _failed(report, row, item, [(True, EngineCallError(f"{row.slug}: the network did not send the message"))], rehearsal)
+    social_inbox.record_reply(
+        run.session, row, item, mode="message", rehearsal=rehearsal, reply_id=out.get("message_id"), text=rule.reply, rule=rule.id,
+        when=datetime.now(UTC),
+    )  # fmt: skip
+    if rehearsal:
+        report.rehearsed += 1
+    else:
+        report.sent += 1
+    return False
+
+
 def _answer(run: _Run, net: _Network, row, item: dict, rule: SocialRule, keyword: str, *, rehearsal: bool) -> bool:
     """Reply to one matched item in the rule's mode (a dry run when the network is rehearsing). True when it should be retried next run."""
     report = run.report
     if not rehearsal and not _still_published(run.session, run.group_id, rule):
         report.note(f"{row.slug}: rule '{rule.id}' is no longer published; comment {item['id']} left unanswered")
         return False
+    if str(item.get("kind") or "") in DIRECT_KINDS:
+        return _answer_direct(run, net, row, item, rule, rehearsal=rehearsal)
     modes = {PRIVATE: [True], PUBLIC: [False], BOTH: [True, False]}[rule.reply_as]
     done: dict[bool, dict] = {}
     errors: list[tuple[bool, EngineCallError]] = []

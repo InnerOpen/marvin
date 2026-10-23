@@ -16,7 +16,7 @@ from marvin.db.models.groups.social_inbox import SocialInboxItemModel as Item
 from marvin.services.integrations import social_inbox
 from marvin.services.integrations import social_inbox_actions as actions
 from tests import test_social_engagement as se
-from tests.test_social_engagement import nets, ws  # noqa: F401 — fixtures
+from tests.test_social_engagement import _types, nets, ws  # noqa: F401 — fixtures
 
 PAYLOAD = {"object": "instagram", "entry": [{"id": "acct"}]}
 
@@ -214,3 +214,157 @@ def test_the_editor_warns_when_the_webhook_feeding_it_isnt_signed(ws):
     hook.signing_secret_ref = "INBOX_KEY"
     ws.session.commit()
     assert inbox_items_warnings(ws.session, ws.gid, definition) == []
+
+
+# ── direct messages a poll reads (Mastodon, Bluesky): asked for only where the plugin declares them ───────────────
+
+
+def _declares_messages(ws, network="mastodon"):
+    """The fake network's `social.comments` declares the kinds it reads, `message` among them."""
+    from marvin_integration_sdk import ProviderAction
+
+    net = ws.nets[network]
+    kinds = {"kinds": {"type": "array", "items": {"type": "string", "enum": ["comment", "reply", "mention", "message"]}}}
+    comments = ProviderAction(key="comments", label="Comments", capability="social.comments", input_schema={"type": "object", "properties": kinds})
+    net.actions = (comments, *(a for a in net.actions if a.key != "comments"))
+    return net
+
+
+def test_a_poll_asks_only_for_the_direct_kinds_a_plugin_declares():
+    from marvin.services.integrations.social_engagement import poll_kinds
+
+    assert poll_kinds(se.make_network("plain")) == ["comment", "reply", "mention"]
+
+
+def test_a_poll_keeps_a_direct_message_announces_no_comment_for_it_and_no_rule_answers_it(ws):
+    from marvin.services.integrations.social_engagement import Settings, run_engagement
+    from tests.test_social_comment_trigger import Bus
+
+    net = _declares_messages(ws)
+    se.rule(ws, keywords="price")
+    later = se.NOW + timedelta(minutes=5)
+    net.feed = []
+    run_engagement(ws.session, ws.gid, Settings(), now=se.NOW, event_bus=Bus())  # the first poll notes the backlog
+    net.feed = [
+        {**se.item("dm1", "What is the price?", kind="message", network="mastodon", age_hours=-0.05)},
+        {**se.item("c1", "What is the price?", network="mastodon", age_hours=-0.05)},
+    ]
+    bus = Bus()
+
+    run_engagement(ws.session, ws.gid, Settings(), now=later, event_bus=bus)
+
+    asked = [args.get("kinds") for key, args in net.calls if key == "comments"]
+    assert asked and all("message" in k for k in asked)
+    assert {r.item_id: r.kind for r in _rows(ws)} == {"dm1": "message", "c1": "comment"}
+    assert bus.ids == ["c1"]  # social_comment_received is for comments
+    assert [a["comment_id"] for a in net.sent("reply")] == ["c1"]  # the rule answered the comment, never the message
+
+
+# ── auto-reply to direct messages: only a rule that names them, answered by a message ────────────────────────────
+
+
+def _run(ws, now):
+    from marvin.services.integrations.social_engagement import Settings, run_engagement
+
+    return run_engagement(ws.session, ws.gid, Settings(), now=now)
+
+
+def test_a_rule_that_names_messages_answers_a_polled_dm_with_a_message(ws):
+    net = _declares_messages(ws)
+    se.rule(ws, keywords="price", kinds="comment, reply, message")
+    net.feed = [se.item("dm1", "What is the price?", kind="message", network="mastodon", handle="ada")]
+
+    _run(ws, se.NOW)
+
+    (sent,) = net.sent("message")
+    assert sent["to"] == {"id": "u-ada", "handle": "ada"} and sent["dry_run"] is False
+    assert net.sent("reply") == []  # never a comment reply
+    (dm,) = _rows(ws)
+    assert (dm.status, dm.reply_mode, dm.reply_rehearsal, dm.reply_id) == ("replied", "message", False, "m1")
+
+    _run(ws, se.NOW + timedelta(minutes=5))
+    assert len(net.sent("message")) == 1  # answered once
+
+
+def test_a_rule_answers_a_dm_a_webhook_brought(ws):
+    se.rule(ws, keywords="price", kinds="message")
+    _parser(ws, [_dm(text="Love it, what's the price?", sender="u-bea", when=se.NOW - timedelta(hours=1))])
+    social_inbox.keep_webhook_items(ws.session, _ig(ws).id, ws.gid, PAYLOAD, now=se.NOW)
+
+    _run(ws, se.NOW)
+
+    assert [m["to"] for m in ws.nets["instagram"].sent("message")] == [{"id": "u-bea"}]
+    assert _rows(ws)[0].reply_mode == "message"
+
+
+def test_rehearsal_records_the_dm_answer_but_sends_nothing(ws):
+    net = _declares_messages(ws)
+    se.rule(ws, keywords="price", kinds="message")
+    se.mode(ws, "rehearsal", "m-main")
+    net.feed = [se.item("dm1", "price?", kind="message", network="mastodon")]
+
+    _run(ws, se.NOW)
+
+    assert net.sent("message") == [] and [a["dry_run"] for k, a in net.calls if k == "message"] == [True]
+    assert _rows(ws)[0].reply_rehearsal is True
+
+
+def test_the_engine_cannot_message_without_a_rule_that_answers_dms(ws):
+    import pytest
+
+    from marvin.services.integrations.social_engagement import EngineCallError, _Network
+    from marvin.services.integrations.social_rules import rule_from_data
+
+    net = _Network(ws.session, ws.gid, _ig(ws), ws.nets["instagram"])
+    comments_only = rule_from_data({"keywords": "price", "reply": "Hi"}, id="r")
+    for rule in (None, comments_only):
+        with pytest.raises(EngineCallError, match="messages only to answer"):
+            net.call("social.message", {"to": {"id": "u"}, "text": "Hi"}, rule)
+
+
+# ── the inbox's Trash: out of the inbox, restorable, never answered; nothing on the network changes ─────────────
+
+
+def test_trash_moves_an_item_out_of_the_inbox_and_restore_brings_back_its_status(ws):
+    _parser(ws, [_dm()])
+    social_inbox.keep_webhook_items(ws.session, _ig(ws).id, ws.gid, PAYLOAD)
+    (dm,) = _rows(ws)
+    dm.status = "seen"
+    ws.session.commit()
+
+    actions.trash(ws.session, ws.gid, dm, trashed=True)
+
+    inbox, _ = social_inbox.query(ws.session, ws.gid)
+    trash, _ = social_inbox.query(ws.session, ws.gid, trashed=True)
+    assert inbox == [] and [r.item_id for r in trash] == ["mid-1"]
+    assert ws.nets["instagram"].calls == []  # Marvin only
+
+    actions.trash(ws.session, ws.gid, dm, trashed=False)
+    inbox, _ = social_inbox.query(ws.session, ws.gid)
+    assert [(r.item_id, r.status) for r in inbox] == [("mid-1", "seen")]
+
+
+def test_a_trashed_item_isnt_new_and_no_rule_answers_it(ws):
+    se.rule(ws, keywords="price", kinds="message")
+    _parser(ws, [_dm(text="price?", when=se.NOW - timedelta(hours=1))])
+    social_inbox.keep_webhook_items(ws.session, _ig(ws).id, ws.gid, PAYLOAD, now=se.NOW)
+    (dm,) = _rows(ws)
+    actions.trash(ws.session, ws.gid, dm, trashed=True)
+
+    _run(ws, se.NOW)
+
+    assert ws.nets["instagram"].sent("message") == []
+    assert social_inbox.new_count(ws.session, ws.gid) == 0
+
+
+def test_a_poll_never_brings_a_trashed_comment_back(ws):
+    net = ws.nets["mastodon"]
+    net.feed = [se.item("c1", "hello", network="mastodon")]
+    _run(ws, se.NOW)
+    (c1,) = [r for r in _rows(ws) if r.item_id == "c1"]
+    actions.trash(ws.session, ws.gid, c1, trashed=True)
+
+    _run(ws, se.NOW + timedelta(minutes=5))
+
+    inbox, _ = social_inbox.query(ws.session, ws.gid)
+    assert "c1" not in [r.item_id for r in inbox]

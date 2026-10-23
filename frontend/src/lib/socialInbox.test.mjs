@@ -284,9 +284,10 @@ describe("errors", () => {
 describe("items a network pushes (messages, story replies…)", () => {
   const can = { message: true, rule: true, reply: true };
 
-  test("a direct message offers Reply (a message back) and never Make a rule", () => {
+  test("a direct message offers Reply (a message back) and Make a rule; a reaction offers no rule", () => {
     const buttons = actionButtons({ actions: ["message"], status: "new", kind: "message" }, can);
-    assert.deepEqual(buttons.map((b) => [b.key, b.label]), [["message", "Reply"]]);
+    assert.deepEqual(buttons.map((b) => [b.key, b.label]), [["message", "Reply"], ["rule", "Make a rule"]]);
+    assert.deepEqual(actionButtons({ actions: ["message"], status: "new", kind: "reaction" }, can).map((b) => b.key), ["message"]);
   });
 
   test("a comment keeps Message and Make a rule", () => {
@@ -309,5 +310,19 @@ describe("items a network pushes (messages, story replies…)", () => {
   test("the new kinds have labels", () => {
     assert.equal(kindLabel("story_reply"), "Story reply");
     assert.equal(kindLabel("live_comment"), "Live comment");
+  });
+});
+
+describe("the inbox's Trash", () => {
+  test("an item offers Trash, and Restore once it is there", () => {
+    const can = { trash: true };
+    assert.deepEqual(actionButtons({ actions: [], status: "seen", kind: "comment" }, can).map((b) => b.label), ["Trash"]);
+    assert.deepEqual(actionButtons({ actions: [], status: "seen", kind: "comment", trashedAt: "2026-10-23T19:00:00Z" }, can).map((b) => b.label), ["Restore"]);
+  });
+
+  test("the Status filter's Trash asks the API for the trashed items, not a status", () => {
+    const q = new URLSearchParams(apiQuery({ integration: "", kind: "", status: "trash", q: "" }));
+    assert.equal(q.get("trashed"), "true");
+    assert.equal(q.get("status"), null);
   });
 });

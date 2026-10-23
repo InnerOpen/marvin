@@ -48,6 +48,8 @@ class SocialInboxItemRead(_MarvinModel):
     text: str
     attachments: list[dict] | None = None
     """What it arrived with: {type, url, title} — a message's picture, a shared post and its caption."""
+    trashed_at: datetime | None = None
+    """When a person moved it to the inbox's Trash; None while it is in the inbox."""
     created_at: datetime
     """When the network says it was written."""
     first_seen_at: datetime
@@ -125,6 +127,11 @@ class SocialInboxReplyResult(_MarvinModel):
     reply_id: str | None = None
     url: str | None = None
     item: SocialInboxItemRead
+
+
+class SocialInboxTrash(_MarvinModel):
+    trashed: bool = True
+    """True: move it to the inbox's Trash; false: restore it."""
 
 
 class SocialInboxHide(_MarvinModel):

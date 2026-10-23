@@ -1,4 +1,5 @@
-"""Migration ``e2c7f4a9b815``: ``social_inbox_items.attachments`` (nullable JSON) — down, up, down, up on a scratch SQLite."""
+"""Migrations ``e2c7f4a9b815`` (``social_inbox_items.attachments``, nullable JSON) and ``f3d8a1c6e927`` (``trashed_at``,
+nullable) — down, up, down, up on a scratch SQLite."""
 
 import importlib.util
 from pathlib import Path
@@ -16,6 +17,10 @@ _PATH = next((Path(__file__).resolve().parents[1] / "src" / "marvin" / "alembic"
 _spec = importlib.util.spec_from_file_location("social_inbox_attachments_migration", _PATH)
 mig = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(mig)
+_TRASH = next(_PATH.parent.glob("*_f3d8a1c6e927_*.py"))
+_trash_spec = importlib.util.spec_from_file_location("social_inbox_trash_migration", _TRASH)
+trash_mig = importlib.util.module_from_spec(_trash_spec)
+_trash_spec.loader.exec_module(trash_mig)
 
 
 @pytest.fixture
@@ -27,9 +32,9 @@ def conn():
     engine.dispose()
 
 
-def _run(conn, step: str) -> None:
+def _run(conn, step: str, module=None) -> None:
     with Operations.context(MigrationContext.configure(conn)):
-        getattr(mig, step)()
+        getattr(module or mig, step)()
 
 
 def _columns(conn) -> dict:
@@ -46,3 +51,12 @@ def test_down_drops_attachments_and_up_brings_it_back_nullable(conn):
     _run(conn, "downgrade")
     _run(conn, "upgrade")
     assert _columns(conn)["attachments"] is True
+
+
+def test_trash_down_drops_trashed_at_and_up_brings_it_back_nullable(conn):
+    _run(conn, "downgrade", trash_mig)
+    assert "trashed_at" not in _columns(conn)
+
+    _run(conn, "upgrade", trash_mig)
+
+    assert _columns(conn)["trashed_at"] is True

@@ -52,6 +52,8 @@ class SocialInboxItemModel(SqlAlchemyBase, BaseMixins):
     author_name: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     text: Mapped[str] = mapped_column(sa.Text, nullable=False, default="")
     attachments: Mapped[list | None] = mapped_column(sa.JSON, nullable=True)
+    trashed_at: Mapped[datetime | None] = mapped_column(AwareDateTime, nullable=True)
+    """When a person moved it to the inbox's Trash (None: in the inbox). Out of the lists, never answered; restorable."""
     """What the item arrived with: a list of {type, url, title} — a message's picture, a shared post and its caption."""
     posted_at: Mapped[datetime] = mapped_column(AwareDateTime, nullable=False)
     """When the network says it was written; the time first seen when the network gives none. What the list sorts on."""

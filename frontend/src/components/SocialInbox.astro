@@ -64,6 +64,7 @@ const data = JSON.stringify({ summary, list, filters, basePath, network }).repla
     <button type="button" class="button secondary" id="si-mark-all" hidden>Mark all seen</button>
   </div>
 
+  <p class="si-muted si-small" id="si-page-note" role="status" hidden></p>
   <ul class="si-list" id="si-list" aria-label="Social inbox"></ul>
   <p class="si-muted si-count" id="si-count" hidden></p>
   <button type="button" class="button secondary si-more" id="si-more" hidden>Show more</button>
@@ -279,6 +280,13 @@ const data = JSON.stringify({ summary, list, filters, basePath, network }).repla
     installLogoFallback();
   }
 
+  /** A line above the list, for what happened after the dialog closed (an item moved to the Trash). */
+  function flash(text: string) {
+    const note = $("si-page-note");
+    note.textContent = text;
+    note.hidden = false;
+  }
+
   function say(text: string, ok = true) {
     const out = $("si-result");
     out.hidden = false;
@@ -361,6 +369,14 @@ const data = JSON.stringify({ summary, list, filters, basePath, network }).repla
         const hidden = item.status !== "hidden";
         update((await api.hide(item.id, hidden)).item!);
         say(hidden ? "Hidden on the network." : "Unhidden.");
+      } else if (act === "trash") {
+        const trashed = !item.trashedAt;
+        await api.trash(item.id, trashed);
+        items = items.filter((i) => i.id !== item.id);  // it leaves this view: the inbox, or the Trash
+        total = Math.max(0, total - 1);
+        dialog.close();
+        render();
+        flash(trashed ? "Moved to Trash. Restore it from Status → Trash." : "Restored to the inbox.");
       } else if (act === "delete") {
         await api.remove(item.id);
         items = items.filter((i) => i.id !== item.id);

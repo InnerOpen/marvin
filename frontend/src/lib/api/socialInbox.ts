@@ -64,6 +64,8 @@ export const reply = (id: string, text: string, isPrivate: boolean) =>
 export const like = (id: string) => post<ActionResult>(`/${encodeURIComponent(id)}/like`);
 
 export const hide = (id: string, hidden: boolean) => post<ActionResult>(`/${encodeURIComponent(id)}/hide`, { hidden });
+/** Move an item to the inbox's Trash (Marvin only) or restore it. */
+export const trash = (id: string, trashed: boolean) => post<ActionResult>(`/${encodeURIComponent(id)}/trash`, { trashed });
 
 export const remove = (id: string) => fetchApi<ActionResult>(`${BASE}/${encodeURIComponent(id)}`, { method: "DELETE" });
 

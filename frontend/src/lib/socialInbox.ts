@@ -18,6 +18,9 @@ export interface Attachment {
   title?: string | null;
 }
 export type ItemStatus = "new" | "seen" | "replied" | "hidden" | "liked";
+
+/** The Status filter's Trash: items a person moved out of the inbox (restorable). Not a status: the API's `trashed`. */
+export const TRASH = "trash";
 export type ActionKey = "reply" | "like" | "hide" | "delete" | "message";
 
 /** The reply recorded on an item (the item is the reply log): a rule's or a person's, live or rehearsal. */
@@ -48,6 +51,7 @@ export interface InboxItem {
   author: { id?: string | null; handle?: string | null; name?: string | null };
   text: string;
   attachments?: Attachment[] | null;
+  trashedAt?: string | null;
   createdAt: string;
   firstSeenAt?: string;
   url?: string | null;
@@ -60,7 +64,7 @@ export interface InboxItem {
 /** What the caller's role may do (the API's `can`). */
 export type Can = Partial<
   Record<
-    "seen" | "like" | "hide" | "rule" | "rules" | "publish" | "auto_reply" | "reply" | "delete" | "message",
+    "seen" | "like" | "hide" | "trash" | "rule" | "rules" | "publish" | "auto_reply" | "reply" | "delete" | "message",
     boolean
   >
 >;
@@ -101,12 +105,13 @@ export const KINDS: { value: ItemKind; label: string }[] = [
   { value: "live_comment", label: "Live comments" },
 ];
 
-export const STATUSES: { value: ItemStatus; label: string }[] = [
+export const STATUSES: { value: ItemStatus | typeof TRASH; label: string }[] = [
   { value: "new", label: "New" },
   { value: "seen", label: "Seen" },
   { value: "replied", label: "Replied" },
   { value: "liked", label: "Liked" },
   { value: "hidden", label: "Hidden" },
+  { value: "trash", label: "Trash" },
 ];
 
 const KIND_LABEL: Record<string, string> = {
@@ -234,7 +239,7 @@ export function newBadgeText(count: number | null | undefined): string {
 // ── actions ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export interface ActionButton {
-  key: ActionKey | "rule";
+  key: ActionKey | "rule" | "trash";
   label: string;
   /** Can't be undone (the page asks first). */
   destructive?: boolean;
@@ -254,7 +259,7 @@ const ORDER: ActionKey[] = ["reply", "like", "hide", "delete", "message"];
 
 /** The buttons for one item: what its network offers, limited to what the caller's role may do, "Make a rule" last. An item
  *  that is hidden offers Unhide in place of Hide. Opening the item on its network is a link, not a button (`openHref`). */
-export function actionButtons(item: Pick<InboxItem, "actions" | "status"> & { kind?: string }, can: Can): ActionButton[] {
+export function actionButtons(item: Pick<InboxItem, "actions" | "status"> & { kind?: string; trashedAt?: string | null }, can: Can): ActionButton[] {
   const offered = new Set(item.actions);
   const buttons: ActionButton[] = ORDER.filter((key) => offered.has(key) && can[key] === true).map((key) => ({
     key,
@@ -262,8 +267,10 @@ export function actionButtons(item: Pick<InboxItem, "actions" | "status"> & { ki
     ...(key === "delete" ? { destructive: true } : {}),
     ...(NEEDS_TEXT.has(key) ? { needsText: true } : {}),
   }));
-  // A rule answers comments; an item that came in by direct message is answered only by a message.
-  if (can.rule === true && !DIRECT_KINDS.has(item.kind ?? "")) buttons.push({ key: "rule", label: "Make a rule" });
+  // Trash is Marvin's own (nothing changes on the network): Restore when it is already there.
+  if (can.trash === true) buttons.push({ key: "trash", label: item.trashedAt ? "Restore" : "Trash" });
+  // A rule made from a direct message answers direct messages (by a message back); a reaction has nothing to answer.
+  if (can.rule === true && item.kind !== "reaction") buttons.push({ key: "rule", label: "Make a rule" });
   return buttons;
 }
 
@@ -350,7 +357,8 @@ export function apiQuery(filters: Filters, offset = 0, limit = PAGE_SIZE): strin
   const q = new URLSearchParams();
   if (clean(filters.integration)) q.set("integration", clean(filters.integration));
   if (clean(filters.kind)) q.set("kind", clean(filters.kind));
-  if (clean(filters.status)) q.set("status", clean(filters.status));
+  if (clean(filters.status) === TRASH) q.set("trashed", "true");
+  else if (clean(filters.status)) q.set("status", clean(filters.status));
   if (clean(filters.q)) q.set("q", clean(filters.q));
   q.set("limit", String(limit));
   if (offset > 0) q.set("offset", String(offset));

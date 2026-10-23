@@ -38,6 +38,7 @@ from marvin.schemas.group.social_inbox import (
     SocialInboxSeen,
     SocialInboxSeenResult,
     SocialInboxSummary,
+    SocialInboxTrash,
     SocialRuleList,
     SocialRuleNew,
     SocialRulePublish,
@@ -103,6 +104,7 @@ def _reads(session, group_id, rows: list[Item]) -> list[SocialInboxItemRead]:
                 author={"id": r.author_id, "handle": r.author_handle, "name": r.author_name},
                 text=r.text,
                 attachments=r.attachments,
+                trashed_at=r.trashed_at,
                 created_at=r.posted_at,
                 first_seen_at=r.first_seen_at,
                 url=r.url,
@@ -167,6 +169,7 @@ class SocialInboxController(BaseUserController):
         until: datetime | None = Query(None, description="Written at or before this time."),
         limit: int = Query(50, ge=1, le=200),
         offset: int = Query(0, ge=0),
+        trashed: bool = Query(False, description="The Trash: items a person moved out of the inbox (restorable)."),
     ):
         """Items the social engagement poll kept (30 days), newest first, with what each one's network offers (`actions`,
         `reply_modes`) and how it was answered (`reply`: rehearsal or sent, with its log entry). EDITOR and above."""
@@ -183,6 +186,7 @@ class SocialInboxController(BaseUserController):
             until=until,
             limit=limit,
             offset=offset,
+            trashed=trashed,
         )
         return SocialInboxList(
             items=_reads(self.session, self.group_id, rows),
@@ -332,6 +336,15 @@ class SocialInboxController(BaseUserController):
             actions.hide(self.session, self.group_id, item, hidden=True if data is None else data.hidden, user_id=self.user.id)
         except InboxError as e:
             raise _refuse(e) from e
+        return self._done(item)
+
+    @router.post("/{item_id}/trash", response_model=SocialInboxActionResult, summary="Move an item to the inbox's Trash, or restore it")
+    def trash(self, item_id: UUID4, data: SocialInboxTrash | None = None):
+        """Move the item to the inbox's Trash (`trashed: true`, the default) or restore it. Marvin only: nothing on the network
+        changes (that is Delete), and a trashed item is never answered by a rule. EDITOR and above."""
+        require_workspace_role(self.user, self.group_id, ACTION_ROLES["trash"])
+        item = self._item(item_id)
+        actions.trash(self.session, self.group_id, item, trashed=True if data is None else data.trashed)
         return self._done(item)
 
     @router.delete("/{item_id}", response_model=SocialInboxActionResult, summary="Delete the comment on its network")

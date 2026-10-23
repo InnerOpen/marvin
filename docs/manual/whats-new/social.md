@@ -39,7 +39,7 @@ A rule is an entry of the type `social-auto-reply` (unlisted by default, see [In
 - `post`: empty means any post, else a post id or URL.
 - `reply_as`: `private` (the default), `public` or `both` (if the network refuses one half, the other still goes out).
 - `also_like`: also like the comment, where the network can. A like that fails never undoes the reply.
-- `kinds`: which items it answers, `comment, reply` by default (answers on your own posts). Add `mention` to also answer people who tag you elsewhere.
+- `kinds`: which items it answers, `comment, reply` by default (answers on your own posts). Add `mention` to also answer people who tag you elsewhere, and `message` (or `story_reply`, `story_mention`) to answer **direct messages** — by a direct message back to the person, on every network that can send one, never by a comment reply. The engine answers a DM however it arrived (Instagram and Facebook by webhook, Mastodon and Bluesky by the poll), once, in the network's auto-reply mode (a rehearsal records it without sending). Networks allow such a message only for a while after the person's last one (Instagram and Facebook: 24 hours); a refusal skips the DM for good. **Make a rule** on a DM in the inbox drafts a rule for that kind.
 
 **Which rule answers.** A comment gets one reply, from the most specific rule that hits: a rule for **this post**, then a rule for **this network**, then a rule for **every network**, and the oldest first within each. The Rules tab lists them in that order: this network's rules, then the all-network ones (marked "All networks"), each with **Published** or **Draft**, and Instagram's older `ig-auto-reply` rules marked as such (they still answer, read as rules for network instagram).
 
@@ -136,6 +136,7 @@ Compact rows (network logo, who, an excerpt, the kind and when, status and **Sen
 | **Hide** / **Unhide** | `social.hide` | EDITOR | Comments under your own posts only (not mentions). Hidden wins over every other status. |
 | **Delete** | `social.delete_comment` | ADMIN | Asks first; removes the comment on the network and drops the item. Not for mentions. |
 | **Message** | `social.message` | ADMIN | A direct message to the author, not a reply to the comment. On an item that came in by direct message the button is **Reply**: the message is the answer, recorded on the item (status `replied`). |
+| **Trash** / **Restore** | none | EDITOR | Moves the item out of the inbox into its **Trash** (Status → Trash), or back. Marvin only: nothing on the network changes (that is **Delete**). It keeps its status, a rule never answers it, and a poll never brings it back; it is pruned with the rest after 30 days. |
 | **Make a rule** | none | EDITOR | A **draft** `social-auto-reply` entry: keywords suggested from the text, that comment's integration, private replies, and your reply box text as the reply. It does nothing until published. |
 
 **Status** is `new`, `seen`, `liked`, `replied` or `hidden`: seeing never undoes anything, a like never downgrades a reply, a reply never unhides, hiding wins, unhiding goes back to `replied` or `seen`.
@@ -159,6 +160,7 @@ Compact rows (network logo, who, an excerpt, the kind and when, status and **Sen
 | POST | `/{id}/reply` | ADMIN | `{text, private = true}` |
 | POST | `/{id}/like` | EDITOR | |
 | POST | `/{id}/hide` | EDITOR | `{hidden = true}` |
+| POST | `/{id}/trash` | EDITOR | `{trashed = true}` — the inbox's Trash (Marvin only); `GET ?trashed=true` lists it |
 | DELETE | `/{id}` | ADMIN | |
 | POST | `/{id}/message` | ADMIN | `{text}` |
 | POST | `/{id}/rule` | EDITOR | `{reply?}` creates the draft rule; returns `id`, `slug`, `keywords`, `path` |

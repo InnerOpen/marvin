@@ -712,10 +712,11 @@ def test_only_a_published_rules_own_text_makes_a_reply_approved(ws):
     assert net.call("social.reply", args, _rule())["replied"] is True
 
 
-def test_the_engine_has_no_way_to_message_repost_delete_or_hide(ws):
+def test_the_engine_has_no_way_to_repost_delete_or_hide_and_messages_only_to_answer_a_dm(ws):
     net = _net(ws)
+    with pytest.raises(EngineCallError, match="messages only to answer"):  # a comments rule doesn't approve a message
+        net.call("social.message", {"to": {"handle": "a"}, "text": "x"}, _rule())
     for capability, args in (
-        ("social.message", {"to": {"handle": "a"}, "text": "x"}),
         ("social.repost", {"post_id": "p"}),
         ("social.delete_comment", {"comment_id": "c"}),
         ("social.hide", {"comment_id": "c"}),
