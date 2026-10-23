@@ -78,7 +78,14 @@ const displayValue = Array.isArray(value) ? value.join(", ") : value || "";
     margin-left: 0.5rem;
   }
 
+  /* The list fills the field's width, as the other fields' boxes do (the wrapper alone left the textarea its narrow default). */
+  .resource-list-field {
+    display: grid;
+  }
+
   .field-textarea {
+    width: 100%;
+    box-sizing: border-box;
     padding: 0.75rem;
     border: 1px solid var(--line);
     border-radius: 6px;

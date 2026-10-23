@@ -229,6 +229,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         <div class="form-field">
           <label class="label">Only if <span class="muted">(all conditions must match — optional)</span></label>
           <div id="wf-conditions" class="rows"></div>
+          <p class="cond-summary" id="wf-cond-summary" hidden></p>
           <button type="button" class="linkish" id="wf-add-condition">+ Add condition</button>
         </div>
 
@@ -309,6 +310,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   import { getArg, hintedInputs, optionsHint, setArg } from "@/lib/integrationOptions";
   import { optionPicker } from "@/lib/integrationOptionPicker";
   import { fetchApi } from "@/lib/api/client";
+  import { type Choice, describeConditions, type EarlierStep, fieldGroups, type FieldGroup, needsValue, valueChoices } from "@/lib/conditions";
   import { ANSWER_KINDS, type AnswerField, fieldsFromSchema, SEE_LABELS, schemaFromFields } from "@/lib/customStep";
   import { AGENT_DEFAULT_STEPS, AGENT_MAX_PLAYBOOKS, AGENT_MAX_STEPS, agentRunView, agentSummary, costText, offeredAgents, offeredPlaybooks, readAgentStep } from "@/lib/agentStep";
   import { ASPECTS, filledRows, GRADE_PRESETS, MEDIA_FIELDS, MEDIA_OPS, mediaFields, OP_FIELDS, type RenderTemplate, SOURCE_LABELS, type SourceMode, sourceChoice, sourceFromChoice, templateRows, WATERMARK_POSITIONS } from "@/lib/mediaStep";
@@ -401,6 +403,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         : "Runs after the selected workflow completes.";
     }
     populateFieldDatalist(t);
+    document.querySelectorAll<HTMLElement>(".cond-row").forEach((r) => r.querySelector(".c-field-pick")?.dispatchEvent(new Event("focus")));
+    refreshCondSummaries();
     revalidate();
   }
 
@@ -538,16 +542,164 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     (OPTIONS.operations || []).length ? "operation" : (orderedKinds().find((k) => k !== "operation") || orderedKinds()[0] || "operation");
 
   // ── Condition rows ────────────────────────────────────────────────────────
+  // A row is a labelled field picker (the trigger's fields, the run's inputs, earlier steps' results — lib/conditions.ts), the
+  // comparison, and a value box that offers choices where Marvin knows them (entry types, statuses, an approval's decision) and
+  // disappears when the comparison needs none. The hidden .c-field / .c-value hold what is saved, so reading a row is unchanged;
+  // "Type a path…" keeps any other field possible. Under the rows the conditions read back as a sentence.
+  const CUSTOM_FIELD = "__custom";
+  let entryTypeChoices: Choice[] = [];
+  function loadEntryTypeChoices() {
+    fetchApi<any>("/api/platform/entry-types")
+      .then((types) => {
+        entryTypeChoices = (Array.isArray(types) ? types : types?.items ?? []).map((t: any) => ({ value: t.slug, label: t.name }));
+        document.querySelectorAll<HTMLElement>(".cond-row").forEach((r) => syncCondValue(r));
+        refreshCondSummaries();
+      })
+      .catch(() => {});  // the entry type stays a typed value
+  }
+  function triggerTypeNow(): string {
+    return ($("wf-trigger-type") as HTMLSelectElement | null)?.value || "event";
+  }
+  /** The steps before this one (and, for a step inside a repeat or a branch, before the step holding it) with a result to read. */
+  function earlierSteps(row: Element | null): EarlierStep[] {
+    const out: EarlierStep[] = [];
+    let step = row?.closest(".action-row") ?? null;
+    while (step) {
+      let prev = step.previousElementSibling;
+      const found: EarlierStep[] = [];
+      while (prev) {
+        if (prev.classList.contains("action-row")) {
+          const kind = (prev.querySelector(":scope > .action-head .a-kind") as HTMLSelectElement | null)?.value ?? "";
+          const id = (prev.querySelector(":scope > .action-head .a-id") as HTMLInputElement | null)?.value.trim() ?? "";
+          const keys = id && kind ? stepOutputs(kind, prev as HTMLElement) : [];
+          if (keys.length) found.unshift({ id, label: KIND_LABELS[kind] || kind, keys });
+        }
+        prev = prev.previousElementSibling;
+      }
+      out.unshift(...found);
+      step = step.parentElement?.closest(".action-row") ?? null;
+    }
+    return out;
+  }
+  function condGroups(row: Element | null): FieldGroup[] {
+    const ttype = triggerTypeNow();
+    const catalog = (OPTIONS.conditionFields || {})[ttype] || (OPTIONS.conditionFields || {}).event || [];
+    const inStep = !!row?.closest(".a-when");
+    return fieldGroups(catalog, { inputs: ttype === "manual" ? readInputs() : [], steps: inStep ? earlierSteps(row) : [] });
+  }
+  const condCtx = () => ({ entryTypes: entryTypeChoices, inputs: triggerTypeNow() === "manual" ? readInputs() : [] });
+
+  function fieldSelectHtml(groups: FieldGroup[], current: string): string {
+    const known = groups.some((g) => g.options.some((o) => o.field === current));
+    const groupsHtml = groups
+      .map((g) => `<optgroup label="${esc(g.label)}">${g.options
+        .map((o) => `<option value="${esc(o.field)}" ${o.field === current ? "selected" : ""} title="${esc(o.hint ?? o.field)}">${esc(o.label)}</option>`)
+        .join("")}</optgroup>`)
+      .join("");
+    return `<option value="" ${current ? "" : "selected"} disabled>Choose what to check…</option>${groupsHtml}
+      <option value="${CUSTOM_FIELD}" ${current && !known ? "selected" : ""}>Type a path…</option>`;
+  }
+  /** The value box for the row's field and comparison: choices, a text box, or nothing. */
+  function syncCondValue(row: HTMLElement) {
+    const field = (row.querySelector(".c-field") as HTMLInputElement).value.trim();
+    const op = (row.querySelector(".c-op") as HTMLSelectElement).value;
+    const valueInput = row.querySelector(".c-value") as HTMLInputElement;
+    const pick = row.querySelector(".c-value-pick") as HTMLSelectElement;
+    const wrap = row.querySelector(".c-value-wrap") as HTMLElement;
+    wrap.hidden = !needsValue(op);
+    const choices = op === "in" ? null : valueChoices(field, condCtx());
+    if (choices) {
+      const current = valueInput.value;
+      const listed = choices.some((c) => c.value === current);
+      pick.innerHTML = `<option value="" disabled ${current ? "" : "selected"}>Choose…</option>${choices
+        .map((c) => `<option value="${esc(c.value)}" ${c.value === current ? "selected" : ""}>${esc(c.label)}</option>`)
+        .join("")}${current && !listed ? `<option value="${esc(current)}" selected>${esc(current)}</option>` : ""}`;
+    }
+    pick.hidden = !choices;
+    valueInput.hidden = !!choices;
+    valueInput.placeholder = op === "in" ? "one, two, three" : "value";
+  }
+  /** Read the conditions back as a sentence under their rows: the workflow's "Only if", or a step's summary line. */
+  function refreshCondSummary(container: Element | null) {
+    if (!container) return;
+    const rows = [...container.querySelectorAll(":scope .cond-row")];
+    const list = rows.map((r) => ({
+      field: (r.querySelector(".c-field") as HTMLInputElement).value.trim(),
+      op: (r.querySelector(".c-op") as HTMLSelectElement).value,
+      value: (r.querySelector(".c-value") as HTMLInputElement).value,
+    })).filter((c) => c.field);
+    const sentence = describeConditions(list, condGroups(rows[0] ?? container), condCtx());
+    if (container.id === "wf-conditions") {
+      const out = $("wf-cond-summary");
+      out.textContent = sentence ? `Runs only if ${sentence}.` : "";
+      out.hidden = !sentence;
+      return;
+    }
+    const details = container.closest(".a-when");
+    const summary = details?.querySelector(":scope > summary");
+    if (summary) summary.innerHTML = sentence ? `Only runs when <strong>${esc(sentence)}</strong>` : "Only run this step when…";
+  }
+  function refreshCondSummaries() {
+    refreshCondSummary(document.getElementById("wf-conditions"));
+    document.querySelectorAll(".a-when-rows").forEach((r) => refreshCondSummary(r));
+  }
+
   function conditionRow(c: any = {}) {
     const row = document.createElement("div");
     row.className = "row cond-row";
+    const field = String(c.field ?? "");
     const ops = (OPTIONS.conditionOps || []).map((o: string) => `<option value="${esc(o)}" ${c.op === o ? "selected" : ""}>${esc(COND_OP_LABELS[o] || o)}</option>`).join("");
     row.innerHTML = `
-      <input class="input c-field" list="wf-fields" placeholder="entry.entry_type" value="${esc(c.field ?? "")}" />
-      <select class="input c-op">${ops}</select>
-      <input class="input c-value" placeholder="value" value="${esc(c.value ?? "")}" />
+      <span class="c-field-wrap">
+        <select class="input c-field-pick" aria-label="What to check"></select>
+        <input class="input c-field-path" placeholder="a path, e.g. event.payload.type" value="${esc(field)}" hidden />
+        <input type="hidden" class="c-field" value="${esc(field)}" />
+      </span>
+      <select class="input c-op" aria-label="How to compare">${ops}</select>
+      <span class="c-value-wrap">
+        <select class="input c-value-pick" aria-label="Value" hidden></select>
+        <input class="input c-value" placeholder="value" value="${esc(c.value ?? "")}" aria-label="Value" />
+      </span>
       <button type="button" class="icon-btn" title="Remove">✕</button>`;
-    row.querySelector(".icon-btn")!.addEventListener("click", () => { row.remove(); revalidate(); });
+    const pick = row.querySelector(".c-field-pick") as HTMLSelectElement;
+    const path = row.querySelector(".c-field-path") as HTMLInputElement;
+    const hidden = row.querySelector(".c-field") as HTMLInputElement;
+    const fill = () => {
+      pick.innerHTML = fieldSelectHtml(condGroups(row.isConnected ? row : null), hidden.value);
+      path.hidden = pick.value !== CUSTOM_FIELD;
+    };
+    fill();
+    // The step list changes while the form is open: offer the steps before this one as they are now.
+    pick.addEventListener("focus", fill);
+    pick.addEventListener("change", () => {
+      const chosen = pick.value;
+      if (chosen === CUSTOM_FIELD) {
+        path.hidden = false;
+        path.focus();
+      } else if (chosen.endsWith(".")) {  // a start such as a type's field: the person types the rest
+        path.hidden = false;
+        path.value = chosen;
+        hidden.value = chosen;
+        pick.value = CUSTOM_FIELD;
+        path.focus();
+      } else {
+        path.hidden = true;
+        path.value = chosen;
+        hidden.value = chosen;
+      }
+      syncCondValue(row);
+      refreshCondSummary(row.parentElement);
+    });
+    path.addEventListener("input", () => { hidden.value = path.value.trim(); syncCondValue(row); refreshCondSummary(row.parentElement); });
+    row.querySelector(".c-op")!.addEventListener("change", () => { syncCondValue(row); refreshCondSummary(row.parentElement); });
+    row.querySelector(".c-value-pick")!.addEventListener("change", (e) => {
+      (row.querySelector(".c-value") as HTMLInputElement).value = (e.target as HTMLSelectElement).value;
+      refreshCondSummary(row.parentElement);
+    });
+    row.querySelector(".c-value")!.addEventListener("input", () => refreshCondSummary(row.parentElement));
+    row.querySelector(".icon-btn")!.addEventListener("click", () => { const parent = row.parentElement; row.remove(); refreshCondSummary(parent); revalidate(); });
+    syncCondValue(row);
+    queueMicrotask(() => { fill(); syncCondValue(row); });  // once it is in the form, with the steps before it to offer
     return row;
   }
 
@@ -584,6 +736,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     add.type = "button"; add.className = "linkish"; add.textContent = "+ Add condition";
     add.addEventListener("click", () => rows.appendChild(conditionRow()));
     wrap.append(rows, add);
+    queueMicrotask(() => refreshCondSummary(rows));  // once the row is in the step: its summary reads the rows back
     return wrap;
   }
   function withWhen(step: any, row: Element | undefined): any {
@@ -717,7 +870,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       <div class="a-fields"></div>
       <div class="a-key hint small" hidden></div>
       <details class="a-when" ${a.when ? "open" : ""}>
-        <summary class="small">Only run this step when…${a.when ? " (set)" : ""}</summary>
+        <summary class="small">Only run this step when…</summary>
         <div class="a-when-body"></div>
         <span class="hint small">Same as the workflow's conditions, and it can read earlier steps' answers, e.g. <code>steps.check.output.is_spam</code>. When it isn't met the step is skipped (not failed) and the run goes on. Two steps with opposite conditions make an if/else.</span>
       </details>`;
@@ -841,7 +994,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     const chips = keys
       .map((k) => { const ref = "${steps." + id + ".output." + k + "}"; return `<button type="button" class="ref-chip" data-ref="${esc(ref)}" title="Copy">${esc(ref)}</button>`; })
       .join(" ");
-    box.innerHTML = `Use its result: ${chips} <span class="muted">— click to copy. In “Only run this step when…” write it without <code>\${ }</code>: <code>steps.${esc(id)}.output.${esc(keys[0])}</code>.</span>`;
+    box.innerHTML = `Use its result: ${chips} <span class="muted">— click to copy. A later step's “Only run this step when…” offers it under <b>Earlier steps</b>.</span>`;
   }
 
   // ── Integration steps: the workspace's connections and their providers, loaded once on first use.
@@ -2127,6 +2280,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
 
     const condWrap = $("wf-conditions"); condWrap.innerHTML = "";
     (def.conditions ?? []).forEach((c: any) => condWrap.appendChild(conditionRow(c)));
+    queueMicrotask(refreshCondSummaries);
     const actWrap = $("wf-actions"); actWrap.innerHTML = "";
     (def.actions?.length ? def.actions : [{}]).forEach((a: any) => actWrap.appendChild(actionRow(a)));
     originalExtras = Object.fromEntries(Object.entries(def).filter(([key]) => !BUILDER_KEYS.has(key)));
@@ -2256,14 +2410,16 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     eq: "=", neq: "≠", contains: "contains", in: "in", starts_with: "starts", exists: "exists",
     changed: "changed", changed_from: "changed from", changed_to: "changed to",
   };
-  function stepChip(a: any): string {
+  function stepChip(a: any, groups: FieldGroup[] = []): string {
     const base = KIND_LABELS[a.kind] || a.kind;
+    const when = a.when ? describeConditions(a.when, groups, { entryTypes: entryTypeChoices }) : "";
     const webhookName = a.webhook_id
       ? ((OPTIONS.webhooks || []).find((w: any) => w.id === a.webhook_id)?.name ?? "webhook")
       : (a.url ? "raw url" : "");
     const detail = a.op || a.task || (a.event ? prettyEvent(a.event) : "") || webhookName;
     const text = detail ? `${base} · ${detail}` : base;
-    return `<span class="chip step k-${esc(a.kind)}">${esc(text)}</span>`;
+    const only = when ? ` <span class="chip-when" title="${esc(`Only when ${when}`)}">· only when ${esc(when)}</span>` : "";
+    return `<span class="chip step k-${esc(a.kind)}${when ? " conditional" : ""}">${esc(text)}${only}</span>`;
   }
   function lane(label: string, chips: string[]): string {
     if (!chips.length) return "";
@@ -2271,10 +2427,21 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   }
   function summarize(wf: any): string {
     const d = wf.definition || {};
-    const conds = (d.conditions || []).map(
-      (c: any) => `<span class="chip cond">${esc(c.field)} <em>${esc(OP_SYMBOL[c.op] || c.op)}</em> ${esc(c.value ?? "")}</span>`,
-    );
-    const steps = (d.actions || []).map(stepChip);
+    // The card reads conditions as the editor does: in words, the trigger's own field names (lib/conditions.ts).
+    const ttype = d.trigger?.type || "event";
+    const catalog = (OPTIONS.conditionFields || {})[ttype] || (OPTIONS.conditionFields || {}).event || [];
+    const inputs = ttype === "manual" ? d.trigger?.inputs ?? [] : [];
+    // The steps' results the conditions read (steps.<id>.output.<key>), so a card names the step rather than the path.
+    const read = JSON.stringify([d.conditions, (d.actions || []).map((a: any) => a?.when)]);
+    const ids = (d.actions || []).filter((a: any) => a?.id).map((a: any) => ({
+      id: a.id,
+      label: KIND_LABELS[a.kind] || a.kind,
+      keys: [...read.matchAll(new RegExp(`steps\\.${a.id.replace(/[^\w-]/g, "")}\\.output\\.([\\w.]+)`, "g"))].map((m) => m[1]),
+    }));
+    const groups = fieldGroups(catalog, { inputs, steps: ids });
+    const ctx = { entryTypes: entryTypeChoices, inputs };
+    const conds = (d.conditions || []).map((c: any) => `<span class="chip cond">${esc(describeConditions(c, groups, ctx))}</span>`);
+    const steps = (d.actions || []).map((a: any) => stepChip(a, groups));
     const trigText = triggerSummary(wf, NAMES);
     const trigChip = `<span class="chip trigger">${esc(trigText)}</span>`;
     const onChips = d.target ? [`<span class="chip target">${esc(targetSummary(d.target))}</span>`] : [];
@@ -2617,6 +2784,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   $("wf-sched-kind").addEventListener("change", () => { syncScheduleKind(); revalidate(); });
   $("wf-add-input").addEventListener("click", () => { $("wf-inputs").appendChild(inputRow()); revalidate(); });
   $("wf-add-condition").addEventListener("click", () => { $("wf-conditions").appendChild(conditionRow()); revalidate(); });
+  loadEntryTypeChoices();
   $("wf-add-action").addEventListener("click", () => { $("wf-actions").appendChild(actionRow()); revalidate(); });
   $("wf-target-on").addEventListener("change", () => { syncTargetBody(); revalidate(); });
   $("wf-t-entity").addEventListener("change", () => { syncTargetBody(); revalidate(); });
@@ -2850,6 +3018,13 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.rows) { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
   .workflows-page :global(.row) { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--bg); }
   .workflows-page :global(.cond-row) { display: grid; grid-template-columns: 1.5fr 0.9fr 1.3fr auto; gap: 8px; align-items: center; }
+  .workflows-page :global(.cond-row .c-field-wrap),
+  .workflows-page :global(.cond-row .c-value-wrap) { display: grid; gap: 4px; min-width: 0; }
+  .workflows-page :global(.cond-row .c-value-wrap[hidden]) { display: none; }
+  .workflows-page :global(.cond-summary) { margin: 4px 0 2px; font-size: 13px; color: var(--muted); }
+  .workflows-page :global(.a-when summary strong) { color: var(--ink, inherit); font-weight: 600; }
+  .workflows-page :global(.chip.step.conditional) { border-style: dashed; }
+  .workflows-page :global(.chip-when) { color: var(--muted); font-style: italic; }
   .workflows-page :global(.action-head) { display: flex; gap: 8px; align-items: center; }
   .workflows-page :global(.action-head .a-kind) { flex: 0 0 190px; font-weight: 600; }
   /* Step numbers follow the order on screen; the id is what later steps use to read a step's result. */
