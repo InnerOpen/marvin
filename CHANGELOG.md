@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.49 (2026-10-23)
+
+### Features
+
+- **agents**: An agent can check its work before it finishes (off by default)
+  ([`6a9aa54`](https://github.com/InnerOpen/marvin/commit/6a9aa544fcafa9427dac2ead3a43bf016c1f5c18))
+
+### Refactoring
+
+- **automation**: Integration names come from recipe data, not core code
+  ([`9205bae`](https://github.com/InnerOpen/marvin/commit/9205baecd6c94895f3eb14d353d73dbb4117c670))
+
+
 ## v1.1.0-rc.48 (2026-10-22)
 
 ### Bug Fixes
