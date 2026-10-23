@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.51 (2026-10-23)
+
+### Features
+
+- **incoming-webhooks**: Answer a sender's verification request; Meta's schemes come from its
+  integrations
+  ([`e923ac6`](https://github.com/InnerOpen/marvin/commit/e923ac61357afd09b46849d6b26072c8309bcc5b))
+
+
 ## v1.1.0-rc.50 (2026-10-23)
 
 ### Features
