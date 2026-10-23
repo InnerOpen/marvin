@@ -524,7 +524,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const COND_OP_LABELS: Record<string, string> = WORKFLOW_LABELS.conditionOps;
   // Most-useful-first (backend returns kinds alphabetically). New steps default to the first
   // available — an AI operation when AI is on, otherwise the first non-AI kind.
-  const KIND_ORDER = ["operation", "agent", "entry", "media", "collect", "repeat", "parallel", "fetch", "request", "schema_check", "email", "metric", "snapshot", "automation_result", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
+  const KIND_ORDER = ["operation", "agent", "entry", "media", "collect", "repeat", "parallel", "fetch", "request", "schema_check", "email", "alert", "metric", "snapshot", "automation_result", "approval", "wait", "handler", "webhook", "integration", "emit_event"];
   // A repeat's or a parallel branch's inner steps: a run can't park mid-loop or mid-branch, so no wait, approval, repeat or
   // parallel inside (backend: NOT_INSIDE, NOT_IN_A_BRANCH); an agent step would run its AI loop once per item or branch.
   const NOT_IN_REPEAT = new Set(["wait", "approval", "repeat", "parallel", "agent"]);
@@ -787,6 +787,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         return ["valid", "errors", "error_count", "text"];
       case "email":
         return ["sent", "to", "name", "role", "subject"];
+      case "alert":
+        return ["sent", "title", "channels"];
       case "metric":
         return (row.querySelector(".a-mt-op") as HTMLSelectElement | null)?.value === "read"
           ? ["text", "count", "rows", "total"]
@@ -863,7 +865,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       .catch(() => ({ bySlug: new Map(), providers: new Map() }));
     return integrationCatalog;
   }
-  // Idempotency (webhook and integration steps): the same key within the window makes the call once.
+  // Idempotency (webhook and integration steps; the alert step has its own wording): the same key within the window makes the call once.
   function idempotencyHtml(a: any): string {
     return `<div class="a-idem">
       <label class="tf"><span>Make this call once <span class="muted">(a key, e.g. handoff-\${entry.id}: the same key again within the window calls nothing and reuses the first answer)</span></span>
@@ -1470,6 +1472,25 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         <label class="tf"><span>Picture <span class="muted">(optional: shown with the question — a template to a picture URL, e.g. \${steps.cover.output.images.0.asset.url} or \${entry.image})</span></span>
           <input class="input a-image" value="${esc(a.image ?? "")}" placeholder="e.g. \${steps.cover.output.images.0.asset.url}" /></label>
         <span class="hint small">The run waits here; they're told (push, and Automation → Approvals). It goes on from the next step once one decides, with <code>\${steps.&lt;step id&gt;.output.decision}</code>: approved, denied, expired or stale (the entry changed after it was asked) — use “Only run this step when…” on the steps after it. With choices, approving picks one: <code>.choice</code> (the label) and <code>.choice_index</code> (from 0). Give this step an id.</span>`;
+    } else if (kind === "alert") {
+      wrap.innerHTML = `
+        <label class="tf"><span>Title <span class="muted">(templates and Variables allowed, e.g. New order for \${entry.title})</span></span>
+          <input class="input a-al-title" maxlength="200" value="${esc(a.title ?? "")}" placeholder="e.g. \${entry.title} needs a look" /></label>
+        <label class="tf"><span>Level <span class="muted">(a warning or an error stays in the bell until dismissed)</span></span>
+          <select class="input a-al-level">${[["info", "Info"], ["warning", "Warning"], ["error", "Error"]].map(([v, l]) => `<option value="${v}" ${(a.level ?? "info") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label class="tf"><span>Message <span class="muted">(optional)</span></span>
+          <textarea class="input a-al-message" rows="3" maxlength="1500" placeholder="e.g. Stock is down to \${entry.data.stock}. Restock from {{SUPPLIER_URL}}.">${esc(a.message ?? "")}</textarea></label>
+        <label class="tf"><span>Details <span class="muted">(optional: the longer part, shown when the alert is expanded — text, or a template to a list or an object, e.g. \${steps.check.output.rows})</span></span>
+          <textarea class="input a-al-details" rows="4" maxlength="10000" placeholder="e.g. Ordered this week: \${steps.orders.output.count}">${esc(typeof a.details === "string" ? a.details : a.details == null ? "" : JSON.stringify(a.details))}</textarea></label>
+        <label class="tf"><span>Link <span class="muted">(optional: a page in the admin, e.g. /automation/approvals, or a web address; default this workflow's runs)</span></span>
+          <input class="input a-al-link" value="${esc(a.link ?? "")}" placeholder="/automation/workflows" /></label>
+        <div class="a-idem">
+          <label class="tf"><span>Send once <span class="muted">(optional: a key, e.g. low-stock-\${entry.id} — the same key again within the window sends nothing)</span></span>
+            <input class="input a-idem-key" placeholder="leave blank to send every time" value="${esc(a.idempotency_key ?? "")}" /></label>
+          <label class="tf"><span>For how many hours <span class="muted">(1–720, default 24)</span></span>
+            <input class="input a-idem-hours" type="number" min="1" max="720" placeholder="24" value="${esc(a.idempotency_window_hours ?? "")}" /></label>
+        </div>
+        <span class="hint small">The bell shows the title and message, with the details under <strong>More</strong>. <a href="/automation/notifications">Notifications</a> also sends it where “Sent by a workflow” alerts go: email to the owners and admins, push, and any connected channel that takes it.</span>`;
     } else if (kind === "handler") {
       wrap.innerHTML = `<input class="input a-task" list="wf-handlers" placeholder="request_site_rebuild" value="${esc(a.task ?? "")}" /><span class="hint small">An internal task to run (e.g. request_site_rebuild, ai_reindex_embeddings).</span>`;
     } else if (kind === "webhook") {
@@ -1507,6 +1528,14 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     const step: any = orig?.kind === kind ? { ...orig } : { kind };
     const field = (sel: string) => r.querySelector(sel) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
     const setOrDrop = (key: string, value: unknown) => { if (value) step[key] = value; else delete step[key]; };
+    // Once per key within the window (webhook, integration and alert steps).
+    const readOnce = () => {
+      const idemKey = field(".a-idem-key");
+      if (!idemKey) return;
+      setOrDrop("idempotency_key", idemKey.value.trim());
+      const hours = Number(field(".a-idem-hours")?.value);
+      setOrDrop("idempotency_window_hours", step.idempotency_key && Number.isFinite(hours) && hours >= 1 ? Math.min(Math.round(hours), 720) : null);
+    };
     setOrDrop("id", field(".a-id")?.value.trim().replace(/\s+/g, "_"));
     if (kind === "operation") {
       const op = field(".a-op")?.value;
@@ -1799,6 +1828,23 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       setOrDrop("image", field(".a-image")?.value.trim() || null);
       return step;
     }
+    if (kind === "alert") {
+      const title = field(".a-al-title")?.value.trim();
+      if (!title) return null;
+      step.title = title;
+      setOrDrop("level", field(".a-al-level")?.value === "info" ? null : field(".a-al-level")?.value);
+      setOrDrop("message", field(".a-al-message")?.value.trim() || null);
+      // A list or an object set in JSON shows as JSON here, and goes back as it was.
+      const details = field(".a-al-details")?.value.trim() || null;
+      let parsed: unknown = details;
+      if (details && /^[[{]/.test(details)) {
+        try { parsed = JSON.parse(details); } catch { parsed = details; }
+      }
+      setOrDrop("details", parsed);
+      readOnce();
+      setOrDrop("link", field(".a-al-link")?.value.trim() || null);
+      return step;
+    }
     if (kind === "handler") {
       const task = field(".a-task")!.value.trim();
       if (!task) return null;
@@ -1807,12 +1853,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     }
     if (kind === "integration" || kind === "webhook") {
       // Both step kinds can call once: the same key within the window makes the call a single time.
-      const idemKey = field(".a-idem-key");
-      if (idemKey) {
-        setOrDrop("idempotency_key", idemKey.value.trim());
-        const hours = Number(field(".a-idem-hours")?.value);
-        setOrDrop("idempotency_window_hours", step.idempotency_key && Number.isFinite(hours) && hours >= 1 ? Math.min(Math.round(hours), 720) : null);
-      }
+      readOnce();
     }
     if (kind === "integration") {
       const integration = field(".a-integration")!.value.trim();

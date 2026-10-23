@@ -1784,6 +1784,23 @@ CATALOG: list[CatalogEntry] = [
         ],
     ),
     CatalogEntry(
+        event_type="workflow_alert",
+        name="Workflow Alert",
+        description="A workflow's Send an alert step: the bell shows it (with its details behind More), and Settings → Automation → "
+        "Notifications sends it where “Sent by a workflow” alerts go.",
+        category="Automation",
+        sent_by=["A workflow's Send an alert step"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("automation_name", "The workflow's name", "Low stock check", type="name"),
+            EventVariable("automation_slug", "The workflow's slug", "low-stock-check"),
+            EventVariable("title", "The alert's title", "Stock low: Brass lantern", type="title"),
+            EventVariable("message", "What it says up front", "Only 2 left."),
+            EventVariable("details", "The longer part, shown when it is expanded", "Ordered 14 this week…"),
+            EventVariable("link", "Where it points", "/automation/workflows"),
+        ],
+    ),
+    CatalogEntry(
         event_type="workflow_approval_decided",
         name="Workflow Approval Decided",
         description="A waiting workflow run was approved, denied, expired, or found stale (the entry changed after it was asked) — and went on.",

@@ -355,6 +355,7 @@ class TestActionRegistry:
             "entry",
             "integration",
             "approval",
+            "alert",
             "agent",
             "media",
             "collect",

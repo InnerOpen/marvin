@@ -465,6 +465,8 @@ class EventTypes(EventTypeBase):
     """A workflow run is waiting at an Approval step — the approvers are told (push, Automation → Approvals)."""
     workflow_approval_decided = auto()
     """A waiting workflow run was approved, denied, expired or found stale — and went on."""
+    workflow_alert = auto()
+    """A workflow's Send an alert step: the bell shows it, and Notifications sends it where "Sent by a workflow" goes."""
     automation_enabled = auto()
     """A workflow was switched on — from its page, the API, or an agent with the admin's approval."""
     automation_disabled = auto()
@@ -1559,6 +1561,25 @@ class EventWorkflowApprovalData(EventDocumentDataBase):
     entry_id: UUID4 | None = None
     expires_at: str | None = None
     note: str | None = None
+
+
+class EventWorkflowAlertData(EventDocumentDataBase):
+    """Data payload for a workflow's own alert (workflow_alert): what it says up front, and the details it opens to."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    operation: EventOperationBase = EventOperation.info
+    automation_id: UUID4 | None = None
+    automation_name: str | None = None
+    automation_slug: str | None = None
+    title: str
+    level: str = "info"
+    """info, warning or error."""
+    message: str | None = None
+    details: str | None = None
+    """The longer part, shown when the alert is expanded."""
+    link: str | None = None
+    """A page in the admin (a path) or a web address."""
+    entry_id: UUID4 | None = None
 
 
 class EventAIApprovalData(EventDocumentDataBase):

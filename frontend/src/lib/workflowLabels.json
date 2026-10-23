@@ -32,6 +32,7 @@
     "request": "Call a web API",
     "schema_check": "Check against a schema",
     "email": "Email a member",
+    "alert": "Send an alert",
     "metric": "Record a metric",
     "snapshot": "Save or restore a version",
     "automation_result": "Record an automation result",

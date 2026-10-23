@@ -63,7 +63,10 @@ SECTION_GUIDE: dict[str, str] = {
     "media": (
         "the media step's ops (resize, crop, render, OCR, PDF, zip, watermark…) and the render templates · when images or documents are involved"
     ),
-    "email": "the email step in full: who it may write to, sending once, links by role, what a dry run shows · when a step writes to a member",
+    "email": (
+        "the email step in full (who it may write to, sending once, links by role, what a dry run shows) and the alert step "
+        "· when a step writes to a member, or alerts the owners and admins"
+    ),
     "records": "the metric, snapshot, schema_check and automation_result steps in full · for counts, versions, JSON checks and hand-off reports",
     "agent": "the agent step in full: its fields, what the agent may do, Playbooks, output and guards · when a job goes to an agent",
     "social": "social.post and the engagement capabilities (comments, reply, like, hide, delete, repost, message) · when posting or answering",
@@ -456,6 +459,7 @@ def _conditions() -> dict:
 OWN_SECTION_KINDS = {
     "media": "media",
     "email": "email",
+    "alert": "email",
     "metric": "records",
     "snapshot": "records",
     "schema_check": "records",
@@ -680,7 +684,9 @@ def _templates() -> dict:
     return {
         "syntax": [
             '"${path}" as a whole value keeps the value\'s type; inside text ("Hi ${entry.title}") it is stringified.',
-            '"$path" (whole value, no braces) also works. {{...}}, steps[...] and other forms are NOT templates.',
+            '"$path" (whole value, no braces) also works. {{SLUG}} (upper case) in any text is the workspace Variable of that name, '
+            "the same as ${vars.SLUG}; never a Secret, which only a header or an integration argument reads. steps[...] and other forms "
+            "are NOT templates.",
             '"${path|filter}" turns the value first; filters chain left to right and take arguments after a colon, '
             "comma-separated (quote one holding a comma or a bar): \"${entry.published_at|date:'%d %b %Y',Europe/Madrid}\", "
             '"${entry.title|truncate:60|default:\'Untitled\'}", "${entry.tags|join:\' · \'}", "${entry.url|url}".',
@@ -801,7 +807,7 @@ def authoring_guide(session, group_id, section: str | None = None, recipe: str |
     if "media" in want:
         out["media"] = {"step": _step_doc("media"), "note": MEDIA_NOTE, "render_templates": _render_templates()}
     if "email" in want:
-        out["email"] = {"step": _step_doc("email"), "note": EMAIL_NOTE}
+        out["email"] = {"step": _step_doc("email"), "note": EMAIL_NOTE, "alert": _step_doc("alert")}
     if "records" in want:
         out["records"] = {
             "metric": _step_doc("metric"),
@@ -1160,6 +1166,48 @@ def agent_step_warnings(session, group_id, definition: dict, role: int) -> list[
             if issue:
                 out.append({"level": "warning", "message": issue, "where": where, "index": i, "path": f"{list_key}[{i}].agent"})
     return out
+
+
+def variable_warnings(session, group_id, definition: dict) -> list[dict]:
+    """A step naming a Variable this workspace doesn't have (`{{SHOP_URL}}` or `${vars.SHOP_URL}`), as warnings: the run
+    leaves the text as written. A `{{SLUG}}` that names a Secret is fine where a Secret belongs (a header, an integration
+    argument) and is never filled in anywhere else, so it isn't flagged."""
+    from marvin.services.secrets.factory import get_secret_backend
+
+    from .engine import _variables_context
+    from .matcher import _BRACED, VARIABLE_REF
+
+    def names(value: Any):
+        if isinstance(value, str):
+            yield from VARIABLE_REF.findall(value)
+            yield from (m.split("|")[0].strip()[5:] for m in _BRACED.findall(value) if m.strip().startswith("vars."))
+        elif isinstance(value, dict):
+            for v in value.values():
+                yield from names(v)
+        elif isinstance(value, list):
+            for v in value:
+                yield from names(v)
+
+    found = [
+        (key, where, i, name)
+        for key, where in (("actions", "action"), ("on_failure", "on_failure"))
+        for i, step in enumerate(definition.get(key) or [])
+        for name in dict.fromkeys(names(step))
+    ]
+    if not found:
+        return []
+    known = set(_variables_context(session, group_id)) | set(get_secret_backend().list_slugs(group_id))
+    return [
+        {
+            "level": "warning",
+            "message": f"There is no Variable called “{name}” (Settings → Variables), so the run will leave “{{{{{name}}}}}” as written.",
+            "where": where,
+            "index": i,
+            "path": f"{key}[{i}]",
+        }
+        for key, where, i, name in found
+        if name not in known
+    ]
 
 
 def _templated_integration_issues(step: dict, after_approval: bool, bad) -> None:

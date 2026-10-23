@@ -575,6 +575,7 @@ def _hand_off_step(session, group_id, row: Result, automation) -> tuple[int, dic
         "event": {"event_type": "manual", "entry_id": str(row.entry_id)},
         "depth": 0,
         "site": engine._site_context(session, group_id),
+        "vars": engine._variables_context(session, group_id),
         "entry": entry_context,
     }
     if len(candidates) > 1:  # several hand-offs on one connection: the one that asked for this target

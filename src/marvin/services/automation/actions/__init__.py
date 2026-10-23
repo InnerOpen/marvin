@@ -7,6 +7,7 @@ Importing this package registers every executor (side-effect imports below). The
 # Register executors (import for side effects).
 from . import (  # noqa: E402,F401
     agent,
+    alert,
     approval,
     automation_result,
     collect,

@@ -11,6 +11,7 @@ import {
   changeHref,
   changesLabel,
   dismissTimer,
+  expandsDetail,
   formatDuration,
   isBackupRecovery,
   keyedToasts,
@@ -461,5 +462,32 @@ describe("admin alerts", () => {
       refineKind({ eventType: "backup_failed", messageTitle: "x", messageBody: "Backup r2: failed" }, failed),
       failed,
     );
+  });
+});
+
+describe("a workflow alert's level", () => {
+  const kind = { tone: "info", label: "Alert" };
+  test("sets the toast's tone", () => {
+    assert.equal(refineKind({ eventType: "workflow_alert", messageTitle: "x", level: "error" }, kind).tone, "err");
+    assert.equal(refineKind({ eventType: "workflow_alert", messageTitle: "x", level: "warning" }, kind).tone, "warn");
+  });
+
+  test("an alert without one, or with one Marvin doesn't know, stays info", () => {
+    assert.equal(refineKind({ eventType: "workflow_alert", messageTitle: "x" }, kind).tone, "info");
+    assert.equal(refineKind({ eventType: "workflow_alert", messageTitle: "x", level: "loud" }, kind).tone, "info");
+  });
+});
+
+describe("expandsDetail", () => {
+  test("a workflow alert's details open under More", () => {
+    assert.equal(expandsDetail({ eventType: "workflow_alert", detail: "Ordered 14 this week." }), true);
+  });
+
+  test("a workflow alert without details has nothing to open", () => {
+    assert.equal(expandsDetail({ eventType: "workflow_alert", detail: null }), false);
+  });
+
+  test("a failure's reason stays the red line it always was", () => {
+    assert.equal(expandsDetail({ eventType: "automation_failed", detail: "HTTP 401" }), false);
   });
 });

@@ -195,3 +195,14 @@ def test_the_bell_leaves_out_a_scheduled_tasks_passing_network_blip():
     assert not _passing_blip(failed(transient=False))
     assert not _passing_blip(failed())  # recorded before this change: shown as before
     assert not _passing_blip(SimpleNamespace(event_type="automation_failed", event_data={"documentData": {"alertDeferred": True}}))
+
+
+def test_a_workflow_alert_carries_its_details_to_the_bell(db_session, workspace):
+    details = "Ordered this week: 14\n" + "x" * 5000
+    _event(
+        db_session, workspace, 1, event_type="workflow_alert", body="Stock low — Only 2 left.", document={"title": "Stock low", "details": details}
+    )
+
+    (event,) = _feed(db_session, workspace).events
+
+    assert event.detail.startswith("Ordered this week: 14\nxx") and len(event.detail) == 4000  # the event log keeps the rest

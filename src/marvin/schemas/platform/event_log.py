@@ -78,6 +78,8 @@ class EventFeedItem(EventLogSummary):
     """A queued site rebuild is sent once requests have been quiet this long (site_rebuild_queued)."""
     max_wait_seconds: int | None = None
     """…or at the latest this long after its first request (site_rebuild_queued)."""
+    level: str | None = None
+    """A workflow alert's level: info, warning or error (workflow_alert) — the toast's colour, and whether it stays."""
 
 
 class EventFeed(_MarvinModel):

@@ -363,6 +363,76 @@ def _site_context(session, group_id) -> dict:
     return {"url": site_base_url(session, group_id), "app_url": ui_base_url()}
 
 
+def _read_variables(session, group_id) -> dict:
+    """The workspace's Variables by slug, less any that shares its name with a Secret: a header's or an integration
+    argument's `{{SLUG}}` still resolves to the Secret (as it always has), and a Secret's name in a message stays as written."""
+    if group_id is None:
+        return {}
+    from sqlalchemy import select
+
+    from marvin.db.models.groups.variables import WorkspaceVariable
+    from marvin.services.secrets.factory import get_secret_backend
+
+    rows = session.execute(select(WorkspaceVariable.slug, WorkspaceVariable.value).where(WorkspaceVariable.group_id == group_id)).all()
+    if not rows:
+        return {}
+    secrets = set(get_secret_backend().list_slugs(group_id))
+    return {slug: value for slug, value in rows if slug not in secrets}
+
+
+class _Variables(dict):
+    """A run's `vars`: the workspace's Variables, read the first time a step asks for one — most runs never do."""
+
+    def __init__(self, session=None, group_id=None) -> None:
+        super().__init__()
+        self._source = (session, group_id) if session is not None else None
+
+    def _loaded(self) -> "_Variables":
+        if self._source is not None:
+            session, group_id = self._source
+            self._source = None
+            dict.update(self, _read_variables(session, group_id))
+        return self
+
+    def __contains__(self, key) -> bool:
+        return dict.__contains__(self._loaded(), key)
+
+    def __getitem__(self, key):
+        return dict.__getitem__(self._loaded(), key)
+
+    def get(self, key, default=None):
+        return dict.get(self._loaded(), key, default)
+
+    def __iter__(self):
+        return dict.__iter__(self._loaded())
+
+    def __len__(self) -> int:
+        return dict.__len__(self._loaded())
+
+    def keys(self):
+        return dict.keys(self._loaded())
+
+    def values(self):
+        return dict.values(self._loaded())
+
+    def items(self):
+        return dict.items(self._loaded())
+
+    def __eq__(self, other) -> bool:
+        return dict.__eq__(self._loaded(), other)
+
+    __hash__ = None  # type: ignore[assignment] — a dict: unhashable
+
+    def __repr__(self) -> str:
+        return dict.__repr__(self._loaded())
+
+
+def _variables_context(session, group_id) -> dict:
+    """The workspace's Variables, for `{{SHOP_URL}}` or `${vars.SHOP_URL}` in a step's text. Variables only: no Secret is
+    read here (see _read_variables)."""
+    return _Variables(session, group_id)
+
+
 # What a template (`${…}`) can read in a run, by namespace — the workflow authoring guide lists these
 # (services/automation/authoring.py); test_workflow_authoring checks them against the contexts built here.
 TEMPLATE_NAMESPACES: dict[str, str] = {
@@ -387,6 +457,7 @@ TEMPLATE_NAMESPACES: dict[str, str] = {
     "previous": "the previous step's output",
     "steps": "steps.<id>.output.<key>: an earlier step's output, by its `id` (or its position, from 0)",
     "site": "site.url: the workspace's Canonical URL; site.app_url: where the admin app is (for a link in an email)",
+    "vars": "vars.<SLUG>: a workspace Variable (Settings → Variables), also written {{SLUG}} in any step's text; never a Secret",
     "error": "on_failure steps only: error.message, error.code, error.step, error.kind, error.at",
 }
 
@@ -398,6 +469,7 @@ def match_context(session, group_id, event_ctx: dict) -> dict:
         "previous": {},
         "depth": int(event_ctx.get("reaction_depth", 0)),
         "site": _site_context(session, group_id),
+        "vars": _variables_context(session, group_id),
     }
     if event_ctx.get("entry_id"):
         entry_ctx = _entry_context(session, group_id, event_ctx["entry_id"])
@@ -1077,6 +1149,7 @@ def run_automation_now(
         "previous": {},
         "depth": 0,
         "site": _site_context(session, group_id),
+        "vars": _variables_context(session, group_id),
         "input": values,
     }
     if entry_id and (entry_ctx := _entry_context(session, group_id, entry_id)):
@@ -1260,7 +1333,13 @@ def _run_retry_turn(session, group_id, row, automation, defn, *, logger, run_act
 
     snap = row.snapshot or {}
     event = dict(snap.get("event") or {})
-    context: dict = {"event": event, "previous": {}, "depth": int(event.get("reaction_depth", 0) or 0), "site": _site_context(session, group_id)}
+    context: dict = {
+        "event": event,
+        "previous": {},
+        "depth": int(event.get("reaction_depth", 0) or 0),
+        "site": _site_context(session, group_id),
+        "vars": _variables_context(session, group_id),
+    }
     if "input" in snap:  # a manual run's inputs
         context["input"] = snap["input"]
     # The entry as it is now — it may have changed since the failure. Once it is gone (or the run was
@@ -1482,7 +1561,13 @@ def _resume_turn(
 
     snap = row.snapshot or {}
     event = dict(snap.get("event") or {})
-    context: dict = {"event": event, "previous": {}, "depth": int(event.get("reaction_depth", 0) or 0), "site": _site_context(session, group_id)}
+    context: dict = {
+        "event": event,
+        "previous": {},
+        "depth": int(event.get("reaction_depth", 0) or 0),
+        "site": _site_context(session, group_id),
+        "vars": _variables_context(session, group_id),
+    }
     if "input" in snap:  # a manual run's inputs
         context["input"] = snap["input"]
     entry_ctx = _entry_context(session, group_id, row.entry_id) if row.entry_id else None

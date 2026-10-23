@@ -59,6 +59,7 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
     refineKind,
     toastGroup,
     toastView,
+    expandsDetail,
   } from "@/lib/activity/toast";
   import { fetchApi } from "@/lib/api/client";
   import { isNoWorkspaceError } from "@/lib/workspaceGate";
@@ -81,6 +82,7 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
     runId?: string | null;
     workflowName?: string | null;
     handled?: boolean | null;
+    level?: string | null;
     targetCount?: number | null;
     quietSeconds?: number | null;
     maxWaitSeconds?: number | null;
@@ -145,6 +147,8 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
       href: () => "/workspace/settings/ai-ask",
       skip: (e) => (e.messageBody || "").startsWith("Auto-indexed"),
     },
+    // A workflow's Send an alert step, at its level (refineKind): a warning or an error stays; its details open under More.
+    workflow_alert: { tone: "info", label: "Alert", href: subjectHref("/automation/workflows") },
     form_submission_received: { tone: "info", label: "Form submission", href: entryHref },
     // The scheduled publish held an entry back (once per reason, not every run) — sticky until dismissed.
     entry_scheduled_publish_blocked: { tone: "warn", label: "Scheduled publish waiting", href: entryHref },
@@ -305,6 +309,44 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
     return wrap;
   }
 
+  // "More ▾" under a workflow alert: the details it was sent with, and where it points.
+  function detailsDisclosure(eventId: string, text: string, href: string | null, onToggle: (open: boolean) => void): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "activity-changes";
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "activity-changes-toggle";
+    toggle.setAttribute("aria-expanded", "false");
+    const panelId = `activity-details-${eventId}`;
+    toggle.setAttribute("aria-controls", panelId);
+    const caret = document.createElement("span");
+    caret.setAttribute("aria-hidden", "true");
+    caret.textContent = "▾";
+    toggle.append("More ", caret);
+
+    const panel = document.createElement("div");
+    panel.id = panelId;
+    panel.className = "activity-details";
+    panel.hidden = true;
+    const body = document.createElement("p");
+    body.textContent = text;
+    panel.append(body);
+    if (href) {
+      const open = document.createElement("a");
+      open.href = href;
+      open.textContent = "Open";
+      panel.append(open);
+    }
+    toggle.addEventListener("click", () => {
+      const open = toggle.getAttribute("aria-expanded") !== "true";
+      toggle.setAttribute("aria-expanded", String(open));
+      panel.hidden = !open;
+      onToggle(open);
+    });
+    wrap.append(toggle, panel);
+    return wrap;
+  }
+
   type Toast = { el: HTMLElement; countdown: DismissTimer | null };
   // Queued rebuilds and running workflows, waiting for the event that ends them.
   const pending = keyedToasts<Toast>((t) => dismiss(t.el));
@@ -315,8 +357,9 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
     const admin = group === "admin";
     const view = toastView(e, kind, Boolean(opts.replace));
     const changes = summarizeChanges(e.changes, e.requestCount);
+    const details = expandsDetail(e) ? e.detail! : null;
     // A toast with its own links inside can't itself be a link.
-    const link = kind.href && !changes ? kind.href(e) : null;
+    const link = kind.href && !changes && !details ? kind.href(e) : null;
     const action = !link && kind.onClick ? kind.onClick(e) : null;
     const el = document.createElement(link ? "a" : "div");
     el.className = `activity-toast ${view.tone}${admin ? " admin" : ""}${opts.replace ? " updated" : ""}${action ? " actionable" : ""}`;
@@ -381,7 +424,7 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
       el.append(note);
     }
 
-    if (e.detail) {
+    if (e.detail && !details) {
       const detail = document.createElement("div");
       detail.className = "activity-detail";
       detail.textContent = e.detail;
@@ -409,6 +452,7 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
       });
     }
     if (changes) el.append(changesDisclosure(e.eventId, changes, (open) => (open ? countdown?.hold("open") : countdown?.release("open"))));
+    if (details) el.append(detailsDisclosure(e.eventId, details, kind.href?.(e) ?? null, (open) => (open ? countdown?.hold("open") : countdown?.release("open"))));
 
     const close = document.createElement("button");
     close.type = "button";
@@ -601,6 +645,8 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
   }
   .activity-stack :global(.activity-changes li) { margin: 2px 0; overflow-wrap: anywhere; }
   .activity-stack :global(.activity-changes a) { color: inherit; }
+  .activity-stack :global(.activity-details p) { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16em; overflow-y: auto; }
+  .activity-stack :global(.activity-details a) { color: inherit; }
   .activity-stack :global(.activity-changes-more) { list-style: none; color: var(--muted); }
   .activity-stack :global(.activity-close) {
     position: absolute; top: 4px; right: 6px; border: 0; background: none; color: var(--muted);

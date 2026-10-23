@@ -123,7 +123,11 @@ export type ProgressEvent = {
   changes?: RebuildChange[] | null;
   /** A failed workflow run whose failures an integration's error policy took in hand (automation_failed). */
   handled?: boolean | null;
+  /** A workflow alert's level (workflow_alert): info, warning or error. */
+  level?: string | null;
 };
+
+const ALERT_TONES: Record<string, Tone> = { info: "info", warning: "warn", error: "err" };
 
 /**
  * The toast kind for one event: its type's kind, refined where the event says so — a failed run the
@@ -131,6 +135,7 @@ export type ProgressEvent = {
  * backup that went quiet is "overdue", not "failed".
  */
 export function refineKind<K extends { tone: Tone; label: string }>(e: ProgressEvent, kind: K): K {
+  if (e.eventType === "workflow_alert" && e.level && ALERT_TONES[e.level]) return { ...kind, tone: ALERT_TONES[e.level] };
   if (e.eventType === "automation_failed" && e.handled)
     return { ...kind, tone: "warn", label: "Workflow failed — handled" };
   // backup_failed also means a target went quiet: no successful run within its window.
@@ -194,6 +199,11 @@ export function planToasts<E extends ProgressEvent>(events: E[], isOpen: (key: s
 }
 
 const entriesLabel = (n: number) => `${n} entr${n === 1 ? "y" : "ies"}`;
+
+/** Whether a toast's detail opens under "More ▾" (a workflow alert's details) instead of showing as a failure's red line. */
+export function expandsDetail(e: { eventType: string; detail?: string | null }): boolean {
+  return e.eventType === "workflow_alert" && Boolean(e.detail);
+}
 
 export type ToastView = {
   tone: Tone;

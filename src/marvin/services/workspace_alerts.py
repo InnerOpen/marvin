@@ -46,6 +46,7 @@ WORKFLOW_FAILED = "workflow_failed"
 SCHEDULED_TASK_FAILED = "scheduled_task_failed"
 INTEGRATION_ATTENTION = "integration_attention"
 TRASH_SOON = "trash_auto_empty_soon"
+WORKFLOW_ALERT = "workflow_alert"
 
 KINDS: tuple[AlertKind, ...] = (
     AlertKind(
@@ -99,6 +100,13 @@ KINDS: tuple[AlertKind, ...] = (
         "/workspace/collections",
         default=False,
         push=False,
+    ),
+    AlertKind(
+        WORKFLOW_ALERT,
+        "Sent by a workflow",
+        "workflow_alert",
+        "A workflow's Send an alert step: its title, message and details, each time the step runs.",
+        "/automation/workflows",
     ),
 )
 KINDS_BY_KEY: dict[str, AlertKind] = {k.key: k for k in KINDS}
@@ -342,6 +350,8 @@ def _subject(kind: str, data: dict) -> str | None:
 
 
 def _link_path(kind: AlertKind, data: dict) -> str:
+    if kind.key == WORKFLOW_ALERT:
+        return data.get("link") or (f"{kind.link_path}?workflow={data['automation_id']}" if data.get("automation_id") else kind.link_path)
     if kind.key == WORKFLOW_FAILED and data.get("automation_id"):
         return f"{kind.link_path}?workflow={data['automation_id']}"
     if kind.key == SCHEDULED_TASK_FAILED and data.get("task_id"):
@@ -357,6 +367,8 @@ def message_for(scope: WorkspaceScope, session: Session, kind: AlertKind, event,
     subject = _subject(kind.key, data)
     if kind.key == INTEGRATION_ATTENTION:
         title, summary, detail = data.get("title") or kind.label, data.get("summary") or kind.description, None
+    elif kind.key == WORKFLOW_ALERT:
+        return _workflow_alert_message(scope, session, kind, data)
     elif kind.key == TRASH_SOON:
         total = int(data.get("total") or 0)
         title = f"{total} item{'' if total == 1 else 's'} will be deleted forever tomorrow"
@@ -374,6 +386,28 @@ def message_for(scope: WorkspaceScope, session: Session, kind: AlertKind, event,
     return alerting.build_message(
         title=title, summary=summary, detail=detail, reason=scope.reason(kind), link_path=_link_path(kind, data), scope=scope.scope_label(session)
     )
+
+
+def _workflow_alert_message(scope: WorkspaceScope, session: Session, kind: AlertKind, data: dict) -> AlertMessage:
+    """A workflow's own alert: its title and message, then its details. A web address link is kept as it is (the other
+    alerts link a page in the admin)."""
+    from dataclasses import replace
+
+    level = data.get("level")
+    title = data.get("title") or kind.label
+    if level in ("warning", "error"):
+        title = f"{level.capitalize()}: {title}"
+    link = _link_path(kind, data)
+    absolute = link.startswith(("http://", "https://"))
+    message = alerting.build_message(
+        title=title,
+        summary=data.get("message") or data.get("title") or kind.label,
+        detail=data.get("details"),
+        reason=scope.reason(kind),
+        link_path=kind.link_path if absolute else link,
+        scope=scope.scope_label(session),
+    )
+    return replace(message, link=link, path=link) if absolute else message
 
 
 def _recovered_message(scope: WorkspaceScope, session: Session, kind: AlertKind, ended: SimpleNamespace, data: dict) -> AlertMessage:

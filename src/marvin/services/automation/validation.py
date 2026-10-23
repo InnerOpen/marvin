@@ -243,7 +243,7 @@ def validate_definition(definition: dict | None, max_steps: int | None = None) -
                         i,
                     )
                 )
-            elif seg and seg not in namespaces and seg not in ("event", "entry", "site", *ITEM_KINDS):
+            elif seg and seg not in namespaces and seg not in ("event", "entry", "site", "vars", *ITEM_KINDS):
                 issues.append(
                     _issue(
                         "warning",

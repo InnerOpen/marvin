@@ -54,6 +54,7 @@ WEBHOOK_MIN_ROLE = ROLE_ADMIN  # send workspace data to an external endpoint
 INTEGRATION_ACTION_MIN_ROLE = ROLE_ADMIN  # call an external service with the workspace's integration credentials
 SNAPSHOT_MIN_ROLE = ROLE_AUTHOR  # capture or restore an entry's content — a content mutation, like an entry step
 AUTOMATION_RESULT_MIN_ROLE = ROLE_AUTHOR  # settle a hand-off's result — an operational record, written as the entry's own metadata used to be
+ALERT_MIN_ROLE = ROLE_AUTHOR  # alert the workspace's own owners and admins, where its Notifications settings say
 EMAIL_MIN_ROLE = ROLE_ADMIN  # write to a member in the workspace's name, through its SMTP profile
 
 

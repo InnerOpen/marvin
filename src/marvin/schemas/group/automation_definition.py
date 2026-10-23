@@ -674,6 +674,23 @@ class EmailAction(_StepBase):
         return self
 
 
+class AlertAction(_StepBase):
+    """Alerts the owners and admins. `level`: info (default), warning or error. `title` and `message` (optional) are what it
+    says up front; `details` (optional: text, or a template to a list or an object) is what it opens to. The bell shows it,
+    and Notifications sends it where "Sent by a workflow" alerts go. `link`: an admin path or a web address (default the
+    workflow's runs). `idempotency_key` sends once per key within `idempotency_window_hours`. Output `sent`, `title`, `channels`."""
+
+    kind: Literal["alert"]
+    title: str = Field(min_length=1, max_length=200)
+    level: Literal["info", "warning", "error"] = "info"
+    message: str | None = Field(default=None, max_length=1500)
+    details: Any = None
+    link: str | None = Field(default=None, max_length=2000)
+    idempotency_key: str | None = None  # a template: the same key from this workflow within the window sends nothing
+    idempotency_window_hours: int | None = Field(default=None, ge=1, le=720)  # how long a key counts (default 24)
+    id: str | None = None
+
+
 class SnapshotAction(_StepBase):
     """Keeps a version of an entry and puts it back (`op` capture | restore). It acts on the triggering entry, or `entity_id` / `entity_slug`."""
 
@@ -823,6 +840,7 @@ RepeatStep = Annotated[
     | RequestAction
     | SchemaCheckAction
     | EmailAction
+    | AlertAction
     | MetricAction
     | SnapshotAction
     | AutomationResultAction,
@@ -831,7 +849,7 @@ RepeatStep = Annotated[
 MAX_REPEAT_ITEMS = 25
 MAX_REPEAT_STEPS = 5
 # Names a repeat's item can't take: they'd hide what a run already reads.
-RESERVED_ITEM_NAMES = frozenset({"event", "entry", "asset", "resource", "steps", "previous", "input", "site", "error", "depth", "each"})
+RESERVED_ITEM_NAMES = frozenset({"event", "entry", "asset", "resource", "steps", "previous", "input", "site", "vars", "error", "depth", "each"})
 
 
 class RepeatAction(_StepBase):
@@ -926,6 +944,7 @@ ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "request": RequestAction,
     "schema_check": SchemaCheckAction,
     "email": EmailAction,
+    "alert": AlertAction,
     "metric": MetricAction,
     "snapshot": SnapshotAction,
     "automation_result": AutomationResultAction,
@@ -948,6 +967,7 @@ Action = Annotated[
     | FetchAction
     | SchemaCheckAction
     | EmailAction
+    | AlertAction
     | MetricAction
     | SnapshotAction
     | AutomationResultAction

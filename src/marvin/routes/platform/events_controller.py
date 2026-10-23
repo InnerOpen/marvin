@@ -27,6 +27,8 @@ FEED_OVERLAP = timedelta(seconds=10)
 FEED_FIRST_LOOK = timedelta(seconds=5)
 # A site rebuild's "what changed" list, as polled every few seconds: the newest this many.
 FEED_MAX_CHANGES = 20
+ALERT_LEVELS = ("info", "warning", "error")  # a workflow alert's (schemas/group/automation_definition.py AlertAction)
+FEED_MAX_DETAILS = 4000  # a workflow alert's details in a toast; the event log keeps them all
 
 
 def _document(event_data: dict) -> dict:
@@ -34,8 +36,12 @@ def _document(event_data: dict) -> dict:
     return doc if isinstance(doc, dict) else {}
 
 
-def _detail(event_data: dict) -> str | None:
+def _detail(event_data: dict, event_type: str | None = None) -> str | None:
+    """A failure's reason (a red line under the toast), or a workflow alert's details (behind its More)."""
     doc = _document(event_data)
+    if event_type == "workflow_alert":
+        details = doc.get("details")
+        return str(details)[:FEED_MAX_DETAILS] if details else None
     reason = doc.get("error") or doc.get("errorMessage") or doc.get("error_message")
     return str(reason)[:500] if reason else None
 
@@ -71,6 +77,7 @@ def _progress(event_data: dict) -> dict:
         "target_count": _int(doc.get("targetCount")),
         "quiet_seconds": _int(doc.get("quietSeconds")),
         "max_wait_seconds": _int(doc.get("maxWaitSeconds")),
+        "level": doc.get("level") if doc.get("level") in ALERT_LEVELS else None,
     }
 
 
@@ -79,7 +86,7 @@ def _feed_item(event) -> EventFeedItem:
     changes, request_count = _changes(event_data)
     return EventFeedItem(
         **EventLogSummary.model_validate(event).model_dump(),
-        detail=_detail(event_data),
+        detail=_detail(event_data, getattr(event, "event_type", None)),
         changes=changes,
         request_count=request_count,
         **_progress(event_data),

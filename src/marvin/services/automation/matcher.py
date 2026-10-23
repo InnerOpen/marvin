@@ -28,6 +28,11 @@ _OPS = (
 _COMPARE = {"gt": lambda a, b: a > b, "gte": lambda a, b: a >= b, "lt": lambda a, b: a < b, "lte": lambda a, b: a <= b}
 
 _BRACED = re.compile(r"\$\{([^}]+)\}")
+# A workspace Variable as the Variables page writes it, `{{SHOP_URL}}`: upper case, as its slug is. A lower-case `{{name}}` is
+# a recipe's setup placeholder (filled before a workflow is saved) or an email template's own, and is left alone.
+VARIABLE_REF = re.compile(r"\{\{\s*([A-Z][A-Z0-9_]*)\s*\}\}")
+# Both forms in one pass, so a value filled in is never read again as a template.
+_ANY_REF = re.compile(rf"{_BRACED.pattern}|{VARIABLE_REF.pattern}")
 
 _TRUE_WORDS = frozenset({"true", "yes", "on", "1"})
 _FALSE_WORDS = frozenset({"false", "no", "off", "0"})
@@ -112,12 +117,15 @@ def interpolate(value: Any, context: dict) -> Any:
 
     Non-template values pass through unchanged; unknown references resolve to None (or "" when embedded).
     ``${path|filter|filter:arg}`` turns the value first (filters.py: url, date, default, truncate…).
+    ``{{SLUG}}`` in text is the workspace Variable of that name (the run's ``vars``); one the run has no Variable for stays
+    as written, so a typo shows, and a header's or an integration argument's own ``{{SLUG}}`` (a Secret) is left to it.
     """
     if isinstance(value, str):
+        if "${" in value and (whole := _BRACED.fullmatch(value.strip())):  # exactly "${path}" — keep the value's type
+            return _lookup(whole.group(1), context)
+        if "{{" in value and context.get("vars"):
+            return _ANY_REF.sub(lambda m: _filled(m, context), value)
         if "${" in value:
-            whole = _BRACED.fullmatch(value.strip())
-            if whole:  # exactly "${path}" — preserve the referenced value's type
-                return _lookup(whole.group(1), context)
             return _BRACED.sub(lambda m: _stringify(_lookup(m.group(1), context)), value)
         if value.startswith("$"):  # legacy bare whole-string "$path"
             return resolve_path(value[1:], context)
@@ -127,6 +135,12 @@ def interpolate(value: Any, context: dict) -> Any:
     if isinstance(value, list):
         return [interpolate(v, context) for v in value]
     return value
+
+
+def _filled(match: re.Match, context: dict) -> str:
+    if match.group(1) is not None:
+        return _stringify(_lookup(match.group(1), context))
+    return str(context["vars"].get(match.group(2), match.group(0)))
 
 
 def _stringify(v: Any) -> str:
