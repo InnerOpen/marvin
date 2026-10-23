@@ -38,6 +38,11 @@ A provider failure is raised as :class:`IntegrationStepError`, carrying the prov
 its resolved error policy, which the engine applies (`services/integrations/errors.py`): review, retry,
 notify, or carry on.
 
+`capability: "social.inbox_items"` hands the integration a webhook delivery (`args.payload`, e.g. `${event.payload}`) and keeps
+the items it returns in that integration's Social inbox, as a poll's are (deduplicated, the account's own skipped); the output
+adds `count` and `kept` (how many were new). For a webhook the integration didn't create — its own webhook's deliveries reach
+the inbox without a step. It names its `integration` (one network's delivery) and needs no Approval step: nothing goes out.
+
 An action with an `image.*` capability (OpenAI Images' `generate`) returns pictures: each is kept as an asset and
 replaced by a reference (`images: [{asset: {id, slug, url, …}}]`) before the output reaches the run, so a run can wait
 for approval after generating and be retried — see media.keep_generated_images. `attach_as` links them to the run's
@@ -93,8 +98,12 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
 
     if not INTEGRATIONS_AVAILABLE:
         raise AutomationActionError("integrations are not available on this install (SDK not installed)")
-    from marvin.services.integrations.social import ENGAGEMENT_CAPABILITIES
+    from marvin.services.integrations.social import ENGAGEMENT_CAPABILITIES, SOCIAL_INBOX_ITEMS
 
+    if not slug and capability == SOCIAL_INBOX_ITEMS:
+        raise AutomationActionError(
+            f"'{capability}' keeps one network's delivery in its inbox: name its `integration` (it never runs on every network)"
+        )
     if not slug and capability in ENGAGEMENT_CAPABILITIES:
         raise AutomationActionError(
             f"'{capability}' acts on one network's own comment or post: name its `integration` (it never runs on every network)"
@@ -115,7 +124,7 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
 def _run_on(session, group_id, row, action: dict, context: dict, *, user_id, dry_run) -> dict:
     """The step's action on one integration (a row of this workspace, enabled): its output."""
     from marvin.services.integrations import get_provider
-    from marvin.services.integrations.social import DRY_RUN_CAPABILITIES, ENGAGEMENT_CAPABILITIES, SOCIAL_POST
+    from marvin.services.integrations.social import DRY_RUN_CAPABILITIES, ENGAGEMENT_CAPABILITIES, SOCIAL_INBOX_ITEMS, SOCIAL_POST
 
     slug, key, capability = row.slug, action.get("action"), action.get("capability")
     try:
@@ -187,9 +196,20 @@ def _run_on(session, group_id, row, action: dict, context: dict, *, user_id, dry
         if gate is not None:
             gate.release()  # a call that failed is made again by the retry, not skipped as a duplicate
         raise
+    if getattr(declared, "capability", None) == SOCIAL_INBOX_ITEMS and isinstance(out, dict):
+        out = _keep_in_inbox(session, row, out)
     if gate is not None:
         gate.complete(out)
     return out
+
+
+def _keep_in_inbox(session, row, out: dict) -> dict:
+    """A `social.inbox_items` call's answer: its `items` kept in this integration's Social inbox, deduplicated with what is
+    there; `kept` says how many were new. Core never reads the payload — the integration turned it into items."""
+    from marvin.services.integrations.social_inbox import keep_items
+
+    items = out.get("items") if isinstance(out.get("items"), list) else []
+    return {**out, "count": len(items), "kept": keep_items(session, row, items)}
 
 
 def _social_args(session, group_id, row, action: dict, args: dict, context: dict, dry_run: bool) -> dict:

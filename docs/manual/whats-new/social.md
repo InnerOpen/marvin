@@ -80,6 +80,7 @@ Like posting, each plugin declares the capabilities it has, each on one action (
 | `social.delete_comment` | `comment_id` | `deleted`, `network` | yes |
 | `social.repost` | `post_id` | `reposted`, `url`, `network` | yes |
 | `social.message` | `to` (`{id?, handle?}`), `text`, `dry_run` | `sent`, `message_id`, `network` | yes |
+| `social.inbox_items` | `payload` (a webhook body) | `items` (Marvin keeps them; the step adds `count`, `kept`) | no |
 
 `social.comments` returns items oldest to newest: `id` (what the other capabilities take as `comment_id`), `kind` (`comment`, `reply` or `mention`; an integration's `inbox_items_from_webhook` may also return `message`, `story_reply`, `story_mention`, `reaction` and `live_comment`, and `attachments`: `{type, url, title}`), `post_id`, `post_url`, `author` (`id`, `handle`, `name`), `text`, `created_at` (ISO, UTC), `url`, `network`. A mode a network can't do is refused with the error code `unsupported`. "Gated" means approval-gated: Marvin treats a gated action as `requires_approval` even when the plugin forgot to say so, and a workflow runs it only after a **Wait for approval** step ([Workflows → Answer comments and reach out](workflows.md#social-engagement)). Posting reaches every network that offers it; the engagement capabilities name one `integration`, because a comment id means something to one network only. A workflow posts with [Workflows → Post to social networks](workflows.md#post-to-social-networks).
 
@@ -121,6 +122,10 @@ The comments, replies and mentions of every connected network, and what was answ
 | `live_comment` | A comment on your live video |
 
 An item that came in by direct message (a message, a story reply, a story mention, a reaction) is answered only by **Reply**, which sends a direct message back (`social.message`) and records it on the item as its reply; it never offers **Make a rule**, and no auto-reply rule answers it. Networks allow such a message only for a while after the person's last one (Instagram: 24 hours). Workflows on the webhook start as before, whatever the inbox keeps; a failure turning a delivery into items never fails the delivery.
+
+Facebook works the same way: apply its **Facebook webhooks** incoming webhook (the `meta` schemes, the app's App secret) and subscribe the Page to `feed`, `mention` and `messages` — Page comments and replies, @mentions and Messenger messages and reactions reach the inbox. Mastodon and Bluesky send no webhooks for an account; the poll reads them as before.
+
+**From a workflow, for a webhook the integration didn't create** (a relay such as n8n, a second app, a delivery you replay): a **Run integration** step with the capability `social.inbox_items` hands the integration the delivery (`args: {payload: ${event.payload}}`) and keeps the items it returns in that integration's inbox, as above; the step's output adds `count` and `kept` (how many were new). It names its `integration` and needs no Approval step (nothing is sent). Sign that webhook: the editor warns when the trigger's webhook isn't signed, since anyone with its URL could otherwise put items in the inbox.
 
 Compact rows (network logo, who, an excerpt, the kind and when, status and **Sent** / **Rehearsal** badges; a new item has a dot and a bold name). Filter by network (on the all-networks page), kind, status and text; the filters live in the page's address. Tap a row to open it: the whole text, links to the post and to the item on the network, the rule that answered, and the actions. Opening a new item marks it seen; **Mark all seen** clears the rest.
 

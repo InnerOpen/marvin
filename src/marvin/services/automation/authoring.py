@@ -1168,6 +1168,32 @@ def agent_step_warnings(session, group_id, definition: dict, role: int) -> list[
     return out
 
 
+def inbox_items_warnings(session, group_id, definition: dict) -> list[dict]:
+    """A `social.inbox_items` step on an incoming webhook that isn't signed, as a warning: whatever reaches that URL would
+    become Social inbox items, so anyone holding it could put fake messages there. Sign the webhook (Signing)."""
+    from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookModel
+    from marvin.services.integrations.social import SOCIAL_INBOX_ITEMS
+
+    trigger = definition.get("trigger") if isinstance(definition.get("trigger"), dict) else {}
+    if trigger.get("type") != "incoming_webhook":
+        return []
+    steps = [(i, s) for i, s in enumerate(definition.get("actions") or []) if isinstance(s, dict) and s.get("capability") == SOCIAL_INBOX_ITEMS]
+    if not steps:
+        return []
+    slug = trigger.get("webhook")
+    query = session.query(WorkspaceIncomingWebhookModel).filter_by(group_id=group_id)
+    hooks = query.all() if slug in (None, "", "any") else query.filter_by(slug=slug).all()
+    unsigned = [h.slug for h in hooks if not (h.signing_secret_ref or "").strip()]
+    if not unsigned:
+        return []
+    names = ", ".join(f"“{s}”" for s in unsigned)
+    message = (
+        f"The incoming webhook {names} isn't signed, so anyone with its URL could put items in the Social inbox through this step. "
+        "Set up Signing on it (the network's own scheme, such as meta)."
+    )
+    return [{"level": "warning", "message": message, "where": "action", "index": i, "path": f"actions[{i}].capability"} for i, _ in steps]
+
+
 def variable_warnings(session, group_id, definition: dict) -> list[dict]:
     """A step naming a Variable this workspace doesn't have (`{{SHOP_URL}}` or `${vars.SHOP_URL}`), as warnings: the run
     leaves the text as written. A `{{SLUG}}` that names a Secret is fine where a Secret belongs (a header, an integration
@@ -1251,8 +1277,13 @@ def _gated_capability_issue(capability: str, after_approval: bool, bad) -> None:
 def _engagement_args_issues(step: dict, capability: str, bad) -> None:
     """A social engagement capability acts on one network's own comment or post: it names its `integration` (it never runs
     on every network) and carries the arguments it can't run without, as values or templates."""
-    from marvin.services.integrations.social import ENGAGEMENT_CAPABILITIES, REQUIRED_ARGS
+    from marvin.services.integrations.social import ENGAGEMENT_CAPABILITIES, REQUIRED_ARGS, SOCIAL_INBOX_ITEMS
 
+    if capability == SOCIAL_INBOX_ITEMS and not step.get("integration"):
+        bad(
+            "integration", f"“{capability}” keeps one network's delivery in its inbox, so it needs an `integration` (it never runs on every network)."
+        )
+        return
     if capability not in ENGAGEMENT_CAPABILITIES:
         return
     if not step.get("integration"):
@@ -1268,11 +1299,11 @@ def _every_integration_issues(capability: str, refs: WorkspaceRefs, bad, after_a
     """A capability step with no `integration` runs on every connected integration that offers it: at least one must, and a
     gated capability needs its Approval step. (An engagement capability never fans out: its step is refused for that
     by `_engagement_args_issues`, not for having no integration that can.)"""
-    from marvin.services.integrations.social import ENGAGEMENT_CAPABILITIES
+    from marvin.services.integrations.social import ENGAGEMENT_CAPABILITIES, SOCIAL_INBOX_ITEMS
 
     able = [i for i in refs.integrations if i.get("enabled") and capability in (i.get("capabilities") or [])]
     known = all(i.get("capabilities") is not None for i in refs.integrations)
-    if not able and known and capability not in ENGAGEMENT_CAPABILITIES:
+    if not able and known and capability not in ENGAGEMENT_CAPABILITIES and capability != SOCIAL_INBOX_ITEMS:
         bad("capability", f"No connected integration can {capability} (Settings → Integrations): connect one, or name an `integration`.")
     _gated_capability_issue(capability, after_approval, bad)
 

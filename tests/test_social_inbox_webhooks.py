@@ -147,3 +147,70 @@ def test_a_comment_still_offers_its_usual_actions(ws):
     social_inbox.keep_webhook_items(ws.session, _ig(ws).id, ws.gid, PAYLOAD)
 
     assert "reply" in actions.offers(_rows(ws)[0], ws.nets["instagram"])["actions"]
+
+
+# ── a workflow's Run integration step: `social.inbox_items` (a webhook the integration didn't create) ─────────────
+
+
+def _offers_inbox_items(ws, items):
+    """The fake Instagram gains a `social.inbox_items` action answering `items` (and remembering its arguments)."""
+    from marvin_integration_sdk import ProviderAction
+
+    net = ws.nets["instagram"]
+    net.actions = (*net.actions, ProviderAction(key="inbox_items", label="Inbox items", capability="social.inbox_items"))
+    calls, real = [], net.run_action
+
+    def run_action(key, args, ctx):
+        if key != "inbox_items":
+            return real(key, args, ctx)
+        calls.append(dict(args))
+        return {"items": items}
+
+    net.run_action = run_action
+    return calls
+
+
+def _step(ws, **extra):
+    from marvin.services.automation.actions import run_action
+
+    step = {"kind": "integration", "integration": "ig", "capability": "social.inbox_items", "args": {"payload": "${event.payload}"}, **extra}
+    return run_action(ws.session, ws.gid, step, {"event": {"payload": PAYLOAD}})
+
+
+def test_a_step_hands_the_integration_the_delivery_and_keeps_what_it_returns(ws):
+    calls = _offers_inbox_items(ws, [_dm(), _dm("mid-2")])
+
+    out = _step(ws)
+
+    assert calls == [{"payload": PAYLOAD}]
+    assert (out["count"], out["kept"]) == (2, 2) and [r.item_id for r in _rows(ws)] == ["mid-1", "mid-2"]
+    assert _step(ws)["kept"] == 0  # the same delivery again keeps nothing new
+
+
+def test_the_step_must_name_its_integration(ws):
+    import pytest
+
+    from marvin.services.automation.actions import AutomationActionError
+
+    _offers_inbox_items(ws, [_dm()])
+    with pytest.raises(AutomationActionError, match="name its `integration`"):
+        _step(ws, integration=None)
+
+
+def test_the_editor_warns_when_the_webhook_feeding_it_isnt_signed(ws):
+    from marvin.services.automation.authoring import inbox_items_warnings
+
+    token = _hook(ws)
+    slug = ws.session.query(WorkspaceIncomingWebhookModel).filter_by(token=token).one().slug
+    definition = {
+        "trigger": {"type": "incoming_webhook", "webhook": slug},
+        "actions": [{"kind": "integration", "integration": "ig", "capability": "social.inbox_items", "args": {"payload": "${event.payload}"}}],
+    }
+
+    (warning,) = inbox_items_warnings(ws.session, ws.gid, definition)
+    assert "isn't signed" in warning["message"] and warning["path"] == "actions[0].capability"
+
+    hook = ws.session.query(WorkspaceIncomingWebhookModel).filter_by(token=token).one()
+    hook.signing_secret_ref = "INBOX_KEY"
+    ws.session.commit()
+    assert inbox_items_warnings(ws.session, ws.gid, definition) == []

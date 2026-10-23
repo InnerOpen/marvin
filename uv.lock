@@ -1278,8 +1278,8 @@ plugins = [
     { name = "marvin-integration-bluesky", git = "https://github.com/InnerOpen/marvin-integration-bluesky?rev=v0.3.1" },
     { name = "marvin-integration-buttondown", git = "https://github.com/InnerOpen/marvin-integration-buttondown?rev=v0.10.0" },
     { name = "marvin-integration-cloudflare-pages", git = "https://github.com/InnerOpen/marvin-integration-cloudflare-pages?rev=v0.5.0" },
-    { name = "marvin-integration-facebook", git = "https://github.com/InnerOpen/marvin-integration-facebook?rev=v0.4.1" },
-    { name = "marvin-integration-instagram", git = "https://github.com/InnerOpen/marvin-integration-instagram?rev=v0.11.0" },
+    { name = "marvin-integration-facebook", git = "https://github.com/InnerOpen/marvin-integration-facebook?rev=v0.5.0" },
+    { name = "marvin-integration-instagram", git = "https://github.com/InnerOpen/marvin-integration-instagram?rev=v0.12.0" },
     { name = "marvin-integration-mastodon", git = "https://github.com/InnerOpen/marvin-integration-mastodon?rev=v0.3.1" },
     { name = "marvin-integration-n8n", git = "https://github.com/InnerOpen/marvin-integration-n8n?rev=v0.4.1" },
     { name = "marvin-integration-openai-images", git = "https://github.com/InnerOpen/marvin-integration-openai-images?rev=v0.4.0" },
@@ -1361,16 +1361,16 @@ dependencies = [
 
 [[package]]
 name = "marvin-integration-facebook"
-version = "0.4.1"
-source = { git = "https://github.com/InnerOpen/marvin-integration-facebook?rev=v0.4.1#1e586305ff5a42a96d217ab0a20446ecf5c851bf" }
+version = "0.5.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-facebook?rev=v0.5.0#0651b699755f1d7523cf744a3c9bdf3798e70562" }
 dependencies = [
     { name = "marvin-integration-sdk" },
 ]
 
 [[package]]
 name = "marvin-integration-instagram"
-version = "0.11.0"
-source = { git = "https://github.com/InnerOpen/marvin-integration-instagram?rev=v0.11.0#073be9fed1367a4c25c6b012faaf0b3a37e26c37" }
+version = "0.12.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-instagram?rev=v0.12.0#beae65da85760bf83acf63b144c84ade8d9f4ce6" }
 dependencies = [
     { name = "marvin-integration-sdk" },
 ]

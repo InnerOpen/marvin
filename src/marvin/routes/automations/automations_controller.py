@@ -428,7 +428,7 @@ class AutomationsController(BaseUserController):
         these block a save) and advisory **warnings** (coherent but won't match anything, e.g. entry.*
         under a webhook trigger). The builder surfaces both; only errors gate the save."""
         _require_admin(self.user, self.group_id)
-        from marvin.services.automation.authoring import variable_warnings
+        from marvin.services.automation.authoring import inbox_items_warnings, variable_warnings
         from marvin.services.automation.validation import structural_issues, validate_definition
         from marvin.services.site_links import workflow_url_issues
 
@@ -442,6 +442,7 @@ class AutomationsController(BaseUserController):
             issues += self._custom_event_warnings(data.definition)
             issues += self._agent_step_warnings(data.definition)
             issues += variable_warnings(self.session, self.group_id, data.definition)
+            issues += inbox_items_warnings(self.session, self.group_id, data.definition)
             issues += workflow_url_issues(self.session, self.group_id, data.definition)
         return AutomationValidateResult(issues=issues)
 

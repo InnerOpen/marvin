@@ -116,13 +116,22 @@ def _attachments(value) -> list[dict] | None:
     return [a for a in kept if a] or None
 
 
-def keep_webhook_items(session, integration_id, group_id, payload: dict, *, now: datetime | None = None) -> int:
-    """A delivery to an integration's own incoming webhook, kept as inbox items: the integration (its plugin's
-    ``inbox_items_from_webhook``) says what the delivery holds, and the items are stored as a poll's are — deduplicated with
-    them, the account's own skipped. Returns how many were new. Never raises: the delivery and its workflows go on whatever
-    happens here (a plugin that offers nothing, a connection switched off, a parsing failure)."""
+def keep_items(session, row, items, *, now: datetime | None = None) -> int:
+    """Items an integration handed over outside a poll — a webhook delivery's, or a workflow's `social.inbox_items` step's —
+    kept as a poll's are: deduplicated with them, the account's own skipped. Returns how many were new; never raises."""
     from datetime import UTC
 
+    if not isinstance(items, list) or not items:
+        return 0
+    handles, ids = own_identities(row.config)
+    return persist_items(session, row, items, handles=handles, ids=ids, now=now or datetime.now(UTC))
+
+
+def keep_webhook_items(session, integration_id, group_id, payload: dict, *, now: datetime | None = None) -> int:
+    """A delivery to an integration's own incoming webhook, kept as inbox items: the integration (its plugin's
+    ``inbox_items_from_webhook``) says what the delivery holds, and ``keep_items`` stores them. Returns how many were new.
+    Never raises: the delivery and its workflows go on whatever happens here (a plugin that offers nothing, a connection
+    switched off, a parsing failure)."""
     from marvin.db.models.groups.integrations import IntegrationModel
     from marvin.services.integrations import INTEGRATIONS_AVAILABLE
 
@@ -134,16 +143,11 @@ def keep_webhook_items(session, integration_id, group_id, payload: dict, *, now:
         row = session.get(IntegrationModel, integration_id)
         if row is None or row.group_id != group_id or not row.enabled:
             return 0
-        provider = get_provider(row.provider)
-        parse = getattr(provider, "inbox_items_from_webhook", None)
+        parse = getattr(get_provider(row.provider), "inbox_items_from_webhook", None)
         if parse is None:
             return 0
         ctx = IntegrationContext(config=row.config or {}, secret=None, logger=logger, http=build_http())  # no secret: it parses, never calls
-        items = parse(payload, ctx) or []
-        if not items:
-            return 0
-        handles, ids = own_identities(row.config)
-        return persist_items(session, row, items, handles=handles, ids=ids, now=now or datetime.now(UTC))
+        return keep_items(session, row, parse(payload, ctx) or [], now=now)
     except Exception as e:  # noqa: BLE001 — the inbox is a convenience; the delivery goes on without it
         session.rollback()
         logger.warning("social inbox: could not keep the items of a webhook delivery (integration %s): %s", integration_id, e)

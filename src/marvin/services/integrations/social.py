@@ -55,6 +55,9 @@ SOCIAL_HIDE = "social.hide"
 SOCIAL_DELETE_COMMENT = "social.delete_comment"
 SOCIAL_REPOST = "social.repost"
 SOCIAL_MESSAGE = "social.message"
+SOCIAL_INBOX_ITEMS = "social.inbox_items"
+"""Turn a webhook delivery (``payload``) into Social inbox items (``items``): a workflow's Run integration step that uses it has
+its items kept in the integration's inbox (automation/actions/integration.py) — for a webhook the integration didn't create."""
 MAX_IMAGES = 10
 
 ENGAGEMENT_CAPABILITIES = frozenset({SOCIAL_COMMENTS, SOCIAL_REPLY, SOCIAL_LIKE, SOCIAL_HIDE, SOCIAL_DELETE_COMMENT, SOCIAL_REPOST, SOCIAL_MESSAGE})
