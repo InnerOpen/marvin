@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.60 (2026-10-24)
+
+### Bug Fixes
+
+- **social**: An inbox item says why a matching rule didn't answer it; run history says routine runs
+  aren't recorded
+  ([`5b4eb77`](https://github.com/InnerOpen/marvin/commit/5b4eb772e685a372997f6af9f5033e01a6d0f384))
+
+
 ## v1.1.0-rc.59 (2026-10-24)
 
 ### Features
