@@ -50,6 +50,9 @@ MAX_ANSWER_WINDOW_DAYS = 90
 NEW, SEEN, REPLIED, HIDDEN, LIKED = "new", "seen", "replied", "hidden", "liked"
 STATUSES = (NEW, SEEN, LIKED, REPLIED, HIDDEN)
 EVENT_SEEN, EVENT_LIKED, EVENT_REPLIED, EVENT_HIDDEN, EVENT_UNHIDDEN = "seen", "liked", "replied", "hidden", "unhidden"
+HELD_COOLDOWN, HELD_REFUSED = "cooldown", "refused"
+HELD_REASONS = (HELD_COOLDOWN, HELD_REFUSED)
+"""Why a matched item wasn't answered (``hold``): the rule's cool-down for that person, or the network refused."""
 TEXT_MAX = 5000
 MAX_ATTACHMENTS = 10
 FIELD_MAX = 2000
@@ -216,6 +219,7 @@ def record_reply(
     stored.reply_mode, stored.reply_rehearsal, stored.reply_id = mode, rehearsal, reply_id
     stored.reply_text, stored.reply_rule, stored.reply_note = text, rule, note
     stored.replied_at, stored.replied_by, stored.reply_log_slug = when, by, None
+    stored.held = None  # answered: whatever held it back no longer matters
     if not rehearsal:
         stored.status = next_status(stored.status, EVENT_REPLIED)
     session.commit()
@@ -283,18 +287,35 @@ def _same_person(author: dict):
     return Item.author_handle == handle if handle else None
 
 
-def answered_recently(session, row, author: dict, since: datetime, *, rehearsal_counts: bool = False) -> bool:
-    """Whether this person had a direct message answered on this integration since ``since`` — by a rule or a person (a
-    rehearsal counts only in rehearsal). The cool-down a rule waits before it answers them again."""
+def last_direct_reply_at(session, row, author: dict, since: datetime, *, rehearsal_counts: bool = False) -> datetime | None:
+    """When this person last had a direct message answered on this integration, if it was since ``since`` — by a rule or a
+    person (a rehearsal counts only in rehearsal). The start of the cool-down a rule waits before it answers them again."""
     person = _same_person(author)
     if person is None:
-        return False
+        return None
     from .social_rules import DIRECT_KINDS
 
-    q = session.query(Item.id).filter(Item.integration_id == row.id, Item.kind.in_(list(DIRECT_KINDS)), person, Item.replied_at >= since)
+    q = session.query(sa.func.max(Item.replied_at)).filter(
+        Item.integration_id == row.id, Item.kind.in_(list(DIRECT_KINDS)), person, Item.replied_at >= since
+    )
     if not rehearsal_counts:
         q = q.filter(Item.reply_rehearsal.is_(False))
-    return q.first() is not None
+    return q.scalar()
+
+
+def hold(session, row, item_id: str, *, reason: str, rule: str, until: datetime | None = None, note: str | None = None, now: datetime) -> bool:
+    """Record on a stored item why a rule that matched it didn't answer (``HELD_REASONS``). Written once: the same reason, rule and
+    ``until`` again (every run re-checks an unanswered direct message) changes nothing. True when it wrote; an item that isn't
+    stored is left alone. The caller commits."""
+    stored = session.query(Item).filter(Item.integration_id == row.id, Item.item_id == str(item_id)).one_or_none()
+    if stored is None:
+        return False
+    held = {"reason": reason, "rule": rule, "until": until.isoformat() if until else None, "note": _s(note)}
+    current = stored.held or {}
+    if all(current.get(k) == v for k, v in held.items()):
+        return False
+    stored.held = {**held, "at": now.isoformat()}
+    return True
 
 
 def cover_earlier_direct(session, row, author: dict, before: datetime, *, reply_id, rule: str | None, when: datetime) -> int:
@@ -312,7 +333,7 @@ def cover_earlier_direct(session, row, author: dict, before: datetime, *, reply_
     )
     for r in rows:
         r.reply_mode, r.reply_rehearsal, r.reply_id, r.reply_rule = "message", False, reply_id, rule
-        r.reply_note, r.replied_at = "Answered with the reply to their newer message", when
+        r.reply_note, r.replied_at, r.held = "Answered with the reply to their newer message", when, None
         r.status = next_status(r.status, EVENT_REPLIED)
     if rows:
         session.commit()

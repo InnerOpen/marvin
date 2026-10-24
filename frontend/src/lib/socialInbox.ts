@@ -41,6 +41,18 @@ export interface InboxReply {
   byName?: string | null;
 }
 
+/** Why a rule that matched an item didn't answer it: the person's cool-down, or the network refused. Cleared by a reply. */
+export interface InboxHeld {
+  reason: "cooldown" | "refused" | string;
+  rule?: string | null;
+  ruleEntryId?: string | null;
+  /** When the cool-down ends: the rule answers a message sent after it. */
+  until?: string | null;
+  /** The network's words, for a refusal. */
+  note?: string | null;
+  at?: string | null;
+}
+
 export interface InboxItem {
   id: string;
   integration: string;
@@ -57,6 +69,7 @@ export interface InboxItem {
   url?: string | null;
   status: ItemStatus | string;
   reply?: InboxReply | null;
+  held?: InboxHeld | null;
   actions: string[];
   replyModes: string[];
 }
@@ -228,6 +241,25 @@ export function replyBadge(reply: InboxReply | null | undefined): Badge | null {
     tone: "good",
     title: reply.by ? "Sent by a person from the inbox" : "Sent under a rule",
   };
+}
+
+/** "Not auto-replied" on an item a rule matched but didn't answer; none once it has a reply or nothing held it. */
+export function heldBadge(item: Pick<InboxItem, "held" | "reply">): Badge | null {
+  if (!item.held || item.reply?.at) return null;
+  return { label: "Not auto-replied", tone: "warn", title: heldText(item.held) };
+}
+
+/** Why it wasn't auto-replied, in a sentence a person can act on. */
+export function heldText(held: InboxHeld, now: Date = new Date()): string {
+  if (held.reason === "cooldown") {
+    const until = held.until ? new Date(held.until) : null;
+    const when = until && until > now ? ` until ${until.toLocaleString()}` : "";
+    return `Not auto-replied: this person was answered by direct message within the rule's cool-down${when}. The rule answers a message they send after that.`;
+  }
+  if (held.reason === "refused") {
+    return `Not auto-replied: the network refused the message${held.note ? ` (${held.note})` : ""}. Networks allow a message only for a while after the person's last one.`;
+  }
+  return `Not auto-replied (${held.reason}).`;
 }
 
 /** The nav's "new" count badge: nothing for zero, "99+" past 99. */

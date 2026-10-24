@@ -188,15 +188,19 @@ export function scheduledTaskCardHtml(
   </article>`;
 }
 
-/** A task's runs, newest first: when, how it went, how long, and what it did or why it failed. */
+/** The history lists only runs worth reporting (the scheduler skips a nothing-happened success), so it says so. */
+export const QUIET_RUNS_NOTE = "Routine runs with nothing to report aren't listed.";
+
+/** A task's runs, newest first: when, how it went, how long, and what it did or why it failed — and that quiet runs aren't there. */
 export function historyHtml(runs: TaskRun[], now: Date = new Date()): string {
-  if (!runs.length) return '<div class="st-run none">No runs yet.</div>';
+  const note = `<div class="st-run none">${QUIET_RUNS_NOTE}</div>`;
+  if (!runs.length) return `<div class="st-run none">No recorded runs yet.</div>${note}`;
   return runs
     .map((run) => {
       const outcome = RUN_OUTCOMES[run.status] ?? run.status;
       const took = run.durationMs == null ? "" : ` · ${(run.durationMs / 1000).toFixed(1)} s`;
-      const note = run.errorMessage || run.output;
-      return `<div class="st-run${isFailure(run.status) ? " failed" : ""}"><strong>${esc(outcome)}</strong> · ${esc(timeAgo(run.executedAt, now))}${took}${note ? `<div class="st-run-note">${esc(note)}</div>` : ""}</div>`;
+      const detail = run.errorMessage || run.output;
+      return `<div class="st-run${isFailure(run.status) ? " failed" : ""}"><strong>${esc(outcome)}</strong> · ${esc(timeAgo(run.executedAt, now))}${took}${detail ? `<div class="st-run-note">${esc(detail)}</div>` : ""}</div>`;
     })
-    .join("");
+    .join("") + note;
 }

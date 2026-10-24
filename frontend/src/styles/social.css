@@ -53,6 +53,7 @@
   .si-d-body { overflow-y: auto; padding: 14px 16px 18px; display: grid; gap: 12px; }
   .si-d-who { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; }
   .si-full { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 1.5; }
+  .si-held { margin: 0; padding: 8px 10px; border-left: 3px solid var(--warn); background: color-mix(in srgb, var(--warn) 8%, transparent); border-radius: 4px; }
   .si-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; }
   .si-attachments a { display: inline-flex; flex-direction: column; gap: 4px; font-size: 13px; color: inherit; max-width: 160px; }
   .si-attachments img { width: 160px; max-width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; border: 1px solid var(--border, #ddd); }

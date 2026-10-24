@@ -107,6 +107,8 @@ const data = JSON.stringify({ summary, list, filters, basePath, network }).repla
     openHref,
     replyAgainText,
     replyBadge,
+    heldBadge,
+    heldText,
     replyForm,
     replyText,
     type SocialNetwork,
@@ -141,7 +143,8 @@ const data = JSON.stringify({ summary, list, filters, basePath, network }).repla
     const replied = replyBadge(item.reply);
     const repliedHtml = replied ? badge(replied) : "";
     const status = item.status === "replied" && replied ? "" : badge(statusBadge(item.status));
-    return `${status}${repliedHtml}`;
+    const held = heldBadge(item);
+    return `${status}${repliedHtml}${held ? badge(held) : ""}`;
   }
 
   function rowHtml(item: InboxItem): string {
@@ -235,6 +238,9 @@ const data = JSON.stringify({ summary, list, filters, basePath, network }).repla
         <div class="si-muted si-small">${esc(kindLabel(item.kind))} on ${esc(item.network)}${item.integration && item.integration !== item.network ? ` (${esc(item.integration)})` : ""} · <time title="${esc(new Date(item.createdAt).toLocaleString())}">${esc(timeAgo(item.createdAt))}</time></div></div>
         <span class="si-badges">${badgesHtml(item)}</span></div>
       <p class="si-full">${esc(itemText(item))}</p>
+      ${heldBadge(item) && item.held
+        ? `<p class="si-held si-small">${esc(heldText(item.held))}${item.held.ruleEntryId ? ` <a href="/workspace/entries/${esc(item.held.ruleEntryId)}">The rule</a>` : ""}</p>`
+        : ""}
       ${carried.length
         ? `<div class="si-attachments">${carried
             .map((a) => `<a href="${esc(a.href)}" target="_blank" rel="noopener noreferrer">${a.picture ? `<img src="${esc(a.href)}" alt="${esc(a.label)}" loading="lazy" referrerpolicy="no-referrer" />` : ""}<span>${esc(a.label)}</span></a>`)

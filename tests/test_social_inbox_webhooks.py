@@ -436,6 +436,69 @@ def test_the_cool_down_holds_a_persons_next_dm_and_zero_turns_it_off(ws):
     assert len(ws.nets["instagram"].sent("message")) == 2
 
 
+def _held(ws, item_id):
+    ws.session.expire_all()
+    return next(r for r in _rows(ws) if r.item_id == item_id).held
+
+
+def test_a_dm_the_cool_down_holds_says_so_until_when_once_and_a_reply_clears_it(ws):
+    _dm_rule(ws, keywords="price", kinds="message", cooldown_hours=24)
+    _webhook_dms(ws, _dm("m1", text="price?", when=se.NOW - timedelta(minutes=30)))
+    _run(ws, se.NOW)
+    answered_at = next(r for r in _rows(ws) if r.item_id == "m1").replied_at
+    _webhook_dms(ws, _dm("m2", text="and the price in blue?", when=se.NOW + timedelta(minutes=10)))
+
+    _run(ws, se.NOW + timedelta(minutes=15))
+    held = _held(ws, "m2")
+    assert (held["reason"], held["rule"], held["note"]) == ("cooldown", "r1", None)
+    assert datetime.fromisoformat(held["until"]) == answered_at + timedelta(hours=24)
+    _run(ws, se.NOW + timedelta(minutes=20))
+    assert _held(ws, "m2")["at"] == held["at"]  # every run re-checks it; it is written once
+
+    from marvin.db.models.platform.entries import Entries
+
+    entry = ws.session.query(Entries).filter_by(group_id=ws.gid, slug="r1").one()
+    entry.data_json = {**entry.data_json, "cooldown_hours": 0}
+    ws.session.commit()
+    _run(ws, se.NOW + timedelta(minutes=25))
+    assert _held(ws, "m2") is None and _held(ws, "m1") is None  # answered now: nothing held it back
+
+
+def test_a_persons_own_reply_from_the_inbox_starts_the_cool_down_too(ws):
+    """The case that hid it: a person answered the DM by hand, then the sender wrote again — a rule's match was held, silently."""
+    _dm_rule(ws, keywords="price", kinds="message", cooldown_hours=24)
+    _webhook_dms(ws, _dm("m1", text="hello", when=se.NOW - timedelta(minutes=8)))
+    (first,) = _rows(ws)
+    social_inbox.record_reply(
+        ws.session, _ig(ws), first, mode="message", rehearsal=False, reply_id="x", text="Test", when=se.NOW - timedelta(minutes=7)
+    )
+    _webhook_dms(ws, _dm("m2", text="Whats the price", when=se.NOW - timedelta(minutes=3)))
+
+    _run(ws, se.NOW)
+
+    assert ws.nets["instagram"].sent("message") == []
+    assert _held(ws, "m2")["reason"] == "cooldown"
+
+
+def test_a_dm_the_network_refuses_says_so_with_the_networks_words(ws):
+    _dm_rule(ws, keywords="price", kinds="message")
+    ws.nets["instagram"].refuse[("message", "u-alice")] = "unsupported"
+    _webhook_dms(ws, _dm("m1", text="price?", when=se.NOW - timedelta(minutes=5)))
+
+    report = _run(ws, se.NOW)
+
+    held = _held(ws, "m1")
+    assert held["reason"] == "refused" and "refused: unsupported" in held["note"] and held["until"] is None
+    assert report.skipped["unsupported"] == 1
+
+
+def test_an_unmatched_dm_is_not_held(ws):
+    _dm_rule(ws, keywords="price", kinds="message")
+    _webhook_dms(ws, _dm("m1", text="hello there", when=se.NOW - timedelta(minutes=5)))
+    _run(ws, se.NOW)
+    assert _held(ws, "m1") is None  # no rule matched: there is nothing to explain
+
+
 def test_an_existing_rule_type_gains_the_cool_down_field(ws):
     from marvin.db.models.platform.entry_types import EntryTypes
     from marvin.services.integrations.social_setup import ensure_rule_type

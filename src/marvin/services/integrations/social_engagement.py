@@ -565,14 +565,28 @@ def _person_key(item: dict) -> str:
 
 def _held_by_cooldown(run: _Run, row, item: dict, rule: SocialRule, people: set[str], rehearsal: bool) -> bool:
     """Whether a direct message waits: its author was answered in this run (their newer message), or by direct message within
-    the rule's cool-down (by any rule or a person)."""
+    the rule's cool-down (by any rule or a person). A cool-down is recorded on the item, so the inbox can say why it wasn't answered."""
     if _person_key(item) in people:
-        return True
+        return True  # their newer message's reply covers this one: nothing to explain
     if rule.cooldown_hours <= 0:
         return False
     author = item.get("author") if isinstance(item.get("author"), dict) else {}
-    since = run.now - timedelta(hours=rule.cooldown_hours)
-    return social_inbox.answered_recently(run.session, row, author, since, rehearsal_counts=rehearsal)
+    cooldown = timedelta(hours=rule.cooldown_hours)
+    last = social_inbox.last_direct_reply_at(run.session, row, author, run.now - cooldown, rehearsal_counts=rehearsal)
+    if last is None:
+        return False
+    _hold(run, row, item, social_inbox.HELD_COOLDOWN, rule, until=last + cooldown)
+    return True
+
+
+def _hold(run: _Run, row, item: dict, reason: str, rule: SocialRule, *, until: datetime | None = None, note: str | None = None) -> None:
+    """Record why a matched item wasn't answered (``social_inbox.hold``). The inbox's alone: a failure is logged, never the run's."""
+    try:
+        if social_inbox.hold(run.session, row, str(item["id"]), reason=reason, rule=rule.id, until=until, note=note, now=run.now):
+            run.session.commit()
+    except Exception as e:  # noqa: BLE001 — explaining a skip must never stop the replies
+        run.session.rollback()
+        logger.warning("social engagement: recording why %s on %s wasn't answered failed: %s", item.get("id"), row.slug, e)
 
 
 def _answer_direct(run: _Run, net: _Network, row, item: dict, rule: SocialRule, *, rehearsal: bool) -> bool:
@@ -588,6 +602,8 @@ def _answer_direct(run: _Run, net: _Network, row, item: dict, rule: SocialRule, 
     try:
         out = net.call(SOCIAL_MESSAGE, {"to": to, "text": rule.reply, "dry_run": rehearsal}, rule)
     except EngineCallError as e:
+        if e.code in CODES_NO_RETRY:  # e.g. past the network's window since their last message: say so on the item
+            _hold(run, row, item, social_inbox.HELD_REFUSED, rule, note=str(e))
         return _failed(report, row, item, [(True, e)], rehearsal)
     if not rehearsal and out.get("sent") is False:
         return _failed(report, row, item, [(True, EngineCallError(f"{row.slug}: the network did not send the message"))], rehearsal)

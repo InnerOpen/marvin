@@ -79,6 +79,10 @@ class SocialInboxItemModel(SqlAlchemyBase, BaseMixins):
     """What was sent (or would have been, in a rehearsal)."""
     reply_note: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     """A note on the reply: why one half of a "both" reply failed (the other half was sent)."""
+    held: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
+    """Why a rule that matched this item didn't answer it: ``{reason, rule, until?, note?, at}`` — ``cooldown`` (the person was
+    answered by direct message within the rule's cool-down, until ``until``) or ``refused`` (the network refused, ``note`` says
+    how). Written once by the engine (``social_inbox.hold``), cleared when a reply is recorded."""
 
     __table_args__ = (
         sa.UniqueConstraint("integration_id", "item_id", name="uq_social_inbox_items_item"),

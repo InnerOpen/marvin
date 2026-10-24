@@ -26,6 +26,7 @@ from marvin.schemas.group.social_inbox import (
     SocialAutoReplyResult,
     SocialAutoReplyUpdate,
     SocialInboxActionResult,
+    SocialInboxHeldRead,
     SocialInboxHide,
     SocialInboxItemRead,
     SocialInboxList,
@@ -69,10 +70,18 @@ def _names(session, ids: set) -> dict:
     return {u.id: (u.full_name or u.username or u.email) for u in session.query(Users).filter(Users.id.in_(ids))}
 
 
+def _held(held: dict | None, rules: dict) -> SocialInboxHeldRead | None:
+    """Why a matching rule didn't answer the item (``social_inbox.hold``); None when nothing held it back or the record is unreadable."""
+    if not held or not held.get("reason"):
+        return None
+    return SocialInboxHeldRead(**{k: held.get(k) for k in ("reason", "rule", "until", "note", "at")}, rule_entry_id=rules.get(held.get("rule")))
+
+
 def _reads(session, group_id, rows: list[Item]) -> list[SocialInboxItemRead]:
     """The items as the API returns them: what each one's network offers, and the reply recorded on it."""
     offered: dict = {}
-    rules = _slugs_to_entry_ids(session, group_id, {r.reply_rule for r in rows if r.reply_rule})
+    rule_slugs = {r.reply_rule for r in rows if r.reply_rule} | {r.held["rule"] for r in rows if r.held and r.held.get("rule")}
+    rules = _slugs_to_entry_ids(session, group_id, rule_slugs)
     people = _names(session, {r.replied_by for r in rows if r.replied_by})
     out = []
     for r in rows:
@@ -110,6 +119,7 @@ def _reads(session, group_id, rows: list[Item]) -> list[SocialInboxItemRead]:
                 url=r.url,
                 status=r.status,
                 reply=reply,
+                held=_held(r.held, rules),
                 actions=can["actions"],
                 reply_modes=can["reply_modes"],
             )

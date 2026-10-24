@@ -18,7 +18,8 @@ from marvin.db.models import SqlAlchemyBase
 from marvin.db.models.groups.social_inbox import SocialInboxItemModel
 
 TABLE = "social_inbox_items"
-LATER_COLUMNS = {"reply_rule", "reply_text", "reply_note", "attachments", "trashed_at"}  # added by ef911a9c1779, e2c7f4a9b815, f3d8a1c6e927
+# added by ef911a9c1779, e2c7f4a9b815, f3d8a1c6e927, b6d2f8a41c93
+LATER_COLUMNS = {"reply_rule", "reply_text", "reply_note", "attachments", "trashed_at", "held"}
 _PATH = next((Path(__file__).resolve().parents[1] / "src" / "marvin" / "alembic" / "versions").glob("*_7c3f9a1e5b82_*.py"))
 _spec = importlib.util.spec_from_file_location("social_inbox_items_migration", _PATH)
 mig = importlib.util.module_from_spec(_spec)

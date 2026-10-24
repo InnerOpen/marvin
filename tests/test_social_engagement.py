@@ -46,7 +46,7 @@ def item(cid, text="What is the price?", *, kind="comment", post="p1", handle="a
 
 def make_network(slug, *, with_like=True, gated=True):
     """A fake network. `feed` is what social.comments reads (the cursor is how many items were read); `refuse` maps
-    (comment_id, private) to an IntegrationError code; `fail_comments` makes the read raise."""
+    (comment_id, private) — or ("message", person id) — to an IntegrationError code; `fail_comments` makes the read raise."""
     actions = [
         ProviderAction(key="comments", label="Comments", capability="social.comments"),
         ProviderAction(key="reply", label="Reply", capability="social.reply", requires_approval=gated),
@@ -107,6 +107,9 @@ def make_network(slug, *, with_like=True, gated=True):
             if key == "repost":
                 return {"reposted": True, "url": f"https://{slug}.example/b", "network": slug}
             if key == "message":
+                code = self.refuse.get(("message", (args.get("to") or {}).get("id")))
+                if code:
+                    raise IntegrationError(f"{slug} refused: {code}", code=code)
                 if args["dry_run"]:
                     return {"sent": False, "network": slug}
                 return {"sent": True, "message_id": "m1", "network": slug}

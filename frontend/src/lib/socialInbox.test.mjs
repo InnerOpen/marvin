@@ -22,6 +22,8 @@ import {
   openHref,
   parseFilters,
   replyAgainText,
+  heldBadge,
+  heldText,
   replyBadge,
   replyForm,
   replyText,
@@ -98,6 +100,31 @@ describe("a row", () => {
       "99+",
       "99+",
     ]);
+  });
+});
+
+describe("not auto-replied", () => {
+  const cooldown = { reason: "cooldown", rule: "price", until: "2026-10-21T10:00:00Z" };
+
+  test("a badge only while a held item has no reply", () => {
+    assert.equal(heldBadge({ held: null }), null);
+    assert.equal(heldBadge({ held: cooldown, reply: { at: "2026-10-20T11:00:00Z" } }), null);
+    const b = heldBadge({ held: cooldown, reply: null });
+    assert.deepEqual([b.label, b.tone], ["Not auto-replied", "warn"]);
+    assert.match(b.title, /cool-down/);
+  });
+
+  test("a cool-down says until when while it lasts, and that a later message is answered", () => {
+    const text = heldText(cooldown, NOW);
+    assert.match(text, /answered by direct message within the rule's cool-down until /);
+    assert.match(text, /message they send after that/);
+    assert.doesNotMatch(heldText({ ...cooldown, until: "2026-10-19T10:00:00Z" }, NOW), / until /);
+  });
+
+  test("a refusal carries the network's words", () => {
+    assert.match(heldText({ reason: "refused", note: "outside the 24-hour window" }, NOW), /refused the message \(outside the 24-hour window\)/);
+    assert.match(heldText({ reason: "refused" }, NOW), /refused the message\./);
+    assert.match(heldText({ reason: "other" }, NOW), /\(other\)/);
   });
 });
 

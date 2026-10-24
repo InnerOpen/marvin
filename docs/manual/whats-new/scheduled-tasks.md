@@ -135,6 +135,8 @@ Workspace routes take an id or a slug and need workspace ADMIN or OWNER, reads i
 
 Agents and MCP clients read the same data through the `list_scheduled_tasks` and `get_scheduled_task_history` tools.
 
+**The history is only the runs worth reporting.** A routine success with nothing to report (a frequent task's usual run: the Social engine's every 5 minutes when nothing matched) leaves no row, so the newest row can be hours or days older than the last run. The task's page shows its real **last run**, status and **next run** above the history, and both it and the overview's history panel say quiet runs aren't listed; `get_scheduled_task_history` returns `lastRunAt`, `lastStatus`, `nextRunAt` and a `note` saying the same, so an agent doesn't read a quiet history as a stopped task.
+
 ## Settings
 
 | Setting | Default | Meaning |

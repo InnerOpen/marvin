@@ -411,9 +411,16 @@ def list_scheduled_tasks(ctx: ToolContext, _args: dict) -> str:
     return _dump({"tasks": out, "count": len(out)})
 
 
+QUIET_RUNS_NOTE = (
+    "Only runs worth reporting are recorded: a routine success with nothing to report (a frequent task's usual case) leaves no row. "
+    "lastRunAt is the task's real last run; a recorded run older than it does not mean the task stopped."
+)
+"""The scheduler skips a nothing-happened success (event_bus_listener: worth_recording); without this, a quiet history reads as a dead task."""
+
+
 @register_tool(
     name="get_scheduled_task_history",
-    description="Get recent execution history for one scheduled task by id or slug (each run's status, duration, error). Use to see whether a task is succeeding.",  # noqa: E501
+    description="Get recent execution history for one scheduled task by id or slug (each run's status, duration, error), with the task's real last and next run: routine runs with nothing to report aren't recorded. Use to see whether a task is succeeding.",  # noqa: E501
     input_schema={
         "type": "object",
         "properties": {
@@ -450,4 +457,14 @@ def get_scheduled_task_history(ctx: ToolContext, args: dict) -> str:
         }
         for r in runs
     ]
-    return _dump({"task": task.slug, "runs": out, "count": len(out)})
+    return _dump(
+        {
+            "task": task.slug,
+            "lastRunAt": task.last_run_at,
+            "lastStatus": task.last_status,
+            "nextRunAt": task.next_run_at,
+            "runs": out,
+            "count": len(out),
+            "note": QUIET_RUNS_NOTE,
+        }
+    )

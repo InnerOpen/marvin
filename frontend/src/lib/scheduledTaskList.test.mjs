@@ -170,6 +170,11 @@ describe("the history", () => {
   });
 
   test("no runs", () => {
-    assert.match(historyHtml([], NOW), /No runs yet/);
+    assert.match(historyHtml([], NOW), /No recorded runs yet/);
+  });
+
+  test("it says routine runs with nothing to report aren't listed, with or without runs", () => {
+    assert.match(historyHtml([], NOW), /nothing to report aren't listed/);
+    assert.match(historyHtml([{ id: "1", status: "success", executedAt: "2026-10-21T09:00:00Z" }], NOW), /nothing to report aren't listed/);
   });
 });

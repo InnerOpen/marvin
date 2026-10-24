@@ -192,3 +192,22 @@ def test_automation_results_and_integration_health_answer_for_an_empty_workspace
     assert _call(ws, "list_automation_results", {"state": "failed"}) == {"results": [], "count": 0, "total": 0}
     health = _call(ws, "connection_health")
     assert health["incomingWebhooks"] == [] and isinstance(health["integrations"], list)
+
+
+def test_a_tasks_history_gives_its_real_last_run_and_says_quiet_runs_arent_recorded(ws):
+    """A frequent task's routine runs leave no row, so the newest row can be a day old while the task ran 5 minutes ago."""
+    from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
+
+    last_run = datetime(2026, 10, 24, 19, 45, tzinfo=UTC)
+    task = ScheduledTaskModel(
+        session=ws.session, group_id=ws.gid, name="Social engagement", slug="social-engagement", schedule_type="interval",
+        schedule_config={"seconds": 300}, task_type="social_engagement", last_run_at=last_run, last_status="success",
+    )  # fmt: skip
+    ws.session.add(task)
+    ws.session.commit()
+
+    out = _call(ws, "get_scheduled_task_history", {"task": "social-engagement"})
+
+    assert out["runs"] == [] and out["lastStatus"] == "success"
+    assert datetime.fromisoformat(str(out["lastRunAt"])) == last_run
+    assert "nothing to report" in out["note"] and "does not mean the task stopped" in out["note"]

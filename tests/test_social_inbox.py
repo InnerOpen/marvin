@@ -276,6 +276,23 @@ def ids(body):
     return [i["id"] for i in body["items"]]
 
 
+def test_an_item_a_rule_matched_but_didnt_answer_says_why_with_the_rule(ws, api):
+    from marvin.services.integrations import social_inbox
+
+    seed(ws, [item("c1", "What is the price?")])
+    integration = ws.session.query(IntegrationModel).filter_by(group_id=ws.gid, slug="m-main").one()
+    until = NOW + timedelta(hours=20)
+    assert social_inbox.hold(ws.session, integration, "c1", reason="cooldown", rule="r1", until=until, now=NOW)
+    ws.session.commit()
+    rule_id = ws.session.query(Entries.id).filter_by(group_id=ws.gid, slug="r1").scalar()
+
+    by_item = {i["text"]: i for i in listed(api(ADMIN))["items"]}
+    held = by_item["What is the price?"]["held"]
+    assert (held["reason"], held["rule"], held["ruleEntryId"]) == ("cooldown", "r1", str(rule_id))
+    assert datetime.fromisoformat(held["until"].replace("Z", "+00:00")) == until
+    assert all(i["held"] is None for i in listed(api(ADMIN))["items"] if i["text"] != "What is the price?")
+
+
 @pytest.fixture
 def filled(ws):
     """Items on mastodon (x-network items) and bluesky, of every kind and a few statuses, written at different times."""

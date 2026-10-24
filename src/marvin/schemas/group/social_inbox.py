@@ -35,6 +35,22 @@ class SocialInboxReplyRead(_MarvinModel):
     by_name: str | None = None
 
 
+class SocialInboxHeldRead(_MarvinModel):
+    """Why a rule that matched the item didn't answer it. Recorded by the engine, cleared when a reply is recorded."""
+
+    reason: str
+    """cooldown (the person was answered by direct message within the rule's cool-down) | refused (the network refused)."""
+    rule: str | None = None
+    """The slug of the rule entry that matched."""
+    rule_entry_id: UUID4 | None = None
+    """That rule's entry; None for a rule since deleted."""
+    until: datetime | None = None
+    """When the cool-down ends: the rule answers a message the person sends after it."""
+    note: str | None = None
+    """The network's words, for a refusal."""
+    at: datetime | None = None
+
+
 class SocialInboxItemRead(_MarvinModel):
     id: UUID4
     integration: str
@@ -59,6 +75,8 @@ class SocialInboxItemRead(_MarvinModel):
     """new | seen | replied | hidden | liked."""
     reply: SocialInboxReplyRead | None = None
     """The reply recorded on the item (live or rehearsal); None while it has none."""
+    held: SocialInboxHeldRead | None = None
+    """Why a matching rule didn't answer it; None when nothing held it back."""
     actions: list[str] = Field(default_factory=list)
     """What this item's network offers for it: reply, like, hide, delete, message (hide and delete not for a mention)."""
     reply_modes: list[str] = Field(default_factory=list)
