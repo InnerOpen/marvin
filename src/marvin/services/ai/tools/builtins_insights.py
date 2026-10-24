@@ -181,12 +181,14 @@ def list_events(ctx: ToolContext, args: dict) -> str:
     )
     out = [
         {
+            "id": str(e.event_id),  # get_event reads its data
             "eventType": e.event_type,
             "occurredAt": e.occurred_at,
             "entityType": e.entity_type,
             "entityId": str(e.entity_id) if e.entity_id else None,
             "correlationId": e.correlation_id,
             "title": e.message_title,
+            "message": (e.message_body or "")[:200] or None,
         }
         for e in events
     ]
@@ -443,6 +445,7 @@ def get_scheduled_task_history(ctx: ToolContext, args: dict) -> str:
             "status": r.status,
             "durationMs": r.duration_ms,
             "error": r.error_message,
+            "output": (r.output or "")[:600] or None,  # what the run reported (the Social engine: matched, replied, skipped, failures)
             "retryAttempt": r.retry_attempt,
         }
         for r in runs

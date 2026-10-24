@@ -132,6 +132,7 @@ Management (workspace ADMIN or OWNER):
 | `signature_config` | none | The construction, for `custom` only. |
 | `verification_scheme` | none | An integration's scheme, or `custom`. None: `GET`s are refused. |
 | `verification_config` | none | The query parameters, for `custom` only. |
+| `refused_count`, `last_refused_at`, `last_refused_reason` | 0, none | Read-only: deliveries the hook turned away — a bad signature, a refused verification, switched off — recorded only when the URL's token matched it, never with the payload. The card shows "N refused · last …: why". Migration `a8e3c51d7f42`. |
 | `verify_token_ref` | none | Slug of a workspace secret: the token a verification request must present. Blank: `GET`s are refused. |
 
 ## Since

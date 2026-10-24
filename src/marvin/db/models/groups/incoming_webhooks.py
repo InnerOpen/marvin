@@ -71,6 +71,11 @@ class WorkspaceIncomingWebhookModel(SqlAlchemyBase, BaseMixins, InstalledByMixin
     # Observability — surfaced in the management UI so an admin can confirm deliveries land.
     received_count: Mapped[int] = mapped_column(sa.Integer, default=0, nullable=False)
     last_received_at: Mapped[datetime | None] = mapped_column(AwareDateTime, nullable=True)
+    # The last delivery the hook turned away (a bad signature, a refused verification, switched off) — recorded only when
+    # the URL's token matched this hook, never with the payload, so it says why a sender's calls stopped landing.
+    refused_count: Mapped[int] = mapped_column(sa.Integer, default=0, server_default="0", nullable=False)
+    last_refused_at: Mapped[datetime | None] = mapped_column(AwareDateTime, nullable=True)
+    last_refused_reason: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 
     __table_args__ = (sa.UniqueConstraint("group_id", "slug", name="uq_incoming_webhooks_group_slug"),)
 

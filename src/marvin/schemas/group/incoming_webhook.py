@@ -76,6 +76,10 @@ class IncomingWebhookRead(_MarvinModel):
     """The workspace secret the sender's verify token must match; with no scheme or secret, a GET is refused."""
     received_count: int = 0
     last_received_at: datetime | None = None
+    refused_count: int = 0
+    """Deliveries the hook turned away (a bad signature, a refused verification, switched off), its token matching."""
+    last_refused_at: datetime | None = None
+    last_refused_reason: str | None = None
     source_integration_id: UUID4 | None = None
     """Read-only "installed by": the integration whose blueprint created this (null: made by a person)."""
     source_blueprint: str | None = None

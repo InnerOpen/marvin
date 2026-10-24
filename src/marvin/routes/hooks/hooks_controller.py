@@ -85,6 +85,18 @@ def _check_signature(webhook: WorkspaceIncomingWebhookModel, raw: bytes, request
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature.")
 
 
+def _note_refusal(session: Session, webhook: WorkspaceIncomingWebhookModel, reason: str) -> None:
+    """Remember a delivery this hook turned away — its token matched, so it was meant for it — for the incoming webhooks page and
+    the assistant (connection_health). Never the payload; best effort: it never changes the answer the sender gets."""
+    try:
+        webhook.refused_count = (webhook.refused_count or 0) + 1
+        webhook.last_refused_at = datetime.now(UTC)
+        webhook.last_refused_reason = reason[:200]
+        session.commit()
+    except Exception:  # noqa: BLE001
+        session.rollback()
+
+
 def _resolve_token(path_token: str, authorization: str | None) -> str:
     """The token comes from the path, or from an `Authorization: Bearer <token>` header."""
     if authorization and authorization.lower().startswith("bearer "):
@@ -122,10 +134,12 @@ def verify_hook(token: str, request: Request, bg_tasks: BackgroundTasks, session
             status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Send deliveries as POST; a GET only answers a verification request."
         )
     if not webhook.enabled:
+        _note_refusal(session, webhook, "verification request while switched off")
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This webhook is disabled.")
     challenge = answer(spec, params, _secret_value(webhook.verify_token_ref, webhook.group_id))
     if challenge is None:
         logger.warning("incoming webhook %s: verification request refused (scheme %s)", webhook.slug, webhook.verification_scheme)
+        _note_refusal(session, webhook, "verification refused: the verify token didn't match (or none is set)")
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Verification refused.")
     logger.info("incoming webhook %s: verification request answered (scheme %s)", webhook.slug, webhook.verification_scheme)
     # What the check carried, less the verify token itself (it is the secret) and the challenge (it is noise).
@@ -167,11 +181,16 @@ async def receive_hook(
     if not webhook:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook token.")
     if not webhook.enabled:
+        _note_refusal(session, webhook, "delivery while switched off")
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This webhook is disabled.")
 
     # Read the body with a hard size cap, then parse JSON leniently (empty / non-JSON → {}).
     raw = await _read_capped(request)
-    _check_signature(webhook, raw, request)
+    try:
+        _check_signature(webhook, raw, request)
+    except HTTPException:
+        _note_refusal(session, webhook, "signature rejected: the signing secret or the signature scheme doesn't match the sender's")
+        raise
     payload: dict = {}
     if raw:
         try:

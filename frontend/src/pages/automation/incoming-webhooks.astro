@@ -284,6 +284,9 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
           : `<span>0 received</span>`}
         <span>·</span>
         <span>last: ${esc(fmtWhen(w.lastReceivedAt))}</span>
+        ${w.refusedCount
+          ? `<span>·</span><span class="pill warn" title="${esc(w.lastRefusedReason || "")}">${w.refusedCount} refused · last ${esc(fmtWhen(w.lastRefusedAt))}: ${esc(w.lastRefusedReason || "")}</span>`
+          : ""}
         ${!w.enabled ? `<span class="pill">disabled</span>` : ""}
         ${w.signingSecretRef ? `<span class="pill" title="Requests are verified (${esc(schemeLabel(w.signatureScheme || "hmac_sha256_hex"))}) with secret ${esc(w.signingSecretRef)}${w.signatureHeader ? ` in header ${esc(w.signatureHeader)}` : ""}">verified</span>` : ""}
       </div>
@@ -631,6 +634,7 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
   .iw-page :global(.delivery summary) { cursor: pointer; font-size: 13px; }
   .iw-page :global(.delivery-body) { margin: 6px 0 4px; padding: 8px 10px; max-height: 320px; overflow: auto; background: var(--panel-2); border-radius: var(--radius); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
   .iw-page :global(.pill) { padding: 1px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); font-size: 11px; }
+  .iw-page :global(.pill.warn) { border-color: var(--color-warning, #d97706); color: var(--color-warning, #b45309); white-space: normal; }
   .iw-page :global(.hint) { font-size: 12px; color: var(--muted); }
   .iw-page :global(.hint.error) { color: var(--color-error, #c0392b); }
 
