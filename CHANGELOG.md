@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.59 (2026-10-24)
+
+### Features
+
+- **assistant**: Diagnostics tools — the assistant can look at workflow runs, events, automation
+  results, webhook deliveries and connection health
+  ([`66c9100`](https://github.com/InnerOpen/marvin/commit/66c910001f6ba19d63194a90de0d88bc9a5f5ab7))
+
+
 ## v1.1.0-rc.58 (2026-10-24)
 
 ### Bug Fixes
