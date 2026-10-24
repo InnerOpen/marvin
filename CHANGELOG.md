@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.58 (2026-10-24)
+
+### Bug Fixes
+
+- **workflows**: The editor keeps line breaks — a field's value is a growing text box, and a
+  multi-line value in any one-line box becomes one
+  ([`2bc71f3`](https://github.com/InnerOpen/marvin/commit/2bc71f33990e9cdf2afb39a188ba1b2b6d5bf72e))
+
+
 ## v1.1.0-rc.57 (2026-10-23)
 
 ### Bug Fixes
