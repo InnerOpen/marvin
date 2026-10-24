@@ -766,10 +766,16 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     // original value is written back unchanged, so a round trip never retypes it as a string.
     const text = typeof value === "string" ? value : JSON.stringify(value);
     if (typeof value !== "string") row.dataset.orig = text;
+    // The value is a text box that grows with what it holds: a single-line input would drop the line breaks of a
+    // multi-line value (an entry body written with paragraphs) on the next save.
     row.innerHTML = `
       <input class="input kv-key" placeholder="key" value="${esc(key)}" />
-      <input class="input kv-value" placeholder="value" value="${esc(text)}" />
+      <textarea class="input kv-value" placeholder="value" rows="1" spellcheck="false">${esc(text)}</textarea>
       <button type="button" class="icon-btn" title="Remove">✕</button>`;
+    const box = row.querySelector(".kv-value") as HTMLTextAreaElement;
+    const fit = () => { box.rows = Math.min(Math.max(box.value.split("\n").length, 1), 12); };
+    box.addEventListener("input", fit);
+    fit();
     row.querySelector(".icon-btn")!.addEventListener("click", () => { row.remove(); revalidate(); });
     return row;
   }
@@ -820,7 +826,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     editor?.querySelectorAll(".kv-row").forEach((r) => {
       const key = (r.querySelector(".kv-key") as HTMLInputElement).value.trim();
       if (!key) return;
-      const text = (r.querySelector(".kv-value") as HTMLInputElement).value;
+      const text = (r.querySelector(".kv-value") as HTMLTextAreaElement).value;
       const orig = (r as HTMLElement).dataset.orig;
       out[key] = orig !== undefined && orig === text ? JSON.parse(orig) : text;
     });
@@ -1197,7 +1203,25 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     sync();
   }
 
+  /** A step's form, with any single-line box whose saved value holds a line break made a text box: an input would drop the
+   * breaks on the next save (a multi-line approval question or message set in JSON). */
   function kindFields(kind: string, a: any): HTMLElement {
+    return keepLineBreaks(buildKindFields(kind, a));
+  }
+  function keepLineBreaks(root: HTMLElement): HTMLElement {
+    root.querySelectorAll<HTMLInputElement>('input.input:not([type]), input.input[type="text"]').forEach((input) => {
+      const raw = input.getAttribute("value") ?? "";
+      if (!raw.includes("\n")) return;
+      const box = document.createElement("textarea");
+      box.className = input.className;
+      box.placeholder = input.placeholder;
+      box.rows = Math.min(raw.split("\n").length, 12);
+      box.value = raw;
+      input.replaceWith(box);
+    });
+    return root;
+  }
+  function buildKindFields(kind: string, a: any): HTMLElement {
     const wrap = document.createElement("div");
     if (kind === "operation") {
       const ops = (OPTIONS.operations || []);
@@ -3056,7 +3080,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   /* Key/value list editor (entry metadata, target metadata filter) */
   .workflows-page :global(.kv-editor) { display: flex; flex-direction: column; gap: 4px; }
   .workflows-page :global(.kv-rows) { display: flex; flex-direction: column; gap: 6px; }
-  .workflows-page :global(.kv-row) { display: grid; grid-template-columns: 1fr 1.6fr auto; gap: 6px; align-items: center; }
+  .workflows-page :global(.kv-row) { display: grid; grid-template-columns: 1fr 1.6fr auto; gap: 6px; align-items: start; }
+  .workflows-page :global(.kv-row textarea.kv-value) { resize: vertical; min-height: 0; line-height: 1.4; font: inherit; }
   .workflows-page :global(.kv-editor > .linkish) { align-self: flex-start; font-size: 12px; }
   /* Read-only summary for a step the guided builder can't edit (e.g. a raw-url webhook) */
   .workflows-page :global(.step-ro) { display: flex; flex-direction: column; gap: 4px; }
