@@ -300,20 +300,6 @@ def as_item(r: Item) -> dict:
     }  # fmt: skip
 
 
-def sorted_since_held(session, row, *, since: datetime) -> list[dict]:
-    """This integration's unanswered items a rule skipped for its buckets (held ``bucket``) that now have a bucket — a person
-    sorted them, or AI did — written since ``since``: looked at again, so sorting one later lets the rule answer it."""
-    rows = (
-        session.query(Item)
-        .filter(Item.integration_id == row.id, Item.held.isnot(None), Item.bucket.isnot(None), Item.replied_at.is_(None))
-        .filter(Item.posted_at >= since, Item.trashed_at.is_(None), Item.status != HIDDEN)
-        .order_by(Item.posted_at)
-        .limit(200)
-        .all()
-    )
-    return [as_item(r) for r in rows if (r.held or {}).get("reason") == HELD_BUCKET]
-
-
 def _same_person(author: dict):
     """The rows written by this author (by id, else by handle); None when the item names nobody."""
     author_id, handle = str(author.get("id") or ""), str(author.get("handle") or "")

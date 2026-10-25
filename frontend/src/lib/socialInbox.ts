@@ -269,7 +269,7 @@ export function heldText(held: InboxHeld, now: Date = new Date()): string {
     return `Not auto-replied: this person was answered by direct message within the rule's cool-down${when}. The rule answers a message they send after that.`;
   }
   if (held.reason === "bucket") {
-    return `Not auto-replied: its words matched a rule, but ${held.note ?? "the rule answers only some buckets"}. Sort it in Needs, or turn on Sort comments with AI in Settings › Social.`;
+    return `Not auto-replied: its words matched a rule, but ${held.note ?? "the rule answers only some buckets"}. Sorting it now won't send anything: reply here if it should be answered. To have such comments sorted before the rule looks, turn on Sort comments with AI in Settings › Social.`;
   }
   if (held.reason === "refused") {
     return `Not auto-replied: the network refused the message${held.note ? ` (${held.note})` : ""}. Networks allow a message only for a while after the person's last one.`;

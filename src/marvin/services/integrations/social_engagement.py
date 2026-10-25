@@ -449,10 +449,6 @@ def _reply(run: _Run, net: _Network, row, state: dict, cache: dict, *, rehearsal
     fresh = {str(i["id"]) for i in items}
     candidates = [p["item"] for p in pending if str(p["item"]["id"]) not in fresh] + items
     candidates += _inbox_direct(run, row, {str(c["id"]) for c in candidates})
-    if not rehearsal:  # a rule skipped these for their buckets; sorted since, they may be answered now
-        since = run.now - timedelta(days=settings.max_age_days)
-        have = {str(c["id"]) for c in candidates}
-        candidates += [i for i in social_inbox.sorted_since_held(session, row, since=since) if i["id"] not in have]
     # A person's newest direct message first: it is the one answered, and their earlier ones are covered by that reply.
     direct = sorted((c for c in candidates if str(c.get("kind") or "") in DIRECT_KINDS), key=lambda c: str(c.get("created_at") or ""), reverse=True)
     candidates = [c for c in candidates if str(c.get("kind") or "") not in DIRECT_KINDS] + direct
@@ -624,7 +620,8 @@ def _held_by_cooldown(run: _Run, row, item: dict, rule: SocialRule, people: set[
 
 def _note_bucket_miss(run: _Run, row, item: dict, names: set[str]) -> None:
     """A rule's keywords hit but its buckets kept it out (the item is unsorted, or sorted elsewhere): say so on the item, so a rule
-    limited to buckets never stays silent unexplained — an unsorted item never passes a bucket limit."""
+    limited to buckets never stays silent unexplained — an unsorted item never passes a bucket limit. Sorting it later sends
+    nothing: a sort organizes the inbox, it never approves a reply (a person replies by hand)."""
     from .social_buckets import bucket_label
     from .social_rules import BUCKET_MISS
 

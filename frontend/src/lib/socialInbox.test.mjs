@@ -165,6 +165,7 @@ describe("not auto-replied", () => {
   test("a bucket miss says which buckets the rule wanted and how to get it sorted", () => {
     const text = heldText({ reason: "bucket", note: "the rule answers only Lead; this one is unsorted" }, NOW);
     assert.match(text, /matched a rule, but the rule answers only Lead; this one is unsorted/);
+    assert.match(text, /Sorting it now won't send anything: reply here/);
     assert.match(text, /Sort comments with AI/);
   });
 

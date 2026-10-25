@@ -91,3 +91,6 @@ triggers. Rules gain **Only these buckets** (`buckets`) but keep keywords requir
 the existing door tests guard it). Auto-like `support` is opt-in (`like_support`, networks whose auto-reply is on, 20 per
 network per run, each once). **Save as idea** (`POST /{id}/idea`, `idea_entry_id`, migration `d8f2b6c4e1a7`).
 
+
+**Fix (2026-10-25):** sorting a held item no longer sends a reply. The phase 3 re-check made a person's sort (organizing
+the inbox) act as an approval, up to 7 days late; removed. A bucket miss stays held; the note says to reply by hand.

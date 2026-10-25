@@ -297,7 +297,7 @@ def test_a_bucket_limited_rule_answers_a_keyword_hit_only_in_its_bucket(ws, ai):
     assert inbox.by_id(ws)["c2"].held == {**inbox.by_id(ws)["c2"].held, "reason": "bucket"}
 
 
-def test_an_unsorted_item_a_bucket_rule_skips_says_why_and_is_answered_once_a_person_sorts_it(ws, api):
+def test_an_unsorted_item_a_bucket_rule_skips_says_why_and_sorting_it_later_sends_nothing(ws, api):
     se.rule(ws, keywords="price", buckets="lead")
     inbox.poll(ws, [item("c1", "What is the price?")])  # AI sorting off: it stays unsorted
 
@@ -305,9 +305,9 @@ def test_an_unsorted_item_a_bucket_rule_skips_says_why_and_is_answered_once_a_pe
     assert ws.nets["mastodon"].sent() == []
     assert held["reason"] == "bucket" and held["note"] == "the rule answers only Lead; this one is unsorted"
 
-    _sort(ws, api, "c1", "lead")
+    _sort(ws, api, "c1", "lead")  # organizing the inbox, not approving a reply
     inbox.poll(ws, [], now=se.NOW + se.timedelta(minutes=5))
-    assert [s["comment_id"] for s in ws.nets["mastodon"].sent()] == ["c1"] and inbox.by_id(ws)["c1"].held is None
+    assert ws.nets["mastodon"].sent() == [] and inbox.by_id(ws)["c1"].held["reason"] == "bucket"
 
 
 def test_a_rule_without_buckets_answers_as_before(ws):
