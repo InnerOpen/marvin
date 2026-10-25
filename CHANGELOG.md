@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.65 (2026-10-25)
+
+### Features
+
+- **social**: Caption check for every network that posts — in the editor, on the approval before a
+  post, and for the assistant
+  ([`2c59670`](https://github.com/InnerOpen/marvin/commit/2c596703b90edd21be81d6ae3052ff4435a2400f))
+
+
 ## v1.1.0-rc.64 (2026-10-25)
 
 ### Bug Fixes
