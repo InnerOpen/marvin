@@ -60,6 +60,8 @@ class AutomationRead(_MarvinModel):
     """Read-only, on the list only: when its newest run started (null: it has never run)."""
     last_run_status: str | None = None
     """Read-only, on the list only: how that run went (running | success | partial | failed | cancelled; null: never run)."""
+    failed_runs_7d: int = 0
+    """Read-only, on the list only: how many of its runs failed (failed or partial) in the last 7 days — the dashboard's count."""
     attention: str | None = None
     """Read-only, on the list only: why it needs a look (last_run_failed | off_while_integration_on; null: it doesn't). A failure an
     integration's error policy handled doesn't count."""

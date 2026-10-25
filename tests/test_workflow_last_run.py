@@ -129,3 +129,31 @@ def test_the_list_takes_one_query_for_the_runs_however_many_workflows(db_session
 
     assert executions_queries(2) == 1
     assert executions_queries(6) == 1
+
+
+def test_each_workflow_counts_its_failed_runs_this_week_as_the_dashboard_does(db_session, workspace):
+    """A workflow whose last run went fine can still have failed this week: the card says how many (the dashboard's count).
+    Its runs are dated from the real clock, as the list counts the week from now."""
+    now = datetime.now(UTC)
+
+    def run(workflow, status, hours_ago):
+        db_session.add(
+            AutomationExecutionModel(
+                session=db_session, group_id=workspace.gid, automation_id=workflow.id, automation_slug=workflow.slug,
+                trigger_type="manual", status=status, started_at=now - timedelta(hours=hours_ago),
+            )
+        )  # fmt: skip
+        db_session.commit()
+
+    digest = _workflow(db_session, workspace.gid, "Digest")
+    run(digest, "failed", hours_ago=30)
+    run(digest, "partial", hours_ago=20)
+    run(digest, "failed", hours_ago=24 * 9)  # older than the week: not counted
+    run(digest, "success", hours_ago=1)  # the newest went fine
+    quiet = _workflow(db_session, workspace.gid, "Quiet")
+    run(quiet, "success", hours_ago=3)
+
+    rows = _listed(workspace)
+
+    assert (rows["Digest"]["lastRunStatus"], rows["Digest"]["failedRuns7d"]) == ("success", 2)
+    assert rows["Quiet"]["failedRuns7d"] == 0

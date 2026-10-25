@@ -3125,6 +3125,9 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.wf-attention) { margin-top: 2px; font-size: 12px; color: var(--color-error); }
   .workflows-page :global(.wf-last) { margin-top: 2px; font-size: 12px; color: var(--muted); }
   .workflows-page :global(.wf-last.failed) { color: var(--color-error); font-weight: 600; }
+  .workflows-page :global(.wf-last.ok .wf-mark) { color: var(--color-success, #2e7d32); font-weight: 700; }
+  .workflows-page :global(.wf-last.failed .wf-mark) { font-weight: 700; }
+  .workflows-page :global(.wf-week-failed) { color: var(--color-error); font-weight: 600; }
   .workflows-page :global(.wf-steps .flow) { margin-top: 8px; }
   .workflows-page :global(.org-card .wf-history) { margin-top: 10px; }
 

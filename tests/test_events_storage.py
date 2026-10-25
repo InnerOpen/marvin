@@ -191,6 +191,7 @@ WORKFLOW_KEYS = {
     "sourceRecipeVersion",
     "lastRunAt",
     "lastRunStatus",
+    "failedRuns7d",
     "attention",
 }
 

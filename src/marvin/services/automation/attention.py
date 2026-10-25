@@ -37,9 +37,20 @@ def workflow_reason(*, enabled: bool, last_status: str | None, handled: bool, in
     return None
 
 
-def workflow_rows(session, group_id) -> list[tuple[WorkspaceAutomationModel, Any, str | None, str | None]]:
-    """``(workflow, last run started, last run status, attention reason)`` for every workflow of the workspace, by name — in one query."""
+FAILURE_WINDOW_DAYS = 7
+"""The window the dashboard's "workflow runs failed" count uses; each workflow's own count uses the same, so they add up."""
+
+
+def workflow_rows(session, group_id, *, now=None) -> list[tuple[WorkspaceAutomationModel, Any, str | None, str | None, int]]:
+    """``(workflow, last run started, last run status, attention reason, runs failed in the last FAILURE_WINDOW_DAYS)`` for every
+    workflow of the workspace, by name — in one query. The failed count is the dashboard's (failed or partial, by start time)."""
+    from datetime import UTC, datetime, timedelta
+
+    from marvin.services.dashboard import RUN_FAILED
+
+    since = (now or datetime.now(UTC)) - timedelta(days=FAILURE_WINDOW_DAYS)
     started = sa.func.coalesce(Run.started_at, Run.created_at)
+    failed = sa.case((sa.and_(Run.status.in_(RUN_FAILED), Run.started_at >= since), 1), else_=0)
     newest = (
         sa.select(
             Run.automation_id,
@@ -47,12 +58,13 @@ def workflow_rows(session, group_id) -> list[tuple[WorkspaceAutomationModel, Any
             Run.handled,
             started.label("at"),
             sa.func.row_number().over(partition_by=Run.automation_id, order_by=(started.desc(), Run.created_at.desc())).label("rank"),
+            sa.func.sum(failed).over(partition_by=Run.automation_id).label("failed"),
         )
         .where(Run.group_id == group_id, Run.automation_id.is_not(None))
         .subquery()
     )
     rows = (
-        session.query(WorkspaceAutomationModel, newest.c.at, newest.c.status, newest.c.handled, IntegrationModel.enabled)
+        session.query(WorkspaceAutomationModel, newest.c.at, newest.c.status, newest.c.handled, IntegrationModel.enabled, newest.c.failed)
         .outerjoin(newest, sa.and_(newest.c.automation_id == WorkspaceAutomationModel.id, newest.c.rank == 1))
         .outerjoin(
             IntegrationModel,
@@ -74,13 +86,14 @@ def workflow_rows(session, group_id) -> list[tuple[WorkspaceAutomationModel, Any
                 integration_id=wf.source_integration_id,
                 integration_enabled=integration_enabled,
             ),
+            int(failed or 0),
         )
-        for wf, at, status, handled, integration_enabled in rows
+        for wf, at, status, handled, integration_enabled, failed in rows
     ]
 
 
 def workflows_needing_a_look(session, group_id) -> int:
-    return sum(1 for *_, reason in workflow_rows(session, group_id) if reason)
+    return sum(1 for _, _, _, reason, _ in workflow_rows(session, group_id) if reason)
 
 
 def incoming_webhooks_needing_a_look(session, group_id) -> int:

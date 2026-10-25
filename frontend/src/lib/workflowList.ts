@@ -21,6 +21,8 @@ export interface WorkflowRow {
   lastRunStatus?: string | null;
   /** Why it needs a look (the server decides): "last_run_failed" | "off_while_integration_on"; null/absent: it doesn't. */
   attention?: string | null;
+  /** How many of its runs failed (or partly failed) in the last 7 days — the dashboard's count, per workflow. */
+  failedRuns7d?: number;
   definition?: any;
 }
 
@@ -101,7 +103,7 @@ export function workflowAdapter(names: NameLookup): ListAdapter<WorkflowRow> {
       recipe: wf.sourceRecipe ?? null,
     }),
     enabled: (wf) => wf.enabled,
-    attention: (wf) => !!wf.attention,
+    attention: (wf) => !!wf.attention || failedThisWeek(wf) > 0,  // the dashboard's "runs failed (7 days)" lands here
     facets: { starts: triggerKind },
   };
 }
@@ -130,9 +132,17 @@ const ATTENTION_REASONS: Record<string, string> = {
   off_while_integration_on: "Off, but its integration is on",
 };
 
-/** The reason a flagged workflow needs a look, in words ("" when it doesn't). */
+/** How many runs failed in the last 7 days (0 when none, or the server didn't say). */
+export function failedThisWeek(wf: WorkflowRow): number {
+  return Math.max(0, Math.floor(wf.failedRuns7d ?? 0));
+}
+
+/** The reason a flagged workflow needs a look, in words ("" when it doesn't): the server's flag, else failed runs this week
+ * (a workflow whose last run went fine but failed earlier in the week still needs a look). */
 export function attentionReason(wf: WorkflowRow): string {
-  return wf.attention ? (ATTENTION_REASONS[wf.attention] ?? "Needs a look") : "";
+  if (wf.attention) return ATTENTION_REASONS[wf.attention] ?? "Needs a look";
+  const failed = failedThisWeek(wf);
+  return failed ? `${failed} run${failed === 1 ? "" : "s"} failed this week` : "";
 }
 
 /** The small "Needs a look" marker with its reason (empty when the workflow is fine). */
@@ -148,12 +158,17 @@ export function editedHtml(wf: WorkflowRow): string {
     : "";
 }
 
-/** "Last run 2 h ago · failed" (failed ones marked), or "Not run yet". */
+/** "✓ Last run 2 h ago · succeeded" or "✕ … failed" (failed ones marked), plus "· 3 failed this week" when earlier runs failed;
+ * "Not run yet" for one that never ran. The mark and the colour make the outcome readable at a glance. */
 export function lastRunHtml(wf: WorkflowRow, now: Date = new Date()): string {
   const when = timeAgo(wf.lastRunAt, now);
   if (!when || !wf.lastRunStatus) return '<div class="wf-last none">Not run yet</div>';
   const outcome = RUN_OUTCOMES[wf.lastRunStatus] ?? wf.lastRunStatus;
-  return `<div class="wf-last${lastRunFailed(wf) ? " failed" : ""}">Last run ${esc(when)} · ${esc(outcome)}</div>`;
+  const failed = lastRunFailed(wf);
+  const mark = failed ? "✕" : wf.lastRunStatus === "success" ? "✓" : "•";
+  const week = failedThisWeek(wf);
+  const weekHtml = week ? ` · <span class="wf-week-failed">${week} failed this week</span>` : "";
+  return `<div class="wf-last${failed ? " failed" : wf.lastRunStatus === "success" ? " ok" : ""}"><span class="wf-mark" aria-hidden="true">${mark}</span> Last run ${esc(when)} · ${esc(outcome)}${weekHtml}</div>`;
 }
 
 /** One compact workflow card: name, one-line trigger, On/Off switch, Run and Edit, the rest under ⋯. The page

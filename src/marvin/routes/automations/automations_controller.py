@@ -238,8 +238,10 @@ class AutomationsController(BaseUserController):
 
         rows = attention.workflow_rows(self.session, self.group_id)
         return [
-            AutomationRead.model_validate(r).model_copy(update={"last_run_at": at, "last_run_status": status, "attention": reason})
-            for r, at, status, reason in rows
+            AutomationRead.model_validate(r).model_copy(
+                update={"last_run_at": at, "last_run_status": status, "attention": reason, "failed_runs_7d": failed}
+            )
+            for r, at, status, reason, failed in rows
         ]
 
     @router.get("/attention", response_model=AutomationAttention, summary="What in Automation needs a look")

@@ -150,7 +150,7 @@ dots.push({
   href: "/workspace/settings/integration-health",
 });
 dots.push({ tone: webhookFailures ? "bad" : "ok", label: webhookFailures ? `${webhookFailures} webhook deliveries failed (24 h)` : "Webhook deliveries ok", href: "/automation/webhooks/log" });
-dots.push({ tone: workflowFailures ? "warn" : "ok", label: workflowFailures ? `${workflowFailures} workflow runs failed (7 days)` : "Workflow runs ok", href: "/automation/workflows" });
+dots.push({ tone: workflowFailures ? "warn" : "ok", label: workflowFailures ? `${workflowFailures} workflow runs failed (7 days)` : "Workflow runs ok", href: workflowFailures ? "/automation/workflows?status=attention" : "/automation/workflows" });
 dots.push({ tone: emailReady ? "ok" : "off", label: emailReady ? "Email ready" : "Email not set up", href: "/workspace/settings/email" });
 dots.push({ tone: pushReady ? "ok" : "off", label: pushReady ? "Push ready" : "Push not set up", href: null });
 
