@@ -1247,6 +1247,12 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("network", "The network's name", "instagram"),
             EventVariable("integration", "The connection's slug: what a step's `integration` names (${event.integration})", "ig"),
             EventVariable("integration_id", "The connection's id", "<integration-uuid>"),
+            EventVariable(
+                "bucket",
+                "What it needs, when sorted on arrival: keyword (hit a rule's keyword) or support (emoji, tags, a few words of "
+                "praise); empty while unsorted. One of keyword, lead, question, feedback, support, noise",
+                "keyword",
+            ),
         ],
     ),
     # ── Connect: Webhooks ─────────────────────────────────────────────────────

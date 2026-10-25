@@ -3,6 +3,8 @@
 // Used by the workflow editor (pages/automation/workflows.astro) for "Only if" and each step's "Only run this step when…",
 // and by the workflow cards. Pure: the editor hands in what it knows (the trigger's field catalog, run inputs, earlier steps).
 
+import { BUCKETS } from "./socialInbox.ts";
+
 export interface CatalogField {
   field: string;
   label: string;
@@ -144,6 +146,7 @@ export function fieldLabel(field: string, groups: FieldGroup[]): string {
 export function valueChoices(field: string, ctx: { entryTypes?: Choice[]; inputs?: RunInput[] } = {}): Choice[] | null {
   if (field === "entry.entry_type") return ctx.entryTypes?.length ? ctx.entryTypes : null;
   if (STATUS_FIELDS.has(field)) return ENTRY_STATUSES;
+  if (field === "event.bucket") return BUCKETS.map((b) => ({ value: b.value, label: b.label }));  // a new comment's bucket
   const step = stepFieldParts(field);
   if (step?.key === "decision") return DECISIONS;
   if (step && BOOLEAN_KEYS.has(step.key)) return YES_NO;

@@ -385,7 +385,7 @@ def _read_once(run: _Run, net: _Network, row, cursor: str | None, kinds: list[st
     if key not in cache:
         cache[key] = _read(net, cursor, run.settings, kinds)
         handles, ids = own_identities(row.config)
-        social_inbox.persist_items(run.session, row, cache[key][0], handles=handles, ids=ids, now=run.now)
+        social_inbox.persist_items(run.session, row, cache[key][0], handles=handles, ids=ids, now=run.now, rules=run.rules)
     return cache[key]
 
 
@@ -528,6 +528,7 @@ def _send_event(run: _Run, row, item: dict) -> None:
             network=str(item.get("network") or row.provider),
             integration=row.slug,
             integration_id=row.id,
+            bucket=social_inbox.bucket_of(session=run.session, row=row, item_id=str(item["id"])),
         )
         who = data.author.handle or data.author.name or "someone"
         run.event_bus.dispatch(

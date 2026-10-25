@@ -1788,6 +1788,9 @@ class EventSocialCommentData(EventDocumentDataBase):
     """The network's name, e.g. "instagram"."""
     integration: str
     """The connection's slug: what a step's ``integration`` names."""
+    bucket: str | None = None
+    """What it needs, when Marvin sorted it on arrival: keyword (it hit a rule's keyword) or support (only emoji, tags or a few
+    words of praise); empty while unsorted (services/integrations/social_buckets.py)."""
     integration_id: UUID4
 
 

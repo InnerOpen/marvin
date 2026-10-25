@@ -472,7 +472,8 @@ def test_the_event_is_a_workflow_trigger_with_the_fields_its_payload_carries():
     assert entry.enabled and entry.scope == "workspace" and "social_comment_received" in TRIGGERABLE_EVENT_TYPES
     assert trigger_groups()[SOCIAL] == ["social_comment_received"]
     fields = social_fields("social_comment_received")
-    assert set(fields) == {"id", "kind", "text", "author", "post_id", "post_url", "created_at", "url", "network", "integration", "integration_id"}
+    expected = {"id", "kind", "text", "author", "post_id", "post_url", "created_at", "url", "network", "integration", "integration_id"}
+    assert set(fields) == expected | {"bucket"}
     assert set(fields) == set(EventSocialCommentData.model_fields) - {"document_type", "operation"}
     assert social_fields("entry_published") == {} and social_fields("scheduled_task_failed") == {}
 

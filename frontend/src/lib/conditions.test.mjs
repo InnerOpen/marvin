@@ -33,6 +33,7 @@ describe("the values a field takes", () => {
   test("are offered where Marvin knows them", () => {
     assert.deepEqual(valueChoices("entry.entry_type", CTX), [{ value: "recipe", label: "Recipe" }]);
     assert.equal(valueChoices("entry.status")[0].value, "draft");
+    assert.deepEqual(valueChoices("event.bucket").map((c) => c.value), ["keyword", "lead", "question", "feedback", "support", "noise"]);
     assert.equal(valueChoices("steps.ok.output.decision")[0].value, "approved");
     assert.deepEqual(valueChoices("steps.mail.output.sent").map((c) => c.value), ["true", "false"]);
     assert.deepEqual(valueChoices("input.style", CTX).map((c) => c.value), ["haiku", "limerick"]);

@@ -86,9 +86,11 @@ def _chunks(values: list[str]) -> Iterator[list[str]]:
         yield values[start : start + _CHUNK]
 
 
-def _mapping(row, item: dict, posted: datetime, now: datetime) -> dict:
+def _mapping(row, item: dict, posted: datetime, now: datetime, sorted_as: tuple[str, str] | None = None) -> dict:
+    """The row for a plugin item; ``sorted_as`` is its bucket and who sorted it (``social_buckets.bucket_for``), when known."""
     author = item.get("author") if isinstance(item.get("author"), dict) else {}
     kind = str(item.get("kind") or KIND_COMMENT).lower()
+    bucket, source = sorted_as or (None, None)
     return {
         "group_id": row.group_id,
         "integration_id": row.id,
@@ -108,6 +110,9 @@ def _mapping(row, item: dict, posted: datetime, now: datetime) -> dict:
         "first_seen_at": now,
         "status": NEW,
         "reply_rehearsal": False,
+        "bucket": bucket,
+        "bucket_source": source,
+        "bucket_at": now if bucket else None,
     }
 
 
@@ -126,8 +131,11 @@ def keep_items(session, row, items, *, now: datetime | None = None) -> int:
 
     if not isinstance(items, list) or not items:
         return 0
+    from .social_engagement import load_rules
+
     handles, ids = own_identities(row.config)
-    return persist_items(session, row, items, handles=handles, ids=ids, now=now or datetime.now(UTC))
+    rules = load_rules(session, row.group_id)  # so a pushed item that hits a rule's keyword is sorted as one, like a polled one
+    return persist_items(session, row, items, handles=handles, ids=ids, now=now or datetime.now(UTC), rules=rules)
 
 
 def keep_webhook_items(session, integration_id, group_id, payload: dict, *, now: datetime | None = None) -> int:
@@ -157,11 +165,12 @@ def keep_webhook_items(session, integration_id, group_id, payload: dict, *, now:
         return 0
 
 
-def persist_items(session, row, items: Iterable[dict], *, handles: set[str], ids: set[str], now: datetime) -> int:
+def persist_items(session, row, items: Iterable[dict], *, handles: set[str], ids: set[str], now: datetime, rules=None) -> int:
     """Keep the items of one read that aren't stored yet (see the module docstring); returns how many were new. ``handles`` and
-    ``ids`` are the integration's own account (``own_identities``). Never raises: a failure is logged and rolled back."""
+    ``ids`` are the integration's own account (``own_identities``); ``rules`` (the workspace's) sort a new item whose text hits a
+    rule's keyword (``social_buckets``). Never raises: a failure is logged and rolled back."""
     try:
-        fresh = _fresh(row, items, handles, ids, now)
+        fresh = _fresh(row, items, handles, ids, now, rules)
         if not fresh:
             return 0
         known: set[str] = set()
@@ -182,16 +191,22 @@ def persist_items(session, row, items: Iterable[dict], *, handles: set[str], ids
         return 0
 
 
-def _fresh(row, items: Iterable[dict], handles: set[str], ids: set[str], now: datetime) -> dict[str, dict]:
-    """The row mappings worth keeping from one read, by item id: not the account's own, not older than the retention window."""
+def _fresh(row, items: Iterable[dict], handles: set[str], ids: set[str], now: datetime, rules=None) -> dict[str, dict]:
+    """The row mappings worth keeping from one read, by item id: not the account's own, not older than the retention window,
+    each sorted into a bucket when that costs nothing (``social_buckets.bucket_for``)."""
+    from .social_buckets import bucket_for
+
     cutoff = now - timedelta(days=RETENTION_DAYS)
+    names = {row.slug.lower(), row.provider.lower()}
     fresh: dict[str, dict] = {}
     for item in items:
         if not isinstance(item, dict) or item.get("id") in (None, "") or is_own(item, handles, ids):
             continue
         posted = parse_time(item.get("created_at")) or now
         if posted >= cutoff:
-            fresh.setdefault(str(item["id"])[:FIELD_MAX], _mapping(row, item, posted, now))
+            key = str(item["id"])[:FIELD_MAX]
+            if key not in fresh:
+                fresh[key] = _mapping(row, item, posted, now, bucket_for(item, rules, names))
     return fresh
 
 
@@ -340,6 +355,30 @@ def cover_earlier_direct(session, row, author: dict, before: datetime, *, reply_
     return len(rows)
 
 
+def bucket_of(session, row, item_id: str) -> str | None:
+    """A stored item's bucket (``social_buckets``); None while it is unsorted or isn't stored."""
+    return session.query(Item.bucket).filter(Item.integration_id == row.id, Item.item_id == str(item_id)).scalar()
+
+
+def sort_item(session, item: Item, bucket: str | None, *, now: datetime) -> Item:
+    """A person sorts an item into a bucket, or clears it (None). A person's choice is never overwritten by Marvin. Commits."""
+    from .social_buckets import BUCKETS, SOURCE_PERSON
+
+    if bucket is not None and bucket not in BUCKETS:
+        raise ValueError(f"unknown bucket {bucket!r}: one of {', '.join(BUCKETS)}")
+    item.bucket, item.bucket_source, item.bucket_at = bucket, SOURCE_PERSON, now
+    session.commit()
+    return item
+
+
+def bucket_counts(session, group_id, integration: str | None = None) -> dict[str, int]:
+    """How many inbox items (not in the Trash) are in each bucket, and ``unsorted`` — the inbox's chips."""
+    q = session.query(Item.bucket, sa.func.count(Item.id)).filter(Item.group_id == group_id, Item.trashed_at.is_(None))
+    if integration:
+        q = q.filter(Item.integration_slug == integration)
+    return {(bucket or "unsorted"): n for bucket, n in q.group_by(Item.bucket)}
+
+
 def trashed_ids(session, row, ids: list[str]) -> set[str]:
     """Which of these item ids a person moved to the Trash — a rule leaves them alone."""
     found: set[str] = set()
@@ -386,9 +425,11 @@ def query(
     limit: int = 50,
     offset: int = 0,
     trashed: bool = False,
+    bucket: str | None = None,
 ) -> tuple[list[Item], int]:
     """A workspace's items, newest first, filtered; ``(page, total matching)``. ``text`` searches the item's text and its
-    author's handle and name, case-insensitively; ``since`` / ``until`` bound the time it was written. ``replied=True`` is the
+    author's handle and name, case-insensitively; ``since`` / ``until`` bound the time it was written; ``bucket`` is one
+    bucket or ``unsorted``. ``replied=True`` is the
     Replies view: items with a reply, the latest reply first (``rehearsal`` narrows it to dry runs or to real replies)."""
     q = session.query(Item).filter(Item.group_id == group_id)
     q = q.filter(Item.trashed_at.isnot(None) if trashed else Item.trashed_at.is_(None))  # the Trash, or the inbox
@@ -409,6 +450,8 @@ def query(
     if text and text.strip():
         like = _like(text.strip())
         q = q.filter(sa.or_(*(c.ilike(like, escape="\\") for c in (Item.text, Item.author_handle, Item.author_name))))
+    if bucket:
+        q = q.filter(Item.bucket.is_(None) if bucket == "unsorted" else Item.bucket == bucket)
     if since is not None:
         q = q.filter(Item.posted_at >= since)
     if until is not None:

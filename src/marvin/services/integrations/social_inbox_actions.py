@@ -48,6 +48,7 @@ ACTION_ROLES: dict[str, WorkspaceRole] = {
     "like": WorkspaceRole.EDITOR,
     "hide": WorkspaceRole.EDITOR,
     "trash": WorkspaceRole.EDITOR,
+    "sort": WorkspaceRole.EDITOR,
     "rule": WorkspaceRole.EDITOR,
     "rules": WorkspaceRole.EDITOR,
     "publish": WorkspaceRole.EDITOR,

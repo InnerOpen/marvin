@@ -144,6 +144,27 @@ Compact rows (network logo, who, an excerpt, the kind and when, status and **Sen
 
 **The approval, for a person.** A person pressing a button is the human approval a workflow's Approval step stands for, through a third, narrow door (`social_inbox_actions.InboxActor.act`) separate from the engine's: the caller is a workspace member holding the role in the table (checked before anything is looked up, so a lower role gets 403, never a 404 that confirms an id); only the five capabilities above can pass; the comment id and the integration are taken from the stored item, never from the request; the text is the person's own; no approver, no call; and every call is made with `dry_run` false. A failure shows the network's own sentence (422 for a refusal, 502 for a network error) and changes nothing.
 
+## Buckets: what each item needs {#buckets}
+
+Every inbox item can be sorted into one of six fixed buckets, the same on every network (core decides; a plugin only hands over the item), in the order a person works through them:
+
+| Bucket | What it is |
+| --- | --- |
+| `keyword` | It hit a published rule's keyword: the rule answers it |
+| `lead` | Asks about price, availability or buying, or describes a problem you solve |
+| `question` | A question others probably share |
+| `feedback` | Disagrees, complains, adds substance |
+| `support` | Praise, emoji, tags: no reply needed |
+| `noise` | Spam, pitches, bait, bots |
+
+**Sorted on arrival, for free.** When an item is first stored (a poll's or a webhook's), Marvin sorts it as `keyword` when a published rule's keyword hits it (the same match the engine answers by: the rule must cover that network and kind, and a direct message must come after the rule was published), else as `support` when it is only emoji and tags or up to four words of plain praise. The rest stay **unsorted**. No AI is involved, and it happens whatever the network's auto-reply mode.
+
+**A person sorts.** In an item's dialog, **Needs** puts it in a bucket or back to Unsorted (EDITOR). A person's choice is theirs: Marvin never changes it, and a re-poll never re-sorts an item.
+
+**The inbox filters by bucket.** Chips over the list show each bucket that has items, then Unsorted, with counts; one is the filter (`?bucket=lead`, or `unsorted`), and a chip again clears it. Each row shows its bucket (who sorted it is in the badge's tooltip). The new-comment trigger carries it as `${event.bucket}`.
+
+Coming next (`tasks/social-comment-buckets-plan.md`): AI sorting of the rest, opt-in in Settings › Social, one batched call per run capped at 20 items, `lead` staying a filter rather than a notification; then rules that answer only some buckets, auto-like for `support`, auto-hide for `noise`, and **Save as idea**.
+
 ## API {#api}
 
 `/api/groups/social-inbox`, workspace-scoped, mounted when the SDK is installed; the response keys are camelCase.
@@ -151,7 +172,7 @@ Compact rows (network logo, who, an excerpt, the kind and when, status and **Sen
 | Method | Path | Role | Purpose |
 | --- | --- | --- | --- |
 | GET | `/summary` | EDITOR | What the sidebar and the pages need: `show` (an enabled integration offers a `social.*` capability), `new`, each connected network (`slug`, `name`, `provider` for its logo, `capabilities`, `readsComments`, `canReply`, `autoReply`, `new`) and `can` (what the caller's role may do). `?visit=true` (the Social pages) first creates what is missing: the rule type and the engine's task. |
-| GET | `` | EDITOR | The items, newest first. Filters: `integration` (slug), `network`, `kind`, `status` (repeatable), `q`, `since`, `until`, `limit` (1–200, 50), `offset`. Each item carries `actions`, `replyModes` and `reply`. Also returns `total` and `new`. |
+| GET | `` | EDITOR | The items, newest first. Filters: `integration` (slug), `network`, `kind`, `status` (repeatable), `q`, `since`, `until`, `bucket` (one bucket, or `unsorted`), `limit` (1–200, 50), `offset`. Each item carries `actions`, `replyModes`, `reply`, `held`, `bucket` and `bucketSource`. Also returns `total`, `new` and `buckets` (items per bucket and `unsorted`, of the listed integration, whatever the other filters). |
 | GET | `/replies` | EDITOR | The Replies view: items with a reply, latest first. `integration`, `rehearsal` (`true` dry runs, `false` real), `limit`, `offset`. `reply` carries `mode`, `rehearsal`, `replyId`, `text`, `rule`, `ruleEntryId`, `at`, `by`, `byName`. |
 | PUT | `/integrations/{slug}/auto-reply` | ADMIN | `{mode: off\|rehearsal\|on}`. 404 for a network that isn't connected, 409 for a mode a network that can't reply can't have. |
 | GET | `/rules` | EDITOR | `?integration=<slug>`: that network's rules plus the all-network ones (`allNetworks`); without it, every rule. Each carries `id`, `slug`, `status`, `published`, `keywords`, `reply`, `networks`, `post`, `replyAs`, `kinds`, `path` (the entry editor). |
@@ -162,6 +183,7 @@ Compact rows (network logo, who, an excerpt, the kind and when, status and **Sen
 | POST | `/{id}/like` | EDITOR | |
 | POST | `/{id}/hide` | EDITOR | `{hidden = true}` |
 | POST | `/{id}/trash` | EDITOR | `{trashed = true}` — the inbox's Trash (Marvin only); `GET ?trashed=true` lists it |
+| POST | `/{id}/bucket` | EDITOR | `{bucket}` — one of the six [buckets](#buckets), or `null` to clear it; recorded as a person's choice, which Marvin never overwrites |
 | DELETE | `/{id}` | ADMIN | |
 | POST | `/{id}/message` | ADMIN | `{text}` |
 | POST | `/{id}/rule` | EDITOR | `{reply?}` creates the draft rule; returns `id`, `slug`, `keywords`, `path` |

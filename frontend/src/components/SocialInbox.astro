@@ -7,8 +7,10 @@
 // Backend: routes/groups/social_inbox_controller.py. Pure logic: lib/socialInbox.ts (socialInbox.test.mjs).
 import type { InboxList } from "@/lib/api/socialInbox";
 import {
+  bucketChips,
   emptyNotice,
   type Filters,
+  filtersToQuery,
   hasFilters,
   type InboxSummary,
   integrationOptions,
@@ -30,6 +32,8 @@ const { summary, list, filters, basePath, network = null } = Astro.props;
 const options = summary ? integrationOptions(summary.integrations) : [];
 const empty = emptyNotice(summary, hasFilters({ ...filters, integration: "" }), network);
 const data = JSON.stringify({ summary, list, filters, basePath, network }).replace(/</g, "\u003c");
+const chips = bucketChips(list?.buckets, filters.bucket);
+const chipHref = (value: string, active: boolean) => `${basePath}${filtersToQuery({ ...filters, bucket: active ? "" : value })}`;
 ---
 
 <div class="social-inbox">
@@ -59,10 +63,21 @@ const data = JSON.stringify({ summary, list, filters, basePath, network }).repla
       <label class="grow">Search
         <input class="input" type="search" name="q" value={filters.q} placeholder="Text, @handle or name" maxlength="200" />
       </label>
+      <input type="hidden" name="bucket" value={filters.bucket} />
       <button class="button secondary" type="submit">Search</button>
     </form>
     <button type="button" class="button secondary" id="si-mark-all" hidden>Mark all seen</button>
   </div>
+
+  {chips.length > 0 && (
+    <nav class="si-chips" aria-label="What items need">
+      {chips.map((c) => (
+        <a class:list={["si-chip", { active: c.active }]} href={chipHref(c.value, c.active)} aria-current={c.active ? "true" : undefined}>
+          {c.label} <span class="si-chip-count">{c.count}</span>
+        </a>
+      ))}
+    </nav>
+  )}
 
   <p class="si-muted si-small" id="si-page-note" role="status" hidden></p>
   <ul class="si-list" id="si-list" aria-label="Social inbox"></ul>
@@ -109,6 +124,8 @@ const data = JSON.stringify({ summary, list, filters, basePath, network }).repla
     replyBadge,
     heldBadge,
     heldText,
+    BUCKETS,
+    bucketBadge,
     replyForm,
     replyText,
     type SocialNetwork,
@@ -144,7 +161,8 @@ const data = JSON.stringify({ summary, list, filters, basePath, network }).repla
     const repliedHtml = replied ? badge(replied) : "";
     const status = item.status === "replied" && replied ? "" : badge(statusBadge(item.status));
     const held = heldBadge(item);
-    return `${status}${repliedHtml}${held ? badge(held) : ""}`;
+    const bucket = bucketBadge(item);
+    return `${bucket ? badge(bucket) : ""}${status}${repliedHtml}${held ? badge(held) : ""}`;
   }
 
   function rowHtml(item: InboxItem): string {
@@ -181,7 +199,7 @@ const data = JSON.stringify({ summary, list, filters, basePath, network }).repla
   form?.addEventListener("submit", (event) => {
     event.preventDefault();
     const f = Object.fromEntries(new FormData(form).entries()) as Record<string, string>;
-    location.href = `${basePath}${filtersToQuery({ integration: network ? "" : (f.integration ?? ""), kind: f.kind ?? "", status: f.status ?? "", q: f.q ?? "" })}`;
+    location.href = `${basePath}${filtersToQuery({ integration: network ? "" : (f.integration ?? ""), kind: f.kind ?? "", status: f.status ?? "", q: f.q ?? "", bucket: f.bucket ?? "" })}`;
   });
   form?.querySelectorAll("select").forEach((select) => select.addEventListener("change", () => form.requestSubmit()));
 
@@ -248,6 +266,12 @@ const data = JSON.stringify({ summary, list, filters, basePath, network }).repla
         : ""}
       <p class="si-muted si-small si-links">${item.postUrl ? `<a href="${esc(item.postUrl)}" target="_blank" rel="noopener noreferrer">The post</a>` : ""}${open ? `${item.postUrl ? " · " : ""}<a href="${esc(open)}" target="_blank" rel="noopener noreferrer">Open on ${esc(item.network)}</a>` : ""}${item.reply?.ruleEntryId ? ` · <a href="/workspace/entries/${esc(item.reply.ruleEntryId)}">The rule that answered</a>` : ""}</p>
       <div class="si-actions">${buttons.map(buttonHtml).join("")}</div>
+      ${can.sort
+        ? `<label class="si-sort si-small">Needs <select class="input" data-sort>
+            <option value=""${item.bucket ? "" : " selected"}>Unsorted</option>
+            ${BUCKETS.map((b) => `<option value="${b.value}" title="${esc(b.hint)}"${item.bucket === b.value ? " selected" : ""}>${esc(b.label)}</option>`).join("")}
+          </select></label>`
+        : ""}
       ${
         reply
           ? `<form class="si-form" data-form="reply" hidden>
@@ -396,6 +420,16 @@ const data = JSON.stringify({ summary, list, filters, basePath, network }).repla
           `A draft rule was made (keywords: ${esc(rule.keywords.join(", ") || "none suggested")}). It does nothing until you publish it: <a href="${esc(rule.path)}">open it to adjust and publish</a>.`,
         );
       }
+    });
+  });
+
+  body.addEventListener("change", async (event: Event) => {
+    const select = (event.target as HTMLElement).closest<HTMLSelectElement>("[data-sort]");
+    const item = current();
+    if (!select || !item) return;
+    await run(async () => {
+      update((await api.sortItem(item.id, select.value || null)).item!);
+      say(select.value ? `Sorted as ${esc(select.selectedOptions[0].text)}.` : "Unsorted.");
     });
   });
 

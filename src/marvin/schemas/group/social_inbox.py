@@ -77,6 +77,10 @@ class SocialInboxItemRead(_MarvinModel):
     """The reply recorded on the item (live or rehearsal); None while it has none."""
     held: SocialInboxHeldRead | None = None
     """Why a matching rule didn't answer it; None when nothing held it back."""
+    bucket: str | None = None
+    """What it needs: keyword | lead | question | feedback | support | noise; None while unsorted."""
+    bucket_source: str | None = None
+    """Who sorted it: rule | heuristic | ai | person."""
     actions: list[str] = Field(default_factory=list)
     """What this item's network offers for it: reply, like, hide, delete, message (hide and delete not for a mention)."""
     reply_modes: list[str] = Field(default_factory=list)
@@ -90,6 +94,8 @@ class SocialInboxList(_MarvinModel):
     offset: int
     new: int
     """How many items in the workspace are still new (whatever the filters)."""
+    buckets: dict[str, int] = Field(default_factory=dict)
+    """How many inbox items are in each bucket, and ``unsorted`` (of the listed integration, whatever the other filters)."""
 
 
 class SocialInboxIntegration(_MarvinModel):
@@ -145,6 +151,11 @@ class SocialInboxReplyResult(_MarvinModel):
     reply_id: str | None = None
     url: str | None = None
     item: SocialInboxItemRead
+
+
+class SocialInboxSort(_MarvinModel):
+    bucket: Literal["keyword", "lead", "question", "feedback", "support", "noise"] | None = None
+    """The bucket a person puts it in; null clears it. A person's choice is never overwritten by Marvin."""
 
 
 class SocialInboxTrash(_MarvinModel):

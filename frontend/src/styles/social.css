@@ -60,6 +60,13 @@
   .si-links { margin: 0; }
   .si-links a { color: var(--accent); }
   .si-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .si-sort { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); }
+  .si-sort select { width: auto; }
+  .si-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+  .si-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; color: inherit; text-decoration: none; }
+  .si-chip:hover { border-color: var(--accent, currentColor); }
+  .si-chip.active { background: color-mix(in srgb, var(--accent, currentColor) 14%, transparent); border-color: var(--accent, currentColor); font-weight: 600; }
+  .si-chip-count { color: var(--muted); font-variant-numeric: tabular-nums; }
   .button.si-btn-sm { min-height: 34px; padding: 6px 10px; font-size: 13px; }
   .button.si-danger { background: var(--panel); color: var(--color-error); border-color: color-mix(in srgb, var(--color-error) 50%, var(--line)); }
   .si-form { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }

@@ -413,7 +413,7 @@ def test_the_summary_lists_the_networks_with_their_mode_and_new_count(ws, api):
     assert (by_slug["m-main"]["autoReply"], by_slug["m-main"]["readsComments"], by_slug["m-main"]["canReply"]) == ("on", True, True)
     assert by_slug["m-main"]["provider"] == "mastodon" and "social.comments" in by_slug["m-main"]["capabilities"]
     assert body["can"] == {
-        "seen": True, "like": True, "hide": True, "trash": True, "rule": True, "rules": True, "publish": True,
+        "seen": True, "like": True, "hide": True, "trash": True, "sort": True, "rule": True, "rules": True, "publish": True,
         "auto_reply": False, "reply": False, "delete": False, "message": False,
     }  # fmt: skip
     assert api(ADMIN).get(f"{API}/summary").json()["can"]["reply"] is True

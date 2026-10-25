@@ -70,6 +70,10 @@ export interface InboxItem {
   status: ItemStatus | string;
   reply?: InboxReply | null;
   held?: InboxHeld | null;
+  /** What it needs (one of BUCKETS); none while unsorted. */
+  bucket?: string | null;
+  /** Who sorted it: rule | heuristic | ai | person. */
+  bucketSource?: string | null;
   actions: string[];
   replyModes: string[];
 }
@@ -77,7 +81,7 @@ export interface InboxItem {
 /** What the caller's role may do (the API's `can`). */
 export type Can = Partial<
   Record<
-    "seen" | "like" | "hide" | "trash" | "rule" | "rules" | "publish" | "auto_reply" | "reply" | "delete" | "message",
+    "seen" | "like" | "hide" | "trash" | "sort" | "rule" | "rules" | "publish" | "auto_reply" | "reply" | "delete" | "message",
     boolean
   >
 >;
@@ -262,6 +266,42 @@ export function heldText(held: InboxHeld, now: Date = new Date()): string {
   return `Not auto-replied (${held.reason}).`;
 }
 
+// ── buckets: what an item needs ─────────────────────────────────────────────────────────────────────────────────
+
+/** The six fixed buckets, in the order a person works through them (services/integrations/social_buckets.py). */
+export const BUCKETS: { value: string; label: string; hint: string }[] = [
+  { value: "keyword", label: "Keyword", hint: "Hit a rule's keyword: the rule answers it" },
+  { value: "lead", label: "Lead", hint: "Asks about buying, or describes a problem you solve" },
+  { value: "question", label: "Question", hint: "A question others probably share" },
+  { value: "feedback", label: "Feedback", hint: "Disagrees, complains, adds substance" },
+  { value: "support", label: "Support", hint: "Praise, emoji, tags: no reply needed" },
+  { value: "noise", label: "Noise", hint: "Spam, pitches, bait, bots" },
+];
+export const UNSORTED = "unsorted";
+const BUCKET_SOURCES: Record<string, string> = { rule: "by a rule", heuristic: "by Marvin", ai: "by AI", person: "by a person" };
+
+export function bucketLabel(bucket: string | null | undefined): string {
+  if (!bucket) return "Unsorted";
+  return BUCKETS.find((b) => b.value === bucket)?.label ?? bucket;
+}
+
+/** The bucket on an item's row; none while unsorted. Lead and question stand out, support and noise stay quiet. */
+export function bucketBadge(item: Pick<InboxItem, "bucket" | "bucketSource">): Badge | null {
+  if (!item.bucket) return null;
+  const tone = item.bucket === "lead" || item.bucket === "question" ? "good" : item.bucket === "noise" ? "warn" : "neutral";
+  const by = item.bucketSource ? BUCKET_SOURCES[item.bucketSource] ?? "" : "";
+  const hint = BUCKETS.find((b) => b.value === item.bucket)?.hint ?? "";
+  return { label: bucketLabel(item.bucket), tone, title: [hint, by && `Sorted ${by}`].filter(Boolean).join(". ") };
+}
+
+/** The bucket chips over the list: each bucket that has items, then Unsorted, with counts; the current one marked. */
+export function bucketChips(counts: Record<string, number> | null | undefined, current: string): { value: string; label: string; count: number; active: boolean }[] {
+  const chips = [...BUCKETS.map((b) => b.value), UNSORTED]
+    .map((value) => ({ value, label: value === UNSORTED ? "Unsorted" : bucketLabel(value), count: counts?.[value] ?? 0, active: value === current }))
+    .filter((c) => c.count > 0 || c.active);
+  return chips.length > 1 || current ? chips : [];  // one chip alone (everything unsorted) says nothing
+}
+
 /** The nav's "new" count badge: nothing for zero, "99+" past 99. */
 export function newBadgeText(count: number | null | undefined): string {
   const n = Math.max(0, Math.floor(count ?? 0));
@@ -357,9 +397,11 @@ export interface Filters {
   kind: string;
   status: string;
   q: string;
+  /** One bucket, or "unsorted"; empty for every bucket. */
+  bucket: string;
 }
 
-export const NO_FILTERS: Filters = { integration: "", kind: "", status: "", q: "" };
+export const NO_FILTERS: Filters = { integration: "", kind: "", status: "", q: "", bucket: "" };
 export const PAGE_SIZE = 50;
 
 const clean = (v: string | null | undefined) => (v ?? "").trim();
@@ -368,11 +410,13 @@ const clean = (v: string | null | undefined) => (v ?? "").trim();
 export function parseFilters(search: URLSearchParams): Filters {
   const kind = clean(search.get("kind"));
   const status = clean(search.get("status"));
+  const bucket = clean(search.get("bucket"));
   return {
     integration: clean(search.get("integration")),
     kind: KINDS.some((k) => k.value === kind) ? kind : "",
     status: STATUSES.some((s) => s.value === status) ? status : "",
     q: clean(search.get("q")),
+    bucket: bucket === UNSORTED || BUCKETS.some((b) => b.value === bucket) ? bucket : "",
   };
 }
 
@@ -392,6 +436,7 @@ export function apiQuery(filters: Filters, offset = 0, limit = PAGE_SIZE): strin
   if (clean(filters.status) === TRASH) q.set("trashed", "true");
   else if (clean(filters.status)) q.set("status", clean(filters.status));
   if (clean(filters.q)) q.set("q", clean(filters.q));
+  if (clean(filters.bucket)) q.set("bucket", clean(filters.bucket));
   q.set("limit", String(limit));
   if (offset > 0) q.set("offset", String(offset));
   return q.toString();

@@ -83,6 +83,11 @@ class SocialInboxItemModel(SqlAlchemyBase, BaseMixins):
     """Why a rule that matched this item didn't answer it: ``{reason, rule, until?, note?, at}`` — ``cooldown`` (the person was
     answered by direct message within the rule's cool-down, until ``until``) or ``refused`` (the network refused, ``note`` says
     how). Written once by the engine (``social_inbox.hold``), cleared when a reply is recorded."""
+    bucket: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    """What it needs (``social_buckets.BUCKETS``: keyword, lead, question, feedback, support, noise); empty while unsorted."""
+    bucket_source: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    """Who sorted it: rule | heuristic | ai | person. A person's choice is never overwritten."""
+    bucket_at: Mapped[datetime | None] = mapped_column(AwareDateTime, nullable=True)
 
     __table_args__ = (
         sa.UniqueConstraint("integration_id", "item_id", name="uq_social_inbox_items_item"),

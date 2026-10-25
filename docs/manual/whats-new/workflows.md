@@ -882,6 +882,7 @@ A run reads the item as `${event.<field>}` (and conditions key on `event.<field>
 | `created_at`, `url` | When it was written (ISO 8601, UTC) and its own address |
 | `network` | The network's name, e.g. `instagram` |
 | `integration`, `integration_id` | The connection it came through: its slug (what a step's `integration` names) and its id |
+| `bucket` | What it needs, when Marvin sorted it on arrival: `keyword` (it hit a published rule's keyword) or `support` (only emoji, tags or a few words of praise); empty while unsorted. One of the [six buckets](social.md#buckets); a condition on it offers them as choices |
 
 ```json
 {

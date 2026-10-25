@@ -3,8 +3,8 @@ The Social API (``/groups/social-inbox``): the comments, replies and mentions th
 what was replied (rehearsal or sent; recorded on the item), what a person can do with each one, and a network's auto-reply rules
 and mode. Social isn't an integration: it appears when an enabled integration offers a ``social.*`` capability (``/summary``).
 
-Roles (``social_inbox_actions.ACTION_ROLES``): reading, marking seen, like, hide / unhide, listing, making and publishing rules are
-EDITOR and above; reply, delete, message and switching a network's auto-reply are ADMIN and above. A person pressing one of
+Roles (``social_inbox_actions.ACTION_ROLES``): reading, marking seen, like, hide / unhide, sorting into a bucket, listing, making and
+publishing rules are EDITOR and above; reply, delete, message and switching a network's auto-reply are ADMIN and above. A person pressing one of
 these is the human approval a workflow's Approval step stands for, and the one door that lets it through is
 ``InboxActor.act`` — it takes the item's own integration and comment id from the stored row, never from the request. Each
 route checks the role before it looks anything up.
@@ -13,7 +13,7 @@ Only included when the integrations SDK is installed (as the integrations routes
 """
 
 from dataclasses import asdict
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -38,6 +38,7 @@ from marvin.schemas.group.social_inbox import (
     SocialInboxRuleResult,
     SocialInboxSeen,
     SocialInboxSeenResult,
+    SocialInboxSort,
     SocialInboxSummary,
     SocialInboxTrash,
     SocialRuleList,
@@ -120,6 +121,8 @@ def _reads(session, group_id, rows: list[Item]) -> list[SocialInboxItemRead]:
                 status=r.status,
                 reply=reply,
                 held=_held(r.held, rules),
+                bucket=r.bucket,
+                bucket_source=r.bucket_source,
                 actions=can["actions"],
                 reply_modes=can["reply_modes"],
             )
@@ -180,6 +183,9 @@ class SocialInboxController(BaseUserController):
         limit: int = Query(50, ge=1, le=200),
         offset: int = Query(0, ge=0),
         trashed: bool = Query(False, description="The Trash: items a person moved out of the inbox (restorable)."),
+        bucket: Literal["keyword", "lead", "question", "feedback", "support", "noise", "unsorted"] | None = Query(
+            None, description="One bucket, or `unsorted`."
+        ),
     ):
         """Items the social engagement poll kept (30 days), newest first, with what each one's network offers (`actions`,
         `reply_modes`) and how it was answered (`reply`: rehearsal or sent, with its log entry). EDITOR and above."""
@@ -197,6 +203,7 @@ class SocialInboxController(BaseUserController):
             limit=limit,
             offset=offset,
             trashed=trashed,
+            bucket=bucket,
         )
         return SocialInboxList(
             items=_reads(self.session, self.group_id, rows),
@@ -204,6 +211,7 @@ class SocialInboxController(BaseUserController):
             limit=limit,
             offset=offset,
             new=social_inbox.new_count(self.session, self.group_id),
+            buckets=social_inbox.bucket_counts(self.session, self.group_id, integration),
         )
 
     @router.get("/replies", response_model=SocialInboxList, summary="List the replies, latest first")
@@ -346,6 +354,15 @@ class SocialInboxController(BaseUserController):
             actions.hide(self.session, self.group_id, item, hidden=True if data is None else data.hidden, user_id=self.user.id)
         except InboxError as e:
             raise _refuse(e) from e
+        return self._done(item)
+
+    @router.post("/{item_id}/bucket", response_model=SocialInboxActionResult, summary="Sort an item into a bucket, or clear it")
+    def sort(self, item_id: UUID4, data: SocialInboxSort):
+        """Put the item in a bucket (keyword, lead, question, feedback, support, noise) or clear it (`bucket: null`). Marvin only:
+        nothing on the network changes, and Marvin never overwrites a person's choice. EDITOR and above."""
+        require_workspace_role(self.user, self.group_id, ACTION_ROLES["sort"])
+        item = self._item(item_id)
+        social_inbox.sort_item(self.session, item, data.bucket, now=datetime.now(UTC))
         return self._done(item)
 
     @router.post("/{item_id}/trash", response_model=SocialInboxActionResult, summary="Move an item to the inbox's Trash, or restore it")

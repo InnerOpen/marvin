@@ -22,6 +22,10 @@ import {
   openHref,
   parseFilters,
   replyAgainText,
+  BUCKETS,
+  bucketBadge,
+  bucketChips,
+  bucketLabel,
   heldBadge,
   heldText,
   replyBadge,
@@ -100,6 +104,43 @@ describe("a row", () => {
       "99+",
       "99+",
     ]);
+  });
+});
+
+describe("buckets", () => {
+  test("six fixed buckets in working order, each with a label", () => {
+    assert.deepEqual(BUCKETS.map((b) => b.value), ["keyword", "lead", "question", "feedback", "support", "noise"]);
+    assert.equal(bucketLabel("lead"), "Lead");
+    assert.equal(bucketLabel(null), "Unsorted");
+  });
+
+  test("a badge says the bucket and who sorted it; none while unsorted", () => {
+    assert.equal(bucketBadge({ bucket: null }), null);
+    const lead = bucketBadge({ bucket: "lead", bucketSource: "person" });
+    assert.deepEqual([lead.label, lead.tone], ["Lead", "good"]);
+    assert.match(lead.title, /Sorted by a person/);
+    assert.equal(bucketBadge({ bucket: "noise", bucketSource: "ai" }).tone, "warn");
+    assert.match(bucketBadge({ bucket: "support", bucketSource: "heuristic" }).title, /by Marvin/);
+  });
+
+  test("chips show the buckets that have items, then Unsorted, with the current one marked", () => {
+    const chips = bucketChips({ keyword: 1, support: 2, unsorted: 4 }, "support");
+    assert.deepEqual(chips.map((c) => [c.value, c.count, c.active]), [["keyword", 1, false], ["support", 2, true], ["unsorted", 4, false]]);
+  });
+
+  test("no chips when everything is unsorted, unless a bucket is chosen", () => {
+    assert.deepEqual(bucketChips({ unsorted: 9 }, ""), []);
+    assert.deepEqual(bucketChips({}, ""), []);
+    assert.deepEqual(bucketChips({ unsorted: 9 }, "lead").map((c) => c.value), ["lead", "unsorted"]);
+  });
+
+  test("the bucket filter round-trips through the URL and reaches the API; an unknown one is dropped", () => {
+    const f = parseFilters(new URLSearchParams("bucket=lead&q=x"));
+    assert.equal(f.bucket, "lead");
+    assert.match(apiQuery(f), /bucket=lead/);
+    assert.equal(parseFilters(new URLSearchParams("bucket=unsorted")).bucket, "unsorted");
+    assert.equal(parseFilters(new URLSearchParams("bucket=vip")).bucket, "");
+    assert.match(filtersToQuery({ ...NO_FILTERS, bucket: "question" }), /bucket=question/);
   });
 });
 
@@ -229,7 +270,7 @@ describe("the reply form", () => {
 describe("filters", () => {
   test("they come from the page URL, dropping a kind or status it doesn't know", () => {
     const f = parseFilters(new URLSearchParams("integration=ig&kind=mention&status=new&q=%20price "));
-    assert.deepEqual(f, { integration: "ig", kind: "mention", status: "new", q: "price" });
+    assert.deepEqual(f, { integration: "ig", kind: "mention", status: "new", q: "price", bucket: "" });
     assert.deepEqual(parseFilters(new URLSearchParams("kind=tweet&status=done")), NO_FILTERS);
     assert.deepEqual(parseFilters(new URLSearchParams("")), NO_FILTERS);
   });

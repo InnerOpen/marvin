@@ -20,6 +20,8 @@ export interface InboxList {
   offset: number;
   /** New items in the whole workspace, whatever the filters. */
   new: number;
+  /** Items per bucket, and "unsorted" (of the listed integration, whatever the other filters). */
+  buckets?: Record<string, number>;
 }
 
 export interface ActionResult {
@@ -66,6 +68,9 @@ export const like = (id: string) => post<ActionResult>(`/${encodeURIComponent(id
 export const hide = (id: string, hidden: boolean) => post<ActionResult>(`/${encodeURIComponent(id)}/hide`, { hidden });
 /** Move an item to the inbox's Trash (Marvin only) or restore it. */
 export const trash = (id: string, trashed: boolean) => post<ActionResult>(`/${encodeURIComponent(id)}/trash`, { trashed });
+
+/** Sort an item into a bucket, or clear it (null). Marvin never overwrites a person's choice. */
+export const sortItem = (id: string, bucket: string | null) => post<ActionResult>(`/${encodeURIComponent(id)}/bucket`, { bucket });
 
 export const remove = (id: string) => fetchApi<ActionResult>(`${BASE}/${encodeURIComponent(id)}`, { method: "DELETE" });
 
