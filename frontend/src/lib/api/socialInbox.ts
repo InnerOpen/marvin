@@ -98,6 +98,9 @@ export const setRulePublished = (id: string, published: boolean) =>
     body: JSON.stringify({ published }),
   });
 
+/** Turn AI sorting of the inbox on or off (ADMIN). */
+export const setAiSort = (enabled: boolean) => fetchApi<{ enabled: boolean }>(`${BASE}/ai-sort`, { method: "PUT", body: JSON.stringify({ enabled }) });
+
 export const setAutoReply = (slug: string, mode: AutoReplyMode) =>
   fetchApi<{ integration: string; autoReply: AutoReplyMode }>(
     `${BASE}/integrations/${encodeURIComponent(slug)}/auto-reply`,

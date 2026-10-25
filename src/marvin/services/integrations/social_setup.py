@@ -227,6 +227,22 @@ def engine_task(session, group_id):
     return session.query(ScheduledTaskModel).filter_by(group_id=group_id, task_type=TASK_TYPE).order_by(ScheduledTaskModel.created_at).first()
 
 
+def ai_sort_enabled(session, group_id) -> bool:
+    """Whether the engine sorts unsorted inbox items with AI (its task's ``ai_sort``; off unless an admin turned it on)."""
+    task = engine_task(session, group_id)
+    return bool(task and (task.task_config or {}).get("ai_sort") is True)
+
+
+def set_ai_sort(session, group_id, enabled: bool) -> bool:
+    """Turn AI sorting on or off. False when the workspace has no engine task yet (no network reads comments)."""
+    task = engine_task(session, group_id)
+    if task is None:
+        return False
+    task.task_config = {**(task.task_config or {}), "ai_sort": bool(enabled)}
+    session.commit()
+    return True
+
+
 def reconcile(session, group_id) -> dict:
     """Make the workspace's plumbing match its networks (see the module docstring): the rule type once any network offers a
     ``social.*`` capability, and the engine task enabled while one offers ``social.comments``, disabled when none does.
@@ -314,6 +330,7 @@ def summary(session, group_id) -> dict:
     return {
         "show": bool(nets),
         "new": sum(counts.get(n.row.slug, 0) for n in nets),
+        "ai_sort": ai_sort_enabled(session, group_id),
         "integrations": [
             {
                 "slug": n.row.slug,

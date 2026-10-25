@@ -78,6 +78,24 @@ const networks = (summary?.integrations ?? []).map((n) => ({ ...n, sw: autoReply
           </ul>
         </section>
 
+        <section class="ss-card" aria-labelledby="ss-ai">
+          <h3 id="ss-ai">Sort comments with AI</h3>
+          <p class="si-muted si-small">
+            Marvin already sorts what costs nothing: a comment that hits a rule's keyword, and emoji or a few words of praise. With this on,
+            every 5 minutes it also sends the comments and messages no one has sorted yet (at most 20, newest first) to your AI provider in
+            one request, and sorts each into Lead, Question, Feedback, Support or Noise, so the inbox's chips show what needs you. Your own
+            choice in an item's <strong>Needs</strong> is never changed.
+          </p>
+          <p class="si-small"><strong>Comments are other people's words:</strong> turning this on sends them to your AI provider, and each
+            request counts against the AI budget like any other.</p>
+          <label class="ss-toggle">
+            <input type="checkbox" id="ss-ai-sort" checked={summary.aiSort === true} disabled={!summary.can?.ai_sort} />
+            <span>Sort comments with AI</span>
+          </label>
+          {!summary.can?.ai_sort && <p class="si-muted si-small">An admin turns this on or off.</p>}
+          <p class="si-small sp-err" id="ss-ai-err" role="alert" hidden></p>
+        </section>
+
         <section class="ss-card" aria-labelledby="ss-keep">
           <h3 id="ss-keep">What Social keeps</h3>
           <ul class="ss-facts si-small">
@@ -93,8 +111,24 @@ const networks = (summary?.integrations ?? []).map((n) => ({ ...n, sw: autoReply
 </AppLayout>
 
 <script>
-  import { setAutoReply } from "@/lib/api/socialInbox";
+  import { setAiSort, setAutoReply } from "@/lib/api/socialInbox";
   import { errorMessage } from "@/lib/socialInbox";
+
+  const aiSort = document.getElementById("ss-ai-sort") as HTMLInputElement | null;
+  aiSort?.addEventListener("change", async () => {
+    const err = document.getElementById("ss-ai-err")!;
+    err.hidden = true;
+    aiSort.disabled = true;
+    try {
+      await setAiSort(aiSort.checked);
+    } catch (e) {
+      aiSort.checked = !aiSort.checked;
+      err.hidden = false;
+      err.textContent = errorMessage(e);
+    } finally {
+      aiSort.disabled = false;
+    }
+  });
 
   document.querySelectorAll<HTMLLIElement>(".ss-row[data-editable='1']").forEach((row) => {
     const buttons = row.querySelectorAll<HTMLButtonElement>(".sp-opt");
@@ -133,6 +167,7 @@ const networks = (summary?.integrations ?? []).map((n) => ({ ...n, sw: autoReply
   .ss-sub { display: block; }
   .ss-auto { display: grid; gap: 4px; justify-items: end; }
   .ss-facts { margin: 8px 0 12px; padding-left: 18px; display: grid; gap: 6px; }
+  .ss-toggle { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; margin-top: 4px; }
   @media (max-width: 640px) {
     .ss-auto { justify-items: start; width: 100%; }
   }

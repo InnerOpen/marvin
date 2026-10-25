@@ -81,7 +81,7 @@ export interface InboxItem {
 /** What the caller's role may do (the API's `can`). */
 export type Can = Partial<
   Record<
-    "seen" | "like" | "hide" | "trash" | "sort" | "rule" | "rules" | "publish" | "auto_reply" | "reply" | "delete" | "message",
+    "seen" | "like" | "hide" | "trash" | "sort" | "rule" | "rules" | "publish" | "auto_reply" | "ai_sort" | "reply" | "delete" | "message",
     boolean
   >
 >;
@@ -108,6 +108,8 @@ export interface InboxSummary {
   show: boolean;
   new: number;
   integrations: SocialNetwork[];
+  /** Whether the engine sorts unsorted items into buckets with AI (Settings › Social). */
+  aiSort?: boolean;
   can: Can;
 }
 

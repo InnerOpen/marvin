@@ -77,3 +77,11 @@ choice is never overwritten), `?bucket=` and `buckets` counts on the list, inbox
 A rule's keyword sorts by the engine's own match, so a DM counts only for a rule that names DMs and was published before it.
 Full run: SQLite with plugins 6,770, Postgres 6,770, no plugins 6,751 — the only failures were two exact-list tests (the
 event's fields, the `can` map), now naming `bucket` / `sort`; frontend 1,175; astro check 34 (baseline).
+
+**Phase 2 built (2026-10-25):** `social_ai_sort.py` — an unregistered `SortCommentsOperation` through `run_operation`
+(budget, provider, default model, AI execution, source `scheduled`). The engine now reads every network first, sorts once,
+then announces and answers, so `${event.bucket}` has the AI's answer. Opt-in `ai_sort` on the engine task (`PUT /ai-sort`,
+ADMIN; `aiSort` on the summary; the switch on Settings › Social). Answers are validated per line (one bad bucket doesn't void
+the batch); left-out items are marked `bucket_source = ai` and never re-sent; an answer with no `items` marks nothing.
+Not built: the **Needs you** view (the chips cover it for now).
+

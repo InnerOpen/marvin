@@ -53,6 +53,7 @@ ACTION_ROLES: dict[str, WorkspaceRole] = {
     "rules": WorkspaceRole.EDITOR,
     "publish": WorkspaceRole.EDITOR,
     "auto_reply": WorkspaceRole.ADMIN,
+    "ai_sort": WorkspaceRole.ADMIN,
     "reply": WorkspaceRole.ADMIN,
     "delete": WorkspaceRole.ADMIN,
     "message": WorkspaceRole.ADMIN,

@@ -123,6 +123,8 @@ class Settings:
     max_replies: int = DEFAULT_MAX_REPLIES
     max_age_days: int = DEFAULT_MAX_AGE_DAYS
     limit: int = DEFAULT_LIMIT
+    ai_sort: bool = False
+    """Sort unsorted inbox items into buckets with AI, once per run (``social_ai_sort``); opt-in in Settings › Social."""
 
     @classmethod
     def from_config(cls, config: dict | None) -> Settings:
@@ -140,6 +142,7 @@ class Settings:
             # never longer than an answered item is kept (see the module docstring)
             max_age_days=number("max_age_days", DEFAULT_MAX_AGE_DAYS, social_inbox.MAX_ANSWER_WINDOW_DAYS),
             limit=number("limit", DEFAULT_LIMIT),
+            ai_sort=config.get("ai_sort") is True,
         )
 
 
@@ -155,6 +158,8 @@ class Report:
     rehearsed: int = 0
     """Replies a rehearsing network would have sent (dry runs, recorded on the item)."""
     liked: int = 0
+    ai_sorted: int = 0
+    """Inbox items AI sorted into a bucket this run."""
     announced: int = 0
     """``social_comment_received`` events sent."""
     skipped: Counter = field(default_factory=Counter)
@@ -169,7 +174,7 @@ class Report:
 
     @property
     def worth_logging(self) -> bool:
-        return bool(self.matched or self.failed or self.message or self.announced)
+        return bool(self.matched or self.failed or self.message or self.announced or self.ai_sorted)
 
     def summary(self) -> str:
         if self.message:
@@ -180,6 +185,8 @@ class Report:
             parts.append(f"would reply {self.rehearsed}")
         if self.liked:
             parts.append(f"liked {self.liked}")
+        if self.ai_sorted:
+            parts.append(f"sorted {self.ai_sorted} with AI")
         if self.announced:
             parts.append(f"announced {self.announced}")
         if self.skipped:
@@ -389,13 +396,10 @@ def _read_once(run: _Run, net: _Network, row, cursor: str | None, kinds: list[st
     return cache[key]
 
 
-def _engage(run: _Run, row, provider) -> None:
+def _engage(run: _Run, one: _Pass) -> None:
     """One integration's pass: announce its new items, then answer under the rules when the network's auto-reply is rehearsal or on
     (there are rules and the plugin can reply). An integration whose auto-reply is off is still read, for the inbox and the trigger."""
-    report, session = run.report, run.session
-    net = _Network(session, run.group_id, row, provider)
-    state = _state(row)
-    cache: dict = {}
+    report, row, net, state, cache = run.report, one.row, one.net, one.state, one.cache
     mode = get_mode(row)
     replying = run.replying and mode != OFF and net.has(SOCIAL_REPLY)
     report.integrations.append(row.slug)
@@ -749,6 +753,9 @@ def run_engagement(session, group_id, settings: Settings | None = None, *, now: 
     if not INTEGRATIONS_AVAILABLE:
         report.message = "integrations are not available on this install (SDK not installed)"
         return report
+    # Every network is read first (each read is kept for the inbox), so the items can be sorted with AI in one call before
+    # anything is announced or answered: a workflow on the new-comment trigger then sees the bucket.
+    passes: list[_Pass] = []
     for row in session.query(IntegrationModel).filter_by(group_id=group_id, enabled=True).order_by(IntegrationModel.slug).all():
         try:
             provider = get_provider(row.provider)
@@ -757,11 +764,44 @@ def run_engagement(session, group_id, settings: Settings | None = None, *, now: 
         net = _Network(session, group_id, row, provider)
         if not net.has(SOCIAL_COMMENTS):
             continue
-        try:
-            _engage(run, row, provider)
-        except Exception as e:  # noqa: BLE001 — one network failing never stops the others
-            session.rollback()
-            report.failed += 1
-            report.note(str(e) or f"{row.slug}: {type(e).__name__}")
-            logger.warning("social engagement: %s failed: %s", row.slug, e)
+        one = _Pass(row, net, _state(row), {})
+        if _guard(run, row, _read_once, run, net, row, one.state.get("events_cursor"), poll_kinds(provider), one.cache):
+            passes.append(one)
+    if settings.ai_sort:
+        _sort_with_ai(run)
+    for one in passes:
+        _guard(run, one.row, _engage, run, one)
     return report
+
+
+@dataclass
+class _Pass:
+    """One integration's pass through a run: its connection, its plugin, its stored state and the reads made so far."""
+
+    row: object
+    net: _Network
+    state: dict
+    cache: dict
+
+
+def _guard(run: _Run, row, work, *args) -> bool:
+    """``work(*args)`` for one integration; a failure is that network's alone (counted, noted, rolled back). True when it worked."""
+    try:
+        work(*args)
+        return True
+    except Exception as e:  # noqa: BLE001 — one network failing never stops the others
+        run.session.rollback()
+        run.report.failed += 1
+        run.report.note(str(e) or f"{row.slug}: {type(e).__name__}")
+        logger.warning("social engagement: %s failed: %s", row.slug, e)
+        return False
+
+
+def _sort_with_ai(run: _Run) -> None:
+    """The run's one AI call: sort what is still unsorted (``social_ai_sort``). Its failure is noted, never the run's."""
+    from .social_ai_sort import sort_with_ai
+
+    result = sort_with_ai(run.session, run.group_id, now=run.now, max_age_days=run.settings.max_age_days)
+    run.report.ai_sorted += result.sorted
+    if result.note:
+        run.report.note(result.note)

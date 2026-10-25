@@ -123,8 +123,15 @@ class SocialInboxSummary(_MarvinModel):
     new: int
     """New items across the networks."""
     integrations: list[SocialInboxIntegration]
+    ai_sort: bool = False
+    """Whether the engine sorts unsorted items into buckets with AI (Settings › Social; ADMIN switches it)."""
     can: dict[str, bool]
     """What the caller's role may do: seen, like, hide, rule, rules, publish, reply, delete, message, auto_reply."""
+
+
+class SocialAISortUpdate(_MarvinModel):
+    enabled: bool
+    """Sort unsorted inbox items into buckets with the workspace's AI provider: one call per engine run, at most 20 items."""
 
 
 class SocialInboxSeen(_MarvinModel):

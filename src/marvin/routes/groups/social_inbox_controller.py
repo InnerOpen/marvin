@@ -23,6 +23,7 @@ from marvin.db.models.groups.social_inbox import SocialInboxItemModel as Item
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import editable_entry, require_workspace_role
 from marvin.schemas.group.social_inbox import (
+    SocialAISortUpdate,
     SocialAutoReplyResult,
     SocialAutoReplyUpdate,
     SocialInboxActionResult,
@@ -253,6 +254,16 @@ class SocialInboxController(BaseUserController):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"{net.row.name} has no way to reply, so auto-reply can only be off.")
         social_setup.set_mode(self.session, net.row, data.mode)
         return SocialAutoReplyResult(integration=slug, auto_reply=data.mode)
+
+    @router.put("/ai-sort", response_model=SocialAISortUpdate, summary="Turn AI sorting of the inbox on or off")
+    def set_ai_sort(self, data: SocialAISortUpdate):
+        """On: once per engine run, the inbox items no one has sorted (at most 20, newest first) are sent to the workspace's AI
+        provider in one call and sorted into lead, question, feedback, support or noise. Comments are other people's words:
+        turning it on sends them to the AI provider. 409 when no network reads comments yet. ADMIN and above."""
+        require_workspace_role(self.user, self.group_id, ACTION_ROLES["ai_sort"])
+        if not social_setup.set_ai_sort(self.session, self.group_id, data.enabled):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Connect a network that reads comments first.")
+        return SocialAISortUpdate(enabled=data.enabled)
 
     @router.get("/rules", response_model=SocialRuleList, summary="List auto-reply rules (a network's, plus the all-network ones)")
     def list_rules(
