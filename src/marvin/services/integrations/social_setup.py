@@ -98,6 +98,17 @@ _RULE_FIELDS = [
             "answered. 0 turns it off. A rule answers only messages sent after it was published."
         ),
     },
+    {
+        "key": "buckets",
+        "label": "Only these buckets (comma-separated, empty = any)",
+        "type": "text",
+        "placeholder": "e.g. lead, question",
+        "helpText": (
+            "lead, question, feedback, support or noise: the rule answers a keyword hit only when the item is sorted into one of "
+            'them ("price" from a lead, not from a complaint). It never answers without its keywords. An unsorted item never '
+            "passes: turn on Sort comments with AI in Settings › Social (or sort items yourself) before relying on it."
+        ),
+    },
 ]
 
 RULE_TYPE_PAYLOAD = {
@@ -210,7 +221,7 @@ def ensure_rule_type(session, group_id):
 
 
 def _add_missing_fields(session, entry_type) -> None:
-    """A rule type made before a field existed (the cool-down) gains it, after the fields it has; nothing it has changes."""
+    """A rule type made before a field existed (the cool-down, the buckets) gains it, after the fields it has; nothing it has changes."""
     schema = dict(entry_type.schema_json or {})
     fields = list(schema.get("fields") or [])
     have = {f.get("key") for f in fields if isinstance(f, dict)}
@@ -227,20 +238,35 @@ def engine_task(session, group_id):
     return session.query(ScheduledTaskModel).filter_by(group_id=group_id, task_type=TASK_TYPE).order_by(ScheduledTaskModel.created_at).first()
 
 
-def ai_sort_enabled(session, group_id) -> bool:
-    """Whether the engine sorts unsorted inbox items with AI (its task's ``ai_sort``; off unless an admin turned it on)."""
+ENGINE_OPTIONS = ("ai_sort", "like_support")
+"""The engine's opt-in switches, kept on its task's config (Settings › Social; ADMIN): ``ai_sort`` sorts unsorted inbox items
+with AI, ``like_support`` likes ``support`` comments on networks whose auto-reply is on. Both are off until an admin turns them on."""
+
+
+def engine_option(session, group_id, key: str) -> bool:
+    """Whether one of ``ENGINE_OPTIONS`` is on."""
     task = engine_task(session, group_id)
-    return bool(task and (task.task_config or {}).get("ai_sort") is True)
+    return bool(task and (task.task_config or {}).get(key) is True)
 
 
-def set_ai_sort(session, group_id, enabled: bool) -> bool:
-    """Turn AI sorting on or off. False when the workspace has no engine task yet (no network reads comments)."""
+def set_engine_option(session, group_id, key: str, enabled: bool) -> bool:
+    """Turn one of ``ENGINE_OPTIONS`` on or off. False when the workspace has no engine task yet (no network reads comments)."""
+    if key not in ENGINE_OPTIONS:
+        raise ValueError(f"unknown engine option {key!r}")
     task = engine_task(session, group_id)
     if task is None:
         return False
-    task.task_config = {**(task.task_config or {}), "ai_sort": bool(enabled)}
+    task.task_config = {**(task.task_config or {}), key: bool(enabled)}
     session.commit()
     return True
+
+
+def ai_sort_enabled(session, group_id) -> bool:
+    return engine_option(session, group_id, "ai_sort")
+
+
+def set_ai_sort(session, group_id, enabled: bool) -> bool:
+    return set_engine_option(session, group_id, "ai_sort", enabled)
 
 
 def reconcile(session, group_id) -> dict:
@@ -330,7 +356,8 @@ def summary(session, group_id) -> dict:
     return {
         "show": bool(nets),
         "new": sum(counts.get(n.row.slug, 0) for n in nets),
-        "ai_sort": ai_sort_enabled(session, group_id),
+        "ai_sort": engine_option(session, group_id, "ai_sort"),
+        "like_support": engine_option(session, group_id, "like_support"),
         "integrations": [
             {
                 "slug": n.row.slug,

@@ -43,7 +43,7 @@ export interface InboxReply {
 
 /** Why a rule that matched an item didn't answer it: the person's cool-down, or the network refused. Cleared by a reply. */
 export interface InboxHeld {
-  reason: "cooldown" | "refused" | string;
+  reason: "cooldown" | "refused" | "bucket" | string;
   rule?: string | null;
   ruleEntryId?: string | null;
   /** When the cool-down ends: the rule answers a message sent after it. */
@@ -74,6 +74,8 @@ export interface InboxItem {
   bucket?: string | null;
   /** Who sorted it: rule | heuristic | ai | person. */
   bucketSource?: string | null;
+  /** The draft entry it was saved as (Save as idea). */
+  ideaEntryId?: string | null;
   actions: string[];
   replyModes: string[];
 }
@@ -81,7 +83,7 @@ export interface InboxItem {
 /** What the caller's role may do (the API's `can`). */
 export type Can = Partial<
   Record<
-    "seen" | "like" | "hide" | "trash" | "sort" | "rule" | "rules" | "publish" | "auto_reply" | "ai_sort" | "reply" | "delete" | "message",
+    "seen" | "like" | "hide" | "trash" | "sort" | "rule" | "rules" | "publish" | "auto_reply" | "ai_sort" | "like_support" | "idea" | "reply" | "delete" | "message",
     boolean
   >
 >;
@@ -110,6 +112,10 @@ export interface InboxSummary {
   integrations: SocialNetwork[];
   /** Whether the engine sorts unsorted items into buckets with AI (Settings › Social). */
   aiSort?: boolean;
+  /** Whether the engine likes comments sorted as support, on networks whose auto-reply is on. */
+  likeSupport?: boolean;
+  /** What Save as idea offers: the listed entry types. */
+  ideaTypes?: { slug: string; name: string }[];
   can: Can;
 }
 
@@ -261,6 +267,9 @@ export function heldText(held: InboxHeld, now: Date = new Date()): string {
     const until = held.until ? new Date(held.until) : null;
     const when = until && until > now ? ` until ${until.toLocaleString()}` : "";
     return `Not auto-replied: this person was answered by direct message within the rule's cool-down${when}. The rule answers a message they send after that.`;
+  }
+  if (held.reason === "bucket") {
+    return `Not auto-replied: its words matched a rule, but ${held.note ?? "the rule answers only some buckets"}. Sort it in Needs, or turn on Sort comments with AI in Settings › Social.`;
   }
   if (held.reason === "refused") {
     return `Not auto-replied: the network refused the message${held.note ? ` (${held.note})` : ""}. Networks allow a message only for a while after the person's last one.`;

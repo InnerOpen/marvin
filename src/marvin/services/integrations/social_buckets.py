@@ -22,6 +22,8 @@ import unicodedata
 KEYWORD, LEAD, QUESTION, FEEDBACK, SUPPORT, NOISE = "keyword", "lead", "question", "feedback", "support", "noise"
 BUCKETS = (KEYWORD, LEAD, QUESTION, FEEDBACK, SUPPORT, NOISE)
 """In the order a person works through them."""
+RULE_BUCKETS = (LEAD, QUESTION, FEEDBACK, SUPPORT, NOISE)
+"""What a rule may limit itself to: ``keyword`` is the rules' own match, never a condition on one."""
 SOURCE_RULE, SOURCE_HEURISTIC, SOURCE_AI, SOURCE_PERSON = "rule", "heuristic", "ai", "person"
 SOURCES = (SOURCE_RULE, SOURCE_HEURISTIC, SOURCE_AI, SOURCE_PERSON)
 
@@ -35,6 +37,14 @@ SUPPORT_WORDS = frozenset(
 """Words that, with nothing else, are praise. Kept short on purpose: a miss stays unsorted, a wrong hit hides a real comment."""
 _TAG = re.compile(r"[@#][\w.]+")
 _WORD = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)?")
+
+
+LABELS = {KEYWORD: "Keyword", LEAD: "Lead", QUESTION: "Question", FEEDBACK: "Feedback", SUPPORT: "Support", NOISE: "Noise"}
+
+
+def bucket_label(bucket: str | None) -> str:
+    """A bucket in people's words (the inbox's chips): Lead, Question…; Unsorted for none."""
+    return LABELS.get(bucket or "", bucket or "Unsorted")
 
 
 def heuristic_bucket(text: str) -> str | None:

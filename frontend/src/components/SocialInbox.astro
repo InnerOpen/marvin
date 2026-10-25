@@ -144,6 +144,7 @@ const chipHref = (value: string, active: boolean) => `${basePath}${filtersToQuer
   const basePath: string = init.basePath;
   const network: SocialNetwork | null = init.network ?? null;
   const can: Can = summary?.can ?? {};
+  const ideaTypes = summary?.ideaTypes ?? [];
   let items: InboxItem[] = init.list?.items ?? [];
   let total: number = init.list?.total ?? 0;
   let newCount: number = init.list?.new ?? summary?.new ?? 0;
@@ -250,6 +251,7 @@ const chipHref = (value: string, active: boolean) => `${basePath}${filtersToQuer
     const reply = buttons.some((b) => b.key === "reply") ? replyForm(item.replyModes) : null;
     const canMessage = buttons.some((b) => b.key === "message");
     const direct = DIRECT_KINDS.has(item.kind);
+    const canIdea = Boolean(can.idea) && !item.ideaEntryId && ideaTypes.length > 0;
     const carried = attachmentLinks(item);
     return `
       <div class="si-d-who">${mark(item)}<div><strong>${esc(authorLabel(item.author))}</strong>${item.author.name && item.author.handle ? ` <span class="si-muted">${esc(item.author.name)}</span>` : ""}
@@ -264,8 +266,16 @@ const chipHref = (value: string, active: boolean) => `${basePath}${filtersToQuer
             .map((a) => `<a href="${esc(a.href)}" target="_blank" rel="noopener noreferrer">${a.picture ? `<img src="${esc(a.href)}" alt="${esc(a.label)}" loading="lazy" referrerpolicy="no-referrer" />` : ""}<span>${esc(a.label)}</span></a>`)
             .join("")}</div>`
         : ""}
-      <p class="si-muted si-small si-links">${item.postUrl ? `<a href="${esc(item.postUrl)}" target="_blank" rel="noopener noreferrer">The post</a>` : ""}${open ? `${item.postUrl ? " · " : ""}<a href="${esc(open)}" target="_blank" rel="noopener noreferrer">Open on ${esc(item.network)}</a>` : ""}${item.reply?.ruleEntryId ? ` · <a href="/workspace/entries/${esc(item.reply.ruleEntryId)}">The rule that answered</a>` : ""}</p>
-      <div class="si-actions">${buttons.map(buttonHtml).join("")}</div>
+      <p class="si-muted si-small si-links">${item.postUrl ? `<a href="${esc(item.postUrl)}" target="_blank" rel="noopener noreferrer">The post</a>` : ""}${open ? `${item.postUrl ? " · " : ""}<a href="${esc(open)}" target="_blank" rel="noopener noreferrer">Open on ${esc(item.network)}</a>` : ""}${item.reply?.ruleEntryId ? ` · <a href="/workspace/entries/${esc(item.reply.ruleEntryId)}">The rule that answered</a>` : ""}${item.ideaEntryId ? ` · <a href="/workspace/entries/${esc(item.ideaEntryId)}">The idea it was saved as</a>` : ""}</p>
+      <div class="si-actions">${buttons.map(buttonHtml).join("")}${canIdea ? `<button type="button" class="button secondary si-btn-sm" data-idea-open>Save as idea</button>` : ""}</div>
+      ${canIdea
+        ? `<form class="si-form" data-form="idea" hidden>
+            <label for="si-idea-type">Save as a draft</label>
+            <select id="si-idea-type" class="input">${ideaTypes.map((t) => `<option value="${esc(t.slug)}">${esc(t.name)}</option>`).join("")}</select>
+            <p class="si-muted si-small">A draft entry with this ${esc(kindLabel(item.kind).toLowerCase())} as its brief, and a link back, for a post that answers it.</p>
+            <div class="si-form-actions"><button class="button si-btn-sm" type="submit">Save draft</button><button class="button secondary si-btn-sm" type="button" data-cancel>Cancel</button></div>
+          </form>`
+        : ""}
       ${can.sort
         ? `<label class="si-sort si-small">Needs <select class="input" data-sort>
             <option value=""${item.bucket ? "" : " selected"}>Unsorted</option>
@@ -380,6 +390,11 @@ const chipHref = (value: string, active: boolean) => `${basePath}${filtersToQuer
       target.closest<HTMLElement>(".si-form")!.hidden = true;
       return;
     }
+    if (target.closest("[data-idea-open]")) {
+      body.querySelectorAll<HTMLElement>(".si-form").forEach((f) => (f.hidden = f.dataset.form !== "idea"));
+      body.querySelector<HTMLSelectElement>("#si-idea-type")?.focus();
+      return;
+    }
     const act = target.closest<HTMLElement>("[data-act]")?.dataset.act;
     if (!act) return;
     if (act === "reply" || act === "message") {
@@ -437,6 +452,15 @@ const chipHref = (value: string, active: boolean) => `${basePath}${filtersToQuer
     event.preventDefault();
     const formEl = event.target as HTMLFormElement;
     const item = current();
+    if (item && formEl.dataset.form === "idea") {
+      const type = formEl.querySelector<HTMLSelectElement>("#si-idea-type")!.value;
+      await run(async () => {
+        const out = await api.saveIdea(item.id, type);
+        update({ ...item, ideaEntryId: out.id });
+        say(`${out.existing ? "Already saved as" : "Saved as"} a draft: <a href="${esc(out.path)}">open it</a>.`);
+      });
+      return;
+    }
     const text = replyText(formEl.querySelector("textarea")!.value);
     if (!item || !text) return;
     await run(async () => {

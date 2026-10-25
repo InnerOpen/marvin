@@ -18,8 +18,10 @@ from marvin.db.models import SqlAlchemyBase
 from marvin.db.models.groups.social_inbox import SocialInboxItemModel
 
 TABLE = "social_inbox_items"
-# added by ef911a9c1779, e2c7f4a9b815, f3d8a1c6e927, b6d2f8a41c93, c3a7e1d95b28
-LATER_COLUMNS = {"reply_rule", "reply_text", "reply_note", "attachments", "trashed_at", "held", "bucket", "bucket_source", "bucket_at"}
+# added by ef911a9c1779, e2c7f4a9b815, f3d8a1c6e927, b6d2f8a41c93, c3a7e1d95b28, d8f2b6c4e1a7
+LATER_COLUMNS = {
+    "reply_rule", "reply_text", "reply_note", "attachments", "trashed_at", "held", "bucket", "bucket_source", "bucket_at", "idea_entry_id",
+}  # fmt: skip
 _PATH = next((Path(__file__).resolve().parents[1] / "src" / "marvin" / "alembic" / "versions").glob("*_7c3f9a1e5b82_*.py"))
 _spec = importlib.util.spec_from_file_location("social_inbox_items_migration", _PATH)
 mig = importlib.util.module_from_spec(_spec)
@@ -83,7 +85,7 @@ def _model_shape() -> dict:
         "columns": {c.name: c.nullable for c in table.columns if c.name not in LATER_COLUMNS},
         "unique": {c.name: tuple(col.name for col in c.columns) for c in table.constraints if isinstance(c, sa.UniqueConstraint)},
         "indexes": {i.name: tuple(c.name for c in i.columns) for i in table.indexes},
-        "foreign_keys": {(fk.parent.name, fk.column.table.name, fk.ondelete) for fk in table.foreign_keys},
+        "foreign_keys": {(fk.parent.name, fk.column.table.name, fk.ondelete) for fk in table.foreign_keys if fk.parent.name not in LATER_COLUMNS},
     }
 
 

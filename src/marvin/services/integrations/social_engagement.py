@@ -60,7 +60,7 @@ start on it. It is a second job of the same run, with its own state, so replying
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 
 from marvin.core.root_logger import get_logger
@@ -87,13 +87,17 @@ from .social_rules import (
     rule_from_data,
     too_old,
 )
-from .social_setup import OFF, REHEARSAL, get_mode
+from .social_setup import OFF, ON, REHEARSAL, get_mode
 
 logger = get_logger(__name__)
 
 ENGINE_CAPABILITIES = frozenset({SOCIAL_COMMENTS, SOCIAL_REPLY, SOCIAL_LIKE, SOCIAL_MESSAGE})
 """The only capabilities the engine calls. A message only answers a direct message a published rule matched, to its author
-(``_rule_approves_message``); repost and delete have no way in."""
+(``_rule_approves_message``); repost, hide and delete have no way in — an AI's guess never hides anyone (``_like_support``)."""
+LIKE_CAP = 20
+"""Likes of ``support`` per network per run (``_like_support``)."""
+MAX_LIKED = 500
+"""Item ids a network's state remembers as already liked by the engine (tried once, never again)."""
 DEFAULT_MAX_REPLIES = 20
 DEFAULT_LIMIT = 50
 MAX_ATTEMPTS = 3
@@ -125,6 +129,8 @@ class Settings:
     limit: int = DEFAULT_LIMIT
     ai_sort: bool = False
     """Sort unsorted inbox items into buckets with AI, once per run (``social_ai_sort``); opt-in in Settings › Social."""
+    like_support: bool = False
+    """Like ``support`` comments on the networks whose auto-reply is on (``_like_support``); opt-in in Settings › Social."""
 
     @classmethod
     def from_config(cls, config: dict | None) -> Settings:
@@ -143,6 +149,7 @@ class Settings:
             max_age_days=number("max_age_days", DEFAULT_MAX_AGE_DAYS, social_inbox.MAX_ANSWER_WINDOW_DAYS),
             limit=number("limit", DEFAULT_LIMIT),
             ai_sort=config.get("ai_sort") is True,
+            like_support=config.get("like_support") is True,
         )
 
 
@@ -174,7 +181,7 @@ class Report:
 
     @property
     def worth_logging(self) -> bool:
-        return bool(self.matched or self.failed or self.message or self.announced or self.ai_sorted)
+        return bool(self.matched or self.failed or self.message or self.announced or self.ai_sorted or self.liked)
 
     def summary(self) -> str:
         if self.message:
@@ -406,6 +413,30 @@ def _engage(run: _Run, one: _Pass) -> None:
     _announce(run, net, row, state, cache, count=not replying)
     if replying:
         _reply(run, net, row, state, cache, rehearsal=mode == REHEARSAL)
+    if mode == ON and run.settings.like_support and net.has(SOCIAL_LIKE):
+        _like_support(run, net, row, state)
+
+
+def _like_support(run: _Run, net: _Network, row, state: dict) -> None:
+    """Like the ``support`` comments, when the workspace asked, on a network whose auto-reply is on (a like speaks for the account;
+    rehearsal and off never like). A like is harmless and undone in a tap, which is why an AI's guess may cause one; nothing worse
+    ever acts on a guess. Only comments and replies on the account's own posts, still new or seen, written within the answer window;
+    at most ``LIKE_CAP`` a run. Each is tried once: its id is remembered whatever happened, and a failure is noted, never retried."""
+    from .social_buckets import SUPPORT
+
+    done = [str(i) for i in state.get("liked") or []]
+    since = run.now - timedelta(days=run.settings.max_age_days)
+    for item in social_inbox.to_like(run.session, row, [SUPPORT], since=since, skip=set(done), limit=LIKE_CAP):
+        done.append(item.item_id)
+        try:
+            net.call(SOCIAL_LIKE, {"comment_id": item.item_id})
+        except EngineCallError as e:
+            run.report.note(f"{row.slug}: could not like {item.item_id}: {e}")
+            continue
+        item.status = social_inbox.next_status(item.status, social_inbox.EVENT_LIKED, replied=social_inbox.has_live_reply(item))
+        run.report.liked += 1
+    state["liked"] = done[-MAX_LIKED:]
+    _save_state(run.session, row, state)
 
 
 def _reply(run: _Run, net: _Network, row, state: dict, cache: dict, *, rehearsal: bool) -> None:
@@ -418,6 +449,10 @@ def _reply(run: _Run, net: _Network, row, state: dict, cache: dict, *, rehearsal
     fresh = {str(i["id"]) for i in items}
     candidates = [p["item"] for p in pending if str(p["item"]["id"]) not in fresh] + items
     candidates += _inbox_direct(run, row, {str(c["id"]) for c in candidates})
+    if not rehearsal:  # a rule skipped these for their buckets; sorted since, they may be answered now
+        since = run.now - timedelta(days=settings.max_age_days)
+        have = {str(c["id"]) for c in candidates}
+        candidates += [i for i in social_inbox.sorted_since_held(session, row, since=since) if i["id"] not in have]
     # A person's newest direct message first: it is the one answered, and their earlier ones are covered by that reply.
     direct = sorted((c for c in candidates if str(c.get("kind") or "") in DIRECT_KINDS), key=lambda c: str(c.get("created_at") or ""), reverse=True)
     candidates = [c for c in candidates if str(c.get("kind") or "") not in DIRECT_KINDS] + direct
@@ -426,6 +461,8 @@ def _reply(run: _Run, net: _Network, row, state: dict, cache: dict, *, rehearsal
 
     handles, ids = own_identities(row.config)
     names = {row.slug.lower(), row.provider.lower()}
+    buckets = social_inbox.buckets_of(session, row, [str(c["id"]) for c in candidates])  # a rule may answer only some buckets
+    candidates = [{**c, "bucket": buckets.get(str(c["id"]), c.get("bucket"))} for c in candidates]
     answered = _answered(session, row, [str(i["id"]) for i in candidates], rehearsal)
     trashed = social_inbox.trashed_ids(session, row, [str(i["id"]) for i in candidates])
     keep: list[dict] = []
@@ -441,6 +478,7 @@ def _reply(run: _Run, net: _Network, row, state: dict, cache: dict, *, rehearsal
             report.skipped[REASON_TOO_OLD] += 1
         elif (hit := match_item(item, run.rules, names | {str(item.get("network") or "").lower()})) is None:
             report.skipped[REASON_NO_MATCH] += 1
+            _note_bucket_miss(run, row, item, names)
         elif str(item.get("kind") or "") in DIRECT_KINDS and _held_by_cooldown(run, row, item, hit[0], people, rehearsal):
             report.skipped["cooldown"] += 1
         else:
@@ -582,6 +620,22 @@ def _held_by_cooldown(run: _Run, row, item: dict, rule: SocialRule, people: set[
         return False
     _hold(run, row, item, social_inbox.HELD_COOLDOWN, rule, until=last + cooldown)
     return True
+
+
+def _note_bucket_miss(run: _Run, row, item: dict, names: set[str]) -> None:
+    """A rule's keywords hit but its buckets kept it out (the item is unsorted, or sorted elsewhere): say so on the item, so a rule
+    limited to buckets never stays silent unexplained — an unsorted item never passes a bucket limit."""
+    from .social_buckets import bucket_label
+    from .social_rules import BUCKET_MISS
+
+    limited = {r.id: r for r in run.rules if r.buckets}
+    unlimited = [replace(r, buckets=frozenset()) for r in limited.values()]
+    if not unlimited or (hit := match_item(item, unlimited, names | {str(item.get("network") or "").lower()})) is None:
+        return
+    rule = limited[hit[0].id]  # the rule as written, with its buckets
+    wanted = " or ".join(bucket_label(b) for b in sorted(rule.buckets))
+    have = bucket_label(item.get("bucket")) if item.get("bucket") else "unsorted"
+    _hold(run, row, item, BUCKET_MISS, rule, note=f"the rule answers only {wanted}; this one is {have}")
 
 
 def _hold(run: _Run, row, item: dict, reason: str, rule: SocialRule, *, until: datetime | None = None, note: str | None = None) -> None:

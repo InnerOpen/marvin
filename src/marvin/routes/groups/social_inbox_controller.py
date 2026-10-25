@@ -29,6 +29,8 @@ from marvin.schemas.group.social_inbox import (
     SocialInboxActionResult,
     SocialInboxHeldRead,
     SocialInboxHide,
+    SocialInboxIdeaCreate,
+    SocialInboxIdeaResult,
     SocialInboxItemRead,
     SocialInboxList,
     SocialInboxMessageCreate,
@@ -42,6 +44,7 @@ from marvin.schemas.group.social_inbox import (
     SocialInboxSort,
     SocialInboxSummary,
     SocialInboxTrash,
+    SocialLikeSupportUpdate,
     SocialRuleList,
     SocialRuleNew,
     SocialRulePublish,
@@ -124,6 +127,7 @@ def _reads(session, group_id, rows: list[Item]) -> list[SocialInboxItemRead]:
                 held=_held(r.held, rules),
                 bucket=r.bucket,
                 bucket_source=r.bucket_source,
+                idea_entry_id=r.idea_entry_id,
                 actions=can["actions"],
                 reply_modes=can["reply_modes"],
             )
@@ -158,7 +162,7 @@ class SocialInboxController(BaseUserController):
         require_workspace_role(self.user, self.group_id, ACTION_ROLES["list"])
         if visit:
             social_setup.reconcile(self.session, self.group_id)
-        found = social_setup.summary(self.session, self.group_id)
+        found = {**social_setup.summary(self.session, self.group_id), "idea_types": actions.idea_types(self.session, self.group_id)}
         can = {name: self._may(role) for name, role in ACTION_ROLES.items() if name != "list"}
         return SocialInboxSummary(**found, can=can)
 
@@ -264,6 +268,16 @@ class SocialInboxController(BaseUserController):
         if not social_setup.set_ai_sort(self.session, self.group_id, data.enabled):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Connect a network that reads comments first.")
         return SocialAISortUpdate(enabled=data.enabled)
+
+    @router.put("/like-support", response_model=SocialLikeSupportUpdate, summary="Turn auto-liking of support comments on or off")
+    def set_like_support(self, data: SocialLikeSupportUpdate):
+        """On: once per engine run, on each network whose auto-reply is on, the comments and replies sorted as `support` (still
+        new or seen, at most 20) are liked as the account. Each is tried once. The engine never hides or deletes on a bucket.
+        409 when no network reads comments yet. ADMIN and above."""
+        require_workspace_role(self.user, self.group_id, ACTION_ROLES["like_support"])
+        if not social_setup.set_engine_option(self.session, self.group_id, "like_support", data.enabled):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Connect a network that reads comments first.")
+        return SocialLikeSupportUpdate(enabled=data.enabled)
 
     @router.get("/rules", response_model=SocialRuleList, summary="List auto-reply rules (a network's, plus the all-network ones)")
     def list_rules(
@@ -408,6 +422,19 @@ class SocialInboxController(BaseUserController):
         except InboxError as e:
             raise _refuse(e) from e
         return self._done(item, message_id=out.get("message_id"))
+
+    @router.post("/{item_id}/idea", response_model=SocialInboxIdeaResult, summary="Save an item as a draft entry (an idea)")
+    def save_idea(self, item_id: UUID4, data: SocialInboxIdeaCreate):
+        """A draft entry of the named listed type made from the item, for a post that answers it (a question a lot of people have):
+        the start of the text as its title, the text as its summary, and who wrote it, where and the link in its description.
+        Saving the same item again returns that entry (`existing: true`). 422 for a type that isn't there or is internal.
+        EDITOR and above."""
+        require_workspace_role(self.user, self.group_id, ACTION_ROLES["idea"])
+        item = self._item(item_id)
+        try:
+            return SocialInboxIdeaResult(**actions.save_idea(self.session, self.group_id, item, entry_type=data.entry_type, user_id=self.user.id))
+        except InboxError as e:
+            raise _refuse(e) from e
 
     @router.post("/{item_id}/rule", response_model=SocialInboxRuleResult, summary="Make an auto-reply rule from an item")
     def make_rule(self, item_id: UUID4, data: SocialInboxRuleCreate | None = None):

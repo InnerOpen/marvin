@@ -79,7 +79,7 @@ const networks = (summary?.integrations ?? []).map((n) => ({ ...n, sw: autoReply
         </section>
 
         <section class="ss-card" aria-labelledby="ss-ai">
-          <h3 id="ss-ai">Sort comments with AI</h3>
+          <h3 id="ss-ai">Buckets: sorting and likes</h3>
           <p class="si-muted si-small">
             Marvin already sorts what costs nothing: a comment that hits a rule's keyword, and emoji or a few words of praise. With this on,
             every 5 minutes it also sends the comments and messages no one has sorted yet (at most 20, newest first) to your AI provider in
@@ -89,10 +89,23 @@ const networks = (summary?.integrations ?? []).map((n) => ({ ...n, sw: autoReply
           <p class="si-small"><strong>Comments are other people's words:</strong> turning this on sends them to your AI provider, and each
             request counts against the AI budget like any other.</p>
           <label class="ss-toggle">
-            <input type="checkbox" id="ss-ai-sort" checked={summary.aiSort === true} disabled={!summary.can?.ai_sort} />
+            <input type="checkbox" class="ss-option" data-option="ai-sort" checked={summary.aiSort === true} disabled={!summary.can?.ai_sort} />
             <span>Sort comments with AI</span>
           </label>
-          {!summary.can?.ai_sort && <p class="si-muted si-small">An admin turns this on or off.</p>}
+          <p class="si-muted si-small">
+            An AI guess can narrow what a rule answers (a rule's <strong>Only these buckets</strong>) but never makes one reply on its own:
+            every reply still needs the rule's keywords. A rule limited to buckets skips anything unsorted, so turn this on before relying on
+            one; a comment it skipped says so in the inbox.
+          </p>
+          <label class="ss-toggle">
+            <input type="checkbox" class="ss-option" data-option="like-support" checked={summary.likeSupport === true} disabled={!summary.can?.like_support} />
+            <span>Like comments sorted as Support</span>
+          </label>
+          <p class="si-muted si-small">
+            On the networks whose auto-reply is <strong>On</strong>, Marvin likes the comments and replies in Support (at most 20 per network
+            every 5 minutes, each once). A like is the only thing a bucket ever does by itself; nothing is hidden or deleted.
+          </p>
+          {!summary.can?.ai_sort && <p class="si-muted si-small">An admin turns these on or off.</p>}
           <p class="si-small sp-err" id="ss-ai-err" role="alert" hidden></p>
         </section>
 
@@ -111,24 +124,26 @@ const networks = (summary?.integrations ?? []).map((n) => ({ ...n, sw: autoReply
 </AppLayout>
 
 <script>
-  import { setAiSort, setAutoReply } from "@/lib/api/socialInbox";
+  import { setAiSort, setAutoReply, setLikeSupport } from "@/lib/api/socialInbox";
   import { errorMessage } from "@/lib/socialInbox";
 
-  const aiSort = document.getElementById("ss-ai-sort") as HTMLInputElement | null;
-  aiSort?.addEventListener("change", async () => {
-    const err = document.getElementById("ss-ai-err")!;
-    err.hidden = true;
-    aiSort.disabled = true;
-    try {
-      await setAiSort(aiSort.checked);
-    } catch (e) {
-      aiSort.checked = !aiSort.checked;
-      err.hidden = false;
-      err.textContent = errorMessage(e);
-    } finally {
-      aiSort.disabled = false;
-    }
-  });
+  const SETTERS: Record<string, (enabled: boolean) => Promise<unknown>> = { "ai-sort": setAiSort, "like-support": setLikeSupport };
+  document.querySelectorAll<HTMLInputElement>(".ss-option").forEach((box) =>
+    box.addEventListener("change", async () => {
+      const err = document.getElementById("ss-ai-err")!;
+      err.hidden = true;
+      box.disabled = true;
+      try {
+        await SETTERS[box.dataset.option!](box.checked);
+      } catch (e) {
+        box.checked = !box.checked;
+        err.hidden = false;
+        err.textContent = errorMessage(e);
+      } finally {
+        box.disabled = false;
+      }
+    }),
+  );
 
   document.querySelectorAll<HTMLLIElement>(".ss-row[data-editable='1']").forEach((row) => {
     const buttons = row.querySelectorAll<HTMLButtonElement>(".sp-opt");

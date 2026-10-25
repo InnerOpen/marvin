@@ -85,3 +85,9 @@ ADMIN; `aiSort` on the summary; the switch on Settings › Social). Answers are 
 the batch); left-out items are marked `bucket_source = ai` and never re-sent; an answer with no `items` marks nothing.
 Not built: the **Needs you** view (the chips cover it for now).
 
+**Phase 3 built (2026-10-25), revised by Jared's question "can auto-replies fire on an AI guess alone?":** AI narrows, never
+triggers. Rules gain **Only these buckets** (`buckets`) but keep keywords required; a bucket miss on a keyword hit is held
+(`bucket`, with a note) and re-checked once the item is sorted. Auto-hide `noise` was dropped (the engine still can't hide;
+the existing door tests guard it). Auto-like `support` is opt-in (`like_support`, networks whose auto-reply is on, 20 per
+network per run, each once). **Save as idea** (`POST /{id}/idea`, `idea_entry_id`, migration `d8f2b6c4e1a7`).
+

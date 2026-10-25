@@ -88,6 +88,8 @@ class SocialInboxItemModel(SqlAlchemyBase, BaseMixins):
     bucket_source: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     """Who sorted it: rule | heuristic | ai | person. A person's choice is never overwritten."""
     bucket_at: Mapped[datetime | None] = mapped_column(AwareDateTime, nullable=True)
+    idea_entry_id: Mapped[GUID | None] = mapped_column(GUID, sa.ForeignKey("entries.id", ondelete="SET NULL"), nullable=True)
+    """The draft entry a person saved this item as (**Save as idea**); empty when none, or once that entry is deleted."""
 
     __table_args__ = (
         sa.UniqueConstraint("integration_id", "item_id", name="uq_social_inbox_items_item"),

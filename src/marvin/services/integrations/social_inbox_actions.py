@@ -54,6 +54,8 @@ ACTION_ROLES: dict[str, WorkspaceRole] = {
     "publish": WorkspaceRole.EDITOR,
     "auto_reply": WorkspaceRole.ADMIN,
     "ai_sort": WorkspaceRole.ADMIN,
+    "like_support": WorkspaceRole.ADMIN,
+    "idea": WorkspaceRole.EDITOR,
     "reply": WorkspaceRole.ADMIN,
     "delete": WorkspaceRole.ADMIN,
     "message": WorkspaceRole.ADMIN,
@@ -301,3 +303,51 @@ def make_rule(session, group_id, item: Item, *, reply_text: str = "", user_id=No
     entry = EntryService(session, group_id, integration_id="social_inbox", actor_id=user_id).create(fields)
     session.commit()
     return {"id": entry.id, "slug": slug, "keywords": keywords, "path": f"/workspace/entries/{entry.id}"}
+
+
+IDEA_TITLE_MAX = 80
+
+
+def idea_types(session, group_id) -> list[dict]:
+    """The entry types an item can be saved as: the workspace's listed ones (not internal helper types such as the rules), by name."""
+    from marvin.db.models.platform.entry_types import EntryTypes
+    from marvin.services.entry_listing import is_listed_type
+
+    types = session.query(EntryTypes).filter(EntryTypes.group_id == group_id).order_by(EntryTypes.name).all()
+    return [{"slug": t.slug, "name": t.name} for t in types if is_listed_type(t)]
+
+
+def save_idea(session, group_id, item: Item, *, entry_type: str, user_id=None) -> dict:
+    """A draft entry of ``entry_type`` (a listed type, by slug) made from this item, for a post that answers it: its title the
+    start of the text, its summary the text, and its description the text with who wrote it, where and the link back. Recorded on
+    the item (``idea_entry_id``); saving again returns that entry instead of a second one. Returns ``id``, ``slug``, ``path``."""
+    from marvin.db.models.platform.entries import Entries
+    from marvin.db.models.platform.entry_types import EntryTypes
+    from marvin.services.entries.entry_service import EntryService
+    from marvin.services.entry_listing import is_listed_type
+
+    if item.idea_entry_id and (found := session.get(Entries, item.idea_entry_id)) is not None:
+        return {"id": found.id, "slug": found.slug, "path": f"/workspace/entries/{found.id}", "existing": True}
+    kind = session.query(EntryTypes).filter_by(group_id=group_id, slug=entry_type).first()
+    if kind is None or not is_listed_type(kind):
+        raise InboxError(f"no entry type '{entry_type}' to save it as", 422)
+    who = f"@{item.author_handle}" if item.author_handle else (item.author_name or "someone")
+    text = (item.text or "").strip()
+    title = text.splitlines()[0][:IDEA_TITLE_MAX].strip() if text else f"Idea from {who}"
+    source = f"{who} on {item.network}" + (f": {item.url}" if item.url else "")
+    slug = f"idea-{uuid.uuid4().hex[:8]}"
+    fields = {
+        "entry_type_id": kind.id,
+        "title": title or f"Idea from {who}",
+        "slug": slug,
+        "status": "draft",
+        "summary": text[:500] or None,
+        "description": f"{text}\n\n— {source}" if text else source,
+        "data_json": {},
+    }
+    if user_id:
+        fields["created_by"] = user_id
+    entry = EntryService(session, group_id, integration_id="social_inbox", actor_id=user_id).create(fields)
+    item.idea_entry_id = entry.id
+    session.commit()
+    return {"id": entry.id, "slug": slug, "path": f"/workspace/entries/{entry.id}", "existing": False}

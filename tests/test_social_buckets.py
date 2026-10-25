@@ -269,3 +269,150 @@ def test_an_unusable_answer_marks_nothing_so_the_batch_is_tried_again(ws, ai):
     ai.answer({"items": [{"n": 1, "bucket": "lead"}]})
     ai_poll(ws, [], now=se.NOW + se.timedelta(minutes=5))
     assert inbox.by_id(ws)["c1"].bucket == "lead"
+
+
+# ── phase 3: rules narrowed by bucket (AI narrows, never triggers), auto-like support, Save as idea ─────────────────
+
+from marvin.services.integrations.social_rules import rule_from_data
+
+
+def _sort(ws, api, cid, bucket):
+    assert inbox.post(api(EDITOR), ws, cid, "bucket", {"bucket": bucket}).status_code == 200
+
+
+def test_a_rule_needs_its_keywords_buckets_only_narrow_it():
+    assert rule_from_data({"buckets": "lead", "reply": "Hi"}, id="r") is None  # no keywords: never a rule
+    rule = rule_from_data({"keywords": "price", "buckets": "lead, keyword, vip", "reply": "Hi"}, id="r")
+    assert rule.buckets == frozenset({"lead"})  # keyword and unknown names are dropped
+
+
+def test_a_bucket_limited_rule_answers_a_keyword_hit_only_in_its_bucket(ws, ai):
+    _ai_on(ws)
+    se.rule(ws, keywords="price", buckets="lead")
+    ai.answer({"items": [{"n": 1, "bucket": "lead"}, {"n": 2, "bucket": "feedback"}]})
+
+    ai_poll(ws, [item("c1", "What's the price for two?", age_hours=1), item("c2", "The price is too high", handle="bob", age_hours=2)])
+
+    assert [s["comment_id"] for s in ws.nets["mastodon"].sent()] == ["c1"]  # the AI's guess stopped c2, never started anything
+    assert inbox.by_id(ws)["c2"].held == {**inbox.by_id(ws)["c2"].held, "reason": "bucket"}
+
+
+def test_an_unsorted_item_a_bucket_rule_skips_says_why_and_is_answered_once_a_person_sorts_it(ws, api):
+    se.rule(ws, keywords="price", buckets="lead")
+    inbox.poll(ws, [item("c1", "What is the price?")])  # AI sorting off: it stays unsorted
+
+    held = inbox.by_id(ws)["c1"].held
+    assert ws.nets["mastodon"].sent() == []
+    assert held["reason"] == "bucket" and held["note"] == "the rule answers only Lead; this one is unsorted"
+
+    _sort(ws, api, "c1", "lead")
+    inbox.poll(ws, [], now=se.NOW + se.timedelta(minutes=5))
+    assert [s["comment_id"] for s in ws.nets["mastodon"].sent()] == ["c1"] and inbox.by_id(ws)["c1"].held is None
+
+
+def test_a_rule_without_buckets_answers_as_before(ws):
+    se.rule(ws, keywords="price")
+    inbox.poll(ws, [item("c1", "What is the price?")])
+    assert [s["comment_id"] for s in ws.nets["mastodon"].sent()] == ["c1"] and inbox.by_id(ws)["c1"].held is None
+
+
+def test_an_existing_rule_type_gains_the_buckets_field_and_keywords_stay_required(ws):
+    from marvin.db.models.platform.entry_types import EntryTypes
+
+    social_setup.ensure_rule_type(ws.session, ws.gid)
+    rule_type = ws.session.query(EntryTypes).filter_by(group_id=ws.gid, slug=social_setup.RULE_TYPE).one()
+    rule_type.schema_json = {"fields": [f for f in rule_type.schema_json["fields"] if f["key"] != "buckets"]}
+    ws.session.commit()
+
+    social_setup.ensure_rule_type(ws.session, ws.gid)
+    fields = {f["key"]: f for f in rule_type.schema_json["fields"]}
+    assert "buckets" in fields and list(fields)[-1] == "buckets" and fields["keywords"]["required"] is True
+
+
+LIKE_ON = Settings(like_support=True)
+
+
+def _like_poll(ws, feed, *, mode=inbox.LIVE, now=se.NOW):
+    ws.nets["mastodon"].feed = feed
+    se.mode(ws, mode)
+    return run_engagement(ws.session, ws.gid, LIKE_ON, now=now)
+
+
+def test_support_is_liked_once_on_a_network_whose_auto_reply_is_on(ws):
+    report = _like_poll(ws, [item("c1", "🔥🔥", age_hours=1), item("c2", "Where is this?", handle="bob", age_hours=2)])
+
+    assert ws.nets["mastodon"].sent("like") == [{"comment_id": "c1"}] and report.liked == 1
+    assert inbox.by_id(ws)["c1"].status == "liked"
+    _like_poll(ws, [], now=se.NOW + se.timedelta(minutes=5))
+    assert len(ws.nets["mastodon"].sent("like")) == 1  # never twice
+
+
+@pytest.mark.parametrize("mode", [inbox.REHEARSAL, inbox.ANNOUNCE_ONLY])
+def test_rehearsal_and_off_never_like(ws, mode):
+    _like_poll(ws, [item("c1", "🔥🔥")], mode=mode)
+    assert ws.nets["mastodon"].sent("like") == []
+
+
+def test_nothing_is_liked_unless_the_workspace_asked(ws):
+    inbox.poll(ws, [item("c1", "🔥🔥")])
+    assert ws.nets["mastodon"].sent("like") == []
+
+
+def test_noise_is_never_hidden_or_deleted_by_the_engine(ws, ai):
+    _ai_on(ws)
+    ai.answer({"items": [{"n": 1, "bucket": "noise"}]})
+    ws.nets["mastodon"].feed = [item("c1", "Buy followers now", age_hours=1)]
+    se.mode(ws, inbox.LIVE)
+    run_engagement(ws.session, ws.gid, Settings(ai_sort=True, like_support=True), now=se.NOW)
+    assert inbox.by_id(ws)["c1"].bucket == "noise"
+    assert ws.nets["mastodon"].sent("hide") == [] and ws.nets["mastodon"].sent("delete") == []
+
+
+def test_only_an_admin_turns_auto_like_on_and_the_summary_says_so(ws, api):
+    social_setup.reconcile(ws.session, ws.gid)
+    assert api(EDITOR).put(f"{API}/like-support", json={"enabled": True}).status_code == 403
+    assert api(ADMIN).put(f"{API}/like-support", json={"enabled": True}).json() == {"enabled": True}
+    assert api(EDITOR).get(f"{API}/summary").json()["likeSupport"] is True
+    assert Settings.from_config({"like_support": True}).like_support is True
+
+
+def _listed_type(ws, slug="idea", name="Idea"):
+    """A listed entry type to save ideas as (made once)."""
+    from marvin.db.models.platform.entry_types import EntryTypes
+
+    found = ws.session.query(EntryTypes).filter_by(group_id=ws.gid, slug=slug).first()
+    if found is None:
+        found = EntryTypes(session=ws.session, group_id=ws.gid, slug=slug, name=name, schema_json={"fields": []})
+        ws.session.add(found)
+        ws.session.commit()
+    return found
+
+
+def test_save_as_idea_makes_one_draft_with_a_link_back(ws, api):
+    from marvin.db.models.platform.entries import Entries
+
+    _listed_type(ws)
+    inbox.seed(ws, [item("c1", "Do you have a video on fitting sleeves?\nI always get it wrong")])
+
+    first = inbox.post(api(EDITOR), ws, "c1", "idea", {"entryType": "idea"})
+    assert first.status_code == 200, first.text
+    body = first.json()
+    entry = ws.session.get(Entries, body["id"])
+    assert entry.status == "draft" and entry.title == "Do you have a video on fitting sleeves?"
+    row = inbox.by_id(ws)["c1"]
+    assert entry.description.endswith(f"— @alice on {row.network}: {row.url}") and body["existing"] is False
+    assert inbox.by_id(ws)["c1"].idea_entry_id == entry.id
+
+    again = inbox.post(api(EDITOR), ws, "c1", "idea", {"entryType": "idea"}).json()
+    assert again["id"] == body["id"] and again["existing"] is True
+
+
+def test_save_as_idea_offers_listed_types_only_and_needs_an_editor(ws, api):
+    _listed_type(ws)
+    social_setup.ensure_rule_type(ws.session, ws.gid)  # internal: never offered
+    inbox.seed(ws, [item("c1", "hello")])
+
+    offered = [t["slug"] for t in api(EDITOR).get(f"{API}/summary").json()["ideaTypes"]]
+    assert "idea" in offered and social_setup.RULE_TYPE not in offered
+    assert inbox.post(api(EDITOR), ws, "c1", "idea", {"entryType": social_setup.RULE_TYPE}).status_code == 422
+    assert inbox.post(api(VIEWER), ws, "c1", "idea", {"entryType": "idea"}).status_code == 403

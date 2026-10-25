@@ -69,6 +69,10 @@ export const hide = (id: string, hidden: boolean) => post<ActionResult>(`/${enco
 /** Move an item to the inbox's Trash (Marvin only) or restore it. */
 export const trash = (id: string, trashed: boolean) => post<ActionResult>(`/${encodeURIComponent(id)}/trash`, { trashed });
 
+/** Save an item as a draft entry of a listed type (an idea for a post that answers it); saving again returns that entry. */
+export const saveIdea = (id: string, entryType: string) =>
+  post<{ id: string; slug: string; path: string; existing: boolean }>(`/${encodeURIComponent(id)}/idea`, { entryType });
+
 /** Sort an item into a bucket, or clear it (null). Marvin never overwrites a person's choice. */
 export const sortItem = (id: string, bucket: string | null) => post<ActionResult>(`/${encodeURIComponent(id)}/bucket`, { bucket });
 
@@ -100,6 +104,10 @@ export const setRulePublished = (id: string, published: boolean) =>
 
 /** Turn AI sorting of the inbox on or off (ADMIN). */
 export const setAiSort = (enabled: boolean) => fetchApi<{ enabled: boolean }>(`${BASE}/ai-sort`, { method: "PUT", body: JSON.stringify({ enabled }) });
+
+/** Turn auto-liking of support comments on or off (ADMIN). */
+export const setLikeSupport = (enabled: boolean) =>
+  fetchApi<{ enabled: boolean }>(`${BASE}/like-support`, { method: "PUT", body: JSON.stringify({ enabled }) });
 
 export const setAutoReply = (slug: string, mode: AutoReplyMode) =>
   fetchApi<{ integration: string; autoReply: AutoReplyMode }>(

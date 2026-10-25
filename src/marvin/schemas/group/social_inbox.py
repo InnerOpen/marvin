@@ -81,6 +81,8 @@ class SocialInboxItemRead(_MarvinModel):
     """What it needs: keyword | lead | question | feedback | support | noise; None while unsorted."""
     bucket_source: str | None = None
     """Who sorted it: rule | heuristic | ai | person."""
+    idea_entry_id: UUID4 | None = None
+    """The draft entry a person saved it as (Save as idea; edit it at /workspace/entries/{id}); None when none."""
     actions: list[str] = Field(default_factory=list)
     """What this item's network offers for it: reply, like, hide, delete, message (hide and delete not for a mention)."""
     reply_modes: list[str] = Field(default_factory=list)
@@ -125,6 +127,10 @@ class SocialInboxSummary(_MarvinModel):
     integrations: list[SocialInboxIntegration]
     ai_sort: bool = False
     """Whether the engine sorts unsorted items into buckets with AI (Settings › Social; ADMIN switches it)."""
+    like_support: bool = False
+    """Whether the engine likes ``support`` comments on networks whose auto-reply is on (Settings › Social; ADMIN)."""
+    idea_types: list[dict] = Field(default_factory=list)
+    """What **Save as idea** offers: the listed entry types, ``{slug, name}``."""
     can: dict[str, bool]
     """What the caller's role may do: seen, like, hide, rule, rules, publish, reply, delete, message, auto_reply."""
 
@@ -132,6 +138,11 @@ class SocialInboxSummary(_MarvinModel):
 class SocialAISortUpdate(_MarvinModel):
     enabled: bool
     """Sort unsorted inbox items into buckets with the workspace's AI provider: one call per engine run, at most 20 items."""
+
+
+class SocialLikeSupportUpdate(_MarvinModel):
+    enabled: bool
+    """Like the comments sorted as support, on the networks whose auto-reply is on, at most 20 per network per run."""
 
 
 class SocialInboxSeen(_MarvinModel):
@@ -189,6 +200,20 @@ class SocialInboxActionResult(_MarvinModel):
 class SocialInboxRuleCreate(_MarvinModel):
     reply: str = Field(default="", max_length=10000)
     """The reply text to pre-fill (what was typed in the reply box, say); empty leaves it for the editor."""
+
+
+class SocialInboxIdeaCreate(_MarvinModel):
+    entry_type: str
+    """The slug of a listed entry type to save it as."""
+
+
+class SocialInboxIdeaResult(_MarvinModel):
+    id: UUID4
+    slug: str
+    path: str
+    """The entry editor: /workspace/entries/{id}. The entry is a draft."""
+    existing: bool = False
+    """True when the item was already saved: this is that entry, not a new one."""
 
 
 class SocialInboxRuleResult(_MarvinModel):

@@ -79,6 +79,9 @@ class SocialRule:
     """False for a draft: never fires. The engine only loads published entries, and re-checks this before it sends."""
     cooldown_hours: float = DEFAULT_COOLDOWN_HOURS
     """Direct messages: after a person is answered (by any rule or a person), no rule answers them again for this long. 0: none."""
+    buckets: frozenset[str] = frozenset()
+    """Only items in these buckets (``social_buckets``: lead, question, feedback, support, noise); empty: any. Buckets only narrow
+    a keyword rule, never replace its keywords: an AI's guess can stop a reply, never cause one."""
     since: datetime | None = field(default=None, compare=False)
     """When the rule was published: it answers only direct messages written after it (a new rule never replies to old chats)."""
     order: int = field(default=0, compare=False)
@@ -105,7 +108,10 @@ def rule_from_data(data: dict, *, id: str, published: bool = True, order: int = 
     """A rule from a ``social-auto-reply`` entry's data. None when it has no usable keywords or reply."""
     if not isinstance(data, dict):
         return None
+    from .social_buckets import RULE_BUCKETS
+
     keywords = tuple(k.lower() for k in _words(data.get("keywords")))
+    buckets = frozenset(b.lower() for b in _words(data.get("buckets")) if b.lower() in RULE_BUCKETS)
     reply = str(data.get("reply") or "").strip()
     if not keywords or not reply:
         return None
@@ -128,6 +134,7 @@ def rule_from_data(data: dict, *, id: str, published: bool = True, order: int = 
         kinds=kinds,
         published=published,
         cooldown_hours=_cooldown(data.get("cooldown_hours")) if data.get("cooldown_hours") not in (None, "") else DEFAULT_COOLDOWN_HOURS,
+        buckets=buckets,
         since=since,
         order=order,
     )
@@ -200,11 +207,20 @@ def match_item(item: dict, rules: list[SocialRule], names: set[str]) -> tuple[So
     """The rule (and the keyword that hit) that answers this item, or None. Precedence: a rule for the item's post, then a
     rule for its network, then a rule for every network; within each, the caller's order — one reply per comment, so the
     first hit wins."""
-    applicable = [r for r in rules if r.published and covers(r, item, names)]
+    applicable = [r for r in rules if r.published and covers(r, item, names) and in_buckets(r, item)]
     for rule in sorted(applicable, key=specificity):  # stable: the caller's order within a level
         if kw := keyword_hit(item.get("text") or "", rule.keywords):
             return rule, kw
     return None
+
+
+BUCKET_MISS = "bucket"
+"""The hold reason (``social_inbox.held``) when a rule's keywords hit but its buckets kept the item out."""
+
+
+def in_buckets(rule: SocialRule, item: dict) -> bool:
+    """Whether the item is in one of the rule's buckets (its ``bucket``, as stored); a rule that names none takes any item."""
+    return not rule.buckets or str(item.get("bucket") or "") in rule.buckets
 
 
 def rule_covers_integration(rule: SocialRule, slug: str, provider: str) -> bool:

@@ -162,6 +162,12 @@ describe("not auto-replied", () => {
     assert.doesNotMatch(heldText({ ...cooldown, until: "2026-10-19T10:00:00Z" }, NOW), / until /);
   });
 
+  test("a bucket miss says which buckets the rule wanted and how to get it sorted", () => {
+    const text = heldText({ reason: "bucket", note: "the rule answers only Lead; this one is unsorted" }, NOW);
+    assert.match(text, /matched a rule, but the rule answers only Lead; this one is unsorted/);
+    assert.match(text, /Sort comments with AI/);
+  });
+
   test("a refusal carries the network's words", () => {
     assert.match(heldText({ reason: "refused", note: "outside the 24-hour window" }, NOW), /refused the message \(outside the 24-hour window\)/);
     assert.match(heldText({ reason: "refused" }, NOW), /refused the message\./);

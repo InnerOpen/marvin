@@ -50,9 +50,12 @@ MAX_ANSWER_WINDOW_DAYS = 90
 NEW, SEEN, REPLIED, HIDDEN, LIKED = "new", "seen", "replied", "hidden", "liked"
 STATUSES = (NEW, SEEN, LIKED, REPLIED, HIDDEN)
 EVENT_SEEN, EVENT_LIKED, EVENT_REPLIED, EVENT_HIDDEN, EVENT_UNHIDDEN = "seen", "liked", "replied", "hidden", "unhidden"
-HELD_COOLDOWN, HELD_REFUSED = "cooldown", "refused"
-HELD_REASONS = (HELD_COOLDOWN, HELD_REFUSED)
-"""Why a matched item wasn't answered (``hold``): the rule's cool-down for that person, or the network refused."""
+LIKED_KINDS = ("comment", "reply")
+"""What the engine may like: comments and replies on the account's own posts (not mentions elsewhere, not DMs)."""
+HELD_COOLDOWN, HELD_REFUSED, HELD_BUCKET = "cooldown", "refused", "bucket"
+HELD_REASONS = (HELD_COOLDOWN, HELD_REFUSED, HELD_BUCKET)
+"""Why a matched item wasn't answered (``hold``): the rule's cool-down for that person, the network refused, or the rule's
+keywords hit but its buckets kept the item out (unsorted, or sorted elsewhere)."""
 TEXT_MAX = 5000
 MAX_ATTACHMENTS = 10
 FIELD_MAX = 2000
@@ -285,13 +288,30 @@ def unanswered_direct(session, row, kinds, *, since: datetime) -> list[dict]:
         .limit(200)
         .all()
     )
-    return [
-        {
-            "id": r.item_id, "kind": r.kind, "text": r.text, "network": r.network, "created_at": r.posted_at.isoformat(),
-            "author": {"id": r.author_id or "", "handle": r.author_handle or "", "name": r.author_name or ""},
-        }
-        for r in rows
-    ]  # fmt: skip
+    return [as_item(r) for r in rows]
+
+
+def as_item(r: Item) -> dict:
+    """A stored row in the normalised shape a rule matches (and the engine answers), as a plugin would have handed it over."""
+    return {
+        "id": r.item_id, "kind": r.kind, "text": r.text, "network": r.network, "created_at": r.posted_at.isoformat(), "bucket": r.bucket,
+        "post_id": r.post_id, "post_url": r.post_url, "url": r.url,
+        "author": {"id": r.author_id or "", "handle": r.author_handle or "", "name": r.author_name or ""},
+    }  # fmt: skip
+
+
+def sorted_since_held(session, row, *, since: datetime) -> list[dict]:
+    """This integration's unanswered items a rule skipped for its buckets (held ``bucket``) that now have a bucket — a person
+    sorted them, or AI did — written since ``since``: looked at again, so sorting one later lets the rule answer it."""
+    rows = (
+        session.query(Item)
+        .filter(Item.integration_id == row.id, Item.held.isnot(None), Item.bucket.isnot(None), Item.replied_at.is_(None))
+        .filter(Item.posted_at >= since, Item.trashed_at.is_(None), Item.status != HIDDEN)
+        .order_by(Item.posted_at)
+        .limit(200)
+        .all()
+    )
+    return [as_item(r) for r in rows if (r.held or {}).get("reason") == HELD_BUCKET]
 
 
 def _same_person(author: dict):
@@ -355,6 +375,15 @@ def cover_earlier_direct(session, row, author: dict, before: datetime, *, reply_
     return len(rows)
 
 
+def buckets_of(session, row, ids: list[str]) -> dict[str, str]:
+    """The stored buckets of these items, by item id (unsorted or unstored ones are left out)."""
+    found: dict[str, str] = {}
+    for chunk in _chunks(list(ids)):
+        q = session.query(Item.item_id, Item.bucket).filter(Item.integration_id == row.id, Item.item_id.in_(chunk), Item.bucket.isnot(None))
+        found.update(dict(q.all()))
+    return found
+
+
 def bucket_of(session, row, item_id: str) -> str | None:
     """A stored item's bucket (``social_buckets``); None while it is unsorted or isn't stored."""
     return session.query(Item.bucket).filter(Item.integration_id == row.id, Item.item_id == str(item_id)).scalar()
@@ -377,6 +406,18 @@ def bucket_counts(session, group_id, integration: str | None = None) -> dict[str
     if integration:
         q = q.filter(Item.integration_slug == integration)
     return {(bucket or "unsorted"): n for bucket, n in q.group_by(Item.bucket)}
+
+
+def to_like(session, row, buckets: list[str], *, since: datetime, skip: set[str], limit: int) -> list[Item]:
+    """This integration's comments and replies in these buckets that the engine may like: still new or seen, in the
+    inbox, written since ``since``, not in ``skip``; oldest first, at most ``limit``."""
+    q = (
+        session.query(Item)
+        .filter(Item.integration_id == row.id, Item.bucket.in_(buckets), Item.kind.in_(LIKED_KINDS), Item.status.in_((NEW, SEEN)))
+        .filter(Item.trashed_at.is_(None), Item.posted_at >= since)
+        .order_by(Item.posted_at, Item.id)
+    )
+    return [r for r in q.limit(limit + len(skip)).all() if r.item_id not in skip][:limit]
 
 
 def trashed_ids(session, row, ids: list[str]) -> set[str]:
