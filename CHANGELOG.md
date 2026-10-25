@@ -6,6 +6,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.66 (2026-10-25)
+
+### Chores
+
+- **plugins**: Bluesky 0.5.1 — signed-in calls (and DMs) go to the account's own server, not
+  bsky.social
+  ([`590a11d`](https://github.com/InnerOpen/marvin/commit/590a11d8365e570343f52a54cbf47ea62a6d2690))
+
+### Features
+
+- **workflows**: See failures at a glance — each card marks its last run and counts the week's
+  failed runs
+  ([`6f8ded7`](https://github.com/InnerOpen/marvin/commit/6f8ded7017888dc3fcab7e006f152a0c0bcc718b))
+
+
 ## v1.1.0-rc.65 (2026-10-25)
 
 ### Features
