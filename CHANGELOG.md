@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.64 (2026-10-25)
+
+### Bug Fixes
+
+- **social**: Sorting a comment never sends a reply — a sort organizes the inbox, it doesn't approve
+  ([`55a3479`](https://github.com/InnerOpen/marvin/commit/55a347957511b8be368592e73a9e8f96f978fd07))
+
+
 ## v1.1.0-rc.63 (2026-10-25)
 
 ### Chores
