@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.62 (2026-10-25)
+
+### Features
+
+- **social**: Comment buckets, phase 2 — AI sorts what's left, opt-in, one call per run
+  ([`5d9098b`](https://github.com/InnerOpen/marvin/commit/5d9098b94a22408bd6169d99a334fdaa671dd271))
+
+
 ## v1.1.0-rc.61 (2026-10-25)
 
 ### Features
