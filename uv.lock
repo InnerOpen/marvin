@@ -1275,7 +1275,7 @@ plugins = [
     { name = "marvin-ai-ollama", git = "https://github.com/InnerOpen/marvin-ai-ollama?rev=v0.2.0" },
     { name = "marvin-ai-openai", git = "https://github.com/InnerOpen/marvin-ai-openai?rev=v0.3.0" },
     { name = "marvin-integration-apprise", git = "https://github.com/InnerOpen/marvin-integration-apprise?rev=v0.3.1" },
-    { name = "marvin-integration-bluesky", git = "https://github.com/InnerOpen/marvin-integration-bluesky?rev=v0.5.0" },
+    { name = "marvin-integration-bluesky", git = "https://github.com/InnerOpen/marvin-integration-bluesky?rev=v0.5.1" },
     { name = "marvin-integration-buttondown", git = "https://github.com/InnerOpen/marvin-integration-buttondown?rev=v0.10.0" },
     { name = "marvin-integration-cloudflare-pages", git = "https://github.com/InnerOpen/marvin-integration-cloudflare-pages?rev=v0.5.0" },
     { name = "marvin-integration-facebook", git = "https://github.com/InnerOpen/marvin-integration-facebook?rev=v0.6.0" },
@@ -1336,8 +1336,8 @@ dependencies = [
 
 [[package]]
 name = "marvin-integration-bluesky"
-version = "0.5.0"
-source = { git = "https://github.com/InnerOpen/marvin-integration-bluesky?rev=v0.5.0#938ed8c49689029790e46ff49d3bbb17ddaa2770" }
+version = "0.5.1"
+source = { git = "https://github.com/InnerOpen/marvin-integration-bluesky?rev=v0.5.1#146c677ba66ff7c1b657a211353d13a3d087c97c" }
 dependencies = [
     { name = "marvin-integration-sdk" },
     { name = "regex" },
