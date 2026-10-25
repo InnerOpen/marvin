@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.63 (2026-10-25)
+
+### Chores
+
+- **plugins**: Facebook 0.5.1 and Bluesky 0.4.2 — both ship their logo, so Marvin shows it instead
+  of the emoji
+  ([`4453901`](https://github.com/InnerOpen/marvin/commit/44539017429f8391d05a3c4fd2a587da6cb324c0))
+
+### Features
+
+- **social**: Comment buckets, phase 3 — rules narrowed by bucket, auto-like support, Save as idea
+  ([`97ff22c`](https://github.com/InnerOpen/marvin/commit/97ff22c2ad3ce0e3ad062760ec86725bdede0220))
+
+
 ## v1.1.0-rc.62 (2026-10-25)
 
 ### Features
