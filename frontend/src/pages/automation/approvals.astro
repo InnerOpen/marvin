@@ -6,6 +6,7 @@ import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { listApprovals, type WorkflowApproval } from "@/lib/api/workflowApprovals";
+import { captionResultsHtml } from "@/lib/captionCheck";
 import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -34,6 +35,13 @@ try {
       <article class="approval" data-id={a.id}>
         <p class="ask">{a.message}</p>
         {a.imageUrl && <a href={a.imageUrl} target="_blank" rel="noopener"><img class="preview" src={a.imageUrl} alt="" loading="lazy" /></a>}
+        {a.postPreview && (
+          <details class="post-preview" open>
+            <summary>What it will post, network by network</summary>
+            <p class="post-text">{a.postPreview.text}</p>
+            <div class="post-checks" set:html={captionResultsHtml(a.postPreview.results, a.postPreview.text)} />
+          </details>
+        )}
         <p class="meta">
           {a.automationName ?? "A workflow"}
           {a.entryId && (<> · <a href={`/workspace/entries/${a.entryId}`}>{a.entryTitle ?? "the entry"}</a></>)}
@@ -99,6 +107,18 @@ try {
 </script>
 
 <style>
+  .post-preview { margin: 0 0 10px; border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; }
+  .post-preview summary { cursor: pointer; font-weight: 600; }
+  .post-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; }
+  .post-checks { display: grid; gap: 8px; }
+  .post-checks :global(.cc-card) { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: grid; gap: 6px; }
+  .post-checks :global(.cc-head) { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .post-checks :global(.cc-count) { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12.5px; }
+  .post-checks :global(.cc-count.over) { color: var(--danger, #c0392b); font-weight: 600; }
+  .post-checks :global(.cc-visible) { font-size: 13px; padding: 6px 8px; background: color-mix(in srgb, var(--line) 35%, transparent); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .post-checks :global(.cc-more) { color: var(--muted); margin-left: 4px; }
+  .post-checks :global(.cc-issues) { margin: 0; padding-left: 18px; display: grid; gap: 2px; font-size: 13px; }
+  .post-checks :global(.cc-error) { color: var(--danger, #c0392b); }
   .approvals { display: grid; gap: 12px; max-width: 760px; }
   .approval { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; background: var(--panel); }
   .ask { margin: 0 0 6px; font-weight: 600; }

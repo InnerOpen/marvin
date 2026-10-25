@@ -273,3 +273,45 @@ def _emit(session, row: WorkflowApprovalModel, automation, event_type, *, user_i
         )
     except Exception as e:  # noqa: BLE001
         logging.getLogger(__name__).warning(f"workflow approval event {event_type.name} not sent: {e}")
+
+
+def post_preview(session, row) -> dict | None:
+    """When the step after this pending approval posts to social networks (an integration step with `capability: social.post`),
+    what it will post — its `text` and `link` interpolated as the approved run will — checked for each network
+    (services/integrations/caption_check.py): ``{text, results}``. None for anything else; never raises (a preview must not break
+    the approvals list)."""
+    try:
+        return _post_preview(session, row)
+    except Exception:  # noqa: BLE001 — a preview is a convenience
+        return None
+
+
+def _post_preview(session, row) -> dict | None:
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+    from marvin.services.integrations import INTEGRATIONS_AVAILABLE
+
+    from .engine import _parked_step, resumed_context
+    from .matcher import interpolate
+
+    if row.status != APPROVAL_PENDING or not INTEGRATIONS_AVAILABLE:
+        return None
+    automation = session.get(WorkspaceAutomationModel, row.automation_id)
+    parked = _parked_step(automation, row, "approval") if automation is not None else None
+    if parked is None:
+        return None
+    index, _ = parked
+    actions = (automation.definition or {}).get("actions") or []
+    step = actions[index + 1] if index + 1 < len(actions) else None
+    if not (isinstance(step, dict) and step.get("kind") == "integration" and step.get("capability") == "social.post"):
+        return None
+    output = {"decision": "approved", "approved": True}
+    context = resumed_context(session, row, index, output)
+    context["steps"], context["previous"] = context.pop("_steps"), output
+    args = step.get("args") if isinstance(step.get("args"), dict) else {}
+    text = str(interpolate(args.get("text") or "", context) or "")
+    link = interpolate(args.get("link"), context) if args.get("link") else None
+    integration = str(interpolate(step.get("integration") or "", context) or "").strip()
+    from marvin.services.integrations.caption_check import check_for_networks
+
+    results = check_for_networks(session, row.group_id, text, link=str(link) if link else None, integrations=[integration] if integration else None)
+    return {"text": text, "results": results}

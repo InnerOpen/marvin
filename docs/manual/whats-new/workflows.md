@@ -835,6 +835,8 @@ A **Run integration** step with `capability: "social.post"` posts to Instagram, 
 - **`per_network`** overrides `args` for one network, keyed by the integration's slug or its network's name (`bluesky`, `mastodon`; a slug wins over a name). Templates and filters work inside it: `{"bluesky": {"text": "${entry.title|truncate:280}"}}` gives Bluesky (300 characters) a shorter text than Mastodon (500) or Instagram (2,200).
 - **Dry run**: each plugin is asked what it would post (`dry_run: true`) and sends nothing; the output shows each network's `would_post`, or its refusal, in `results`. A real post always says `dry_run: false` explicitly.
 
+- **Caption check.** Under a `social.post` step's arguments the editor checks the `text` for each connected network that posts, as you type: its length against that network's limit (Bluesky counts graphemes), what the feed shows before "… more", and what loses readers — over the limit, the first sentence cut off, an opening greeting or hashtag, a link where links aren't clickable (Instagram), too many hashtags, stock phrases. A `${…}` template is checked as written. **The approval before it shows the real thing:** when the step after a **Wait for approval** is `social.post`, the approval (Automation → Approvals) shows the text the run will post — interpolated as the approved run will — with each network's check. See [Social → Caption check](social.md#caption-check).
+
 The Workflow Library recipe **Share a published entry everywhere** is this whole shape: entry published, an AI-drafted post, approval, then post to every connected network.
 
 ### Answer comments and reach out (social engagement) {#social-engagement}

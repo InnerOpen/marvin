@@ -1545,20 +1545,12 @@ def _announce_cancelled(session, row, automation, why: str) -> None:
     _announce(session, row.group_id, automation, False, depth, event.get("user_id"), context, run_id=row.execution_id)
 
 
-def _resume_turn(
-    session, row, automation, step: dict, output: dict, *, approved: bool, user_id, logger, run_action, recorder, step_index: int | None = None
-) -> str:
-    """Go on from the step after a parked one (an approval or a wait), once it holds the entry's turn: the step's
-    `output` joins the earlier steps', and the steps after it run in a new run. `step_index`: where the parked step
-    is in the workflow now (it was `row.step_index` when it parked)."""
-    index = row.step_index if step_index is None else step_index
-    from marvin.db.models.groups.automation_executions import AutomationExecutionModel
-
-    from .recorder import ExecutionRecorder
-
-    recorder = recorder or ExecutionRecorder(session, row.group_id)
+def resumed_context(session, row, index: int, output: dict) -> dict:
+    """The context the steps after a parked step (an approval or a wait) run with: its snapshot (the event, a manual run's
+    inputs, the earlier steps' outputs), the entry as it is now, the workspace's site and variables, and the parked step's
+    `output`. The earlier steps' outputs come back under `_steps` (the caller files them). Also what an approval's preview of
+    the next step is interpolated with, so it shows what the run will do."""
     group_id = row.group_id
-
     snap = row.snapshot or {}
     event = dict(snap.get("event") or {})
     context: dict = {
@@ -1580,6 +1572,28 @@ def _resume_turn(
     steps[str(index)] = {"output": output}
     if row.step_id:
         steps[str(row.step_id)] = {"output": output}
+    context["_steps"] = steps
+    return context
+
+
+def _resume_turn(
+    session, row, automation, step: dict, output: dict, *, approved: bool, user_id, logger, run_action, recorder, step_index: int | None = None
+) -> str:
+    """Go on from the step after a parked one (an approval or a wait), once it holds the entry's turn: the step's
+    `output` joins the earlier steps', and the steps after it run in a new run. `step_index`: where the parked step
+    is in the workflow now (it was `row.step_index` when it parked)."""
+    index = row.step_index if step_index is None else step_index
+    from marvin.db.models.groups.automation_executions import AutomationExecutionModel
+
+    from .recorder import ExecutionRecorder
+
+    recorder = recorder or ExecutionRecorder(session, row.group_id)
+    group_id = row.group_id
+
+    snap = row.snapshot or {}
+    context = resumed_context(session, row, index, output)
+    event = context["event"]
+    steps = context.pop("_steps")
     context["_approved"] = approved
     step_log: list[dict] = []
     context["_step_log"] = step_log

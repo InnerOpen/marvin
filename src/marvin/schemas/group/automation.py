@@ -8,9 +8,10 @@ condition operators, action kinds) so the UI is backend-driven rather than hardc
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import UUID4, ConfigDict
+from pydantic import UUID4, ConfigDict, Field
 
 from marvin.schemas._marvin import _MarvinModel
+from marvin.schemas.group.social_inbox import CaptionCheckResult
 
 
 class AutomationCreate(_MarvinModel):
@@ -462,6 +463,14 @@ class RecipeConfigureResult(_MarvinModel):
 
 
 # ── Approval steps (services/automation/approvals.py) ──────────────────────────
+class ApprovalPostPreview(_MarvinModel):
+    """What the step after an approval will post (a ``social.post`` step), interpolated as the approved run will, and each
+    network's caption check (services/integrations/caption_check.py)."""
+
+    text: str
+    results: list[CaptionCheckResult] = Field(default_factory=list)
+
+
 class WorkflowApprovalRead(_MarvinModel):
     """A workflow run waiting at an Approval step (or the decision on one)."""
 
@@ -482,6 +491,7 @@ class WorkflowApprovalRead(_MarvinModel):
     choices: list[str] | None = None  # an approval with choices: the labels to pick from
     choice: str | None = None  # the one picked, once approved
     image_url: str | None = None  # a picture shown with the question
+    post_preview: ApprovalPostPreview | None = None  # pending, and the next step posts: what it will post, checked per network
 
 
 class WorkflowApprovalDecision(_MarvinModel):

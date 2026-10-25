@@ -350,3 +350,34 @@ def connection_health(ctx: ToolContext, _args: dict) -> str:
             ],
         }
     )
+
+
+@register_tool(
+    name="check_caption",
+    description=(
+        "Check a social post's caption for each connected network that posts, before a social.post step or an Approval: its length "
+        "against the network's limit (characters, or graphemes on Bluesky), what the feed shows before '… more', and the issues "
+        "(over the limit, the first sentence cut off, an opening greeting or hashtag, a link where links aren't clickable, too many "
+        "hashtags, stock phrases). Read-only: nothing is posted."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "text": {"type": "string", "description": "the caption as it will be posted"},
+            "link": {"type": "string", "description": "the post's link argument, if any"},
+            "integrations": {"type": "array", "items": {"type": "string"}, "description": "only these connections (slugs)"},
+        },
+        "required": ["text"],
+    },
+    min_role=ROLE_EDITOR,
+)
+def check_caption(ctx: ToolContext, args: dict) -> str:
+    from marvin.services.integrations import INTEGRATIONS_AVAILABLE
+
+    if not INTEGRATIONS_AVAILABLE:
+        return _dump({"error": "integrations are not available on this install"})
+    from marvin.services.integrations.caption_check import check_for_networks
+
+    integrations = args.get("integrations") if isinstance(args.get("integrations"), list) else None
+    results = check_for_networks(ctx.session, ctx.group_id, str(args.get("text") or ""), link=args.get("link") or None, integrations=integrations)
+    return _dump({"results": results, "count": len(results)})

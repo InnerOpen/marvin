@@ -118,6 +118,7 @@ CATEGORY_BY_TOOL: dict[str, str] = {
     "get_event": "automation_read",
     "list_automation_results": "automation_read",
     "list_webhook_deliveries": "automation_read",
+    "check_caption": "automation_read",
     "connection_health": "automation_read",
     "run_workflow": "automation_run",
     "set_automation_enabled": "automation_manage",

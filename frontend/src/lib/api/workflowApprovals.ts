@@ -1,3 +1,4 @@
+import type { CaptionResult } from "@/lib/captionCheck";
 /**
  * Workflow runs waiting at an Approval step (GET /api/automations/approvals) and deciding one
  * (POST /api/automations/approvals/{id}/decide) — the run then goes on from the next step. Editors and above; a step
@@ -24,6 +25,8 @@ export interface WorkflowApproval {
   choice?: string | null;
   /** A picture shown with the question (the step's `image`). */
   imageUrl?: string | null;
+  /** Pending, and the next step posts: what it will post, checked for each network (lib/captionCheck.ts). */
+  postPreview?: { text: string; results: CaptionResult[] } | null;
 }
 
 export async function listApprovals(authToken?: string): Promise<WorkflowApproval[]> {

@@ -171,6 +171,21 @@ Every inbox item can be sorted into one of six fixed buckets, the same on every 
 
 **Save as idea.** An item's dialog has **Save as idea** (EDITOR): a draft entry of a listed type you pick (`GET /summary` returns them as `ideaTypes`), titled with the start of the text, with the text as its summary and who wrote it, where and the link in its description — for a post that answers it. The item links to it (`ideaEntryId`), and saving again returns the same entry.
 
+## Caption check {#caption-check}
+
+Before something is posted, Marvin checks its caption the same way for every network, with each network's own numbers. The checks are core's; the numbers are the plugin's (`post_limits`, Integration SDK 0.19.0):
+
+| Network | Limit | Shown before "… more" | Hashtags | Links in the text |
+| --- | --- | --- | --- | --- |
+| Instagram | 2,200 characters | about 125 | at most 30 | not clickable ("link in bio") |
+| Facebook | 63,206 characters | about 125 on a phone | no limit | clickable |
+| Bluesky | 300 graphemes (an emoji with a skin tone is one) | all of it | no limit | become a card |
+| Mastodon | 500 characters (your server may allow more) | all of it | no limit | clickable |
+
+What it says, per network: the length against the limit, the visible part, and the issues — **errors** (over the limit, too many hashtags, no text) and **warnings** (the first sentence runs past "… more", an opening greeting or hashtag, a link where links aren't clickable, stock phrases such as "game-changer"). It rewrites nothing and sends nothing; no AI is involved.
+
+Where it shows: under a `social.post` step in the workflow editor, as you type; on an approval whose next step posts (the text the run will post, interpolated); `POST /caption-check` (below); and the assistant's `check_caption` tool. A network that posts but whose plugin states no limits is listed as unknown.
+
 ## API {#api}
 
 `/api/groups/social-inbox`, workspace-scoped, mounted when the SDK is installed; the response keys are camelCase.
@@ -181,6 +196,7 @@ Every inbox item can be sorted into one of six fixed buckets, the same on every 
 | GET | `` | EDITOR | The items, newest first. Filters: `integration` (slug), `network`, `kind`, `status` (repeatable), `q`, `since`, `until`, `bucket` (one bucket, or `unsorted`), `limit` (1–200, 50), `offset`. Each item carries `actions`, `replyModes`, `reply`, `held`, `bucket` and `bucketSource`. Also returns `total`, `new` and `buckets` (items per bucket and `unsorted`, of the listed integration, whatever the other filters). |
 | GET | `/replies` | EDITOR | The Replies view: items with a reply, latest first. `integration`, `rehearsal` (`true` dry runs, `false` real), `limit`, `offset`. `reply` carries `mode`, `rehearsal`, `replyId`, `text`, `rule`, `ruleEntryId`, `at`, `by`, `byName`. |
 | PUT | `/ai-sort` | ADMIN | `{enabled}`: sort unsorted items with AI, once per engine run, at most 20 (see [Buckets](#buckets)). 409 when no network reads comments yet |
+| POST | `/caption-check` | EDITOR | `{text, link?, integrations?}`: each connected network that posts — or the named ones — with `length`, `max`, `unit`, `over`, `visibleText`, `cut` and `issues` (`code`, `message`, `severity`). See [Caption check](#caption-check) |
 | PUT | `/like-support` | ADMIN | `{enabled}`: like `support` comments on networks whose auto-reply is on (see [Buckets](#buckets)). 409 when no network reads comments yet |
 | PUT | `/integrations/{slug}/auto-reply` | ADMIN | `{mode: off\|rehearsal\|on}`. 404 for a network that isn't connected, 409 for a mode a network that can't reply can't have. |
 | GET | `/rules` | EDITOR | `?integration=<slug>`: that network's rules plus the all-network ones (`allNetworks`); without it, every rule. Each carries `id`, `slug`, `status`, `published`, `keywords`, `reply`, `networks`, `post`, `replyAs`, `kinds`, `path` (the entry editor). |

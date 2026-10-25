@@ -23,6 +23,9 @@ from marvin.db.models.groups.social_inbox import SocialInboxItemModel as Item
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import editable_entry, require_workspace_role
 from marvin.schemas.group.social_inbox import (
+    CaptionCheckList,
+    CaptionCheckRequest,
+    CaptionCheckResult,
     SocialAISortUpdate,
     SocialAutoReplyResult,
     SocialAutoReplyUpdate,
@@ -268,6 +271,18 @@ class SocialInboxController(BaseUserController):
         if not social_setup.set_ai_sort(self.session, self.group_id, data.enabled):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Connect a network that reads comments first.")
         return SocialAISortUpdate(enabled=data.enabled)
+
+    @router.post("/caption-check", response_model=CaptionCheckList, summary="Check a caption for each network that posts")
+    def caption_check(self, data: CaptionCheckRequest):
+        """What each connected network that posts (offers `social.post`) will make of this caption, by its plugin's limits: its
+        length against the limit (characters or graphemes), what the feed shows before "… more", and the issues — over the
+        limit, the first sentence cut off, an opening greeting or hashtag, a link where links aren't clickable, too many
+        hashtags, stock phrases. Pure: nothing is posted, no AI. EDITOR and above."""
+        from marvin.services.integrations.caption_check import check_for_networks
+
+        require_workspace_role(self.user, self.group_id, ACTION_ROLES["caption_check"])
+        results = check_for_networks(self.session, self.group_id, data.text, link=data.link, integrations=data.integrations)
+        return CaptionCheckList(results=[CaptionCheckResult(**r) for r in results])
 
     @router.put("/like-support", response_model=SocialLikeSupportUpdate, summary="Turn auto-liking of support comments on or off")
     def set_like_support(self, data: SocialLikeSupportUpdate):

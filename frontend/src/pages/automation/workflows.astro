@@ -310,6 +310,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   import { getArg, hintedInputs, optionsHint, setArg } from "@/lib/integrationOptions";
   import { optionPicker } from "@/lib/integrationOptionPicker";
   import { fetchApi } from "@/lib/api/client";
+  import { type CaptionResult, captionRequest, captionResultsHtml } from "@/lib/captionCheck";
   import { type Choice, describeConditions, type EarlierStep, fieldGroups, type FieldGroup, needsValue, valueChoices } from "@/lib/conditions";
   import { ANSWER_KINDS, type AnswerField, fieldsFromSchema, SEE_LABELS, schemaFromFields } from "@/lib/customStep";
   import { AGENT_DEFAULT_STEPS, AGENT_MAX_PLAYBOOKS, AGENT_MAX_STEPS, agentRunView, agentSummary, costText, offeredAgents, offeredPlaybooks, readAgentStep } from "@/lib/agentStep";
@@ -1058,7 +1059,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         <textarea class="input mono a-int-pernet" rows="2" spellcheck="false" placeholder='{"bluesky": {"text": "…"}}'>${esc(a.per_network && Object.keys(a.per_network).length ? JSON.stringify(a.per_network, null, 2) : "")}</textarea></label>
       <label class="tf"><span>If a network fails</span>
         <select class="input a-int-failerr"><option value="">fail the step (after trying the rest)</option><option value="no"${a.fail_on_error === false ? " selected" : ""}>carry on and report it (failed_count)</option></select></label>` : ""}
-      ${idempotencyHtml(a)}`;
+      ${idempotencyHtml(a)}
+      ${a.capability === "social.post" ? `<div class="a-caption tf"><span>Caption check <span class="muted">(each network's limit, what shows before "… more", and what loses readers)</span></span><div class="a-caption-out"><p class="hint small">Write the <code>text</code> argument to see it.</p></div></div>` : ""}`;
     const slugInput = wrap.querySelector(".a-integration") as HTMLInputElement;
     const actionInput = wrap.querySelector(".a-int-action") as HTMLInputElement;
     const argsInput = wrap.querySelector(".a-int-args") as HTMLTextAreaElement;
@@ -1109,6 +1111,29 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     slugInput.addEventListener("change", () => void sync());
     actionInput.addEventListener("change", () => void sync());
     void sync();
+    const captionOut = wrap.querySelector(".a-caption-out") as HTMLElement | null;
+    if (captionOut) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const recheck = () => {
+        clearTimeout(timer);
+        timer = setTimeout(async () => {
+          const request = captionRequest(argsInput.value, slugInput.value);
+          if (!request) return;
+          try {
+            const { results } = await fetchApi<{ results: CaptionResult[] }>("/api/groups/social-inbox/caption-check", {
+              method: "POST",
+              body: JSON.stringify(request),
+            });
+            captionOut.innerHTML = captionResultsHtml(results, request.text);
+          } catch {
+            captionOut.innerHTML = `<p class="hint small">Couldn't check the caption just now.</p>`;
+          }
+        }, 600);
+      };
+      argsInput.addEventListener("input", recheck);
+      slugInput.addEventListener("change", recheck);
+      recheck();
+    }
   }
 
   // "Process an image": the op picks which fields show; the picture comes from the run's asset, an earlier step's
@@ -3124,4 +3149,15 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     .workflows-page :global(.lane) { flex-direction: column; gap: 3px; }
     .workflows-page :global(.lane-label) { text-align: left; }
   }
+  .workflows-page :global(.a-caption) { display: grid; gap: 6px; margin-top: 6px; }
+  .workflows-page :global(.a-caption-out) { display: grid; gap: 8px; }
+  .workflows-page :global(.cc-card) { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: grid; gap: 6px; }
+  .workflows-page :global(.cc-head) { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .workflows-page :global(.cc-count) { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12.5px; }
+  .workflows-page :global(.cc-count.over) { color: var(--danger, #c0392b); font-weight: 600; }
+  .workflows-page :global(.cc-visible) { font-size: 13px; padding: 6px 8px; background: color-mix(in srgb, var(--line) 35%, transparent); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .workflows-page :global(.cc-more) { color: var(--muted); margin-left: 4px; }
+  .workflows-page :global(.cc-issues) { margin: 0; padding-left: 18px; display: grid; gap: 2px; font-size: 13px; }
+  .workflows-page :global(.cc-error) { color: var(--danger, #c0392b); }
+  .workflows-page :global(.cc-warn) { color: var(--warn, inherit); }
 </style>

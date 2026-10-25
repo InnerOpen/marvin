@@ -202,6 +202,43 @@ class SocialInboxRuleCreate(_MarvinModel):
     """The reply text to pre-fill (what was typed in the reply box, say); empty leaves it for the editor."""
 
 
+class CaptionCheckRequest(_MarvinModel):
+    text: str = Field(max_length=100_000)
+    """The caption, as it will be posted (a ``${…}`` template is checked as written)."""
+    link: str | None = None
+    """The post's ``link`` argument, if it has one: it counts as a link on a network where links aren't clickable."""
+    integrations: list[str] | None = None
+    """Only these connections (slugs); every connection that posts when empty."""
+
+
+class CaptionIssue(_MarvinModel):
+    code: str
+    """too_long | empty | hook_cut | opens_with_tag | opens_with_greeting | link_not_clickable | too_many_hashtags | stock_phrase."""
+    message: str
+    severity: str
+    """error (it won't post, or breaks a rule) | warn (it will post, but loses readers)."""
+
+
+class CaptionCheckResult(_MarvinModel):
+    network: str
+    integration: str = ""
+    name: str = ""
+    unknown: bool = False
+    """The network posts but its plugin states no limits: nothing to check against."""
+    unit: str = "characters"
+    length: int = 0
+    max: int = 0
+    over: bool = False
+    visible_text: str | None = None
+    """What the feed shows before "… more"; None when the whole post shows."""
+    cut: bool = False
+    issues: list[CaptionIssue] = Field(default_factory=list)
+
+
+class CaptionCheckList(_MarvinModel):
+    results: list[CaptionCheckResult]
+
+
 class SocialInboxIdeaCreate(_MarvinModel):
     entry_type: str
     """The slug of a listed entry type to save it as."""

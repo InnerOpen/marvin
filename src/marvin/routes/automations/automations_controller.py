@@ -191,6 +191,7 @@ def _rank(user, group_id) -> int:
 
 def _approval_read(session, row) -> WorkflowApprovalRead:
     from marvin.db.models.platform.entries import Entries
+    from marvin.services.automation.approvals import post_preview
     from marvin.services.automation.authz import ROLE_ADMIN
 
     automation = session.get(WorkspaceAutomationModel, row.automation_id)
@@ -213,6 +214,7 @@ def _approval_read(session, row) -> WorkflowApprovalRead:
         choices=row.choices or None,
         choice=row.choice,
         image_url=row.image_url,
+        post_preview=post_preview(session, row),
     )
 
 

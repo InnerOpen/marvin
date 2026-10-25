@@ -410,3 +410,48 @@ def test_the_decision_is_written_onto_the_pictured_asset(ws, decision, recorded)
     assert ws.session.get(Assets, cover.id).metadata_json["generated_by"] == "openai_images.generate"  # the lineage stays
     ws.session.delete(ws.session.get(Assets, cover.id))  # the fixture's user must be deletable afterwards
     ws.session.commit()
+
+
+# ── the approval before a post shows what it will post ──────────────────────────────────────────────────────────
+
+
+def test_an_approval_before_a_social_post_previews_what_the_run_will_post(ws, monkeypatch):  # noqa: F811
+    from marvin.services.automation import approvals
+    from marvin.services.automation.authz import ROLE_EDITOR
+
+    seen = {}
+
+    def fake_check(session, group_id, text, *, link=None, integrations=None):
+        seen.update(text=text, link=link, integrations=integrations)
+        return [{"network": "instagram", "integration": "ig", "name": "Instagram", "issues": []}]
+
+    from marvin.services.integrations import caption_check
+
+    monkeypatch.setattr(caption_check, "check_for_networks", fake_check)
+    definition = {
+        "trigger": {"type": "event", "event": "entry_published"},
+        "actions": [
+            {"kind": "approval", "id": "ok", "message": "Post “${entry.title}”?"},
+            {"kind": "integration", "capability": "social.post", "args": {"text": "New: ${entry.title}", "link": "https://x.example/${entry.slug}"}},
+        ],
+    }
+    _install(ws, definition)
+    article = _published(ws, title="Brass lids")
+    _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry")
+    (row,) = approvals.pending(ws.session, ws.gid, ROLE_EDITOR)
+
+    preview = approvals.post_preview(ws.session, row)
+
+    assert preview == {"text": "New: Brass lids", "results": [{"network": "instagram", "integration": "ig", "name": "Instagram", "issues": []}]}
+    assert seen["link"] == f"https://x.example/{article.slug}" and seen["integrations"] is None
+
+
+def test_an_approval_before_anything_else_has_no_post_preview(ws):  # noqa: F811
+    from marvin.services.automation import approvals
+    from marvin.services.automation.authz import ROLE_EDITOR
+
+    _install(ws)
+    article = _published(ws)
+    _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry")
+    (row,) = approvals.pending(ws.session, ws.gid, ROLE_EDITOR)
+    assert approvals.post_preview(ws.session, row) is None
