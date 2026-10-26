@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.69 (2026-10-26)
+
+### Bug Fixes
+
+- **ai**: The Social Battery no longer reads ordinary requests as rudeness
+  ([`de6898f`](https://github.com/InnerOpen/marvin/commit/de6898f3125f392c1583850baafac9563bc387c0))
+
+
 ## v1.1.0-rc.68 (2026-10-26)
 
 ### Bug Fixes
