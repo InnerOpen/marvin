@@ -48,6 +48,11 @@ def test_unset_choices_take_the_defaults_and_an_agents_own_settings_win():
         ("what a stupid bot", {"insult": -12}),
         ("Marvin, you are hopeless", {"insult": -12}),
         ("shut up and do it", {"insult": -12}),
+        ("you are being stupid", {"insult": -12}),
+        ("are you dumb or something", {"insult": -12}),
+        ("you idiot", {"insult": -12}),
+        ("Marvin is such a hopeless bot", {"insult": -12}),
+        ("Marvin, you're completely incompetent", {"insult": -12}),
     ],
 )
 def test_thanks_and_praise_charge_and_rudeness_at_the_assistant_drains(text, expected):
@@ -62,6 +67,11 @@ def test_thanks_and_praise_charge_and_rudeness_at_the_assistant_drains(text, exp
         "this doesn't work and I'm getting frustrated",
         "the useless feature deleted my draft",
         "you're wrong, the slug is lowercase",  # a correction, not an insult
+        "Can you trash these drafts?",  # "trash" and "garbage" are CMS nouns, not insults
+        "can you delete the garbage assets",
+        "can you delete the useless drafts?",  # "you", then an insult about the drafts
+        "please trash the old entries, you know the ones",
+        "do you think this is useless?",
     ],
 )
 def test_frustration_with_the_problem_never_drains(text):

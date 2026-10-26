@@ -57,9 +57,15 @@ _PRAISE = re.compile(
 )
 # Rudeness aimed at the assistant: an insult with the assistant as its target ("you", or its name). "This is useless"
 # and "stupid bug" have no target here: that is frustration with the problem, and never drains.
-_INSULT_WORDS = r"(useless|stupid|idiot(ic)?|dumb|pathetic|worthless|garbage|trash|moron(ic)?|incompetent|braindead|hopeless)"
-_AT_YOU = re.compile(r"\b(you|you're|youre|ur|u)\b[^.!?\n]{0,40}\b" + _INSULT_WORDS + r"\b")
-_BOT_INSULT = re.compile(r"\b" + _INSULT_WORDS + r" (bot|assistant|ai|robot|machine|thing)\b")
+# Only words that are insults whatever they're said about: "trash" and "garbage" are ordinary nouns in a CMS ("can you trash these
+# drafts?"), so they are not here.
+_INSULT_WORDS = r"(useless|stupid|idiot(ic)?|dumb|pathetic|worthless|moron(ic)?|incompetent|braindead|hopeless)"
+_FILLERS = r"(?:(?:being|so|such|really|just|totally|completely|utterly|pretty|a|an|the)\s+)*"
+# The insult has to be *about* the assistant: it follows "you are" / "you're" / "you" (the vocative, "you idiot") directly,
+# or the assistant's name, with only filler words between. "You" with an insult somewhere later in the sentence is not
+# enough: "can you delete the useless drafts?" is a request, and "this is useless" / "stupid bug" are about the problem.
+_AT_YOU = re.compile(r"\b(?:you(?:'re|re| are| r)|u r|ur|you)\s+" + _FILLERS + _INSULT_WORDS + r"\b")
+_BOT_INSULT = re.compile(r"\b" + _INSULT_WORDS + r" (bot|assistant|ai|robot)\b")
 _TELL_OFF = re.compile(r"\b(shut up|screw you|piss off|get lost|f+u+c*k+ (you|off)|fuck off)\b")
 _TAG = re.compile(r"[@#]\w+")
 
@@ -128,7 +134,7 @@ def _insulted(text: str, names: tuple[str, ...]) -> bool:
         return True
     for name in names:
         n = _normal(name)
-        if n and re.search(rf"\b{re.escape(n)}\b[^.!?\n]{{0,40}}\b{_INSULT_WORDS}\b", low):
+        if n and re.search(rf"\b{re.escape(n)}\s+(?:(?:is|are|'s)\s+)?{_FILLERS}{_INSULT_WORDS}\b", low):
             return True
     return False
 
