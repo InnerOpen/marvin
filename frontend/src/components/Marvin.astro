@@ -21,7 +21,10 @@ try {
   <div id="marvin-panel" class="marvin-panel" role="dialog" aria-label="Ask Marvin">
     <div class="marvin-head">
       <div class="marvin-id">
-        <span class="marvin-name">Marvin</span><span id="marvin-battery" class="marvin-battery-slot"></span>
+        <div class="marvin-name-row">
+          <span class="marvin-name">Marvin</span>
+          <span id="marvin-battery" class="marvin-battery-slot"></span>
+        </div>
         <span id="marvin-sub" class="marvin-sub">here to help, allegedly</span>
       </div>
       <button id="marvin-clear" class="marvin-clear" aria-label="Clear conversation" title="Clear conversation" hidden>Clear</button>
@@ -1087,10 +1090,11 @@ try {
     padding: 12px 14px; border-bottom: 1px solid var(--line); background: var(--bg);
   }
   .marvin-id { display: flex; flex-direction: column; }
+  .marvin-name-row { display: flex; align-items: baseline; gap: 6px; } /* the battery sits to the right of the name, not under it */
   .marvin-name { font-weight: 600; font-size: 15px; color: var(--ink); }
   .marvin-sub { font-size: 11px; color: var(--muted); }
   .marvin-battery-slot:empty { display: none; }
-  .marvin-battery { display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; font-size: 11px; color: var(--muted); cursor: help; vertical-align: middle; }
+  .marvin-battery { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; color: var(--muted); cursor: help; vertical-align: middle; }
   .marvin-battery.mood-low { color: var(--color-error, #c0392b); }
   .marvin-battery.mood-high { color: var(--color-success, #2e7d32); }
   .marvin-clear {
