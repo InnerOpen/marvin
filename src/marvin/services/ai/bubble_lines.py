@@ -233,22 +233,33 @@ def neutral_greetings(name: str) -> tuple[str, ...]:
 
 def _greeting_pool(session, group_id, agent_slug: str) -> list[str]:
     """The greetings the bubble may have picked while talking to `agent_slug`: its own lines where it has a voice
-    of its own, else the workspace's, else the built-ins for that name (persona.ts voiceFor)."""
+    of its own, else the workspace's, else the built-ins for that name (persona.ts voiceFor) — plus the mood bands'
+    greetings, which the bubble shows instead while the Social Battery is low or high."""
     from .character_library import agent_voices
     from .persona import resolve_persona
 
     row = _row(session, group_id)
     own = agent_voices(session, group_id).get(agent_slug)
     if own:
-        name, lines = own["name"], own["bubble_lines"]
+        name, lines, mood = own["name"], own["bubble_lines"], own.get("mood")
     else:
-        name, lines = resolve_persona(row.assistant_name if row else None, row.persona_prompt if row else None)[0], row.bubble_lines if row else None
+        name = resolve_persona(row.assistant_name if row else None, row.persona_prompt if row else None)[0]
+        lines, mood = (row.bubble_lines, row.mood) if row else (None, None)
     configured = (lines or {}).get("greetings") if isinstance(lines, dict) else None
     kept = [_tidy(line) for line in configured or []]
     kept = [line for line in kept if line]
-    if kept:
-        return kept
-    return [_tidy(line) for line in (MARVIN_GREETINGS if name == "Marvin" else neutral_greetings(name))]
+    if not kept:
+        kept = [_tidy(line) for line in (MARVIN_GREETINGS if name == "Marvin" else neutral_greetings(name))]
+    return kept + _mood_greetings(mood)
+
+
+def _mood_greetings(mood) -> list[str]:
+    """The Social Battery's low- and high-band greetings (services/ai/mood.py): the bubble shows one of them in that mood."""
+    if not isinstance(mood, dict):
+        return []
+    bands = (mood.get(band) for band in ("low", "high"))
+    lines = [line for band in bands if isinstance(band, dict) for line in band.get("greetings") or [] if isinstance(line, str)]
+    return [tidy for tidy in (_tidy(line) for line in lines) if tidy]
 
 
 def shown_greeting(session, group_id, agent_slug: str, text) -> str | None:

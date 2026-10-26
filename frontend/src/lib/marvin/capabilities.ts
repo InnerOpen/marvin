@@ -21,13 +21,14 @@ import {
   type RunProgress,
   resumeThread,
 } from "@/lib/api/aiAgents";
-import { askWorkspace, listAgents, runAgent, runAgentAs, sendChat } from "@/lib/api/aiBubble";
+import { askWorkspace, getMood, listAgents, resetMood, runAgent, runAgentAs, sendChat } from "@/lib/api/aiBubble";
 import { getTones } from "@/lib/api/aiTones";
 import { listAgentTools } from "@/lib/api/aiTools";
 import { type ApprovalCard, approvalCardHtml, type Decisions } from "@/lib/approvals";
 import { ATTACHMENTS_KEY, attachmentIds, loadAttachments } from "@/lib/marvin/attachments";
 import { getActiveContext } from "@/lib/marvin/context";
 import { takeGreeting } from "@/lib/marvin/greeting";
+import { type MoodState, moodText } from "@/lib/marvin/mood";
 import {
   askThreadHref,
   clearPending,
@@ -60,6 +61,8 @@ export interface MarvinResult {
   parked?: boolean;
   /** Set with `parked`: the inline approval card's data (kept with the turn, re-rendered once decided). */
   approval?: ApprovalCard;
+  /** The Social Battery after this turn (lib/marvin/mood.ts): the bubble redraws its battery and lines. `null` = the meter is off. */
+  mood?: MoodState | null;
 }
 
 export interface Capability {
@@ -275,6 +278,7 @@ function runResult(res: AgentRunResult | undefined, slug: string): MarvinResult 
   return {
     html: agentReplyHtml(res?.answer ?? "(no answer — the void stares back)", res?.steps ?? [], res?.referrals ?? [], res?.playbooks ?? []),
     executionId: res?.executionId,
+    ...(res?.mood ? { mood: res.mood } : {}),
   };
 }
 
@@ -662,7 +666,28 @@ const tone: Capability = {
 };
 
 // ── Registry ─────────────────────────────────────────────────────────────────
-const CAPABILITIES: Capability[] = [agent, ask, chat, tools, agents, use, tone];
+// ── The Social Battery (`/mood`) ─────────────────────────────────────────────
+// How the active agent feels about you (services/ai/mood.py) — a game that changes greetings and asides, never the help.
+// `/mood reset` is "Reset our relationship": the caller's own meter starts over.
+const mood: Capability = {
+  id: "mood",
+  label: "Mood",
+  hint: "How I feel about you (the Social Battery); /mood reset starts us over.",
+  commands: ["mood", "battery"],
+  noArg: true,
+  async run(arg: string): Promise<MarvinResult> {
+    const slug = getActiveAgent() || "marvin";
+    const name = (await listAgents()).find((a) => a.slug === slug)?.name ?? slug;
+    const reset = arg.trim().toLowerCase() === "reset";
+    const read = reset ? await resetMood(slug) : await getMood(slug);
+    if (!read.enabled) return { html: `<div class="mv-answer">${esc(moodText(null, name))}</div>`, mood: null };
+    const state: MoodState = { level: read.level ?? null, band: read.band ?? "neutral", visible: read.visible !== false };
+    const lead = reset ? "Reset. We start over at the middle. " : "";
+    return { html: `<div class="mv-answer">${esc(lead + moodText(state, name))}</div>`, mood: state };
+  },
+};
+
+const CAPABILITIES: Capability[] = [agent, ask, chat, tools, agents, use, tone, mood];
 
 /**
  * Route raw input to a capability.

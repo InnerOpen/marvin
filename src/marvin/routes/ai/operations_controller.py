@@ -28,6 +28,8 @@ from marvin.schemas.group.ai_execution import (
     AIReindexRequest,
     AIReviseEntryRequest,
     AIToolInvokeRequest,
+    MoodRead,
+    MoodResetRequest,
 )
 from marvin.schemas.group.ai_settings import (
     AssistantCharacter,
@@ -39,9 +41,16 @@ from marvin.schemas.group.ai_settings import (
 from marvin.schemas.group.ai_thread import AIThreadDetail, AIThreadMessageRead, AIThreadRead, AIThreadResumeRequest, AIThreadUpdate
 from marvin.services.ai.agents import ROUTER_SLUG
 from marvin.services.ai.executions import link_child_execution
+from marvin.services.ai.mood import prompt_line
+from marvin.services.ai.operations.base import AGENT_SURFACES
 from marvin.services.ai.parked_runs import ABANDONED_ERROR, ABANDONED_MESSAGE, EXECUTION_STATUS_AWAITING  # noqa: F401 — re-exported
 from marvin.services.ai.tool_gateway import run_tool_limit
 from marvin.services.ui_links import entry_edit_url, entry_review_link
+
+PERSON_SOURCES = frozenset({"agent", "editor", *AGENT_SURFACES})
+"""Where a person talks to an agent (the Social Battery scores these): the bubble, the Ask page, the editor, a chat as a
+person. MCP and API tokens' automations are not a person's mood, and a hand-off child never scores (its parent's message
+already did)."""
 
 router = APIRouter(prefix="/ai", route_class=MarvinCrudRoute)
 
@@ -771,10 +780,12 @@ class AIOperationsController(BaseUserController):
 
         assistant_name, persona_prompt = self._persona()
         system = self._default_agent_system_prompt(assistant_name)
+        mood_state = self._mood_for_run(spec, body)
         # Explicit per-call register wins; otherwise the workspace default; otherwise "auto".
-        system += self._register_clause(body.tone_register or self._default_register(), persona_prompt)
+        system += self._register_clause(body.tone_register or self._default_register(), persona_prompt, prompt_line(mood_state))
         ctx.tone_register = body.tone_register  # drafts the run writes use its tone (None → workspace default)
         return self._run_agent_core(
+            mood=mood_state,
             provider=provider,
             model=model,
             system=system,
@@ -1246,7 +1257,8 @@ class AIOperationsController(BaseUserController):
         assistant_name, persona_prompt = self._persona()
         persona_prompt = _own_character(spec, persona_prompt)
         register = self._effective_register(body.tone_register, spec)
-        system = self._named_agent_instructions(spec, assistant_name) + self._register_clause(register, persona_prompt)
+        mood_state = self._mood_for_run(spec, body)
+        system = self._named_agent_instructions(spec, assistant_name) + self._register_clause(register, persona_prompt, prompt_line(mood_state))
         if spec.kind == "model":
             return self._run_model_agent(spec, provider, model, system, body)
 
@@ -1268,6 +1280,7 @@ class AIOperationsController(BaseUserController):
             operation_slug=f"agent:{spec.slug}",
             agent_slug=spec.slug,
             ctx=ctx,
+            mood=mood_state,
         )
 
     # ── Threads (server-side Ask conversations) ─────────────────────────
@@ -2012,8 +2025,10 @@ class AIOperationsController(BaseUserController):
         parent_thread_id=None,
         execution_meta: dict | None = None,
         handoff_chain: tuple = (),
+        mood=None,
     ) -> dict:
         """The shared tail of every persona run: context block, history, execution row, loop, bookkeeping.
+        `mood` is the Social Battery's state for this message (`_mood_for_run`), carried back on the reply.
 
         `ctx` is the ToolContext the tools were bound with (hand-offs hang the delegate on it and read
         its referrals). A delegated child run passes `on_event` (the parent's listener, tagged `via`),
@@ -2155,7 +2170,7 @@ class AIOperationsController(BaseUserController):
                 parent = {"thread_id": parent_thread_id, "execution_id": (execution_meta or {}).get("parent_execution_id")}
             # A specialist's ask is announced once, by the conversation it is carried up to.
             return self._park_agent_run(max_steps=max_steps, entity_id=entity_id, emit=depth == 0, parent=parent, **common)
-        return self._finish_agent_run(parent_thread_id=parent_thread_id, **common)
+        return self._finish_agent_run(parent_thread_id=parent_thread_id, mood=mood, **common)
 
     @staticmethod
     def _run_meta(execution_meta: dict | None, thread) -> dict | None:
@@ -2250,6 +2265,7 @@ class AIOperationsController(BaseUserController):
         log_outputs: bool,
         parent_thread_id=None,
         record_user: bool = True,
+        mood=None,
     ) -> dict:
         """The tail of a run that answered: close the execution, store the turn(s), emit, respond.
 
@@ -2308,6 +2324,7 @@ class AIOperationsController(BaseUserController):
             "totalTokens": execution.total_tokens,
             "estimatedCostUsd": execution.estimated_cost_usd,
             **({"check": getattr(result, "check", None)} if getattr(result, "check", None) is not None else {}),
+            **({"mood": mood.public()} if mood is not None else {}),
         }
 
     def _park_agent_run(
@@ -3080,14 +3097,73 @@ class AIOperationsController(BaseUserController):
         """The workspace's default tone, or 'auto' when unset (or it names a tone that's gone)."""
         return self._tones().default.slug
 
-    def _register_clause(self, register: str | None, persona_prompt: str) -> str:
-        """The character/tone section of a system prompt for the requested tone (unknown → workspace default → auto).
+    def _register_clause(self, register: str | None, persona_prompt: str, mood_line: str = "") -> str:
+        """The character/tone section of a system prompt for the requested tone (unknown → workspace default → auto),
+        with the Social Battery's line between the Character and the tone when there is one (`_mood_for_run`).
 
         Returns "" when there's nothing to say (a built-in that only places the character, with no persona set).
         """
         from marvin.services.ai.tones import tone_clause
 
-        return tone_clause(self._tones().resolve(register), persona_prompt)
+        return tone_clause(self._tones().resolve(register), persona_prompt, mood_line)
+
+    # ── The Social Battery (services/ai/mood.py) ─────────────────────────
+
+    def _mood_settings(self, spec) -> dict | None:
+        """The MoodSettings a run with `spec` scores by, or None while the workspace keeps the Social Battery off."""
+        from marvin.services.ai.mood import effective_settings
+
+        row = self._ai_settings_row()
+        if row is None or not getattr(row, "mood_enabled", False):
+            return None
+        return effective_settings(getattr(row, "mood", None), getattr(spec, "mood", None))
+
+    def _ai_settings_row(self):
+        from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+
+        return self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
+
+    def _mood_for_run(self, spec, body: AIAgentRequest):
+        """Score the person's message on this agent's meter and return its state, or None when the meter is off, the
+        caller isn't a person at a chat surface, or scoring failed (never the run's failure)."""
+        from marvin.services.ai import mood
+
+        if body.source not in PERSON_SOURCES or getattr(self.user, "id", None) is None:
+            return None
+        settings = self._mood_settings(spec)
+        if settings is None:
+            return None
+        try:
+            assistant_name, _ = self._persona()
+            names = tuple(n for n in (assistant_name, getattr(spec, "name", None)) if n)
+            return mood.score(self.session, self.group_id, self.user.id, spec.slug, settings, body.message, names=names)
+        except Exception as e:  # noqa: BLE001 — flavour must never break the help
+            self.session.rollback()
+            self.logger.warning("social battery: scoring failed for %s: %s", spec.slug, e)
+            return None
+
+    @router.get("/mood", summary="The Social Battery: how an agent feels about you right now")
+    def read_mood(self, agent: str = ROUTER_SLUG) -> MoodRead:
+        """`level` (0–100, null when the character hides its meter), `band` (low | neutral | high) and `visible`, for the
+        caller and the named agent; `enabled: false` while the workspace keeps the Social Battery off. It's a game: the
+        meter changes greetings and asides, never the help, and `POST /mood/reset` starts it over."""
+        from marvin.services.ai import mood
+
+        spec = self._agent_or_404(agent)
+        settings = self._mood_settings(spec)
+        if settings is None:
+            return MoodRead(agent=spec.slug, enabled=False)
+        state = mood.current(self.session, self.group_id, self.user.id, spec.slug, settings)
+        return MoodRead(agent=spec.slug, enabled=True, **state.public())
+
+    @router.post("/mood/reset", summary="Reset our relationship: the agent's meter about you starts over")
+    def reset_mood(self, body: MoodResetRequest) -> MoodRead:
+        """Back to the middle with no past, for the caller and the named agent — the person's own meter only."""
+        from marvin.services.ai import mood
+
+        spec = self._agent_or_404(body.agent)
+        mood.reset(self.session, self.group_id, self.user.id, spec.slug)
+        return self.read_mood(spec.slug)
 
     # Caps for replayed conversation history. The client sends what it has; the server decides
     # what's affordable. Keeps the newest turns — recency is what "do #2" depends on.

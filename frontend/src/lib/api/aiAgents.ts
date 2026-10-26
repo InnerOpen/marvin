@@ -183,6 +183,8 @@ export interface AgentRunResult {
   referrals?: Referral[];
   /** "complete" | "max_steps" | "awaiting_approval" — the last one carries `pending` and no answer yet. */
   stoppedReason: string;
+  /** The Social Battery after this message (lib/marvin/mood.ts), when the workspace keeps one and a person asked. */
+  mood?: { level: number | null; band: string; visible: boolean };
   pending?: PendingCall[];
   executionId: string;
   /** The server-side thread this turn was stored on (only when the run asked for one). */

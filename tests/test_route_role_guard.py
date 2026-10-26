@@ -93,6 +93,7 @@ SETTINGS_MODULES = frozenset(
 
 # In-scope routes that are open to every member (or public) on purpose. (method, path): reason.
 OPEN_ROUTES = {
+    ("POST", "/api/ai/mood/reset"): "a member resets their own Social Battery meter: the row is keyed by the caller's id, nothing else is reachable",
     ("GET", "/api/groups/integrations/providers"): "provider catalog: plugin metadata, no workspace config; member pages render it",
     ("GET", "/api/groups/integrations/providers/{slug}/logo"): "provider logo on the public router: <img> tags can't send a token",
     ("GET", "/api/groups/webhooks/types"): "event-type list for pickers; no webhook config in it",

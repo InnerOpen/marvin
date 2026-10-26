@@ -71,6 +71,7 @@ const s = {
   assistantCharacter: (settings as any)?.assistantCharacter ?? null,
   personaPrompt: settings?.personaPrompt ?? null,
   mood: (settings as any)?.mood ?? null,
+  moodEnabled: (settings as any)?.moodEnabled === true,
 };
 // The library character the persona was copied from (services/ai/character_library.py: apply_pack_persona), when
 // the bubble plays one that has a character sheet: the page offers "Reset to <its name>'s".
@@ -405,6 +406,19 @@ const modCfg = s.moderationConfig ?? {};
         </div>
       </div>
       </details>
+      <div class="form-field persona-battery">
+        <label class="toggle-label">
+          <input type="checkbox" name="mood_enabled" id="mood-enabled" class="toggle-input" checked={s.moodEnabled} />
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          <span class="toggle-text">Social Battery</span>
+        </label>
+        <small class="hint">
+          A mood meter each character keeps about the person it's talking to — a game. Thanks and patience charge it; rudeness aimed at
+          the character drains it (never frustration with a problem). It changes greetings, taglines and asides only, never the help; a
+          person sees their own meter in the bubble and can reset it with <code>/mood reset</code>. The Mood settings below (and each
+          agent's own) say how the meter behaves; off, nothing is kept.
+        </small>
+      </div>
       <div class="form-field" id="persona-mood" set:html={moodFieldsHtml(s.mood)} />
     </div>
 
@@ -1003,6 +1017,7 @@ const modCfg = s.moderationConfig ?? {};
         || (document.getElementById('assistant_icon_emoji') as HTMLInputElement).value.trim() || null),
       personaPrompt: (fd.get('persona_prompt')?.toString().trim() || null),
       mood: readMood(document.getElementById('persona-mood') ?? document),
+      moodEnabled: fd.has('mood_enabled'),
     };
 
     const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;

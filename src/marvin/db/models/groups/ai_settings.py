@@ -71,8 +71,10 @@ class WorkspaceAISettingsModel(SqlAlchemyBase, BaseMixins):
     bubble_lines_updated_at: Mapped[datetime | None] = mapped_column(NaiveDateTime, nullable=True)
     # Why the last generation failed (the previous lines were kept); cleared by the next success.
     bubble_lines_warning: Mapped[str | None] = mapped_column(sa.String, nullable=True)
-    # The Social Battery settings for the workspace's own assistant (schemas/group/ai_settings.py:
-    # MoodSettings). Stored only: nothing reads them until the meter is built.
+    # The Social Battery (services/ai/mood.py): off until the workspace switches it on, then each agent's (or the
+    # workspace's) MoodSettings below decide how its meter behaves.
+    mood_enabled: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False, server_default=sa.false())
+    # The Social Battery settings for the workspace's own assistant (schemas/group/ai_settings.py: MoodSettings).
     mood: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     # Default tone for agent runs — a SEPARATE axis from persona (axis B). Persona is how the
     # assistant addresses you; the tone is how work product reads. A tone slug: a built-in ("auto" |

@@ -230,20 +230,30 @@ def agent_characters(session: Session, group_id) -> dict[str, dict]:
 
 
 def agent_voices(session: Session, group_id) -> dict[str, dict]:
-    """{agent slug: {name, bubble_lines}} for the workspace's agents with a voice of their own (a Character or
-    bubble lines) — what the bubble shows under that agent's name while it talks. The rest speak, and bubble,
-    as the workspace."""
+    """{agent slug: {name, bubble_lines, mood}} for the workspace's agents with a voice of their own (a Character,
+    bubble lines or mood settings) — what the bubble shows under that agent's name while it talks. The rest speak,
+    and bubble, as the workspace."""
     import sqlalchemy as sa
 
     from marvin.db.models.groups.agents import WorkspaceAgentModel
 
-    columns = (WorkspaceAgentModel.slug, WorkspaceAgentModel.name, WorkspaceAgentModel.persona_prompt, WorkspaceAgentModel.bubble_lines)
+    columns = (
+        WorkspaceAgentModel.slug,
+        WorkspaceAgentModel.name,
+        WorkspaceAgentModel.persona_prompt,
+        WorkspaceAgentModel.bubble_lines,
+        WorkspaceAgentModel.mood,
+    )
     rows = session.query(*columns).filter(
         WorkspaceAgentModel.group_id == group_id,
-        sa.or_(WorkspaceAgentModel.persona_prompt.isnot(None), WorkspaceAgentModel.bubble_lines.isnot(None)),
+        sa.or_(WorkspaceAgentModel.persona_prompt.isnot(None), WorkspaceAgentModel.bubble_lines.isnot(None), WorkspaceAgentModel.mood.isnot(None)),
     )
     # A cleared JSON column holds JSON null, which IS NOT NULL matches: what counts is checked here.
-    return {slug: {"name": name, "bubble_lines": lines or None} for slug, name, persona, lines in rows if (persona or "").strip() or lines}
+    return {
+        slug: {"name": name, "bubble_lines": lines or None, "mood": mood or None}
+        for slug, name, persona, lines, mood in rows
+        if (persona or "").strip() or lines or mood
+    }
 
 
 # --- managing it ----------------------------------------------------------------------------------

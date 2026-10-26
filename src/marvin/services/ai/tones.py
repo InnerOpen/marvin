@@ -26,7 +26,7 @@ import logging
 import math
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 logger = logging.getLogger(__name__)
 
@@ -144,13 +144,14 @@ class ToneParts:
     """A tone's prompt section in its parts, in prompt order; ``text`` is exactly what is appended."""
 
     character: str = ""  # from the persona: the Character block ("" when the tone drops it, or there is none)
+    mood: str = ""  # from the Social Battery (services/ai/mood.py): how the character feels about this person, now
     scope: str = ""  # from the tone's persona rule: how far the character reaches
     tone: str = ""  # from the tone: its instructions (and a drop tone's "Do not adopt a persona…")
     rule: str = ""  # precedence, when a character and a tone's instructions both apply
 
     @property
     def text(self) -> str:
-        return self.character + self.scope + self.tone + self.rule
+        return self.character + self.mood + self.scope + self.tone + self.rule
 
 
 def _builtin_parts(tone: ToneSpec, persona_prompt: str) -> ToneParts:
@@ -162,12 +163,22 @@ def _builtin_parts(tone: ToneSpec, persona_prompt: str) -> ToneParts:
     return ToneParts(character=f"\n\n{CHARACTER_LABEL}{persona_prompt}", scope=scope)
 
 
-def tone_parts(tone: ToneSpec, persona_prompt: str) -> ToneParts:
+def tone_parts(tone: ToneSpec, persona_prompt: str, mood_line: str = "") -> ToneParts:
     """The character/tone section of an agent's system prompt, in parts (see :class:`ToneParts`).
 
-    Empty when there is nothing to say: a built-in that only places the character, with no persona set.
+    Empty when there is nothing to say: a built-in that only places the character, with no persona set. ``mood_line``
+    (the Social Battery's, services/ai/mood.py) goes right after the Character — Character, then how it feels about this
+    person now, then the tone — and only where the Character itself is placed: a tone that drops the character drops
+    the mood with it.
     """
     persona_prompt = (persona_prompt or "").strip()
+    parts = _tone_parts(tone, persona_prompt)
+    if parts.character and mood_line:
+        return replace(parts, mood=f"\n\n{mood_line.strip()}")
+    return parts
+
+
+def _tone_parts(tone: ToneSpec, persona_prompt: str) -> ToneParts:
     if tone.builtin:
         return _builtin_parts(tone, persona_prompt)
 
@@ -180,9 +191,9 @@ def tone_parts(tone: ToneSpec, persona_prompt: str) -> ToneParts:
     return ToneParts(character=f"\n\n{CHARACTER_LABEL}{persona_prompt}", scope=scope, tone=tone_text, rule=f"\n\n{PRECEDENCE_RULE}")
 
 
-def tone_clause(tone: ToneSpec, persona_prompt: str) -> str:
+def tone_clause(tone: ToneSpec, persona_prompt: str, mood_line: str = "") -> str:
     """The character/tone section appended (last) to an agent's system prompt; "" when there is nothing to say."""
-    return tone_parts(tone, persona_prompt).text
+    return tone_parts(tone, persona_prompt, mood_line).text
 
 
 def persona_summary(tone: ToneSpec) -> str:

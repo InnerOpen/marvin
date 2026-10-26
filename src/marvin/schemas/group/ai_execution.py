@@ -169,3 +169,20 @@ class AIToolInvokeRequest(_MarvinModel):
     source: str = "mcp"  # invocation surface; gated by workspace policy
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class MoodRead(_MarvinModel):
+    """The Social Battery (services/ai/mood.py): how an agent feels about the caller right now."""
+
+    agent: str
+    enabled: bool
+    """False while the workspace keeps the Social Battery off (then nothing else is set)."""
+    level: int | None = None
+    """0–100; None when the character hides its meter (you notice it only through how it behaves)."""
+    band: str | None = None
+    """low | neutral | high."""
+    visible: bool = True
+
+
+class MoodResetRequest(_MarvinModel):
+    agent: str = "marvin"

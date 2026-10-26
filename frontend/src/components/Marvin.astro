@@ -21,7 +21,7 @@ try {
   <div id="marvin-panel" class="marvin-panel" role="dialog" aria-label="Ask Marvin">
     <div class="marvin-head">
       <div class="marvin-id">
-        <span class="marvin-name">Marvin</span>
+        <span class="marvin-name">Marvin</span><span id="marvin-battery" class="marvin-battery-slot"></span>
         <span id="marvin-sub" class="marvin-sub">here to help, allegedly</span>
       </div>
       <button id="marvin-clear" class="marvin-clear" aria-label="Clear conversation" title="Clear conversation" hidden>Clear</button>
@@ -56,6 +56,8 @@ try {
 
 <script>
   import { fetchApi } from '@/lib/api/client';
+  import { batteryHtml, type MoodLines, type MoodState, moodVoice, restState } from '@/lib/marvin/mood';
+  import { getMood } from '@/lib/api/aiBubble';
   import { resolveCapability, helpHtml, esc, setPendingRegister, resumePendingRun, onRunProgress, getActiveAgent, setActiveAgent, getSessionTone, setSessionTone, TONE_EVENT, setAskPageAllowed, resumeBubbleRun, parkedCardFor, type MarvinResult } from '@/lib/marvin/capabilities';
   import { type ApprovalCard, approvalCardHtml, decisionsFrom } from '@/lib/approvals';
   import { OPEN_BUBBLE_EVENT } from '@/lib/activity/toast';
@@ -137,20 +139,45 @@ try {
 
     // Who the bubble speaks as: the active agent where it has a voice of its own (a library character's name and
     // lines, or its own — the AI settings' agentVoices), else the workspace's assistant.
-    let workspaceVoice: { name: string; lines: any } = { name: 'Marvin', lines: null };
-    let agentVoices: Record<string, { name: string; bubbleLines?: any }> = {};
+    let workspaceVoice: { name: string; lines: any; mood: MoodLines | null } = { name: 'Marvin', lines: null, mood: null };
+    let agentVoices: Record<string, { name: string; bubbleLines?: any; mood?: MoodLines | null }> = {};
     let speaker = '';
+    // The Social Battery (lib/marvin/mood.ts): how the active agent feels about this person, asked for when the panel opens
+    // and refreshed from each reply. Off (null) unless the workspace switched it on.
+    let moodEnabled = false;
+    let moodState: MoodState | null = null;
+    let moodStates: CharacterStates | null = null;
 
     function readVoices(settings: any) {
-      workspaceVoice = { name: (settings?.assistantName || '').trim() || 'Marvin', lines: settings?.bubbleLines };
+      workspaceVoice = { name: (settings?.assistantName || '').trim() || 'Marvin', lines: settings?.bubbleLines, mood: settings?.mood ?? null };
       agentVoices = settings?.agentVoices ?? {};
+      moodEnabled = settings?.moodEnabled === true;
+      if (!moodEnabled) moodState = null;
+    }
+
+    async function refreshMood() {
+      if (!moodEnabled) { moodState = null; renderBattery(); return; }
+      try {
+        const read = await getMood(getActiveAgent() ?? 'marvin');
+        moodState = read.enabled ? { level: read.level ?? null, band: read.band ?? 'neutral', visible: read.visible !== false } : null;
+      } catch {
+        moodState = null; // the help goes on without the game
+      }
+      applyVoice();
+      renderBattery();
+    }
+
+    function renderBattery() {
+      const own = agentVoices[getActiveAgent() ?? ''];
+      document.getElementById('marvin-battery')!.innerHTML = batteryHtml(moodState, own?.name || workspaceVoice.name);
     }
 
     function applyVoice() {
       const own = agentVoices[getActiveAgent() ?? ''];
       const name = own?.name || workspaceVoice.name;
       voice = own ? voiceFor(name, own.bubbleLines) : voiceFor(name, workspaceVoice.lines);
-      const key = `${name}\n${JSON.stringify(own?.bubbleLines ?? workspaceVoice.lines ?? null)}`;
+      voice = moodVoice(voice, own ? own.mood ?? null : workspaceVoice.mood, moodState?.band);
+      const key = `${name}\n${moodState?.band ?? ''}\n${JSON.stringify(own?.bubbleLines ?? workspaceVoice.lines ?? null)}`;
       if (key === speaker) return;
       speaker = key;
       document.querySelector('#marvin-root .marvin-name')!.textContent = name;
@@ -221,6 +248,7 @@ try {
     function finish(event: CharacterEvent) {
       if (cast?.settle(event, getActiveAgent())) showCast();
       cue(event);
+      if (event === 'rest' && restState(moodState?.band, moodStates) === 'waiting') character?.dispatch('parked'); // a low mood slumps
       if (tuck && (event === 'reply' || event === 'parked')) root.classList.add('tuck-pulse'); // an answer is waiting
     }
 
@@ -231,7 +259,7 @@ try {
     }
 
     function showIcon() {
-      character?.stop(); character = null;
+      character?.stop(); character = null; moodStates = null;
       toggle.classList.remove('has-character');
       document.getElementById('marvin-icon')!.textContent = '🤖';
       applyIcon(workspaceIcon);
@@ -259,6 +287,7 @@ try {
         if (view instanceof HTMLCanvasElement) drawStill(view, src, giveUp);
         else if (view.getAttribute('src') !== src) view.src = src;
       };
+      moodStates = states;
       character = createCharacter(states, {
         render: ({ src }) => show(src),
         reducedMotion,
@@ -330,7 +359,10 @@ try {
       transcript.push({ who: 'marvin', html, ...(executionId ? { executionId } : {}), ...(approval ? { approval } : {}) });
       saveTranscript();
     }
-    const commitResult = (node: HTMLElement, res: MarvinResult) => commitReply(node, res.html, res.executionId, res.approval);
+    const commitResult = (node: HTMLElement, res: MarvinResult) => {
+      commitReply(node, res.html, res.executionId, res.approval);
+      if (res.mood !== undefined) { moodState = res.mood; applyVoice(); renderBattery(); }
+    };
 
     function thinkingHtml() {
       return `<span class="mv-thinking">${esc(pick(voice.emotes) + ' ' + pick(voice.thinking))}</span>`;
@@ -462,7 +494,7 @@ try {
       taglineTimer = window.setInterval(rotateTagline, 7000); // cycle like a login fortune
       if (!greeted) {
         greeted = true;
-        greet();
+        void refreshMood().then(greet); // the greeting comes from the mood's own lines when it has them
       }
       cue('open');
       void checkUploadAccess();
@@ -1057,6 +1089,10 @@ try {
   .marvin-id { display: flex; flex-direction: column; }
   .marvin-name { font-weight: 600; font-size: 15px; color: var(--ink); }
   .marvin-sub { font-size: 11px; color: var(--muted); }
+  .marvin-battery-slot:empty { display: none; }
+  .marvin-battery { display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; font-size: 11px; color: var(--muted); cursor: help; vertical-align: middle; }
+  .marvin-battery.mood-low { color: var(--color-error, #c0392b); }
+  .marvin-battery.mood-high { color: var(--color-success, #2e7d32); }
   .marvin-clear {
     margin-left: auto; margin-right: 4px;
     background: none; border: none; cursor: pointer;

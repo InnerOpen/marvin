@@ -19,9 +19,9 @@ class BubbleLines(_MarvinModel):
     emotes: list[str] = []
 
 
-# The Social Battery (a mood meter per character; Brain: "Marvin Agent Social Battery"). Only its settings
-# exist so far: stored on a library pack, a workspace and an agent, carried by pack downloads, and read by
-# nothing — the meter, when it's built, reads exactly these.
+# The Social Battery (a mood meter per character; Brain: "Marvin Agent Social Battery"): its settings live on a
+# library pack, a workspace and an agent, carried by pack downloads; the meter (services/ai/mood.py) reads them
+# once the workspace switches it on (`mood_enabled`).
 MOOD_MAX_LINES = 20
 MOOD_MAX_CHARS = 200
 
@@ -44,7 +44,8 @@ class MoodBandLines(_MarvinModel):
 
 
 class MoodSettings(_MarvinModel):
-    """How a character's mood meter works — each choice null until it's made. Not active yet."""
+    """How a character's mood meter works (services/ai/mood.py) — each choice null until it's made, then the default applies:
+    drains treatment, meter visible, memory weeks, absence neutral."""
 
     # What drains it: any use at all (Marvin's social battery), or only how it's treated (Ada's trust).
     drains: Literal["use", "treatment"] | None = None
@@ -109,7 +110,10 @@ class WorkspaceAISettingsCreate(_MarvinModel):
     # Default tone for agent runs (axis B, separate from persona) — a tone slug, built-in ("auto" |
     # "professional" | "playful") or the workspace's own (GET /groups/ai-settings/tones). A per-call tone wins.
     default_register: str = "auto"
-    # The Social Battery's settings for the workspace's own assistant (not active yet).
+    # The Social Battery (services/ai/mood.py): off until the workspace switches it on; then `mood` below (or an agent's
+    # own) says how each character's meter behaves.
+    mood_enabled: bool = False
+    # The Social Battery's settings for the workspace's own assistant.
     mood: MoodSettings | None = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -138,6 +142,7 @@ class WorkspaceAISettingsUpdate(_MarvinModel):
     persona_prompt: str | None = None
     default_register: str | None = None
     mood: MoodSettings | None = None
+    mood_enabled: bool | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -174,10 +179,11 @@ class WorkspaceAISettingsRead(BubbleLinesState, WorkspaceAISettingsCreate):
 
 
 class AgentVoice(_MarvinModel):
-    """An agent's name and bubble lines, as the bubble shows them while it talks."""
+    """An agent's name, bubble lines and mood settings, as the bubble shows them while it talks."""
 
     name: str
     bubble_lines: BubbleLines | None = None  # None → the workspace's lines
+    mood: MoodSettings | None = None  # None → the workspace's mood settings
 
 
 WorkspaceAISettingsRead.model_rebuild()

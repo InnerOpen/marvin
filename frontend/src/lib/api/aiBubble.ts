@@ -94,6 +94,24 @@ export function listAgents() {
   return api<AgentSummary[]>("/api/ai/agents");
 }
 
+/** The Social Battery (services/ai/mood.py): how `agent` feels about the caller right now; `enabled: false` while the workspace keeps it off. */
+export function getMood(agent: string) {
+  return api<MoodRead>(`/api/ai/mood?agent=${encodeURIComponent(agent)}`);
+}
+
+/** "Reset our relationship": the caller's meter for `agent` starts over. */
+export function resetMood(agent: string) {
+  return api<MoodRead>("/api/ai/mood/reset", { method: "POST", body: JSON.stringify({ agent }) });
+}
+
+export interface MoodRead {
+  agent: string;
+  enabled: boolean;
+  level?: number | null;
+  band?: string | null;
+  visible?: boolean;
+}
+
 /** Run a named agent — same shape as runAgent, routed to `/api/ai/agents/{slug}/run`. */
 export function runAgentAs(
   slug: string,

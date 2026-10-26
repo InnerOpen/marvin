@@ -114,7 +114,8 @@ export function fillLines(root: ParentNode, lines: BubbleLines | null | undefine
     area.value = (lines?.[area.dataset.list as BubbleListKey] ?? []).join("\n");
 }
 
-/** The mood settings, collapsed and marked as not active yet: they're saved and carried, and nothing reads them. */
+/** The Social Battery's settings (services/ai/mood.py), collapsed until some are set. They apply once the workspace switches the
+ * Social Battery on (AI settings → Persona). */
 export function moodFieldsHtml(mood: MoodSettings | null | undefined): string {
   const selects = MOOD_CHOICES.map((choice) => {
     const current = mood?.[choice.key] ?? "";
@@ -132,8 +133,8 @@ export function moodFieldsHtml(mood: MoodSettings | null | undefined): string {
     ).join(""),
   ).join("");
   return `<details class="mood-fields"${hasMood(mood) ? " open" : ""}>
-    <summary>Mood <span class="mood-badge">not active yet</span></summary>
-    <p class="hint">A mood meter per character (the Social Battery), coming later: how it feels about the person it's talking to changes its greetings and lines — flavour only, never the help. Set it up now and the character behaves this way on day one.</p>
+    <summary>Mood <span class="mood-badge">the Social Battery</span></summary>
+    <p class="hint">A mood meter per character: how it feels about the person it's talking to changes its greetings, taglines and asides — flavour only, never the help. It runs once the workspace switches the Social Battery on (AI settings → Persona); each person can reset their own meter.</p>
     <div class="mood-grid">${selects}</div>
     <p class="hint">What it says in a low or a high mood, in place of its usual greetings and taglines. One line per row.</p>
     <div class="mood-grid">${bands}</div>

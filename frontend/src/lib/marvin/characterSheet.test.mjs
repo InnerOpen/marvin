@@ -22,6 +22,6 @@ describe("characterSheet", () => {
     const html = moodFieldsHtml({ drains: "treatment", low: { greetings: ["Mm-hmm."] } });
     assert.ok(html.includes('<details class="mood-fields" open'));
     assert.ok(html.includes('value="treatment" selected') && html.includes("Mm-hmm."));
-    assert.ok(html.includes("not active yet"));
+    assert.ok(html.includes("the Social Battery"));
   });
 });
