@@ -498,6 +498,8 @@ try {
       if (!greeted) {
         greeted = true;
         void refreshMood().then(greet); // the greeting comes from the mood's own lines when it has them
+      } else {
+        void refreshMood(); // a restored conversation skips the greeting, never the battery (a phone restores one on every reload)
       }
       cue('open');
       void checkUploadAccess();
@@ -1094,9 +1096,10 @@ try {
   .marvin-name { font-weight: 600; font-size: 15px; color: var(--ink); }
   .marvin-sub { font-size: 11px; color: var(--muted); }
   .marvin-battery-slot:empty { display: none; }
-  .marvin-battery { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; color: var(--muted); cursor: help; vertical-align: middle; }
-  .marvin-battery.mood-low { color: var(--color-error, #c0392b); }
-  .marvin-battery.mood-high { color: var(--color-success, #2e7d32); }
+  /* The battery is drawn by the script into the slot, so its rules are :global like the log's. */
+  .marvin-battery-slot :global(.marvin-battery) { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; color: var(--muted); cursor: help; white-space: nowrap; }
+  .marvin-battery-slot :global(.marvin-battery.mood-low) { color: var(--color-error, #c0392b); }
+  .marvin-battery-slot :global(.marvin-battery.mood-high) { color: var(--color-success, #2e7d32); }
   .marvin-clear {
     margin-left: auto; margin-right: 4px;
     background: none; border: none; cursor: pointer;
