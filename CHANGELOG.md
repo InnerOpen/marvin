@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.68 (2026-10-26)
+
+### Bug Fixes
+
+- **bubble**: The Social Battery sits to the right of the name, not under it
+  ([`3769649`](https://github.com/InnerOpen/marvin/commit/37696491a943e0c519b1ddd84e03e56623c28a4c))
+
+
 ## v1.1.0-rc.67 (2026-10-26)
 
 ### Features
