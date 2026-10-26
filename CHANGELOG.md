@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.70 (2026-10-26)
+
+### Bug Fixes
+
+- **bubble**: The Social Battery shows after a restored conversation, and keeps its colours
+  ([`f1d0b91`](https://github.com/InnerOpen/marvin/commit/f1d0b914696d6dc79dfa6dd266e8fca9396a6fe1))
+
+
 ## v1.1.0-rc.69 (2026-10-26)
 
 ### Bug Fixes
