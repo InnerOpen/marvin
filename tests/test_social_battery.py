@@ -202,7 +202,7 @@ def _say(workspace, text, *, source="agent", user_id=None, role=WorkspaceRole.AU
 def test_a_run_scores_the_message_tells_the_model_the_mood_and_carries_it_back(db_session, workspace, model):
     _settings(db_session, workspace.gid, mood_enabled=True, persona_prompt="A dry butler.", mood={"drains": "use"})
     for _ in range(8):
-        mood.score(db_session, workspace.gid, workspace.uid, "marvin", USE, "you're useless", now=NOW)
+        mood.score(db_session, workspace.gid, workspace.uid, "marvin", USE, "you're useless", now=datetime.now(UTC))  # the route reads the real clock
 
     out = _say(workspace, "where are my drafts?")
 

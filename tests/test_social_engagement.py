@@ -764,11 +764,22 @@ def _task(ws, config):
     return task
 
 
-def _task_run(ws, config):
+def _execute(task):
+    """The handler on the tests' clock: it reads the real one, and the canned comments are dated around NOW."""
+    from functools import partial
+    from unittest import mock
+
+    from marvin.services.integrations import social_engagement
     from marvin.services.scheduled_tasks.handlers.social import SocialEngagementHandler
 
+    with mock.patch.object(social_engagement, "run_engagement", partial(social_engagement.run_engagement, now=NOW)):
+        return SocialEngagementHandler().execute(task, None)
+
+
+def _task_run(ws, config):
+
     task = _task(ws, config)
-    return SocialEngagementHandler().execute(task, None)
+    return _execute(task)
 
 
 def test_the_task_is_registered_for_workspaces_only_never_from_a_workflow():
@@ -800,9 +811,7 @@ def test_an_old_task_wide_rehearsal_setting_is_mapped_onto_the_networks_once(ws)
     ws.session.commit()
     ws.nets["mastodon"].feed = [item("c1")]
     task = _task(ws, {"rehearsal": False, "max_replies": 5})
-    from marvin.services.scheduled_tasks.handlers.social import SocialEngagementHandler
-
-    SocialEngagementHandler().execute(task, None)
+    _execute(task)
     ws.session.expire_all()
     modes = {r.slug: social_setup.get_mode(r) for r in ws.session.query(IntegrationModel).filter_by(group_id=ws.gid)}
     assert modes == {"m-main": "on", "b-main": "on", "ig": "off"}
@@ -815,7 +824,7 @@ def test_an_old_task_wide_rehearsal_setting_is_mapped_onto_the_networks_once(ws)
     row = IntegrationModel(session=ws.session, group_id=ws.gid, provider="mastodon", name="new", slug="m-new", enabled=True, config={})
     ws.session.add(row)
     ws.session.commit()
-    SocialEngagementHandler().execute(task, None)
+    _execute(task)
     ws.session.expire_all()
     assert social_setup.get_mode(ws.session.query(IntegrationModel).filter_by(group_id=ws.gid, slug="m-new").one()) == "off"
 
