@@ -6,6 +6,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.72 (2026-10-28)
+
+### Bug Fixes
+
+- **playbooks**: The system Playbook page's text sits in a bordered box, and Show source looks like
+  a link
+  ([`f14c01b`](https://github.com/InnerOpen/marvin/commit/f14c01b4525df584e720a4a32e59a6dee76b10df))
+
+### Code Style
+
+- Format
+  ([`79d382f`](https://github.com/InnerOpen/marvin/commit/79d382fc245f7deace2c2f78ac70194f7cc351af))
+
+### Features
+
+- **playbooks**: Read a Playbook's reference files (read-only) before publishing it
+  ([`83df698`](https://github.com/InnerOpen/marvin/commit/83df698feb267b6989b969b3e1ed7b89c1cc996f))
+
+### Testing
+
+- Two tests read the real clock while their data is dated in the past
+  ([`0e6514d`](https://github.com/InnerOpen/marvin/commit/0e6514dd7df61482a605823a92098e8276ba1ca6))
+
+
 ## v1.1.0-rc.71 (2026-10-28)
 
 ### Chores
