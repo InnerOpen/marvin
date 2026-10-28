@@ -203,6 +203,8 @@ const useRows = uses.map((use) => useRow(use));
   .sp-card-head h3 { margin: 0 0 12px; }
   .sp-count { font-size: 12px; font-weight: 400; color: var(--muted); margin-left: 4px; }
   .sp-rendered { line-height: 1.6; overflow-wrap: anywhere; }
+  /* the text sits in its own bordered box, like the editor's Preview tab */
+  .sp-rendered, .sp-text { border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; background: var(--panel); max-height: 70vh; overflow: auto; }
   .sp-rendered :global(h1), .sp-rendered :global(h2), .sp-rendered :global(h3), .sp-rendered :global(h4) { margin: 1.1em 0 0.4em; line-height: 1.3; }
   .sp-rendered :global(h1) { font-size: 1.3rem; }
   .sp-rendered :global(h2) { font-size: 1.15rem; }
@@ -212,6 +214,7 @@ const useRows = uses.map((use) => useRow(use));
   .sp-rendered :global(th), .sp-rendered :global(td) { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
   .sp-rendered :global(code) { font-size: 0.9em; }
   .sp-rendered :global(pre) { overflow-x: auto; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2, var(--panel)); }
+  .link-btn { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; font-size: 13px; }
   .sp-text { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono, ui-monospace, monospace); font-size: 13px; line-height: 1.5; margin: 0; }
   .sp-file { border-top: 1px solid var(--line); padding: 10px 0; }
   .sp-file summary { cursor: pointer; }
