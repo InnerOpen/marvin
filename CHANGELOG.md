@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.71 (2026-10-28)
+
+### Chores
+
+- **deploy**: Cloudflared 2026.10.3
+  ([`30e89f3`](https://github.com/InnerOpen/marvin/commit/30e89f3adedf8a0335e2ad63d03d817c74738580))
+
+### Features
+
+- **playbooks**: A proposed change says what it replaces and shows the diff
+  ([`acd4990`](https://github.com/InnerOpen/marvin/commit/acd49901da8278e912a3d89ad94cbbcd37030134))
+
+
 ## v1.1.0-rc.70 (2026-10-26)
 
 ### Bug Fixes
