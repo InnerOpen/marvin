@@ -777,7 +777,6 @@ def _execute(task):
 
 
 def _task_run(ws, config):
-
     task = _task(ws, config)
     return _execute(task)
 
