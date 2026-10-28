@@ -5,9 +5,10 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import PlaybookEditor from "@/components/PlaybookEditor.astro";
 import PlaybookReview from "@/components/PlaybookReview.astro";
 import { reviewFromMetadata, reviewView } from "@/lib/playbookReview";
+import { changedFields, diffCounts, diffRows, type DiffRow } from "@/lib/playbookDiff";
 import { getAuthToken } from "@/lib/api/client";
 import { getPlaybook, listPlaybooks, listPlaybookUses, type PlaybookEntry } from "@/lib/api/playbooks";
-import { formFromEntry, NO_USES_NOTE, PLAYBOOKS_PATH, type PlaybookUse, useRow } from "@/lib/playbooks";
+import { editorPath, formFromEntry, NO_USES_NOTE, PLAYBOOKS_PATH, type PlaybookUse, useRow } from "@/lib/playbooks";
 import { listWorkspaces } from "@/lib/api/workspaces";
 import { requireAuth } from "@/lib/auth";
 import { canManageWorkspace, isForbidden } from "@/lib/workspaceRole";
@@ -17,6 +18,7 @@ const user = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname
 const authToken = getAuthToken(Astro.cookies);
 let canPublish = false;
 let entry: PlaybookEntry | null = null;
+let live: PlaybookEntry | null = null; // for a proposed change: the published Playbook it would replace
 let uses: PlaybookUse[] = [];
 let error: string | null = null;
 let restricted = false;
@@ -26,6 +28,9 @@ try {
   if (id && list.items.some((item) => item.id === id)) {
     entry = await getPlaybook(id, authToken);
     uses = await listPlaybookUses(id, authToken).catch(() => []); // the history is a nicety: the editor works without it
+    const replaces = String(entry.dataJson?.replaces ?? "").trim().toLowerCase();
+    const target = replaces ? list.items.find((item) => item.name === replaces && item.status === "published") : null;
+    if (target) live = await getPlaybook(target.id, authToken).catch(() => null); // the diff is a nicety too
   }
 } catch (e) {
   if (isForbidden(e)) restricted = true;
@@ -34,6 +39,12 @@ try {
 const review = entry ? reviewFromMetadata(entry.metadataJson) : null;
 const reviewRows = review ? reviewView(review) : null;
 const useRows = uses.map((use) => useRow(use));
+const replaces = String(entry?.dataJson?.replaces ?? "").trim();
+const rows: DiffRow[] = live ? diffRows(String(live.dataJson?.body ?? ""), String(entry?.dataJson?.body ?? "")) : [];
+const counts = diffCounts(rows);
+const MARK = { add: "+ ", del: "- ", same: "  ", gap: "" };
+const shown = rows.map((row) => ({ kind: row.kind, text: row.kind === "gap" ? "…" : MARK[row.kind] + row.text }));
+const fields = live ? changedFields(live.dataJson, entry?.dataJson) : [];
 ---
 
 <AppLayout
@@ -52,10 +63,33 @@ const useRows = uses.map((use) => useRow(use));
     <>
       <div class="page-header">
         <div>
-          <h2>{entry.slug}</h2>
-          <p>Edits to a published Playbook reach agents as soon as you save.</p>
+          <h2>{replaces ? `Proposed change to ${replaces}` : entry.slug}</h2>
+          <p>
+            {replaces
+              ? "Nothing changes until an admin publishes this draft. Publishing updates the original in place; no second Playbook is created."
+              : "Edits to a published Playbook reach agents as soon as you save."}
+          </p>
         </div>
       </div>
+      {replaces && live && (
+        <section class="section-card pb-diff" data-testid="playbook-diff">
+          <h3>What publishing changes in <a href={editorPath(live.id)}>{replaces}</a></h3>
+          <p class="pb-diff-summary">
+            {rows.length === 0 && fields.length === 0 ? "The text is identical to the published Playbook." : `${counts.added} lines added, ${counts.removed} removed in the body.`}
+            {fields.length > 0 && ` Also changes: ${fields.join(", ")}.`}
+          </p>
+          {rows.length > 0 && (
+            <div class="pb-diff-body">
+              {shown.map((row) => (
+                <div class:list={["pb-diff-row", row.kind]}>{row.text}</div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+      {replaces && !live && (
+        <p class="pb-diff-summary">This change names <strong>{replaces}</strong>, which isn't published right now, so there is nothing to compare with.</p>
+      )}
       {reviewRows && <PlaybookReview view={reviewRows} status={entry.status} />}
       <PlaybookEditor form={formFromEntry(entry)} id={entry.id} status={entry.status} canPublish={canPublish} />
       <section class="section-card pb-uses" data-testid="playbook-uses">
@@ -79,6 +113,14 @@ const useRows = uses.map((use) => useRow(use));
 
 <style>
   .section-card { box-sizing: border-box; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 24px; margin-bottom: 16px; }
+  .pb-diff { max-width: 820px; }
+  .pb-diff h3 { margin: 0 0 6px; }
+  .pb-diff-summary { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
+  .pb-diff-body { margin: 0; padding: 8px 0; overflow-x: auto; font-family: ui-monospace, monospace; font-size: 12.5px; line-height: 1.5; border: 1px solid var(--line); border-radius: 6px; }
+  .pb-diff-row { display: block; padding: 0 10px; white-space: pre-wrap; }
+  .pb-diff-row.add { background: color-mix(in srgb, #2da44e 18%, transparent); }
+  .pb-diff-row.del { background: color-mix(in srgb, #cf222e 16%, transparent); }
+  .pb-diff-row.gap { color: var(--muted); }
   .pb-uses { margin-top: 16px; max-width: 820px; }
   .pb-uses h3 { margin: 0 0 8px; }
   .pb-uses-none { margin: 0; color: var(--muted); font-size: 13px; }

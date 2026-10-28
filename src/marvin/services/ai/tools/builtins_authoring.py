@@ -301,7 +301,13 @@ def propose_playbook_change(ctx: ToolContext, args: dict) -> str:
         )  # fmt: skip
     except ValueError as e:
         return json.dumps({"error": str(e)})
-    return json.dumps({**result, "replaces": name, "note": f"Nothing changed yet: an admin publishes this draft to update '{name}'."})
+    # The review link opens the Playbooks page, which says what publishing replaces and shows the diff; the entry editor has neither.
+    from marvin.services.ui_links import ui_link
+
+    link = ui_link(f"/workspace/settings/ai-playbooks/{result['entryId']}")
+    result = {**result, "editUrl": link, "reviewLink": f"[Review the proposed change]({link})"}
+    note = f"Nothing changed yet: an admin publishes this draft to update '{name}'; it replaces that Playbook in place."
+    return json.dumps({**result, "replaces": name, "note": note})
 
 
 @register_tool(

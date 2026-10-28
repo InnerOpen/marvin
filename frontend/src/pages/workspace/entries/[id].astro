@@ -12,6 +12,7 @@ import { createTag, listTags, type TagRead } from "@/lib/api/tags";
 import { keysHint } from "@/lib/disclosure";
 import { ENTRIES_PATH, entryBackPath, returnPathOf } from "@/lib/entryBack";
 import { viewOnSite, withSubmittedValues } from "@/lib/entryForm";
+import { editorPath } from "@/lib/playbooks";
 import { integrationErrors, reviewReasons } from "@/lib/reviewReasons";
 import { shareLinks } from "@/lib/shareLinks";
 import { restoresTo } from "@/lib/trash";
@@ -223,6 +224,11 @@ if (!id) {
     error = e instanceof Error ? e.message : String(e);
     console.error("[Entry] Failed to load:", error);
   }
+}
+
+// A Playbook is an entry of an internal type, edited on its own page (that page says what publishing a proposed change replaces).
+if (entry && entry.status !== "trashed" && entryTypes.some((t: any) => t.id === entry!.entryTypeId && t.slug === "playbook")) {
+  return Astro.redirect(editorPath(entry.id));
 }
 
 // Who may change this entry: EDITOR+ any entry; an AUTHOR their own until it's approved or published

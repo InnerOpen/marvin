@@ -43,6 +43,7 @@ def test_a_proposed_change_is_a_separate_inbox_draft_and_the_live_one_is_untouch
     assert change.status == "inbox" and change.id != live.id
     assert change.data_json["replaces"] == BENCH and change.data_json["body"] == NEW_BODY
     assert change.data_json["description"] == live.data_json["description"]  # untouched fields come from the live one
+    assert f"/workspace/settings/ai-playbooks/{change.id}" in run["reviewLink"]  # the Playbooks page says what publishing replaces
     assert change.summary == "People keep asking for the date."
     assert _row(db_session, id=live.id).data_json["body"] == BENCH_BODY and live.status == "published"
 
