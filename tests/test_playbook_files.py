@@ -209,3 +209,20 @@ def test_the_agent_reads_the_reference_file_the_playbook_points_to(workspace, db
     assert _tools_called(run) == ["load_playbook", "read_playbook_file"]
     assert "read_playbook_file" in fake.tool_names[0]
     assert run["answer"] == "Tone: " + TONE
+
+
+# ── Reading the files before publishing ──────────────────────────────────────
+
+
+def test_an_editor_reads_a_drafts_files_with_their_text_and_a_viewer_cannot(workspace, db_session, store):
+    from marvin.db.models.users.roles import WorkspaceRole
+
+    pb = _playbook(db_session, workspace.gid)
+    tone = _asset(db_session, workspace.gid, workspace.uid, store)
+    attach_reference(db_session, workspace.gid, pb.id, tone.id, "references/tone.md")
+
+    res = gates._sign_in(workspace, WorkspaceRole.EDITOR).get(f"/api/groups/playbooks/{pb.id}/files")
+
+    assert res.status_code == 200, res.text
+    assert res.json()["items"] == [{"path": "references/tone.md", "size": len(TONE), "text": TONE, "truncated": False, "error": None}]
+    assert gates._sign_in(workspace, WorkspaceRole.VIEWER).get(f"/api/groups/playbooks/{pb.id}/files").status_code == 403

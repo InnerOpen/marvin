@@ -59,6 +59,20 @@ class PlaybookUse(_MarvinModel):
     """The Ask conversation the run belongs to, when it has one: what a person can open."""
 
 
+class PlaybookFileText(_MarvinModel):
+    path: str
+    size: int = 0
+    text: str | None = None
+    """The file's text (cut at 20,000 characters, see ``truncated``); None when it is not a text file."""
+    truncated: bool = False
+    error: str | None = None
+    """Why the text isn't here (not a text file, too large, unreadable)."""
+
+
+class PlaybookFiles(_MarvinModel):
+    items: list[PlaybookFileText] = Field(default_factory=list)
+
+
 class PlaybookUses(_MarvinModel):
     items: list[PlaybookUse] = Field(default_factory=list)
 

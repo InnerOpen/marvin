@@ -85,6 +85,24 @@ def reference_files(session, entry_id) -> list[ReferenceFile]:
     return [_file(path, asset) for path, _link, asset in _links(session, entry_id)]
 
 
+def reference_texts(session, entry_id, max_chars: int = 20000) -> list[dict]:
+    """A Playbook entry's reference files by path with their text, for a person reading the Playbook before they publish it:
+    ``{path, size, text, truncated}``, or ``{path, size, error}`` for a file that is not text (not workspace-checked, like
+    ``reference_files``)."""
+    from marvin.services.ai.tools.builtins_attachments import read_asset_text
+
+    out = []
+    for path, _link, asset in _links(session, entry_id):
+        read = read_asset_text(asset, max_chars)
+        row = {"path": path, "size": int(asset.file_size or 0)}
+        if "error" in read:
+            row["error"] = read["error"]
+        else:
+            row.update(text=read.get("text", ""), truncated=bool(read.get("truncated")))
+        out.append(row)
+    return sorted(out, key=lambda r: r["path"])
+
+
 def attach_reference(session, group_id, entry_id, asset_id, path) -> ReferenceFile:
     """Attach a workspace asset to a Playbook under ``path`` (committed). Linking the same asset again moves it to the new path.
 

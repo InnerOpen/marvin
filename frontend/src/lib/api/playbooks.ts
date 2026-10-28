@@ -36,6 +36,18 @@ export const ensurePlaybookType = async (authToken?: string) =>
 export const listPlaybookUses = async (id: string, authToken?: string) =>
   (await fetchApi<{ items: PlaybookUse[] }>(`${BASE}/${encodeURIComponent(id)}/uses`, {}, authToken)).items;
 
+export interface PlaybookFileText {
+  path: string;
+  size: number;
+  text?: string | null;
+  truncated?: boolean;
+  error?: string | null;
+}
+
+/** A Playbook's reference files with their text (EDITOR+, any status): read-only, for reading before publishing. */
+export const listPlaybookFiles = async (id: string, authToken?: string) =>
+  (await fetchApi<{ items: PlaybookFileText[] }>(`${BASE}/${encodeURIComponent(id)}/files`, {}, authToken)).items;
+
 export const getPlaybook = (id: string, authToken?: string) => fetchApi<PlaybookEntry>(`${ENTRIES}/${encodeURIComponent(id)}`, {}, authToken);
 
 export const createPlaybook = (payload: object) => fetchApi<PlaybookEntry>(ENTRIES, { method: "POST", body: JSON.stringify(payload) });

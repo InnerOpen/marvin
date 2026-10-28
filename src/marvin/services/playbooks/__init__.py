@@ -450,6 +450,7 @@ from marvin.services.playbooks.files import (  # noqa: E402, F401
     published_playbook_file,
     published_playbook_files,
     reference_files,
+    reference_texts,
     remove_reference,
 )
 from marvin.services.playbooks.proposals import (  # noqa: E402, F401

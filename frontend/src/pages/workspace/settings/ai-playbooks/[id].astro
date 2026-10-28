@@ -7,7 +7,7 @@ import PlaybookReview from "@/components/PlaybookReview.astro";
 import { reviewFromMetadata, reviewView } from "@/lib/playbookReview";
 import { changedFields, diffCounts, diffRows, type DiffRow } from "@/lib/playbookDiff";
 import { getAuthToken } from "@/lib/api/client";
-import { getPlaybook, listPlaybooks, listPlaybookUses, type PlaybookEntry } from "@/lib/api/playbooks";
+import { getPlaybook, listPlaybookFiles, listPlaybooks, listPlaybookUses, type PlaybookEntry, type PlaybookFileText } from "@/lib/api/playbooks";
 import { editorPath, formFromEntry, NO_USES_NOTE, PLAYBOOKS_PATH, type PlaybookUse, useRow } from "@/lib/playbooks";
 import { listWorkspaces } from "@/lib/api/workspaces";
 import { requireAuth } from "@/lib/auth";
@@ -20,6 +20,7 @@ let canPublish = false;
 let entry: PlaybookEntry | null = null;
 let live: PlaybookEntry | null = null; // for a proposed change: the published Playbook it would replace
 let uses: PlaybookUse[] = [];
+let files: PlaybookFileText[] = [];
 let error: string | null = null;
 let restricted = false;
 try {
@@ -28,6 +29,7 @@ try {
   if (id && list.items.some((item) => item.id === id)) {
     entry = await getPlaybook(id, authToken);
     uses = await listPlaybookUses(id, authToken).catch(() => []); // the history is a nicety: the editor works without it
+    files = await listPlaybookFiles(id, authToken).catch(() => []); // reading them is a nicety: the editor works without it
     const replaces = String(entry.dataJson?.replaces ?? "").trim().toLowerCase();
     const target = replaces ? list.items.find((item) => item.name === replaces && item.status === "published") : null;
     if (target) live = await getPlaybook(target.id, authToken).catch(() => null); // the diff is a nicety too
@@ -92,6 +94,19 @@ const fields = live ? changedFields(live.dataJson, entry?.dataJson) : [];
       )}
       {reviewRows && <PlaybookReview view={reviewRows} status={entry.status} />}
       <PlaybookEditor form={formFromEntry(entry)} id={entry.id} status={entry.status} canPublish={canPublish} />
+      {files.length > 0 && (
+        <section class="section-card pb-files" data-testid="playbook-files">
+          <h3>Reference files <span class="pb-files-count">{files.length}</span></h3>
+          <p class="pb-files-note">Read-only: what the agent reads when the Playbook sends it to a file. Change them by importing a new version.</p>
+          {files.map((file) => (
+            <details class="pb-file" data-testid="playbook-file">
+              <summary><code>{file.path}</code></summary>
+              {file.error ? <p class="pb-files-note">{file.error}</p> : <pre class="pb-file-text">{file.text}</pre>}
+              {file.truncated && <p class="pb-files-note">Cut at 20,000 characters.</p>}
+            </details>
+          ))}
+        </section>
+      )}
       <section class="section-card pb-uses" data-testid="playbook-uses">
         <h3>Used recently</h3>
         {useRows.length === 0 && <p class="pb-uses-none">{NO_USES_NOTE}</p>}
@@ -121,6 +136,14 @@ const fields = live ? changedFields(live.dataJson, entry?.dataJson) : [];
   .pb-diff-row.add { background: color-mix(in srgb, #2da44e 18%, transparent); }
   .pb-diff-row.del { background: color-mix(in srgb, #cf222e 16%, transparent); }
   .pb-diff-row.gap { color: var(--muted); }
+  .pb-files { max-width: 820px; margin-top: 16px; }
+  .pb-files h3 { margin: 0 0 6px; }
+  .pb-files-count { color: var(--muted); font-weight: 400; font-size: 13px; }
+  .pb-files-note { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
+  .pb-file { border-top: 1px solid var(--line); padding: 10px 0; }
+  .pb-file summary { cursor: pointer; }
+  .pb-file[open] summary { margin-bottom: 10px; }
+  .pb-file-text { margin: 0; border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; background: var(--panel); max-height: 70vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono, ui-monospace, monospace); font-size: 13px; line-height: 1.5; }
   .pb-uses { margin-top: 16px; max-width: 820px; }
   .pb-uses h3 { margin: 0 0 8px; }
   .pb-uses-none { margin: 0; color: var(--muted); font-size: 13px; }

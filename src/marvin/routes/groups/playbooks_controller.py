@@ -16,6 +16,8 @@ from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import has_workspace_role, require_workspace_admin, require_workspace_editor
 from marvin.schemas.group.playbooks import (
     PlaybookCopiedFrom,
+    PlaybookFiles,
+    PlaybookFileText,
     PlaybookGithubImport,
     PlaybookImported,
     PlaybookItem,
@@ -147,6 +149,13 @@ class PlaybooksController(BaseUserController):
         if not system_copy.mark_seen(self.session, self._find(entry_id)):
             raise HTTPException(status_code=404, detail="This Playbook is not a copy of an installed system Playbook.")
         return Response(status_code=204)
+
+    @router.get("/{entry_id}/files", response_model=PlaybookFiles, summary="A Playbook's reference files, with their text")
+    def playbook_files(self, entry_id: UUID4) -> PlaybookFiles:
+        """What an Admin reads before publishing: each reference file of the Playbook (any status) by path, with its text. Read-only."""
+        require_workspace_editor(self.user, self.group_id)
+        found = self._find(entry_id)
+        return PlaybookFiles(items=[PlaybookFileText(**row) for row in playbooks.reference_texts(self.session, found.id)])
 
     @router.get("/{entry_id}/uses", response_model=PlaybookUses, summary="Where a Playbook was used lately")
     def playbook_uses(self, entry_id: UUID4) -> PlaybookUses:
