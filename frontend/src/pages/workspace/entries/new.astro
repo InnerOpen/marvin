@@ -9,6 +9,9 @@ import { listedTypes } from "@/lib/entryTypeListing";
 import { getContentAccess } from "@/lib/api/workspaces";
 import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
+import { assetItem, resourceItem } from "@/lib/linkedItems";
+import { getAssets } from "@/lib/api/platform";
+import { listResources } from "@/lib/api/resources";
 import { AUTHORS_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -72,9 +75,16 @@ if (Astro.request.method === "POST") {
 const preSelectedTypeId = submitted?.entry_type_id || Astro.url.searchParams.get("type");
 
 let entryTypes: EntryTypeRead[] = [];
+let pickerAssets: ReturnType<typeof assetItem>[] = [];
+let pickerResources: ReturnType<typeof resourceItem>[] = [];
 
 try {
   entryTypes = await listEntryTypes(authToken);
+  // For the schema's asset / resource fields; a failure here only leaves those pickers empty.
+  [pickerAssets, pickerResources] = await Promise.all([
+    getAssets(authToken).then((a) => a.map(assetItem)).catch(() => []),
+    listResources(authToken).then((r) => r.map(resourceItem)).catch(() => []),
+  ]);
 } catch (e) {
   error = e instanceof Error ? e.message : String(e);
   console.error("[NewEntry] Failed to load entry types:", error);
@@ -171,7 +181,7 @@ const preSelectedSchema =
 
           {/* Schema-driven content fields - dynamically populated */}
           <div id="schema-fields-container">
-            {preSelectedSchema && <SchemaForm schema={preSelectedSchema} values={submitted?.data_json ?? {}} />}
+            {preSelectedSchema && <SchemaForm schema={preSelectedSchema} values={submitted?.data_json ?? {}} assets={pickerAssets} resources={pickerResources} />}
           </div>
 
           <div class="form-group">
@@ -464,6 +474,15 @@ const preSelectedSchema =
         if (!selectedType || !selectedType.schemaJson || !selectedType.schemaJson.fields?.length) {
           schemaContainer.replaceChildren();
           if (dataJsonGroup) dataJsonGroup.style.display = 'none';
+          return;
+        }
+
+        // An asset or resource field needs the server-rendered picker (it carries the workspace's assets), so
+        // reload with the type chosen; every other type is drawn here.
+        if (selectedType.schemaJson.fields.some(f => ['asset', 'asset-list', 'resource', 'resource-list'].includes(f.type))) {
+          const url = new URL(window.location.href);
+          url.searchParams.set('type', selectedTypeId);
+          window.location.assign(url.toString());
           return;
         }
 

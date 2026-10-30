@@ -1,14 +1,11 @@
 ---
-import AssetField from "./schema-fields/AssetField.astro";
-import AssetListField from "./schema-fields/AssetListField.astro";
 import BooleanField from "./schema-fields/BooleanField.astro";
 import DateField from "./schema-fields/DateField.astro";
 import DateTimeField from "./schema-fields/DateTimeField.astro";
 import EmbedField from "./schema-fields/EmbedField.astro";
+import LinkedItemsField from "./schema-fields/LinkedItemsField.astro";
 import MarkdownField from "./schema-fields/MarkdownField.astro";
 import NumberField from "./schema-fields/NumberField.astro";
-import ResourceField from "./schema-fields/ResourceField.astro";
-import ResourceListField from "./schema-fields/ResourceListField.astro";
 import SelectField from "./schema-fields/SelectField.astro";
 import TextareaField from "./schema-fields/TextareaField.astro";
 /**
@@ -16,6 +13,7 @@ import TextareaField from "./schema-fields/TextareaField.astro";
  * Dynamically renders a form based on an entry type's schema definition
  */
 import TextField from "./schema-fields/TextField.astro";
+import type { LinkedItem } from "@/lib/linkedItems";
 
 export interface FieldSchema {
   key: string;
@@ -35,9 +33,12 @@ export interface Props {
   } | null;
   values?: Record<string, any>;
   errors?: Record<string, string>;
+  /** The workspace's assets and resources, for the asset / resource fields' pickers (lib/linkedItems.ts shapes them). */
+  assets?: LinkedItem[];
+  resources?: LinkedItem[];
 }
 
-const { schema, values = {}, errors = {} } = Astro.props;
+const { schema, values = {}, errors = {}, assets = [], resources = [] } = Astro.props;
 
 // If no schema provided, show empty state
 if (!schema?.fields || schema.fields.length === 0) {
@@ -88,19 +89,15 @@ function getFieldError(key: string) {
         return <DateTimeField field={field as any} value={value} error={error} />;
 
       case 'asset':
-        return <AssetField field={field as any} value={value} error={error} />;
-
       case 'asset-list':
-        return <AssetListField field={field as any} value={value} error={error} />;
+        return <LinkedItemsField field={field as any} value={value} error={error} items={assets} />;
 
       case 'embed':
         return <EmbedField field={field as any} value={value} error={error} />;
 
       case 'resource':
-        return <ResourceField field={field as any} value={value} error={error} />;
-
       case 'resource-list':
-        return <ResourceListField field={field as any} value={value} error={error} />;
+        return <LinkedItemsField field={field as any} value={value} error={error} items={resources} />;
 
       case 'json':
         // JSON field - allow free-form JSON input

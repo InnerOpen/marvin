@@ -18,6 +18,8 @@ export function fieldTypeMap(schemaJson: unknown): Record<string, string> {
 /** Coerce a raw form value (always a string) to its declared schema field type. */
 export function coerceDataJsonValue(fieldType: string | undefined, value: string): unknown {
   if (fieldType === "boolean") return value === "true";
+  // The asset-list / resource-list pickers post their ids joined by commas; the schema says the value is a list.
+  if (fieldType === "asset-list" || fieldType === "resource-list") return value.split(",").map((s) => s.trim()).filter(Boolean);
   if (value === "") return null;
   if (fieldType === "number") {
     const parsed = Number(value);

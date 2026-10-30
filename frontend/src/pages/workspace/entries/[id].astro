@@ -18,6 +18,7 @@ import { shareLinks } from "@/lib/shareLinks";
 import { restoresTo } from "@/lib/trash";
 import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
+import { assetItem, resourceItem } from "@/lib/linkedItems";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
 import { askPageAllowed, bubbleAllowed } from "@/lib/marvin/gate";
@@ -475,6 +476,8 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                 <SchemaForm
                   schema={entryType.schemaJson}
                   values={entry.dataJson || {}}
+                  assets={allAssets.map(assetItem)}
+                  resources={allResources.map(resourceItem)}
                 />
               </div>
             ) : (

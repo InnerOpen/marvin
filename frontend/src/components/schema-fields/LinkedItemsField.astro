@@ -1,0 +1,206 @@
+---
+/**
+ * LinkedItemsField: the `asset`, `asset-list`, `resource` and `resource-list` schema fields. The chosen items show as
+ * cards (an image asset with its thumbnail); "Choose…" opens a searchable list of the workspace's assets or resources,
+ * which the page loads and passes down (lib/linkedItems.ts has the pure parts). The hidden input posts the ids joined by
+ * commas; coerceDataJsonValue turns a list field's string back into an array.
+ */
+import { type LinkedItem, canAdd, chosen, idsOf, serialize } from "@/lib/linkedItems";
+
+export interface Props {
+  field: {
+    key: string;
+    label: string;
+    type: "asset" | "asset-list" | "resource" | "resource-list";
+    required?: boolean;
+    helpText?: string;
+    readOnly?: boolean;
+    min?: number | null;
+    max?: number | null;
+    minItems?: number | null;
+    maxItems?: number | null;
+  };
+  value?: unknown;
+  error?: string;
+  items: LinkedItem[];
+}
+
+const { field, value, error, items } = Astro.props;
+const isAsset = field.type.startsWith("asset");
+const multiple = field.type.endsWith("-list");
+const max = multiple ? (field.max ?? field.maxItems ?? null) : 1;
+const min = multiple ? (field.min ?? field.minItems ?? null) : null;
+const noun = isAsset ? "asset" : "resource";
+const ids = idsOf(value);
+const picked = chosen(ids, items);
+const inputId = `field-${field.key}`;
+const addable = canAdd(ids.length, multiple, max) && !field.readOnly;
+const newHref = isAsset ? "/workspace/assets/new" : "/workspace/resources/new";
+---
+
+<div class="field-group li-field" data-linked-field data-multiple={multiple ? "1" : ""} data-max={max ?? ""} data-noun={noun} data-readonly={field.readOnly ? "1" : ""}>
+  <label for={inputId}>
+    {field.label}
+    {field.required && <span class="required">*</span>}
+    {multiple && (min || max) && <span class="count-hint">({min ?? 0}{max ? `–${max}` : "+"} {noun}s)</span>}
+  </label>
+
+  <input type="hidden" id={inputId} name={`dataJson.${field.key}`} value={serialize(ids)} data-linked-value />
+
+  <ul class="li-chosen" data-linked-chosen>
+    {picked.map((item) => (
+      <li class="li-card" data-id={item.id}>
+        <span class="li-thumb">{item.imageUrl ? <img src={item.imageUrl} alt={item.alt || item.name} /> : <span aria-hidden="true">{isAsset ? "📄" : "🔗"}</span>}</span>
+        <span class="li-text"><strong>{item.name}</strong>{item.meta && <small>{item.meta}</small>}</span>
+        {!field.readOnly && <button type="button" class="li-remove" aria-label={`Remove ${item.name}`} data-linked-remove>×</button>}
+      </li>
+    ))}
+  </ul>
+
+  {!field.readOnly && (
+    <details class="li-picker" data-linked-picker>
+      <summary class:list={["button", "secondary", "li-choose", { "li-hidden": !addable }]} data-linked-choose>Choose {multiple ? `${noun}s` : `an ${noun}`}…</summary>
+      <div class="li-panel">
+        <input type="search" class="li-search" placeholder={`Search ${noun}s…`} aria-label={`Search ${noun}s`} data-linked-search />
+        <ul class="li-options" data-linked-options>
+          {items.map((item) => (
+            <li class="li-card li-option" data-id={item.id} data-name={item.name} data-meta={item.meta ?? ""} data-image={item.imageUrl ?? ""} data-alt={item.alt ?? ""} hidden={ids.includes(item.id)}>
+              <span class="li-thumb">{item.imageUrl ? <img src={item.imageUrl} alt={item.alt || item.name} loading="lazy" /> : <span aria-hidden="true">{isAsset ? "📄" : "🔗"}</span>}</span>
+              <span class="li-text"><strong>{item.name}</strong>{item.meta && <small>{item.meta}</small>}</span>
+              <button type="button" class="li-add" aria-label={`Add ${item.name}`} data-linked-add>+</button>
+            </li>
+          ))}
+          {items.length === 0 && <li class="li-empty">No {noun}s yet. <a href={newHref}>Add one</a>.</li>}
+        </ul>
+        <p class="li-none" data-linked-none hidden>Nothing matches.</p>
+      </div>
+    </details>
+  )}
+
+  {field.helpText && <p class="field-help">{field.helpText}</p>}
+  {error && <p class="field-error">{error}</p>}
+</div>
+
+<style is:global>
+  /* Global, scoped by the .li-field wrapper: the picker script adds cards after render, and Astro's scoped styles would miss them. */
+  .li-field { display: grid; gap: 0.5rem; }
+  .li-field > label { font-weight: 600; font-size: 0.875rem; color: var(--ink); }
+  .li-field .required { color: var(--color-error); margin-left: 2px; }
+  .li-field .count-hint { font-weight: 400; color: var(--muted); margin-left: 6px; font-size: 0.8em; }
+  .li-field .li-chosen, .li-field .li-options { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .li-field .li-chosen:empty { display: none; }
+  .li-field .li-card { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+  .li-field .li-thumb { flex: 0 0 44px; width: 44px; height: 44px; border-radius: 6px; overflow: hidden; display: grid; place-items: center; background: var(--panel); font-size: 18px; }
+  .li-field .li-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .li-field .li-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+  .li-field .li-text strong { font-size: 0.875rem; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .li-field .li-text small { color: var(--muted); font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .li-field .li-remove, .li-field .li-add { flex: 0 0 auto; width: 28px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; display: grid; place-items: center; }
+  .li-field .li-remove:hover { color: var(--color-error); border-color: var(--color-error); }
+  .li-field .li-add:hover { color: var(--color-primary); border-color: var(--color-primary); }
+  .li-field .li-picker { position: relative; }
+  .li-field .li-picker summary { list-style: none; display: inline-flex; width: max-content; cursor: pointer; }
+  .li-field .li-picker summary::-webkit-details-marker { display: none; }
+  .li-field .li-hidden { display: none !important; }
+  .li-field .li-panel { margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); display: grid; gap: 8px; }
+  .li-field .li-search { width: 100%; box-sizing: border-box; padding: 0.5rem 0.75rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 0.875rem; }
+  .li-field .li-options { max-height: 280px; overflow: auto; }
+  .li-field .li-option[hidden] { display: none; }
+  .li-field .li-empty, .li-field .li-none { margin: 0; padding: 6px 2px; color: var(--muted); font-size: 0.8rem; }
+  .li-field .field-help, .li-field .field-error { margin: 0; font-size: 0.75rem; color: var(--muted); }
+  .li-field .field-error { color: var(--color-error); }
+</style>
+
+<script>
+  import { canAdd, matches, serialize } from "@/lib/linkedItems";
+
+  // Each field keeps its ids in the hidden input; the cards and the option list are redrawn from it, so the page's own
+  // "unsaved changes" tracking (a change event on the input) keeps working.
+  document.querySelectorAll<HTMLElement>("[data-linked-field]").forEach((root) => {
+    const input = root.querySelector<HTMLInputElement>("[data-linked-value]")!;
+    const chosenEl = root.querySelector<HTMLUListElement>("[data-linked-chosen]")!;
+    const picker = root.querySelector<HTMLDetailsElement>("[data-linked-picker]");
+    if (root.dataset.readonly || !picker) return;
+    const choose = picker.querySelector<HTMLElement>("[data-linked-choose]")!;
+    const search = picker.querySelector<HTMLInputElement>("[data-linked-search]")!;
+    const options = Array.from(picker.querySelectorAll<HTMLLIElement>(".li-option"));
+    const none = picker.querySelector<HTMLElement>("[data-linked-none]")!;
+    const multiple = root.dataset.multiple === "1";
+    const max = root.dataset.max ? Number(root.dataset.max) : null;
+    const isAsset = root.dataset.noun === "asset";
+
+    const ids = () => input.value.split(",").map((s) => s.trim()).filter(Boolean);
+    const setIds = (next: string[]) => {
+      input.value = serialize(next);
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      refresh();
+    };
+
+    function card(option: HTMLLIElement): HTMLLIElement {
+      const li = document.createElement("li");
+      li.className = "li-card";
+      li.dataset.id = option.dataset.id!;
+      const thumb = document.createElement("span");
+      thumb.className = "li-thumb";
+      if (option.dataset.image) {
+        const img = document.createElement("img");
+        img.src = option.dataset.image;
+        img.alt = option.dataset.alt || option.dataset.name || "";
+        thumb.append(img);
+      } else {
+        thumb.textContent = isAsset ? "📄" : "🔗";
+      }
+      const text = document.createElement("span");
+      text.className = "li-text";
+      const name = document.createElement("strong");
+      name.textContent = option.dataset.name || "";
+      text.append(name);
+      if (option.dataset.meta) {
+        const meta = document.createElement("small");
+        meta.textContent = option.dataset.meta;
+        text.append(meta);
+      }
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "li-remove";
+      remove.textContent = "×";
+      remove.setAttribute("aria-label", `Remove ${option.dataset.name || ""}`);
+      remove.dataset.linkedRemove = "";
+      li.append(thumb, text, remove);
+      return li;
+    }
+
+    function refresh() {
+      const current = ids();
+      options.forEach((o) => (o.hidden = current.includes(o.dataset.id!) || !matches({ id: o.dataset.id!, name: o.dataset.name || "", meta: o.dataset.meta }, search.value)));
+      none.hidden = options.some((o) => !o.hidden) || options.length === 0;
+      choose.classList.toggle("li-hidden", !canAdd(current.length, multiple, max));
+      if (!canAdd(current.length, multiple, max)) picker.open = false;
+    }
+
+    chosenEl.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-linked-remove]");
+      if (!btn) return;
+      const li = btn.closest<HTMLLIElement>(".li-card")!;
+      li.remove();
+      setIds(ids().filter((id) => id !== li.dataset.id));
+    });
+
+    picker.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-linked-add]");
+      if (!btn) return;
+      const option = btn.closest<HTMLLIElement>(".li-option")!;
+      const current = ids();
+      if (!canAdd(current.length, multiple, max)) return;
+      chosenEl.append(card(option));
+      setIds([...current, option.dataset.id!]);
+      if (!multiple) picker.open = false;
+      search.value = "";
+    });
+
+    search.addEventListener("input", refresh);
+    picker.addEventListener("toggle", () => picker.open && search.focus());
+    refresh();
+  });
+</script>
