@@ -148,6 +148,9 @@ class AssetFieldSchema(BaseFieldSchema):
     """A single linked asset (image/file). Value is an asset id."""
 
     type: Literal["asset"]
+    role: str | None = None
+    """The role the attachment gets (``hero``, ``gallery``): what the site renderer and the completeness contract look for.
+    Defaults to the field's key."""
     model_config = ConfigDict(extra="allow")
 
 
@@ -157,6 +160,9 @@ class AssetListFieldSchema(BaseFieldSchema):
     type: Literal["asset-list"]
     min: int | None = None
     max: int | None = None
+    role: str | None = None
+    """The role the attachment gets (``hero``, ``gallery``): what the site renderer and the completeness contract look for.
+    Defaults to the field's key."""
     model_config = ConfigDict(extra="allow")
 
 
@@ -164,6 +170,9 @@ class ResourceFieldSchema(BaseFieldSchema):
     """A single linked resource. Value is a resource id."""
 
     type: Literal["resource"]
+    role: str | None = None
+    """The role the attachment gets (``hero``, ``gallery``): what the site renderer and the completeness contract look for.
+    Defaults to the field's key."""
     model_config = ConfigDict(extra="allow")
 
 
@@ -173,6 +182,9 @@ class ResourceListFieldSchema(BaseFieldSchema):
     type: Literal["resource-list"]
     min: int | None = None
     max: int | None = None
+    role: str | None = None
+    """The role the attachment gets (``hero``, ``gallery``): what the site renderer and the completeness contract look for.
+    Defaults to the field's key."""
     model_config = ConfigDict(extra="allow")
 
 

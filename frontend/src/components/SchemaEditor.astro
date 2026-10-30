@@ -413,6 +413,7 @@ try {
   }
 
   const formHelp = (text) => el('p', { className: 'form-help' }, text);
+  const LINKED_TYPES = ['asset', 'asset-list', 'resource', 'resource-list'];
   const labelHint = (text) => el('span', { className: 'field-label-hint' }, text);
 
   // The header's "Placeholder: … / Help: … / AI: …" summary items for a field.
@@ -541,6 +542,17 @@ try {
         formGroup('', 'Max Value', inputEl('field-max', field.max ?? '', 'Optional', { type: 'number' })),
       );
     }
+    if (LINKED_TYPES.includes(field.type)) {
+      const noun = field.type.startsWith('asset') ? 'asset' : 'resource';
+      body.append(
+        formGroup(
+          'full-width',
+          ['Attach as role ', labelHint(`— the ${noun} chosen here is attached to the entry with this role`)],
+          inputEl('field-role', field.role || '', `Defaults to the key (${field.key || 'e.g. hero'})`),
+          formHelp(noun === 'asset' ? 'The site reads images by role: "hero" for the main image, "gallery", "thumbnail"…' : 'A role lets a template pick these resources apart from others attached by hand.'),
+        ),
+      );
+    }
 
     div.append(el('div', { className: 'field-editor-header' }, title, actions), body);
 
@@ -579,7 +591,7 @@ try {
     });
 
     // Update field on other input changes (placeholder, help text, type, required, etc.)
-    div.querySelectorAll('.field-placeholder, .field-help-text, .field-ai-hint, .field-type, .field-required, .field-options, .field-min, .field-max, .field-providers, .field-auto-embed').forEach(input => {
+    div.querySelectorAll('.field-placeholder, .field-help-text, .field-ai-hint, .field-type, .field-required, .field-options, .field-min, .field-max, .field-role, .field-providers, .field-auto-embed').forEach(input => {
       input.addEventListener('input', () => updateField(index, div));
     });
 
@@ -630,6 +642,18 @@ try {
       }
     } else {
       delete field.autoEmbed;
+    }
+
+    // Asset / resource fields attach what they name; `role` is the attachment's role (default: the key).
+    if (LINKED_TYPES.includes(field.type)) {
+      const roleInput = fieldEl.querySelector('.field-role');
+      if (roleInput) {
+        const role = roleInput.value.trim();
+        if (role) field.role = role;
+        else delete field.role;
+      }
+    } else {
+      delete field.role;
     }
 
     if (field.type === 'number') {

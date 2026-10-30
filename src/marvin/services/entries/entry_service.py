@@ -184,6 +184,7 @@ class EntryService:
         """Create an entry and emit `entry_created` (at `reaction_depth`: a workflow's create chains at depth+1).
         `data_dict` should already carry created_by."""
         entry = self.repos.entries.create(data_dict)
+        entry = self._sync_linked_fields(entry)
         names = self._names(entry)
         self._emit(entry, EventTypes.entry_created, EventOperation.create, f"Entry '{entry.title}' created", names, reaction_depth=reaction_depth)
         return entry
@@ -201,8 +202,23 @@ class EntryService:
                 return replaced
         data = self._trash_bookkeeping(old, data)
         entry = self.repos.entries.update(entry_id, data)
+        entry = self._sync_linked_fields(entry)
         self._emit_updated_and_transitions(old, entry, "updated", reaction_depth)
         return entry
+
+    def _sync_linked_fields(self, entry):
+        """An asset / resource field of the type's schema is a simple way to attach: what it names is attached with the
+        field's key as the role (services/entries/linked_fields.py). Runs after the write, so a payload that replaces the
+        attachments wholesale (the editor sends them all) does not undo it. Returns the entry, re-read when it changed."""
+        from marvin.db.models.platform.entries import Entries
+        from marvin.services.entries.linked_fields import sync_linked_fields
+
+        orm = self.session.get(Entries, entry.id)
+        etype = self.repos.entry_types.get_one(entry.entry_type_id) if orm is not None and getattr(entry, "entry_type_id", None) else None
+        schema = getattr(etype, "content_schema", None)  # EntryTypeRead's name for schema_json
+        if orm is None or etype is None or not sync_linked_fields(self.session, orm, schema):
+            return entry
+        return self.repos.entries.get_one(entry.id)
 
     def _publish_playbook_change(self, old, reaction_depth: int):
         """Publishing a proposed Playbook change (a draft whose ``replaces`` names a published Playbook) replaces that

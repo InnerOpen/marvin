@@ -63,6 +63,7 @@ class WorkspaceBootstrapService:
                         "key": "heroImage",
                         "label": "Hero Image",
                         "type": "asset",
+                        "role": "hero",
                         "required": False,
                     },
                 ]
