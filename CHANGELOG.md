@@ -6,6 +6,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.73 (2026-10-30)
+
+### Features
+
+- **entries**: An asset or resource field attaches what it names, with a role the entry type chooses
+  ([`47b79a4`](https://github.com/InnerOpen/marvin/commit/47b79a466be2b0465d9bf33135bce54b5a9e1932))
+
+- **entries**: Asset and resource schema fields get a picker — choose from the workspace's list, no
+  more UUIDs
+  ([`c23cedb`](https://github.com/InnerOpen/marvin/commit/c23cedb66a9972904c8c3a6a6564f01f63375aa6))
+
+
 ## v1.1.0-rc.72 (2026-10-28)
 
 ### Bug Fixes
