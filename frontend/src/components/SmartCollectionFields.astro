@@ -122,7 +122,7 @@ const vocabJson = JSON.stringify({ entryTypes, tags }).replace(/</g, "\\u003c");
       </label>
       <label class="sr-row" data-target="resource">
         <span class="sr-label">Resource types <span class="form-help">comma-separated</span></span>
-        <input class="sr-input" id="sr-resource-types" placeholder="e.g. fabric, tool, supplier" />
+        <input class="sr-input" id="sr-resource-types" placeholder="e.g. supplier, tool, source" />
       </label>
       <div class="sr-row">
         <span class="sr-label">Tags <span class="form-help">has any of these</span></span>
@@ -167,15 +167,15 @@ const vocabJson = JSON.stringify({ entryTypes, tags }).replace(/</g, "\\u003c");
           <li><code>made_from</code> — the versions made from these assets, by slug or id</li>
         </ul>
         <ul data-target="resource" hidden>
-          <li><code>resource_types</code> — resource-type values, e.g. <code>["fabric", "tool", "supplier"]</code></li>
+          <li><code>resource_types</code> — resource-type values, e.g. <code>["supplier", "tool", "source"]</code></li>
         </ul>
         <ul>
-          <li><code>tags</code> — tag slugs or names, e.g. <code>["waxed-canvas", "workwear"]</code></li>
+          <li><code>tags</code> — tag slugs or names, e.g. <code>["preferred", "archive"]</code></li>
           <li><code>created_within_days</code> — created in the last N days</li>
           <li><code>match</code> — <code>"all"</code> (default, every rule must hold) or <code>"any"</code></li>
         </ul>
         <p class="smart-help-example">
-          Example: <code data-target="entry">{'{"entry_types": ["article"], "statuses": ["published"]}'}</code><code data-target="asset" hidden>{'{"asset_types": ["image"], "tags": ["hero"]}'}</code><code data-target="resource" hidden>{'{"resource_types": ["fabric"], "tags": ["waxed-canvas"], "match": "any"}'}</code>
+          Example: <code data-target="entry">{'{"entry_types": ["article"], "statuses": ["published"]}'}</code><code data-target="asset" hidden>{'{"asset_types": ["image"], "tags": ["hero"]}'}</code><code data-target="resource" hidden>{'{"resource_types": ["supplier"], "tags": ["preferred"], "match": "any"}'}</code>
         </p>
       </div>
     </div>
@@ -241,7 +241,7 @@ const vocabJson = JSON.stringify({ entryTypes, tags }).replace(/</g, "\\u003c");
   const PLACEHOLDERS: Record<string, string> = {
     entry: '{\n  "entry_types": ["article"],\n  "statuses": ["published"]\n}',
     asset: '{\n  "asset_types": ["image"],\n  "tags": ["hero"]\n}',
-    resource: '{\n  "resource_types": ["fabric"],\n  "tags": ["waxed-canvas"]\n}',
+    resource: '{\n  "resource_types": ["supplier"],\n  "tags": ["preferred"]\n}',
   };
 
   const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T | null;
