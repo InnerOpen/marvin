@@ -31,6 +31,9 @@ from tests.test_dashboard_panels import _entry, _run, _workflow, workspace, ws  
 _CLOCK = datetime.now(UTC).replace(microsecond=0)
 NOW = _CLOCK if _CLOCK.hour >= 3 else _CLOCK - timedelta(hours=_CLOCK.hour + 1)
 HOUR, DAY = timedelta(hours=1), timedelta(days=1)
+# The two AI runs are seeded today and yesterday; the overview's spend "this month" counts from the 1st, so on the 1st
+# yesterday's run belongs to last month and only today's counts (the spend chart is a window of days and sees both).
+MONTH_SPEND = 0.75 if (NOW - DAY).month == NOW.month else 0.5
 
 
 @pytest.fixture
@@ -151,7 +154,7 @@ def test_every_admin_overview_widget_has_its_data(seeded):
     overview = admin_overview.overview(ws.session, NOW)
     assert overview.health, "no health dots"
     mine = next(r for r in overview.workspaces if r.id == str(ws.gid))
-    assert mine.entries >= 4 and mine.ai_spend_month == pytest.approx(0.75) and mine.last_activity is not None
+    assert mine.entries >= 4 and mine.ai_spend_month == pytest.approx(MONTH_SPEND) and mine.last_activity is not None
     assert sum(d.cost for d in overview.spend) == pytest.approx(0.75) and sum(d.runs for d in overview.spend) == 2
     assert overview.spend[-1].cost == pytest.approx(0.5)
     assert any(s.user_id == str(ws.uid) for s in overview.sign_ins)
