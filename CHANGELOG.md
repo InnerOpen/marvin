@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.75 (2026-11-01)
+
+### Bug Fixes
+
+- **settings**: Say which Automation section the tab's count belongs to
+  ([`17a25df`](https://github.com/InnerOpen/marvin/commit/17a25df8d82eac126a923a1ea4905c9f74d45938))
+
+
 ## v1.1.0-rc.74 (2026-11-01)
 
 ### Bug Fixes
