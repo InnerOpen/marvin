@@ -106,7 +106,9 @@ export function mountOrganizedList<T>(options: MountOptions<T>) {
       button.disabled = true;
       button.textContent = "Deleting…";
       try {
-        await deleteRemovedIntegrationItems(rd.kind);
+        const result = await deleteRemovedIntegrationItems(rd.kind);
+        // Never reload into an unchanged list without a word: the page is stale if the server found nothing.
+        if (result.deleted === 0) throw new Error("Nothing was deleted: this list is out of date. Reload the page and try again.");
         close();
         (rd.onDeleted ?? (() => location.reload()))();
       } catch (e) {

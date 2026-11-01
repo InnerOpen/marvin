@@ -13,5 +13,3 @@ class RemovedIntegrationDeleted(_MarvinModel):
     """How many items were deleted."""
     names: list[str]
     """Their names, as they were."""
-    skipped: int = 0
-    """Items with a blueprint and no integration that were left alone because the provider's connection is still here."""

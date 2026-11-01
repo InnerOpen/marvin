@@ -4,7 +4,7 @@
 An integration's delete sets ``source_integration_id`` to NULL on everything it installed (ON DELETE SET NULL) and leaves
 ``source_blueprint``, so a removed-integration item is one with a blueprint and no integration. Driven at the REST seam
 (``DELETE /api/groups/removed-integration-items/{kind}``): ADMIN only, one kind at a time, only this workspace's removed items,
-never an item of a live integration or one a person made.
+never an item of a live integration or one a person made; what the section lists is what goes.
 """
 
 import uuid
@@ -151,19 +151,20 @@ def test_a_workflows_backing_schedule_goes_with_it(workspace, db_session):
     assert _names(db_session, ScheduledTaskModel, workspace.gid) == set()
 
 
-def test_an_item_whose_providers_connection_is_still_here_is_skipped(workspace, db_session, monkeypatch):
-    """No connection could be told at install (two of one provider): blueprint set, integration NULL, yet not removed."""
-    from marvin.services.automation import removed_integration as removed
-
+def test_a_sibling_connection_of_the_same_provider_does_not_keep_the_leftovers(workspace, db_session):
+    """A sandbox connection deleted, a production one of the same provider left: its six workflows are removed ones and go.
+    The section lists them by that rule and the person confirmed them by name, so the server deletes exactly that list."""
     gid = workspace.gid
     _live_integration(db_session, gid, provider="acme")
-    _make("workflows", db_session, gid, "ambiguous", source_blueprint="acme-flow")
+    _make("workflows", db_session, gid, "left by the old acme", source_blueprint="acme-flow")
     _make("workflows", db_session, gid, "orphan", source_blueprint="other-flow")
     db_session.commit()
-    monkeypatch.setattr(removed, "_provider_of", lambda slug: {"acme-flow": "acme"}.get(slug))  # the catalog's slug -> provider
     res = gates._sign_in(workspace, AD).delete(f"{URL}/workflows")
 
-    assert res.json()["names"] == ["orphan"] and res.json()["skipped"] == 1
+    assert res.status_code == 200 and res.json()["names"] == ["left by the old acme", "orphan"]
+    assert "skipped" not in res.json()
+    db_session.expire_all()
+    assert _names(db_session, WorkspaceAutomationModel, gid) == set()
 
 
 def test_an_unknown_kind_is_a_422(workspace):

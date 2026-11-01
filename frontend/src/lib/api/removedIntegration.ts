@@ -11,8 +11,6 @@ export interface RemovedIntegrationDeleted {
   kind: RemovedKind;
   deleted: number;
   names: string[];
-  /** Left alone: the provider's connection is still here, so the item may not be a removed one's. */
-  skipped: number;
 }
 
 export async function deleteRemovedIntegrationItems(kind: RemovedKind): Promise<RemovedIntegrationDeleted> {
