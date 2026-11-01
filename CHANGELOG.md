@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.76 (2026-11-01)
+
+### Bug Fixes
+
+- **resources**: Say what a resource is, in words that fit any workspace
+  ([`b6814da`](https://github.com/InnerOpen/marvin/commit/b6814daf5f6c3c7111634e9b0c9f621f7d5d6c1b))
+
+
 ## v1.1.0-rc.75 (2026-11-01)
 
 ### Bug Fixes
