@@ -1284,7 +1284,7 @@ plugins = [
     { name = "marvin-integration-n8n", git = "https://github.com/InnerOpen/marvin-integration-n8n?rev=v0.4.1" },
     { name = "marvin-integration-openai-images", git = "https://github.com/InnerOpen/marvin-integration-openai-images?rev=v0.4.0" },
     { name = "marvin-integration-slack", git = "https://github.com/InnerOpen/marvin-integration-slack?rev=v0.5.0" },
-    { name = "marvin-integration-square", git = "https://github.com/InnerOpen/marvin-integration-square?rev=v0.5.1" },
+    { name = "marvin-integration-square", git = "https://github.com/InnerOpen/marvin-integration-square?rev=v0.6.0" },
     { name = "marvin-storage-s3", git = "https://github.com/InnerOpen/marvin-storage-s3?rev=v0.5.0" },
 ]
 vault = [{ name = "hvac", specifier = ">=2.0" }]
@@ -1414,8 +1414,8 @@ dependencies = [
 
 [[package]]
 name = "marvin-integration-square"
-version = "0.5.1"
-source = { git = "https://github.com/InnerOpen/marvin-integration-square?rev=v0.5.1#f36da853ede82d3f559ddea49b9c9cbff41acebd" }
+version = "0.6.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-square?rev=v0.6.0#43873f7aadaf8aeeda2ba4f21b2af7de2e53d21b" }
 dependencies = [
     { name = "marvin-integration-sdk" },
 ]
