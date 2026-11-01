@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.77 (2026-11-01)
+
+### Bug Fixes
+
+- **content**: Centre the sentence in an empty list's placeholder
+  ([`a445a71`](https://github.com/InnerOpen/marvin/commit/a445a71faa0555bef392751ef73fd97855ae2f6e))
+
+
 ## v1.1.0-rc.76 (2026-11-01)
 
 ### Bug Fixes
