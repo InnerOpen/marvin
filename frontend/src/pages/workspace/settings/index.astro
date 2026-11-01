@@ -79,6 +79,11 @@ const resultsSummary = currentTab === "automation" ? await getResultsSummary(aut
 // What needs a look in Automation, as a count on the tab (admins only: others get a 403, so no count).
 const automationAttention = await getAutomationAttention(authToken!).catch(() => null);
 const automationCount = countBadge(automationAttention?.total);
+// The same count on each kind's card, so the tab's number can be traced to its section: a pill by the title, the
+// description says it in words, and the card opens the list filtered to Needs attention.
+const kinds = automationAttention?.kinds ?? {};
+const lookText = (n: number | null | undefined) => ((n ?? 0) > 0 ? ` · ${n} need${n === 1 ? "s" : ""} a look` : "");
+const attentionHref = (id: string, n: number | null | undefined) => ((n ?? 0) > 0 ? `${navHref(id)}?status=attention` : navHref(id));
 
 const tabs = [
   { id: "general", label: "General", icon: "⚙" },
@@ -239,11 +244,11 @@ const tabs = [
           <p class="section-description">Events, webhooks, and automated workflows</p>
 
           <div class="quick-links">
-            <a href={navHref("automation.workflows")} class="link-card">
-              <strong>{navTitle("automation.workflows")}</strong>
+            <a href={attentionHref("automation.workflows", kinds.workflows)} class="link-card">
+              <strong>{navTitle("automation.workflows")}{countBadge(kinds.workflows) && <span class="tab-count" aria-hidden="true">{countBadge(kinds.workflows)}</span>}</strong>
               <p>
                 When X happens, run steps automatically (AI optional)
-                {(automationAttention?.kinds?.workflows ?? 0) > 0 && ` · ${automationAttention?.kinds?.workflows} need a look`}
+                {lookText(kinds.workflows)}
               </p>
             </a>
             <a href={navHref("automation.library")} class="link-card">
@@ -256,10 +261,10 @@ const tabs = [
             </a>
             {showResults(resultsSummary) && (
               <a href={navHref("automation.results")} class="link-card">
-                <strong>{navTitle("automation.results")}</strong>
+                <strong>{navTitle("automation.results")}{countBadge(resultsSummary?.attention) && <span class="tab-count" aria-hidden="true">{countBadge(resultsSummary?.attention)}</span>}</strong>
                 <p>
                   What happened to the work handed to other systems — in flight, no reply, failed or done
-                  {(resultsSummary?.attention ?? 0) > 0 && ` · ${resultsSummary?.attention} need a look`}
+                  {lookText(resultsSummary?.attention)}
                 </p>
               </a>
             )}
@@ -267,11 +272,11 @@ const tabs = [
               <strong>{navTitle("automation.events")}</strong>
               <p>Monitor workspace event system</p>
             </a>
-            <a href={navHref("automation.webhooks")} class="link-card">
-              <strong>{navTitle("automation.webhooks")}</strong>
+            <a href={attentionHref("automation.webhooks", kinds.outgoing_webhooks)} class="link-card">
+              <strong>{navTitle("automation.webhooks")}{countBadge(kinds.outgoing_webhooks) && <span class="tab-count" aria-hidden="true">{countBadge(kinds.outgoing_webhooks)}</span>}</strong>
               <p>
                 Outgoing HTTP callbacks on events and schedules
-                {(automationAttention?.kinds?.outgoing_webhooks ?? 0) > 0 && ` · ${automationAttention?.kinds?.outgoing_webhooks} need a look`}
+                {lookText(kinds.outgoing_webhooks)}
               </p>
             </a>
             <a href={navHref("automation.custom-events")} class="link-card">
@@ -282,22 +287,22 @@ const tabs = [
               <strong>{navTitle("automation.metrics")}</strong>
               <p>Numbers workflows recorded per variant and window — observations, not conclusions</p>
             </a>
-            <a href={navHref("automation.incoming-webhooks")} class="link-card">
-              <strong>{navTitle("automation.incoming-webhooks")}</strong>
+            <a href={attentionHref("automation.incoming-webhooks", kinds.incoming_webhooks)} class="link-card">
+              <strong>{navTitle("automation.incoming-webhooks")}{countBadge(kinds.incoming_webhooks) && <span class="tab-count" aria-hidden="true">{countBadge(kinds.incoming_webhooks)}</span>}</strong>
               <p>
                 Tokened URLs external systems POST to, to trigger workflows
-                {(automationAttention?.kinds?.incoming_webhooks ?? 0) > 0 && ` · ${automationAttention?.kinds?.incoming_webhooks} need a look`}
+                {lookText(kinds.incoming_webhooks)}
               </p>
             </a>
             <a href={navHref("automation.notifications")} class="link-card">
               <strong>{navTitle("automation.notifications")}</strong>
               <p>Where failing workflows, tasks and integrations are announced — email, Slack, Apprise</p>
             </a>
-            <a href={navHref("automation.scheduled-tasks")} class="link-card">
-              <strong>{navTitle("automation.scheduled-tasks")}</strong>
+            <a href={attentionHref("automation.scheduled-tasks", kinds.scheduled_tasks)} class="link-card">
+              <strong>{navTitle("automation.scheduled-tasks")}{countBadge(kinds.scheduled_tasks) && <span class="tab-count" aria-hidden="true">{countBadge(kinds.scheduled_tasks)}</span>}</strong>
               <p>
                 Recurring jobs: yours, your integrations' and Marvin's own
-                {(automationAttention?.kinds?.scheduled_tasks ?? 0) > 0 && ` · ${automationAttention?.kinds?.scheduled_tasks} need a look`}
+                {lookText(kinds.scheduled_tasks)}
               </p>
             </a>
             <a href={navHref("automation.event-log")} class="link-card">
@@ -582,6 +587,12 @@ const tabs = [
   .link-card strong {
     font-size: 15px;
     font-weight: 600;
+  }
+
+  .link-card .tab-count {
+    display: inline-block;
+    margin-left: 8px;
+    vertical-align: middle;
   }
 
   .link-card p {
