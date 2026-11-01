@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.74 (2026-11-01)
+
+### Bug Fixes
+
+- **automation**: "Delete all of these" deletes what the section lists
+  ([`be18b93`](https://github.com/InnerOpen/marvin/commit/be18b93663297a8e9d68a57a3c06d378f3e76eb5))
+
+
 ## v1.1.0-rc.73 (2026-10-30)
 
 ### Features
