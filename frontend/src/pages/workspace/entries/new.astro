@@ -61,7 +61,15 @@ if (Astro.request.method === "POST") {
       status: formData.get("status") as string,
       data_json: Object.keys(dataJson).length > 0 ? dataJson : {},
     };
-    submitted = data;
+    // Started from an asset (the asset page's "New entry from this asset"): when the type has an image field, the
+    // asset is already its value and saving attaches it in the field's role; otherwise attach it plainly, in the
+    // role typed (what the site reads the main image by), or with none.
+    const fromAssetId = (formData.get("asset_id") as string | null) || null;
+    const namedByAField = Object.values(dataJson).some((v) => v === fromAssetId || (Array.isArray(v) && v.includes(fromAssetId)));
+    if (fromAssetId && !namedByAField) {
+      data.asset_attachments = [{ asset_id: fromAssetId, role: ((formData.get("asset_role") as string | null) || "").trim() || null }];
+    }
+    submitted = { ...data, _asset_id: fromAssetId, _asset_role: (formData.get("asset_role") as string | null) || "" };
 
     const entry = await createEntry(data, authToken);
     return Astro.redirect(`/workspace/entries/${entry.id}`);
@@ -73,6 +81,8 @@ if (Astro.request.method === "POST") {
 
 // Get pre-selected type from a failed submission, or the query parameter (e.g., from Quick Create)
 const preSelectedTypeId = submitted?.entry_type_id || Astro.url.searchParams.get("type");
+// The asset this entry starts from (?asset=<id>, kept across the reload a type change makes).
+const fromAssetId: string | null = submitted?._asset_id ?? Astro.url.searchParams.get("asset");
 
 let entryTypes: EntryTypeRead[] = [];
 let pickerAssets: ReturnType<typeof assetItem>[] = [];
@@ -94,10 +104,15 @@ const sortedTypes = listedTypes(entryTypes).sort((a, b) => a.sortOrder - b.sortO
 
 // Get pre-selected entry type schema if available
 const preSelectedType = preSelectedTypeId ? entryTypes.find((t) => t.id === preSelectedTypeId) : null;
+const fromAsset = fromAssetId ? (pickerAssets.find((a) => a.id === fromAssetId) ?? null) : null;
 const preSelectedSchema =
   preSelectedType?.schemaJson && (preSelectedType.schemaJson as any).fields?.length > 0
     ? preSelectedType.schemaJson
     : null;
+// With a type chosen, the asset the entry starts from goes into its first image field (saving attaches it in that
+// field's role); a type without one gets it as a plain attachment, with the role typed below.
+const assetField = fromAsset ? ((preSelectedSchema as any)?.fields?.find((f: any) => f.type === "asset" || f.type === "asset-list") ?? null) : null;
+const prefill: Record<string, unknown> = fromAsset && assetField ? { [assetField.key]: assetField.type === "asset-list" ? [fromAsset.id] : fromAsset.id } : {};
 ---
 
 <AppLayout restrictedNote={access.canAuthor ? null : AUTHORS_ONLY} title="New Entry" eyebrow="Entries">
@@ -140,9 +155,28 @@ const preSelectedSchema =
               name="title"
               required
               placeholder="e.g., My First Project"
-              value={submitted?.title ?? ""}
+              value={submitted?.title ?? fromAsset?.name ?? ""}
             />
           </div>
+
+          {fromAsset && (
+            <div class="form-group from-asset">
+              <input type="hidden" name="asset_id" value={fromAsset.id} />
+              <label for="asset_role">From the asset</label>
+              <div class="from-asset-card">
+                {fromAsset.imageUrl ? <img src={fromAsset.imageUrl} alt={fromAsset.alt || fromAsset.name} /> : <span aria-hidden="true">📄</span>}
+                <span>{fromAsset.name}</span>
+              </div>
+              {assetField ? (
+                <p class="form-help">It fills the {assetField.label || assetField.key} field below and is attached when you save.</p>
+              ) : (
+                <>
+                  <input type="text" id="asset_role" name="asset_role" placeholder="e.g. featured, hero" value={submitted?._asset_role ?? ""} />
+                  <p class="form-help">Attached to the new entry in this role — the one your site reads the main image by. Leave it empty to attach it without one.</p>
+                </>
+              )}
+            </div>
+          )}
 
           <div class="form-group">
             <label for="slug">Slug</label>
@@ -181,7 +215,7 @@ const preSelectedSchema =
 
           {/* Schema-driven content fields - dynamically populated */}
           <div id="schema-fields-container">
-            {preSelectedSchema && <SchemaForm schema={preSelectedSchema} values={submitted?.data_json ?? {}} assets={pickerAssets} resources={pickerResources} />}
+            {preSelectedSchema && <SchemaForm schema={preSelectedSchema} values={submitted?.data_json ?? prefill} assets={pickerAssets} resources={pickerResources} />}
           </div>
 
           <div class="form-group">
@@ -234,6 +268,8 @@ const preSelectedSchema =
 </AppLayout>
 
 <style>
+  .from-asset-card { display: flex; align-items: center; gap: 0.75rem; margin: 0.25rem 0 0.5rem; }
+  .from-asset-card img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); }
   .error-banner {
     padding: 1.5rem;
     background: var(--color-error-bg);

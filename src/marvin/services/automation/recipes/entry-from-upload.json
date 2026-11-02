@@ -1,0 +1,31 @@
+{
+  "name": "An entry for every picture uploaded",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "asset_uploaded"
+    },
+    "conditions": [
+      {
+        "field": "asset.mime_type",
+        "op": "starts_with",
+        "value": "image/"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{picture_entry_type}}",
+        "title": "${asset.name}",
+        "status": "draft",
+        "data": {
+          "{{image_field}}": "${asset.id}"
+        },
+        "metadata": {
+          "source_asset": "${asset.slug}"
+        }
+      }
+    ]
+  }
+}

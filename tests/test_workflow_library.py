@@ -317,7 +317,7 @@ def ws(db_session, monkeypatch):
         "article": ([_field("body", "markdown", required=True), _field("project")], "/articles/{slug}", None),
         "campaign": ([_field("utm_source"), _field("utm_medium")], "/campaigns/{slug}", None),
         "contact-request": ([_field("email"), _field("message", "textarea")], None, {"submittable": True}),
-        "project": ([_field("stage"), _field("collaborators")], None, None),
+        "project": ([_field("stage"), _field("collaborators"), _field("cover", "asset")], None, None),
         "person": ([_field("handle"), _field("ok_to_tag", "boolean"), _field("role")], None, None),
         "rsvp": ([_field("event"), _field("email")], None, None),
         "event": ([_field("date", "date")], None, None),
@@ -413,6 +413,8 @@ def ws(db_session, monkeypatch):
         "notes_entry_type": "newsletter-issue",
         "task_entry_type": "article",
         "image_role": "hero",
+        "picture_entry_type": "project",
+        "image_field": "cover",
         "quality": 82,
         "min_width": 1200,
         "min_sharpness": 60,
@@ -1719,6 +1721,25 @@ class TestExecution:
         (notes,) = self._issues(ws)
         assert (notes.title, notes.status, notes.metadata_json["source_document"]) == ("Notes: waxing canvas", "draft", guide.slug)
         assert len(ws.ai.requests) == 1  # the text layer was read without AI
+
+    def test_entry_from_upload(self, ws, store):
+        from marvin.db.models.platform import Entries, EntryAssets
+
+        _install(ws, "entry-from-upload")
+        painting = self._picture_asset(ws, store, "blue-hour", _picture())
+        guide = self._document(ws, store, "wax-guide", ["Warm the wax."])
+
+        for asset in (painting, guide):  # pictures only: the PDF makes nothing
+            self._upload(ws, asset, correlation_id=f"up-{asset.slug}")
+        self._upload(ws, painting, correlation_id=f"up-{painting.slug}")  # the same delivery handled twice makes one entry
+
+        ws.session.expire_all()
+        (entry,) = [e for e in ws.session.query(Entries).filter_by(group_id=ws.gid).all() if (e.metadata_json or {}).get("source_asset")]
+        assert (entry.entry_type_id, entry.title, entry.status) == (ws.types["project"], painting.name, "draft")
+        assert (entry.data_json["cover"], entry.metadata_json["source_asset"]) == (str(painting.id), painting.slug)
+        # the image field did the attaching, in its role (the key, "cover", as the fixture's project type sets none)
+        links = [(ea.asset_id, ea.role) for ea in ws.session.query(EntryAssets).filter_by(entry_id=entry.id)]
+        assert links == [(painting.id, "cover")]
 
     def test_document_preview_factory(self, ws, store):
         from marvin.db.models.platform import EntryAssets

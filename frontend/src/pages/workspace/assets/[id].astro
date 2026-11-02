@@ -91,6 +91,11 @@ const showAiPanel = aiEnabled && isImage;
           <AssetVersions assetId={asset.id} authToken={authToken} />
         </div>
         <div style="display:flex;gap:0.75rem;">
+          {access.canAuthor && !inTrash && (
+            <a class="button" href={`/workspace/entries/new?asset=${asset.id}`} title="Start a new entry with this asset attached (or in its image field), titled after it.">
+              New entry from this asset
+            </a>
+          )}
           {canEdit && (
             <button type="button" id="delete-button" class="button secondary" title="Move this asset to the Trash. You can restore it from there.">
               Move to Trash

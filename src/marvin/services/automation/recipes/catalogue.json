@@ -15,7 +15,7 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 110,
+    "verified-current": 111,
     "needs-adapter": 3,
     "needs-engine-capability": 1,
     "supported-after-configuration": 8
@@ -5579,6 +5579,84 @@
         ],
         "suggested_trigger_event": null
       }
+    },
+    {
+      "id": "entry-from-upload",
+      "title": "An entry for every picture uploaded",
+      "outcome": "Every picture uploaded to the library becomes a draft entry of the type you choose, titled after the file, with the picture in its image field — attached in the role your site reads.",
+      "category": "Images and files",
+      "category_slug": "media",
+      "tags": [
+        "files",
+        "images",
+        "create-entry"
+      ],
+      "target_entity": "asset",
+      "trigger": {
+        "type": "event",
+        "event": "asset_uploaded",
+        "builtin_event": true,
+        "custom_event": false
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "entry-from-upload.json",
+      "vars": "entry-from-upload.vars.json",
+      "setup_variables": [
+        {
+          "name": "picture_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type each uploaded picture becomes: a draft titled after the file. Its other fields must allow an empty draft.",
+          "example": "artwork"
+        },
+        {
+          "name": "image_field",
+          "type": "field_key",
+          "description": "That type's image field (Image / file or Images / files in the content model). The picture goes there, and saving attaches it in the field's role — what the site reads it by.",
+          "example": "photos"
+        }
+      ],
+      "requires": {
+        "trigger": "event:asset_uploaded",
+        "action_kinds": [
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "starts_with"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Creates one draft entry per uploaded picture, with the picture in its image field and attached in that field's role."
+        }
+      ],
+      "cost_notes": "No AI and no external calls.",
+      "failure_behaviour": "A type whose other required fields can't be empty refuses the draft: the run fails and the picture stays in the library untouched. The same upload handled twice makes one entry.",
+      "dependencies": [],
+      "notes": [
+        "Pictures only (mime type image/*): a PDF or a download makes nothing.",
+        "The type needs an image field (add one in the content model editor: Image / file, with the role the site reads, e.g. featured or hero); the field does the attaching, so there is no role to type here.",
+        "The reverse of the entry editor's picker: start from the photo, get the entry. The asset page's \"New entry from this asset\" does the same by hand, one at a time.",
+        "A picture made by a workflow (a crop, a WebP copy) sends no asset_uploaded, so it never becomes an entry of its own."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "storage:local"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_entry_from_upload"
+      },
+      "brief": null
     },
     {
       "id": "document-preview-factory",
