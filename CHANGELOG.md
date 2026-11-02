@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.82 (2026-11-02)
+
+### Features
+
+- **assets**: Upload a whole batch at once
+  ([`a2487ea`](https://github.com/InnerOpen/marvin/commit/a2487ea657a29293cdb46d9cf75a078497c0522e))
+
+
 ## v1.1.0-rc.81 (2026-11-02)
 
 ### Chores
