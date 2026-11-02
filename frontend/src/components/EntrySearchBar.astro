@@ -1,0 +1,232 @@
+---
+/**
+ * The entries search bar (Beaker-style): a title box and status buttons, then "Show search options" for stacked rows of
+ * field | operation | value. Nothing runs until Search; the conditions go in `?c=` (lib/entryQuery.ts) and the page
+ * posts them to /api/platform/entries/query. Used by the Entries page and by a collection's page, where `pinned`
+ * holds the collection's own chip: it is always part of the search, never shown as a row, and Clear keeps it.
+ */
+import { type Cond, condsHref, STATUSES, toggleValue } from "@/lib/entryQuery";
+
+export interface Props {
+  /** The conditions in effect, the pinned ones included. */
+  conds: Cond[];
+  /** The page the bar's links and searches land on (default: the Entries page). */
+  path?: string;
+  /** Conditions the page fixes (a collection's chip): kept on every search and on Clear, not editable here. */
+  pinned?: Cond[];
+  /** What the type / tag / collection rows offer, and the types' fields. */
+  builderData: Record<string, unknown>;
+  /** The result count line, when a search ran. */
+  total?: number | null;
+  note?: string | null;
+}
+
+const { conds, path = "/workspace/entries", pinned = [], builderData, total = null, note = null } = Astro.props;
+const isPinned = (c: Cond) => pinned.some((p) => p.dim === c.dim);
+const own = conds.filter((c) => !isPinned(c));
+const titleText = String(own.find((c) => c.dim === "title")?.value ?? "");
+const statusOn = ((own.find((c) => c.dim === "status")?.value as string[] | undefined) ?? []).map(String);
+const QUICK_STATUSES = ["inbox", "draft", "needs_review", "approved", "published", "archived"];
+const optionsOpen = own.some((c) => c.dim !== "title" && c.dim !== "status");
+const data = { ...builderData, conds: own, pinned, path };
+---
+
+<div class="search-bar">
+  <form class="search-quick" id="quick-search" role="search">
+    <input type="search" id="q-text" class="search-text" placeholder="Search titles…" value={titleText} aria-label="Search titles" />
+    <button type="submit" class="button">Search</button>
+  </form>
+  <div class="search-statuses" role="group" aria-label="Filter by status">
+    <span class="search-label">Status:</span>
+    {QUICK_STATUSES.map((v) => (
+      <a class:list={["status-pill", { on: statusOn.includes(v) }]} href={condsHref(toggleValue(conds, "status", v), path)} aria-pressed={statusOn.includes(v) ? "true" : "false"}>{STATUSES[v]}</a>
+    ))}
+  </div>
+  <button type="button" class="search-toggle" id="toggle-options" aria-expanded={optionsOpen ? "true" : "false"} aria-controls="search-options">
+    {optionsOpen ? "Hide search options" : "Show search options"}
+  </button>
+  {own.length > 0 && <a href={condsHref(pinned, path)} class="search-clear">Clear filters</a>}
+</div>
+<form class="search-options" id="search-options" hidden={!optionsOpen}>
+  <div class="search-row search-head" aria-hidden="true"><span>Field</span><span>Operation</span><span>Value</span><span></span></div>
+  <div id="search-rows"></div>
+  <div class="search-actions">
+    <button type="button" class="button secondary" id="row-add">+ Add</button>
+    <button type="submit" class="button">Search</button>
+  </div>
+</form>
+<script type="application/json" id="query-data" set:html={JSON.stringify(data)} />
+{total != null && <p class="search-count">Entries ({total})</p>}
+{note && <p class="query-note">{note}</p>}
+
+<script>
+  import { addCond, condsHref, DIMENSIONS, fieldsFor, OP_LABELS, opsFor, type Cond, type FieldDef } from '@/lib/entryQuery';
+
+  const queryData = JSON.parse(document.getElementById('query-data')?.textContent || '{}');
+  const conds: Cond[] = queryData.conds ?? [];
+  const pinned: Cond[] = queryData.pinned ?? [];
+  const path: string = queryData.path ?? '/workspace/entries';
+  const pinnedDims = new Set(pinned.map((p) => p.dim));
+  type Opt = { value: string; label: string };
+  const choices: Record<string, Opt[]> = { type: queryData.types, tag: queryData.tags, collection: queryData.collections };
+  // A pinned dimension (the collection, on its own page) is not offered as a row: it is already part of every search.
+  const ROW_DIMS = Object.entries(DIMENSIONS).filter(([dim]) => dim !== 'title' && dim !== 'status' && !pinnedDims.has(dim));
+  const option = (o: Opt, selected = false) => { const el = document.createElement('option'); el.value = o.value; el.textContent = o.label; el.selected = selected; return el; };
+  const rowsBox = document.getElementById('search-rows')!;
+  const optionsForm = document.getElementById('search-options') as HTMLFormElement | null;
+  const textBox = document.getElementById('q-text') as HTMLInputElement | null;
+
+  // A type's own fields are offered once a row picks that type.
+  function currentFields(): FieldDef[] {
+    const picked = [...rowsBox.querySelectorAll<HTMLSelectElement>('.row-dim')].flatMap((d) => d.value === 'type' ? [(d.closest('.search-row')!.querySelector('.row-value') as HTMLSelectElement)?.value] : []);
+    return fieldsFor(queryData.typeDefs ?? [], picked.filter(Boolean));
+  }
+  const fieldOf = (dim: string) => currentFields().find((f) => `field:${f.key}` === dim);
+
+  function valueControl(dim: string, op: string, value: Cond['value']): HTMLElement | null {
+    const field = fieldOf(dim);
+    const list = choices[dim] ?? (field?.kind === 'select' ? field.options : undefined);
+    const current = Array.isArray(value) ? String(value[0] ?? '') : value == null ? '' : String(value);
+    if (op === 'exists' || op === 'missing' || op === 'yes') return null;
+    if (list || field?.kind === 'boolean') {
+      const sel = document.createElement('select');
+      const opts = list ?? [{ value: 'true', label: 'yes' }, { value: 'false', label: 'no' }];
+      sel.replaceChildren(option({ value: '', label: 'Choose…' }), ...opts.map((o) => option(o, o.value === current)));
+      return sel;
+    }
+    const el = document.createElement('input');
+    el.type = op === 'within' || field?.kind === 'number' ? 'number' : ['after', 'before'].includes(op) || field?.kind === 'date' ? 'date' : 'text';
+    el.placeholder = op === 'within' ? 'days' : 'Enter value';
+    el.value = current;
+    return el;
+  }
+
+  function fillRow(row: HTMLElement, cond?: Cond) {
+    const dimSel = row.querySelector<HTMLSelectElement>('.row-dim')!;
+    const opSel = row.querySelector<HTMLSelectElement>('.row-op')!;
+    const holder = row.querySelector<HTMLElement>('.row-value-cell')!;
+    const dim = dimSel.value;
+    opSel.replaceChildren(...opsFor(dim, fieldOf(dim)).map((op) => option({ value: op, label: OP_LABELS[op] ?? op }, op === cond?.op)));
+    const control = valueControl(dim, opSel.value, cond?.value ?? null);
+    if (control) control.classList.add('row-value');
+    holder.replaceChildren(...(control ? [control] : []));
+  }
+
+  function addRow(cond?: Cond) {
+    const row = document.createElement('div');
+    row.className = 'search-row';
+    row.innerHTML = '<select class="row-dim" aria-label="Field"></select><select class="row-op" aria-label="Operation"></select><span class="row-value-cell"></span><button type="button" class="row-remove">✕ Remove</button>';
+    const dimSel = row.querySelector<HTMLSelectElement>('.row-dim')!;
+    const fields = currentFields();
+    dimSel.replaceChildren(
+      ...ROW_DIMS.map(([value, label]) => option({ value, label }, value === cond?.dim)),
+      ...fields.map((f) => option({ value: `field:${f.key}`, label: f.label }, `field:${f.key}` === cond?.dim)),
+    );
+    if (cond?.dim.startsWith('field:') && !fields.some((f) => `field:${f.key}` === cond.dim)) {
+      dimSel.append(option({ value: cond.dim, label: cond.dim.slice(6) }, true));
+    }
+    rowsBox.append(row);
+    fillRow(row, cond);
+    dimSel.addEventListener('change', () => fillRow(row));
+    // A row the user touched counts: left without a value it stops the search instead of vanishing from it.
+    row.addEventListener('change', () => { row.dataset.touched = '1'; row.classList.remove('incomplete'); });
+    if (cond) row.dataset.touched = '1';
+    row.querySelector('.row-op')!.addEventListener('change', (e) => {
+      const keep = row.querySelector<HTMLInputElement | HTMLSelectElement>('.row-value')?.value;
+      fillRow(row, { dim: dimSel.value, op: (e.target as HTMLSelectElement).value, value: keep ?? null });
+    });
+    row.querySelector('.row-remove')!.addEventListener('click', () => { row.remove(); if (!rowsBox.children.length) addRow(); });
+    return row;
+  }
+
+  function rowCond(row: HTMLElement): Cond | null {
+    const dim = row.querySelector<HTMLSelectElement>('.row-dim')!.value;
+    const op = row.querySelector<HTMLSelectElement>('.row-op')!.value;
+    const el = row.querySelector<HTMLInputElement | HTMLSelectElement>('.row-value');
+    if (!el) return { dim, op };
+    const raw = el.value.trim();
+    if (!raw) return null;
+    const field = fieldOf(dim);
+    if (dim in choices) return { dim, op, value: [raw] };
+    if (field?.kind === 'boolean') return { dim, op, value: raw === 'true' };
+    if (field?.kind === 'number' || op === 'within') return { dim, op, value: Number(raw) };
+    return { dim, op, value: raw };
+  }
+
+  // The pinned conditions, the bar's own (title, status), then the rows'; several rows on one list field join as
+  // "… or …". null when a touched row has no value yet (it's marked, and the search waits).
+  function collect(): Cond[] | null {
+    let next: Cond[] = [...pinned, ...conds.filter((c) => c.dim === 'status')];
+    const text = textBox?.value.trim();
+    if (text) next.push({ dim: 'title', op: 'contains', value: text });
+    let incomplete = false;
+    for (const row of rowsBox.querySelectorAll<HTMLElement>('.search-row')) {
+      const c = rowCond(row);
+      if (c) next = addCond(next, c);
+      else if (row.dataset.touched) { row.classList.add('incomplete'); incomplete = true; }
+    }
+    if (incomplete) {
+      rowsBox.querySelector<HTMLElement>('.incomplete .row-value')?.focus();
+      return null;
+    }
+    return next;
+  }
+  const search = () => {
+    const next = collect();
+    if (next) window.location.href = condsHref(next, path);
+  };
+
+  // The rows start as the current conditions (one row per value), or one empty row.
+  for (const c of conds.filter((c) => c.dim !== 'title' && c.dim !== 'status')) {
+    const values = Array.isArray(c.value) ? c.value : [c.value];
+    for (const v of values) addRow({ ...c, value: v as Cond['value'] });
+  }
+  if (!rowsBox.children.length) addRow();
+
+  document.getElementById('quick-search')?.addEventListener('submit', (e) => { e.preventDefault(); search(); });
+  optionsForm?.addEventListener('submit', (e) => { e.preventDefault(); search(); });
+  document.getElementById('row-add')?.addEventListener('click', () => addRow().querySelector('select')?.focus());
+  document.getElementById('toggle-options')?.addEventListener('click', (e) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    if (!optionsForm) return;
+    optionsForm.hidden = !optionsForm.hidden;
+    btn.textContent = optionsForm.hidden ? 'Show search options' : 'Hide search options';
+    btn.setAttribute('aria-expanded', String(!optionsForm.hidden));
+  });
+</script>
+
+<style>
+  .search-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 0 0 14px; }
+  .search-quick { display: flex; gap: 8px; flex: 1 1 320px; max-width: 520px; }
+  .search-text, .search-options :global(select), .search-options :global(input) {
+    height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; box-sizing: border-box;
+  }
+  .search-text { flex: 1; }
+  .search-text:focus, .search-options :global(select:focus), .search-options :global(input:focus) { outline: none; border-color: var(--accent); }
+  .search-statuses { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-left: 14px; border-left: 1px solid var(--line); }
+  .search-label { color: var(--muted); font-size: 14px; margin-right: 2px; }
+  .status-pill { padding: 7px 12px; border-radius: 6px; background: var(--panel-2, var(--panel)); color: var(--ink); font-size: 13px; text-decoration: none; border: 1px solid transparent; }
+  .status-pill:hover { border-color: var(--line); }
+  .status-pill.on { background: var(--accent); color: #fff; }
+  .search-toggle { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-size: 14px; cursor: pointer; }
+  .search-toggle:hover, .search-clear:hover { text-decoration: underline; }
+  .search-clear { color: var(--muted); font-size: 14px; text-decoration: none; }
+  .search-options { margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+  .search-options[hidden] { display: none; }
+  .search-options :global(.search-row) { display: grid; grid-template-columns: minmax(150px, 2fr) minmax(120px, 1.2fr) minmax(160px, 3fr) auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .search-head { margin-bottom: 4px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .search-options :global(.row-value-cell) { display: flex; }
+  .search-options :global(.row-value-cell > *) { flex: 1; }
+  .search-options :global(.row-remove) { height: 38px; padding: 0 14px; border: 1px solid var(--color-error, #dc2626); border-radius: 6px; background: var(--color-error, #dc2626); color: #fff; font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+  .search-options :global(.row-remove:hover) { filter: brightness(1.1); }
+  .search-options :global(.search-row.incomplete .row-value) { border-color: var(--color-error, #dc2626); }
+  .search-options :global(.search-row.incomplete .row-value-cell::after) { content: "Pick a value"; align-self: center; margin-left: 8px; color: var(--color-error, #dc2626); font-size: 12px; white-space: nowrap; }
+  .search-actions { display: flex; gap: 8px; margin-top: 4px; }
+  .search-count { margin: 0 0 12px; color: var(--muted); font-size: 14px; }
+  .query-note { color: var(--color-error, #dc2626); margin: -6px 0 16px; font-size: 14px; }
+  @media (max-width: 720px) {
+    .search-statuses { padding-left: 0; border-left: 0; }
+    .search-options :global(.search-row) { grid-template-columns: 1fr 1fr; }
+    .search-head { display: none; }
+  }
+</style>

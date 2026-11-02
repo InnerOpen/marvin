@@ -8,6 +8,7 @@ import {
   getCollectionMembers,
 } from "@/lib/api/collections";
 import type { CollectionRead, EntryRead } from "@/lib/api/entries";
+import EntrySearchBar from "@/components/EntrySearchBar.astro";
 import EntryViews from "@/components/EntryViews.astro";
 import TrashView from "@/components/TrashView.astro";
 import { listEntryTypes } from "@/lib/api/entryTypes";
@@ -17,7 +18,9 @@ import { getTrashCounts, listTrashedAssets, listTrashedResources, type TrashAuto
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { internalTypeBadge } from "@/lib/trash";
 import { EDITORS_ONLY } from "@/lib/workspaceRole";
-import { condsHref } from "@/lib/entryQuery";
+import { type Cond, readConds, STATUSES, toSpec } from "@/lib/entryQuery";
+import { fetchApi } from "@/lib/api/client";
+import { listTags } from "@/lib/api/tags";
 
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
@@ -71,6 +74,34 @@ if (!authToken) {
 }
 
 const targetType = ((collection as any)?.targetType ?? "entry") as string;
+
+// The entries search, on this page: the collection is pinned (always part of the search, never a row), the rest
+// (?c=) is the person's. With any of theirs, the list shows what the engine finds instead of the whole collection.
+const pinned: Cond[] = collection && targetType === "entry" && !isTrash ? [{ dim: "collection", op: "is", value: [collection.slug] }] : [];
+const own = readConds(Astro.url.searchParams).filter((c) => c.dim !== "collection");
+const conds: Cond[] = [...pinned, ...own];
+type QueryResult = { entries: EntryRead[]; total: number; note?: string | null };
+let search: QueryResult | null = null;
+let builderData: Record<string, unknown> | null = null;
+if (pinned.length && authToken && !error) {
+  const [types, tags] = await Promise.all([listEntryTypes(authToken), listTags(authToken).catch(() => [])]);
+  builderData = {
+    types: types.map((t) => ({ value: t.slug, label: t.name })),
+    typeDefs: types.map((t) => ({ slug: t.slug, schemaJson: { fields: ((t.schemaJson?.fields as any[]) ?? []) } })),
+    statuses: Object.entries(STATUSES).map(([value, label]) => ({ value, label })),
+    tags: tags.map((t) => ({ value: t.slug, label: t.name })).sort((a, b) => a.label.localeCompare(b.label)),
+    collections: [],
+  };
+  if (own.length) {
+    try {
+      search = await fetchApi<QueryResult>("/api/platform/entries/query", { method: "POST", body: JSON.stringify({ spec: toSpec(conds), limit: 500 }) }, authToken);
+    } catch (e) {
+      search = { entries: [], total: 0, note: e instanceof Error ? e.message : String(e) };
+    }
+  }
+}
+const shown = search ? search.entries : entries;
+const searchPath = `/workspace/collections/${id}`;
 const memberHref = (m: CollectionMember) =>
   m.type === "asset"
     ? `/workspace/assets/${m.id}`
@@ -112,18 +143,15 @@ const headerCount = isTrash ? entries.length + trashedAssets.length + trashedRes
           </h2>
           {collection.description && <p class="col-desc">{collection.description}</p>}
         </div>
-        <div class="toolbar-actions">
-          {targetType === "entry" && !isTrash && (
-            <a class="button secondary" href={condsHref([{ dim: "collection", op: "is", value: [collection.slug] }])} title="Open the entries search with this collection pinned; add a title, status or field filter on top">
-              Search in this collection
-            </a>
-          )}
-          {canEdit && !collection.isSystem && (
-            <a class="button secondary" href={`/workspace/collections/${id}/edit`}>Edit collection</a>
-          )}
-        </div>
+        {canEdit && !collection.isSystem && (
+          <a class="button secondary" href={`/workspace/collections/${id}/edit`}>Edit collection</a>
+        )}
       </div>
       {!canEdit && !collection.isSystem && <div class="alert alert-info" role="status">{EDITORS_ONLY}</div>}
+
+      {builderData && (
+        <EntrySearchBar conds={conds} pinned={pinned} path={searchPath} builderData={builderData} total={search?.total ?? null} note={search?.note ?? null} />
+      )}
 
       {isTrash ? (
         <TrashView
@@ -138,6 +166,12 @@ const headerCount = isTrash ? entries.length + trashedAssets.length + trashedRes
           canConfigure={access.canManage}
           autoEmpty={trashAutoEmpty}
         />
+      ) : search && shown.length === 0 ? (
+        <div class="empty-state">
+          <div class="empty-icon">🔍</div>
+          <h3>No entries match</h3>
+          <p>Nothing in this collection matches the search. <a href={searchPath}>Clear filters</a> to see the whole collection.</p>
+        </div>
       ) : totalCount === 0 ? (
         <div class="empty-state">
           <div class="empty-icon">📭</div>
@@ -145,7 +179,7 @@ const headerCount = isTrash ? entries.length + trashedAssets.length + trashedRes
           <p>{targetType === "entry" ? "Entries" : `${targetType[0].toUpperCase()}${targetType.slice(1)}s`} matching this collection will appear here.</p>
         </div>
       ) : targetType === "entry" ? (
-        <EntryViews entries={entries} typeNames={typeMap} storageKey="collection-view" defaultView="list" />
+        <EntryViews entries={shown} typeNames={typeMap} storageKey="collection-view" defaultView="list" />
       ) : (
         <ul class="inbox">
           {members.map((m) => (
@@ -337,5 +371,4 @@ const headerCount = isTrash ? entries.length + trashedAssets.length + trashedRes
     margin: 0;
     color: var(--muted);
   }
-  .toolbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 </style>
