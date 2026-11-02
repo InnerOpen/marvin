@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.79 (2026-11-02)
+
+### Bug Fixes
+
+- **entries**: Removing a field-owned attachment in the sidebar clears it from the field too
+  ([`fd70228`](https://github.com/InnerOpen/marvin/commit/fd70228ed261a4025407e4de7e462b9ce05e8b0a))
+
+
 ## v1.1.0-rc.78 (2026-11-02)
 
 ### Chores
