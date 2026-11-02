@@ -38,6 +38,7 @@ try {
             id="file"
             name="file"
             required
+            multiple
             accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.svg"
             hidden
           />
@@ -48,13 +49,19 @@ try {
               <line x1="12" y1="3" x2="12" y2="15"></line>
             </svg>
             <p style="margin: 1rem 0 0.5rem; font-weight: 600;">Click to upload or drag and drop</p>
-            <p style="margin: 0; font-size: 0.875rem; color: var(--muted);">Images, videos, PDFs, documents</p>
+            <p style="margin: 0; font-size: 0.875rem; color: var(--muted);">Images, videos, PDFs, documents — one file, or a whole batch</p>
           </div>
           <div class="upload-preview" id="uploadPreview" style="display: none;">
             <div id="previewContent"></div>
             <button type="button" class="button secondary small" id="removeFile">Change File</button>
           </div>
+          <div class="upload-batch" id="uploadBatch" style="display: none;">
+            <p class="batch-summary" id="batchSummary"></p>
+            <ul class="batch-list" id="batchList"></ul>
+            <button type="button" class="button secondary small" id="changeFiles">Change files</button>
+          </div>
         </div>
+        <p class="form-help" id="batchHelp" style="display: none;">Each file is named after its filename; alt text, description and metadata below apply to all of them. Edit any of them afterwards in the library.</p>
       </div>
 
       <!-- Name Field (Auto-populated from filename) -->
@@ -228,6 +235,12 @@ try {
     margin: 0.25rem 0 0;
   }
 
+  .upload-batch { text-align: left; }
+  .batch-summary { margin: 0 0 0.5rem; font-weight: 600; }
+  .batch-list { margin: 0 0 1rem; padding: 0; list-style: none; max-height: 240px; overflow: auto; font-size: 0.875rem; }
+  .batch-list li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.25rem 0; border-bottom: 1px solid var(--line); }
+  .batch-size { color: var(--muted); white-space: nowrap; }
+
   .progress-bar {
     width: 100%;
     height: 8px;
@@ -294,11 +307,21 @@ try {
   const errorMessage = document.getElementById('errorMessage') as HTMLElement;
 
   let selectedFile: File | null = null;
+  // A batch (two or more files chosen at once): uploaded one after another, each named after its file.
+  let selectedFiles: File[] = [];
   let progressInterval: number | null = null;
+  const uploadBatch = document.getElementById('uploadBatch') as HTMLElement;
+  const batchSummary = document.getElementById('batchSummary') as HTMLElement;
+  const batchList = document.getElementById('batchList') as HTMLElement;
+  const batchHelp = document.getElementById('batchHelp') as HTMLElement;
+  const changeFilesBtn = document.getElementById('changeFiles') as HTMLButtonElement;
+  const nameGroup = nameInput.closest('.form-group') as HTMLElement | null;
+  const slugGroup = slugInput.closest('.form-group') as HTMLElement | null;
 
   // Click to select file
   dropZone.addEventListener('click', (e) => {
-    if (e.target !== removeFileBtn && !removeFileBtn.contains(e.target as Node)) {
+    const t = e.target as Node;
+    if (t !== removeFileBtn && !removeFileBtn.contains(t) && t !== changeFilesBtn && !changeFilesBtn.contains(t)) {
       fileInput.click();
     }
   });
@@ -307,7 +330,7 @@ try {
   fileInput.addEventListener('change', (e) => {
     const files = (e.target as HTMLInputElement).files;
     if (files && files.length > 0) {
-      handleFile(files[0]);
+      handleFiles(files);
     }
   });
 
@@ -336,7 +359,7 @@ try {
     const files = e.dataTransfer?.files;
     if (files && files.length > 0) {
       fileInput.files = files;
-      handleFile(files[0]);
+      handleFiles(files);
     }
   });
 
@@ -352,10 +375,56 @@ try {
   });
 
   // Handle file selection
+  // One file keeps the single-file form (with the cropper); more become a batch.
+  function handleFiles(files: FileList) {
+    if (files.length === 1) {
+      handleFile(files[0]);
+      return;
+    }
+    selectedFile = null;
+    selectedFiles = Array.from(files);
+    uploadPlaceholder.style.display = 'none';
+    uploadPreview.style.display = 'none';
+    uploadBatch.style.display = 'block';
+    batchHelp.style.display = 'block';
+    batchSummary.textContent = `${selectedFiles.length} files, ${formatFileSize(selectedFiles.reduce((n, f) => n + f.size, 0))}`;
+    batchList.replaceChildren(
+      ...selectedFiles.map((file) => {
+        const li = document.createElement('li');
+        const name = document.createElement('span');
+        name.textContent = nameFor(file);
+        const size = document.createElement('span');
+        size.className = 'batch-size';
+        size.textContent = formatFileSize(file.size);
+        li.append(name, size);
+        return li;
+      }),
+    );
+    // Names come from the files, so the single name/slug fields step aside.
+    if (nameGroup) nameGroup.style.display = 'none';
+    if (slugGroup) slugGroup.style.display = 'none';
+    nameInput.required = false;
+    submitButton.textContent = `Upload ${selectedFiles.length} files`;
+  }
+  changeFilesBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    selectedFiles = [];
+    fileInput.value = '';
+    uploadBatch.style.display = 'none';
+    batchHelp.style.display = 'none';
+    uploadPlaceholder.style.display = 'block';
+    if (nameGroup) nameGroup.style.display = '';
+    if (slugGroup) slugGroup.style.display = '';
+    nameInput.required = true;
+    submitButton.textContent = 'Upload Asset';
+  });
+  function nameFor(file: File): string {
+    const fileName = file.name.replace(/\.[^/.]+$/, ''); // Remove extension
+    return fileName.replace(/[-_]/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+  }
   function handleFile(file: File) {
     // Auto-populate name from filename
-    const fileName = file.name.replace(/\.[^/.]+$/, ''); // Remove extension
-    nameInput.value = fileName.replace(/[-_]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    nameInput.value = nameFor(file);
 
     // Generate slug
     updateSlug();
@@ -417,13 +486,15 @@ try {
   nameInput.addEventListener('input', updateSlug);
 
   function updateSlug() {
-    const slug = nameInput.value
+    slugInput.value = slugify(nameInput.value);
+  }
+  function slugify(name: string): string {
+    return name
       .toLowerCase()
       .trim()
       .replace(/[^\w\s-]/g, '')
       .replace(/[\s_-]+/g, '-')
       .replace(/^-+|-+$/g, '');
-    slugInput.value = slug;
   }
 
   // Format file size
@@ -438,6 +509,10 @@ try {
   // Form submission
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (selectedFiles.length > 1) {
+      await uploadBatchFiles();
+      return;
+    }
 
     if (!selectedFile) {
       showError('Please select a file to upload');
@@ -519,6 +594,80 @@ try {
     }
   });
 
+  // A batch: one upload per file, in order, each named after its file. A file that fails is reported and the rest go
+  // on; a slug the library already has gets a numbered one. No cropper, no offline queue — the single-file form has those.
+  async function uploadBatchFiles() {
+    errorMessage.style.display = 'none';
+    const altText = (document.getElementById('alt_text') as HTMLInputElement).value;
+    const description = (document.getElementById('description') as HTMLTextAreaElement).value;
+    const metadataText = (document.getElementById('metadata') as HTMLTextAreaElement).value;
+    let metadata: Record<string, unknown> | undefined;
+    if (metadataText) {
+      try {
+        metadata = JSON.parse(metadataText);
+      } catch {
+        showError('Invalid JSON in metadata field');
+        return;
+      }
+    }
+    submitButton.disabled = true;
+    changeFilesBtn.disabled = true;
+    progressContainer.style.display = 'block';
+    const total = selectedFiles.length;
+    const taken = new Set<string>();
+    const failed: Array<{ name: string; reason: string }> = [];
+    let done = 0;
+    for (const file of selectedFiles) {
+      const name = nameFor(file);
+      progressText.textContent = `Uploading ${done + 1} of ${total}: ${name}`;
+      const base = slugify(name) || 'file';
+      // Distinct within the batch; a clash with an asset already in the library is retried with the next number.
+      let n = 1;
+      let slug = base;
+      while (taken.has(slug)) slug = `${base}-${++n}`;
+      let tries = 0;
+      while (true) {
+        try {
+          await sdk.assets.upload(file, { slug, name, altText: altText || undefined, description: description || undefined, metadata });
+          taken.add(slug);
+          break;
+        } catch (error: any) {
+          const message: string = error?.message || error?.detail || 'Upload failed';
+          const slugTaken = error?.status === 409 || /slug/i.test(message);
+          if (slugTaken && ++tries < 5) {
+            slug = `${base}-${++n}`;
+            continue;
+          }
+          failed.push({ name: file.name, reason: message });
+          break;
+        }
+      }
+      done += 1;
+      progressFill.style.width = `${Math.round((done / total) * 100)}%`;
+    }
+    if (failed.length === 0) {
+      progressText.textContent = `${total} uploaded. Opening the library…`;
+      setTimeout(() => {
+        window.location.href = '/workspace/assets';
+      }, 800);
+      return;
+    }
+    progressText.textContent = `${total - failed.length} of ${total} uploaded.`;
+    const list = document.createElement('ul');
+    for (const f of failed) {
+      const li = document.createElement('li');
+      li.textContent = `${f.name}: ${f.reason}`;
+      list.append(li);
+    }
+    errorMessage.replaceChildren(document.createTextNode('Could not upload:'), list);
+    errorMessage.style.display = 'block';
+    submitButton.textContent = 'Open the library';
+    submitButton.disabled = false;
+    submitButton.type = 'button';
+    submitButton.addEventListener('click', () => {
+      window.location.href = '/workspace/assets';
+    });
+  }
   // Simulate upload progress (since fetch doesn't support progress tracking)
   function simulateProgress() {
     let progress = 0;
