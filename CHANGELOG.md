@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.80 (2026-11-02)
+
+### Features
+
+- **collections**: The entries search bar on a collection's page, pinned to the collection
+  ([`44bcd59`](https://github.com/InnerOpen/marvin/commit/44bcd591572f0aa46f964a4b3ebe192151720c15))
+
+
 ## v1.1.0-rc.79 (2026-11-02)
 
 ### Bug Fixes
