@@ -32,7 +32,7 @@ Trashing or restoring an asset or resource that a site shows (attached to a publ
 
 **One Trash, three tabs.** The Trash has **Entries**, **Assets** and **Resources** tabs, each with per-item **Restore** and **Delete forever** and **Restore selected**. **Empty trash** (ADMIN/OWNER) empties all three after one confirmation: "Permanently delete N items? Files are removed from storage. This can't be undone." Restoring or deleting an asset or resource needs EDITOR, as its page does.
 
-**Archive or Trash?** Archive retires an entry you want to keep (it stays in the **Archive** collection indefinitely and is never deleted). Trash is for entries you want gone, with a safety net.
+**Archive or Trash?** Archive retires an entry you want to keep (it stays in the **Archive** collection indefinitely and is never deleted): set its **Status** to **Archived** in the editor and save (Editors and above; a published entry comes off the site). Trash is for entries you want gone, with a safety net.
 
 ### Events
 

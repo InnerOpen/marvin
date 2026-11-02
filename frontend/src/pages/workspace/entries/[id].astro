@@ -683,6 +683,8 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                 {/* Only an EDITOR or above may approve or publish (an AUTHOR keeps their own drafts). */}
                 {(canPublish || entry.status === "approved") && <option value="approved" selected={entry.status === "approved"}>Approved</option>}
                 {(canPublish || entry.status === "published") && <option value="published" selected={entry.status === "published"}>Published</option>}
+                {/* Archived retires an entry you keep (off the site, in the Archive collection); taking it off the site is a publisher's call. */}
+                {(canPublish || entry.status === "archived") && <option value="archived" selected={entry.status === "archived"}>Archived</option>}
               </select>
             </div>
             {/* The newest hand-off of this entry to another system, filled in by the script below; stays hidden when there is none or the caller can't read results. */}
@@ -2245,6 +2247,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     needs_review: 'Needs Review',
     approved: 'Approved',
     published: 'Published',
+    archived: 'Archived',
   };
 
   function updateSlugField() {
