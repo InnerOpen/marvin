@@ -17,6 +17,7 @@ import { getTrashCounts, listTrashedAssets, listTrashedResources, type TrashAuto
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { internalTypeBadge } from "@/lib/trash";
 import { EDITORS_ONLY } from "@/lib/workspaceRole";
+import { condsHref } from "@/lib/entryQuery";
 
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
@@ -111,9 +112,16 @@ const headerCount = isTrash ? entries.length + trashedAssets.length + trashedRes
           </h2>
           {collection.description && <p class="col-desc">{collection.description}</p>}
         </div>
-        {canEdit && !collection.isSystem && (
-          <a class="button secondary" href={`/workspace/collections/${id}/edit`}>Edit collection</a>
-        )}
+        <div class="toolbar-actions">
+          {targetType === "entry" && !isTrash && (
+            <a class="button secondary" href={condsHref([{ dim: "collection", op: "is", value: [collection.slug] }])} title="Open the entries search with this collection pinned; add a title, status or field filter on top">
+              Search in this collection
+            </a>
+          )}
+          {canEdit && !collection.isSystem && (
+            <a class="button secondary" href={`/workspace/collections/${id}/edit`}>Edit collection</a>
+          )}
+        </div>
       </div>
       {!canEdit && !collection.isSystem && <div class="alert alert-info" role="status">{EDITORS_ONLY}</div>}
 
@@ -329,4 +337,5 @@ const headerCount = isTrash ? entries.length + trashedAssets.length + trashedRes
     margin: 0;
     color: var(--muted);
   }
+  .toolbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 </style>
