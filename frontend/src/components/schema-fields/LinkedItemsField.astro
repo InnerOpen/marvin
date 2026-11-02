@@ -19,6 +19,8 @@ export interface Props {
     max?: number | null;
     minItems?: number | null;
     maxItems?: number | null;
+    /** The attachment role the saved value becomes (services/entries/linked_fields.py); the key when unset. */
+    role?: string | null;
   };
   value?: unknown;
   error?: string;
@@ -36,9 +38,10 @@ const picked = chosen(ids, items);
 const inputId = `field-${field.key}`;
 const addable = canAdd(ids.length, multiple, max) && !field.readOnly;
 const newHref = isAsset ? "/workspace/assets/new" : "/workspace/resources/new";
+const role = (field as { role?: string | null }).role?.trim() || field.key;
 ---
 
-<div class="field-group li-field" data-linked-field data-multiple={multiple ? "1" : ""} data-max={max ?? ""} data-noun={noun} data-readonly={field.readOnly ? "1" : ""}>
+<div class="field-group li-field" data-linked-field data-multiple={multiple ? "1" : ""} data-max={max ?? ""} data-noun={noun} data-role={role} data-readonly={field.readOnly ? "1" : ""}>
   <label for={inputId}>
     {field.label}
     {field.required && <span class="required">*</span>}
@@ -201,6 +204,14 @@ const newHref = isAsset ? "/workspace/assets/new" : "/workspace/resources/new";
 
     search.addEventListener("input", refresh);
     picker.addEventListener("toggle", () => picker.open && search.focus());
+    // The entry editor's sidebar removed an attachment with this field's role: drop the id here too, or the next save
+    // would attach it again (the field owns its role; see services/entries/linked_fields.py).
+    root.addEventListener("linked-field:drop", (e) => {
+      const id = (e as CustomEvent<{ id: string }>).detail?.id;
+      if (!id || !ids().includes(id)) return;
+      chosenEl.querySelector(`.li-card[data-id="${CSS.escape(id)}"]`)?.remove();
+      setIds(ids().filter((x) => x !== id));
+    });
     refresh();
   });
 </script>

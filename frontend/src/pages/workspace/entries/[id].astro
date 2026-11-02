@@ -2471,8 +2471,20 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     if (countEl) countEl.textContent = String(container.querySelectorAll('.attachment-card').length);
   }
 
+  // An attachment whose role belongs to a schema asset / resource field is owned by that field: removing it here
+  // also clears it from the field, or the next save would put it straight back.
+  function dropFromLinkedField(card: HTMLElement, prefix: string) {
+    const role = (card.querySelector<HTMLInputElement>(`[name^="${prefix}["][name$=".role"]`)?.value || '').trim();
+    const id = card.dataset.assetId || card.dataset.resourceId || card.querySelector<HTMLInputElement>(`[name$="_id"]`)?.value;
+    if (!role || !id) return;
+    const noun = prefix.startsWith('asset') ? 'asset' : 'resource';
+    document.querySelectorAll<HTMLElement>(`[data-linked-field][data-noun="${noun}"][data-role="${CSS.escape(role)}"]`)
+      .forEach((field) => field.dispatchEvent(new CustomEvent('linked-field:drop', { detail: { id } })));
+  }
+
   function setupCardButtons(card: HTMLElement, container: HTMLElement, prefix: string, countId: string) {
     card.querySelector('.remove-btn')?.addEventListener('click', () => {
+      dropFromLinkedField(card, prefix);
       card.remove();
       reindexAttachments(container, prefix);
       updateCount(countId, container);
