@@ -1,0 +1,23 @@
+# Dependabot: security alerts and fixes against `develop`, which is what Promote deploys. `main` is the last
+# release, so alerts filed against it describe code nobody runs. Version-bump PRs stay off (open-pull-requests-limit: 0):
+# routine upgrades are a deliberate `uv lock --upgrade` / `npm update`, not a stream of PRs.
+version: 2
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
