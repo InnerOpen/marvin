@@ -6,6 +6,31 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.81 (2026-11-02)
+
+### Chores
+
+- **deps**: Patch the Dependabot alerts — Pillow 13, pypdf 6.21.4, authlib 1.9.2, certifi, undici,
+  fast-uri and friends
+  ([`8e7adeb`](https://github.com/InnerOpen/marvin/commit/8e7adeb318eb4829f3e48882c5b1eafbc8a2dfbc))
+
+### Continuous Integration
+
+- Dependabot targets develop, security updates only
+  ([`c8273e7`](https://github.com/InnerOpen/marvin/commit/c8273e752b79ccb41d3267ccda4ebc6f42b15801))
+
+### Features
+
+- **entries**: Start an entry from an asset — a button on the asset page and a Library recipe
+  ([`6a2b29c`](https://github.com/InnerOpen/marvin/commit/6a2b29c41a78e0eab0502707c94dfc757f2217c2))
+
+- **entries**: The editor's Status menu offers Archived
+  ([`4e1ae5e`](https://github.com/InnerOpen/marvin/commit/4e1ae5e86685a818c549a90d579447fb9cf9142b))
+
+- **entry-types**: The schema editor offers the asset and resource field types
+  ([`f8d711e`](https://github.com/InnerOpen/marvin/commit/f8d711e802c8a136638fede4c4b000016d43349e))
+
+
 ## v1.1.0-rc.80 (2026-11-02)
 
 ### Features
