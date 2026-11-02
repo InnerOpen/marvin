@@ -6,6 +6,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.78 (2026-11-02)
+
+### Chores
+
+- **chart**: Production pods request 100m CPU, so a rolling update can schedule
+  ([`0e8a429`](https://github.com/InnerOpen/marvin/commit/0e8a4294e22e7761704ab67756b3aeac0ca67eeb))
+
+- **deps**: Marvin-integration-square 0.6.0 — the sales ledger
+  ([`23eff0a`](https://github.com/InnerOpen/marvin/commit/23eff0af31d26b00443c7ea4ae6f9560633a7d09))
+
+### Features
+
+- **collections**: Search in this collection — opens the entries search with the collection pinned
+  ([`c74a59d`](https://github.com/InnerOpen/marvin/commit/c74a59df8cb43bd830f83552dc2acc06b6bae016))
+
+### Testing
+
+- The admin overview test passes on the first of the month
+  ([`ef861de`](https://github.com/InnerOpen/marvin/commit/ef861deae123c582b0df1318000b07ea34c7889a))
+
+
 ## v1.1.0-rc.77 (2026-11-01)
 
 ### Bug Fixes
