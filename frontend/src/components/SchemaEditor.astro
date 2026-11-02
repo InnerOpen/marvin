@@ -39,6 +39,12 @@ const fieldTypes = [
   { value: "datetime", label: "DateTime", description: "Date and time picker" },
   { value: "json", label: "JSON", description: "Free-form JSON data" },
   { value: "embed", label: "Media embed", description: "A video, audio or podcast link shown as a player" },
+  // The linked types: the entry form offers a picker over the workspace's assets or resources, and saving attaches
+  // the chosen ones to the entry with the field's role (services/entries/linked_fields.py).
+  { value: "asset", label: "Image / file", description: "Pick one asset from the library; attached to the entry with a role" },
+  { value: "asset-list", label: "Images / files", description: "Pick several assets, in order" },
+  { value: "resource", label: "Resource", description: "Pick one resource (a supplier, a tool, a source)" },
+  { value: "resource-list", label: "Resources", description: "Pick several resources" },
 ];
 
 // Provider keys for the embed field's "Providers" hint. Best-effort: the editor works without them.
