@@ -47,9 +47,12 @@ config:
 # probes late enough to be restarted (2026-09-11). Memory rarely exceeds 300Mi before the built-in
 # embedding model loads (~+250Mi once, ~+300Mi while indexing in batches of 4, measured 2026-10-15); the
 # limit is for that plus image-processing peaks.
+# CPU requests are what a rollout must find free on the node, not what the pods use (3m backend, 1m frontend,
+# measured 2026-11-01). At 250m each the two surge pods of a rolling update needed 500m on a worker already 85%
+# requested, and the promotion's own runner pod took the last of it: new pods Pending, rollout timed out, rolled back.
 resources:
   requests:
-    cpu: 250m
+    cpu: 100m
     memory: 512Mi
   limits:
     cpu: "1"
