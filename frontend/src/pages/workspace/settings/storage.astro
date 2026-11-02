@@ -529,6 +529,8 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
   .muted { color: var(--muted); font-size: 13px; }
   .add-form { display: grid; gap: 14px; }
   .provider-fields { border: 0; padding: 0; margin: 0; display: grid; gap: 14px; }
+  /* `display: grid` beats the `hidden` attribute, so the other providers' fields showed too — the form looked like it repeated itself. */
+  .provider-fields[hidden] { display: none; }
   .form-field { display: grid; gap: 6px; }
   .form-field .label { font-size: 13px; font-weight: 600; }
   .help { color: var(--muted); font-size: 12px; }

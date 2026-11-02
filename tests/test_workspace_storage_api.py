@@ -144,6 +144,7 @@ def test_the_bucket_never_changes_on_a_connection_but_its_keys_can(api):
         ({"secretRefs": {**KEYS, "B_KEY": "no-such-secret"}}, "No workspace secret"),
         ({"settings": {**FIELDS, "B_KEY": "pasted-key"}}, "must come from a workspace secret"),
         ({"settings": {**FIELDS, "B_ENDPOINT": "https://minio.lan"}}, "Endpoint refused"),
+        ({"settings": {**FIELDS, "B_ENDPOINT": f"{R2}/theirs"}}, "names the bucket"),  # the console's "S3 API" line, bucket and all
         ({"settings": {"B_BUCKET": "theirs"}}, "Missing:"),
     ],
 )

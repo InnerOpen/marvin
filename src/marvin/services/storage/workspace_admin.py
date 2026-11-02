@@ -236,6 +236,8 @@ def get_connection(session, group_id, connection_id):
 
 
 def _check_endpoint_now(cls, settings: dict, pol: ws.Policy) -> None:
+    from urllib.parse import urlsplit
+
     from marvin.core.config import get_app_settings
 
     endpoint = settings.get(cls.endpoint_setting) if cls.endpoint_setting else None
@@ -243,6 +245,15 @@ def _check_endpoint_now(cls, settings: dict, pol: ws.Policy) -> None:
         ws.check_endpoint(endpoint, pol.endpoint_policy, production=bool(get_app_settings().PRODUCTION))
     except StorageConfigError as e:
         raise WorkspaceStorageError(f"Endpoint refused: {e}") from e
+    # The endpoint is the account's host; the bucket has its own field. With the bucket pasted into the endpoint's
+    # path as well (an easy slip from a console's "S3 API" line) every request goes to <bucket>/<bucket>/… and the
+    # check fails with "the object wasn't found", which says nothing about the cause — so refuse it here, by name.
+    bucket = next((settings.get(s.env) for s in cls.workspace_settings if s.env.endswith("_BUCKET")), None)
+    if endpoint and bucket and bucket in [part for part in urlsplit(endpoint).path.split("/") if part]:
+        raise WorkspaceStorageError(
+            f"Endpoint refused: it names the bucket ({bucket}) in its path. The endpoint is the account's host alone "
+            f"(for R2, https://<account id>.r2.cloudflarestorage.com); the bucket goes in the Bucket field."
+        )
 
 
 # ── checking ─────────────────────────────────────────────────────────────────
