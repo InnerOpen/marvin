@@ -64,11 +64,25 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      # The build_command's `uv lock` re-resolves the plugins group, which includes private plugin repos. semantic-release
+      # runs that command with a filtered environment, so the per-repo auth header the image build uses
+      # (docker/plugin-git-auth.sh) goes into the runner's global git config, which does reach it. The runner is ephemeral.
+      - name: Let git read the private plugin repos
+        env:
+          PLUGIN_GIT_TOKEN: ${{ secrets.PLUGIN_GIT_TOKEN }}
+        run: |
+          key="$RUNNER_TEMP/plugin_git_token"
+          (umask 077 && printf '%s' "$PLUGIN_GIT_TOKEN" > "$key")
+          PLUGIN_GIT_TOKEN_FILE="$key" . docker/plugin-git-auth.sh
+          rm -f "$key"
+          for i in $(seq 0 $(( ${GIT_CONFIG_COUNT:-0} - 1 ))); do
+            git config --global "$(printenv GIT_CONFIG_KEY_$i)" "$(printenv GIT_CONFIG_VALUE_$i)"
+          done
+
       - name: Run Semantic Release
         id: version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PLUGIN_GIT_TOKEN: ${{ secrets.PLUGIN_GIT_TOKEN }}
         # semantic-release populates $GITHUB_OUTPUT itself — released, version, tag, is_prerelease,
         # link, previous_version, commit_sha, release_notes — so this step needs no detection logic
         # of its own. It previously ran `version --print` and grepped a version out of the result,
@@ -82,14 +96,7 @@ jobs:
         # Exits 0 when no release is due, so an ordinary commit does not fail the job.
         # develop's prereleases (x.y.z-rc.N) get a tag but no GitHub Release, so the Releases page lists only real
         # releases from main (the rc notes still go into CHANGELOG.md).
-        #
-        # The build_command's `uv lock` re-resolves the plugins group, which includes private plugin repos, so git
-        # gets the same per-repo auth header the image build uses (docker/plugin-git-auth.sh).
-        run: |
-          key="$RUNNER_TEMP/plugin_git_token"
-          (umask 077 && printf '%s' "$PLUGIN_GIT_TOKEN" > "$key")
-          PLUGIN_GIT_TOKEN_FILE="$key" . docker/plugin-git-auth.sh
-          semantic-release version ${{ github.ref_name == 'develop' && '--no-vcs-release' || '' }}
+        run: semantic-release version ${{ github.ref_name == 'develop' && '--no-vcs-release' || '' }}
 
       # Attaches build artifacts to the GitHub release, so it is only meaningful once one exists.
       - name: Publish release assets
