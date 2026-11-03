@@ -188,6 +188,9 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.target }}
           build-args: |
             COMMIT=${{ github.sha }}
+          # Read access to the private plugin repos pinned in pyproject (docker/plugin-git-auth.sh); empty = public plugins only.
+          secrets: |
+            plugin_git_token=${{ secrets.PLUGIN_GIT_TOKEN }}
 
       # Guard: pull the image we just published and prove it is the intended target by its
       # entrypoint. Inspects the actual pushed artifact by digest, so it fails the release whatever
