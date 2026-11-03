@@ -6,6 +6,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.94 (2026-11-03)
+
+### Chores
+
+- **plugins**: Marvin-integration-openai-images v0.5.0
+  ([`7c0a5f3`](https://github.com/InnerOpen/marvin/commit/7c0a5f38b6ecddae03481edfb619fceccd15a662))
+
+### Features
+
+- **automation**: Integration audio is kept as assets, and an image step can go by several reference
+  pictures
+  ([`68bbd84`](https://github.com/InnerOpen/marvin/commit/68bbd84fdd38ae958d8f26bb22394f7cb11112ab))
+
+- **tokens**: A personal API token can be pinned to one workspace
+  ([`3f6a043`](https://github.com/InnerOpen/marvin/commit/3f6a043eeaa17d20704f0f343a87242d9e006a89))
+
+
 ## v1.1.0-rc.93 (2026-11-03)
 
 ### Bug Fixes
