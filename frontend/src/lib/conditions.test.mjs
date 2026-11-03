@@ -3,7 +3,16 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { describeCondition, describeConditions, fieldGroups, fieldLabel, needsValue, valueChoices } from "./conditions.ts";
+import {
+  conditionValueText,
+  conditionValueToSave,
+  describeCondition,
+  describeConditions,
+  fieldGroups,
+  fieldLabel,
+  needsValue,
+  valueChoices,
+} from "./conditions.ts";
 
 const CATALOG = [
   { field: "event.event_type", label: "Event type" },
@@ -65,5 +74,41 @@ describe("a condition read back", () => {
     assert.equal(describeConditions(list, GROUPS, CTX), "Status is Published and Entry type is not Recipe");
     assert.equal(describeConditions({ any: [] }, GROUPS, CTX), "a grouped condition (see JSON)");
     assert.equal(describeConditions(null, GROUPS, CTX), "");
+  });
+});
+
+describe("a condition's value in the builder's text box", () => {
+  test("text shows as itself, and numbers, booleans, null and lists as readable text", () => {
+    assert.equal(conditionValueText("draft"), "draft");
+    assert.equal(conditionValueText(50), "50");
+    assert.equal(conditionValueText(0), "0");
+    assert.equal(conditionValueText(true), "true");
+    assert.equal(conditionValueText(false), "false");
+    assert.equal(conditionValueText(null), "");
+    assert.equal(conditionValueText(undefined), "");
+    assert.equal(conditionValueText(["a", "b"]), "a, b");
+    assert.equal(conditionValueText([1, 2]), "1, 2");
+  });
+
+  test("a list holding a comma, or an object, shows as JSON so nothing reads wrong", () => {
+    assert.equal(conditionValueText(["a,b", "c"]), '["a,b","c"]');
+    assert.equal(conditionValueText({ min: 1 }), '{"min":1}');
+  });
+
+  test("an untouched box saves the original value, so a round trip keeps its type", () => {
+    for (const original of [50, 0, true, false, null, ["a", "b"], ["a,b"], { min: 1 }]) {
+      assert.deepEqual(conditionValueToSave(conditionValueText(original), original), original);
+    }
+  });
+
+  test("an edited box saves what was typed, as text", () => {
+    assert.equal(conditionValueToSave("60", 50), "60");
+    assert.equal(conditionValueToSave("a, b, c", ["a", "b"]), "a, b, c");
+    assert.equal(conditionValueToSave("", 50), "");
+  });
+
+  test("a text original, or none, saves the typed text", () => {
+    assert.equal(conditionValueToSave("draft", "draft"), "draft");
+    assert.equal(conditionValueToSave("x"), "x");
   });
 });

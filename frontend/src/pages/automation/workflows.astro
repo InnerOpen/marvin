@@ -311,7 +311,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   import { optionPicker } from "@/lib/integrationOptionPicker";
   import { fetchApi } from "@/lib/api/client";
   import { type CaptionResult, captionRequest, captionResultsHtml } from "@/lib/captionCheck";
-  import { type Choice, describeConditions, type EarlierStep, fieldGroups, type FieldGroup, needsValue, valueChoices } from "@/lib/conditions";
+  import { type Choice, conditionValueText, conditionValueToSave, describeConditions, type EarlierStep, fieldGroups, type FieldGroup, needsValue, valueChoices } from "@/lib/conditions";
   import { ANSWER_KINDS, type AnswerField, fieldsFromSchema, SEE_LABELS, schemaFromFields } from "@/lib/customStep";
   import { AGENT_DEFAULT_STEPS, AGENT_MAX_PLAYBOOKS, AGENT_MAX_STEPS, agentRunView, agentSummary, costText, offeredAgents, offeredPlaybooks, readAgentStep } from "@/lib/agentStep";
   import { ASPECTS, filledRows, GRADE_PRESETS, MEDIA_FIELDS, MEDIA_OPS, mediaFields, OP_FIELDS, type RenderTemplate, SOURCE_LABELS, type SourceMode, sourceChoice, sourceFromChoice, templateRows, WATERMARK_POSITIONS } from "@/lib/mediaStep";
@@ -645,10 +645,18 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     document.querySelectorAll(".a-when-rows").forEach((r) => refreshCondSummary(r));
   }
 
+  /** What a condition row saves as its value: the original, when the box still shows it, else the typed text. */
+  function readConditionValue(row: Element): unknown {
+    const text = (row.querySelector(".c-value") as HTMLInputElement).value;
+    const orig = (row as HTMLElement).dataset.orig;
+    return conditionValueToSave(text, orig === undefined ? undefined : JSON.parse(orig));
+  }
   function conditionRow(c: any = {}) {
     const row = document.createElement("div");
     row.className = "row cond-row";
     const field = String(c.field ?? "");
+    // A value that isn't text (a number, true/false, a list) shows as text; untouched, it is saved as it was (readConditionValue).
+    if (typeof c.value !== "string" && c.value !== undefined) row.dataset.orig = JSON.stringify(c.value);
     const ops = (OPTIONS.conditionOps || []).map((o: string) => `<option value="${esc(o)}" ${c.op === o ? "selected" : ""}>${esc(COND_OP_LABELS[o] || o)}</option>`).join("");
     row.innerHTML = `
       <span class="c-field-wrap">
@@ -659,7 +667,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       <select class="input c-op" aria-label="How to compare">${ops}</select>
       <span class="c-value-wrap">
         <select class="input c-value-pick" aria-label="Value" hidden></select>
-        <input class="input c-value" placeholder="value" value="${esc(c.value ?? "")}" aria-label="Value" />
+        <input class="input c-value" placeholder="value" value="${esc(conditionValueText(c.value))}" aria-label="Value" />
       </span>
       <button type="button" class="icon-btn" title="Remove">✕</button>`;
     const pick = row.querySelector(".c-field-pick") as HTMLSelectElement;
@@ -752,7 +760,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     }
     const conds = [...(row?.querySelectorAll(":scope > .a-when .a-when-rows .cond-row") ?? [])].map((r) => {
       const field = (r.querySelector(".c-field") as HTMLInputElement).value.trim();
-      return field ? { field, op: (r.querySelector(".c-op") as HTMLSelectElement).value, value: (r.querySelector(".c-value") as HTMLInputElement).value } : null;
+      return field ? { field, op: (r.querySelector(".c-op") as HTMLSelectElement).value, value: readConditionValue(r) } : null;
     }).filter(Boolean);
     if (conds.length) step.when = conds.length === 1 ? conds[0] : conds;
     else delete step.when;
@@ -2125,8 +2133,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     const conditions = [...$("wf-conditions").querySelectorAll(".cond-row")].map((r) => {
       const field = (r.querySelector(".c-field") as HTMLInputElement).value.trim();
       const op = (r.querySelector(".c-op") as HTMLSelectElement).value;
-      const value = (r.querySelector(".c-value") as HTMLInputElement).value;
-      return field ? { field, op, value } : null;
+      return field ? { field, op, value: readConditionValue(r) } : null;
     }).filter(Boolean);
 
     const actions = readSteps($("wf-actions"));

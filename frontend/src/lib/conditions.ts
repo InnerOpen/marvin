@@ -53,6 +53,23 @@ export const NO_VALUE_OPS: ReadonlySet<string> = new Set(["exists", "changed"]);
 
 export const needsValue = (op: string | undefined): boolean => !NO_VALUE_OPS.has(op ?? "eq");
 
+/** A condition's value as the builder's text box shows it. The runtime accepts these text forms (numbers are parsed,
+ *  `eq` matches the field's own type, `in` takes "a, b"), so showing one never changes what a condition means. */
+export function conditionValueText(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string") return value;
+  if (Array.isArray(value) && value.every((v) => (typeof v === "string" && !v.includes(",")) || typeof v === "number" || typeof v === "boolean")) {
+    return value.join(", ");
+  }
+  return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
+
+/** The value to save for a row: the original JSON value when the text still shows it (a number, true/false, a list or
+ *  null stays what it was, so switching views never retypes it as text), otherwise what was typed. */
+export function conditionValueToSave(text: string, original?: unknown): unknown {
+  return original !== undefined && text === conditionValueText(original) ? original : text;
+}
+
 const OP_PHRASE: Record<string, string> = {
   eq: "is",
   neq: "is not",
