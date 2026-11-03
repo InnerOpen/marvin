@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.87 (2026-11-03)
+
+### Bug Fixes
+
+- **entries**: An image field is exactly the attachments in its role, after every save
+  ([`faea964`](https://github.com/InnerOpen/marvin/commit/faea9643704245e99da9a77eefe762ee99fb139b))
+
+
 ## v1.1.0-rc.86 (2026-11-03)
 
 ### Bug Fixes
