@@ -81,6 +81,9 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
   )}
 
   {field.helpText && <p class="field-help">{field.helpText}</p>}
+  <p class="field-help li-role-note">
+    Attached as <code>{role}</code>. The sidebar's {noun}s in that role are these same ones: give one the role there and it appears here; change its role there and it leaves.
+  </p>
   {error && <p class="field-error">{error}</p>}
 </div>
 
@@ -111,6 +114,7 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
   .li-field .li-option[hidden] { display: none; }
   .li-field .li-empty, .li-field .li-none { margin: 0; padding: 6px 2px; color: var(--muted); font-size: 0.8rem; }
   .li-field .field-help, .li-field .field-error { margin: 0; font-size: 0.75rem; color: var(--muted); }
+  .li-role-note code { font-size: 0.7rem; padding: 0 0.25em; border-radius: 3px; background: var(--panel-2); }
   .li-field .field-error { color: var(--color-error); }
 </style>
 
