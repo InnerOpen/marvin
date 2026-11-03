@@ -99,6 +99,9 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.target }}
           build-args: |
             COMMIT=${{ github.sha }}
+          # Read access to the private plugin repos pinned in pyproject (docker/plugin-git-auth.sh); empty = public plugins only.
+          secrets: |
+            plugin_git_token=${{ secrets.PLUGIN_GIT_TOKEN }}
 
       # Prove the published image is the intended target by its entrypoint. Pulls by digest against
       # a lowercased name (GHCR requires lowercase; github.repository keeps the org's casing).

@@ -1190,6 +1190,7 @@ plugins = [
     { name = "marvin-integration-bluesky" },
     { name = "marvin-integration-buttondown" },
     { name = "marvin-integration-cloudflare-pages" },
+    { name = "marvin-integration-elevenlabs" },
     { name = "marvin-integration-facebook" },
     { name = "marvin-integration-instagram" },
     { name = "marvin-integration-mastodon" },
@@ -1278,6 +1279,7 @@ plugins = [
     { name = "marvin-integration-bluesky", git = "https://github.com/InnerOpen/marvin-integration-bluesky?rev=v0.5.1" },
     { name = "marvin-integration-buttondown", git = "https://github.com/InnerOpen/marvin-integration-buttondown?rev=v0.10.0" },
     { name = "marvin-integration-cloudflare-pages", git = "https://github.com/InnerOpen/marvin-integration-cloudflare-pages?rev=v0.5.0" },
+    { name = "marvin-integration-elevenlabs", git = "https://github.com/InnerOpen/marvin-integration-elevenlabs?rev=v0.1.0" },
     { name = "marvin-integration-facebook", git = "https://github.com/InnerOpen/marvin-integration-facebook?rev=v0.6.0" },
     { name = "marvin-integration-instagram", git = "https://github.com/InnerOpen/marvin-integration-instagram?rev=v0.13.0" },
     { name = "marvin-integration-mastodon", git = "https://github.com/InnerOpen/marvin-integration-mastodon?rev=v0.5.0" },
@@ -1355,6 +1357,14 @@ dependencies = [
 name = "marvin-integration-cloudflare-pages"
 version = "0.5.0"
 source = { git = "https://github.com/InnerOpen/marvin-integration-cloudflare-pages?rev=v0.5.0#630f0b484c7ca55b805c05c60d98979e175f6d2d" }
+dependencies = [
+    { name = "marvin-integration-sdk" },
+]
+
+[[package]]
+name = "marvin-integration-elevenlabs"
+version = "0.1.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-elevenlabs?rev=v0.1.0#673a6e24609f726c09103df8908ebcc818fceac1" }
 dependencies = [
     { name = "marvin-integration-sdk" },
 ]

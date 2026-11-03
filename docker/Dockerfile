@@ -74,22 +74,29 @@ ENV UV_LINK_MODE=copy
 
 # Generate proper TOML lockfile first
 RUN --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv lock
+    --mount=type=bind,source=docker/plugin-git-auth.sh,target=/plugin-git-auth.sh \
+    --mount=type=secret,id=plugin_git_token,required=false \
+    . /plugin-git-auth.sh && uv lock
 
 # The Postgres driver (psycopg2) is a core dependency: the same image runs on SQLite (the default) or Postgres. --group plugins bakes in the site-wide
 # plugins (integrations, marvin-storage-s3, marvin-ai-openai) at the commits uv.lock pins, so a pod
 # never downloads them at start-up. Other backend groups (ldap, vault, bitwarden) stay opt-in — add
-# --group <name> here if a deployment needs them.
+# --group <name> here if a deployment needs them. A PRIVATE plugin repo is fetched with the optional BuildKit secret plugin_git_token
+# (docker/plugin-git-auth.sh); without it the steps behave exactly as before.
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=uv.lock,target=uv.lock \
-    uv sync --frozen --no-install-project --no-dev --no-editable --group plugins
+    --mount=type=bind,source=docker/plugin-git-auth.sh,target=/plugin-git-auth.sh \
+    --mount=type=secret,id=plugin_git_token,required=false \
+    . /plugin-git-auth.sh && uv sync --frozen --no-install-project --no-dev --no-editable --group plugins
 
 # The, add the rest of the projects source code and install it
 ADD . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
-    uv sync --frozen --no-dev --no-editable --group plugins
+    --mount=type=bind,source=docker/plugin-git-auth.sh,target=/plugin-git-auth.sh \
+    --mount=type=secret,id=plugin_git_token,required=false \
+    . /plugin-git-auth.sh && uv sync --frozen --no-dev --no-editable --group plugins
 
 # Remove unnecessary files from the virtual env before copying
 RUN find /app/.venv -name '__pycache__' -type d -exec rm -rf {} + && \
