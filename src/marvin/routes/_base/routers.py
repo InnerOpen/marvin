@@ -77,11 +77,11 @@ class UserAPIRouter(BaseAPIRouter):
         **kwargs: Additional keyword arguments for `APIRouter`.
     """
 
-    def __init__(self, tags: list[str | Enum] | None = None, prefix: str = "", **kwargs):
+    def __init__(self, tags: list[str | Enum] | None = None, prefix: str = "", dependencies: list | None = None, **kwargs):
         super().__init__(
             tags=tags,
             prefix=prefix,
-            dependencies=[Depends(get_current_user)],  # Automatically protect routes with user auth
+            dependencies=[Depends(get_current_user), *(dependencies or [])],  # user auth, then the router's own (e.g. no pinned tokens)
             **kwargs,
         )
 

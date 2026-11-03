@@ -7,8 +7,9 @@ Endpoints:
 - GET /self/workspaces - List all accessible workspaces
 """
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
+from marvin.core.dependencies.dependencies import forbid_scoped_token_writes
 from marvin.db.models.users.roles import PlatformRole
 from marvin.repos.all_repositories import AllRepositories
 from marvin.routes._base.base_controllers import BaseUserController
@@ -20,7 +21,7 @@ from marvin.schemas.workspace.workspace_activation import (
 )
 from marvin.services.workspace.current import current_workspace_id
 
-router = APIRouter(prefix="/self/workspaces", tags=["User: Self Service"])
+router = APIRouter(prefix="/self/workspaces", tags=["User: Self Service"], dependencies=[Depends(forbid_scoped_token_writes)])
 
 
 @controller(router)
@@ -149,6 +150,8 @@ class WorkspaceActivationController(BaseUserController):
 
         # Regular users see only their memberships
         memberships = self.repos.workspace_members.get_user_memberships(self.user.id)
+        if (pinned := getattr(self.user, "token_workspace_id", None)) is not None:  # a pinned token lists only its own workspace
+            memberships = [m for m in memberships if m.group_id == pinned]
 
         result = []
         for membership in memberships:

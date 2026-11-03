@@ -59,6 +59,9 @@ class LongLiveTokenCreate(_MarvinModel):
     An optional identifier for an external integration this token might be used with.
     Defaults to "generic".
     """
+    group_id: UUID4 | None = None
+    """Pin the token to this workspace (one the person is a member of). Left out: a global token, its owner's whole reach.
+    Fixed when the token is made; a pinned token can't be widened."""
 
 
 class LongLiveTokenUpdate(_MarvinModel):
@@ -106,6 +109,8 @@ class LongLiveTokenRead(_MarvinModel):
     An optional identifier for an external integration this token might be used with.
     Defaults to "generic".
     """
+    group_id: UUID4 | None = None
+    """The workspace this token is pinned to; None for a global token."""
     model_config = ConfigDict(from_attributes=True)
 
     @classmethod
@@ -136,6 +141,8 @@ class LongLiveTokenWithToken(_MarvinModel):
     """Optional description of the token's purpose."""
     enabled: bool
     """Whether the token is currently active."""
+    group_id: UUID4 | None = None
+    """The workspace this token is pinned to; None for a global token."""
     token: str
     """The plaintext API token. SHOWN ONCE. Format: marvin_tk_{random}"""
     created_at: datetime | None = None
@@ -491,6 +498,8 @@ class PrivateUser(UserRead):
     """Number of failed login attempts. Defaults to 0."""
     locked_at: datetime | None = None
     """Timestamp (UTC) when the user account was locked. None if not locked."""
+    token_workspace_id: UUID4 | None = None
+    """Set only on a request made with a workspace-pinned API token: the one workspace it reaches. Never stored."""
 
     model_config = ConfigDict(from_attributes=True)
 

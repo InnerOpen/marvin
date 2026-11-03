@@ -14,6 +14,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from pydantic import UUID4
 from sqlalchemy.orm import Session
 
+from marvin.core.dependencies.dependencies import forbid_scoped_token_writes
 from marvin.core.root_logger import get_logger
 from marvin.db.db_setup import generate_session
 from marvin.db.models.users import Users
@@ -35,7 +36,7 @@ from marvin.services.event_bus_service.event_bus_service import EventBusService
 
 logger = get_logger(__name__)
 
-router = UserAPIRouter(prefix="/self/push", tags=["User: Self Service"])
+router = UserAPIRouter(prefix="/self/push", tags=["User: Self Service"], dependencies=[Depends(forbid_scoped_token_writes)])
 public_router = APIRouter(prefix="/self/push", tags=["User: Self Service"])
 
 TEST_MESSAGE = web_push.PushMessage(

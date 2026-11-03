@@ -16,9 +16,10 @@ implementation/refactoring.
 # from datetime import timedelta # Imported but not used in active code
 from typing import Any
 
-from fastapi import HTTPException, status  # APIRouter for consistency
+from fastapi import Depends, HTTPException, status  # APIRouter for consistency
 
 # Marvin core, schemas, services, and base controllers
+from marvin.core.dependencies.dependencies import forbid_scoped_token_writes
 from marvin.core.security import hash_password  # , create_access_token # create_access_token not used in active code
 from marvin.core.security.providers.credentials_provider import CredentialsProvider  # For password verification
 from marvin.db.models.users.users import AuthMethod  # Enum for authentication methods
@@ -47,7 +48,7 @@ from marvin.schemas.user import (  # User Pydantic schemas
 
 # Router for user-specific, self-service operations.
 # All routes here will be under /users (or a parent prefix if UserAPIRouter is included with one).
-user_router = UserAPIRouter(tags=["User: Self Service"])  # Renamed tag for clarity
+user_router = UserAPIRouter(tags=["User: Self Service"], dependencies=[Depends(forbid_scoped_token_writes)])  # Renamed tag for clarity
 
 # Commented-out AdminAPIRouter. Admin user operations are likely in admin/user_controller.py.
 # admin_router = AdminAPIRouter(prefix="/users", tags=["Users: Admin CRUD"])

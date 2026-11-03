@@ -110,6 +110,16 @@ class LongLiveToken(SqlAlchemyBase, BaseMixins):
         doc="ID of the user who created this token (audit trail).",
     )
 
+    # NULL: a global token (its owner's whole reach, as always). Set: pinned to this workspace when it was made. CASCADE, never
+    # SET NULL: deleting the workspace must delete its tokens, not quietly widen them to global.
+    group_id: Mapped[GUID | None] = mapped_column(
+        GUID,
+        ForeignKey("groups.id", ondelete="CASCADE"),
+        index=True,
+        nullable=True,
+        doc="The workspace this token is pinned to; NULL for a global token.",
+    )
+
     # Relationship to the User who owns this token
     user: Mapped[Optional["Users"]] = orm.relationship("Users", back_populates="tokens", foreign_keys=[user_id])
 

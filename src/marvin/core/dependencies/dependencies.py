@@ -69,6 +69,8 @@ async def get_current_user(
 
             # Update last_used_at is handled by validate_token
             session.commit()
+            if token_model.group_id is not None:
+                return scoped_view(token_model.user, token_model.group_id)
             return token_model.user
         except Exception as e:
             raise credentials_exception from e
@@ -98,6 +100,45 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
     return user
+
+
+def scoped_view(user, group_id: UUID4) -> PrivateUser:
+    """The person as a workspace-pinned token sees them: a copy (never the stored row) with that one workspace, no platform-admin
+    rights and that workspace as the active one, so every existing check and "current workspace" lookup is already bounded.
+    The owner no longer being in the workspace ends the token's access (it is not widened, it just stops working)."""
+    private = PrivateUser.model_validate(user)
+    kept = [m for m in private.workspace_memberships if m.group_id == group_id]
+    if not kept:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This token's workspace is no longer one you belong to.")
+    return private.model_copy(
+        update={
+            "platform_role": PlatformRole.NONE,
+            "admin": False,
+            "is_superuser": False,
+            "workspace_memberships": kept,
+            "group_id": group_id,
+            "active_group_id": group_id,
+            "token_workspace_id": group_id,
+        }
+    )
+
+
+async def forbid_scoped_token(current_user: PrivateUser = Depends(get_current_user)) -> PrivateUser:
+    """Routes that manage the person or their tokens: refused to a workspace-pinned token, which could otherwise mint a
+    wider one or change the account's active workspace."""
+    if getattr(current_user, "token_workspace_id", None) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="A token pinned to one workspace can't manage tokens or the account. Use a global token or sign in.",
+        )
+    return current_user
+
+
+async def forbid_scoped_token_writes(request: Request, current_user: PrivateUser = Depends(get_current_user)) -> PrivateUser:
+    """Account routes a pinned token may read but not change: its owner's profile, password, push subscriptions, active workspace."""
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        return await forbid_scoped_token(current_user)
+    return current_user
 
 
 async def get_current_superuser(current_user: PrivateUser = Depends(get_current_user)) -> PrivateUser:
@@ -303,7 +344,9 @@ def validate_long_live_token(session: Session, client_token: str, user_id: str) 
     if str(token_model.user_id) != user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token does not belong to this user.")
 
-    # Return the user associated with the token
+    # Return the user associated with the token (as seen from its workspace, if it is pinned to one)
+    if token_model.group_id is not None:
+        return scoped_view(token_model.user, token_model.group_id)
     return token_model.user
 
 

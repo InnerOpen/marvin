@@ -14,9 +14,10 @@ Endpoints (all under /self/api-tokens for authenticated user):
 - POST /self/api-tokens/{id}/revoke - Revoke token (soft delete)
 """
 
-from fastapi import HTTPException, status
+from fastapi import Depends, HTTPException, status
 from pydantic import UUID4
 
+from marvin.core.dependencies.dependencies import forbid_scoped_token
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.routers import UserAPIRouter
 from marvin.schemas.user import (
@@ -28,7 +29,7 @@ from marvin.schemas.user import (
 )
 from marvin.services.event_bus_service.event_types import EventAPITokenData, EventOperation, EventTypes
 
-router = UserAPIRouter(prefix="/self/api-tokens", tags=["User: Self Service"])
+router = UserAPIRouter(prefix="/self/api-tokens", tags=["User: Self Service"], dependencies=[Depends(forbid_scoped_token)])
 
 
 @controller(router)
@@ -98,6 +99,10 @@ class UserApiTokensController(BaseUserController):
         Returns:
             LongLiveTokenWithToken: Token metadata with plaintext token
         """
+        # A pinned token must be for a workspace the person is in; the same answer for one that doesn't exist, so it can't be probed.
+        if data.group_id is not None and self.user.get_workspace_role(data.group_id) is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You aren't a member of that workspace.")
+
         # Inject user_id for token ownership
         token_data = data.model_dump()
         token_data["user_id"] = self.user.id

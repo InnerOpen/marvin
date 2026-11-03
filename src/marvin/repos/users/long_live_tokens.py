@@ -74,6 +74,7 @@ class LongLiveTokensRepository(RepositoryGeneric[LongLiveTokenRead, LongLiveToke
             name=token_model.name,
             description=token_model.description,
             enabled=token_model.enabled,
+            group_id=token_model.group_id,
             token=plaintext_token,  # IMPORTANT: Only shown here
             created_at=token_model.created_at,
         )
@@ -136,6 +137,7 @@ class LongLiveTokensRepository(RepositoryGeneric[LongLiveTokenRead, LongLiveToke
             name=updated.name,
             description=updated.description,
             enabled=updated.enabled,
+            group_id=updated.group_id,
             token=plaintext_token,  # IMPORTANT: Only shown here
             created_at=updated.created_at,
         )
