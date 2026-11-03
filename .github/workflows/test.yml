@@ -93,6 +93,9 @@ jobs:
         with:
           files: junit-sqlite.xml
           check_name: Backend Test Results (SQLite)
+          # The workflow token cannot comment on pull requests (no pull-requests: write), and a comment is not worth
+          # that grant: the result is already a check on the PR. Without this, a PR's test run fails at this step.
+          comment_mode: off
 
   # Job 2: The backend suite on PostgreSQL: service container, migration reversibility (up → down → up), then the
   # full suite with coverage and published results.
@@ -185,6 +188,7 @@ jobs:
         with:
           files: junit.xml
           check_name: Backend Test Results
+          comment_mode: off
 
   # Job 3: Vault secrets — real Vault dev service, SECRET_BACKEND=vault. Runs the vault-gated
   # secret/resolver tests (they skip in the SQLite/Postgres jobs). The database here is the Postgres service.
