@@ -6,6 +6,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.93 (2026-11-03)
+
+### Bug Fixes
+
+- **automation**: The guided builder keeps a condition's number, true/false or list as it was
+  ([`48702b2`](https://github.com/InnerOpen/marvin/commit/48702b227a621e3771e960c9aa2cdeda9faa2391))
+
+- **oauth**: The consent page puts a space between "as" and the person's name
+  ([`ab62a52`](https://github.com/InnerOpen/marvin/commit/ab62a520fc1ac1681ee51bbf9128ead8b3fd5b4a))
+
+### Features
+
+- **playbooks**: The Playbook entry type is locked
+  ([`01d95de`](https://github.com/InnerOpen/marvin/commit/01d95de665114cdf1e0cc142c5baa2f920ad62de))
+
+
 ## v1.1.0-rc.92 (2026-11-03)
 
 ### Bug Fixes
