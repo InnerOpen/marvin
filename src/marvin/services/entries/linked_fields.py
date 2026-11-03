@@ -6,7 +6,10 @@ An ``asset`` / ``asset-list`` field (``heroImage``, ``gallery``) holds asset ids
 the smart collections all read the entry's *attachments*, so a value that stayed only in ``data_json`` was invisible to
 them. After every save the attachments are brought in line with the fields: each id named gets an attachment whose
 role is the field's ``role`` (``hero``), or its key when none is set (kept if it is already there), and an attachment with
-that role whose id the field no longer names is removed. Attachments with any other role, or none, are someone's own and are never touched.
+that role whose id the field *used to name* and no longer does is removed. An attachment in the field's role that the field
+never named — one made by hand in the sidebar — is adopted instead: it stays, and the field takes its id (a list field adds
+it; a single field takes it when empty), so the field and the sidebar say the same thing. Attachments with any other role,
+or none, are someone's own and are never touched.
 """
 
 from __future__ import annotations
@@ -40,9 +43,10 @@ def ids_named(value: Any) -> list[uuid.UUID]:
     return out
 
 
-def sync_linked_fields(session, entry, schema_json: Any) -> bool:
-    """Bring the entry's attachments in line with its asset / resource fields (see the module docstring). Commits when
-    anything changed; returns whether it did."""
+def sync_linked_fields(session, entry, schema_json: Any, previous_data: Any = None) -> bool:
+    """Bring the entry's attachments in line with its asset / resource fields (see the module docstring). ``previous_data``
+    is the entry's ``data_json`` before this save, so a removal is only what the field dropped; without it (a new entry)
+    nothing is removed. Commits when anything changed; returns whether it did."""
     from marvin.db.models.platform.assets import Assets
     from marvin.db.models.platform.entry_assets import EntryAssets
     from marvin.db.models.platform.entry_resources import EntryResources
@@ -52,29 +56,49 @@ def sync_linked_fields(session, entry, schema_json: Any) -> bool:
     if not fields:
         return False
     data = getattr(entry, "data_json", None) or {}
+    before = previous_data if isinstance(previous_data, dict) else None
     changed = False
+    adopted_data: dict[str, Any] = {}
     for key, ftype, role in fields:
         wanted = ids_named(data.get(key))
+        dropped = [i for i in ids_named(before.get(key)) if i not in wanted] if before is not None else []
         if ftype in ASSET_TYPES:
-            changed |= _sync(session, entry, role, wanted, EntryAssets, "asset_id", Assets)
+            did, adopted = _sync(session, entry, role, wanted, dropped, EntryAssets, "asset_id", Assets)
         else:
-            changed |= _sync(session, entry, role, wanted, EntryResources, "resource_id", Resources)
+            did, adopted = _sync(session, entry, role, wanted, dropped, EntryResources, "resource_id", Resources)
+        changed |= did
+        if adopted:
+            if ftype.endswith("-list"):
+                adopted_data[key] = [str(i) for i in wanted] + [str(i) for i in adopted]
+            elif not wanted:
+                adopted_data[key] = str(adopted[0])
+    if adopted_data:
+        entry.data_json = {**data, **adopted_data}
+        changed = True
     if changed:
         session.commit()
     return changed
 
 
-def _sync(session, entry, role: str, wanted: list[uuid.UUID], link_model, fk: str, target_model) -> bool:
+def _sync(
+    session, entry, role: str, wanted: list[uuid.UUID], dropped: list[uuid.UUID], link_model, fk: str, target_model
+) -> tuple[bool, list[uuid.UUID]]:
+    """Returns (changed, adopted): ``adopted`` are the ids attached by hand in the field's role that the field should take."""
     import sqlalchemy as sa
 
     rows = session.query(link_model).filter(link_model.entry_id == entry.id).all()
     with_role = {getattr(r, fk): r for r in rows if r.role == role}
     linked_any = {getattr(r, fk) for r in rows}
     changed = False
-    for row in with_role.values():
-        if getattr(row, fk) not in wanted:
+    adopted: list[uuid.UUID] = []
+    for target_id, row in with_role.items():
+        if target_id in wanted:
+            continue
+        if target_id in dropped:  # the field named it and no longer does
             session.delete(row)
             changed = True
+        else:  # made by hand in the field's role: it stays, and the field takes it
+            adopted.append(target_id)
     # Only ids that exist in this workspace and aren't in the Trash become attachments; a stale id is left in the field.
     valid = set()
     if wanted:
@@ -96,4 +120,4 @@ def _sync(session, entry, role: str, wanted: list[uuid.UUID], link_model, fk: st
         session.add(link_model(**{"entry_id": entry.id, fk: target_id, "role": role, "position": pos}))
         pos += 1
         changed = True
-    return changed
+    return changed, adopted

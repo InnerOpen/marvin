@@ -202,21 +202,23 @@ class EntryService:
                 return replaced
         data = self._trash_bookkeeping(old, data)
         entry = self.repos.entries.update(entry_id, data)
-        entry = self._sync_linked_fields(entry)
+        entry = self._sync_linked_fields(entry, previous_data=getattr(old, "data_json", None))
         self._emit_updated_and_transitions(old, entry, "updated", reaction_depth)
         return entry
 
-    def _sync_linked_fields(self, entry):
+    def _sync_linked_fields(self, entry, previous_data=None):
         """An asset / resource field of the type's schema is a simple way to attach: what it names is attached with the
         field's key as the role (services/entries/linked_fields.py). Runs after the write, so a payload that replaces the
-        attachments wholesale (the editor sends them all) does not undo it. Returns the entry, re-read when it changed."""
+        attachments wholesale (the editor sends them all) does not undo it. ``previous_data`` (the entry's data before an
+        update) tells a removal — an id the field dropped — from an attachment made by hand, which the field adopts.
+        Returns the entry, re-read when it changed."""
         from marvin.db.models.platform.entries import Entries
         from marvin.services.entries.linked_fields import sync_linked_fields
 
         orm = self.session.get(Entries, entry.id)
         etype = self.repos.entry_types.get_one(entry.entry_type_id) if orm is not None and getattr(entry, "entry_type_id", None) else None
         schema = getattr(etype, "content_schema", None)  # EntryTypeRead's name for schema_json
-        if orm is None or etype is None or not sync_linked_fields(self.session, orm, schema):
+        if orm is None or etype is None or not sync_linked_fields(self.session, orm, schema, previous_data):
             return entry
         return self.repos.entries.get_one(entry.id)
 

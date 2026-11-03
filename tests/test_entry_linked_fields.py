@@ -147,6 +147,35 @@ def test_the_editor_resending_every_attachment_does_not_undo_the_field(db_sessio
     assert _asset_links(db_session, entry.id) == {(str(ws["a1"]), "hero"), (str(ws["a2"]), "thumbnail")}
 
 
+def test_an_attachment_made_by_hand_in_the_fields_role_is_adopted_not_removed(db_session, ws):
+    """Grace added a second picture as `featured` in the sidebar while the Images field (role featured) named one: the
+    next save used to remove hers. Now it stays, and the field takes it, so field and sidebar agree."""
+    svc = _svc(db_session, ws)
+    entry = _create(db_session, ws, {"gallery": [str(ws["a1"])]})
+    svc.update(
+        entry.id,
+        {
+            "data_json": {"gallery": [str(ws["a1"])]},
+            "asset_attachments": [{"asset_id": str(ws["a1"]), "role": "gallery"}, {"asset_id": str(ws["a2"]), "role": "gallery"}],
+        },
+    )
+    assert _asset_links(db_session, entry.id) == {(str(ws["a1"]), "gallery"), (str(ws["a2"]), "gallery")}
+    db_session.expire_all()
+    assert db_session.get(Entries, entry.id).data_json["gallery"] == [str(ws["a1"]), str(ws["a2"])]
+    # once the field names it, clearing it from the field removes it like any other
+    svc.update(entry.id, {"data_json": {"gallery": [str(ws["a1"])]}})
+    assert _asset_links(db_session, entry.id) == {(str(ws["a1"]), "gallery")}
+
+
+def test_an_empty_single_field_takes_an_attachment_made_by_hand_in_its_role(db_session, ws):
+    svc = _svc(db_session, ws)
+    entry = _create(db_session, ws, {"heroImage": None})
+    svc.update(entry.id, {"data_json": {"heroImage": None}, "asset_attachments": [{"asset_id": str(ws["a2"]), "role": "hero"}]})
+    assert _asset_links(db_session, entry.id) == {(str(ws["a2"]), "hero")}
+    db_session.expire_all()
+    assert db_session.get(Entries, entry.id).data_json["heroImage"] == str(ws["a2"])
+
+
 def test_an_id_that_is_not_an_asset_of_this_workspace_is_skipped(db_session, ws):
     entry = _create(db_session, ws, {"heroImage": str(uuid.uuid4())})
     assert _asset_links(db_session, entry.id) == set()
