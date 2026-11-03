@@ -75,6 +75,17 @@ image-making integration step) can **tag** what it makes. Moving an image to the
 and restoring it brings back those that went with it — except a version an entry uses (a hero's web size on a
 page), which stays; an original with a version in use doesn't count as unattached. Unreleased (2026-10-12).
 
+**Batch upload.** The upload page takes many files at once (a phone's photo picker lets you take the whole roll): they
+upload one after another, each named after its file, with a running count; alt text, description and metadata apply to
+all of them; a file that fails is listed at the end and the rest still go; a slug the library already has gets a numbered
+one. Every file raises its own `asset_uploaded`, so workflows on that event run once per file. The single-file form is
+unchanged — the cropper and the offline queue stay with it; a batch is cropped afterwards, per asset. **New entry from
+this asset**, on an asset's page, opens the new-entry form with the asset: its name as the title and, once a type is
+chosen, the asset in that type's first image field (saving attaches it in the field's role); a type without an image
+field gets it as a plain attachment in the role typed, or none. The Workflow Library's **An entry for every picture
+uploaded** (`entry-from-upload`) does the same automatically: every image upload becomes a draft of the chosen type with
+the picture in the chosen image field. Unreleased (2026-11-02).
+
 ## Rendered images
 
 A **Process an image** step can **render a template**: a built-in quote card, card, retro poster, trading card, meme,
@@ -143,6 +154,11 @@ The platform (admin's) workspace — `Default` on most installs — is now marke
 
 ## Smaller changes
 
+- The entry editor's **Status** menu offers **Archived** (Editors and above); the backend has had the state all along, but the menu stopped at Published (unreleased, 2026-11-02).
+- The content model editor's type menu offers the attaching field types — **Image / file**, **Images / files**, **Resource**, **Resources** — with their **Attach as role** box; see [Field types](../reference/entry-type-fields.md) (unreleased, 2026-11-02).
+- **Automation**'s cards on the Settings page carry the same count pill as the tab, so the tab's number can be traced to its section; a flagged card opens its list filtered to Needs attention. **Delete all of these** on the *From a removed integration* section now deletes exactly what the section lists — it used to skip every row whose provider still had any connection (a sandbox replaced by production), silently (unreleased, 2026-11-02).
+- Settings → Storage: the add-bucket form showed every provider's fields at once (its grid style beat the `hidden` attribute); an endpoint that names the bucket in its path (the console's "S3 API" line, bucket and all) is refused with the cause, instead of a check that says "the object wasn't found"; the backups list is rows with the size aligned, not bullet points (unreleased, 2026-11-02).
+- The empty Resources page says what a resource is, in words that fit any workspace, and the empty-state sentence on Resources, Entries, Assets and Collections is centred (unreleased, 2026-11-02).
 - Admin update banner (rc.64) and the public `/api/app/about/version` endpoint it polls through `/version.json` (rc.65); the banner's "Later" fix landed in rc.66.
 - `STORAGE_LOCAL_PUBLIC_BASE_URL`: absolute local-asset URLs for a CDN, tunnel host or decoupled frontend (rc.40).
 - Crop and grade keep transparency instead of flattening onto black (`bc21db31`, rc.46).
