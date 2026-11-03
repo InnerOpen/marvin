@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.90 (2026-11-03)
+
+### Bug Fixes
+
+- **storage**: Back up now refuses a second backup while one is running
+  ([`860514d`](https://github.com/InnerOpen/marvin/commit/860514d822781f957f10d0ecc07ca6906420f2c0))
+
+### Documentation
+
+- **manual**: The attaching field types, batch upload, entry from an asset, and the day's smaller
+  changes
+  ([`d919a11`](https://github.com/InnerOpen/marvin/commit/d919a11a22132c204398bbf37489eb47151207d0))
+
+
 ## v1.1.0-rc.89 (2026-11-03)
 
 ### Bug Fixes
