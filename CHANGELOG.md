@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.91 (2026-11-03)
+
+### Features
+
+- **entries**: New entry from an asset skips the type pick when only one type can hold it
+  ([`b60f3f4`](https://github.com/InnerOpen/marvin/commit/b60f3f4f27333af8a63e87bf1dc8297fb5545492))
+
+
 ## v1.1.0-rc.90 (2026-11-03)
 
 ### Bug Fixes
