@@ -176,6 +176,31 @@ def test_an_empty_single_field_takes_an_attachment_made_by_hand_in_its_role(db_s
     assert db_session.get(Entries, entry.id).data_json["heroImage"] == str(ws["a2"])
 
 
+def test_changing_an_attachments_role_away_in_the_sidebar_drops_it_from_the_field(db_session, ws):
+    """Grace's next step: the picture the Image field showed was re-roled `gallery` in the sidebar; the field kept
+    showing it. The field is the attachments in its role, so it lets go; the attachment keeps its new role."""
+    svc = _svc(db_session, ws)
+    entry = _create(db_session, ws, {"heroImage": str(ws["a1"]), "gallery": [str(ws["a2"])]})
+    svc.update(
+        entry.id,
+        {
+            "data_json": {"heroImage": str(ws["a1"]), "gallery": [str(ws["a2"])]},  # the editor resends the fields as they were
+            "asset_attachments": [{"asset_id": str(ws["a1"]), "role": "thumbnail"}, {"asset_id": str(ws["a2"]), "role": "thumbnail"}],
+        },
+    )
+    assert _asset_links(db_session, entry.id) == {(str(ws["a1"]), "thumbnail"), (str(ws["a2"]), "thumbnail")}
+    db_session.expire_all()
+    data = db_session.get(Entries, entry.id).data_json
+    assert (data["heroImage"], data["gallery"]) == (None, [])
+
+
+def test_choosing_an_already_attached_picture_in_the_field_gives_it_the_fields_role(db_session, ws):
+    svc = _svc(db_session, ws)
+    entry = _create(db_session, ws, {"heroImage": None}, asset_attachments=[{"asset_id": str(ws["a2"]), "role": "thumbnail"}])
+    svc.update(entry.id, {"data_json": {"heroImage": str(ws["a2"])}, "asset_attachments": [{"asset_id": str(ws["a2"]), "role": "thumbnail"}]})
+    assert _asset_links(db_session, entry.id) == {(str(ws["a2"]), "hero")}
+
+
 def test_an_id_that_is_not_an_asset_of_this_workspace_is_skipped(db_session, ws):
     entry = _create(db_session, ws, {"heroImage": str(uuid.uuid4())})
     assert _asset_links(db_session, entry.id) == set()

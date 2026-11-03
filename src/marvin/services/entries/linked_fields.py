@@ -5,11 +5,12 @@ An ``asset`` / ``asset-list`` field (``heroImage``, ``gallery``) holds asset ids
 ``resource-list`` field holds resource ids. The sidebar, the site renderer (a hero by role), the completeness contract and
 the smart collections all read the entry's *attachments*, so a value that stayed only in ``data_json`` was invisible to
 them. After every save the attachments are brought in line with the fields: each id named gets an attachment whose
-role is the field's ``role`` (``hero``), or its key when none is set (kept if it is already there), and an attachment with
-that role whose id the field *used to name* and no longer does is removed. An attachment in the field's role that the field
-never named — one made by hand in the sidebar — is adopted instead: it stays, and the field takes its id (a list field adds
-it; a single field takes it when empty), so the field and the sidebar say the same thing. Attachments with any other role,
-or none, are someone's own and are never touched.
+role is the field's ``role`` (``hero``), or its key when none is set, and an attachment with that role whose id the field
+*used to name* and no longer does is removed. Then the field is set from the attachments: it is exactly the ones in its
+role, in their order (a list field all of them, a single field the first). So a picture given the field's role by hand in
+the sidebar appears in the field, and one whose role was changed away in the sidebar leaves the field. An id chosen in
+the field that is attached in another role takes the field's role; attachments with any other role, or none, are
+someone's own and are never touched.
 """
 
 from __future__ import annotations
@@ -44,9 +45,11 @@ def ids_named(value: Any) -> list[uuid.UUID]:
 
 
 def sync_linked_fields(session, entry, schema_json: Any, previous_data: Any = None) -> bool:
-    """Bring the entry's attachments in line with its asset / resource fields (see the module docstring). ``previous_data``
-    is the entry's ``data_json`` before this save, so a removal is only what the field dropped; without it (a new entry)
-    nothing is removed. Commits when anything changed; returns whether it did."""
+    """Bring the entry's attachments in line with its asset / resource fields, then the fields in line with the
+    attachments (see the module docstring). ``previous_data`` is the entry's ``data_json`` before this save: an id the
+    field named then and not now is removed, an id it names now and didn't then takes over a link that had another role.
+    Without it (a new entry) nothing is removed and every id named is new. Commits when anything changed; returns whether
+    it did."""
     from marvin.db.models.platform.assets import Assets
     from marvin.db.models.platform.entry_assets import EntryAssets
     from marvin.db.models.platform.entry_resources import EntryResources
@@ -58,22 +61,24 @@ def sync_linked_fields(session, entry, schema_json: Any, previous_data: Any = No
     data = getattr(entry, "data_json", None) or {}
     before = previous_data if isinstance(previous_data, dict) else None
     changed = False
-    adopted_data: dict[str, Any] = {}
+    new_data: dict[str, Any] = {}
     for key, ftype, role in fields:
         wanted = ids_named(data.get(key))
-        dropped = [i for i in ids_named(before.get(key)) if i not in wanted] if before is not None else []
+        was = ids_named(before.get(key)) if before is not None else None
+        dropped = [i for i in was if i not in wanted] if was is not None else []
+        added = [i for i in wanted if was is None or i not in was]
         if ftype in ASSET_TYPES:
-            did, adopted = _sync(session, entry, role, wanted, dropped, EntryAssets, "asset_id", Assets)
+            did, final = _sync(session, entry, role, wanted, dropped, added, EntryAssets, "asset_id", Assets)
         else:
-            did, adopted = _sync(session, entry, role, wanted, dropped, EntryResources, "resource_id", Resources)
+            did, final = _sync(session, entry, role, wanted, dropped, added, EntryResources, "resource_id", Resources)
         changed |= did
-        if adopted:
-            if ftype.endswith("-list"):
-                adopted_data[key] = [str(i) for i in wanted] + [str(i) for i in adopted]
-            elif not wanted:
-                adopted_data[key] = str(adopted[0])
-    if adopted_data:
-        entry.data_json = {**data, **adopted_data}
+        # The field is exactly the attachments in its role, in their order: a list field all of them, a single field
+        # the first. So a picture given the role by hand appears in the field, and one whose role was changed away leaves it.
+        value: Any = [str(i) for i in final] if ftype.endswith("-list") else (str(final[0]) if final else None)
+        if value != data.get(key) and not (value is None and not data.get(key)):
+            new_data[key] = value
+    if new_data:
+        entry.data_json = {**data, **new_data}
         changed = True
     if changed:
         session.commit()
@@ -81,25 +86,20 @@ def sync_linked_fields(session, entry, schema_json: Any, previous_data: Any = No
 
 
 def _sync(
-    session, entry, role: str, wanted: list[uuid.UUID], dropped: list[uuid.UUID], link_model, fk: str, target_model
+    session, entry, role: str, wanted: list[uuid.UUID], dropped: list[uuid.UUID], added: list[uuid.UUID], link_model, fk: str, target_model
 ) -> tuple[bool, list[uuid.UUID]]:
-    """Returns (changed, adopted): ``adopted`` are the ids attached by hand in the field's role that the field should take."""
+    """Returns (changed, the ids attached in the field's role afterwards, in position order)."""
     import sqlalchemy as sa
 
     rows = session.query(link_model).filter(link_model.entry_id == entry.id).all()
     with_role = {getattr(r, fk): r for r in rows if r.role == role}
-    linked_any = {getattr(r, fk) for r in rows}
+    by_id = {getattr(r, fk): r for r in rows}
     changed = False
-    adopted: list[uuid.UUID] = []
     for target_id, row in with_role.items():
-        if target_id in wanted:
-            continue
-        if target_id in dropped:  # the field named it and no longer does
+        if target_id in dropped and target_id not in wanted:  # the field named it and no longer does
             session.delete(row)
             changed = True
-        else:  # made by hand in the field's role: it stays, and the field takes it
-            adopted.append(target_id)
-    # Only ids that exist in this workspace and aren't in the Trash become attachments; a stale id is left in the field.
+    # Only ids that exist in this workspace and aren't in the Trash become attachments; a stale id is dropped from the field.
     valid = set()
     if wanted:
         q = session.query(target_model.id).filter(target_model.group_id == entry.group_id, target_model.id.in_(wanted))
@@ -111,13 +111,24 @@ def _sync(
     for target_id in wanted:
         if target_id in with_role or target_id not in valid:
             continue
-        if target_id in linked_any:  # attached by hand already: give that link the field's role rather than a second row
-            row = next(r for r in rows if getattr(r, fk) == target_id)
-            if row.role is None:
+        row = by_id.get(target_id)
+        if row is not None:
+            # Attached already in another role (or none). A choice just made in the field wins; an older one doesn't —
+            # the sidebar changed the role since, and the field drops the picture below.
+            if row.role is None or target_id in added:
                 row.role = role
                 changed = True
             continue
         session.add(link_model(**{"entry_id": entry.id, fk: target_id, "role": role, "position": pos}))
         pos += 1
         changed = True
-    return changed, adopted
+    session.flush()
+    final = (
+        session.query(link_model)
+        .filter(link_model.entry_id == entry.id, link_model.role == role)
+        .order_by(
+            sa.nulls_last(link_model.position.asc()), link_model.created_at.asc() if hasattr(link_model, "created_at") else link_model.position.asc()
+        )
+        .all()
+    )
+    return changed, [getattr(r, fk) for r in final]
