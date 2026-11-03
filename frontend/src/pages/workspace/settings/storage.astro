@@ -519,11 +519,12 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
   .backup-form { display: grid; gap: 12px; margin-bottom: 14px; }
   .keep-input { max-width: 120px; }
   /* Rows like the connections above, not bullet points: the backup's name (a download) left, its size right. */
+  /* The rows are made by the script below, outside Astro's style scoping, so they are reached with :global. */
   .backup-list { list-style: none; margin: 0; padding: 0; font-size: 13px; display: grid; gap: 0; }
-  .backup-list li { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
-  .backup-list li:last-child { border-bottom: 0; }
-  .backup-size { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .link-button { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-align: left; }
+  .backup-list :global(li) { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .backup-list :global(li:last-child) { border-bottom: 0; }
+  .backup-list :global(.backup-size) { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  :global(.link-button) { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-align: left; font: inherit; }
   .bundle-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; }
   .copy-plan { margin-top: 10px; padding: 12px; border: 1px dashed var(--line); border-radius: var(--radius); font-size: 13px; display: grid; gap: 8px; justify-items: start; }
   .copy-plan p { margin: 0; line-height: 1.5; }
