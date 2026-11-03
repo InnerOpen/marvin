@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.85 (2026-11-03)
+
+### Bug Fixes
+
+- **admin**: The last two workshop-flavoured example strings
+  ([`b9c0abc`](https://github.com/InnerOpen/marvin/commit/b9c0abca8016ada3731878c68c2b168fc8c24ac7))
+
+
 ## v1.1.0-rc.84 (2026-11-03)
 
 ### Bug Fixes
