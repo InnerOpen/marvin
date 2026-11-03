@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.92 (2026-11-03)
+
+### Bug Fixes
+
+- **storage**: The backup settings and Back up now are two cards
+  ([`cbc31d2`](https://github.com/InnerOpen/marvin/commit/cbc31d2573b3b227e7ba286f4ec8cf9f7557623a))
+
+
 ## v1.1.0-rc.91 (2026-11-03)
 
 ### Features
