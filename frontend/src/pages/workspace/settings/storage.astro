@@ -144,7 +144,7 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
 
       <section class="section-card">
         <div class="section-title">
-          <h3>Backups</h3>
+          <h3>Backup settings</h3>
           <p>
             The platform keeps its own backups of this workspace. You can also keep backups yourself, in a private bucket
             of your own (not one your files are served from): the daily backup goes there too, and you can back up now.
@@ -167,12 +167,9 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
           {canEdit && (
             <div class="form-actions">
               <button type="submit" class="button">Save</button>
-              {data.backupConnectionId && <button type="button" class="button secondary" id="backup-now">Back up now</button>}
-              {data.backupConnectionId && <button type="button" class="button secondary" id="backup-list">Show backups</button>}
               <span class="form-status" data-status></span>
             </div>
           )}
-          <ul class="backup-list" data-backup-list hidden></ul>
         </form>
         {data.connections.some((c) => !isBackup(c)) && (
           <label class="bundle-row">
@@ -182,6 +179,24 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
           </label>
         )}
       </section>
+
+      {canEdit && data.backupConnectionId && (
+        <section class="section-card" id="backup-run">
+          <div class="section-title">
+            <h3>Back up now</h3>
+            <p>
+              Make a backup right away, to the bucket saved above (save any change to the settings first). It runs in the
+              background; only one runs at a time.
+            </p>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="button" id="backup-now">Back up now</button>
+            <button type="button" class="button secondary" id="backup-list">Show backups</button>
+            <span class="form-status" data-status></span>
+          </div>
+          <ul class="backup-list" data-backup-list hidden></ul>
+        </section>
+      )}
 
       {canEdit && (data.providers.length > 0 || data.backupProviders.length > 0) && (
         <section class="section-card">
@@ -401,6 +416,7 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
   );
 
   const backupForm = document.getElementById("backup-form") as HTMLFormElement | null;
+  const backupRun = document.getElementById("backup-run");
   backupForm?.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const fd = new FormData(backupForm);
@@ -417,9 +433,9 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
     button.disabled = true;
     try {
       const res = await fetchApi<{ message: string }>(`${BASE}/backups`, { method: "POST" });
-      say(backupForm, `${res.message}. It runs in the background; "Show backups" lists it when done.`);
+      say(backupRun, `${res.message}. It runs in the background; "Show backups" lists it when done.`);
     } catch (e) {
-      say(backupForm, message(e), true);
+      say(backupRun, message(e), true);
     } finally {
       button.disabled = false;
     }
