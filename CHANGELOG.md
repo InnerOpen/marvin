@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.89 (2026-11-03)
+
+### Bug Fixes
+
+- **storage**: The backups list's rows and download links are styled after all
+  ([`0dfbfbd`](https://github.com/InnerOpen/marvin/commit/0dfbfbdc3d97adb2dc5c5ea7d407073d4f9c0f36))
+
+
 ## v1.1.0-rc.88 (2026-11-03)
 
 ### Features
