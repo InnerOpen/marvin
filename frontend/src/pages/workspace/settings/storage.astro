@@ -452,7 +452,10 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
             link.disabled = false;
           }
         });
-        li.append(link, ` (${mb(b.size)})`);
+        const size = document.createElement("span");
+        size.className = "backup-size";
+        size.textContent = mb(b.size);
+        li.append(link, size);
         list.appendChild(li);
       }
     } catch (e) {
@@ -515,7 +518,11 @@ const fieldLabel = (provider: Provider | undefined, env: string) => provider?.fi
   .connection-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .backup-form { display: grid; gap: 12px; margin-bottom: 14px; }
   .keep-input { max-width: 120px; }
-  .backup-list { margin: 0; padding-left: 18px; font-size: 13px; display: grid; gap: 4px; }
+  /* Rows like the connections above, not bullet points: the backup's name (a download) left, its size right. */
+  .backup-list { list-style: none; margin: 0; padding: 0; font-size: 13px; display: grid; gap: 0; }
+  .backup-list li { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .backup-list li:last-child { border-bottom: 0; }
+  .backup-size { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .link-button { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-align: left; }
   .bundle-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; }
   .copy-plan { margin-top: 10px; padding: 12px; border: 1px dashed var(--line); border-radius: var(--radius); font-size: 13px; display: grid; gap: 8px; justify-items: start; }
