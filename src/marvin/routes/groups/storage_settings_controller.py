@@ -234,6 +234,8 @@ class StorageSettingsController(BaseUserController):
         self._require_owner()
         try:
             task, workspace = admin.start_backup(self.session, self.group_id, self.user.id)
+        except admin.WorkspaceBackupRunning as e:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
         except admin.WorkspaceStorageError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
         self.event_bus.dispatch(

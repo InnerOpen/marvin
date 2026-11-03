@@ -18,7 +18,7 @@ from __future__ import annotations
 import io
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from marvin_integration_sdk.storage import StorageConfigError
@@ -32,6 +32,10 @@ PROBE_TIMEOUT_SECONDS = 10
 
 class WorkspaceStorageError(ValueError):
     """A change that can't be made (the message is safe to show)."""
+
+
+class WorkspaceBackupRunning(WorkspaceStorageError):
+    """A backup of this workspace is already running."""
 
 
 # ── what a provider asks for ─────────────────────────────────────────────────
@@ -687,9 +691,37 @@ def _on_demand_task(session, group_id, *, slug: str, name: str, description: str
     return task
 
 
+BACKUP_TASK_SLUG = "back-up-to-own-bucket"
+BACKUP_RUNNING_KEY = "running_since"
+# A run that died without clearing its marker stops blocking new backups after this long.
+BACKUP_RUN_TIMEOUT = timedelta(hours=2)
+
+
+def _backup_running(task) -> bool:
+    """Whether the task's config says a backup started and hasn't ended (and the marker isn't stale)."""
+    since = (task.task_config or {}).get(BACKUP_RUNNING_KEY)
+    try:
+        return bool(since) and datetime.now(UTC) - datetime.fromisoformat(since) < BACKUP_RUN_TIMEOUT
+    except ValueError:
+        return False
+
+
+def finish_backup(session, group_id) -> None:
+    """Clear the running marker once a backup has ended, whether it saved or failed."""
+    from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
+
+    task = session.query(ScheduledTaskModel).filter_by(group_id=group_id, slug=BACKUP_TASK_SLUG).one_or_none()
+    if task is not None and BACKUP_RUNNING_KEY in (task.task_config or {}):
+        task.task_config = {k: v for k, v in task.task_config.items() if k != BACKUP_RUNNING_KEY}
+        session.commit()
+
+
 def start_backup(session, group_id, user_id):
-    """Back up now: a workspace task that makes the bundle and saves it to the backup bucket. Returns (task, workspace)."""
+    """Back up now: a workspace task that makes the bundle and saves it to the backup bucket. Returns (task, workspace).
+
+    Refused while a backup of this workspace is still running, so a second click doesn't queue a second bundle."""
     from marvin.db.models.groups import Groups
+    from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
 
     from .workspace_backups import WorkspaceBackupError, _target
 
@@ -697,13 +729,17 @@ def start_backup(session, group_id, user_id):
         _target(session, group_id)
     except WorkspaceBackupError as e:
         raise WorkspaceStorageError(str(e)) from e
+    # Locked so two clicks at once can't both pass the check (a no-op on SQLite, which has one writer anyway).
+    existing = session.query(ScheduledTaskModel).filter_by(group_id=group_id, slug=BACKUP_TASK_SLUG).with_for_update().one_or_none()
+    if existing is not None and _backup_running(existing):
+        raise WorkspaceBackupRunning("A backup is already running. It will appear under Show backups when it finishes.")
     task = _on_demand_task(
         session,
         group_id,
-        slug="back-up-to-own-bucket",
+        slug=BACKUP_TASK_SLUG,
         name="Back up to the workspace's bucket",
         description="Saves a backup of this workspace to its own private backup bucket (Workspace settings → Storage).",
         task_type=BACKUP_TASK_TYPE,
-        config={"started_by": str(user_id) if user_id else None},
+        config={"started_by": str(user_id) if user_id else None, BACKUP_RUNNING_KEY: datetime.now(UTC).isoformat()},
     )
     return task, session.get(Groups, group_id)

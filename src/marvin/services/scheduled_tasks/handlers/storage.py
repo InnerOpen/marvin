@@ -166,6 +166,7 @@ class BackupToWorkspaceBucketHandler(ScheduledTaskHandler):
     def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
         from marvin.core.config import get_app_dirs
         from marvin.db.db_setup import session_context
+        from marvin.services.storage.workspace_admin import finish_backup
         from marvin.services.storage.workspace_backups import announce, backup_now
 
         if not task.group_id:
@@ -176,6 +177,8 @@ class BackupToWorkspaceBucketHandler(ScheduledTaskHandler):
             except Exception as e:
                 announce(event_bus, task.group_id, error=str(e), trigger="manual")
                 raise
+            finally:
+                finish_backup(session, task.group_id)
             announce(event_bus, task.group_id, saved=saved, trigger="manual")
         return f"Saved {saved.key} ({saved.size / 1024**2:.1f} MB); {saved.pruned} older backup(s) deleted"
 

@@ -472,8 +472,11 @@ def test_a_backup_bucket_is_checked_privately_chosen_and_backed_up_to(api, db_se
     assert (page["backupConnectionId"], page["backupKeep"]) == (bucket["id"], 3)
 
     task = db_session.get(ScheduledTaskModel, uuid.UUID(owner.post(f"{BASE}/backups").json()["taskId"]))
+    again = owner.post(f"{BASE}/backups")  # a second click while the first backup is still running
+    assert again.status_code == 409 and "already running" in again.json()["detail"]
     out = TaskHandlerRegistry.get_handler(task.task_type).execute(task, None)
     assert out.startswith("Saved marvin-backups/")
+    assert owner.post(f"{BASE}/backups").status_code == 202  # the run ended, so the button works again
     saved = next(e for e in events if e["event_type"] == EventTypes.workspace_backup_saved)["document_data"]
     assert saved.trigger == "manual" and saved.key in BucketTarget.buckets["their-backups"].objects
 
