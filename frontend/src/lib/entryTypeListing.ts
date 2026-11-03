@@ -8,6 +8,13 @@ export interface TypeLike {
   slug?: string | null;
   capabilitiesJson?: Record<string, unknown> | null;
   schemaJson?: { fields?: { type?: string }[] } | null;
+  /** Why the type can't be edited or deleted (backend: services/locked_entry_types.py); the SDK's type doesn't list it yet. */
+  lockedReason?: string | null;
+}
+
+/** Why a type is locked (a feature is built on it, like the Playbook type), or null when it can be edited. */
+export function lockReason(type: TypeLike | null | undefined): string | null {
+  return type?.lockedReason || null;
 }
 
 function submissionOf(type: TypeLike | null | undefined): Record<string, unknown> | null {

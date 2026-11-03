@@ -4,7 +4,7 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getEntryType } from "@/lib/api/entryTypes";
 import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
-import { usedBy } from "@/lib/entryTypeListing";
+import { lockReason, usedBy } from "@/lib/entryTypeListing";
 import { splitRecipe } from "@/lib/recipeForm";
 import { ADMINS_ONLY } from "@/lib/workspaceRole";
 
@@ -28,6 +28,8 @@ if (!id) {
 }
 
 const isSystem = entryType?.isSystem ?? false;
+// A type a feature is built on (the Playbook type) is read-only for everyone; the server refuses the change too.
+const lockedReason = lockReason(entryType);
 
 const rendering = (entryType?.renderingJson ?? {}) as Record<string, unknown>;
 const capabilities = (entryType?.capabilitiesJson ?? {}) as Record<string, unknown>;
@@ -66,16 +68,17 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
         <div>
           <h2>Edit Entry Type</h2>
           <p style="margin:4px 0 0;color:var(--muted);">
-            {isSystem ? "System entry types have limited editing" : "Update entry type details"}
+            {lockedReason ? "This entry type is locked" : isSystem ? "System entry types have limited editing" : "Update entry type details"}
           </p>
         </div>
       </div>
 
       {!canManage && <div class="alert alert-info" role="status">{ADMINS_ONLY}</div>}
+      {lockedReason && <div class="alert alert-info" role="status"><strong>🔒 Locked.</strong> {lockedReason}</div>}
 
       <section class="form-section">
         <form method="POST" action={`/api/entry-types/${id}/update`} class="form">
-          <fieldset disabled={!canManage} style="border:0;margin:0;padding:0;min-width:0;">
+          <fieldset disabled={!canManage || !!lockedReason} style="border:0;margin:0;padding:0;min-width:0;">
           <div class="form-group">
             <label for="name">Name *</label>
             <input
@@ -382,14 +385,14 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
           )}
 
           </fieldset>
-          {canManage && (
+          {canManage && !lockedReason && (
             <div class="form-actions">
               <button type="submit" class="button">Save Changes</button>
               <a href="/workspace/entry-types" class="button secondary">Cancel</a>
             </div>
           )}
         </form>
-        {canManage && !isSystem && (
+        {canManage && !isSystem && !lockedReason && (
           <form method="POST" action={`/api/entry-types/${id}/delete`} class="delete-form">
             <button type="submit" class="button secondary danger" onclick="return confirm('Delete this entry type?')">
               Delete entry type

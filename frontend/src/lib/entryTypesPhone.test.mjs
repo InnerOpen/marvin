@@ -61,7 +61,8 @@ describe("entry type edit page", () => {
   const edit = read("pages/workspace/entry-types/[id].astro");
 
   test("a custom type can be deleted from here (the list rows just open this page on a phone), in its own form", () => {
-    assert.match(edit, /\{canManage && !isSystem && \(\s*<form method="POST" action=\{`\/api\/entry-types\/\$\{id\}\/delete`\}/);
+    // a system type, and a locked one (the Playbook type), are not offered the delete form
+    assert.match(edit, /\{canManage && !isSystem && !lockedReason && \(\s*<form method="POST" action=\{`\/api\/entry-types\/\$\{id\}\/delete`\}/);
     assert.match(edit, /onclick="return confirm\('Delete this entry type\?'\)"/);
     // forms cannot nest: the delete form comes after the update form closes
     assert.ok(edit.indexOf("</form>") < edit.indexOf("/delete`"));

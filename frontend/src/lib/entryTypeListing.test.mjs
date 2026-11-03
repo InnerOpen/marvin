@@ -8,6 +8,7 @@ import {
   internalReason,
   isListedType,
   listedTypes,
+  lockReason,
   onlyAssetType,
   submissionDestination,
   submissionKind,
@@ -115,5 +116,15 @@ describe("onlyAssetType", () => {
     const hidden = { ...typed("social-reply-log", "asset"), capabilitiesJson: { listed: false } };
     assert.equal(onlyAssetType([artwork, hidden]), artwork);
     assert.equal(onlyAssetType([hidden]), null);
+  });
+});
+
+describe("lockReason", () => {
+  test("a locked type gives its reason, anything else gives null", () => {
+    assert.equal(lockReason({ slug: "playbook", lockedReason: "Playbooks are built on this type." }), "Playbooks are built on this type.");
+    assert.equal(lockReason({ slug: "note", lockedReason: null }), null);
+    assert.equal(lockReason({ slug: "note", lockedReason: "" }), null);
+    assert.equal(lockReason({ slug: "note" }), null);
+    assert.equal(lockReason(null), null);
   });
 });

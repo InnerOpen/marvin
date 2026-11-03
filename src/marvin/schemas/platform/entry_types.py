@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import UUID4, AliasChoices, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import UUID4, AliasChoices, ConfigDict, Field, StringConstraints, computed_field, field_validator
 
 from marvin.core.root_logger import get_logger
 from marvin.schemas._marvin import _MarvinModel
@@ -11,6 +11,7 @@ from marvin.schemas.platform.entry_type_recipe import EntryTypeRecipe
 from marvin.schemas.platform.entry_type_rendering import CapabilitiesDefinition, RenderingDefinition
 from marvin.schemas.platform.entry_type_schema import EntryTypeSchemaDefinition
 from marvin.services.entry_urls import normalize_page_url_pattern
+from marvin.services.locked_entry_types import lock_reason
 
 logger = get_logger(__name__)
 
@@ -235,3 +236,9 @@ class EntryTypeRead(_MarvinModel):
     warnings: list[str] | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def locked_reason(self) -> str | None:
+        """Why this type can't be edited or deleted (services/locked_entry_types.py), or None."""
+        return lock_reason(self.slug, self.group_id)

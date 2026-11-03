@@ -13,6 +13,7 @@ from marvin.schemas.platform import EntryTypeRead
 from marvin.schemas.platform.entry_type_rendering import KNOWN_CORE_RENDERERS, CapabilitiesDefinition, RenderingDefinition
 from marvin.schemas.platform.entry_type_schema import EntryTypeSchemaDefinition
 from marvin.services.entry_listing import is_listed_type, with_destination_default
+from marvin.services.locked_entry_types import lock_reason
 
 logger = get_logger(__name__)
 
@@ -316,6 +317,7 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
     def update(self, match_value: Any, new_data: Any, match_key: str | None = None) -> EntryTypeRead:
         # Check if this is a system entry type
         entry_type = self.get_one(match_value)
+        self._refuse_locked(entry_type)
         if entry_type and entry_type.is_system and entry_type.group_id is None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -371,12 +373,20 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
             result.warnings = warnings
         return result
 
+    @staticmethod
+    def _refuse_locked(entry_type) -> None:
+        """A type a feature is built on (services/locked_entry_types.py) is never edited or deleted here."""
+        reason = entry_type and lock_reason(entry_type.slug, entry_type.group_id)
+        if reason:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
+
     def _follow_listing(self, row: EntryTypes) -> None:
         follow_listing(self.session, row)
 
     def delete(self, value: Any, match_key: str | None = None) -> EntryTypeRead:
         # Check if this is a system entry type
         entry_type = self.get_one(value)
+        self._refuse_locked(entry_type)
         if entry_type and entry_type.is_system and entry_type.group_id is None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
