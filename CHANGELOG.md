@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.84 (2026-11-03)
+
+### Bug Fixes
+
+- **storage**: The workspace's backups list as rows, not bullet points
+  ([`54a982f`](https://github.com/InnerOpen/marvin/commit/54a982f14e79ba832f4b29adfcbf9d3b6a26f069))
+
+
 ## v1.1.0-rc.83 (2026-11-02)
 
 ### Bug Fixes
