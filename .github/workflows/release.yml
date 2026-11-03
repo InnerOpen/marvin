@@ -2,15 +2,18 @@ name: Release
 
 # Automated semantic versioning and release workflow
 # Analyzes commits, bumps version, generates changelog, creates releases
+#
+# A push to main releases. A push to develop does not: the bot's version commit landed on develop after every
+# push, so the next push was rejected until it was rebased, and every push paid for a second full image build.
+# Develop's prereleases (x.y.z-rc.N) are cut on demand instead:  gh workflow run release.yml --ref develop
+# The running app's "What's new" does not wait on this: docker.yml lists the commits since the last release.
 
 on:
   push:
     branches:
       - main
-      - develop
-  # Manual trigger. Without this the workflow can only be exercised by landing a commit on a
-  # release branch, so a change to it cannot be validated before merge — and a push whose commit
-  # message carries the CI-skip marker leaves no way to run it at all.
+  # Manual trigger, and the way to cut a develop prerelease. Also lets a change to this workflow be
+  # exercised without landing a commit on a release branch.
   workflow_dispatch:
 
 concurrency:

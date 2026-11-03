@@ -1,0 +1,53 @@
+name: Image Check
+
+# Catches a change that breaks the image's dependency step (a bad pin, an unreachable plugin repo, a Dockerfile edit)
+# on the pull request, instead of on the develop push that deploys. It builds the `uv-base` stage, where `uv lock`
+# and `uv sync` resolve every plugin, with the same build secret docker.yml uses, and pushes nothing.
+# Separate from docker.yml on purpose: Promote waits on that workflow by commit, so a PR run must not appear there.
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - docker/**
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/image-check.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Resolve plugins in the image
+    # A fork's pull request has no secrets, so it cannot read the private plugin repos or log in to Docker Hub.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Build the uv-base stage
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          target: uv-base
+          push: false
+          secrets: |
+            plugin_git_token=${{ secrets.PLUGIN_GIT_TOKEN }}
