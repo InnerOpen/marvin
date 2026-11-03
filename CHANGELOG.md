@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.96 (2026-11-03)
+
+### Bug Fixes
+
+- **release**: The release image build gets the private plugin token too
+  ([`89e946a`](https://github.com/InnerOpen/marvin/commit/89e946a993d470f840c8c899defca1cd6c1eeb4f))
+
+### Features
+
+- **tokens**: Pick a workspace when creating an API token, and the list shows each token's scope
+  ([`4f79492`](https://github.com/InnerOpen/marvin/commit/4f79492ba4816bbc3fca3a5ee8f617b6e7a78dca))
+
+
 ## v1.1.0-rc.95 (2026-11-03)
 
 ### Bug Fixes
