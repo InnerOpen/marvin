@@ -303,3 +303,91 @@ def test_a_source_on_an_action_that_doesnt_work_on_pictures_is_refused(painter):
     step = {"kind": "integration", "integration": "painter", "action": "list_it", "source": "${asset.id}", "args": {"title": "x"}}
     issues = draft_issues(painter.session, painter.gid, {"trigger": {"type": "manual"}, "actions": [step]})
     assert any(i.get("path") == "actions[0].source" for i in issues), issues
+
+
+def _edit_step(**extra):
+    return {
+        "kind": "integration",
+        "id": "still",
+        "integration": "painter",
+        "action": "touch_up",
+        "args": {"prompt": "The cook peels an onion"},
+        **extra,
+    }
+
+
+def _run_manual(ws, dry_run=False):
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+    from marvin.services.automation.engine import run_automation_now
+    from marvin.services.automation.recorder import ExecutionRecorder
+
+    row = ws.session.query(WorkspaceAutomationModel).filter_by(group_id=ws.gid, slug="media-wf").one()
+    if dry_run:
+        return run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, dry_run=True)
+    return run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, recorder=ExecutionRecorder(ws.session, ws.gid))
+
+
+def test_references_alone_hand_the_provider_every_picture_and_the_result_is_a_new_picture(painter):
+    from tests.test_workflow_media import _png, _stored
+
+    cook = _stored(painter, "cook-master", _png((300, 200)))
+    captain = _stored(painter, "captain-master", _png((200, 300)))
+    _workflow(painter, {"trigger": {"type": "manual"}, "actions": [_edit_step(references=[cook.slug, captain.slug])]})
+
+    assert _run_manual(painter)["ok"]
+
+    (key, args) = painter.painter.calls[0]
+    assert key == "touch_up" and "image_b64" not in args
+    assert [(r["name"], base64.b64decode(r["image_b64"]), r["image_mime"]) for r in args["reference_images"]] == [
+        (cook.name, _png((300, 200)), "image/png"),
+        (captain.name, _png((200, 300)), "image/png"),
+    ]
+    (made,) = _kept(painter)
+    assert "derived_from" not in made.metadata_json and "reference_images" not in json.dumps(made.metadata_json)  # no picture data in the lineage
+    assert "reference_images" not in json.dumps(_last_run(painter).actions[0].output_snapshot)
+
+
+def test_a_source_and_references_together_the_result_is_a_version_of_the_source(painter):
+    from marvin.db.models.platform.assets import Assets
+    from tests.test_workflow_media import _png, _stored
+
+    base = _stored(painter, "deck", _png((300, 200)))
+    master = _stored(painter, "cook-master", _png((200, 300)))
+    _workflow(painter, {"trigger": {"type": "manual"}, "actions": [_edit_step(source=base.slug, references=[master.slug])]})
+
+    assert _run_manual(painter)["ok"]
+
+    (_, args) = painter.painter.calls[0]
+    assert base64.b64decode(args["image_b64"]) == _png((300, 200)) and len(args["reference_images"]) == 1
+    assert painter.session.query(Assets).filter(Assets.group_id == painter.gid, Assets.source_asset_id == base.id).count() == 1
+
+
+def test_a_dry_run_lists_the_references_and_calls_nothing(painter):
+    from tests.test_workflow_media import _png, _stored
+
+    master = _stored(painter, "cook-master", _png((300, 200)))
+    _workflow(painter, {"trigger": {"type": "manual"}, "actions": [_edit_step(references=[master.slug])]})
+
+    preview = _run_manual(painter, dry_run=True)
+
+    assert preview["plan"][0]["resolved"]["references"] == [master.slug] and painter.painter.calls == []
+
+
+def test_too_many_references_or_one_that_is_not_a_picture_fails_the_step(painter):
+    from tests.test_workflow_media import _png, _stored
+
+    pic = _stored(painter, "cook-master", _png((300, 200)))
+    _workflow(painter, {"trigger": {"type": "manual"}, "actions": [_edit_step(references=[pic.slug] * 17)]})
+    run = _run_manual(painter)
+    assert run["ok"] is False and painter.painter.calls == []
+    assert "up to 16" in _last_run(painter).actions[0].error
+
+
+def test_references_on_an_action_that_makes_no_picture_are_refused_in_the_draft(painter):
+    from marvin.services.automation.authoring import draft_issues
+
+    step = {"kind": "integration", "integration": "painter", "action": "list_it", "references": ["a"], "args": {"title": "x"}}
+    issues = draft_issues(painter.session, painter.gid, {"trigger": {"type": "manual"}, "actions": [step]})
+    assert any(i.get("path") == "actions[0].references" for i in issues), issues
+    ok = draft_issues(painter.session, painter.gid, {"trigger": {"type": "manual"}, "actions": [_edit_step(references=["a"])]})
+    assert not any(i.get("path") == "actions[0].references" for i in ok), ok

@@ -117,6 +117,11 @@ CAPABILITY_WORDS = {
     "social.reply": "reply to comments",
     "image.generate": "generate images",
     "image.edit": "edit images",
+    "speech.synthesize": "turn text into speech",
+    "speech.dialogue": "speak a scene in several voices",
+    "speech.transcribe": "transcribe speech",
+    "audio.sound_effect": "make sound effects",
+    "audio.music": "compose music",
 }
 
 

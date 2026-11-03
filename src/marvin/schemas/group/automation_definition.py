@@ -430,6 +430,7 @@ class IntegrationAction(_StepBase):
     attach_as: str | None = None
     tags: list[str] | None = None  # …and these tags put on them
     source: str | None = None  # the picture an image.* action works on (an asset, ${entry.image}, role:<role>, a step's)
+    references: list[str] | str | None = None  # more pictures an image.* action goes by (each as `source`; up to 16) — the cast's masters
     idempotency_key: str | None = None  # a template: the same key for this action within the window is not called again
     idempotency_window_hours: int | None = Field(default=None, ge=1, le=720)  # how long a key counts (default 24)
     id: str | None = None

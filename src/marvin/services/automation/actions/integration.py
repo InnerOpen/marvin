@@ -46,13 +46,22 @@ the inbox without a step. It names its `integration` (one network's delivery) an
 An action with an `image.*` capability (OpenAI Images' `generate`) returns pictures: each is kept as an asset and
 replaced by a reference (`images: [{asset: {id, slug, url, …}}]`) before the output reaches the run, so a run can wait
 for approval after generating and be retried — see media.keep_generated_images. `attach_as` links them to the run's
-entry in that role.
+entry in that role. `references` (a list of asset refs, as `source`) adds more pictures to go by (the cast's masters, a
+style sheet): the provider gets them as `reference_images: [{image_b64, image_mime, name}]` for that call only, with or
+without a `source`.
+
+An action with a `speech.*` / `audio.*` capability (ElevenLabs' `synthesize`, `dialogue`, `sound_effect`, `music`) returns
+audio the same way: kept as an asset, replaced by `asset: {id, slug, url, duration_seconds, …}` — see
+media.keep_generated_audio. `speech.transcribe` goes the other way: its `source` is an audio or video asset, handed to
+the provider as `audio_b64` / `audio_mime`, and it answers text.
 """
 
 from marvin.services import automation_results
 
 from ..matcher import interpolate
 from .base import AutomationActionError, IntegrationStepError, register_action
+
+MAX_REFERENCES = 16  # the most pictures one image call goes by (what OpenAI's edits endpoint takes)
 
 
 def _declared_action(provider, key: str):
@@ -164,10 +173,11 @@ def _run_on(session, group_id, row, action: dict, context: dict, *, user_id, dry
 
     if needs_approval(declared) and not approved:
         raise AutomationActionError(f"'{row.provider}.{key}' requires approval: put an Approval step before it (it runs once approved)")
-    from .media import returns_images
+    from .media import returns_audio, returns_images, takes_audio
 
     keeps_images = returns_images(declared)
-    src = _source_picture(session, group_id, action, context, keeps_images)
+    src = _source_picture(session, group_id, action, context, keeps_images, takes_audio(declared))
+    references = _reference_pictures(session, group_id, action, context, keeps_images)
     # An idempotency_key that already made this call within its window: nothing is called, the earlier output is reused.
     from .. import idempotency
 
@@ -178,20 +188,27 @@ def _run_on(session, group_id, row, action: dict, context: dict, *, user_id, dry
         preview = {"dry_run": True, "kind": "integration", "integration": slug, "action": key, "args": args}
         if src is not None:
             preview["source"] = src.slug
+        if references:
+            preview["references"] = [r.slug for r in references]
         if keeps_images:
             preview["keeps_images_as_assets"] = True
+        if keeps_images or returns_audio(declared):
             if action.get("attach_as"):
                 preview["attach_as"] = interpolate(action["attach_as"], context)
+        if returns_audio(declared):
+            preview["keeps_audio_as_asset"] = True
         if (social or (engagement and capability in DRY_RUN_CAPABILITIES)) and (gate is None or not gate.duplicate):
             # A social post (or reply, or message): the plugin is asked what it would send (args.dry_run; it sends nothing)
             # so the preview shows its answer — and its refusal, e.g. a text too long for the network.
-            answer = _call_provider(session, group_id, row, provider, key, args, src, keeps_images, action, context, user_id, dry_run=True)
+            answer = _call_provider(
+                session, group_id, row, provider, key, args, src, keeps_images, action, context, user_id, dry_run=True, references=references
+            )
             preview = {**answer, **preview}
         if gate is None:
             return preview
         return gate.skipped(preview) if gate.duplicate else {**preview, **gate.preview()}
     try:
-        out = _call_provider(session, group_id, row, provider, key, args, src, keeps_images, action, context, user_id)
+        out = _call_provider(session, group_id, row, provider, key, args, src, keeps_images, action, context, user_id, references=references)
     except BaseException:
         if gate is not None:
             gate.release()  # a call that failed is made again by the retry, not skipped as a duplicate
@@ -297,12 +314,12 @@ def _fan_out_one(session, group_id, row, provider, action: dict, context: dict, 
     return entry
 
 
-def _call_provider(session, group_id, row, provider, key, args, src, keeps_images, action, context, user_id, *, dry_run=False) -> dict:
+def _call_provider(session, group_id, row, provider, key, args, src, keeps_images, action, context, user_id, *, dry_run=False, references=()) -> dict:
     """Make the provider call with the workspace's credentials and keep what it returns (the step's output)."""
     from marvin.services.integrations import IntegrationContext, build_http
     from marvin.services.secrets.resolver import resolve_secret
 
-    from .media import keep_generated_images
+    from .media import keep_generated_audio, keep_generated_images, returns_audio, takes_audio
 
     slug = row.slug
     from marvin.services.integrations.arg_secrets import MissingSecretError, resolve_arg_secrets
@@ -319,7 +336,20 @@ def _call_provider(session, group_id, row, provider, key, args, src, keeps_image
 
         from .media import _read_bytes
 
-        args = {**args, "image_b64": base64.b64encode(_read_bytes(session, group_id, src)).decode("ascii"), "image_mime": src.mime_type}
+        field = "audio" if takes_audio(_declared_action(provider, key)) else "image"
+        args = {**args, f"{field}_b64": base64.b64encode(_read_bytes(session, group_id, src)).decode("ascii"), f"{field}_mime": src.mime_type}
+    if references:  # more pictures to go by (the cast's masters, a style sheet): for this call only, like the source
+        import base64
+
+        from .media import _read_bytes
+
+        args = {
+            **args,
+            "reference_images": [
+                {"image_b64": base64.b64encode(_read_bytes(session, group_id, r)).decode("ascii"), "image_mime": r.mime_type, "name": r.name}
+                for r in references
+            ],
+        }
 
     from marvin.services.integrations import errors
 
@@ -371,23 +401,64 @@ def _call_provider(session, group_id, row, provider, key, args, src, keeps_image
             tags=action.get("tags"),
             source=src,
         )
+    elif returns_audio(_declared_action(provider, key)):
+        out = keep_generated_audio(
+            session,
+            group_id,
+            out,
+            generated_by=f"{row.provider}.{key}",
+            args=plain_args,
+            context=context,
+            user_id=user_id,
+            attach_as=action.get("attach_as"),
+            tags=action.get("tags"),
+        )
     return out
 
 
-def _source_picture(session, group_id, action: dict, context: dict, keeps_images: bool):
-    """The picture an image.* action works on (`source`, as a media step's), or None."""
+def _source_picture(session, group_id, action: dict, context: dict, keeps_images: bool, takes_audio: bool = False):
+    """The picture an image.* action (or the audio or video a speech.transcribe action) works on (`source`, as a media
+    step's), or None."""
     if not action.get("source"):
         return None
-    if not keeps_images:
+    if not keeps_images and not takes_audio:
         raise AutomationActionError("source goes with an action that works on a picture (an image.* capability, e.g. image.edit)")
     from marvin.services.ai.media import transforms
 
     from .media import resolve_source
 
     src = resolve_source(session, group_id, action["source"], context)
+    if takes_audio:
+        if not str(src.mime_type or "").startswith(("audio/", "video/")):
+            raise AutomationActionError(f"“{src.name}” ({src.mime_type or 'unknown type'}) is not audio or video: it can't be transcribed")
+        return src
     if not transforms.can_transform(src.mime_type):
         raise AutomationActionError(f"“{src.name}” ({src.mime_type or 'unknown type'}) is not an image Marvin can process (jpeg, png or webp)")
     return src
+
+
+def _reference_pictures(session, group_id, action: dict, context: dict, keeps_images: bool) -> list:
+    """The extra pictures an image.* action goes by (`references`: asset refs, each as `source` is), so a still keeps the look
+    of the cast's masters. Up to MAX_REFERENCES; none for an action that makes no pictures."""
+    raw = action.get("references")
+    if not raw:
+        return []
+    if not keeps_images:
+        raise AutomationActionError("references goes with an action that makes pictures (an image.* capability, e.g. image.edit)")
+    refs = raw if isinstance(raw, list) else [raw]
+    if len(refs) > MAX_REFERENCES:
+        raise AutomationActionError(f"references takes up to {MAX_REFERENCES} pictures; this lists {len(refs)}")
+    from marvin.services.ai.media import transforms
+
+    from .media import resolve_source
+
+    pictures = []
+    for ref in refs:
+        pic = resolve_source(session, group_id, ref, context)
+        if not transforms.can_transform(pic.mime_type):
+            raise AutomationActionError(f"“{pic.name}” ({pic.mime_type or 'unknown type'}) is not an image Marvin can process (jpeg, png or webp)")
+        pictures.append(pic)
+    return pictures
 
 
 def _logger():

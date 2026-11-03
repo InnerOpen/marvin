@@ -29,6 +29,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from .actions.integration import MAX_REFERENCES
+
 # What the guide offers (`section=`, one or several); without one it gives the index.
 SECTIONS = (
     "shape",
@@ -640,7 +642,11 @@ MEDIA_NOTE = (
     "own HTML/CSS with {{ fields.<name> }} / {{ images.<name> }} — with fields (text) and images (name → an asset, as source "
     "takes), at width × height (the template's own size by default), and saves the screenshot as a new asset; no network or "
     "script runs in it. An integration action with an image.* capability (openai_images.generate) "
-    "keeps its pictures the same way — output images: [{asset}] — and takes attach_as and tags too. extract_text: a PDF's "
+    "keeps its pictures the same way — output images: [{asset}] — and takes attach_as and tags too; references: [asset ids "
+    "or slugs] (up to 16) adds pictures to go by, e.g. a character's master (source, if set, is the one it edits). An action with a "
+    "speech.* or audio.* capability (elevenlabs.synthesize, .dialogue, .sound_effect, .music) keeps its audio as an asset — "
+    "output asset {id, url, duration_seconds} — and takes attach_as and tags; speech.transcribe takes an audio or video "
+    "asset as source and answers text with word times. extract_text: a PDF's "
     "own text is free, a scanned page or a picture costs one vision call (ocr: never skips them); outputs text with "
     "[page N] marks and pages. pages outputs asset (first) and assets. find_sensitive outputs regions + count; redact "
     "takes boxes: ${steps.<id>.output.regions} (count 0 makes nothing). zip takes files: a gather step's rows. "
@@ -1109,13 +1115,31 @@ def _step_issues(
             bad("action", f"“{slug}” has no action “{key}” a workflow can run. Actions: {actions}.")
         elif row["actions"] is not None and not after_approval and any(a["action"] == key and a.get("requires_approval") for a in row["actions"]):
             bad("action", f"“{slug}.{key}” needs a person's approval: put an Approval step before it (it runs once approved).")
-        elif (step.get("attach_as") or step.get("tags") or step.get("source")) and row["actions"] is not None:
-            declared = next((a for a in row["actions"] if a["action"] == key), None)
-            if declared is not None and not str(declared.get("capability") or "").startswith("image."):
-                field_name = next(f for f in ("source", "attach_as", "tags") if step.get(f))
-                bad(field_name, f"{field_name} goes with an action that makes images; “{slug}.{key}” doesn't.")
+        elif (step.get("attach_as") or step.get("tags") or step.get("source") or step.get("references")) and row["actions"] is not None:
+            _picture_fields_issue(step, row["actions"], slug, key, bad)
     elif kind in _CHECKS_BY_KIND:
         _CHECKS_BY_KIND[kind](step, refs, bad)
+
+
+def _picture_fields_issue(step: dict, actions: list[dict], slug, key, bad) -> None:
+    """`source`, `references`, `attach_as` and `tags` on an integration action: they go with one that makes pictures or audio
+    (`source` also on speech.transcribe, which reads audio), and `references` is a list of up to 16 pictures."""
+    declared = next((a for a in actions if a["action"] == key), None)
+    capability = str((declared or {}).get("capability") or "")
+    makes_audio = capability.startswith(("speech.", "audio.")) and capability != "speech.transcribe"
+    refs = step.get("references")
+    if declared is not None and not capability.startswith("image.") and not makes_audio and capability != "speech.transcribe":
+        field_name = next(f for f in ("source", "references", "attach_as", "tags") if step.get(f))
+        bad(field_name, f"{field_name} goes with an action that makes images or audio; “{slug}.{key}” doesn't.")
+    elif makes_audio and (step.get("source") or refs):
+        field_name = "source" if step.get("source") else "references"
+        bad(field_name, f"{field_name} goes with an action that works on a picture; “{slug}.{key}” makes audio.")
+    elif refs and not isinstance(refs, list | str):
+        bad("references", "references is a list of asset ids or slugs (templates allowed).")
+    elif isinstance(refs, list) and len(refs) > MAX_REFERENCES:
+        bad("references", f"references takes up to {MAX_REFERENCES} pictures; this lists {len(refs)}.")
+    elif capability == "speech.transcribe" and (step.get("attach_as") or step.get("tags")):
+        bad("attach_as" if step.get("attach_as") else "tags", f"“{slug}.{key}” answers text: nothing to attach or tag.")
 
 
 def _agent_step_issues(step: dict, refs: WorkspaceRefs, bad) -> None:
@@ -1251,10 +1275,12 @@ def _templated_integration_issues(step: dict, after_approval: bool, bad) -> None
 
 
 def _image_generate_issue(row: dict, slug, capability: str, after_approval: bool, bad) -> None:
-    """`image.generate` on a connection whose generate action asks for approval (OpenAI Images spends credits) runs only
-    once a person approved the run: an Approval step before it, as with a named action."""
+    """A paid capability (`image.generate`, `speech.synthesize`, …) on a connection whose action asks for approval (OpenAI Images and
+    ElevenLabs spend credits) runs only once a person approved the run: an Approval step before it, as with a named action."""
+    from marvin.services.integrations.alert_routing import PAID_CAPABILITIES
+
     asks = any(a.get("capability") == capability and a.get("requires_approval") for a in row["actions"] or [])
-    if capability == "image.generate" and asks and not after_approval:
+    if capability in PAID_CAPABILITIES and asks and not after_approval:
         bad("capability", f"“{slug}” needs a person's approval to {capability}: put an Approval step before it (it runs once approved).")
 
 

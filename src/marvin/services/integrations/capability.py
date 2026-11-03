@@ -22,6 +22,11 @@ Canonical input/output dict shapes per capability kind (the resolver builds inpu
     image.describe  in {image_b64, prompt?}                       out {text}
     image.search    in {query, limit?}                            out {results: [{url, metadata?}]}
     image.upscale   in {image_b64, factor?}                       out {image_b64|url}
+    speech.synthesize  in {text, voice_id?, language?}            out {audio_b64, mime, duration_seconds?, characters?}
+    speech.dialogue    in {inputs: [{voice_id, text}]}            out {audio_b64, mime, duration_seconds?, segments?}
+    audio.sound_effect in {text, duration_seconds?}               out {audio_b64, mime, duration_seconds?}
+    audio.music        in {prompt, music_length_ms?}              out {audio_b64, mime, duration_seconds?}
+    speech.transcribe  in {audio_b64, audio_mime, language_code?} out {text, words?, language_code?}
 """
 
 import time

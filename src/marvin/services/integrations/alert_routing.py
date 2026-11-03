@@ -21,10 +21,14 @@ names the capability) skips an approval-gated action — nobody is there to appr
 which it accepts once the run is past an Approval step (``approved``). Marvin treats every action declaring one as gated,
 whether or not the plugin said ``requires_approval``."""
 IMAGE_GENERATE = "image.generate"
-APPROVABLE_CAPABILITIES = GATED_CAPABILITIES | {IMAGE_GENERATE}
+SPEECH_SYNTHESIZE = "speech.synthesize"
+PAID_CAPABILITIES = frozenset({IMAGE_GENERATE, SPEECH_SYNTHESIZE, "speech.dialogue", "speech.transcribe", "audio.sound_effect", "audio.music"})
+"""Capabilities that spend the connection's credits (a picture, a line of speech, a sound, a track, a transcript)."""
+APPROVABLE_CAPABILITIES = GATED_CAPABILITIES | PAID_CAPABILITIES
 """Capabilities a capability step may run on an approval-gated action once the run is past an Approval step. The
 public-facing ones above always need that approval; ``image.generate`` spends the connection's credits, and providers
-declare it ``requires_approval`` (OpenAI Images), so "any image provider" works once a person said yes."""
+declare it ``requires_approval`` (OpenAI Images), so "any image provider" works once a person said yes. The speech and audio
+ones (ElevenLabs) are paid the same way."""
 BODY_FIELDS = ("text", "body", "message", "content")
 """Input names, in preference order, that carry a message's text."""
 TITLE_FIELDS = ("title", "subject")

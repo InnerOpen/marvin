@@ -16,7 +16,8 @@
   `asset.derived_from` to tell a derivative from an original.
 
 Integration steps whose action returns images (an `image.*` capability) keep them the same way — see
-:func:`keep_generated_images`, called by the integration executor before the output reaches the run.
+:func:`keep_generated_images`, called by the integration executor before the output reaches the run. So does one that
+returns audio (a `speech.*` / `audio.*` capability, an `audio_b64`): :func:`keep_generated_audio`.
 """
 
 from __future__ import annotations
@@ -969,3 +970,114 @@ def _run_step_key(context: dict) -> str | None:
     if not correlation or not step:
         return None
     return f"{correlation}:{step.get('workflow')}:{step.get('target')}:{step.get('index')}"
+
+
+# ── Audio an integration returns ────────────────────────────────────────────
+AUDIO_EXTENSIONS = {
+    "audio/mpeg": "mp3",
+    "audio/mp3": "mp3",
+    "audio/wav": "wav",
+    "audio/wave": "wav",
+    "audio/x-wav": "wav",
+    "audio/ogg": "ogg",
+    "audio/flac": "flac",
+    "audio/aac": "aac",
+    "audio/webm": "webm",
+}
+MAX_AUDIO_BYTES = 25 * 1024 * 1024
+"""A spoken line is small; a provider's answer past this is not one (a sound or a short track is the most there is)."""
+SPEECH_FACTS = ("duration_seconds", "characters", "voice_id", "voice", "model")
+
+
+AUDIO_IN_CAPABILITIES = frozenset({"speech.transcribe"})
+"""Capabilities that take an audio or video asset as their `source` (and answer text, not audio)."""
+
+
+def returns_audio(declared) -> bool:
+    """Whether a provider action's output is audio to keep: it declares a `speech.*` or `audio.*` capability (speech.synthesize,
+    speech.dialogue, audio.sound_effect, audio.music) — not one that only listens (speech.transcribe answers text)."""
+    capability = str(getattr(declared, "capability", None) or "")
+    return capability.startswith(("speech.", "audio.")) and capability not in AUDIO_IN_CAPABILITIES
+
+
+def takes_audio(declared) -> bool:
+    """Whether a provider action works on an audio or video asset (its `source`): speech.transcribe."""
+    return str(getattr(declared, "capability", None) or "") in AUDIO_IN_CAPABILITIES
+
+
+def keep_generated_audio(
+    session, group_id, result: dict, *, generated_by: str, args: dict, context: dict, user_id, attach_as=None, tags=None
+) -> dict:
+    """Save the audio in a `speech.*` / `audio.*` action's result as an asset and put a reference in its place, before the
+    output reaches the run (a run's snapshot holds an id, not megabytes of base64). The canonical shape is
+    `{audio_b64, mime?, duration_seconds?, characters?}` (`speech.synthesize`, `speech.dialogue`, `audio.sound_effect`,
+    `audio.music`); `duration_seconds`, `characters`, the voice and model are kept on the asset's metadata beside how it was
+    made. The asset is named after the step's `name` arg, else the first words of its `text` / `prompt`. `attach_as` links it
+    to the run's entry in that role."""
+    if not isinstance(result.get("audio_b64"), str) or not result["audio_b64"]:
+        return result
+    role = _attach_role({"attach_as": attach_as}, context)
+    entry_id = subject_entry_id(context)
+    if role and entry_id is None:
+        raise AutomationActionError("attach_as needs an entry: run this workflow on an entry (an entry event or an entry target)")
+    keep = _SpeechKeeper(session, group_id, result, generated_by=generated_by, args=args, context=context, user_id=user_id)
+    ref = keep.one(result)
+    for key in ("duration_seconds", "characters"):
+        if key in keep.facts:
+            ref[key] = keep.facts[key]
+    if names := tag_names(tags, context):
+        ref["tags"] = tag_asset(session, group_id, keep.rows[ref["id"]], names)
+    if role:
+        ref["attached"] = attach(session, group_id, entry_id, keep.rows[ref["id"]], role, context, user_id=user_id)
+    return {**{k: v for k, v in result.items() if k != "audio_b64"}, "asset": ref}
+
+
+class _SpeechKeeper(_GeneratedKeeper):
+    """Stores one speech action's audio, once per event like a picture: the same step of the same run (for a repeat, the
+    same item) handling an event twice finds the asset it made."""
+
+    def __init__(self, session, group_id, result: dict, *, generated_by: str, args: dict, context: dict, user_id):
+        super().__init__(session, group_id, result, generated_by=generated_by, args=args, context=context, user_id=user_id, count=1)
+        text = str(args.get("text") or args.get("prompt") or "")
+        if not str(args.get("name") or "").strip() and text.strip():
+            self.name = " ".join(text.split())[:SLUG_SOURCE_CHARS]  # a line is named for what it says, not for its workflow
+        self.facts = {k: result[k] for k in SPEECH_FACTS if result.get(k) not in (None, "")}
+        self.lineage = {**self.lineage, **({"text": text[:PROMPT_KEPT_CHARS]} if text else {}), **self.facts}
+        self.mime = str(result.get("mime") or "audio/mpeg").split(";")[0].strip().lower()
+
+    def _store(self, item: dict, slug: str, index: int):
+        from marvin.services.assets.asset_storage_service import AssetRejected
+
+        extension = AUDIO_EXTENSIONS.get(self.mime)
+        try:
+            if extension is None:
+                raise ValueError(f"“{self.mime}” isn't audio Marvin keeps")
+            data = _audio_bytes(item)
+            read = _storage(self.session, self.group_id).create_derivative(
+                source=None,
+                data=data,
+                group_id=self.group_id,
+                derivation=f"generated:{self.generated_by}",
+                slug=slug,
+                name=self.name,
+                user_id=self.uploader,
+                extra_metadata=dict(self.lineage),
+                extension=extension,
+            )
+        except (ValueError, AssetRejected) as e:  # a bad mime or base64, the upload limits, no uploader
+            raise AutomationActionError(f"{self.generated_by} made speech, but it can't be kept: {e}") from e
+        from marvin.db.models.platform.assets import Assets
+
+        return self.session.get(Assets, read.id)
+
+
+def _audio_bytes(item: dict) -> bytes:
+    """Audio's bytes from base64 (a data: URL's too)."""
+    b64 = item["audio_b64"]
+    b64 = b64.split(",", 1)[1] if b64.startswith("data:") else b64
+    if len(b64) * 3 // 4 > MAX_AUDIO_BYTES:
+        raise ValueError(f"the audio is over {MAX_AUDIO_BYTES // (1024 * 1024)} MB")
+    try:
+        return base64.b64decode(b64, validate=False)
+    except (ValueError, TypeError) as e:
+        raise ValueError("the audio data isn't valid base64") from e
