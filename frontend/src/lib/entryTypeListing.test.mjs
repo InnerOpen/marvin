@@ -4,9 +4,11 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  hasAssetField,
   internalReason,
   isListedType,
   listedTypes,
+  onlyAssetType,
   submissionDestination,
   submissionKind,
   usedBy,
@@ -80,5 +82,38 @@ describe("internal entry types", () => {
     assert.match(internalReason(unlisted({ slug: "social-auto-reply", caps: {} })), /kept out of All entries.*Used by Audience › Social › Rules\./);
     assert.match(internalReason(unlisted({ slug: "contact", caps: { submittable: true } })), /Used by Audience › Submissions\./);
     assert.doesNotMatch(internalReason(unlisted({ slug: "other", caps: {} })), /Used by/);
+  });
+});
+
+describe("onlyAssetType", () => {
+  const typed = (slug, ...fieldTypes) => ({ slug, schemaJson: { fields: fieldTypes.map((type) => ({ type })) } });
+
+  test("an image field or an image list counts as an asset field", () => {
+    assert.equal(hasAssetField(typed("a", "text", "asset")), true);
+    assert.equal(hasAssetField(typed("b", "asset-list")), true);
+    assert.equal(hasAssetField(typed("c", "text", "resource")), false);
+    assert.equal(hasAssetField({ slug: "d" }), false);
+  });
+
+  test("the one listed type with an asset field is the answer", () => {
+    const artwork = typed("artwork", "text", "asset");
+    assert.equal(onlyAssetType([typed("note", "text"), artwork]), artwork);
+  });
+
+  test("several types with an asset field leave the choice to the person", () => {
+    assert.equal(onlyAssetType([typed("artwork", "asset"), typed("post", "asset-list")]), null);
+  });
+
+  test("no type with an asset field gives null", () => {
+    assert.equal(onlyAssetType([typed("note", "text")]), null);
+    assert.equal(onlyAssetType([]), null);
+    assert.equal(onlyAssetType(null), null);
+  });
+
+  test("an internal type with an asset field is not offered, so it doesn't make the answer ambiguous", () => {
+    const artwork = typed("artwork", "asset");
+    const hidden = { ...typed("social-reply-log", "asset"), capabilitiesJson: { listed: false } };
+    assert.equal(onlyAssetType([artwork, hidden]), artwork);
+    assert.equal(onlyAssetType([hidden]), null);
   });
 });

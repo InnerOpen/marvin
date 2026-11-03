@@ -5,7 +5,7 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { createEntry } from "@/lib/api/entries";
 import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
-import { listedTypes } from "@/lib/entryTypeListing";
+import { listedTypes, onlyAssetType } from "@/lib/entryTypeListing";
 import { getContentAccess } from "@/lib/api/workspaces";
 import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
@@ -102,9 +102,13 @@ try {
 
 const sortedTypes = listedTypes(entryTypes).sort((a, b) => a.sortOrder - b.sortOrder);
 
-// Get pre-selected entry type schema if available
-const preSelectedType = preSelectedTypeId ? entryTypes.find((t) => t.id === preSelectedTypeId) : null;
 const fromAsset = fromAssetId ? (pickerAssets.find((a) => a.id === fromAssetId) ?? null) : null;
+// Started from an asset with no type chosen: when only one listed type has an image field, that is the type
+// (the asset goes in its field), so the person isn't asked to pick between types that can't hold it.
+const chosenTypeId = preSelectedTypeId || (fromAsset ? (onlyAssetType(entryTypes)?.id ?? null) : null);
+
+// Get pre-selected entry type schema if available
+const preSelectedType = chosenTypeId ? entryTypes.find((t) => t.id === chosenTypeId) : null;
 const preSelectedSchema =
   preSelectedType?.schemaJson && (preSelectedType.schemaJson as any).fields?.length > 0
     ? preSelectedType.schemaJson
@@ -139,7 +143,7 @@ const prefill: Record<string, unknown> = fromAsset && assetField ? { [assetField
             <select id="entry_type_id" name="entry_type_id" required>
               <option value="">Select an entry type...</option>
               {sortedTypes.map((type) => (
-                <option value={type.id} selected={type.id === preSelectedTypeId}>
+                <option value={type.id} selected={type.id === chosenTypeId}>
                   {type.icon && `${type.icon} `}{type.name}
                 </option>
               ))}

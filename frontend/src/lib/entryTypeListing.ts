@@ -7,6 +7,7 @@
 export interface TypeLike {
   slug?: string | null;
   capabilitiesJson?: Record<string, unknown> | null;
+  schemaJson?: { fields?: { type?: string }[] } | null;
 }
 
 function submissionOf(type: TypeLike | null | undefined): Record<string, unknown> | null {
@@ -36,6 +37,18 @@ export function isListedType(type: TypeLike | null | undefined): boolean {
 /** The types to offer a person who is about to write something. */
 export function listedTypes<T extends TypeLike>(types: T[] | null | undefined): T[] {
   return (types ?? []).filter(isListedType);
+}
+
+/** Whether the type has a field that holds an asset (an image, or a list of them). */
+export function hasAssetField(type: TypeLike | null | undefined): boolean {
+  return (type?.schemaJson?.fields ?? []).some((f) => f.type === "asset" || f.type === "asset-list");
+}
+
+/** The type an entry started from an asset belongs in when nothing was chosen: the only listed type with an asset field,
+ *  else null (none to put it in, or several to choose between). */
+export function onlyAssetType<T extends TypeLike>(types: T[] | null | undefined): T | null {
+  const holders = listedTypes(types).filter(hasAssetField);
+  return holders.length === 1 ? holders[0] : null;
 }
 
 /** What uses the type, for the hint on the editor and the badge's tooltip: Social's rule type, or a form that sends to the Audience.
