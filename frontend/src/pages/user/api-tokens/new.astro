@@ -1,6 +1,12 @@
 ---
 import ApiTokenRevealModal from "@/components/ApiTokenRevealModal.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
+import type { WorkspaceWithMembership } from "@inneropen/marvin-sdk/platform";
+import { listWorkspaces } from "@/lib/api/workspaces";
+import { getAuthToken } from "@/lib/api/client";
+
+// The workspaces this person belongs to, for pinning a token. Empty on failure: the token is then simply global.
+const workspaces = await listWorkspaces(getAuthToken(Astro.cookies)).catch(() => [] as WorkspaceWithMembership[]);
 ---
 
 <AppLayout title="New API Token" eyebrow="User Settings">
@@ -39,6 +45,18 @@ import AppLayout from "@/layouts/AppLayout.astro";
           <small class="hint">Optional notes about this token's purpose</small>
         </label>
 
+        <label class="form-field">
+          <span class="label">Workspace</span>
+          <select name="groupId" class="input" data-testid="token-workspace">
+            <option value="">All workspaces (global)</option>
+            {workspaces.map((w) => <option value={w.workspace.id}>{w.workspace.name}</option>)}
+          </select>
+          <small class="hint">
+            Global follows the workspace you have active, as every token did before. Pinned works in that one workspace
+            only, whatever you have active, and can't manage tokens or your account. Fixed once created.
+          </small>
+        </label>
+
         <div class="info-box">
           <strong>⚠️ Important</strong>
           <p>Your token will be shown only once after creation. Copy it immediately and store it securely.</p>
@@ -57,6 +75,7 @@ import AppLayout from "@/layouts/AppLayout.astro";
 
 <script>
   import { revealTokenOnce } from '@/lib/tokenReveal';
+  import { createSdkClient } from '@/lib/sdk';
 
   // HttpOnly cookie is automatically sent with credentials: 'include'
   const form = document.getElementById('create-token-form');
@@ -68,10 +87,11 @@ import AppLayout from "@/layouts/AppLayout.astro";
     const payload = {
       name: formData.get('name') as string,
       description: (formData.get('description') as string) || undefined,
-    };
+      // Empty means global. The installed SDK's create type predates groupId (the API takes it); drop the cast once it is bumped.
+      groupId: (formData.get('groupId') as string) || undefined,
+    } as Parameters<ReturnType<typeof createSdkClient>['user']['createApiToken']>[0] & { groupId?: string };
 
     try {
-      const { createSdkClient } = await import('@/lib/sdk');
       const sdk = createSdkClient();
 
       const data = await sdk.user.createApiToken(payload);

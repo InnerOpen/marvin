@@ -4,6 +4,8 @@ import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { createSdkClient } from "@/lib/sdk";
+import type { WorkspaceWithMembership } from "@inneropen/marvin-sdk/platform";
+import { listWorkspaces } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
@@ -13,6 +15,11 @@ let error: string | null = null;
 // Apps that signed in to Marvin's remote MCP server as this user (OAuth): one per approval, revocable here.
 type ConnectedApp = { id: string; pinned?: boolean; clientName: string; redirectHost: string; access: string; workspace: string; createdAt: string | null; lastUsedAt: string | null };
 const connectedApps = await fetchApi<ConnectedApp[]>("/api/users/self/connected-apps", {}, authToken).catch(() => [] as ConnectedApp[]);
+// A pinned token carries its workspace's id; this names it. Unknown (workspace no longer visible) falls back to "one workspace".
+const workspaceNames = new Map<string, string>(
+  (await listWorkspaces(authToken).catch(() => [] as WorkspaceWithMembership[])).map((w) => [w.workspace.id, w.workspace.name]),
+);
+const pinnedTo = (token: { groupId?: string | null }) => (token.groupId ? (workspaceNames.get(token.groupId) ?? "one workspace") : null);
 try {
   tokens = await sdk.user.listApiTokens();
 } catch (e) {
@@ -61,6 +68,8 @@ function relativeDate(date: string | null | undefined): string | null {
               <strong>{token.name}</strong>
               {token.description && <p class="token-desc">{token.description}</p>}
               <div class="token-meta">
+                <span data-testid="token-scope">{pinnedTo(token) ? `Workspace: ${pinnedTo(token)}` : "All workspaces"}</span>
+                <span>•</span>
                 <span>Last used: {relativeDate(token.lastUsedAt) ?? <LocalTime iso={token.lastUsedAt} format="date" />}</span>
                 <span>•</span>
                 <span>Created: {relativeDate(token.createdAt) ?? <LocalTime iso={token.createdAt} format="date" />}</span>
