@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.88 (2026-11-03)
+
+### Features
+
+- **entries**: An image or resource field says which role it attaches as
+  ([`6ee2ecd`](https://github.com/InnerOpen/marvin/commit/6ee2ecd76ebb62aa5392af61193f8f5da47167ab))
+
+
 ## v1.1.0-rc.87 (2026-11-03)
 
 ### Bug Fixes
