@@ -6,6 +6,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.1.0-rc.95 (2026-11-03)
+
+### Bug Fixes
+
+- **release**: Put the private plugin auth in global git config
+  ([`5a1a3a3`](https://github.com/InnerOpen/marvin/commit/5a1a3a344c3c596f0b7a64b9e9f50f8a99944d39))
+
+- **release**: Semantic-release can resolve the private plugin repos
+  ([`e63582e`](https://github.com/InnerOpen/marvin/commit/e63582ebeb02e7cdcfd41d5361b514d9a728bf67))
+
+### Features
+
+- **plugins**: Marvin-integration-elevenlabs v0.1.0, and the image build can fetch private plugin
+  repos
+  ([`951351d`](https://github.com/InnerOpen/marvin/commit/951351d1104da8c67232f202fb72aaff308fff17))
+
+
 ## v1.1.0-rc.94 (2026-11-03)
 
 ### Chores
