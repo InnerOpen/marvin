@@ -244,6 +244,13 @@ def test_provider_error_is_a_clean_4xx(workspace):
     assert res.json()["detail"] == "Couldn't load the options: n8n said 401: API key rejected"
 
 
+def test_running_an_action_a_provider_refuses_returns_its_message_as_a_422_not_a_502(workspace):
+    # Cloudflare replaces an origin 502 with its own page, which hid "paid plan required" style reasons from the person.
+    res = _client(workspace).post(f"{BASE}/{workspace.integration}/actions/list_broken", json={})
+    assert res.status_code == 422, res.text
+    assert res.json()["detail"] == "n8n said 401: API key rejected"
+
+
 def test_provider_crash_does_not_leak_internals(workspace):
     res = _options(workspace, "crashy")
     assert res.status_code == 422
