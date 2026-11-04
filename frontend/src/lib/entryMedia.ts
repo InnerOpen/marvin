@@ -16,9 +16,15 @@ interface PlacedAsset {
   focalPoint?: string | null;
 }
 
-/** The asset an entry leads with: its featured or hero one, else the first. A recording wins over nothing but not over a picture the author chose. */
+/**
+ * The asset an entry leads with: its featured or hero one (a picture the author chose), else its latest take (a recording is
+ * attached each time it is made again, so the last "audio" one is the current take), else the first.
+ */
 export function leadAsset<T extends PlacedAsset>(assets: T[] | null | undefined): T | undefined {
-  return assets?.find((a) => a.role === "featured" || a.role === "hero") ?? assets?.[0];
+  const chosen = assets?.find((a) => a.role === "featured" || a.role === "hero");
+  if (chosen) return chosen;
+  const takes = assets?.filter((a) => a.role === "audio") ?? [];
+  return takes.length ? takes[takes.length - 1] : assets?.[0];
 }
 
 export function thumbOf(assets: PlacedAsset[] | null | undefined, title: string): EntryThumb | null {

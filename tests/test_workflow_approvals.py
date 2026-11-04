@@ -269,6 +269,27 @@ def test_an_action_that_needs_approval_runs_only_after_one_approves(ws, signoff)
     assert signoff.calls == [("send_contract", {"to": "Contract approve"})]  # only the approved run sent it
 
 
+def test_one_approval_lets_a_repeat_run_an_action_that_needs_approval_for_every_item(ws, signoff):  # noqa: F811
+    """A batch (record 25 lines) is asked once: the approval before the repeat covers the gated action inside it."""
+    send = {"kind": "integration", "integration": "signoff", "action": "send_contract", "args": {"to": "${item}"}}
+    definition = {
+        "trigger": {"type": "event", "event": "entry_published"},
+        "actions": [
+            DEFINITION["actions"][0],
+            {"kind": "repeat", "id": "each", "for_each": ["Anna", "Ben", "Cleo"], "steps": [send], "when": APPROVED},
+        ],
+    }
+    assert draft_issues(ws.session, ws.gid, definition) == []
+    _install(ws, definition)
+    article = _published(ws, "Batch")
+
+    _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry")
+    assert signoff.calls == []  # nothing sent while it waits
+    approvals.decide(ws.session, ws.gid, _waiting(ws).id, "approve", user_id=ws.uid, role=ROLE_EDITOR)
+
+    assert [c[1]["to"] for c in signoff.calls] == ["Anna", "Ben", "Cleo"]
+
+
 def test_a_dry_run_previews_the_question_and_the_steps_after_it(ws, signoff):  # noqa: F811
     from marvin.services.automation.engine import dry_run_for_event
 
