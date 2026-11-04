@@ -323,14 +323,15 @@ class ApprovalAction(_StepBase):
     templates allowed, or a template to a list, e.g. ${steps.ideas.output.titles}) asks them to pick one: approving
     sets ${steps.<id>.output.choice} (the label) and .choice_index (from 0); denying picks none. `image` shows a picture
     with the question — a template to a picture URL, e.g. a step's generated asset (${steps.cover.output.images.0.asset.url})
-    or ${entry.image} — so the approver sees what they decide on."""
+    or ${entry.image} — so the approver sees what they decide on. An audio URL (a recorded take, ${steps.say.output.asset.url})
+    gets a player instead, so a voice line can be listened to before it is kept."""
 
     kind: Literal["approval"]
     message: str  # what the approvers are asked (templates allowed)
     approvers: Literal["editor", "admin"] = "editor"
     expires_in_hours: int = Field(default=72, ge=1, le=720)
     choices: list[str] | str | None = None  # 2–8 labels, or one template to a list
-    # A picture shown with the question: a template to an asset URL (${steps.cover.output.images.0.asset.url}, ${entry.image}).
+    # A picture (or a sound, played) shown with the question: a template to an asset URL (${steps.cover.output.images.0.asset.url}, ${entry.image}).
     image: str | None = None
     id: str | None = None
 

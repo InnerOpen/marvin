@@ -8,6 +8,7 @@
  * of pairing off into rows of uneven height. Slotted sections use the same `.panel` chrome (global here).
  */
 import LocalTime from "@/components/LocalTime.astro";
+import { isAudioUrl } from "@/lib/approvalMedia";
 import { unpricedNotice } from "@/lib/aiUsage";
 import { dashboardLine } from "@/lib/automationAttention";
 
@@ -213,7 +214,9 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
             {approvals.map((a) => (
               <li class="approval" data-id={a.id}>
                 <p class="approval-ask">{a.message}</p>
-                {(a.imageUrl ?? a.image_url) && <a href={a.imageUrl ?? a.image_url} target="_blank" rel="noopener"><img class="approval-pic" src={a.imageUrl ?? a.image_url} alt="" loading="lazy" /></a>}
+                {(a.imageUrl ?? a.image_url) && (isAudioUrl(a.imageUrl ?? a.image_url)
+                  ? <audio class="approval-audio" src={a.imageUrl ?? a.image_url} controls preload="metadata" />
+                  : <a href={a.imageUrl ?? a.image_url} target="_blank" rel="noopener"><img class="approval-pic" src={a.imageUrl ?? a.image_url} alt="" loading="lazy" /></a>)}
                 <p class="approval-meta">
                   {a.automationName ?? a.automation_name ?? "Workflow"}
                   {(a.entryTitle ?? a.entry_title) && <> · {a.entryTitle ?? a.entry_title}</>}
@@ -599,6 +602,7 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
     background: var(--panel-2, var(--panel));
   }
   .approval-ask { margin: 0 0 4px; font-weight: 600; font-size: 14px; }
+  .approval-audio { display: block; width: 100%; max-width: 320px; margin: 0 0 8px; }
   .approval-pic { display: block; max-width: 100%; max-height: 220px; border-radius: var(--radius); border: 1px solid var(--line); margin: 0 0 8px; }
   .approval-meta { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
   .approval-decide { display: flex; flex-wrap: wrap; gap: 6px; }

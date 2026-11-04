@@ -929,6 +929,7 @@ They **Approve** or **Deny**, optionally with a note, and the run goes on from t
   A denied generated image stays in the library, so this is what tells it from one that was kept: the asset page
   says "Denied by … — note", the library shows a **Denied** badge and filters by **Decision**, and a workflow can
   gather `{"entity": "asset", "query": {"decision": "denied", "created_before": "-30d"}}` to trash them later.
+- **An approval can play a sound, and Approve returns at once.** An approval step's `image` can name a recorded take (an audio asset's URL, e.g. `${steps.say.output.asset.url}`): the Approvals page and the dashboard show a player instead of a picture, so a voice line is heard before it is kept. Approving or denying now records the decision and returns straight away; the steps after it run in the background.
 - **Stale:** approving an entry that has changed since the question was asked gives `stale`, not `approved` — what was
   approved is not what would be acted on.
 - **Actions that need approval:** an integration action that requires approval (OpenAI image generation, or a network's
