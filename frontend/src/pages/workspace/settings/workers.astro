@@ -77,8 +77,8 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
         <tbody>
           {view.capabilities.map((c) => (
             <tr>
-              <td data-label="Kind"><strong>{c.kind}</strong>{c.description && <div class="muted small">{c.description}</div>}</td>
-              <td data-label="Takes">
+              <td data-label="Kind" class="long"><strong>{c.kind}</strong>{c.description && <div class="muted small">{c.description}</div>}</td>
+              <td data-label="Takes" class="long">
                 {c.inputs.length === 0 ? <span class="muted">—</span> : (
                   <ul class="inputs">
                     {c.inputs.map((i) => (
@@ -189,9 +189,12 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
     .stack tr { padding: 14px 0; border-bottom: 1px solid var(--line); }
     .stack tbody tr:first-child { padding-top: 4px; }
     .stack tbody tr:last-child { padding-bottom: 0; border-bottom: 0; }
-    .stack td { border-bottom: 0; padding: 6px 0; overflow-wrap: anywhere; }
+    .stack td { position: relative; border-bottom: 0; padding: 6px 0 6px 7.5rem; overflow-wrap: anywhere; }
     .stack td ul { margin: 0; }
-    .stack td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 3px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+    .stack td[data-label]::before { content: attr(data-label); position: absolute; left: 0; top: 8px; width: 6.5rem; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+    /* Long values (a description, a log) take the whole card, with the label above. */
+    .stack td.long, .stack td.log { padding-left: 0; }
+    .stack td.long[data-label]::before, .stack td.log[data-label]::before { position: static; display: block; width: auto; margin-bottom: 3px; }
   }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
