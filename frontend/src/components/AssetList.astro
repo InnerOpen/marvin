@@ -1,12 +1,13 @@
 ---
 /**
  * Assets as an inbox-style list, the same rows as EntryList: a dot (green: search and the assistants can find it; amber:
- * a picture with no alt text or description, so they can't), a small picture (pictures only; other files show their
- * kind), name, alt text or filename, badges, size and date. The whole row opens the asset; an asset in the Trash opens
+ * a picture with no alt text or description, so they can't), a small picture (pictures only; a recording gets a play button;
+ * other files show their kind), name, alt text or filename, badges, size and date. The whole row opens the asset; an asset in the Trash opens
  * its page, where Restore and Delete forever live. Move to Trash (EDITOR+) takes the row out in place, keeping the
  * filters; it's reversible, so it doesn't ask.
  */
 import LocalTime from "@/components/LocalTime.astro";
+import PlayButton from "@/components/PlayButton.astro";
 import { getMimeCategory } from "@/lib/assetCategory";
 import { decisionOf } from "@/lib/assetLineage";
 import { isUnsearchableImage } from "@/lib/assetLibraryView";
@@ -40,6 +41,8 @@ const size = (bytes?: number | null) => (!bytes ? "" : bytes < KB * KB ? `${Math
             : <span class="search-dot" title="Searchable"></span>}
           {asset.publicUrl && category === "image" ? (
             <img class:list={["inbox-thumb", { dim: inTrash }]} src={asset.publicUrl} alt="" loading="lazy" style={`object-position: ${asset.focalPoint ?? "50% 50%"}`} />
+          ) : asset.publicUrl && category === "audio" ? (
+            <PlayButton src={asset.publicUrl} label={`Play ${asset.name}`} />
           ) : (
             <span class="inbox-thumb file-kind" aria-hidden="true">{KIND_ICONS[category] ?? "📎"}</span>
           )}
