@@ -3,6 +3,9 @@
 // records (`job`, `job-kind`, and a dispatcher's `worker` heartbeat; see lib/workers.ts), so it shows nothing until a workspace has them.
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { getBrowserApiBaseUrl } from "@/lib/api/config";
+import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import { runGuide } from "@/lib/workerCommands";
 import { ago, type TypeShape, type RecordRow, STATUSES, summarize, workerSetup } from "@/lib/workers";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -30,6 +33,13 @@ if (!authToken) {
     find({ entry_type: "worker" }, 20),
   ]);
 }
+let workspaceSlug = "<workspace-slug>";
+try {
+  if (authToken) workspaceSlug = (await getCurrentWorkspace(authToken)).slug || workspaceSlug;
+} catch {
+  /* the placeholder stays */
+}
+const guide = runGuide(getBrowserApiBaseUrl(), workspaceSlug);
 const view = summarize(jobs, kinds, workers);
 const busy = view.counts.queued + view.counts.claimed + view.counts.running > 0;
 const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURIComponent(Astro.url.pathname)}`;
@@ -74,6 +84,29 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
   )}
 
   {view.warnings.map((w) => <div class="alert warn" role="status">{w}</div>)}
+
+  <section class="card" data-testid="run-worker">
+    <h3>Run a worker</h3>
+    <p class="muted roles">Pick how you want it to run. Each shows the commands for this Marvin and workspace; the token is never filled in for you.</p>
+    {guide.first.map((b) => (
+      <>
+        <p class="step">{b.label}</p>
+        <div class="cmd"><pre><code>{b.code}</code></pre><button type="button" class="copy" data-copy={b.code}>Copy</button></div>
+      </>
+    ))}
+    {guide.options.map((o) => (
+      <details class="how" data-option={o.id}>
+        <summary>{o.title}</summary>
+        <p class="muted roles">{o.blurb}</p>
+        {o.blocks.map((b) => (
+          <>
+            <p class="step">{b.label}</p>
+            <div class="cmd"><pre><code>{b.code}</code></pre><button type="button" class="copy" data-copy={b.code}>Copy</button></div>
+          </>
+        ))}
+      </details>
+    ))}
+  </section>
 
   <section class="card" data-testid="workers">
     <h3>Workers</h3>
@@ -192,6 +225,19 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
     )}
   </section>
 
+  <script>
+    document.querySelectorAll<HTMLButtonElement>("button.copy").forEach((button) => {
+      button.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(button.dataset.copy ?? "");
+          button.textContent = "Copied";
+        } catch {
+          button.textContent = "Select and copy";
+        }
+        setTimeout(() => (button.textContent = "Copy"), 1500);
+      });
+    });
+  </script>
   {view.workers.some((w) => !w.healthy) && (
     <script>
       import { fetchApi } from "@/lib/api/client";
@@ -240,8 +286,15 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
   .sub { margin: 4px 0 0; color: var(--muted); }
   .card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 14px 16px; margin: 0 0 16px; }
   .card h3 { margin: 0 0 10px; font-size: 1rem; font-weight: 600; }
+  .step { margin: 12px 0 0; font-size: 13px; font-weight: 600; }
+  .how { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; }
+  .how summary { cursor: pointer; font-weight: 600; }
+  .cmd { position: relative; margin: 6px 0 4px; }
+  .cmd pre { margin: 0; padding: 12px 76px 12px 12px; background: var(--panel-2, var(--panel)); border: 1px solid var(--line); border-radius: var(--radius); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; }
+  .cmd code { padding: 0; background: none; }
+  .copy { position: absolute; top: 8px; right: 8px; padding: 4px 10px; font-size: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg, transparent); color: var(--ink); cursor: pointer; }
   .roles { margin: 0 0 12px; font-size: 13px; }
-  .workers .button { margin-left: auto; }
+  .workers .button { margin-left: auto; padding: 3px 10px; font-size: 12px; }
   .setup p { margin: 0 0 10px; }
   .setup ul { margin: 0 0 10px; padding-left: 20px; }
   .setup .muted { margin-left: 10px; }

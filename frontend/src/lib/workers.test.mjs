@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { runGuide } from "./workerCommands.ts";
 import { ago, summarize, workerSetup } from "./workers.ts";
 
 const NOW = Date.parse("2026-11-04T12:00:00Z");
@@ -137,5 +138,32 @@ describe("workerSetup", () => {
     assert.deepEqual(got.missing, []);
     assert.deepEqual(got.misfit[0], { slug: "job", lacks: ["kind", "args", "status", "result", "log"] });
     assert.equal(got.misfit.length, 3);
+  });
+});
+
+describe("runGuide", () => {
+  const guide = runGuide("https://api.example.com", "studio");
+
+  test("fills in this Marvin and workspace, and leaves the token a placeholder", () => {
+    const all = [...guide.first, ...guide.options.flatMap((o) => o.blocks)].map((b) => b.code).join("\n");
+    assert.match(all, /--pin studio/);
+    assert.match(all, /MARVIN_API_URL=https:\/\/api\.example\.com/);
+    assert.match(all, /<the token above>/);
+    assert.doesNotMatch(all, /eyJ|Bearer/);
+  });
+  test("covers a process, Docker, Podman and Kubernetes or OpenShift", () => {
+    assert.deepEqual(guide.options.map((o) => o.id), ["process", "docker", "podman", "kubernetes"]);
+    assert.ok(guide.options.every((o) => o.blocks.length > 0 && o.blurb));
+  });
+  test("Podman runs podman and tells the dispatcher to use it; Docker runs docker", () => {
+    const code = (id) => guide.options.find((o) => o.id === id).blocks.map((b) => b.code).join("\n");
+    assert.match(code("podman"), /podman run/);
+    assert.match(code("podman"), /WORKER_CONTAINER_CLI=podman/);
+    assert.doesNotMatch(code("docker"), /podman/);
+  });
+  test("OpenShift gets oc, Kubernetes kubectl", () => {
+    const code = guide.options.find((o) => o.id === "kubernetes").blocks.map((b) => b.code).join("\n");
+    assert.match(code, /kubectl create secret/);
+    assert.match(code, /oc create secret/);
   });
 });
