@@ -50,11 +50,11 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
       <ul class="workers">
         {view.workers.map((w) => (
           <li>
-            <span class={`dot ${w.healthy ? "ok" : "bad"}`} aria-hidden="true"></span>
+            <span class={`dot ${w.healthy ? "ok" : "off"}`} aria-hidden="true"></span>
             <strong>{w.name}</strong>
             <span class="pill">{w.role}</span>
             <span class="muted">
-              {w.healthy ? w.status : "not seen"} · last seen {ago(w.lastSeenAgo)} ago
+              {w.healthy ? w.status : "not running"} · last seen {ago(w.lastSeenAgo)} ago
               {w.currentJob ? ` · on ${w.currentJob}` : ""}
               {w.modes ? ` · starts ${w.modes}` : ""}
               {w.tags ? ` · has ${w.tags}` : ""}
@@ -72,7 +72,7 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
     {view.capabilities.length === 0 ? (
       <p class="empty">Nothing advertised yet. A worker lists the kinds it can do, and what each one takes, when it reports in.</p>
     ) : (
-      <table>
+      <div class="table-wrap"><table>
         <thead><tr><th>Kind</th><th>Takes</th><th>Gives</th><th>Needs</th><th>Offered by</th></tr></thead>
         <tbody>
           {view.capabilities.map((c) => (
@@ -93,11 +93,11 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
               </td>
               <td class="muted">{c.produces.join(", ") || "—"}</td>
               <td class="muted">{c.needs.join(", ") || "—"}</td>
-              <td>{c.offeredBy.length ? c.offeredBy.join(", ") : <span class="flag">nobody running</span>}</td>
+              <td>{c.offeredBy.length ? c.offeredBy.join(", ") : <span class="muted">nobody running</span>}</td>
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     )}
   </section>
 
@@ -109,7 +109,7 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
     {view.jobs.length === 0 ? (
       <p class="empty">No jobs yet. A workflow queues one by creating a <code>job</code> entry.</p>
     ) : (
-      <table>
+      <div class="table-wrap"><table>
         <thead><tr><th>Job</th><th>Kind</th><th>Status</th><th>Queued</th><th>What happened</th></tr></thead>
         <tbody>
           {view.jobs.map((j) => (
@@ -118,11 +118,16 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
               <td>{j.kind}</td>
               <td><span class={`pill s-${j.status}`}>{j.status}</span>{j.stuck && <span class="flag" title="Past the time allowed with no outcome"> stuck</span>}{j.unknownKind && <span class="flag" title="No job kind is registered for this"> no such kind</span>}</td>
               <td class="muted">{ago(j.queuedAgo)} ago</td>
-              <td class="log">{j.log.slice(0, 160)}</td>
+              <td class="log">
+                {j.resultUrl && <a href={j.resultUrl} target="_blank" rel="noopener">Open the result</a>}
+                {j.log && (j.log.length <= 120 && !j.log.includes("\n")
+                  ? <span class={j.status === "failed" ? "bad-text" : ""}>{j.log}</span>
+                  : <details><summary class={j.status === "failed" ? "bad-text" : ""}>{j.log.split("\n")[0].slice(0, 120)}</summary><pre>{j.log}</pre></details>)}
+              </td>
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     )}
   </section>
 
@@ -131,7 +136,7 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
     {view.kinds.length === 0 ? (
       <p class="empty">No job kinds yet. A <code>job-kind</code> entry says which image runs a kind of job, how it is started and how long it may take.</p>
     ) : (
-      <table>
+      <div class="table-wrap"><table>
         <thead><tr><th>Kind</th><th>Started by</th><th>Image or worker</th><th>Time allowed</th></tr></thead>
         <tbody>
           {view.kinds.map((k) => (
@@ -143,7 +148,7 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     )}
   </section>
 
@@ -156,24 +161,31 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
   .card h3 { margin: 0 0 10px; font-size: 1rem; font-weight: 600; }
   .alert { padding: 10px 14px; border-radius: var(--radius); margin: 0 0 12px; }
   .alert.warn { border: 1px solid var(--warn, #d97706); background: color-mix(in srgb, var(--warn, #d97706) 10%, transparent); }
-  .alert.error { border: 1px solid var(--danger, #dc2626); }
-  .workers { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-  .kind-list { display: inline-flex; gap: 4px; flex-wrap: wrap; margin-left: 6px; }
+  .alert.error { border: 1px solid var(--color-error, #dc2626); }
+  .workers { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .workers li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+  .workers .dot { margin-right: 0; }
+  .kind-list { display: inline-flex; gap: 4px; flex-wrap: wrap; }
   .inputs { list-style: none; margin: 0; padding: 0; }
   .small { font-size: 12px; }
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; }
-  .dot.ok { background: var(--success, #16a34a); }
-  .dot.bad { background: var(--danger, #dc2626); }
+  .dot.ok { background: var(--good, #16a34a); }
+  .dot.off { background: var(--muted); opacity: 0.55; }
   .muted { color: var(--muted); }
   .empty { color: var(--muted); margin: 0; }
   .counts { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
   .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); background: var(--panel-2, var(--panel)); }
-  .s-done { color: var(--success, #16a34a); }
-  .s-failed { color: var(--danger, #dc2626); }
+  .s-done { color: var(--good, #16a34a); }
+  .s-failed { color: var(--color-error, #dc2626); }
   .s-running, .s-claimed { color: var(--accent, #2563eb); }
-  .flag { color: var(--danger, #dc2626); font-size: 12px; }
-  table { width: 100%; border-collapse: collapse; }
+  .flag { color: var(--color-error, #dc2626); font-size: 12px; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
   th { font-size: 12px; color: var(--muted); font-weight: 600; }
-  .log { max-width: 34rem; font-size: 13px; color: var(--muted); word-break: break-word; }
+  .log { max-width: 34rem; color: var(--muted); word-break: break-word; }
+  .log a { display: block; margin-bottom: 2px; }
+  .log summary { cursor: pointer; }
+  .log pre { margin: 6px 0 0; padding: 8px 10px; max-height: 18rem; overflow: auto; white-space: pre-wrap; background: var(--panel-2, var(--panel)); border: 1px solid var(--line); border-radius: var(--radius); font-size: 12px; color: var(--ink); }
+  .bad-text { color: var(--color-error, #dc2626); }
 </style>
