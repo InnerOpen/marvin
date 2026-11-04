@@ -15,6 +15,7 @@ require approval (actions/integration.py); nothing else may.
 
 from __future__ import annotations
 
+import threading
 from datetime import UTC, datetime, timedelta
 
 from marvin.db.models.groups.workflow_approvals import APPROVAL_PENDING, WorkflowApprovalModel
@@ -98,11 +99,22 @@ def pending(session, group_id, role: int) -> list[WorkflowApprovalModel]:
 
 
 def decide(
-    session, group_id, approval_id, decision: str, *, user_id, role: int, note: str | None = None, choice=None, logger=None
+    session,
+    group_id,
+    approval_id,
+    decision: str,
+    *,
+    user_id,
+    role: int,
+    note: str | None = None,
+    choice=None,
+    logger=None,
+    background: bool = False,
 ) -> WorkflowApprovalModel:
     """A person approves or denies; the run goes on. An approval with choices is approved with one of them (`choice`:
     its label, or its index). Raises ApprovalError (404 unknown, 403 not theirs to decide, 409 already decided or
-    expired, 422 no such choice)."""
+    expired, 422 no such choice). With `background` the decision is recorded and returned at once and the run goes on
+    behind it (a request handler passes it: the steps after an approval can take a minute, an image say)."""
     row = session.get(WorkflowApprovalModel, approval_id)
     if row is None or str(row.group_id) != str(group_id):
         raise ApprovalError("No such approval.", 404)
@@ -118,7 +130,7 @@ def decide(
     picked = _picked(row, choice) if outcome == "approved" else None
     if outcome == "approved" and row.entry_id and row.entry_version and _entry_version(session, row.entry_id) != row.entry_version:
         outcome = "stale"  # the entry changed after it was asked: nothing approved is applied to other content
-    return settle(session, row, outcome, user_id=user_id, note=note, choice=picked, logger=logger)
+    return settle(session, row, outcome, user_id=user_id, note=note, choice=picked, logger=logger, background=background)
 
 
 def _picked(row: WorkflowApprovalModel, choice) -> str | None:
@@ -136,9 +148,18 @@ def _picked(row: WorkflowApprovalModel, choice) -> str | None:
 
 
 def settle(
-    session, row: WorkflowApprovalModel, outcome: str, *, user_id=None, note: str | None = None, choice: str | None = None, logger=None
+    session,
+    row: WorkflowApprovalModel,
+    outcome: str,
+    *,
+    user_id=None,
+    note: str | None = None,
+    choice: str | None = None,
+    logger=None,
+    background: bool = False,
 ) -> WorkflowApprovalModel:
-    """Record the outcome — claimed first, so two deciders can't both resume it — and resume the run."""
+    """Record the outcome — claimed first, so two deciders can't both resume it — and resume the run (on a thread of
+    its own when `background`, so the caller isn't held while the steps after the approval run)."""
     from sqlalchemy import update
 
     claimed = session.execute(
@@ -152,11 +173,34 @@ def settle(
         raise ApprovalError(f"It was already decided: {row.status}.")
     session.refresh(row)
     _stamp_picture(session, row, logger=logger)
+    if background:
+        threading.Thread(target=_resume_job, args=(row.id, user_id), name=f"approval-{str(row.id)[:8]}", daemon=True).start()
+        return row
     from .engine import resume_after_approval
 
     resume_after_approval(session, row, logger=logger)
     _emit(session, row, None, EventTypes.workflow_approval_decided, user_id=user_id)
     return row
+
+
+def _resume_job(approval_id, user_id) -> None:
+    """Go on with a settled approval's run on its own database session (the request that decided it has finished with
+    its own). The run records its own outcome; anything that escapes is logged, since nobody is waiting to be told."""
+    from marvin.core.root_logger import get_logger
+    from marvin.db.db_setup import session_context
+
+    from .engine import resume_after_approval
+
+    logger = get_logger(__name__)
+    try:
+        with session_context() as session:
+            row = session.get(WorkflowApprovalModel, approval_id)
+            if row is None:
+                return
+            resume_after_approval(session, row, logger=logger)
+            _emit(session, row, None, EventTypes.workflow_approval_decided, user_id=user_id)
+    except Exception:  # noqa: BLE001 — nobody is waiting on this thread
+        logger.error("resuming the run after approval %s failed", approval_id, exc_info=True)
 
 
 # Written onto the pictured asset's metadata when an approval that showed it is settled (see _stamp_picture).

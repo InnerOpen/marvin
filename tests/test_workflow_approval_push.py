@@ -91,7 +91,9 @@ def test_buttons_only_when_every_step_after_it_can_be_undone(ws, editor, monkeyp
 
 def test_the_button_decides_as_that_person_once(ws, editor, monkeypatch, pushes):  # noqa: F811
     from marvin.db.models.platform.entry_collections import EntryCollections
+    from tests.test_workflow_approvals_api import _resume_inline
 
+    _resume_inline(ws, monkeypatch)  # the run goes on in a thread of its own; here it runs when it starts
     row, article = _waiting(ws, UNDOABLE, editor)
     token = _deliver(ws, row, editor, monkeypatch, pushes)["approval"]["token"]
     client = TestClient(app)
