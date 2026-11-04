@@ -35,6 +35,7 @@ const isImage = asset?.mimeType?.startsWith("image/");
 const isVideo = asset?.mimeType?.startsWith("video/");
 const isAudio = asset?.mimeType?.startsWith("audio/");
 const isPdf = asset?.mimeType?.includes("pdf");
+const isHtml = asset?.mimeType === "text/html";
 ---
 
 <AppLayout
@@ -122,7 +123,19 @@ const isPdf = asset?.mimeType?.includes("pdf");
           </div>
         )}
 
-        {!isImage && !isVideo && !isAudio && !isPdf && (
+        {isHtml && (
+          <div class="pdf-viewer html-viewer">
+            {/* An uploaded page is untrusted: `sandbox` with no flags runs no scripts and gives it no access to this app. Styles and layout still show. */}
+            <iframe
+              src={asset.publicUrl}
+              title={asset.name}
+              sandbox=""
+              referrerpolicy="no-referrer"
+            ></iframe>
+          </div>
+        )}
+
+        {!isImage && !isVideo && !isAudio && !isPdf && !isHtml && (
           <div class="file-info">
             <div class="file-icon">📄</div>
             <h3>{asset.originalFilename}</h3>
@@ -284,6 +297,11 @@ const isPdf = asset?.mimeType?.includes("pdf");
     width: 100%;
     height: 80vh;
     border: none;
+  }
+
+  /* A page is made for a white sheet, so it is not shown on the dark theme. */
+  .html-viewer iframe {
+    background: #fff;
   }
 
   .file-info {
