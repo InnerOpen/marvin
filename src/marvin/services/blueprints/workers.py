@@ -120,6 +120,11 @@ _PAYLOADS = {
     },
 }
 
+#: Internal, like the Social rule types (services/entry_listing.py): the workers and Settings -> Workers own these records, so they stay out
+#: of All entries, the Drafts and other status lists, the counts, search and the AI index, and are never published. They are still found by
+#: naming the type, which is how the Workers page and the workflows read them.
+INTERNAL = {"publishable": False, "submittable": False, "routable": False, "listed": False}
+
 WORKER_BLUEPRINTS: tuple[Blueprint, ...] = tuple(
     Blueprint(
         kind="entry_type",
@@ -127,7 +132,7 @@ WORKER_BLUEPRINTS: tuple[Blueprint, ...] = tuple(
         name=_PAYLOADS[slug]["name"],
         description=_PAYLOADS[slug]["description"],
         category=CATEGORY_WORKERS,
-        payload=_PAYLOADS[slug],
+        payload={**_PAYLOADS[slug], "capabilities_json": INTERNAL},
     )
     for slug in WORKER_ENTRY_TYPES
 )
