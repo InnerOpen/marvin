@@ -8,6 +8,8 @@ export interface LinkedItem {
   meta?: string | null;
   /** An image asset's public url, shown as a thumbnail; absent for other files and for resources. */
   imageUrl?: string | null;
+  /** An audio asset's public url, played from its card (an actor's voice sample). */
+  audioUrl?: string | null;
   alt?: string | null;
 }
 
@@ -45,7 +47,8 @@ export function canAdd(count: number, multiple: boolean, max?: number | null): b
 /** An asset as the picker shows it. */
 export function assetItem(a: { id: string; name: string; mimeType?: string | null; publicUrl?: string | null; altText?: string | null }): LinkedItem {
   const image = (a.mimeType ?? "").startsWith("image/") && a.publicUrl ? a.publicUrl : null;
-  return { id: a.id, name: a.name, meta: a.mimeType ?? null, imageUrl: image, alt: a.altText ?? null };
+  const audio = (a.mimeType ?? "").startsWith("audio/") && a.publicUrl ? a.publicUrl : null;
+  return { id: a.id, name: a.name, meta: a.mimeType ?? null, imageUrl: image, audioUrl: audio, alt: a.altText ?? null };
 }
 
 /** A resource as the picker shows it. */

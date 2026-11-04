@@ -5,6 +5,7 @@
  * which the page loads and passes down (lib/linkedItems.ts has the pure parts). The hidden input posts the ids joined by
  * commas; coerceDataJsonValue turns a list field's string back into an array.
  */
+import PlayButton from "@/components/PlayButton.astro";
 import { type LinkedItem, canAdd, chosen, idsOf, serialize } from "@/lib/linkedItems";
 
 export interface Props {
@@ -53,7 +54,7 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
   <ul class="li-chosen" data-linked-chosen>
     {picked.map((item) => (
       <li class="li-card" data-id={item.id}>
-        <span class="li-thumb">{item.imageUrl ? <img src={item.imageUrl} alt={item.alt || item.name} /> : <span aria-hidden="true">{isAsset ? "📄" : "🔗"}</span>}</span>
+        <span class="li-thumb">{item.imageUrl ? <img src={item.imageUrl} alt={item.alt || item.name} /> : item.audioUrl ? <PlayButton src={item.audioUrl} label={`Play ${item.name}`} /> : <span aria-hidden="true">{isAsset ? "📄" : "🔗"}</span>}</span>
         <span class="li-text"><strong>{item.name}</strong>{item.meta && <small>{item.meta}</small>}</span>
         {!field.readOnly && <button type="button" class="li-remove" aria-label={`Remove ${item.name}`} data-linked-remove>×</button>}
       </li>

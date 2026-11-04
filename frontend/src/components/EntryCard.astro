@@ -1,7 +1,7 @@
 ---
 import type { CollectionRead, EntryRead } from "@/lib/api/types";
 import PlayButton from "@/components/PlayButton.astro";
-import { leadAsset, thumbOf } from "@/lib/entryMedia";
+import { extraSound, leadAsset, thumbOf } from "@/lib/entryMedia";
 import { reviewReasons } from "@/lib/reviewReasons";
 
 interface Props {
@@ -22,6 +22,7 @@ const entryCollections = entry.collections
 const reasons = entry.status === "needs_review" ? reviewReasons(entry.metadataJson) : [];
 const asset = leadAsset(entry.assets);
 const thumb = thumbOf(entry.assets, entry.title);
+const sound = extraSound(entry.assets, entry.title);
 
 // Format relative time
 function formatRelativeTime(timestamp: string | null | undefined): string {
@@ -53,6 +54,7 @@ function formatRelativeTime(timestamp: string | null | undefined): string {
         <span class="placeholder-icon">📄</span>
       </div>
     )}
+    {sound && <span class="media-sound"><PlayButton src={sound.url} label={`Play ${entry.title}`} /></span>}
   </div>
   <div class="card-body">
     <div class="card-header">
@@ -120,12 +122,31 @@ function formatRelativeTime(timestamp: string | null | undefined): string {
   }
 
   .media {
+    position: relative;
     width: 120px;
     height: 120px;
     border-radius: var(--radius);
     overflow: hidden;
     background: var(--panel-2);
     flex-shrink: 0;
+  }
+
+  /* A recording beside the picture (an actor's voice sample): a small play button over the picture's corner. */
+  .media-sound {
+    position: absolute;
+    right: 6px;
+    bottom: 6px;
+  }
+
+  .media-sound :global(.play-btn) {
+    width: 32px;
+    height: 32px;
+    background: var(--panel);
+  }
+
+  .media-sound :global(.play-btn svg) {
+    width: 16px;
+    height: 16px;
   }
 
   .media img {

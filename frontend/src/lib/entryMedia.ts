@@ -27,6 +27,17 @@ export function leadAsset<T extends PlacedAsset>(assets: T[] | null | undefined)
   return takes.length ? takes[takes.length - 1] : assets?.[0];
 }
 
+/**
+ * A recording that rides along with a picture: an actor's voice sample sits beside the actor's picture, which leads, so the picture
+ * would hide it. The first audio asset, when the entry's lead is a picture; null when the lead is itself the recording (the slot
+ * already plays that) or the entry has none.
+ */
+export function extraSound(assets: PlacedAsset[] | null | undefined, title: string): EntryThumb | null {
+  if (!thumbOf(assets, title) || thumbOf(assets, title)?.kind === "audio") return null;
+  const sound = assets?.find((a) => (a.mimeType ?? "").toLowerCase().startsWith("audio/") && a.publicUrl);
+  return sound ? { kind: "audio", url: sound.publicUrl as string, alt: sound.altText ?? title, focalPoint: null } : null;
+}
+
 export function thumbOf(assets: PlacedAsset[] | null | undefined, title: string): EntryThumb | null {
   const asset = leadAsset(assets);
   if (!asset?.publicUrl) return null;
