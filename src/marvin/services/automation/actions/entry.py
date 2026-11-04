@@ -549,9 +549,21 @@ def _attach_asset(session, group_id, entity_id, action: dict, context: dict, *, 
 
     raw = action.get("asset")
     ref = str(interpolate(raw, context) or "").strip() if raw not in (None, "") else ""
+    role = str(interpolate(action.get("role"), context) or "").strip() or None if action.get("role") else None
+    if not ref and dry_run and raw not in (None, ""):
+        # The asset is an earlier step's output (a picture or recording it makes), and a dry run runs none of them: say what would
+        # happen instead of failing on a value that does not exist yet.
+        return {
+            "dry_run": True,
+            "kind": "entry",
+            "op": "attach_asset",
+            "entity_id": str(entity_id),
+            "asset": None,
+            "role": role,
+            "note": "the asset comes from an earlier step",
+        }
     if not ref:
         raise AutomationActionError("attach_asset needs `asset`: the asset's id or slug (a template such as ${steps.cover.output.images.0.asset.id})")
-    role = str(interpolate(action.get("role"), context) or "").strip() or None if action.get("role") else None
     if dry_run:
         return {"dry_run": True, "kind": "entry", "op": "attach_asset", "entity_id": str(entity_id), "asset": ref, "role": role}
     svc = EntryService(session, group_id, actor_id=user_id, integration_id="automation")

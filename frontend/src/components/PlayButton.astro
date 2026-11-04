@@ -1,0 +1,72 @@
+---
+// A small play button for a recording, for an entry list or card. Pressing it plays the sound where it is (it does not open the
+// entry); pressing it again pauses; starting another stops the first. The page script is shared, so any number of buttons cost one.
+interface Props {
+  src: string;
+  label?: string;
+  size?: "sm" | "lg";
+}
+const { src, label = "Play", size = "sm" } = Astro.props;
+---
+
+<button type="button" class={`play-btn play-${size}`} data-src={src} aria-label={label} title={label}>
+  <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor" /></svg>
+  <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor" /></svg>
+</button>
+
+<style>
+  .play-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--line, currentColor);
+    border-radius: 999px;
+    background: var(--panel, transparent);
+    color: var(--accent, currentColor);
+    cursor: pointer;
+    padding: 0;
+    flex: 0 0 auto;
+  }
+  .play-btn:hover { background: var(--panel-2, var(--panel)); }
+  .play-btn:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; }
+  .play-sm { width: 44px; height: 44px; }
+  .play-sm svg { width: 20px; height: 20px; }
+  .play-lg { width: 64px; height: 64px; }
+  .play-lg svg { width: 30px; height: 30px; }
+  .icon-pause { display: none; }
+  .play-btn[data-state="playing"] .icon-play { display: none; }
+  .play-btn[data-state="playing"] .icon-pause { display: block; }
+</style>
+
+<script>
+  // One shared player for the page: a click is delegated, so buttons added later work too.
+  let audio: HTMLAudioElement | null = null;
+  let active: HTMLButtonElement | null = null;
+
+  function setState(button: HTMLButtonElement | null, state: "playing" | "") {
+    if (!button) return;
+    if (state) button.dataset.state = state;
+    else delete button.dataset.state;
+  }
+
+  function stop() {
+    audio?.pause();
+    setState(active, "");
+    active = null;
+  }
+
+  document.addEventListener("click", (event) => {
+    const button = (event.target as Element | null)?.closest?.<HTMLButtonElement>(".play-btn[data-src]");
+    if (!button) return;
+    event.preventDefault(); // the button sits inside the entry's link
+    event.stopPropagation();
+    if (active === button) return stop();
+    stop();
+    audio = new Audio(button.dataset.src);
+    active = button;
+    setState(button, "playing");
+    audio.addEventListener("ended", stop);
+    audio.addEventListener("error", stop);
+    void audio.play().catch(stop);
+  });
+</script>
