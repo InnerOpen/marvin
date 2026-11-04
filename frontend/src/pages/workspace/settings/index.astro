@@ -101,7 +101,7 @@ const tabs = [
 ];
 ---
 
-<AppLayout width="wide" crumb="settings">
+<AppLayout width="full" crumb="settings">
   <div class="settings-container">
     <div class="settings-header">
       <div>
@@ -459,8 +459,9 @@ const tabs = [
 </AppLayout>
 
 <style>
+  /* Wide enough for every tab on one line (eleven with Social on); the cards below keep their grid. A narrower window wraps them, a phone swipes. */
   .settings-container {
-    max-width: 1200px;
+    max-width: 1400px;
   }
 
   .settings-header {
@@ -483,7 +484,7 @@ const tabs = [
 
   .tabs {
     display: flex;
-    gap: 4px;
+    gap: 2px;
     margin-bottom: 32px;
     padding: 4px;
     background: var(--panel);
@@ -497,7 +498,7 @@ const tabs = [
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 10px 14px;
+    padding: 10px 12px;
     background: transparent;
     border: none;
     border-radius: calc(var(--radius) - 2px);
@@ -539,6 +540,13 @@ const tabs = [
 
   .tab-content {
     min-height: 400px;
+  }
+
+  /* Between a phone and a wide desktop (the sidebar takes a share of the window): the icons go, so all eleven labels fit on one line. */
+  @media (min-width: 641px) and (max-width: 1599px) {
+    .tab-icon {
+      display: none;
+    }
   }
 
   @media (max-width: 640px) {
