@@ -1,8 +1,10 @@
 ---
+import AudioTimeline from "@/components/AudioTimeline.astro";
 import SaveErrorBanner from "@/components/SaveErrorBanner.astro";
 import SchemaForm from "@/components/SchemaForm.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
-import { getAuthToken } from "@/lib/api/client";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { findTimeline } from "@/lib/audioTimeline";
 import { listCollections } from "@/lib/api/collections";
 import { type CollectionRead, type EntryRead, getEntry, updateEntry } from "@/lib/api/entries";
 import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
@@ -224,6 +226,23 @@ if (!id) {
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
     console.error("[Entry] Failed to load:", error);
+  }
+}
+
+// A finished audio job carries its stitched audio and a timeline in its fields: list it with a player, and link each line to its record.
+const audioTimeline = entry ? findTimeline(entry.dataJson as Record<string, unknown> | null) : null;
+const timelineLinks: Record<string, string> = {};
+if (audioTimeline && authToken) {
+  const slugs = [...new Set(audioTimeline.rows.map((r) => r.id).filter((x): x is string => !!x))];
+  try {
+    const found = await fetchApi<{ entries: Array<{ id: string; slug: string }> }>(
+      "/api/platform/entries/query",
+      { method: "POST", body: JSON.stringify({ spec: { entries: slugs }, limit: Math.max(slugs.length, 1) }) },
+      authToken,
+    );
+    for (const e of found.entries) timelineLinks[e.slug] = `/workspace/entries/${e.id}?return=${encodeURIComponent(Astro.url.pathname)}`;
+  } catch {
+    /* the timeline still plays without its links */
   }
 }
 
@@ -468,6 +487,8 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                 class="title-input"
               />
             </div>
+
+            {audioTimeline && <AudioTimeline timeline={audioTimeline} links={timelineLinks} />}
 
             {/* Schema-driven content fields */}
             {hasSchema ? (

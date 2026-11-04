@@ -1,0 +1,134 @@
+---
+// Settings → Workers: the queue of heavy jobs handed to workers, and whether anything is watching it. Read from the workspace's own
+// records (`job`, `job-kind`, and a dispatcher's `worker` heartbeat; see lib/workers.ts), so it shows nothing until a workspace has them.
+import AppLayout from "@/layouts/AppLayout.astro";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { ago, type RecordRow, STATUSES, summarize } from "@/lib/workers";
+
+const authToken = getAuthToken(Astro.cookies);
+type Found = { entries: RecordRow[] };
+const find = (spec: Record<string, unknown>, limit: number): Promise<RecordRow[]> =>
+  fetchApi<Found>("/api/platform/entries/query", { method: "POST", body: JSON.stringify({ spec, limit }) }, authToken)
+    .then((r) => r.entries ?? [])
+    .catch(() => []);
+
+let error: string | null = null;
+let jobs: RecordRow[] = [];
+let kinds: RecordRow[] = [];
+let workers: RecordRow[] = [];
+if (!authToken) {
+  error = "Authentication required";
+} else {
+  [jobs, kinds, workers] = await Promise.all([
+    find({ entry_type: "job", sort: { by: "created_at", direction: "desc" } }, 40),
+    find({ entry_type: "job-kind" }, 100),
+    find({ entry_type: "worker" }, 20),
+  ]);
+}
+const view = summarize(jobs, kinds, workers);
+const busy = view.counts.queued + view.counts.claimed + view.counts.running > 0;
+const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURIComponent(Astro.url.pathname)}`;
+---
+
+<AppLayout crumb="settings.workers">
+  <div class="toolbar">
+    <div>
+      <h2>Workers</h2>
+      <p class="sub">Heavy jobs (anything that needs a binary tool or a long run) are queued here and picked up by a dispatcher, which starts a worker for each.</p>
+    </div>
+  </div>
+
+  {error && <div class="alert error">{error}</div>}
+
+  {view.warnings.map((w) => <div class="alert warn" role="status">{w}</div>)}
+
+  <section class="card" data-testid="dispatchers">
+    <h3>Dispatcher</h3>
+    {view.dispatchers.length === 0 ? (
+      <p class="empty">No dispatcher has reported yet.</p>
+    ) : (
+      <ul class="dispatchers">
+        {view.dispatchers.map((d) => (
+          <li>
+            <span class={`dot ${d.healthy ? "ok" : "bad"}`} aria-hidden="true"></span>
+            <strong>{d.name}</strong>
+            <span class="muted">{d.healthy ? "running" : "not seen"} · last seen {ago(d.lastSeenAgo)} ago{d.modes ? ` · starts ${d.modes}` : ""}{d.jobsStarted !== null ? ` · ${d.jobsStarted} started` : ""}</span>
+          </li>
+        ))}
+      </ul>
+    )}
+  </section>
+
+  <section class="card">
+    <h3>Jobs</h3>
+    <p class="counts">
+      {STATUSES.map((s) => <span class={`pill s-${s}`}>{view.counts[s] ?? 0} {s}</span>)}
+    </p>
+    {view.jobs.length === 0 ? (
+      <p class="empty">No jobs yet. A workflow queues one by creating a <code>job</code> entry.</p>
+    ) : (
+      <table>
+        <thead><tr><th>Job</th><th>Kind</th><th>Status</th><th>Queued</th><th>What happened</th></tr></thead>
+        <tbody>
+          {view.jobs.map((j) => (
+            <tr>
+              <td><a href={entryHref(j.id)}>{j.title}</a></td>
+              <td>{j.kind}</td>
+              <td><span class={`pill s-${j.status}`}>{j.status}</span>{j.stuck && <span class="flag" title="Past the time allowed with no outcome"> stuck</span>}{j.unknownKind && <span class="flag" title="No job kind is registered for this"> no such kind</span>}</td>
+              <td class="muted">{ago(j.queuedAgo)} ago</td>
+              <td class="log">{j.log.slice(0, 160)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )}
+  </section>
+
+  <section class="card">
+    <h3>Job kinds</h3>
+    {view.kinds.length === 0 ? (
+      <p class="empty">No job kinds yet. A <code>job-kind</code> entry says which image runs a kind of job, how it is started and how long it may take.</p>
+    ) : (
+      <table>
+        <thead><tr><th>Kind</th><th>Started by</th><th>Image or worker</th><th>Time allowed</th></tr></thead>
+        <tbody>
+          {view.kinds.map((k) => (
+            <tr>
+              <td>{k.kind}</td>
+              <td>{k.mode}</td>
+              <td class="muted">{k.image || k.url || "—"}</td>
+              <td class="muted">{ago(k.timeoutSeconds)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )}
+  </section>
+
+  {busy && <script is:inline>setTimeout(() => location.reload(), 15000);</script>}
+</AppLayout>
+
+<style>
+  .sub { margin: 4px 0 0; color: var(--muted); }
+  .card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 14px 16px; margin: 0 0 16px; }
+  .card h3 { margin: 0 0 10px; font-size: 1rem; font-weight: 600; }
+  .alert { padding: 10px 14px; border-radius: var(--radius); margin: 0 0 12px; }
+  .alert.warn { border: 1px solid var(--warn, #d97706); background: color-mix(in srgb, var(--warn, #d97706) 10%, transparent); }
+  .alert.error { border: 1px solid var(--danger, #dc2626); }
+  .dispatchers { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; }
+  .dot.ok { background: var(--success, #16a34a); }
+  .dot.bad { background: var(--danger, #dc2626); }
+  .muted { color: var(--muted); }
+  .empty { color: var(--muted); margin: 0; }
+  .counts { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); background: var(--panel-2, var(--panel)); }
+  .s-done { color: var(--success, #16a34a); }
+  .s-failed { color: var(--danger, #dc2626); }
+  .s-running, .s-claimed { color: var(--accent, #2563eb); }
+  .flag { color: var(--danger, #dc2626); font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  .log { max-width: 34rem; font-size: 13px; color: var(--muted); word-break: break-word; }
+</style>

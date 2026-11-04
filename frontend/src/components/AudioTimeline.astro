@@ -1,0 +1,76 @@
+---
+// The stitched audio of a job with a timeline of what is where: a player, and a row per spoken line or sound with its time, who
+// said it, and a link to the record it came from. Click a row to jump the player there; the row playing is marked as it goes. So
+// "at 0:41 it needs to say something else" is a click away from the line to change.
+import { type AudioTimeline, timecode } from "@/lib/audioTimeline";
+
+interface Props {
+  timeline: AudioTimeline;
+  /** record slug → where to open it */
+  links?: Record<string, string>;
+}
+const { timeline, links = {} } = Astro.props;
+---
+
+<section class="audio-timeline" data-testid="audio-timeline">
+  <div class="at-head">
+    <h3>Listen{timeline.seconds ? ` · ${timecode(timeline.seconds)}` : ""}</h3>
+    <p>Click a line to jump to it. Note what needs changing against its time, then open the line to edit it.</p>
+  </div>
+  <audio class="at-player" src={timeline.url} controls preload="metadata"></audio>
+  <ol class="at-rows">
+    {timeline.rows.map((row) => (
+      <li class={`at-row at-${row.kind}`} data-start={row.start} data-end={row.end ?? ""}>
+        <button type="button" class="at-seek" data-seek={row.start} aria-label={`Play from ${timecode(row.start)}`}>
+          <span class="at-time">{timecode(row.start)}</span>
+          <span class="at-who">{row.kind === "sound" ? "sound" : (row.speaker ?? "")}</span>
+          <span class="at-text">{row.kind === "sound" ? (row.id ?? "").replace(/^.*-sound-/, "") : row.text}</span>
+        </button>
+        {row.id && links[row.id] && <a class="at-open" href={links[row.id]} title="Open this record to change it">Open</a>}
+      </li>
+    ))}
+  </ol>
+</section>
+
+<style>
+  .audio-timeline { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 14px 16px; margin: 0 0 20px; }
+  .at-head h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+  .at-head p { margin: 4px 0 10px; color: var(--muted); font-size: 13px; }
+  .at-player { display: block; width: 100%; margin: 0 0 10px; }
+  .at-rows { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow: auto; border-top: 1px solid var(--line); }
+  .at-row { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
+  .at-seek { flex: 1 1 auto; display: grid; grid-template-columns: 4.5rem 6rem 1fr; gap: 10px; align-items: baseline; text-align: left; background: none; border: 0; padding: 8px 6px; color: inherit; cursor: pointer; font: inherit; }
+  .at-seek:hover { background: var(--panel-2, var(--panel)); }
+  .at-seek:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: -2px; }
+  .at-time { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .at-who { color: var(--muted); font-size: 12px; text-transform: capitalize; }
+  .at-sound .at-text { font-style: italic; color: var(--muted); }
+  .at-row[data-playing="true"] { background: color-mix(in srgb, var(--accent, #888) 14%, transparent); }
+  .at-open { flex: 0 0 auto; font-size: 12px; padding: 4px 8px; margin-right: 6px; }
+  @media (max-width: 640px) { .at-seek { grid-template-columns: 4rem 1fr; } .at-who { display: none; } }
+</style>
+
+<script>
+  // One timeline per page is all there is, but each is wired on its own so a second works too.
+  function wire(root: HTMLElement) {
+    const player = root.querySelector<HTMLAudioElement>(".at-player");
+    if (!player) return;
+    const rows = [...root.querySelectorAll<HTMLElement>(".at-row")];
+    root.addEventListener("click", (event) => {
+      const seek = (event.target as Element).closest<HTMLElement>("[data-seek]");
+      if (!seek) return;
+      player.currentTime = Number(seek.dataset.seek);
+      void player.play().catch(() => {});
+    });
+    player.addEventListener("timeupdate", () => {
+      let current: HTMLElement | null = null;
+      for (const row of rows) {
+        const start = Number(row.dataset.start);
+        const end = row.dataset.end === "" ? Infinity : Number(row.dataset.end);
+        if (start <= player.currentTime && player.currentTime < end) current = row; // the later row wins an overlap
+      }
+      for (const row of rows) row.dataset.playing = String(row === current);
+    });
+  }
+  document.querySelectorAll<HTMLElement>(".audio-timeline").forEach(wire);
+</script>
