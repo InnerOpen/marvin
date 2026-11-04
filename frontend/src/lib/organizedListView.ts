@@ -65,18 +65,46 @@ export function mountOrganizedList<T>(options: MountOptions<T>) {
 
   const filters = () => Object.fromEntries(Object.entries(selects).map(([id, select]) => [id, select?.value ?? ""]));
 
+  // Package sections start closed; the ones the person opened stay open across re-draws and (for the tab) reloads.
+  const openKey = `${storageKey}.open`;
+  const opened = new Set<string>(readOpen());
+  function readOpen(): string[] {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(openKey) || "[]");
+      return Array.isArray(saved) ? saved.filter((k): k is string => typeof k === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+  host.addEventListener("click", (event) => {
+    const summary = (event.target as HTMLElement).closest?.(".org-package > summary");
+    const section = summary?.parentElement as HTMLDetailsElement | null | undefined;
+    if (!section?.dataset.section) return;
+    // The click runs before the details toggles, so `open` is still how it was.
+    if (section.open) opened.delete(section.dataset.section);
+    else opened.add(section.dataset.section);
+    try {
+      sessionStorage.setItem(openKey, JSON.stringify([...opened]));
+    } catch {
+      /* private mode: it just starts closed next time */
+    }
+  });
+
   function refresh() {
     const items = options.items();
-    const result = organize(items, adapter, options.integrations, filters(), {
-      query: options.search?.value ?? "",
-      linkedId: options.linkedId,
-    });
+    const query = options.search?.value ?? "";
+    const active = filters();
+    const result = organize(items, adapter, options.integrations, active, { query, linkedId: options.linkedId });
+    // Searching or filtering shows matches; they must not sit inside a closed package.
+    const filtering = query.trim() !== "" || Object.values(active).some(Boolean);
     host.innerHTML = sectionsHtml(result.sections, {
       noun: options.noun,
       onOff: options.onOff,
       integrations: options.integrations,
       linkedId: options.linkedId,
       id: adapter.id,
+      openSections: opened,
+      expandAll: filtering,
       removedAction: options.removedDelete?.canDelete === true,
       renderItem: options.renderItem,
     });

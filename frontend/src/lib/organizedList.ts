@@ -13,7 +13,7 @@
 //
 // Rendering lives in organizedListHtml.ts (section headings, cards' ⋯ menu) and organizedListView.ts (the DOM wiring).
 
-export type SectionKind = "yours" | "library" | "integration" | "removed" | "system" | "group";
+export type SectionKind = "yours" | "package" | "library" | "integration" | "removed" | "system" | "group";
 
 /** Where an item came from. All read-only, as the server records them. */
 export interface ItemSource {
@@ -23,6 +23,8 @@ export interface ItemSource {
   integrationId?: string | null;
   /** The blueprint that installed it. With no `integrationId` it means the integration was removed (see `sectionKey`). */
   blueprint?: string | null;
+  /** The package it belongs to (its slug): a bundle installed, uploaded or grouped as one, shown as its own collapsed section. */
+  package?: string | null;
   /** Marvin's own (a platform scheduled task). */
   system?: boolean;
 }
@@ -41,6 +43,8 @@ export interface ListAdapter<T> {
   /** For pages whose sections are not "where it came from" (custom events: what sends them): the sections' keys and
    * titles, in order, and which one an item is in. The From filter then offers these. */
   groups?: { choices: Choice[]; of(item: T): string };
+  /** Package slug -> the name its section is titled with. A package with no name here is titled from its slug. */
+  packageNames?: Record<string, string>;
 }
 
 export interface IntegrationInfo {
@@ -58,11 +62,13 @@ export type Integrations = Record<string, IntegrationInfo>;
 export type ListFilters = Record<string, string | undefined>;
 
 export interface Section<T> {
-  /** "yours" | "library" | "integration:<id>" | "removed" | "system": also the From filter's values. */
+  /** "yours" | "package:<slug>" | "library" | "integration:<id>" | "removed" | "system": also the From filter's values. */
   key: string;
   kind: SectionKind;
   title: string;
   integrationId?: string;
+  /** For a package section: the package's slug (the section is drawn collapsible, closed until opened). */
+  packageSlug?: string;
   /** What is shown: enabled first, then by name. */
   items: T[];
   count: number;
@@ -81,7 +87,7 @@ export interface Choice {
   label: string;
 }
 
-export const SECTION_TITLE: Record<Exclude<SectionKind, "integration" | "group">, string> = {
+export const SECTION_TITLE: Record<Exclude<SectionKind, "integration" | "group" | "package">, string> = {
   yours: "Yours",
   library: "From the Library",
   removed: "From a removed integration",
@@ -105,6 +111,8 @@ export const emptyMessage = (noun: string) => `No ${noun} matches. Try another s
  * is also treated as removed. */
 export function sectionKey(source: ItemSource | undefined, integrations: Integrations): string {
   if (source?.system) return "system";
+  // Before the blueprint rule below: a package installs from blueprints with no integration, which is what a removed one leaves.
+  if (source?.package) return `package:${source.package}`;
   if (source?.integrationId)
     return source.integrationId in integrations ? `integration:${source.integrationId}` : "removed";
   if (source?.blueprint) return "removed";
@@ -112,7 +120,14 @@ export function sectionKey(source: ItemSource | undefined, integrations: Integra
   return "yours";
 }
 
-const kindOf = (key: string): SectionKind => (key.startsWith("integration:") ? "integration" : (key as SectionKind));
+const kindOf = (key: string): SectionKind =>
+  key.startsWith("integration:") ? "integration" : key.startsWith("package:") ? "package" : (key as SectionKind);
+
+/** "story-kit" -> "Story kit": the title of a package whose name the page did not supply. */
+const humanize = (slug: string): string => {
+  const words = slug.replace(/[-_]+/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
 
 /** The section an item is in: the page's own grouping if it has one, else by source. */
 function keyOf<T>(item: T, adapter: ListAdapter<T>, integrations: Integrations): string {
@@ -122,26 +137,31 @@ function keyOf<T>(item: T, adapter: ListAdapter<T>, integrations: Integrations):
 function titleFor<T>(key: string, adapter: ListAdapter<T>, integrations: Integrations): string {
   return adapter.groups
     ? (adapter.groups.choices.find((c) => c.value === key)?.label ?? key)
-    : titleOf(key, integrations);
+    : titleOf(key, integrations, adapter.packageNames);
 }
 
 function compareFor<T>(adapter: ListAdapter<T>, integrations: Integrations) {
   const order = adapter.groups?.choices.map((c) => c.value);
-  return (a: string, b: string) => (order ? order.indexOf(a) - order.indexOf(b) : compareKeys(a, b, integrations));
+  return (a: string, b: string) =>
+    order ? order.indexOf(a) - order.indexOf(b) : compareKeys(a, b, integrations, adapter.packageNames);
 }
 
-const ORDER: SectionKind[] = ["yours", "library", "integration", "removed", "system"];
+const ORDER: SectionKind[] = ["yours", "package", "library", "integration", "removed", "system"];
 
-function titleOf(key: string, integrations: Integrations): string {
+function titleOf(key: string, integrations: Integrations, packageNames: Record<string, string> = {}): string {
   const kind = kindOf(key);
+  if (kind === "package") {
+    const slug = key.slice("package:".length);
+    return packageNames[slug] || humanize(slug);
+  }
   if (kind !== "integration") return SECTION_TITLE[kind];
   return integrations[key.slice("integration:".length)]?.name ?? "an integration";
 }
 
-function compareKeys(a: string, b: string, integrations: Integrations): number {
+function compareKeys(a: string, b: string, integrations: Integrations, packageNames?: Record<string, string>): number {
   const [ka, kb] = [ORDER.indexOf(kindOf(a)), ORDER.indexOf(kindOf(b))];
   if (ka !== kb) return ka - kb;
-  return titleOf(a, integrations).localeCompare(titleOf(b, integrations));
+  return titleOf(a, integrations, packageNames).localeCompare(titleOf(b, integrations, packageNames));
 }
 
 function matchesFilters<T>(
@@ -195,6 +215,7 @@ export function organize<T>(
       kind: adapter.groups ? "group" : kindOf(key),
       title: titleFor(key, adapter, integrations),
       ...(key.startsWith("integration:") ? { integrationId: key.slice("integration:".length) } : {}),
+      ...(key.startsWith("package:") ? { packageSlug: key.slice("package:".length) } : {}),
       items: sorted,
       count: sorted.length,
       on: sorted.filter((i) => adapter.enabled(i)).length,

@@ -24,6 +24,10 @@ export interface SectionsOptions<T> {
   /** Admin only: the From a removed integration heading gets a "Delete all of these" button (`org-delete-removed`);
    * organizedListView.ts's `removedDelete` option wires it. */
   removedAction?: boolean;
+  /** Package sections the person has opened (their keys); every other package section is drawn closed. */
+  openSections?: ReadonlySet<string>;
+  /** Draw every package section open: while searching or filtering, so matches are not hidden inside a closed one. */
+  expandAll?: boolean;
   /** One card, as HTML. Off items should carry the `off` class so they dim. */
   renderItem: (item: T, state: { linked: boolean }) => string;
 }
@@ -39,6 +43,16 @@ export function sectionsHtml<T>(sections: Section<T>[], options: SectionsOptions
           options.renderItem(item, { linked: options.linkedId != null && options.id?.(item) === options.linkedId }),
         )
         .join("");
+      const heading = `<span class="org-name">${esc(section.title)}</span><span class="org-counts">${esc(countsText(section, options.noun, { onOff: options.onOff }))}</span>`;
+      if (section.kind === "package") {
+        // A package is a bundle that is rarely touched: one closed line until opened (a linked item, a search or a filter opens it).
+        const linkedIn = options.linkedId != null && section.items.some((item) => options.id?.(item) === options.linkedId);
+        const open = options.expandAll || linkedIn || options.openSections?.has(section.key);
+        return `<details class="org-section org-package" data-section="${esc(section.key)}"${open ? " open" : ""}>
+        <summary class="org-title"><span class="org-chevron" aria-hidden="true"></span>${heading}</summary>
+        <div class="org-items">${cards}</div>
+      </details>`;
+      }
       return `<section class="org-section" data-section="${esc(section.key)}">
         <h4 class="org-title">${mark}<span class="org-name">${esc(section.title)}</span><span class="org-counts">${esc(countsText(section, options.noun, { onOff: options.onOff }))}</span>${section.kind === "removed" && options.removedAction ? `<button type="button" class="org-btn danger org-delete-removed">Delete all of these</button>` : ""}</h4>
         <div class="org-items">${cards}</div>

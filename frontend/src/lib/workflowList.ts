@@ -14,6 +14,8 @@ export interface WorkflowRow {
   sourceRecipe?: string | null;
   sourceIntegrationId?: string | null;
   sourceBlueprint?: string | null;
+  /** The package it belongs to (its slug), if any. */
+  sourcePackage?: string | null;
   /** An integration's workflow whose steps were changed in this workspace since it was installed. */
   editedSinceInstall?: boolean;
   /** When its newest run started, and how that run went (running | success | partial | failed | cancelled); null: never run. */
@@ -92,14 +94,16 @@ export function triggerSummary(wf: WorkflowRow, names: NameLookup): string {
 
 /** The adapter for the shared list kit. `attention` is the server's flag (see attentionReason); the page passes
  * `statusOptions({ attention: true })` to the filter bar. */
-export function workflowAdapter(names: NameLookup): ListAdapter<WorkflowRow> {
+export function workflowAdapter(names: NameLookup, packageNames: Record<string, string> = {}): ListAdapter<WorkflowRow> {
   return {
+    packageNames,
     id: (wf) => wf.id,
     name: (wf) => wf.name,
     search: (wf) => [wf.slug ?? "", triggerSummary(wf, names)],
     source: (wf) => ({
       integrationId: wf.sourceIntegrationId ?? null,
       blueprint: wf.sourceBlueprint ?? null,
+      package: wf.sourcePackage ?? null,
       recipe: wf.sourceRecipe ?? null,
     }),
     enabled: (wf) => wf.enabled,

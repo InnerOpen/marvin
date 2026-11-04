@@ -5,6 +5,7 @@ import { getAuthToken } from "@/lib/api/client";
 import FilterBar from "@/components/FilterBar.astro";
 import OrganizedSections from "@/components/OrganizedSections.astro";
 import { listIntegrations, listProviders } from "@/lib/api/integrations";
+import { listPackages } from "@/lib/api/packages";
 import { getCurrentWorkspace, listWorkspaces } from "@/lib/api/workspaces";
 import { canManageWorkspace } from "@/lib/workspaceRole";
 import { fromOptions, type Integrations, statusOptions } from "@/lib/organizedList";
@@ -18,6 +19,7 @@ let workspace: any = null;
 let automations: any[] = [];
 let options: any = { triggers: [], conditionOps: [], actionKinds: [], operations: [] };
 let integrationInfo: Integrations = {};
+let packageNames: Record<string, string> = {};
 let error: string | null = null;
 // "Delete all of these" (From a removed integration) is ADMIN only; the API refuses anyone else.
 let canManage = false;
@@ -40,6 +42,8 @@ try {
       listIntegrations(authToken).catch((e) => (console.error("[workflows] integrations:", e), null)),
       listProviders(authToken).catch(() => []),
     ]);
+    // Package sections are titled with the package's name. Listing packages is for admins; anyone else gets the slug, humanised.
+    packageNames = Object.fromEntries(((await listPackages(authToken).catch(() => [])) as { slug: string; name: string }[]).map((p) => [p.slug, p.name]));
     const byProvider = new Map((providers ?? []).map((p: any) => [p.slug, p]));
     integrationInfo = integrations
       ? Object.fromEntries(
@@ -61,8 +65,9 @@ try {
 const optionsJson = JSON.stringify(options).replace(/</g, "\\u003c");
 const listJson = JSON.stringify(automations).replace(/</g, "\\u003c");
 const integrationNamesJson = JSON.stringify(integrationInfo).replace(/</g, "\\u003c");
+const packageNamesJson = JSON.stringify(packageNames).replace(/</g, "\\u003c");
 // The filter bar's choices (the page script reads the same selects back): From only offers the sections that exist.
-const fromChoices = fromOptions(automations, workflowAdapter({ webhookName: (r) => r ?? "", automationName: (r) => r ?? "" }), integrationInfo);
+const fromChoices = fromOptions(automations, workflowAdapter({ webhookName: (r) => r ?? "", automationName: (r) => r ?? "" }, packageNames), integrationInfo);
 const aiActionsAvailable = (options.operations ?? []).length > 0;
 ---
 
@@ -286,6 +291,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   <script type="application/json" id="wf-list-data" is:inline set:html={listJson}></script>
   <script type="application/json" id="wf-can-manage" is:inline set:html={JSON.stringify(canManage)}></script>
   <script type="application/json" id="wf-integration-names" is:inline set:html={integrationNamesJson}></script>
+  <script type="application/json" id="wf-package-names" is:inline set:html={packageNamesJson}></script>
   <RecipeDialog />
  </div>
 </AppLayout>
@@ -327,6 +333,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const OPTIONS = read("wf-options-data") || { triggers: [], conditionOps: [], actionKinds: [], operations: [] };
   let workflows: any[] = read("wf-list-data") || [];
   const INTEGRATIONS: Record<string, { name: string; slug?: string; icon?: string; hasLogo?: boolean }> = read("wf-integration-names") || {};
+  const PACKAGE_NAMES: Record<string, string> = read("wf-package-names") || {};
 
   const $ = (id: string) => document.getElementById(id)!;
   const esc = (s: unknown) =>
@@ -2769,7 +2776,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       starts: document.getElementById("wf-f-starts") as HTMLSelectElement | null,
     },
     items: () => workflows,
-    adapter: workflowAdapter(NAMES),
+    adapter: workflowAdapter(NAMES, PACKAGE_NAMES),
     integrations: INTEGRATIONS,
     noun: "workflow",
     storageKey: "marvin.automation.workflows.filters",

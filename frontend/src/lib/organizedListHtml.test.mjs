@@ -16,6 +16,31 @@ const section = (extra = {}) => ({
   ...extra,
 });
 
+describe("package sections", () => {
+  const pkg = (extra = {}) => section({ key: "package:story-kit", kind: "package", title: "Storyworld", packageSlug: "story-kit", count: 11, on: 11, ...extra });
+  const render = (extra = {}, sec = pkg()) => sectionsHtml([sec], { noun: "workflow", integrations: {}, id: (i) => i.id, renderItem: (i) => `<i data-id="${i.id}"></i>`, ...extra });
+
+  test("a package is one closed line with its name and counts, the cards inside", () => {
+    const html = render();
+    assert.match(html, /<details class="org-section org-package" data-section="package:story-kit">/);
+    assert.match(html, /<summary class="org-title">.*Storyworld.*11 workflows, 11 on/s);
+    assert.match(html, /<div class="org-items"><i data-id="a"><\/i><\/div>/);
+    assert.doesNotMatch(html, /<details[^>]* open/);
+  });
+
+  test("it opens when the person opened it, when searching or filtering, or when it holds the linked item", () => {
+    assert.match(render({ openSections: new Set(["package:story-kit"]) }), /<details[^>]* open>/);
+    assert.match(render({ expandAll: true }), /<details[^>]* open>/);
+    assert.match(render({ linkedId: "a" }), /<details[^>]* open>/);
+    assert.doesNotMatch(render({ linkedId: "zzz", openSections: new Set(["package:other"]) }), /<details[^>]* open/);
+  });
+
+  test("other sections are drawn as before, and a name with markup is escaped", () => {
+    assert.match(render({}, section()), /<section class="org-section" data-section="yours">/);
+    assert.match(render({}, pkg({ title: "<b>x</b>" })), /&lt;b&gt;x&lt;\/b&gt;/);
+  });
+});
+
 describe("sections", () => {
   test("a heading with the title and counts, then each item through the page's renderer", () => {
     const html = sectionsHtml([section()], {
