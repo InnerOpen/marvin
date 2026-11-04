@@ -181,11 +181,17 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
   .flag { color: var(--color-error, #dc2626); font-size: 12px; }
   .table-wrap { overflow-x: auto; }
   @media (max-width: 720px) {
+    .workers { gap: 16px; }
+    .workers li { row-gap: 4px; }
+    .workers li > .muted { flex-basis: 100%; }
     .stack thead { display: none; }
     .stack, .stack tbody, .stack tr, .stack td { display: block; width: auto; }
-    .stack tr { padding: 10px 0; border-bottom: 1px solid var(--line); }
-    .stack td { border-bottom: 0; padding: 3px 0; overflow-wrap: anywhere; }
-    .stack td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+    .stack tr { padding: 14px 0; border-bottom: 1px solid var(--line); }
+    .stack tbody tr:first-child { padding-top: 4px; }
+    .stack tbody tr:last-child { padding-bottom: 0; border-bottom: 0; }
+    .stack td { border-bottom: 0; padding: 6px 0; overflow-wrap: anywhere; }
+    .stack td ul { margin: 0; }
+    .stack td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 3px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
   }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
