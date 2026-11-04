@@ -299,9 +299,19 @@ const isHtml = asset?.mimeType === "text/html";
     border: none;
   }
 
-  /* A page is made for a white sheet, so it is not shown on the dark theme. */
+  /* A page is made for a white sheet, so it is shown as one: a letter-width sheet (8.5in, narrower on a phone) centred on the panel, not stretched to the screen. */
+  .html-viewer {
+    padding: 1.5rem 1rem;
+  }
+
   .html-viewer iframe {
+    display: block;
+    width: min(100%, 8.5in);
+    height: 85vh;
+    margin: 0 auto;
     background: #fff;
+    border: 1px solid var(--line);
+    box-shadow: 0 2px 12px rgb(0 0 0 / 0.18);
   }
 
   .file-info {
