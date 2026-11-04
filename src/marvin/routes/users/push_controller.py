@@ -203,7 +203,13 @@ def decide_workflow_from_notification(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You're no longer a member of that workspace.")
     try:
         row = approvals.decide(
-            session, group_id, claim.approval.id, decision, user_id=user.id, role=resolve_authorizer_role(session, group_id, user.id)
+            session,
+            group_id,
+            claim.approval.id,
+            decision,
+            user_id=user.id,
+            role=resolve_authorizer_role(session, group_id, user.id),
+            background=True,
         )
     except approvals.ApprovalError as e:
         raise HTTPException(status_code=e.status, detail=str(e)) from e

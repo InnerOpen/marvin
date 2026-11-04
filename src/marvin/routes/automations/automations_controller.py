@@ -419,7 +419,15 @@ class AutomationsController(BaseUserController):
         role = _rank(self.user, self.group_id)
         try:
             row = approvals.decide(
-                self.session, self.group_id, approval_id, data.decision, user_id=self.user.id, role=role, note=data.note, choice=data.choice
+                self.session,
+                self.group_id,
+                approval_id,
+                data.decision,
+                user_id=self.user.id,
+                role=role,
+                note=data.note,
+                choice=data.choice,
+                background=True,
             )
         except approvals.ApprovalError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e

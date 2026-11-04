@@ -119,6 +119,59 @@ def test_approved_goes_on_from_the_next_step_in_a_new_run(ws):  # noqa: F811
     assert (waiting.status, waiting.decided_by, waiting.resumed_execution_id) == ("approved", ws.uid, resumed.id)
 
 
+class _Threads:
+    """Stands in for threading.Thread: remembers what was started instead of running it, so a test decides when it runs."""
+
+    started: list = []
+
+    def __init__(self, target, args=(), **_):
+        self.target, self.args = target, args
+
+    def start(self):
+        _Threads.started.append(self)
+
+
+def test_a_background_decision_is_recorded_at_once_and_the_run_goes_on_behind_it(ws, monkeypatch):  # noqa: F811
+    import contextlib
+
+    workflow = _install(ws)
+    article = _published(ws)
+    _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry")
+    waiting = _waiting(ws)
+    _Threads.started = []
+    monkeypatch.setattr(approvals.threading, "Thread", _Threads)
+
+    row = approvals.decide(ws.session, ws.gid, waiting.id, "approve", user_id=ws.uid, role=ROLE_EDITOR, background=True)
+
+    assert row.status == "approved"  # the person's answer is recorded and returned...
+    assert "featured" not in (_reload(ws, article).metadata_json or {})  # ...but the steps after it have not run yet
+    assert len(_runs(ws, workflow)) == 1
+    (thread,) = _Threads.started
+    assert thread.target is approvals._resume_job and thread.args == (waiting.id, ws.uid)
+
+    monkeypatch.setattr("marvin.db.db_setup.session_context", lambda: contextlib.nullcontext(ws.session))
+    thread.target(*thread.args)  # what the thread does
+
+    assert _reload(ws, article).metadata_json["featured"] is True
+    parked, resumed = _runs(ws, workflow)
+    assert (parked.status, resumed.status, resumed.retry_of_id) == ("resumed", "success", parked.id)
+
+
+def test_a_background_decision_is_still_decided_only_once(ws, monkeypatch):  # noqa: F811
+    _install(ws)
+    article = _published(ws)
+    _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry")
+    waiting = _waiting(ws)
+    _Threads.started = []
+    monkeypatch.setattr(approvals.threading, "Thread", _Threads)
+
+    approvals.decide(ws.session, ws.gid, waiting.id, "approve", user_id=ws.uid, role=ROLE_EDITOR, background=True)
+    with pytest.raises(approvals.ApprovalError):
+        approvals.decide(ws.session, ws.gid, waiting.id, "deny", user_id=ws.uid, role=ROLE_EDITOR, background=True)
+
+    assert len(_Threads.started) == 1  # one decider, one resume
+
+
 def test_denied_takes_the_other_branch(ws):  # noqa: F811
     _install(ws)
     article = _published(ws)

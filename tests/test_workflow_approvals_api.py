@@ -91,9 +91,37 @@ def _sign_in_as_real_editor(ws):  # noqa: F811
     return uid
 
 
-def test_an_editor_sees_and_decides_a_waiting_run(ws):  # noqa: F811
+def _resume_inline(ws, monkeypatch):  # noqa: F811
+    """A decision's run goes on in a thread of its own, on a session of its own; here that thread runs when it starts (on a
+    fresh session, as a real one would have), so the test can look at what the run did."""
+    import contextlib
+
+    from marvin.db import db_setup
+    from marvin.services.automation import approvals
+
+    @contextlib.contextmanager
+    def fresh_session():
+        session = db_setup.SessionLocal()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    class _Inline:
+        def __init__(self, target, args=(), **_):
+            self.target, self.args = target, args
+
+        def start(self):
+            self.target(*self.args)
+
+    monkeypatch.setattr(approvals.threading, "Thread", _Inline)
+    monkeypatch.setattr("marvin.db.db_setup.session_context", fresh_session)
+
+
+def test_an_editor_sees_and_decides_a_waiting_run(ws, monkeypatch):  # noqa: F811
     from marvin.db.models.platform.entries import Entries
 
+    _resume_inline(ws, monkeypatch)
     entry = _waiting_run(ws)
     uid = _sign_in_as_real_editor(ws)
     client = TestClient(app)
