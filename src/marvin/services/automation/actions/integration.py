@@ -437,15 +437,22 @@ def _source_picture(session, group_id, action: dict, context: dict, keeps_images
     return src
 
 
+def _reference_list(raw) -> list:
+    """`references` as a list of asset refs: a list, or text of refs separated by commas (what a field like
+    `${entry.data.references}` gives). Blank ones are dropped, so a beat with one character in frame simply lists one master."""
+    items = raw if isinstance(raw, list) else str(raw).split(",")
+    return [item for item in items if str(item).strip()]
+
+
 def _reference_pictures(session, group_id, action: dict, context: dict, keeps_images: bool) -> list:
     """The extra pictures an image.* action goes by (`references`: asset refs, each as `source` is), so a still keeps the look
     of the cast's masters. Up to MAX_REFERENCES; none for an action that makes no pictures."""
-    raw = action.get("references")
+    raw = interpolate(action.get("references"), context)
     if not raw:
         return []
     if not keeps_images:
         raise AutomationActionError("references goes with an action that makes pictures (an image.* capability, e.g. image.edit)")
-    refs = raw if isinstance(raw, list) else [raw]
+    refs = _reference_list(raw)
     if len(refs) > MAX_REFERENCES:
         raise AutomationActionError(f"references takes up to {MAX_REFERENCES} pictures; this lists {len(refs)}")
     from marvin.services.ai.media import transforms
