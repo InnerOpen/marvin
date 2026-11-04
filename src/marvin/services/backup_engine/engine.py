@@ -40,9 +40,11 @@ import sqlite3
 import subprocess
 import tarfile
 import tempfile
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -102,6 +104,15 @@ META_SHA256 = "sha256"  # sha256 of the stored object (the .gz)
 META_DB_SHA256 = "db-sha256"  # sha256 of the uncompressed database
 
 CHUNK = 1024 * 1024
+
+#: The storage service saying "not now": an asset is tried a few times before it counts as a failure. botocore's own retry covers named
+#: throttling codes and 5xx, but not a bare HTTP 429: a HEAD has no body, so its code is just "429", and Cloudflare R2 answers 429 under
+#: load. Without this, one such answer in the ~1,100 per-asset checks of an hourly run made the whole run "partial".
+TRANSIENT_CODES = frozenset(
+    {"429", "500", "502", "503", "504", "SlowDown", "Throttling", "ThrottlingException", "RequestLimitExceeded", "RequestTimeout"}
+)
+ASSET_ATTEMPTS = 4
+ASSET_RETRY_SECONDS = 2.0  # doubled after each failed attempt: 2, 4, 8
 PG_DUMP_TIMEOUT = 1800  # seconds
 
 
@@ -502,18 +513,7 @@ def backup_assets(source: AssetSources, target: BackupTarget, report: Report, dr
         seen.add(key)
         tkey = asset_key(key)
         try:
-            if not asset_needs_copy(source, key, remote.get(tkey)):
-                report.assets_unchanged += 1
-                continue
-            if dry_run:
-                size = source.get_metadata(key).size
-            else:
-                with source.get(key) as fh, staged.open("wb") as out:
-                    shutil.copyfileobj(fh, out, CHUNK)
-                target.put_file(tkey, staged)
-                size = staged.stat().st_size
-            report.assets_uploaded += 1
-            report.assets_uploaded_bytes += size
+            retrying(partial(_mirror_asset, source, key, tkey, remote.get(tkey), target, report, dry_run, staged), what=f"asset {key}")
         except FileNotFoundError:
             # Listed, then deleted before its turn (a run takes minutes; someone deleted an asset meanwhile).
             # Nothing is lost — the asset is gone — so it isn't a failure; the target's copy is kept, as always.
@@ -523,6 +523,43 @@ def backup_assets(source: AssetSources, target: BackupTarget, report: Report, dr
             log.error("asset %s: %s", key, exc)
         finally:
             staged.unlink(missing_ok=True)
+
+
+def _mirror_asset(
+    source: StorageProvider, key: str, tkey: str, remote: TargetObject | None, target: BackupTarget, report: Report, dry_run: bool, staged: Path
+) -> None:
+    """Copy one asset if the target lacks it or has a different one. Counts only once it has succeeded, so a retry never counts twice."""
+    if not asset_needs_copy(source, key, remote):
+        report.assets_unchanged += 1
+        return
+    if dry_run:
+        size = source.get_metadata(key).size
+    else:
+        with source.get(key) as fh, staged.open("wb") as out:
+            shutil.copyfileobj(fh, out, CHUNK)
+        target.put_file(tkey, staged)
+        size = staged.stat().st_size
+    report.assets_uploaded += 1
+    report.assets_uploaded_bytes += size
+
+
+def is_transient(exc: BaseException) -> bool:
+    """The service said "not now" (throttled, or briefly unavailable), as opposed to "no" (missing, forbidden, bad key)."""
+    return explain(exc).code in TRANSIENT_CODES
+
+
+def retrying(operation, *, what: str, attempts: int | None = None, delay: float | None = None):
+    """Run `operation`, trying again with a growing pause when it fails in a way that is worth another go. Anything else raises at once."""
+    attempts, delay = attempts or ASSET_ATTEMPTS, ASSET_RETRY_SECONDS if delay is None else delay
+    for attempt in range(1, attempts + 1):
+        try:
+            return operation()
+        except Exception as exc:
+            if attempt == attempts or not is_transient(exc):
+                raise
+            pause = delay * 2 ** (attempt - 1)
+            log.warning("%s: %s, trying again in %.0f s (%d of %d)", what, explain(exc).code, pause, attempt, attempts)
+            time.sleep(pause)
 
 
 BUNDLES_DIR = "backups"  # under DATA_DIR, where the Backups feature writes workspace bundles
