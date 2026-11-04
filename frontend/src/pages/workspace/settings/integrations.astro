@@ -615,6 +615,7 @@ function statusMeta(status: string): { text: string; cls: string } {
         <h3 id="result-title">Result</h3>
         <button type="button" class="icon-btn" id="result-close" aria-label="Close">×</button>
       </div>
+      <div id="result-media" class="result-media" hidden></div>
       <pre id="result-body" class="result-body"></pre>
       <div class="panel-actions">
         <button type="button" class="button secondary" id="result-copy">Copy</button>
@@ -657,6 +658,9 @@ function statusMeta(status: string): { text: string; cls: string } {
     setErrorOverrides,
   } from "@/lib/api/integrations";
   import { overridesFrom } from "@/lib/integrationPolicy";
+  import { assetSlug, mediaFile, mediaIn, withoutMediaBytes } from "@/lib/integrationResultMedia";
+  import type { ResultMedia } from "@/lib/integrationResultMedia";
+  import { createSdkClient } from "@/lib/sdk";
   import { optionsHint } from "@/lib/integrationOptions";
   import { optionPicker } from "@/lib/integrationOptionPicker";
   import { applyBlueprints, updateBlueprint } from "@/lib/api/blueprints";
@@ -956,11 +960,58 @@ function statusMeta(status: string): { text: string; cls: string } {
     const empty = result == null || (typeof result === "object" && Object.keys(result as object).length === 0);
     if (empty) return false;
     (document.getElementById("result-title") as HTMLElement).textContent = title;
-    resultBody.textContent = JSON.stringify(result, null, 2);
+    showMedia(title, mediaIn(result));
+    resultBody.textContent = JSON.stringify(withoutMediaBytes(result), null, 2);
     resultOverlay.hidden = false;
     return true;
   }
-  const closeResult = () => (resultOverlay.hidden = true);
+
+  // Sound and pictures come back as base64: play or show them, and let a keeper be saved as an asset
+  // (the same upload the Assets page makes), instead of leaving the take in JSON to be pasted somewhere.
+  const resultMedia = document.getElementById("result-media") as HTMLElement;
+  function showMedia(title: string, items: ResultMedia[]) {
+    resultMedia.replaceChildren(...items.map((item, i) => mediaCard(title, item, items.length > 1 ? i + 1 : 0)));
+    resultMedia.hidden = items.length === 0;
+  }
+  function mediaCard(title: string, item: ResultMedia, number: number) {
+    const card = document.createElement("div");
+    card.className = "result-media-item";
+    const src = `data:${item.mime};base64,${item.base64}`;
+    const player = document.createElement(item.kind === "audio" ? "audio" : "img") as HTMLAudioElement | HTMLImageElement;
+    player.src = src;
+    if (player instanceof HTMLAudioElement) player.controls = true;
+    else player.alt = title;
+    const save = document.createElement("button");
+    save.type = "button";
+    save.className = "button secondary";
+    save.textContent = "Save as asset";
+    save.dataset.testid = "save-result-as-asset";
+    save.addEventListener("click", () => saveMedia(save, title, item, number));
+    card.append(player, save);
+    return card;
+  }
+  async function saveMedia(button: HTMLButtonElement, title: string, item: ResultMedia, number: number) {
+    const name = number ? `${title} (${number})` : title;
+    const slug = assetSlug(name, crypto.randomUUID().slice(0, 8));
+    button.disabled = true;
+    try {
+      const asset = await createSdkClient().assets.upload(mediaFile(item, slug), {
+        slug,
+        name,
+        description: `Saved from running “${title}” by hand.`,
+        metadata: item.details,
+      });
+      button.textContent = "Saved";
+      toast(`Saved as “${asset.name}”.`, true);
+    } catch (e) {
+      button.disabled = false;
+      toast(`Couldn't save it: ${e instanceof Error ? e.message : "upload failed"}`, false);
+    }
+  }
+  const closeResult = () => {
+    resultOverlay.hidden = true;
+    resultMedia.querySelectorAll("audio").forEach((a) => a.pause());
+  };
   document.getElementById("result-close")?.addEventListener("click", closeResult);
   document.getElementById("result-done")?.addEventListener("click", closeResult);
   resultOverlay?.addEventListener("click", (e) => { if (e.target === resultOverlay) closeResult(); });
@@ -1182,6 +1233,10 @@ function statusMeta(status: string): { text: string; cls: string } {
   .needs-params { display: flex; flex-wrap: wrap; gap: 6px 14px; grid-column: 2 / -2; grid-row: 2; }
   .needs-params label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
   .needs-params .input.tiny { padding: 3px 6px; font-size: 12px; min-width: 12ch; max-width: 24ch; }
+  .result-media { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+  .panel :global(.result-media-item) { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .panel :global(.result-media-item img) { max-width: 100%; max-height: 40vh; border-radius: var(--radius); }
+  .panel :global(.result-media-item audio) { flex: 1; min-width: 200px; }
   .result-body { max-height: 50vh; overflow: auto; background: var(--panel-2, var(--panel)); padding: 12px; border-radius: var(--radius); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
 
   .page-header {
