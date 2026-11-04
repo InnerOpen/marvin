@@ -286,6 +286,71 @@ def test_an_asset_deleted_after_the_listing_is_skipped_not_a_failure(settings, t
     assert (report.assets_uploaded, report.assets_unchanged) == (1, 0)
 
 
+def _storage_error(code: str, status: int):
+    from botocore.exceptions import ClientError
+
+    return ClientError({"Error": {"Code": code, "Message": ""}, "ResponseMetadata": {"HTTPStatusCode": status}}, "HeadObject")
+
+
+def test_a_throttled_asset_is_tried_again_and_is_not_a_failure(settings, target, source, data_dir, monkeypatch):
+    """R2 answers a bare 429 to a HEAD under load, and botocore does not retry that: one such answer must not make the run partial."""
+    monkeypatch.setattr(eng.time, "sleep", lambda _s: None)
+    real, calls = source.get_metadata, {"n": 0}
+    first = next(iter(source.iter_keys("")))
+
+    def flaky(key):
+        if key == first and calls["n"] < 2:
+            calls["n"] += 1
+            raise _storage_error("429", 429)
+        return real(key)
+
+    monkeypatch.setattr(source, "get_metadata", flaky)
+    eng.run_backup(settings, target, source, now=NOW)
+    report = eng.run_backup(settings, target, source, now=NOW + timedelta(hours=1))  # second run: every asset is already there
+
+    assert calls["n"] == 2 and report.failures == []
+    assert (report.assets_uploaded, report.assets_unchanged) == (0, 2)
+
+
+def test_an_asset_that_stays_throttled_is_a_failure_after_the_attempts(settings, target, source, monkeypatch):
+    monkeypatch.setattr(eng.time, "sleep", lambda _s: None)
+    eng.run_backup(settings, target, source, now=NOW)
+    attempts = {"n": 0}
+    first = next(iter(source.iter_keys("")))
+    real = source.get_metadata
+
+    def always(key):
+        if key == first:
+            attempts["n"] += 1
+            raise _storage_error("429", 429)
+        return real(key)
+
+    monkeypatch.setattr(source, "get_metadata", always)
+    report = eng.run_backup(settings, target, source, now=NOW + timedelta(hours=1))
+
+    assert attempts["n"] == eng.ASSET_ATTEMPTS
+    assert [f.split(": ")[-1] for f in report.failures] == ["429"]
+
+
+def test_an_asset_error_that_is_a_no_is_not_retried(settings, target, source, monkeypatch):
+    monkeypatch.setattr(eng.time, "sleep", lambda _s: None)
+    eng.run_backup(settings, target, source, now=NOW)
+    attempts = {"n": 0}
+    first = next(iter(source.iter_keys("")))
+    real = source.get_metadata
+
+    def forbidden(key):
+        if key == first:
+            attempts["n"] += 1
+            raise _storage_error("AccessDenied", 403)
+        return real(key)
+
+    monkeypatch.setattr(source, "get_metadata", forbidden)
+    report = eng.run_backup(settings, target, source, now=NOW + timedelta(hours=1))
+
+    assert attempts["n"] == 1 and len(report.failures) == 1
+
+
 def test_dry_run_writes_and_deletes_nothing(settings, target, source):
     old = keys.db_key(NOW - timedelta(days=400))
     src = target.root.parent / "old"
