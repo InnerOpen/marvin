@@ -20,6 +20,7 @@ import { navTitle, navTrail, navUnder } from "@/lib/navTree";
 import { createSdkClient } from "@/lib/sdk";
 import { listAssetTypes } from "@/lib/api/assets";
 import { listCollections } from "@/lib/api/collections";
+import { groupByPackage, nameWithin } from "@/lib/collectionGroups";
 import { listResourceTypes } from "@/lib/api/resources";
 import { getSummary as getAudienceSummary } from "@/lib/api/audience";
 import { getSummary as getSocialInboxSummary } from "@/lib/api/socialInbox";
@@ -154,7 +155,7 @@ let canAuthor = false;
 // Published and Trash after them; a person's own collections fold under Content, like labels.
 let folders: { id: string; name: string; slug: string; icon: string | null; count: number }[] = [];
 let collections: {
-  id: string; name: string; icon: string | null; integrationId: string | null; integrationName: string | null;
+  id: string; name: string; icon: string | null; integrationId: string | null; integrationName: string | null; packageSlug: string | null;
   /** The installing integration's provider mark: its logo when it ships one, else its emoji (lib/integrationLogo.ts). */
   provider: string | null; providerIcon: string | null; providerHasLogo: boolean;
 }[] = [];
@@ -183,7 +184,7 @@ if (authToken) {
       .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
       .map((c: any) => ({
         id: c.id, name: c.name, slug: c.slug, icon: c.icon ?? null, system: Boolean(c.isSystem), inSidebar: c.inSidebar !== false,
-        count: Number(c.entryCount ?? 0), integrationId: c.sourceIntegrationId ?? null, integrationName: c.sourceIntegrationName ?? null,
+        count: Number(c.entryCount ?? 0), integrationId: c.sourceIntegrationId ?? null, integrationName: c.sourceIntegrationName ?? null, packageSlug: c.sourcePackage ?? null,
         provider: c.sourceIntegrationProvider ?? null, providerIcon: c.sourceIntegrationIcon ?? null, providerHasLogo: Boolean(c.sourceIntegrationHasLogo),
       }));
     folders = all.filter((c) => c.system);
@@ -206,7 +207,8 @@ const hasFolder = (slug: string) => folders.some((c) => c.slug === slug);
 // Collections an integration installed fold under that integration ("n8n › In flight, Failed"); a person's own stay
 // at the top. Inside its group a collection drops the "n8n: " its name repeats. A collection whose integration is
 // gone has no integration id any more and is listed with the person's own.
-const ownCollections = collections.filter((c) => !c.integrationId);
+// What a package installed gets a section of its own, like Audience ("Screenplay Studio": Cast, Script...), unless it is alone.
+const { loose: ownCollections, groups: packageGroups } = groupByPackage(collections.filter((c) => !c.integrationId));
 const integrationGroups = [
   ...collections
     .filter((c) => c.integrationId)
@@ -414,6 +416,16 @@ function isActive(itemPath: string, currentPath: string): boolean {
             </details>
           </nav>
         </div>
+        {packageGroups.map((g) => (
+          <div class="nav-group">
+            <div class="nav-group-label">{g.name}</div>
+            <nav class="nav" aria-label={g.name}>
+              {g.items.map((c) => (
+                <a href={`/workspace/collections/${c.id}`} aria-current={path === `/workspace/collections/${c.id}` ? "page" : undefined}><span aria-hidden="true">{c.icon || "📁"}</span><span>{nameWithin(c.name, g.name)}</span></a>
+              ))}
+            </nav>
+          </div>
+        ))}
         {showAudience && (
           <div class="nav-group">
             <div class="nav-group-label">Audience</div>
