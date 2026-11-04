@@ -987,6 +987,18 @@ AUDIO_EXTENSIONS = {
 MAX_AUDIO_BYTES = 25 * 1024 * 1024
 """A spoken line is small; a provider's answer past this is not one (a sound or a short track is the most there is)."""
 SPEECH_FACTS = ("duration_seconds", "characters", "voice_id", "voice", "model")
+MAX_KEPT_WORDS = 5000
+"""Word timings kept on a speech asset (`words`: [{text, start, end}], when the provider returns them): a recording's timings belong to
+that recording, so a workflow that picks one of several takes gets the timings of the take it picked. More than this is left out."""
+
+
+def speech_facts(result: dict) -> dict:
+    """What a speech action's result says about the audio, to keep on the asset: its facts, and its word timings when there are some."""
+    facts = {k: result[k] for k in SPEECH_FACTS if result.get(k) not in (None, "")}
+    words = result.get("words")
+    if isinstance(words, list) and 0 < len(words) <= MAX_KEPT_WORDS and all(isinstance(w, dict) for w in words):
+        facts["words"] = words
+    return facts
 
 
 AUDIO_IN_CAPABILITIES = frozenset({"speech.transcribe"})
@@ -1041,7 +1053,7 @@ class _SpeechKeeper(_GeneratedKeeper):
         text = str(args.get("text") or args.get("prompt") or "")
         if not str(args.get("name") or "").strip() and text.strip():
             self.name = " ".join(text.split())[:SLUG_SOURCE_CHARS]  # a line is named for what it says, not for its workflow
-        self.facts = {k: result[k] for k in SPEECH_FACTS if result.get(k) not in (None, "")}
+        self.facts = speech_facts(result)
         self.lineage = {**self.lineage, **({"text": text[:PROMPT_KEPT_CHARS]} if text else {}), **self.facts}
         self.mime = str(result.get("mime") or "audio/mpeg").split(";")[0].strip().lower()
 
