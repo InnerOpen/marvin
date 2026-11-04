@@ -84,6 +84,8 @@ export interface BlueprintApplyResult {
   needsConfirmation?: boolean;
   detail: string;
   name: string;
+  /** False when an entry type with this slug exists but lacks fields the blueprint defines (`detail` says which). */
+  fits?: boolean;
 }
 
 export interface BlueprintFilters {
