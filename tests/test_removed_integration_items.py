@@ -77,6 +77,21 @@ def test_admin_deletes_only_the_removed_items_of_that_kind(kind, workspace, db_s
     assert _names(db_session, model, gid) == {"kept-live", "kept-mine"}
 
 
+@pytest.mark.parametrize("kind", ["workflows", "incoming-webhooks", "scheduled-tasks"])
+def test_what_a_package_installed_is_never_taken_for_a_removed_integrations_leftovers(kind, workspace, db_session):
+    # A package installs from blueprints with no integration behind them: the same two columns a removed integration leaves.
+    gid = workspace.gid
+    _, model = _make(kind, db_session, gid, "gone", source_blueprint="acme-flow")
+    _make(kind, db_session, gid, "in-a-package", source_blueprint="story-flow", source_package="story-kit")
+    db_session.commit()
+
+    res = gates._sign_in(workspace, AD).delete(f"{URL}/{kind}")
+
+    assert res.json()["names"] == ["gone"]
+    db_session.expire_all()
+    assert _names(db_session, model, gid) == {"in-a-package"}
+
+
 def test_it_only_touches_the_kind_asked_for(workspace, db_session):
     gid = workspace.gid
     for kind in KINDS:

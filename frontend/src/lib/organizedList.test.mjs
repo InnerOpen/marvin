@@ -55,6 +55,31 @@ describe("sections", () => {
     ]);
   });
 
+  test("a packaged item has its own section, ahead of the library and integrations, and is not a removed integration's", () => {
+    const items = [
+      { id: "own", name: "Own" },
+      { id: "lib", name: "Lib", source: { recipe: "r" } },
+      { id: "kit", name: "Kit one", source: { package: "story-kit", blueprint: "kit-one" } },
+      { id: "int", name: "Int", source: { integrationId: "i1" } },
+    ];
+    const keys = organize(items, adapter, { i1: { name: "Acme" } }).sections.map((s) => s.key);
+    assert.deepEqual(keys, ["yours", "package:story-kit", "library", "integration:i1"]);
+    assert.equal(sectionKey({ package: "story-kit", blueprint: "kit-one" }, {}), "package:story-kit");
+    assert.deepEqual(removedItems(items, adapter, { i1: { name: "Acme" } }), []);
+  });
+
+  test("a package section is titled with its name, else its slug made readable, and says which package it is", () => {
+    const items = [{ id: "a", name: "A", source: { package: "story-kit" } }, { id: "b", name: "B", source: { package: "other-world" } }];
+    const named = organize(items, { ...adapter, packageNames: { "story-kit": "Storyworld" } }, {}).sections;
+    assert.deepEqual(named.map((s) => [s.title, s.packageSlug, s.kind]), [["Other world", "other-world", "package"], ["Storyworld", "story-kit", "package"]]);
+  });
+
+  test("the From filter offers each package that exists", () => {
+    const items = [{ id: "a", name: "A", source: { package: "story-kit" } }];
+    const choices = fromOptions(items, { ...adapter, packageNames: { "story-kit": "Storyworld" } }, {});
+    assert.deepEqual(choices, [{ value: "package:story-kit", label: "Storyworld" }]);
+  });
+
   test("within a section: enabled first, then by name", () => {
     const [yours, , buttondown] = organize(items, adapter, integrations).sections;
     assert.deepEqual(ids(yours), ["w1", "w2"]);

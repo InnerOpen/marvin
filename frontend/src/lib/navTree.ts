@@ -164,6 +164,7 @@ const NODES: NavNode[] = [
   { id: "settings.social", label: "Social", href: "/workspace/settings/social", parent: "settings", title: "Social settings" },
   { id: "settings.integrations", label: "Integrations", href: "/workspace/settings/integrations", parent: "settings" },
   { id: "settings.workers", label: "Workers", href: "/workspace/settings/workers", parent: "settings" },
+  { id: "settings.packages", label: "Packages", href: "/workspace/settings/packages", parent: "settings" },
   {
     id: "settings.integrations.health",
     label: "Alerts & health",

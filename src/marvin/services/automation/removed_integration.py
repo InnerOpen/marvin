@@ -4,7 +4,9 @@
 ON DELETE SET NULL), so nothing ever points at a missing integration. ``source_blueprint`` survives, and a person's own row has
 neither. So an item of a removed integration is one with a blueprint and no integration. The list kit
 (frontend/src/lib/organizedList.ts ``sectionKey``) groups by the same rule, and this deletes exactly what that section lists:
-the person confirmed those items by name, so nothing is second-guessed here. (A sibling connection of the same provider
+the person confirmed those items by name, so nothing is second-guessed here. A row in a **package** (``source_package``) is not one of them,
+whatever else it carries: a package installs workflows from a blueprint with no integration behind them, and they are listed under
+their package, so this must never reach them. (A sibling connection of the same provider
 staying behind is the usual case — a sandbox replaced by production — not a reason to keep its leftovers.)
 
 Four kinds, each only in the caller's workspace: workflows (with their backing schedule), incoming webhooks, workspace scheduled
@@ -35,9 +37,15 @@ class Outcome:
 
 def delete_removed(session, group_id, kind: str) -> Outcome:
     model = MODELS[kind]
+    packaged = getattr(model, "source_package", None)  # not every kind can be in a package (outgoing webhooks cannot)
     rows = (
         session.query(model)
-        .filter(model.group_id == group_id, model.source_integration_id.is_(None), model.source_blueprint.isnot(None))
+        .filter(
+            model.group_id == group_id,
+            model.source_integration_id.is_(None),
+            model.source_blueprint.isnot(None),
+            *([packaged.is_(None)] if packaged is not None else []),
+        )
         .order_by(model.name)
         .all()
     )

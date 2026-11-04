@@ -113,11 +113,13 @@ describe("the workflow adapter", () => {
     assert.deepEqual(adapter.source(items[1]), {
       integrationId: "b1",
       blueprint: null,
+      package: null,
       recipe: null,
     });
     assert.deepEqual(adapter.source(items[2]), {
       integrationId: null,
       blueprint: null,
+      package: null,
       recipe: "r",
     });
   });
