@@ -97,7 +97,6 @@ const tabs = [
   { id: "integrations", label: "Integrations", icon: "🔌" },
   // Workers has a page of its own, not a section of this one: the tab goes straight there.
   { id: "workers", label: "Workers", icon: "🧰", href: "/workspace/settings/workers" },
-  { id: "packages", label: "Packages", icon: "📦", href: "/workspace/settings/packages" },
   { id: "statistics", label: "Statistics", icon: "📊" },
 ];
 ---
@@ -257,6 +256,10 @@ const tabs = [
             <a href={navHref("automation.library")} class="link-card">
               <strong>{navTitle("automation.library")}</strong>
               <p>Ready-made workflows, explained — what each does and what it needs here</p>
+            </a>
+            <a href={navHref("automation.packages")} class="link-card">
+              <strong>{navTitle("automation.packages")}</strong>
+              <p>Bundles of workflows, entry types and collections: install, build, download and upload them as one file</p>
             </a>
             <a href={navHref("automation.approvals")} class="link-card">
               <strong>{navTitle("automation.approvals")}</strong>
