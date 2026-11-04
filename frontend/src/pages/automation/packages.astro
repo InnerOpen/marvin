@@ -6,15 +6,20 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { listCollections } from "@/lib/api/collections";
 import { listEntryTypes } from "@/lib/api/entryTypes";
+import { getIntegrationFootprint, listIntegrations } from "@/lib/api/integrations";
+import { footprintSections, type FootprintSection } from "@/lib/integrationFootprint";
 import { listPackages, type PackageInfo } from "@/lib/api/packages";
 import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
+const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
 let error: string | null = null;
 let packages: PackageInfo[] = [];
 let workflows: { slug: string; name: string }[] = [];
 let entryTypes: { slug: string; name: string }[] = [];
 let collections: { slug: string; name: string }[] = [];
+// What each integration's blueprints installed here: read-only, so everything that brings structure in is on one page.
+let fromIntegrations: { id: string; name: string; sections: FootprintSection[] }[] = [];
 
 if (!authToken) {
   error = "Authentication required";
@@ -27,11 +32,19 @@ if (!authToken) {
     workflows = (wf as any[]).filter((w) => !w.sourcePackage).map((w) => ({ slug: w.slug, name: w.name }));
     entryTypes = (types as any[]).filter((t) => !t.isSystem).map((t) => ({ slug: t.slug, name: t.name }));
     collections = (cols as any[]).filter((c) => !c.isSystem).map((c) => ({ slug: c.slug, name: c.name }));
+    try {
+      const integrations = await listIntegrations(authToken);
+      const found = await Promise.all(
+        integrations.map(async (i: any) => ({ id: i.id as string, name: (i.name || i.slug) as string, sections: footprintSections(await getIntegrationFootprint(i.id, authToken)) })),
+      );
+      fromIntegrations = found.filter((f) => f.sections.length > 0).sort(byName);
+    } catch {
+      /* integrations are optional here: the block just does not show */
+    }
   } catch (e) {
     error = /403|forbidden/i.test(String((e as Error)?.message)) ? "Packages are for workspace owners and admins." : `Could not load packages: ${(e as Error)?.message ?? e}`;
   }
 }
-const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
 const choices = { workflows: workflows.sort(byName), entryTypes: entryTypes.sort(byName), collections: collections.sort(byName) };
 const dataJson = JSON.stringify({ packages, ...choices }).replace(/</g, "\\u003c");
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -51,7 +64,7 @@ const holds = (p: PackageInfo) =>
   <div class="toolbar">
     <div>
       <h2>Packages</h2>
-      <p class="sub">A package is a bundle of related workflows, entry types and collections kept as one file. Install one, build your own from this workspace, or download it to use in another. Installing never overwrites anything, and workflows arrive switched off.</p>
+      <p class="sub">A package is a named set of blueprints (workflows, entry types, collections and more) kept as one file, so it can be installed, downloaded and shared. Install one, build your own from this workspace, or download it to use in another. Installing never overwrites anything, and workflows arrive switched off.</p>
     </div>
   </div>
 
@@ -85,6 +98,26 @@ const holds = (p: PackageInfo) =>
           </ul>
         )}
       </section>
+
+      {fromIntegrations.length > 0 && (
+        <section class="card" data-testid="from-integrations">
+          <h3>Brought by integrations</h3>
+          <p class="muted">Integrations install blueprints of their own when you add them. These are not packages and are managed on the integration; this is what they put in this workspace.</p>
+          <ul class="packages">
+            {fromIntegrations.map((i) => (
+              <li class="package">
+                <div class="package-head">
+                  <strong>{i.name}</strong>
+                  <a class="muted" href="/workspace/settings/integrations">Manage</a>
+                </div>
+                <p class="holds">
+                  {i.sections.map((sec, n) => (<>{n ? " · " : ""}<a href={sec.href}>{sec.heading}</a></>))}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section class="card" data-testid="add">
         <h3>Add a package</h3>
