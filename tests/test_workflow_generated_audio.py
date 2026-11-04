@@ -46,7 +46,15 @@ class _Narrator(IntegrationProvider):
         usage = {"model": "tts-1", "total_tokens": 0}
         if key in ("say", "say_paid"):
             text = args.get("text", "")
-            return {"audio_b64": AUDIO_B64, "mime": "audio/mpeg", "duration_seconds": 1.5, "characters": len(text), "voice_id": "v1", "usage": usage}
+            return {
+                "audio_b64": AUDIO_B64,
+                "mime": "audio/mpeg",
+                "duration_seconds": 1.5,
+                "characters": len(text),
+                "voice_id": "v1",
+                "usage": usage,
+                "words": WORDS,
+            }
         if key in ("sfx", "score"):
             return {"audio_b64": AUDIO_B64, "mime": "audio/mpeg", "duration_seconds": 3.0}
         if key in ("listen", "listen_paid"):
@@ -87,6 +95,29 @@ def _publish(ws, entry, correlation_id="corr-1"):
 
 def _say(**step):
     return {"kind": "integration", "id": "line", "integration": "narrator", "action": "say", **step}
+
+
+WORDS = [{"text": "Two", "start": 0.0, "end": 0.3}, {"text": "scraps", "start": 0.35, "end": 0.8}]
+
+
+def test_a_speech_assets_word_timings_are_kept_on_the_asset(narrator):
+    """A take's timings belong to that take: picking another recording for an entry must bring its own timings with it."""
+    entry = _entry(narrator, "Beat 03")
+    _workflow(narrator, {"trigger": ON_PUBLISH, "actions": [_say(args={"text": "Two scraps of pork. One onion."})]})
+
+    _publish(narrator, entry)
+
+    (asset,) = _kept(narrator)
+    assert asset.metadata_json["words"] == WORDS
+
+
+def test_word_timings_that_are_odd_or_far_too_many_are_left_out():
+    from marvin.services.automation.actions import media
+
+    assert media.speech_facts({"words": "no"}) == {} and media.speech_facts({"words": []}) == {}
+    assert media.speech_facts({"words": [1, 2]}) == {}
+    assert media.speech_facts({"words": [{"text": "x"}] * (media.MAX_KEPT_WORDS + 1)}) == {}
+    assert media.speech_facts({"duration_seconds": 2.0, "words": WORDS}) == {"duration_seconds": 2.0, "words": WORDS}
 
 
 def test_speech_becomes_an_audio_asset_and_the_run_keeps_a_reference(narrator):
