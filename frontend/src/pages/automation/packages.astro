@@ -153,8 +153,8 @@ const holds = (p: PackageInfo) =>
         <p class="muted">Choose what belongs together. "Group them here" files them under the package's label on the Workflows page without recreating anything. The file is for using the same set in another workspace.</p>
         <form id="pk-build" autocomplete="off">
           <div class="fields">
-            <label>Name<input class="input" type="text" id="pk-name" required maxlength="120" placeholder="Storyworld" /></label>
-            <label>Slug<input class="input" type="text" id="pk-slug" required maxlength="64" pattern="[a-z0-9][a-z0-9\-]*" placeholder="storyworld" /></label>
+            <label>Name<input class="input" type="text" id="pk-name" required maxlength="120" placeholder="Brand kit" /></label>
+            <label>Slug<input class="input" type="text" id="pk-slug" required maxlength="64" pattern="[a-z0-9][a-z0-9\-]*" placeholder="brand-kit" /></label>
             <label class="wide">Description<input class="input" type="text" id="pk-desc" placeholder="What this set is for" /></label>
           </div>
           {[["workflows", "Workflows", choices.workflows], ["entryTypes", "Entry types", choices.entryTypes], ["collections", "Collections", choices.collections]].map(([key, label, list]: any) => (
