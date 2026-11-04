@@ -6,7 +6,7 @@
  */
 import LocalTime from "@/components/LocalTime.astro";
 import PlayButton from "@/components/PlayButton.astro";
-import { leadAsset, thumbOf } from "@/lib/entryMedia";
+import { extraSound, leadAsset, thumbOf } from "@/lib/entryMedia";
 
 interface Props {
   entries: any[];
@@ -33,12 +33,14 @@ const statusMeta: Record<string, { label: string; cls: string }> = {
     const s = statusMeta[entry.status] ?? { label: entry.status, cls: "s-default" };
     const pic = leadAsset(entry.assets);
     const thumb = thumbOf(entry.assets, entry.title);
+    const sound = extraSound(entry.assets, entry.title);
     return (
       <li class="inbox-row entry-wrapper" data-status={entry.status} data-title={(entry.title || "").toLowerCase()}>
         <a class="inbox-link" href={`/workspace/entries/${entry.id}`}>
           <span class={`status-dot ${s.cls}`} title={s.label}></span>
           {thumb?.kind === "audio" && <PlayButton src={thumb.url} label={`Play ${entry.title}`} />}
           {thumb?.kind !== "audio" && pic?.publicUrl && <img class="inbox-thumb" src={pic.publicUrl} alt="" loading="lazy" style={`object-position: ${pic.focalPoint ?? "50% 50%"}`} />}
+          {sound && <PlayButton src={sound.url} label={`Play ${entry.title}`} />}
           <span class="inbox-main">
             <span class="inbox-title">{entry.title || "Untitled"}</span>
             {entry.summary && <span class="inbox-summary">{entry.summary}</span>}

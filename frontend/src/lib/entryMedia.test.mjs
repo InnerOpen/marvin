@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { leadAsset, thumbOf } from "./entryMedia.ts";
+import { extraSound, leadAsset, thumbOf } from "./entryMedia.ts";
 
 const picture = { role: null, publicUrl: "https://a/x.png", mimeType: "image/png", altText: "A still" };
 const take = { role: "audio", publicUrl: "https://a/line.mp3", mimeType: "audio/mpeg" };
@@ -37,5 +37,27 @@ describe("thumbOf", () => {
     assert.equal(thumbOf([{ role: "audio", mimeType: "audio/mpeg" }], "x"), null);
     assert.equal(thumbOf([], "x"), null);
     assert.equal(thumbOf(null, "x"), null);
+  });
+});
+
+describe("extraSound", () => {
+  const sample = { role: "voice_sample", publicUrl: "https://a/sarah.mp3", mimeType: "audio/mpeg", altText: null };
+
+  test("an actor's voice sample rides along with the picture that leads", () => {
+    const got = extraSound([picture, sample], "Sarah");
+    assert.deepEqual([got?.kind, got?.url], ["audio", "https://a/sarah.mp3"]);
+  });
+
+  test("there is none when the entry has no recording", () => {
+    assert.equal(extraSound([picture], "Sarah"), null);
+  });
+
+  test("there is none when the recording already leads (the slot plays it)", () => {
+    assert.equal(extraSound([take, picture], "Your feast."), null);
+  });
+
+  test("there is none when the entry has no assets at all", () => {
+    assert.equal(extraSound([], "x"), null);
+    assert.equal(extraSound(undefined, "x"), null);
   });
 });

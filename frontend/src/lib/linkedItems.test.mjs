@@ -45,3 +45,10 @@ test("assetItem shows a thumbnail only for an image with a url", () => {
   assert.equal(assetItem({ id: "1", name: "a", mimeType: "image/png" }).imageUrl, null);
   assert.equal(resourceItem({ id: "r", name: "Thread", slug: "thread" }).meta, "thread");
 });
+
+test("assetItem carries an audio file's url so its card can play it", () => {
+  const item = assetItem({ id: "1", name: "Sarah (voice preview)", mimeType: "audio/mpeg", publicUrl: "/sarah.mp3" });
+  assert.equal(item.audioUrl, "/sarah.mp3");
+  assert.equal(item.imageUrl, null);
+  assert.equal(assetItem({ id: "2", name: "pic", mimeType: "image/png", publicUrl: "/p.png" }).audioUrl, null);
+});
