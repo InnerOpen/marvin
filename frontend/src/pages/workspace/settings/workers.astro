@@ -34,7 +34,7 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
   <div class="toolbar">
     <div>
       <h2>Workers</h2>
-      <p class="sub">Heavy jobs (anything that needs a binary tool or a long run) are queued here and picked up by a dispatcher, which starts a worker for each.</p>
+      <p class="sub">Heavy jobs (anything that needs a binary tool or a long run) are queued here and picked up by a worker, either a runner that has the capability or a dispatcher that starts one for each job.</p>
     </div>
   </div>
 
@@ -42,20 +42,62 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
 
   {view.warnings.map((w) => <div class="alert warn" role="status">{w}</div>)}
 
-  <section class="card" data-testid="dispatchers">
-    <h3>Dispatcher</h3>
-    {view.dispatchers.length === 0 ? (
-      <p class="empty">No dispatcher has reported yet.</p>
+  <section class="card" data-testid="workers">
+    <h3>Workers</h3>
+    {view.workers.length === 0 ? (
+      <p class="empty">No dispatcher or runner has reported yet.</p>
     ) : (
-      <ul class="dispatchers">
-        {view.dispatchers.map((d) => (
+      <ul class="workers">
+        {view.workers.map((w) => (
           <li>
-            <span class={`dot ${d.healthy ? "ok" : "bad"}`} aria-hidden="true"></span>
-            <strong>{d.name}</strong>
-            <span class="muted">{d.healthy ? "running" : "not seen"} · last seen {ago(d.lastSeenAgo)} ago{d.modes ? ` · starts ${d.modes}` : ""}{d.jobsStarted !== null ? ` · ${d.jobsStarted} started` : ""}</span>
+            <span class={`dot ${w.healthy ? "ok" : "bad"}`} aria-hidden="true"></span>
+            <strong>{w.name}</strong>
+            <span class="pill">{w.role}</span>
+            <span class="muted">
+              {w.healthy ? w.status : "not seen"} · last seen {ago(w.lastSeenAgo)} ago
+              {w.currentJob ? ` · on ${w.currentJob}` : ""}
+              {w.modes ? ` · starts ${w.modes}` : ""}
+              {w.tags ? ` · has ${w.tags}` : ""}
+              {w.jobsDone !== null ? ` · ${w.jobsDone} done` : ""}
+            </span>
+            {w.kinds.length > 0 && <span class="kind-list">{w.kinds.map((k) => <span class="pill">{k}</span>)}</span>}
           </li>
         ))}
       </ul>
+    )}
+  </section>
+
+  <section class="card" data-testid="capabilities">
+    <h3>What they can do</h3>
+    {view.capabilities.length === 0 ? (
+      <p class="empty">Nothing advertised yet. A worker lists the kinds it can do, and what each one takes, when it reports in.</p>
+    ) : (
+      <table>
+        <thead><tr><th>Kind</th><th>Takes</th><th>Gives</th><th>Needs</th><th>Offered by</th></tr></thead>
+        <tbody>
+          {view.capabilities.map((c) => (
+            <tr>
+              <td><strong>{c.kind}</strong>{c.description && <div class="muted small">{c.description}</div>}</td>
+              <td>
+                {c.inputs.length === 0 ? <span class="muted">—</span> : (
+                  <ul class="inputs">
+                    {c.inputs.map((i) => (
+                      <li title={i.description}>
+                        <code>{i.name}</code>
+                        <span class="muted"> {i.type}{i.accepts.length ? ` (${i.accepts.join(", ")})` : ""}{i.required ? "" : ", optional"}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {c.accepts.length > 0 && <div class="muted small">files: {c.accepts.join(", ")}</div>}
+              </td>
+              <td class="muted">{c.produces.join(", ") || "—"}</td>
+              <td class="muted">{c.needs.join(", ") || "—"}</td>
+              <td>{c.offeredBy.length ? c.offeredBy.join(", ") : <span class="flag">nobody running</span>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     )}
   </section>
 
@@ -115,7 +157,10 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
   .alert { padding: 10px 14px; border-radius: var(--radius); margin: 0 0 12px; }
   .alert.warn { border: 1px solid var(--warn, #d97706); background: color-mix(in srgb, var(--warn, #d97706) 10%, transparent); }
   .alert.error { border: 1px solid var(--danger, #dc2626); }
-  .dispatchers { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .workers { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .kind-list { display: inline-flex; gap: 4px; flex-wrap: wrap; margin-left: 6px; }
+  .inputs { list-style: none; margin: 0; padding: 0; }
+  .small { font-size: 12px; }
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; }
   .dot.ok { background: var(--success, #16a34a); }
   .dot.bad { background: var(--danger, #dc2626); }
