@@ -72,13 +72,13 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
     {view.capabilities.length === 0 ? (
       <p class="empty">Nothing advertised yet. A worker lists the kinds it can do, and what each one takes, when it reports in.</p>
     ) : (
-      <div class="table-wrap"><table>
+      <div class="table-wrap"><table class="stack">
         <thead><tr><th>Kind</th><th>Takes</th><th>Gives</th><th>Needs</th><th>Offered by</th></tr></thead>
         <tbody>
           {view.capabilities.map((c) => (
             <tr>
-              <td><strong>{c.kind}</strong>{c.description && <div class="muted small">{c.description}</div>}</td>
-              <td>
+              <td data-label="Kind"><strong>{c.kind}</strong>{c.description && <div class="muted small">{c.description}</div>}</td>
+              <td data-label="Takes">
                 {c.inputs.length === 0 ? <span class="muted">—</span> : (
                   <ul class="inputs">
                     {c.inputs.map((i) => (
@@ -91,9 +91,9 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
                 )}
                 {c.accepts.length > 0 && <div class="muted small">files: {c.accepts.join(", ")}</div>}
               </td>
-              <td class="muted">{c.produces.join(", ") || "—"}</td>
-              <td class="muted">{c.needs.join(", ") || "—"}</td>
-              <td>{c.offeredBy.length ? c.offeredBy.join(", ") : <span class="muted">nobody running</span>}</td>
+              <td data-label="Gives" class="muted">{c.produces.join(", ") || "—"}</td>
+              <td data-label="Needs" class="muted">{c.needs.join(", ") || "—"}</td>
+              <td data-label="Offered by">{c.offeredBy.length ? c.offeredBy.join(", ") : <span class="muted">nobody running</span>}</td>
             </tr>
           ))}
         </tbody>
@@ -109,16 +109,16 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
     {view.jobs.length === 0 ? (
       <p class="empty">No jobs yet. A workflow queues one by creating a <code>job</code> entry.</p>
     ) : (
-      <div class="table-wrap"><table>
+      <div class="table-wrap"><table class="stack">
         <thead><tr><th>Job</th><th>Kind</th><th>Status</th><th>Queued</th><th>What happened</th></tr></thead>
         <tbody>
           {view.jobs.map((j) => (
             <tr>
-              <td><a href={entryHref(j.id)}>{j.title}</a></td>
-              <td>{j.kind}</td>
-              <td><span class={`pill s-${j.status}`}>{j.status}</span>{j.stuck && <span class="flag" title="Past the time allowed with no outcome"> stuck</span>}{j.unknownKind && <span class="flag" title="No job kind is registered for this"> no such kind</span>}</td>
-              <td class="muted">{ago(j.queuedAgo)} ago</td>
-              <td class="log">
+              <td data-label="Job"><a href={entryHref(j.id)}>{j.title}</a></td>
+              <td data-label="Kind">{j.kind}</td>
+              <td data-label="Status"><span class={`pill s-${j.status}`}>{j.status}</span>{j.stuck && <span class="flag" title="Past the time allowed with no outcome"> stuck</span>}{j.unknownKind && <span class="flag" title="No job kind is registered for this"> no such kind</span>}</td>
+              <td data-label="Queued" class="muted">{ago(j.queuedAgo)} ago</td>
+              <td data-label="What happened" class="log">
                 {j.resultUrl && <a href={j.resultUrl} target="_blank" rel="noopener">Open the result</a>}
                 {j.log && (j.log.length <= 120 && !j.log.includes("\n")
                   ? <span class={j.status === "failed" ? "bad-text" : ""}>{j.log}</span>
@@ -136,15 +136,15 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
     {view.kinds.length === 0 ? (
       <p class="empty">No job kinds yet. A <code>job-kind</code> entry says which image runs a kind of job, how it is started and how long it may take.</p>
     ) : (
-      <div class="table-wrap"><table>
+      <div class="table-wrap"><table class="stack">
         <thead><tr><th>Kind</th><th>Started by</th><th>Image or worker</th><th>Time allowed</th></tr></thead>
         <tbody>
           {view.kinds.map((k) => (
             <tr>
-              <td>{k.kind}</td>
-              <td>{k.mode}</td>
-              <td class="muted">{k.image || k.url || "—"}</td>
-              <td class="muted">{ago(k.timeoutSeconds)}</td>
+              <td data-label="Kind">{k.kind}</td>
+              <td data-label="Started by">{k.mode}</td>
+              <td data-label="Image or worker" class="muted">{k.image || k.url || "—"}</td>
+              <td data-label="Time allowed" class="muted">{ago(k.timeoutSeconds)}</td>
             </tr>
           ))}
         </tbody>
@@ -180,6 +180,13 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
   .s-running, .s-claimed { color: var(--accent, #2563eb); }
   .flag { color: var(--color-error, #dc2626); font-size: 12px; }
   .table-wrap { overflow-x: auto; }
+  @media (max-width: 720px) {
+    .stack thead { display: none; }
+    .stack, .stack tbody, .stack tr, .stack td { display: block; width: auto; }
+    .stack tr { padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .stack td { border-bottom: 0; padding: 3px 0; overflow-wrap: anywhere; }
+    .stack td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
   th { font-size: 12px; color: var(--muted); font-weight: 600; }
