@@ -27,9 +27,9 @@ _PAYLOADS = {
                     "label": "Kind",
                     "type": "text",
                     "required": True,
-                    "helpText": "What to run: a kind of job the worker image has (see Job kinds), e.g. audio-cut.",
+                    "helpText": "What to run: a kind of job the worker image has (see Job kinds), e.g. transcode.",
                 },
-                {"key": "args", "label": "Arguments", "type": "json", "helpText": 'The job\'s own input, e.g. {"story": "the-last-onion"}.'},
+                {"key": "args", "label": "Arguments", "type": "json", "helpText": 'The job\'s own input, e.g. {"asset": "intro-video"}.'},
                 {
                     "key": "status",
                     "label": "Status",
@@ -61,7 +61,7 @@ _PAYLOADS = {
         "is_rendered": False,
         "schema_json": {
             "fields": [
-                {"key": "kind", "label": "Kind", "type": "text", "required": True, "helpText": "The name jobs ask for, e.g. audio-cut."},
+                {"key": "kind", "label": "Kind", "type": "text", "required": True, "helpText": "The name jobs ask for, e.g. transcode."},
                 {
                     "key": "mode",
                     "label": "How it is started",

@@ -1,6 +1,6 @@
 """Package schemas: a named, versioned bundle of blueprints, as one JSON file.
 
-A *package* groups what belongs together (a "Storyworld" package: its entry types, its workflows) so it can be installed, shown as one
+A *package* groups what belongs together (a "Brand kit" package: its entry types, its workflows) so it can be installed, shown as one
 collapsed section on the Workflows page, downloaded and uploaded. It is a list of ordinary `Blueprint`s (`schemas/platform/blueprints.py`),
 applied with the same rules: create what is missing, never overwrite what exists, and everything that acts when on starts disabled.
 
