@@ -3,7 +3,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { ago, summarize } from "./workers.ts";
+import { runGuide } from "./workerCommands.ts";
+import { ago, summarize, workerSetup } from "./workers.ts";
 
 const NOW = Date.parse("2026-11-04T12:00:00Z");
 const iso = (secondsAgo) => new Date(NOW - secondsAgo * 1000).toISOString();
@@ -113,5 +114,56 @@ describe("workers and what they can do", () => {
 describe("ago", () => {
   test("reads short", () => {
     assert.deepEqual([ago(5), ago(200), ago(7200), ago(200000), ago(null)], ["5 s", "3 min", "2 h", "2 d", "never"]);
+  });
+});
+
+const typeWith = (slug, keys) => ({ slug, schemaJson: { fields: keys.map((key) => ({ key })) } });
+
+describe("workerSetup", () => {
+  test("names the record types a workspace lacks, in the order they are set up", () => {
+    const got = workerSetup([typeWith("page", ["body"]), typeWith("job", ["kind", "args", "status", "result", "log"])]);
+    assert.deepEqual(got.missing, ["job-kind", "worker"]);
+    assert.deepEqual(got.misfit, []);
+  });
+  test("is empty once all three are there with the fields workers use", () => {
+    const got = workerSetup([
+      typeWith("worker", ["role", "host", "last_seen", "kinds", "tags"]),
+      typeWith("job-kind", ["kind", "mode", "image", "timeout_seconds"]),
+      typeWith("job", ["kind", "args", "status", "result", "log", "attempts"]),
+    ]);
+    assert.deepEqual(got, { missing: [], misfit: [] });
+  });
+  test("a same-named type without the fields (a job board's `job`) is a misfit, not set up", () => {
+    const got = workerSetup([typeWith("job", ["title", "salary"]), typeWith("job-kind", []), typeWith("worker", [])]);
+    assert.deepEqual(got.missing, []);
+    assert.deepEqual(got.misfit[0], { slug: "job", lacks: ["kind", "args", "status", "result", "log"] });
+    assert.equal(got.misfit.length, 3);
+  });
+});
+
+describe("runGuide", () => {
+  const guide = runGuide("https://api.example.com", "studio");
+
+  test("fills in this Marvin and workspace, and leaves the token a placeholder", () => {
+    const all = [...guide.first, ...guide.options.flatMap((o) => o.blocks)].map((b) => b.code).join("\n");
+    assert.match(all, /--pin studio/);
+    assert.match(all, /MARVIN_API_URL=https:\/\/api\.example\.com/);
+    assert.match(all, /<the token above>/);
+    assert.doesNotMatch(all, /eyJ|Bearer/);
+  });
+  test("covers a process, Docker, Podman and Kubernetes or OpenShift", () => {
+    assert.deepEqual(guide.options.map((o) => o.id), ["process", "docker", "podman", "kubernetes"]);
+    assert.ok(guide.options.every((o) => o.blocks.length > 0 && o.blurb));
+  });
+  test("Podman runs podman and tells the dispatcher to use it; Docker runs docker", () => {
+    const code = (id) => guide.options.find((o) => o.id === id).blocks.map((b) => b.code).join("\n");
+    assert.match(code("podman"), /podman run/);
+    assert.match(code("podman"), /WORKER_CONTAINER_CLI=podman/);
+    assert.doesNotMatch(code("docker"), /podman/);
+  });
+  test("OpenShift gets oc, Kubernetes kubectl", () => {
+    const code = guide.options.find((o) => o.id === "kubernetes").blocks.map((b) => b.code).join("\n");
+    assert.match(code, /kubectl create secret/);
+    assert.match(code, /oc create secret/);
   });
 });

@@ -3,7 +3,10 @@
 // records (`job`, `job-kind`, and a dispatcher's `worker` heartbeat; see lib/workers.ts), so it shows nothing until a workspace has them.
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
-import { ago, type RecordRow, STATUSES, summarize } from "@/lib/workers";
+import { getBrowserApiBaseUrl } from "@/lib/api/config";
+import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import { runGuide } from "@/lib/workerCommands";
+import { ago, type TypeShape, type RecordRow, STATUSES, summarize, workerSetup } from "@/lib/workers";
 
 const authToken = getAuthToken(Astro.cookies);
 type Found = { entries: RecordRow[] };
@@ -16,15 +19,27 @@ let error: string | null = null;
 let jobs: RecordRow[] = [];
 let kinds: RecordRow[] = [];
 let workers: RecordRow[] = [];
+let missing: string[] = [];
+let misfit: { slug: string; lacks: string[] }[] = [];
 if (!authToken) {
   error = "Authentication required";
 } else {
+  // Without the three record types a worker cannot register or take a job, so say so first. If the list cannot be read, say nothing.
+  const types = await fetchApi<TypeShape[]>("/api/platform/entry-types", {}, authToken).catch(() => null);
+  if (types) ({ missing, misfit } = workerSetup(types));
   [jobs, kinds, workers] = await Promise.all([
     find({ entry_type: "job", sort: { by: "created_at", direction: "desc" } }, 40),
     find({ entry_type: "job-kind" }, 100),
     find({ entry_type: "worker" }, 20),
   ]);
 }
+let workspaceSlug = "<workspace-slug>";
+try {
+  if (authToken) workspaceSlug = (await getCurrentWorkspace(authToken)).slug || workspaceSlug;
+} catch {
+  /* the placeholder stays */
+}
+const guide = runGuide(getBrowserApiBaseUrl(), workspaceSlug);
 const view = summarize(jobs, kinds, workers);
 const busy = view.counts.queued + view.counts.claimed + view.counts.running > 0;
 const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURIComponent(Astro.url.pathname)}`;
@@ -40,10 +55,65 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
 
   {error && <div class="alert error">{error}</div>}
 
+  {misfit.length > 0 && (
+    <section class="card setup" data-testid="workers-misfit">
+      <h3>These record types are not the ones workers use</h3>
+      <p>
+        This workspace already has {misfit.length === 1 ? "a record type" : "record types"} named
+        {misfit.map((m, i) => <>{i ? ", " : " "}<strong>{m.slug}</strong></>)}, but {misfit.length === 1 ? "it does" : "they do"} not have the fields workers read
+        and write, so a worker could not register or take a job. Marvin leaves them as they are.
+      </p>
+      <ul>
+        {misfit.map((m) => <li><strong>{m.slug}</strong> lacks {m.lacks.map((key, i) => <>{i ? ", " : ""}<code>{key}</code></>)}</li>)}
+      </ul>
+      <p>Rename the existing type (its slug is what matters) and add the rest here, or add those fields to it if it is meant to be the same thing.</p>
+    </section>
+  )}
+
+  {missing.length > 0 && (
+    <section class="card setup" data-testid="workers-setup">
+      <h3>Set up workers</h3>
+      <p>
+        Workers need three kinds of record in this workspace: <strong>job</strong> (a task to run), <strong>job-kind</strong> (where each kind of job
+        runs) and <strong>worker</strong> (a runner's or dispatcher's heartbeat). {missing.length === 3 ? "None are here yet." : `Missing: ${missing.join(", ")}.`}
+        Adding them creates only what is missing and never changes what you already have.
+      </p>
+      <button type="button" class="button" id="workers-setup-button">Add them</button>
+      <span class="muted" id="workers-setup-note" role="status"></span>
+    </section>
+  )}
+
   {view.warnings.map((w) => <div class="alert warn" role="status">{w}</div>)}
+
+  <section class="card" data-testid="run-worker">
+    <h3>Run a worker</h3>
+    <p class="muted roles">Pick how you want it to run. Each shows the commands for this Marvin and workspace; the token is never filled in for you.</p>
+    {guide.first.map((b) => (
+      <>
+        <p class="step">{b.label}</p>
+        <div class="cmd"><pre><code>{b.code}</code></pre><button type="button" class="copy" data-copy={b.code}>Copy</button></div>
+      </>
+    ))}
+    {guide.options.map((o) => (
+      <details class="how" data-option={o.id}>
+        <summary>{o.title}</summary>
+        <p class="muted roles">{o.blurb}</p>
+        {o.blocks.map((b) => (
+          <>
+            <p class="step">{b.label}</p>
+            <div class="cmd"><pre><code>{b.code}</code></pre><button type="button" class="copy" data-copy={b.code}>Copy</button></div>
+          </>
+        ))}
+      </details>
+    ))}
+  </section>
 
   <section class="card" data-testid="workers">
     <h3>Workers</h3>
+    <p class="muted roles">
+      A <strong>runner</strong> stays up, asks Marvin for jobs it can do, and does them itself. A <strong>dispatcher</strong> stays up and starts a fresh
+      container or Kubernetes Job for each queued job, which ends when the job does. A grey dot means it is not running.
+    </p>
     {view.workers.length === 0 ? (
       <p class="empty">No dispatcher or runner has reported yet.</p>
     ) : (
@@ -61,6 +131,9 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
               {w.jobsDone !== null ? ` · ${w.jobsDone} done` : ""}
             </span>
             {w.kinds.length > 0 && <span class="kind-list">{w.kinds.map((k) => <span class="pill">{k}</span>)}</span>}
+            {!w.healthy && (
+              <button type="button" class="button tiny secondary js-remove-worker" data-id={w.id} data-name={w.name}>Remove</button>
+            )}
           </li>
         ))}
       </ul>
@@ -112,20 +185,35 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
       <div class="table-wrap"><table class="stack">
         <thead><tr><th>Job</th><th>Kind</th><th>Status</th><th>Queued</th><th>What happened</th></tr></thead>
         <tbody>
-          {view.jobs.map((j) => (
-            <tr>
-              <td data-label="Job"><a href={entryHref(j.id)}>{j.title}</a></td>
-              <td data-label="Kind">{j.kind}</td>
-              <td data-label="Status"><span class={`pill s-${j.status}`}>{j.status}</span>{j.stuck && <span class="flag" title="Past the time allowed with no outcome"> stuck</span>}{j.unknownKind && <span class="flag" title="No job kind is registered for this"> no such kind</span>}</td>
-              <td data-label="Queued" class="muted">{ago(j.queuedAgo)} ago</td>
-              <td data-label="What happened" class="log">
-                {j.resultUrl && <a href={j.resultUrl} target="_blank" rel="noopener">Open the result</a>}
-                {j.log && (j.log.length <= 120 && !j.log.includes("\n")
-                  ? <span class={j.status === "failed" ? "bad-text" : ""}>{j.log}</span>
-                  : <details><summary class={j.status === "failed" ? "bad-text" : ""}>{j.log.split("\n")[0].slice(0, 120)}</summary><pre>{j.log}</pre></details>)}
-              </td>
-            </tr>
-          ))}
+          {view.jobs.map((j) => {
+            // A long log gets its own row under the job, across the whole card; a short one stays in the cell.
+            const long = j.log.length > 120 || j.log.includes("\n");
+            const tone = j.status === "failed" ? "bad-text" : "";
+            return (
+              <>
+                <tr class={long ? "has-log" : ""}>
+                  <td data-label="Job"><a href={entryHref(j.id)}>{j.title}</a></td>
+                  <td data-label="Kind">{j.kind}</td>
+                  <td data-label="Status"><span class={`pill s-${j.status}`}>{j.status}</span>{j.stuck && <span class="flag" title="Past the time allowed with no outcome"> stuck</span>}{j.unknownKind && <span class="flag" title="No job kind is registered for this"> no such kind</span>}</td>
+                  <td data-label="Queued" class="muted">{ago(j.queuedAgo)} ago</td>
+                  <td data-label="What happened" class="log">
+                    {j.resultUrl && <a href={j.resultUrl} target="_blank" rel="noopener">Open the result</a>}
+                    {j.log && <span class={tone}>{long ? `${j.log.split("\n")[0].slice(0, 120)}…` : j.log}</span>}
+                  </td>
+                </tr>
+                {long && (
+                  <tr class="log-row">
+                    <td colspan="5" class="long">
+                      <details>
+                        <summary class={tone}>Full log</summary>
+                        <pre class="log-full"><code>{j.log}</code></pre>
+                      </details>
+                    </td>
+                  </tr>
+                )}
+              </>
+            );
+          })}
         </tbody>
       </table></div>
     )}
@@ -152,13 +240,79 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
     )}
   </section>
 
+  <script>
+    document.querySelectorAll<HTMLButtonElement>("button.copy").forEach((button) => {
+      button.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(button.dataset.copy ?? "");
+          button.textContent = "Copied";
+        } catch {
+          button.textContent = "Select and copy";
+        }
+        setTimeout(() => (button.textContent = "Copy"), 1500);
+      });
+    });
+  </script>
+  {view.workers.some((w) => !w.healthy) && (
+    <script>
+      import { fetchApi } from "@/lib/api/client";
+
+      // Moves the record to the Trash (the Trash can restore it). A worker that is still running writes a new one on its next beat.
+      document.querySelectorAll<HTMLButtonElement>("button.js-remove-worker").forEach((button) => {
+        button.addEventListener("click", async () => {
+          if (!confirm(`Remove ${button.dataset.name} from this list? It comes back by itself if it starts again.`)) return;
+          button.disabled = true;
+          try {
+            await fetchApi(`/api/platform/entries/${button.dataset.id}`, { method: "DELETE" });
+            button.closest("li")?.remove();
+          } catch (e) {
+            button.disabled = false;
+            alert(e instanceof Error ? e.message : "Could not remove it.");
+          }
+        });
+      });
+    </script>
+  )}
   {busy && <script is:inline>setTimeout(() => location.reload(), 15000);</script>}
+  {missing.length > 0 && (
+    <script>
+      import { applyBlueprints } from "@/lib/api/blueprints";
+      import { WORKER_TYPES } from "@/lib/workers";
+
+      const button = document.getElementById("workers-setup-button") as HTMLButtonElement | null;
+      const note = document.getElementById("workers-setup-note");
+      button?.addEventListener("click", async () => {
+        button.disabled = true;
+        if (note) note.textContent = "Adding…";
+        try {
+          // `core`: an integration could offer a blueprint with one of these slugs; the Workers set is core's.
+          await applyBlueprints([...WORKER_TYPES], undefined, "core");
+          location.reload();
+        } catch (e) {
+          button.disabled = false;
+          if (note) note.textContent = e instanceof Error ? e.message : "Could not add them. You need to be a workspace admin.";
+        }
+      });
+    </script>
+  )}
 </AppLayout>
 
 <style>
   .sub { margin: 4px 0 0; color: var(--muted); }
   .card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 14px 16px; margin: 0 0 16px; }
   .card h3 { margin: 0 0 10px; font-size: 1rem; font-weight: 600; }
+  .step { margin: 12px 0 0; font-size: 13px; font-weight: 600; }
+  .how { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; }
+  .how summary { cursor: pointer; font-weight: 600; }
+  .cmd { position: relative; margin: 6px 0 4px; }
+  .cmd pre { margin: 0; padding: 12px 76px 12px 12px; background: var(--panel-2, var(--panel)); border: 1px solid var(--line); border-radius: var(--radius); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; }
+  .cmd code { padding: 0; background: none; }
+  .copy { position: absolute; top: 8px; right: 8px; padding: 4px 10px; font-size: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg, transparent); color: var(--ink); cursor: pointer; }
+  .roles { margin: 0 0 12px; font-size: 13px; }
+  .workers .button { margin-left: auto; padding: 3px 10px; font-size: 12px; }
+  .setup p { margin: 0 0 10px; }
+  .setup ul { margin: 0 0 10px; padding-left: 20px; }
+  .setup .muted { margin-left: 10px; }
   .alert { padding: 10px 14px; border-radius: var(--radius); margin: 0 0 12px; }
   .alert.warn { border: 1px solid var(--warn, #d97706); background: color-mix(in srgb, var(--warn, #d97706) 10%, transparent); }
   .alert.error { border: 1px solid var(--color-error, #dc2626); }
@@ -171,7 +325,8 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; }
   .dot.ok { background: var(--good, #16a34a); }
   .dot.off { background: var(--muted); opacity: 0.55; }
-  .muted { color: var(--muted); }
+  /* 13px like the rest of the site's secondary text (the Packages page, the pills), not the page's body size. */
+  .muted { color: var(--muted); font-size: 13px; }
   .empty { color: var(--muted); margin: 0; }
   .counts { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
   .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); background: var(--panel-2, var(--panel)); }
@@ -194,6 +349,9 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
     .stack td[data-label]::before { content: attr(data-label); position: absolute; left: 0; top: 8px; width: 6.5rem; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
     /* Long values (a description, a log) take the whole card, with the label above. */
     .stack td.long, .stack td.log { padding-left: 0; }
+    .stack tr.has-log { border-bottom: 0; padding-bottom: 0; }
+    .stack tr.log-row { padding-top: 0; }
+    .log-row td { padding: 0 0 6px; }
     .stack td.long[data-label]::before, .stack td.log[data-label]::before { position: static; display: block; width: auto; margin-bottom: 3px; }
   }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -202,6 +360,11 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
   .log { max-width: 34rem; color: var(--muted); word-break: break-word; }
   .log a { display: block; margin-bottom: 2px; }
   .log summary { cursor: pointer; }
+  .log-row td { padding: 0 8px 10px; }
+  .has-log td { border-bottom: 0; }
+  .log-row summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  .log-row .log-full { margin: 6px 0 0; padding: 10px 12px; max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel-2, var(--panel)); border: 1px solid var(--line); border-radius: var(--radius); font-size: 12.5px; line-height: 1.5; color: var(--ink); }
+  .log-full code { padding: 0; background: none; font: inherit; }
   .log pre { margin: 6px 0 0; padding: 8px 10px; max-height: 18rem; overflow: auto; white-space: pre-wrap; background: var(--panel-2, var(--panel)); border: 1px solid var(--line); border-radius: var(--radius); font-size: 12px; color: var(--ink); }
   .bad-text { color: var(--color-error, #dc2626); }
 </style>

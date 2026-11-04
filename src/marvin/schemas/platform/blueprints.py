@@ -248,5 +248,9 @@ class BlueprintApplyResult(_MarvinModel):
     detail: str = ""
     """Why nothing was created, when nothing was."""
 
+    fits: bool = True
+    """False when an entry type with this slug already exists but lacks fields the blueprint defines: it is a different thing under the
+    same name, and left as it is. `detail` says which fields."""
+
     name: str = ""
     """The created object's name, after parameter substitution."""

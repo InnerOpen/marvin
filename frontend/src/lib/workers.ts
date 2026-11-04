@@ -5,6 +5,41 @@
 //               each with its contract: what it takes, accepts, produces and needs), whether it is idle or busy, and what it needs to run
 // This only turns those records into what the page shows; it holds no state of its own.
 
+/** The record types workers need; core's "Workers" blueprints add them (services/blueprints/workers.py). */
+export const WORKER_TYPES = ["job", "job-kind", "worker"] as const;
+
+/** The fields of each that this page and the workers read and write. A type with the right name but not these is something else. */
+export const WORKER_FIELDS: Record<(typeof WORKER_TYPES)[number], string[]> = {
+  job: ["kind", "args", "status", "result", "log"],
+  "job-kind": ["kind", "mode", "image", "timeout_seconds"],
+  worker: ["role", "host", "last_seen", "kinds"],
+};
+
+export interface TypeShape {
+  slug: string;
+  schemaJson?: Record<string, unknown>;
+}
+
+const fieldKeys = (t: TypeShape): string[] =>
+  ((t.schemaJson?.fields as { key?: string }[] | undefined) ?? []).map((f) => f.key ?? "");
+
+/** The record types this workspace lacks (by slug), and the ones it has under the same name but without the fields workers need. */
+export function workerSetup(types: TypeShape[]): { missing: string[]; misfit: { slug: string; lacks: string[] }[] } {
+  const missing: string[] = [];
+  const misfit: { slug: string; lacks: string[] }[] = [];
+  for (const slug of WORKER_TYPES) {
+    const found = types.find((t) => t.slug === slug);
+    if (!found) {
+      missing.push(slug);
+      continue;
+    }
+    const have = fieldKeys(found);
+    const lacks = WORKER_FIELDS[slug].filter((key) => !have.includes(key));
+    if (lacks.length) misfit.push({ slug, lacks });
+  }
+  return { missing, misfit };
+}
+
 export interface RecordRow {
   id: string;
   slug: string;
@@ -43,6 +78,8 @@ export interface JobView {
 }
 
 export interface WorkerView {
+  /** the heartbeat record's id, so a worker that stopped can be removed from the page */
+  id: string;
   name: string;
   role: string;
   lastSeenAgo: number | null;
@@ -119,6 +156,7 @@ export function summarize(jobs: RecordRow[], kindRows: RecordRow[], workers: Rec
       const ago = seconds(field(row, "last_seen"), now);
       const done = field(row, "jobs_done") ?? field(row, "jobs_started");
       return {
+        id: row.id,
         name: text(field(row, "host")) || row.title,
         role: text(field(row, "role")) || "worker",
         lastSeenAgo: ago,

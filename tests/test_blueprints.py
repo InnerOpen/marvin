@@ -82,9 +82,11 @@ def test_catalog_advertises_the_rules_people_would_not_find_alone():
 
 def test_core_ships_only_collections_and_names_nobodys_content():
     """Naming content is the workspace owner's business. Core must not invent entry types, and
-    must not hardcode a slug it cannot know — where a rule needs one, it asks via a parameter."""
+    must not hardcode a slug it cannot know — where a rule needs one, it asks via a parameter.
+    The one exception is Workers: a core feature that reads and writes `job`, `job-kind` and `worker` by slug."""
     # Social isn't a blueprint set: its rule type and engine task are made by Marvin on first need (services/integrations/social_setup.py).
-    core = list_blueprints(source="core")
+    everything = list_blueprints(source="core")
+    core = [b for b in everything if b.category != "Workers"]
     assert {b.kind for b in core} == {"collection"}
     assert core, "core catalog should not be empty"
     assert not [b for b in core if b.category == "Social"], "the Social blueprint set is retired"
@@ -122,6 +124,39 @@ def test_applying_a_collection_creates_it_and_materializes_membership(db_session
     assert col.is_smart is True
     # membership is materialized on apply — an empty new collection would look broken
     assert [e.slug for e in col.entries] == ["fresh"]
+
+
+def test_workers_blueprints_set_up_the_three_record_types_and_leave_existing_ones_alone(db_session, workspace):
+    from marvin.services.blueprints.workers import WORKER_ENTRY_TYPES
+
+    assert [b.slug for b in list_blueprints(source="core", category="Workers")] == list(WORKER_ENTRY_TYPES) == ["job", "job-kind", "worker"]
+    # A person's own `job` type (a job board, say) is theirs: the blueprint reports it as there and changes nothing.
+    db_session.add(EntryTypes(session=db_session, group_id=workspace, name="Job posting", slug="job"))
+    db_session.commit()
+
+    first = [apply_blueprint(db_session, workspace, get_blueprint(slug)) for slug in WORKER_ENTRY_TYPES]
+    db_session.commit()
+    assert [r.created for r in first] == [False, True, True]
+    assert db_session.query(EntryTypes).filter_by(group_id=workspace, slug="job").one().name == "Job posting"
+    # ...but it is not reported as in place: it lacks the fields workers write, and the result says which.
+    assert [r.fits for r in first] == [False, True, True]
+    assert "kind" in first[0].detail and "status" in first[0].detail
+
+    fields = {f["key"] for f in db_session.query(EntryTypes).filter_by(group_id=workspace, slug="worker").one().schema_json["fields"]}
+    assert {"role", "host", "last_seen", "kinds"} <= fields
+
+    again = [apply_blueprint(db_session, workspace, get_blueprint(slug)) for slug in WORKER_ENTRY_TYPES]
+    assert [r.created for r in again] == [False, False, False]
+    assert [r.fits for r in again] == [False, True, True]  # only the foreign `job` type does not fit; the two we made do
+
+
+def test_an_existing_entry_type_with_the_fields_fits(db_session, workspace):
+    blueprint = get_blueprint("worker")
+    assert apply_blueprint(db_session, workspace, blueprint).created is True
+    db_session.commit()
+    again = apply_blueprint(db_session, workspace, blueprint)
+    assert (again.created, again.fits) == (False, True)
+    assert "lacks fields" not in again.detail
 
 
 def test_applying_twice_never_overwrites(db_session, workspace):

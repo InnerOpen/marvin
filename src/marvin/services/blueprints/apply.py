@@ -212,7 +212,7 @@ def apply_blueprint(
             result.detail = conflict
             return result
 
-    if _existing(session, group_id, blueprint, slug, target, resolved) is not None:
+    if (existing := _existing(session, group_id, blueprint, slug, target, resolved)) is not None:
         noun = blueprint.kind.replace("_", " ")
         if blueprint.kind in PER_INTEGRATION_KINDS:
             where = "already connected"
@@ -221,6 +221,10 @@ def apply_blueprint(
         else:
             where = f"with slug '{slug}' already exists"
         result.detail = f"a {noun} {where} — left as it is"
+        if blueprint.kind == "entry_type" and (lacking := _fields_lacking(existing, blueprint)):
+            # Same slug, different thing (a "job" type for job postings, say). Leave it alone, but do not report the blueprint as in place.
+            result.fits = False
+            result.detail += f", but it lacks fields this one defines: {', '.join(lacking)}"
         return result
 
     try:
@@ -269,6 +273,13 @@ def _models():
         "incoming_webhook": WorkspaceIncomingWebhookModel,
         "workflow": WorkspaceAutomationModel,
     }
+
+
+def _fields_lacking(entry_type, blueprint: Blueprint) -> list[str]:
+    """Keys of the fields the blueprint's entry type defines that this existing type does not have, in the blueprint's order."""
+    wanted = [f.get("key") for f in (blueprint.payload.get("schema_json") or {}).get("fields", []) if f.get("key")]
+    have = {f.get("key") for f in (entry_type.schema_json or {}).get("fields", [])}
+    return [key for key in wanted if key not in have]
 
 
 def _existing(session, group_id, blueprint: Blueprint, slug: str, integration_id=None, params: dict | None = None):

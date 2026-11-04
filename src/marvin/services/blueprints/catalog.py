@@ -9,6 +9,7 @@ unknown, and a blank entry-type schema is a blank page. Each blueprint below is 
 """
 
 from marvin.schemas.platform.blueprints import Blueprint, BlueprintParameter
+from marvin.services.blueprints.workers import WORKER_BLUEPRINTS
 
 CATEGORY_EDITORIAL = "Editorial"
 CATEGORY_MEDIA = "Media"
@@ -21,7 +22,8 @@ CATEGORY_MEDIA = "Media"
 # Naming content is the workspace owner's business, so nothing here invents an entry type or
 # hardcodes a slug — where a rule needs one, the blueprint asks for it as a parameter. Entry-type
 # and scheduled-task blueprints exist in the schema for providers, which legitimately own the names
-# of the content their integration requires.
+# of the content their integration requires. Core has one such exception of its own: Workers (`workers.py`),
+# because the worker code and Settings -> Workers read and write those records by slug.
 
 _COLLECTIONS = [
     Blueprint(
@@ -121,7 +123,7 @@ _COLLECTIONS = [
     ),
 ]
 
-CORE_BLUEPRINTS: tuple[Blueprint, ...] = tuple(_COLLECTIONS)
+CORE_BLUEPRINTS: tuple[Blueprint, ...] = (*_COLLECTIONS, *WORKER_BLUEPRINTS)
 
 
 def list_blueprints(*, kind: str | None = None, category: str | None = None, source: str | None = None) -> list[Blueprint]:
