@@ -362,6 +362,32 @@ def test_a_source_and_references_together_the_result_is_a_version_of_the_source(
     assert painter.session.query(Assets).filter(Assets.group_id == painter.gid, Assets.source_asset_id == base.id).count() == 1
 
 
+def test_references_can_be_one_template_of_comma_separated_refs_with_blanks_dropped(painter):
+    from tests.test_workflow_media import _entry, _png, _stored
+
+    cook = _stored(painter, "cook-master", _png((300, 200)))
+    captain = _stored(painter, "captain-master", _png((200, 300)))
+    beat = _entry(painter, title=f"{cook.slug}, ,{captain.slug}")  # a beat's references field, as text: the entry's own title stands in for it here
+    _workflow(painter, {"trigger": ON_PUBLISH, "actions": [_edit_step(references="${entry.title}")]})
+
+    _publish(painter, beat)
+
+    (_, args) = painter.painter.calls[0]
+    assert [r["name"] for r in args["reference_images"]] == [cook.name, captain.name]
+
+
+def test_a_template_that_gives_no_references_goes_without(painter):
+    from tests.test_workflow_media import _entry
+
+    beat = _entry(painter, title="a beat with no references")
+    _workflow(painter, {"trigger": ON_PUBLISH, "actions": [_edit_step(references="${entry.summary}", args={"prompt": "an empty shelf"})]})
+
+    _publish(painter, beat)
+
+    (key, args) = painter.painter.calls[0]
+    assert key == "touch_up" and "reference_images" not in args
+
+
 def test_a_dry_run_lists_the_references_and_calls_nothing(painter):
     from tests.test_workflow_media import _png, _stored
 
