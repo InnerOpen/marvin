@@ -548,7 +548,16 @@ class IntegrationsController(BaseUserController):
         """Manually fire a provider action (also how the automation engine will call it)."""
         require_workspace_admin(self.user, self.group_id)
         row, provider = self._runnable(integration_id)
-        return IntegrationActionResult(ok=True, result=self._execute(row, provider, action_key, args))
+        try:
+            result = self._execute(row, provider, action_key, args)
+        except HTTPException as e:
+            # A provider refusing (a bad key, a plan that does not allow the voice) arrives as a 502 from `_execute`, and
+            # Cloudflare swaps an origin 502 for its own error page, so the person saw "502" instead of the reason. A 422
+            # keeps the provider's message, the same as the option picker below.
+            if e.status_code != status.HTTP_502_BAD_GATEWAY:
+                raise
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=e.detail) from e
+        return IntegrationActionResult(ok=True, result=result)
 
     # ---- option source for action inputs -------------------------------------------
 
