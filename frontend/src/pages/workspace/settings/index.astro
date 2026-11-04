@@ -95,6 +95,8 @@ const tabs = [
   { id: "ai", label: "AI", icon: "✨" },
   ...(socialSummary?.show ? [{ id: "social", label: "Social", icon: "💬" }] : []),
   { id: "integrations", label: "Integrations", icon: "🔌" },
+  // Workers has a page of its own, not a section of this one: the tab goes straight there.
+  { id: "workers", label: "Workers", icon: "🧰", href: "/workspace/settings/workers" },
   { id: "statistics", label: "Statistics", icon: "📊" },
 ];
 ---
@@ -111,7 +113,7 @@ const tabs = [
     <nav class="tabs">
       {tabs.map(tab => (
         <a
-          href={`/workspace/settings?tab=${tab.id}`}
+          href={tab.href ?? `/workspace/settings?tab=${tab.id}`}
           class:list={['tab', { active: currentTab === tab.id }]}
         >
           <span class="tab-icon">{tab.icon}</span>
