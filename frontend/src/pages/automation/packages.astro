@@ -94,7 +94,7 @@ const holds = (p: PackageInfo) =>
           <p id="pk-preview-title" class="preview-title"></p>
           <div class="table-wrap">
             <table class="stack">
-              <thead><tr><th>Kind</th><th>Name</th><th>What happens</th><th>Details</th></tr></thead>
+              <thead><tr><th>Kind</th><th>Name</th><th>Result</th><th>Details</th></tr></thead>
               <tbody id="pk-preview-rows"></tbody>
             </table>
           </div>
@@ -111,16 +111,16 @@ const holds = (p: PackageInfo) =>
         <p class="muted">Choose what belongs together. "Group them here" files them under the package's label on the Workflows page without recreating anything. The file is for using the same set in another workspace.</p>
         <form id="pk-build" autocomplete="off">
           <div class="fields">
-            <label>Name<input type="text" id="pk-name" required maxlength="120" placeholder="Storyworld" /></label>
-            <label>Slug<input type="text" id="pk-slug" required maxlength="64" pattern="[a-z0-9][a-z0-9\-]*" placeholder="storyworld" /></label>
-            <label class="wide">Description<input type="text" id="pk-desc" placeholder="What this set is for" /></label>
+            <label>Name<input class="input" type="text" id="pk-name" required maxlength="120" placeholder="Storyworld" /></label>
+            <label>Slug<input class="input" type="text" id="pk-slug" required maxlength="64" pattern="[a-z0-9][a-z0-9\-]*" placeholder="storyworld" /></label>
+            <label class="wide">Description<input class="input" type="text" id="pk-desc" placeholder="What this set is for" /></label>
           </div>
           {[["workflows", "Workflows", choices.workflows], ["entryTypes", "Entry types", choices.entryTypes], ["collections", "Collections", choices.collections]].map(([key, label, list]: any) => (
             <fieldset data-group={key}>
               <legend>{label} <button type="button" class="linkish js-all">all</button> <button type="button" class="linkish js-none">none</button></legend>
               {list.length === 0 ? <p class="muted">None available.</p> : (
                 <div class="checks">
-                  {list.map((c: { slug: string; name: string }) => <label class="check"><input type="checkbox" value={c.slug} /> {c.name} <span class="muted">{c.slug}</span></label>)}
+                  {list.map((c: { slug: string; name: string }) => <label class="check" title={c.slug}><input type="checkbox" value={c.slug} /> {c.name}</label>)}
                 </div>
               )}
             </fieldset>
@@ -216,7 +216,7 @@ const holds = (p: PackageInfo) =>
     rows.innerHTML = result.items
       .map(
         (i) =>
-          `<tr><td data-label="Kind">${esc(i.kind.replace("_", " "))}</td><td data-label="Name"><strong>${esc(i.name)}</strong></td><td data-label="What happens" class="${i.status === "blocked" ? "bad-text" : ""}">${esc(WHAT[i.status] ?? i.status)}</td><td data-label="Details" class="long muted">${esc(i.summary || i.detail)}</td></tr>`,
+          `<tr><td data-label="Kind">${esc(i.kind.replace("_", " "))}</td><td data-label="Name"><strong>${esc(i.name)}</strong></td><td data-label="Result" class="${i.status === "blocked" ? "bad-text" : ""}">${esc(WHAT[i.status] ?? i.status)}</td>${i.summary || i.detail ? `<td data-label="Details" class="long muted">${esc(i.summary || i.detail)}</td>` : ""}</tr>`,
       )
       .join("");
     $("pk-preview").hidden = false;
@@ -319,14 +319,15 @@ const holds = (p: PackageInfo) =>
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .note { font-size: 13px; color: var(--muted); }
   .note.bad, .bad-text { color: var(--color-error, #dc2626); }
-  .preview-title { font-weight: 600; margin: 12px 0 6px; }
+  #pk-preview { margin-top: 14px; padding-top: 4px; border-top: 1px solid var(--line); }
+  .preview-title { font-weight: 600; margin: 10px 0 6px; color: var(--ink); }
   .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
   .fields label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
   .fields .wide { grid-column: 1 / -1; }
   fieldset { border: 1px solid var(--line); border-radius: var(--radius); margin: 0 0 12px; padding: 8px 12px 10px; }
   legend { font-size: 13px; font-weight: 600; padding: 0 6px; }
   .linkish { background: none; border: 0; color: var(--accent); cursor: pointer; font-size: 12px; padding: 0 2px; }
-  .checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 14px; }
+  .checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 6px 18px; }
   .check { display: flex; gap: 6px; align-items: baseline; font-size: 13px; }
   @media (max-width: 720px) { .fields { grid-template-columns: 1fr; } }
 </style>
