@@ -3,6 +3,8 @@ import AudioTimeline from "@/components/AudioTimeline.astro";
 import SaveErrorBanner from "@/components/SaveErrorBanner.astro";
 import SchemaForm from "@/components/SchemaForm.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
+import { listApprovals, type WorkflowApproval } from "@/lib/api/workflowApprovals";
+import { pendingFor } from "@/lib/approvalsForEntry";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { findTimeline } from "@/lib/audioTimeline";
 import { listCollections } from "@/lib/api/collections";
@@ -259,6 +261,16 @@ const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCE
 const inTrash = entry?.status === "trashed";
 const mayChangeEntry = entry ? access.canEditEntry(entry) : false;
 const canEditThis = mayChangeEntry && !inTrash;
+// A workflow paused at an Approval step on this entry (a take waiting for the spend to be approved, say): the sidebar counts it, so the
+// entry says so too. Editors and above can read the list; anyone else just gets no banner.
+let waitingApprovals: WorkflowApproval[] = [];
+if (authToken && entry?.id && !inTrash) {
+  try {
+    waitingApprovals = pendingFor(await listApprovals(authToken), entry.id);
+  } catch {
+    /* not allowed to see approvals, or the list is unavailable: no banner */
+  }
+}
 const trashCollectionId = collections.find((c: any) => c.isSystem && c.slug === "trash")?.id ?? null;
 const restoresToLabel = inTrash ? restoresTo(entry?.metadataJson as Record<string, unknown> | null).replace("_", " ") : "";
 const canPublish = access.canEdit;
@@ -436,6 +448,14 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
               <button type="button" id="delete-forever-button" class="button danger">Delete forever</button>
             </span>
           )}
+        </div>
+      )}
+      {waitingApprovals.length > 0 && (
+        <div class="alert alert-info" role="status" data-testid="waiting-approval">
+          <strong>Waiting for approval.</strong>{" "}
+          {waitingApprovals[0].message}
+          {waitingApprovals.length > 1 && ` (and ${waitingApprovals.length - 1} more)`}{" "}
+          <a href="/automation/approvals">Review it →</a>
         </div>
       )}
       {!canEditThis && !inTrash && <div class="alert alert-info" role="status">{EDITORS_ONLY}</div>}
