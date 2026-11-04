@@ -3,6 +3,7 @@ import AudioTimeline from "@/components/AudioTimeline.astro";
 import SaveErrorBanner from "@/components/SaveErrorBanner.astro";
 import SchemaForm from "@/components/SchemaForm.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
+import { assetFieldOf, offerableAssets } from "@/lib/assetField";
 import { listApprovals, type WorkflowApproval } from "@/lib/api/workflowApprovals";
 import { pendingFor } from "@/lib/approvalsForEntry";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
@@ -346,6 +347,10 @@ const attachedTags = ((entry?.tags as string[] | undefined) || [])
 
 // Get entry type schema for schema-driven form
 const entryType = entry ? entryTypes.find((t) => t.id === entry.entryTypeId) : null;
+// "Use as <field>": the type's single-asset field can be pointed at any asset attached here (a speech line keeps every recording attached).
+const assetField = assetFieldOf(entryType?.schemaJson as any);
+const currentFieldAsset = assetField ? (entry?.dataJson as any)?.[assetField.key] : null;
+const usableIds = new Set(assetField ? offerableAssets(confirmedAssets, currentFieldAsset).map((a: any) => a.id) : []);
 const hasSchema = entryType?.schemaJson && (entryType.schemaJson as any).fields?.length > 0;
 
 // AI assist gating: workspace AI enabled + editor invocation source + auth (fail closed). The Ask Marvin button
@@ -970,6 +975,10 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                     <div class="attachment-name">
                       <strong>{asset.name}</strong>
                       <span class="picker-meta">{asset.mimeType}</span>
+                      {assetField && asset.id === currentFieldAsset && <span class="pill">In use as {assetField.label}</span>}
+                      {canEditThis && usableIds.has(asset.id) && (
+                        <button type="button" class="button secondary tiny js-use-asset" data-asset={asset.id}>Use as {assetField?.label}</button>
+                      )}
                     </div>
                     <div class="attachment-actions">
                       <button type="button" class="move-up-btn icon-btn" title="Move up">↑</button>
@@ -977,6 +986,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                       <button type="button" class="remove-btn icon-btn" title="Remove">×</button>
                     </div>
                   </div>
+                  {asset.publicUrl && asset.mimeType?.startsWith('audio/') && <audio class="attachment-audio" controls preload="none" src={asset.publicUrl}></audio>}
                   <div class="attachment-fields">
                     <input type="hidden" name={`asset_attachments[${idx}].asset_id`} value={asset.id} form="entry-form" />
                     <div class="field-row">
@@ -1094,6 +1104,32 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     </>
   ) : null}
 </AppLayout>
+
+{assetField && usableIds.size > 0 && (
+  <>
+    <div id="asset-field-data" hidden data-entry-id={entry.id} data-field={assetField.key} data-data={JSON.stringify(entry.dataJson ?? {})}></div>
+    <script>
+      import { fetchApi } from "@/lib/api/client";
+
+      // Pointing the field at an attached asset: a PATCH replaces dataJson, so the entry's other fields are sent back with it.
+      const holder = document.getElementById("asset-field-data");
+      document.querySelectorAll<HTMLButtonElement>("button.js-use-asset").forEach((button) => {
+        button.addEventListener("click", async () => {
+          if (!holder) return;
+          button.disabled = true;
+          try {
+            const data = { ...JSON.parse(holder.dataset.data ?? "{}"), [holder.dataset.field ?? ""]: button.dataset.asset };
+            await fetchApi(`/api/platform/entries/${holder.dataset.entryId}`, { method: "PATCH", body: JSON.stringify({ dataJson: data }), headers: { "Content-Type": "application/json" } });
+            location.reload();
+          } catch (e) {
+            button.disabled = false;
+            button.title = e instanceof Error ? e.message : "Could not change it.";
+          }
+        });
+      });
+    </script>
+  </>
+)}
 
 <style is:global>
   .trash-banner {
@@ -2105,6 +2141,8 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
   }
 
 
+  .attachment-audio { width: 100%; height: 36px; margin: 6px 0 2px; }
+  .attachment-name .js-use-asset { margin-top: 4px; padding: 3px 10px; font-size: 12px; }
 </style>
 
 <script>
