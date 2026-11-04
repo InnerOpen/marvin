@@ -51,13 +51,14 @@ def resolve_integration_id(session, group_id, blueprint: Blueprint, integration_
     raise BlueprintParameterError(f"this workspace has {len(rows)} '{blueprint.source}' integrations — say which one")
 
 
-def installed_by(session, group_id, blueprint: Blueprint, integration_id=None) -> dict:
+def installed_by(session, group_id, blueprint: Blueprint, integration_id=None, package: str | None = None) -> dict:
     """The "installed by" columns for every row this blueprint creates — the one place they're set.
 
     ``source_blueprint`` is the blueprint's slug. ``source_integration_id`` is the provider's
     connection in this workspace: the one the card passed (when it is this provider's), else the only
     one of that provider. None for a core blueprint, or when it can't be told — a wrong "installed by"
-    is worse than none, since uninstalling may one day act on it.
+    is worse than none, since uninstalling may one day act on it. ``package`` is the slug of the package being installed (it groups the
+    rows on the Workflows page); entry types are made without these columns, so it never reaches one.
     """
     source = None
     if blueprint.source != CORE_SOURCE:
@@ -69,7 +70,7 @@ def installed_by(session, group_id, blueprint: Blueprint, integration_id=None) -
         else:
             rows = session.query(IntegrationModel.id).filter_by(group_id=group_id, provider=blueprint.source).limit(2).all()
             source = rows[0][0] if len(rows) == 1 else None
-    return {"source_integration_id": source, "source_blueprint": blueprint.slug}
+    return {"source_integration_id": source, "source_blueprint": blueprint.slug, **({"source_package": package} if package else {})}
 
 
 def resolve_parameters(session, group_id, blueprint: Blueprint, params: dict | None) -> dict:
@@ -173,7 +174,14 @@ def already_applied(session, group_id, blueprint: Blueprint, params: dict | None
 
 
 def apply_blueprint(
-    session, group_id, blueprint: Blueprint, params: dict | None = None, integration_id=None, actor_id=None, event_bus=None
+    session,
+    group_id,
+    blueprint: Blueprint,
+    params: dict | None = None,
+    integration_id=None,
+    actor_id=None,
+    event_bus=None,
+    package: str | None = None,
 ) -> BlueprintApplyResult:
     """Create the blueprint's object in this workspace, unless it is already there.
 
@@ -216,7 +224,7 @@ def apply_blueprint(
         return result
 
     try:
-        provenance = installed_by(session, group_id, blueprint, target or integration_id)
+        provenance = installed_by(session, group_id, blueprint, target or integration_id, package)
         result.detail = _create(session, group_id, blueprint, resolved, slug, name, target, actor_id, provenance, event_bus) or ""
     except BlueprintParameterError as e:
         result.detail = str(e)
@@ -227,7 +235,7 @@ def apply_blueprint(
 
 
 def apply_many(
-    session, group_id, blueprints, params: dict | None = None, integration_id=None, actor_id=None, event_bus=None
+    session, group_id, blueprints, params: dict | None = None, integration_id=None, actor_id=None, event_bus=None, package: str | None = None
 ) -> list[BlueprintApplyResult]:
     """Apply several, in order. Entry types (and their added fields) first so the collections, tasks
     and workflows that reference them fit; webhooks before the workflows they trigger; Playbooks last, because
@@ -237,8 +245,9 @@ def apply_many(
     """
     order = {"entry_type": 0, "entry_fields": 1, "collection": 2, "scheduled_task": 3, "incoming_webhook": 4, "workflow": 5, "playbook": 6}
     by_slug = params or {}
+    stamp = {"package": package} if package else {}  # only a package install passes it: the other callers' apply is unchanged
     return [
-        apply_blueprint(session, group_id, b, by_slug.get(b.slug), integration_id=integration_id, actor_id=actor_id, event_bus=event_bus)
+        apply_blueprint(session, group_id, b, by_slug.get(b.slug), integration_id=integration_id, actor_id=actor_id, event_bus=event_bus, **stamp)
         for b in sorted(blueprints, key=lambda b: order.get(b.kind, 99))
     ]
 
