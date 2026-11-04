@@ -1120,3 +1120,4 @@ Approvals page and the dashboard card, so the approver judges the actual picture
 
 Denied at the second step, the picture stays in the library, unattached. The library's **Alternate universe cover**
 recipe has this shape.
+- **Settings -> Workers is easier to read.** A worker that is not running shows a grey dot instead of a red one (a stopped dispatcher is not an error), colours follow the app's theme, and each job lists its whole log in an expandable block (a failure shows in red) with an Open the result link once it is done.

@@ -33,6 +33,8 @@ export interface JobView {
   kind: string;
   status: string;
   log: string;
+  /** where the finished work can be opened or played, when the job's result holds a link */
+  resultUrl: string;
   queuedAgo: number | null;
   /** claimed or running for longer than its kind allows: the dispatcher is about to fail it, or has not noticed */
   stuck: boolean;
@@ -97,6 +99,7 @@ export function summarize(jobs: RecordRow[], kindRows: RecordRow[], workers: Rec
       kind,
       status,
       log: text(field(row, "log")),
+      resultUrl: /^https?:\/\//.test(text(field(row, "url"))) ? text(field(row, "url")) : "",
       queuedAgo: seconds(row.createdAt, now),
       stuck: (status === "claimed" || status === "running") && sinceClaim !== null && sinceClaim > limit,
       unknownKind: status === "queued" && !allowed.has(kind),

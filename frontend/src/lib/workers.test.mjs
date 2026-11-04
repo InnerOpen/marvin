@@ -12,6 +12,13 @@ const kind = (k, data = {}) => ({ id: k, slug: k, title: k, dataJson: { kind: k,
 const beat = (secondsAgo, extra = {}) => ({ id: "w", slug: "w", title: "Worker dispatcher", dataJson: { host: "host-a", last_seen: iso(secondsAgo), modes: "docker", jobs_started: 7, ...extra } });
 
 describe("summarize", () => {
+  test("a finished job keeps its whole log and a link to its result only when it holds a real one", () => {
+    const [done, failed] = summarize([job("a", { kind: "k", status: "done", url: "https://x.test/cut.mp3", log: "ok" }), job("b", { kind: "k", status: "failed", url: "javascript:alert(1)", log: "line one\nline two" })], [kind("k")], [beat(10)], NOW).jobs;
+    assert.equal(done.resultUrl, "https://x.test/cut.mp3");
+    assert.equal(failed.resultUrl, "");
+    assert.equal(failed.log, "line one\nline two");
+  });
+
   test("counts jobs by status", () => {
     const v = summarize([job("a", { kind: "k", status: "done" }), job("b", { kind: "k", status: "failed" }), job("c", { kind: "k", status: "done" })], [kind("k")], [beat(10)], NOW);
     assert.deepEqual([v.counts.done, v.counts.failed, v.counts.queued], [2, 1, 0]);
