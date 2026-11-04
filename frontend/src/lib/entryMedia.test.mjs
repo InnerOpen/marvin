@@ -24,6 +24,14 @@ describe("thumbOf", () => {
     assert.equal(leadAsset([take, { ...picture, role: "hero" }])?.role, "hero");
   });
 
+  test("a line made again leads with its latest take, not the first one it ever had", () => {
+    const older = { ...take, publicUrl: "https://a/take-1.mp3" };
+    const newer = { ...take, publicUrl: "https://a/take-2.mp3" };
+    assert.equal(leadAsset([older, newer])?.publicUrl, "https://a/take-2.mp3");
+    assert.equal(thumbOf([older, newer], "x")?.url, "https://a/take-2.mp3");
+    assert.equal(leadAsset([older, newer, { ...picture, role: "featured" }])?.role, "featured"); // a chosen picture still wins
+  });
+
   test("an asset type that says nothing is treated as a picture, and no usable asset is no thumbnail", () => {
     assert.equal(thumbOf([{ publicUrl: "https://a/x" }], "x")?.kind, "image");
     assert.equal(thumbOf([{ role: "audio", mimeType: "audio/mpeg" }], "x"), null);
