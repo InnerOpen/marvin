@@ -351,6 +351,43 @@ def test_an_asset_error_that_is_a_no_is_not_retried(settings, target, source, mo
     assert attempts["n"] == 1 and len(report.failures) == 1
 
 
+def test_a_remote_target_checks_presence_and_a_local_one_checks_size_unless_told_otherwise():
+    class Slugged:
+        def __init__(self, slug):
+            self.slug = slug
+
+    assert eng.asset_check(Slugged("s3"), env={}) == "presence"
+    assert eng.asset_check(Slugged("local"), env={}) == "size"
+    assert eng.asset_check(Slugged("s3"), env={"BACKUP_ASSET_CHECK": "size"}) == "size"
+    assert eng.asset_check(Slugged("local"), env={"BACKUP_ASSET_CHECK": " Presence "}) == "presence"
+    assert eng.asset_check(Slugged("s3"), env={"BACKUP_ASSET_CHECK": "nonsense"}) == "presence"
+
+
+def test_presence_check_makes_no_request_for_an_asset_the_target_has_and_still_copies_a_new_one(settings, target, source, data_dir, monkeypatch):
+    monkeypatch.setenv("BACKUP_ASSET_CHECK", "presence")
+    eng.run_backup(settings, target, source, now=NOW)
+    (data_dir / "assets" / "new.txt").write_bytes(b"added since the last run")
+
+    def no_request(key):
+        raise AssertionError(f"asked the source about {key}")
+
+    real = source.get_metadata
+    monkeypatch.setattr(source, "get_metadata", lambda key: no_request(key) if key != "new.txt" else real(key))
+    report = eng.run_backup(settings, target, source, now=NOW + timedelta(hours=1))
+
+    assert report.failures == []
+    assert (report.assets_uploaded, report.assets_unchanged) == (1, 2)
+    assert "assets/new.txt" in _keys(target)
+
+
+def test_size_check_still_notices_a_file_changed_under_the_same_key(settings, target, source, data_dir, monkeypatch):
+    monkeypatch.setenv("BACKUP_ASSET_CHECK", "size")
+    eng.run_backup(settings, target, source, now=NOW)
+    (data_dir / "assets" / "b.txt").write_bytes(b"a different, longer body than before")
+    report = eng.run_backup(settings, target, source, now=NOW + timedelta(hours=1))
+    assert report.assets_uploaded == 1
+
+
 def test_dry_run_writes_and_deletes_nothing(settings, target, source):
     old = keys.db_key(NOW - timedelta(days=400))
     src = target.root.parent / "old"
@@ -437,7 +474,8 @@ class Md5Target(MemoryBackupTarget):
         return TargetObject(key, len(data), hashlib.md5(data).hexdigest(), "md5", dict(metadata))
 
 
-def test_digest_comparison_crosses_algorithms(settings, source, data_dir):
+def test_digest_comparison_crosses_algorithms(settings, source, data_dir, monkeypatch):
+    monkeypatch.setenv("BACKUP_ASSET_CHECK", "size")  # the digest is only compared when the asset is checked (a remote target skips that by default)
     target = Md5Target()
     eng.run_backup(settings, target, source, now=NOW)
     assert eng.run_backup(settings, target, source, now=NOW + timedelta(hours=1)).assets_uploaded == 0

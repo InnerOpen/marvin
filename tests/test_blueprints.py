@@ -150,6 +150,18 @@ def test_workers_blueprints_set_up_the_three_record_types_and_leave_existing_one
     assert [r.fits for r in again] == [False, True, True]  # only the foreign `job` type does not fit; the two we made do
 
 
+def test_workers_types_are_created_internal_so_their_records_stay_out_of_content_lists(db_session, workspace):
+    from marvin.services.blueprints.workers import WORKER_ENTRY_TYPES
+
+    for slug in WORKER_ENTRY_TYPES:
+        apply_blueprint(db_session, workspace, get_blueprint(slug))
+    db_session.commit()
+
+    for slug in WORKER_ENTRY_TYPES:
+        capabilities = db_session.query(EntryTypes).filter_by(group_id=workspace, slug=slug).one().capabilities_json
+        assert capabilities["listed"] is False and capabilities["publishable"] is False
+
+
 def test_an_existing_entry_type_with_the_fields_fits(db_session, workspace):
     blueprint = get_blueprint("worker")
     assert apply_blueprint(db_session, workspace, blueprint).created is True

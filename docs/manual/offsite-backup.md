@@ -104,7 +104,7 @@ oc -n marvin logs job/marvin-r2-now -c backup | tail -1
 
 The last line of every run is a one-line summary, for example `backup[r2] ok: db 7.4 MB (postgres/marvin-20261007T021941Z.dump), config 3 item(s), assets 0 uploaded (0.0 MB), 516 unchanged, pruned 2, 8.7s`. A failed step is listed after `FAILED`, the other steps still run, and the job exits non-zero, so it shows as failed in `oc get jobs`. Credentials are never logged.
 
-A target's first run copies every asset (516 files, about 90 MB in production); later runs copy only new or changed files. An `s3` target pointed at a bucket the old off-site job wrote finds those assets unchanged and carries on its history.
+A target's first run copies every asset (516 files, about 90 MB in production); later runs copy only new or changed files. How "changed" is decided depends on the target: a `local` target compares each asset's size (and a digest when both sides have one) with the source, one request per asset; an `s3` target, which runs hourly, treats an asset it already has as unchanged without asking the source, because asset keys carry a UUID and a file does not change under its key. Set `BACKUP_ASSET_CHECK=size` (or `presence`) on a target's CronJob to choose the other way. An `s3` target pointed at a bucket the old off-site job wrote finds those assets unchanged and carries on its history.
 
 To list a target's backups and restore into a scratch directory inside the pod, run a Job from the CronJob with a different command (replace `s3` / `r2` with `local` / `nas-nightly` for the NAS):
 
