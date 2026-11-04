@@ -216,6 +216,15 @@ const showAiPanel = aiEnabled && isImage;
                   alt={asset.altText || asset.name}
                 />
               </div>
+            ) : asset.publicUrl && asset.mimeType?.startsWith('audio/') ? (
+              <div class="asset-preview media-preview">
+                <audio controls preload="metadata" src={asset.publicUrl}></audio>
+                <span class="file-label">{asset.originalFilename || asset.name}</span>
+              </div>
+            ) : asset.publicUrl && asset.mimeType?.startsWith('video/') ? (
+              <div class="asset-preview media-preview">
+                <video controls preload="metadata" src={asset.publicUrl}></video>
+              </div>
             ) : asset.publicUrl ? (
               <div class="asset-preview file-preview">
                 <span class="file-icon">{
@@ -372,6 +381,19 @@ const showAiPanel = aiEnabled && isImage;
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .media-preview {
+    aspect-ratio: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem;
+  }
+
+  .media-preview audio,
+  .media-preview video {
+    width: 100%;
   }
 
   .asset-preview img {
