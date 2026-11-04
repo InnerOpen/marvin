@@ -89,7 +89,16 @@ const holds = (p: PackageInfo) =>
       <section class="card" data-testid="add">
         <h3>Add a package</h3>
         <p class="muted">Choose a package file (<code>.marvin-package.json</code>). You see exactly what it would create before anything is installed.</p>
-        <input type="file" id="pk-file" accept=".json,application/json" />
+        <label class="drop" id="pk-drop" for="pk-file">
+          <input type="file" id="pk-file" class="sr-only" accept=".json,application/json" />
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+          <span class="drop-title">Choose a package file, or drop it here</span>
+          <span class="drop-hint" id="pk-file-name">.marvin-package.json</span>
+        </label>
         <div id="pk-preview" hidden>
           <p id="pk-preview-title" class="preview-title"></p>
           <div class="table-wrap">
@@ -222,9 +231,31 @@ const holds = (p: PackageInfo) =>
     $("pk-preview").hidden = false;
   }
 
+  const fileName = $("pk-file-name");
+  const DEFAULT_HINT = fileName.textContent ?? "";
+  const drop = $("pk-drop");
+  ["dragenter", "dragover"].forEach((type) =>
+    drop.addEventListener(type, (e) => {
+      e.preventDefault();
+      drop.classList.add("dragover");
+    }),
+  );
+  drop.addEventListener("dragleave", () => drop.classList.remove("dragover"));
+  drop.addEventListener("drop", (e) => {
+    e.preventDefault();
+    drop.classList.remove("dragover");
+    const files = (e as DragEvent).dataTransfer?.files;
+    if (!files?.length) return;
+    // Handed to the same input the picker uses, so one code path reads and previews the file.
+    const input = $("pk-file") as HTMLInputElement;
+    input.files = files;
+    input.dispatchEvent(new Event("change"));
+  });
+
   $("pk-file").addEventListener("change", async (e) => {
     const input = e.currentTarget as HTMLInputElement;
     const file = input.files?.[0];
+    fileName.textContent = file ? file.name : DEFAULT_HINT;
     pending = null;
     $("pk-preview").hidden = true;
     message(addNote, "");
@@ -241,6 +272,7 @@ const holds = (p: PackageInfo) =>
   $("pk-cancel").addEventListener("click", () => {
     pending = null;
     ($("pk-file") as HTMLInputElement).value = "";
+    fileName.textContent = DEFAULT_HINT;
     $("pk-preview").hidden = true;
   });
   $("pk-install").addEventListener("click", async (e) => {
@@ -319,6 +351,13 @@ const holds = (p: PackageInfo) =>
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .note { font-size: 13px; color: var(--muted); }
   .note.bad, .bad-text { color: var(--color-error, #dc2626); }
+  .drop { display: grid; justify-items: center; gap: 4px; padding: 1.4rem 1rem; border: 2px dashed var(--line); border-radius: var(--radius); text-align: center; cursor: pointer; transition: border-color 0.15s, background-color 0.15s; }
+  .drop svg { color: var(--muted); }
+  .drop:hover, .drop.dragover, .drop:focus-within { border-color: var(--accent); background: var(--panel-2); }
+  .drop:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .drop-title { font-weight: 600; }
+  .drop-hint { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   #pk-preview { margin-top: 14px; padding-top: 4px; border-top: 1px solid var(--line); }
   .preview-title { font-weight: 600; margin: 10px 0 6px; color: var(--ink); }
   .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
