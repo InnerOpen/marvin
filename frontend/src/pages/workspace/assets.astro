@@ -1,5 +1,6 @@
 ---
 import AssetList from "@/components/AssetList.astro";
+import PlayButton from "@/components/PlayButton.astro";
 import FilterSearch from "@/components/FilterSearch.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { listAssetTypes } from "@/lib/api/assets";
@@ -175,6 +176,8 @@ const optionsOpen = rowValues.length > 0 || view.versions || Boolean(view.status
                   <a class="thumb" href={view.status === "trashed" ? `/workspace/assets/${asset.id}` : `/workspace/assets/${asset.id}/view`} title={asset.name}>
                     {asset.publicUrl && getMimeCategory(asset.mimeType) === "image" ? (
                       <img src={asset.publicUrl} alt={asset.altText ?? asset.name} loading="lazy" style={`object-position: ${asset.focalPoint ?? "50% 50%"}`} />
+                    ) : asset.publicUrl && getMimeCategory(asset.mimeType) === "audio" ? (
+                      <PlayButton src={asset.publicUrl} label={`Play ${asset.name}`} size="lg" />
                     ) : (
                       <span class="file-icon">📎</span>
                     )}
