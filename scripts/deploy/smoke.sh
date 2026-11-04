@@ -66,11 +66,13 @@ if [[ -n "$expect" ]]; then
     -o go-template='{{range .items}}{{if not .metadata.deletionTimestamp}}{{.metadata.name}}{{"\n"}}{{end}}{{end}}')"
   errors=""
   for pod in $serving; do
-    errors+="$("$kubectl" -n "$namespace" logs "$pod" --tail=-1 --prefix --all-containers | grep -E 'ERROR|Traceback' || true)"
+    # -A 14: a traceback's own lines (the exception type and where it was raised), not just the word "Traceback", so a failed
+    # rollout says what went wrong. `--` separates one match's context from the next.
+    errors+="$("$kubectl" -n "$namespace" logs "$pod" --tail=-1 --prefix --all-containers | grep -E -A 14 'ERROR|Traceback' || true)"
   done
   if [[ -n "$errors" ]]; then
     echo "FAIL backend logged errors since the rollout:" >&2
-    head -20 <<<"$errors" >&2
+    head -60 <<<"$errors" >&2
     failed=1
   else
     echo "ok   backend log: no ERROR or Traceback"
