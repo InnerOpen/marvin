@@ -142,6 +142,8 @@ class CollectionRead(CollectionSummary):
     """Read-only: the provider's emoji, for when it ships no logo."""
     source_integration_has_logo: bool = False
     """Read-only: whether the provider ships a logo (served by GET /api/groups/integrations/providers/{slug}/logo)."""
+    source_package: str | None = None
+    """Read-only: the slug of the package (a labelled bundle of blueprints) that installed this; the sidebar gives its collections a section."""
 
     model_config = ConfigDict(from_attributes=True)
 
