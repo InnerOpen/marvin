@@ -258,6 +258,7 @@ const SETTINGS_TABS: { tab: string; label: string; icon: string; paths: string[]
   // Only once a connected network works with Social (the summary's `show`), like the sidebar's Social group.
   ...(socialSummary?.show ? [{ tab: "social", label: "Social", icon: "💬", paths: ["/workspace/settings/social"] }] : []),
   { tab: "integrations", label: "Integrations", icon: "🔌", paths: ["/workspace/settings/integrations"] },
+  { tab: "workers", label: "Workers", icon: "🧰", paths: ["/workspace/settings/workers"] },
 ];
 const ASK_PATH = "/workspace/settings/ai-ask";
 const activeTab = SETTINGS_TABS.find((t) => t.paths.some((p) => Astro.url.pathname.startsWith(p)) && Astro.url.pathname !== ASK_PATH)?.tab
