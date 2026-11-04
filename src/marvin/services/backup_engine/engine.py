@@ -469,13 +469,26 @@ def backup_config(settings: BackupSettings, target: BackupTarget, now: datetime,
     log.info("config: %s (%s)", key, ", ".join(names))
 
 
-def asset_needs_copy(source: StorageProvider, key: str, remote: TargetObject | None) -> bool:
-    """Copy when the target lacks the asset, the size differs, or both sides can name a digest in the
+def asset_check(target: BackupTarget, env: Mapping[str, str] | None = None) -> str:
+    """How an asset the target already has is checked: ``size`` (compare it with the source: one request per asset, per run) or
+    ``presence`` (having the key is enough). Asset keys carry a UUID, so a file changed under the same key is the exception; a remote
+    target that runs hourly (an S3 bucket) skips the per-asset request, which at a thousand assets was most of the run and the one
+    place a throttled request failed it. A local target (the nightly one) keeps the size check. ``BACKUP_ASSET_CHECK`` overrides it."""
+    value = ((os.environ if env is None else env).get("BACKUP_ASSET_CHECK") or "").strip().lower()
+    if value in ("size", "presence"):
+        return value
+    return "size" if target.slug == "local" else "presence"
+
+
+def asset_needs_copy(source: StorageProvider, key: str, remote: TargetObject | None, check: str = "size") -> bool:
+    """Copy when the target lacks the asset, and with ``check="size"`` also when the size differs, or both sides can name a digest in the
     same algorithm and they differ. A target digest that isn't a content hash (an S3 multipart ETag),
     or a provider that can't hash without downloading, leaves the size as the test: asset keys carry a
     UUID, so a changed file under the same key is the exception."""
     if remote is None:
         return True
+    if check == "presence":
+        return False
     meta = source.get_metadata(key)
     if meta.size != remote.size:
         return True
@@ -505,6 +518,7 @@ def backup_assets(source: AssetSources, target: BackupTarget, report: Report, dr
         log.info("assets: no assets directory yet, nothing to mirror")
         return
     remote = target.list(ASSETS_PREFIX)
+    check = asset_check(target)
     staged = work / "asset"
     seen: set[str] = set()
     for source, key in ((s, k) for s in sources for k in s.iter_keys("")):
@@ -513,7 +527,7 @@ def backup_assets(source: AssetSources, target: BackupTarget, report: Report, dr
         seen.add(key)
         tkey = asset_key(key)
         try:
-            retrying(partial(_mirror_asset, source, key, tkey, remote.get(tkey), target, report, dry_run, staged), what=f"asset {key}")
+            retrying(partial(_mirror_asset, source, key, tkey, remote.get(tkey), target, report, dry_run, staged, check), what=f"asset {key}")
         except FileNotFoundError:
             # Listed, then deleted before its turn (a run takes minutes; someone deleted an asset meanwhile).
             # Nothing is lost — the asset is gone — so it isn't a failure; the target's copy is kept, as always.
@@ -526,10 +540,18 @@ def backup_assets(source: AssetSources, target: BackupTarget, report: Report, dr
 
 
 def _mirror_asset(
-    source: StorageProvider, key: str, tkey: str, remote: TargetObject | None, target: BackupTarget, report: Report, dry_run: bool, staged: Path
+    source: StorageProvider,
+    key: str,
+    tkey: str,
+    remote: TargetObject | None,
+    target: BackupTarget,
+    report: Report,
+    dry_run: bool,
+    staged: Path,
+    check: str = "size",
 ) -> None:
     """Copy one asset if the target lacks it or has a different one. Counts only once it has succeeded, so a retry never counts twice."""
-    if not asset_needs_copy(source, key, remote):
+    if not asset_needs_copy(source, key, remote, check):
         report.assets_unchanged += 1
         return
     if dry_run:
