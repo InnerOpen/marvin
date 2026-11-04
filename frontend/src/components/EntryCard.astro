@@ -1,5 +1,7 @@
 ---
 import type { CollectionRead, EntryRead } from "@/lib/api/types";
+import PlayButton from "@/components/PlayButton.astro";
+import { leadAsset, thumbOf } from "@/lib/entryMedia";
 import { reviewReasons } from "@/lib/reviewReasons";
 
 interface Props {
@@ -18,7 +20,8 @@ const entryCollections = entry.collections
   .filter(Boolean) as CollectionRead[] | undefined;
 // Why it's waiting in the review queue (a flagged submission, a refused newsletter signup…).
 const reasons = entry.status === "needs_review" ? reviewReasons(entry.metadataJson) : [];
-const asset = entry.assets?.find((item) => item.role === "featured" || item.role === "hero") ?? entry.assets?.[0];
+const asset = leadAsset(entry.assets);
+const thumb = thumbOf(entry.assets, entry.title);
 
 // Format relative time
 function formatRelativeTime(timestamp: string | null | undefined): string {
@@ -39,7 +42,11 @@ function formatRelativeTime(timestamp: string | null | undefined): string {
 
 <a href={`/workspace/entries/${entry.id}`} class="card">
   <div class="media">
-    {asset?.publicUrl ? (
+    {thumb?.kind === "audio" ? (
+      <div class="media-placeholder">
+        <PlayButton src={thumb.url} label={`Play ${entry.title}`} size="lg" />
+      </div>
+    ) : asset?.publicUrl ? (
       <img src={asset.publicUrl} alt={asset.altText ?? entry.title} style={`object-position: ${asset.focalPoint ?? "50% 50%"}`} />
     ) : (
       <div class="media-placeholder">

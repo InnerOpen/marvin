@@ -431,6 +431,29 @@ def test_attach_asset_links_a_picture_in_a_role_once(ws):  # noqa: F811
     ws.session.commit()
 
 
+def test_a_dry_run_of_attach_asset_whose_asset_comes_from_an_earlier_step_says_so_instead_of_failing(ws):  # noqa: F811
+    from marvin.services.automation.engine import run_automation_now
+    from marvin.services.automation.recorder import ExecutionRecorder
+
+    article = _published(ws, "Take attached")
+    row = _install(
+        ws,
+        {
+            "trigger": {"type": "manual"},
+            "actions": [
+                {"kind": "entry", "op": "attach_asset", "entity_id": str(article.id), "asset": "${steps.say.output.asset.id}", "role": "audio"}
+            ],
+        },
+    )
+
+    preview = run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, dry_run=True)
+
+    assert preview["ok"]  # the recording does not exist in a dry run, so there is nothing to refuse yet
+    assert (
+        run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, recorder=ExecutionRecorder(ws.session, ws.gid))["ok"] is False
+    )  # a real run still needs it
+
+
 @pytest.mark.parametrize(("decision", "recorded"), [("deny", "denied"), ("approve", "approved")])
 def test_the_decision_is_written_onto_the_pictured_asset(ws, decision, recorded):  # noqa: F811
     """Denied pictures stay in the library, so the asset itself carries what was said: who, when, the note."""
