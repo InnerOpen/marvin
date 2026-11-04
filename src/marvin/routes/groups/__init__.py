@@ -15,6 +15,7 @@ from . import (
     invitation_controller,
     metrics_controller,
     notifications_controller,
+    packages_controller,
     playbooks_controller,
     preferences_controller,
     removed_integration_controller,
@@ -29,6 +30,7 @@ router = APIRouter()
 
 router.include_router(invitation_controller.router, tags=["Groups: Invitations"])
 router.include_router(blueprints_controller.router, tags=["Groups: Blueprints"])
+router.include_router(packages_controller.router, tags=["Groups: Packages"])
 router.include_router(webhook_controller.router, tags=["Groups: Webhooks"])
 router.include_router(secrets_controller.router, tags=["Groups: Secrets"])
 router.include_router(smtp_controller.router, tags=["Groups: SMTP Profiles"])

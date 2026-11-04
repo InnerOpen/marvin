@@ -186,6 +186,7 @@ WORKFLOW_KEYS = {
     "createdBy",
     "sourceIntegrationId",
     "sourceBlueprint",
+    "sourcePackage",
     "sourceRecipe",
     "editedSinceInstall",
     "sourceRecipeVersion",

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from .. import BaseMixins, SqlAlchemyBase
 from .._model_utils.auto_init import auto_init
 from .._model_utils.guid import GUID
-from .._model_utils.installed_by import InstalledByMixin
+from .._model_utils.installed_by import InstalledByMixin, PackagedMixin
 
 if TYPE_CHECKING:
     from .groups import Groups
@@ -92,7 +92,7 @@ def assemble_trigger(trigger_type: str | None, trigger_event: str | None, trigge
     return trigger
 
 
-class WorkspaceAutomationModel(SqlAlchemyBase, BaseMixins, InstalledByMixin):
+class WorkspaceAutomationModel(SqlAlchemyBase, BaseMixins, InstalledByMixin, PackagedMixin):
     """A user-configured automation: `trigger → conditions → actions`.
 
     The API speaks one ``definition`` dict:

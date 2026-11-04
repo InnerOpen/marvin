@@ -16,10 +16,10 @@ from marvin.db.models._model_utils.datetime import AwareDateTime
 
 from .._model_utils.auto_init import auto_init
 from .._model_utils.guid import GUID
-from .._model_utils.installed_by import InstalledByMixin
+from .._model_utils.installed_by import InstalledByMixin, PackagedMixin
 
 
-class ScheduledTaskModel(SqlAlchemyBase, BaseMixins, InstalledByMixin):
+class ScheduledTaskModel(SqlAlchemyBase, BaseMixins, InstalledByMixin, PackagedMixin):
     """
     Scheduled task model for platform automation.
 

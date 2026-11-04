@@ -24,3 +24,15 @@ class InstalledByMixin:
         nullable=True,
         doc="The key (slug) of the blueprint that created this row.",
     )
+
+
+class PackagedMixin:
+    """Which package (a labelled bundle, ``services/blueprints/packages.py``) a row belongs to: the package's slug. Set when a package is
+    installed or adopts the row; NULL means it is in no package. A row can be in at most one."""
+
+    source_package: Mapped[str | None] = mapped_column(
+        sa.String(128),
+        nullable=True,
+        index=True,
+        doc="The slug of the package this row belongs to (NULL: in no package).",
+    )

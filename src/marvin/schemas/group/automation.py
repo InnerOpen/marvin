@@ -50,6 +50,8 @@ class AutomationRead(_MarvinModel):
     """Read-only "installed by": the integration whose blueprint created this (null: made by a person)."""
     source_blueprint: str | None = None
     """Read-only: the slug of the blueprint that created this, if one did."""
+    source_package: str | None = None
+    """Read-only: the slug of the package it belongs to, if any (the Workflows page groups and collapses by it)."""
     source_recipe: str | None = None
     """Read-only: the Workflow Library recipe it was made from, if it was."""
     source_recipe_version: str | None = None
