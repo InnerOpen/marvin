@@ -125,11 +125,11 @@ const isHtml = asset?.mimeType === "text/html";
 
         {isHtml && (
           <div class="pdf-viewer html-viewer">
-            {/* An uploaded page is untrusted: `sandbox` with no flags runs no scripts and gives it no access to this app. Styles and layout still show. */}
+            {/* An uploaded page is untrusted, so it runs in a sandbox: `allow-scripts` lets its own buttons and players work, and with no `allow-same-origin` it is a separate origin with no access to this app, your session or this page. It cannot open windows or navigate this page either. */}
             <iframe
               src={asset.publicUrl}
               title={asset.name}
-              sandbox=""
+              sandbox="allow-scripts"
               referrerpolicy="no-referrer"
             ></iframe>
           </div>
