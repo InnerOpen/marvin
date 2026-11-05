@@ -104,7 +104,7 @@ def _upload(assets, package_name, path, data, group_id, actor_id):
     )
 
 
-def _installed_by(blueprint: Blueprint, integration_id, package, entry_id, session) -> dict:
+def _installed_by(blueprint: Blueprint, integration_id, package, entry_id, session, package_slug: str | None = None) -> dict:
     from marvin.services.playbooks import reference_files
     from marvin.services.playbooks.blueprint import declared_file_shas
 
@@ -115,17 +115,22 @@ def _installed_by(blueprint: Blueprint, integration_id, package, entry_id, sessi
         "hash": declared_hash(package),
         "fileShas": declared_file_shas(package),
         "assets": {f.path: f.asset_id for f in reference_files(session, entry_id)},
+        **({"package": package_slug} if package_slug else {}),
     }
 
 
-def create_playbook(session, group_id, blueprint: Blueprint, integration_id, actor_id, event_bus=None) -> str:
-    """Add the Playbook as a draft with its files and its review (source: the integration). Commits. Returns a note for the result
-    (files the asset store turned down). Raises ``ValueError`` (the card shows it) when it can't be added."""
+def create_playbook(session, group_id, blueprint: Blueprint, integration_id, actor_id, event_bus=None, package_slug: str | None = None) -> str:
+    """Add the Playbook as a draft with its files and its review (source: the integration, or the package it came in). Commits.
+    Returns a note for the result (files the asset store turned down). Raises ``ValueError`` (the card shows it) when it can't be added."""
     if actor_id is None:  # the entry's creator and the files' uploader are recorded: a Playbook is added by a person
         raise ValueError("a Playbook is added by a person: no one is recorded as adding it")
     entries, assets = _services(session, group_id, actor_id, event_bus)
     package = package_of(blueprint)
-    review_source = {"kind": "integration", "provider": blueprint.source, "name": provider_name(blueprint.source)}
+    review_source = (
+        {"kind": "package", "name": package_slug}
+        if package_slug
+        else {"kind": "integration", "provider": blueprint.source, "name": provider_name(blueprint.source)}
+    )
     try:
         done = create_playbook_from_package(
             session,
@@ -141,7 +146,10 @@ def create_playbook(session, group_id, blueprint: Blueprint, integration_id, act
     except ImportRefused as e:
         raise ValueError(str(e)) from e
     row = session.get(Entries, done.entry.id)
-    row.metadata_json = {**(row.metadata_json or {}), PROVENANCE_KEY: _installed_by(blueprint, integration_id, package, row.id, session)}
+    row.metadata_json = {
+        **(row.metadata_json or {}),
+        PROVENANCE_KEY: _installed_by(blueprint, integration_id, package, row.id, session, package_slug),
+    }
     flag_modified(row, "metadata_json")
     session.commit()
     skipped = done.review.get("skipped") or []

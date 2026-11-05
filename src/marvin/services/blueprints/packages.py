@@ -5,7 +5,8 @@ are the blueprints' own: create what is missing, never overwrite what exists, an
 row created is stamped with the package's slug (`source_package`), which is what groups it on the Workflows page. The whole manifest is kept
 so the package can be downloaded again as it was installed.
 
-Nothing here commits: the caller does, once it has the result (a preview rolls its work back instead).
+Nothing here commits, except a Playbook (which brings files, so its writers commit): the caller commits the rest once it has the result, and a
+preview rolls its work back instead and only checks a Playbook.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from __future__ import annotations
 import json
 
 from pydantic import ValidationError
+from sqlalchemy.orm.attributes import flag_modified
 
 from marvin.core.root_logger import get_logger
 from marvin.schemas.platform.blueprints import Blueprint, BlueprintApplyResult
@@ -25,6 +27,8 @@ from marvin.schemas.platform.packages import (
     PackageRead,
     PackageResult,
 )
+from marvin.services.playbooks import PLAYBOOK_STATUS
+from marvin.services.playbooks.blueprint import PROVENANCE_KEY
 
 from .apply import apply_many
 
@@ -48,6 +52,10 @@ COLLECTION_COLUMNS = (
     "in_sidebar",
     "metadata_json",
 )
+
+
+#: What a Playbook in a package does on install, said where the person reads the preview.
+PLAYBOOK_NOTE = "arrives as a draft; read it and publish it on the Playbooks page before agents can use it"
 
 
 class PackageError(ValueError):
@@ -126,6 +134,8 @@ def _item(blueprint: Blueprint, result: BlueprintApplyResult, *, preview: bool) 
     else:
         status = "blocked"
     summary = workflow_summary((blueprint.payload or {}).get("definition")) if blueprint.kind == "workflow" else ""
+    if blueprint.kind == "playbook":
+        summary = PLAYBOOK_NOTE
     return PackageItem(
         slug=result.slug, kind=blueprint.kind, name=result.name or blueprint.name, status=status, detail=result.detail or "", summary=summary
     )
@@ -147,12 +157,28 @@ def _result(manifest: PackageManifest, results: list[BlueprintApplyResult], *, p
 
 def preview(session, group_id, manifest: PackageManifest, actor_id=None) -> PackageResult:
     """What installing would do, per blueprint. Applies for real inside the transaction and rolls it back, so the answer is exactly what an
-    install would do (requirements, existing slugs, a workflow that fails validation) and nothing is left behind. Packages carry only kinds
-    whose apply never commits."""
-    results = apply_many(session, group_id, manifest.blueprints, actor_id=actor_id, event_bus=None, package=manifest.slug)
+    install would do (requirements, existing slugs, a workflow that fails validation) and nothing is left behind. A Playbook is the one kind
+    whose apply commits, so it is only checked here (is the name free?), never made."""
+    rest = [b for b in manifest.blueprints if b.kind != "playbook"]
+    results = apply_many(session, group_id, rest, actor_id=actor_id, event_bus=None, package=manifest.slug)
+    results += [_playbook_outcome(session, group_id, b) for b in manifest.blueprints if b.kind == "playbook"]
     outcome = _result(manifest, results, preview=True)
     session.rollback()
     return outcome
+
+
+def _playbook_outcome(session, group_id, blueprint: Blueprint) -> BlueprintApplyResult:
+    """What installing this Playbook would do, from the same checks the install makes before it creates anything."""
+    from .playbook_apply import applied_row, blueprint_conflict
+
+    result = BlueprintApplyResult(slug=blueprint.slug, kind="playbook", created=False, name=blueprint.name)
+    if applied_row(session, group_id, blueprint) is not None:
+        result.detail = f"a playbook with slug '{blueprint.slug}' already exists — left as it is"
+    elif conflict := blueprint_conflict(session, group_id, blueprint):
+        result.detail = conflict
+    else:
+        result.created = True
+    return result
 
 
 def install(session, group_id, manifest: PackageManifest, actor_id=None, event_bus=None) -> PackageResult:
@@ -201,18 +227,29 @@ def _read(session, group_id, row, models: dict) -> PackageRead:
         model = models[kind]
         return session.query(model).filter(model.group_id == group_id, model.source_package == row.slug, *extra).count()
 
+    playbooks = _playbooks_of(session, group_id, row.slug)
     return PackageRead(
         slug=row.slug,
         name=row.name,
         description=row.description,
         version=row.version,
         entry_types=[b["slug"] for b in (row.manifest or {}).get("blueprints", []) if b.get("kind") == "entry_type"],
+        playbooks=[b["slug"] for b in (row.manifest or {}).get("blueprints", []) if b.get("kind") == "playbook"],
+        playbooks_published=sum(1 for entry in playbooks if entry.status == PLAYBOOK_STATUS),
         workflows=count("workflow"),
         workflows_on=count("workflow", models["workflow"].enabled.is_(True)),
         collections=count("collection"),
         scheduled_tasks=count("scheduled_task"),
         incoming_webhooks=count("incoming_webhook"),
     )
+
+
+def _playbooks_of(session, group_id, package_slug: str) -> list:
+    """The Playbook entries this package made here: they carry its slug in their install record, a person's own Playbook of that name does not."""
+    from marvin.services.playbooks import all_playbooks
+    from marvin.services.playbooks.blueprint import PROVENANCE_KEY
+
+    return [e for e in all_playbooks(session, group_id) if ((e.metadata_json or {}).get(PROVENANCE_KEY) or {}).get("package") == package_slug]
 
 
 def manifest_of(session, group_id, slug: str) -> PackageManifest:
@@ -255,6 +292,11 @@ def remove(session, group_id, slug: str) -> int:
             .filter(model.group_id == group_id, model.source_package == slug)
             .update({"source_package": None}, synchronize_session=False)
         )
+    for entry in _playbooks_of(session, group_id, slug):
+        installed = {k: v for k, v in entry.metadata_json[PROVENANCE_KEY].items() if k != "package"}
+        entry.metadata_json = {**entry.metadata_json, PROVENANCE_KEY: installed}
+        flag_modified(entry, "metadata_json")
+        ungrouped += 1
     session.delete(row)
     session.flush()
     return ungrouped
