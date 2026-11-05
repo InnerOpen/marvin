@@ -6,7 +6,7 @@ import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { getBrowserApiBaseUrl } from "@/lib/api/config";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
 import { runGuide } from "@/lib/workerCommands";
-import { ago, type TypeShape, type RecordRow, STATUSES, summarize, workerSetup } from "@/lib/workers";
+import { ago, imageLabel, type TypeShape, type RecordRow, STATUSES, summarize, workerSetup } from "@/lib/workers";
 
 const authToken = getAuthToken(Astro.cookies);
 type Found = { entries: RecordRow[] };
@@ -129,6 +129,7 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
               {w.modes ? ` · starts ${w.modes}` : ""}
               {w.tags ? ` · has ${w.tags}` : ""}
               {w.jobsDone !== null ? ` · ${w.jobsDone} done` : ""}
+              {imageLabel(w) ? ` · image ${imageLabel(w)}` : ""}
             </span>
             {w.kinds.length > 0 && <span class="kind-list">{w.kinds.map((k) => <span class="pill">{k}</span>)}</span>}
             {!w.healthy && (

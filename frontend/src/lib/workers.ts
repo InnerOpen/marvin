@@ -90,6 +90,10 @@ export interface WorkerView {
   tags: string;
   kinds: string[];
   jobsDone: number | null;
+  /** which image the worker says it runs (WORKER_IMAGE, WORKER_VERSION, WORKER_REVISION in its heartbeat): empty for an older worker or one that was not told */
+  image: string;
+  version: string;
+  revision: string;
 }
 
 export interface Capability {
@@ -167,6 +171,9 @@ export function summarize(jobs: RecordRow[], kindRows: RecordRow[], workers: Rec
         tags: text(field(row, "tags")),
         kinds: offered(row).map((k) => text(k.kind)).filter(Boolean),
         jobsDone: typeof done === "number" ? done : null,
+        image: text(field(row, "image")),
+        version: text(field(row, "version")),
+        revision: text(field(row, "revision")),
       };
     })
     .sort((a, b) => (a.lastSeenAgo ?? Infinity) - (b.lastSeenAgo ?? Infinity));
@@ -217,6 +224,13 @@ export function needsLook(view: WorkersView, withinSeconds: number = 86400): num
   const unknown = view.jobs.filter((j) => j.unknownKind).length;
   const unattended = view.workers.length > 0 && !view.workers.some((w) => w.healthy) ? (view.counts.queued ?? 0) : 0;
   return failed + stuck + unknown + unattended;
+}
+
+/** The image a worker runs, in one phrase: "screenplay-studio-worker:v35 (1b702bf)", or "" when it did not say. */
+export function imageLabel(w: { image: string; version: string; revision: string }): string {
+  if (!w.image && !w.version) return w.revision ? `revision ${w.revision}` : "";
+  const name = w.image ? (w.version ? `${w.image}:${w.version}` : w.image) : w.version;
+  return w.revision ? `${name} (${w.revision})` : name;
 }
 
 /** "5 s", "3 min", "2 h", "4 d": how long ago, short. */

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { runGuide } from "./workerCommands.ts";
-import { ago, needsLook, summarize, workerSetup } from "./workers.ts";
+import { ago, imageLabel, needsLook, summarize, workerSetup } from "./workers.ts";
 
 const NOW = Date.parse("2026-11-04T12:00:00Z");
 const iso = (secondsAgo) => new Date(NOW - secondsAgo * 1000).toISOString();
@@ -188,5 +188,21 @@ describe("needsLook", () => {
 
   test("a stuck job and a job for an unregistered kind each count once", () => {
     assert.equal(count([job("a", { kind: "k", status: "running", claimed_at: iso(99999) }, 100000), job("b", { kind: "nope", status: "queued" })], [beat(10)]), 2);
+  });
+});
+
+describe("which image a worker runs", () => {
+  test("a heartbeat that names its image shows it, with the release and the commit", () => {
+    const [w] = summarize([], [], [beat(10, { image: "screenplay-studio-worker", version: "v35", revision: "1b702bf" })], NOW).workers;
+    assert.deepEqual([w.image, w.version, w.revision], ["screenplay-studio-worker", "v35", "1b702bf"]);
+    assert.equal(imageLabel(w), "screenplay-studio-worker:v35 (1b702bf)");
+  });
+
+  test("an older worker, or one that was not told, says nothing; partial names still read", () => {
+    const [old] = summarize([], [], [beat(10)], NOW).workers;
+    assert.equal(imageLabel(old), "");
+    assert.equal(imageLabel({ image: "w", version: "", revision: "" }), "w");
+    assert.equal(imageLabel({ image: "", version: "v2", revision: "" }), "v2");
+    assert.equal(imageLabel({ image: "", version: "", revision: "abc" }), "revision abc");
   });
 });
