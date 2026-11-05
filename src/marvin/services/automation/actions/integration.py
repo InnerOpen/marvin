@@ -56,7 +56,10 @@ media.keep_generated_audio. `speech.transcribe` goes the other way: its `source`
 the provider as `audio_b64` / `audio_mime`, and it answers text.
 """
 
+import time
+
 from marvin.services import automation_results
+from marvin.services.integrations import usage_log
 
 from ..matcher import interpolate
 from .base import AutomationActionError, IntegrationStepError, register_action
@@ -359,6 +362,7 @@ def _call_provider(session, group_id, row, provider, key, args, src, keeps_image
     ctx = errors.build_context(
         IntegrationContext, config=row.config or {}, secret=secret, logger=_logger(), http=build_http(), resume=resume, idempotency_seed=seed
     )
+    started = time.monotonic()
     try:
         result = provider.run_action(key, args, ctx)
     except Exception as e:  # noqa: BLE001 — every provider failure becomes a step failure the error policy can handle
@@ -385,6 +389,16 @@ def _call_provider(session, group_id, row, provider, key, args, src, keeps_image
     if not dry_run:  # a dry run asked the plugin what it would do: nothing was spent, nothing is proven to work
         errors.action_succeeded(session, group_id, row.id, key, context)
     out = result if isinstance(result, dict) else {}
+    if not dry_run:  # what it spent, in AI executions under the provider's name (not in the AI spend total)
+        usage_log.record_call(
+            session,
+            group_id,
+            row,
+            action.get("capability") or f"{row.provider}.{key}",
+            out,
+            user_id=user_id,
+            elapsed_ms=int((time.monotonic() - started) * 1000),
+        )
     if not dry_run:  # an action that hands work off: it is in flight now, until the other side reports back
         automation_results.track(session, group_id, row, _declared_action(provider, key), plain_args, context, out=out)
     if keeps_images:

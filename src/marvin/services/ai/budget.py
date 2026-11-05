@@ -29,6 +29,14 @@ LEVEL_OVER = "over"
 TOP_OPERATIONS = 8
 # The bubble stored its main-agent runs as bare "agent" until 2026-10-03; they are the same agent.
 LEGACY_OPERATIONS = {"agent": "agent:marvin"}
+#: ``trigger_type`` of a run that is an integration's own call (ElevenLabs speech, an image service), not the workspace's AI. They are logged
+#: in AI executions with the provider's name, but the limits and totals here are for the AI set up in AI settings, so they leave them out.
+INTEGRATION_TRIGGERS = ("capability", "integration")
+
+
+def ai_runs(query, model):
+    """`query` narrowed to the workspace's own AI runs: an integration's calls (``INTEGRATION_TRIGGERS``) are not in its total or its limits."""
+    return query.filter(model.trigger_type.notin_(INTEGRATION_TRIGGERS))
 
 
 @dataclass(frozen=True)
@@ -48,6 +56,8 @@ class Usage:
     today_runs: int = 0
     resets_on: date | None = None
     by_operation: list[dict] = field(default_factory=list)
+    integrations: list[dict] = field(default_factory=list)
+    """This month's calls to integrations that bill in their own units (ElevenLabs characters): `integration_tally`. Not in any total above."""
     unpriced: list[dict] = field(default_factory=list)
     """This month's completed runs with no price, per provider and model: their cost is unknown, so the monthly
     limit can't see it ({provider, model, runs, tokens})."""
@@ -154,7 +164,7 @@ def month_spend(session, group_id, now: datetime | None = None) -> float:
 
     now = now or datetime.now(UTC)
     return float(
-        session.query(func.sum(AIExecutionModel.estimated_cost_usd))
+        ai_runs(session.query(func.sum(AIExecutionModel.estimated_cost_usd)), AIExecutionModel)
         .filter(
             AIExecutionModel.group_id == group_id,
             AIExecutionModel.created_at >= _month_start(now),
@@ -172,7 +182,7 @@ def unpriced(session, group_id, now: datetime | None = None) -> list[dict]:
 
     now = now or datetime.now(UTC)
     rows = (
-        session.query(Run.provider_type, Run.model_id, func.count(Run.id), func.coalesce(func.sum(Run.total_tokens), 0))
+        ai_runs(session.query(Run.provider_type, Run.model_id, func.count(Run.id), func.coalesce(func.sum(Run.total_tokens), 0)), Run)
         .filter(
             Run.group_id == group_id,
             Run.created_at >= _month_start(now),
@@ -187,6 +197,30 @@ def unpriced(session, group_id, now: datetime | None = None) -> list[dict]:
     return sorted(found, key=lambda u: (-u["runs"], u["provider"], u["model"]))
 
 
+def integration_tally(session, group_id, now: datetime | None = None) -> list[dict]:
+    """This month's completed integration calls, per provider and unit: {provider, unit, calls, units, billed}. ``units`` is what the call used
+    (characters of text); ``billed`` is that times the model's multiplier when the provider reported one (ElevenLabs: some models cost half a
+    character per character). No dollars: Marvin cannot know a plan's price, so this is a tally to read against the provider's own meter."""
+    from marvin.db.models.groups.ai_executions import AIExecutionModel as Run
+
+    now = now or datetime.now(UTC)
+    rows = (
+        session.query(Run.provider_type, Run.metadata_json)
+        .filter(Run.group_id == group_id, Run.created_at >= _month_start(now), Run.status == "completed", Run.trigger_type.in_(INTEGRATION_TRIGGERS))
+        .all()
+    )
+    tally: dict[tuple[str, str], dict] = {}
+    for provider, meta in rows:
+        meta = meta or {}
+        unit = str(meta.get("unit") or "calls")
+        entry = tally.setdefault((provider, unit), {"provider": provider, "unit": unit, "calls": 0, "units": 0, "billed": 0.0})
+        used = int(meta.get("units") or 0)
+        entry["calls"] += 1
+        entry["units"] += used
+        entry["billed"] += used * float(meta.get("multiplier") or 1.0)
+    return sorted(tally.values(), key=lambda t: (-t["calls"], t["provider"], t["unit"]))
+
+
 def first_unpriced_between(session, start: datetime, end: datetime) -> list[dict]:
     """(workspace, provider, model) whose first unpriced run (within the execution log's retention) falls in
     [start, end): the models that just started running with no price. Used by the hourly check, which looks at
@@ -195,7 +229,7 @@ def first_unpriced_between(session, start: datetime, end: datetime) -> list[dict
 
     first = func.min(Run.created_at)
     rows = (
-        session.query(Run.group_id, Run.provider_type, Run.model_id, first)
+        ai_runs(session.query(Run.group_id, Run.provider_type, Run.model_id, first), Run)
         .filter(Run.status == "completed", Run.estimated_cost_usd.is_(None), Run.total_tokens > 0)
         .group_by(Run.group_id, Run.provider_type, Run.model_id)
         .having(first >= start, first < end)
@@ -210,7 +244,9 @@ def runs_today(session, group_id, now: datetime | None = None) -> int:
     now = now or datetime.now(UTC)
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     return int(
-        session.query(func.count(AIExecutionModel.id)).filter(AIExecutionModel.group_id == group_id, AIExecutionModel.created_at >= today).scalar()
+        ai_runs(session.query(func.count(AIExecutionModel.id)), AIExecutionModel)
+        .filter(AIExecutionModel.group_id == group_id, AIExecutionModel.created_at >= today)
+        .scalar()
         or 0
     )
 
@@ -304,11 +340,14 @@ def usage(session, group_id, now: datetime | None = None) -> Usage:
     now = now or datetime.now(UTC)
     since = _month_start(now)
     rows = (
-        session.query(
-            AIExecutionModel.operation_slug,
-            func.count(AIExecutionModel.id),
-            func.coalesce(func.sum(AIExecutionModel.total_tokens), 0),
-            func.coalesce(func.sum(AIExecutionModel.estimated_cost_usd), 0.0),
+        ai_runs(
+            session.query(
+                AIExecutionModel.operation_slug,
+                func.count(AIExecutionModel.id),
+                func.coalesce(func.sum(AIExecutionModel.total_tokens), 0),
+                func.coalesce(func.sum(AIExecutionModel.estimated_cost_usd), 0.0),
+            ),
+            AIExecutionModel,
         )
         .filter(AIExecutionModel.group_id == group_id, AIExecutionModel.created_at >= since)
         .group_by(AIExecutionModel.operation_slug)
@@ -332,4 +371,5 @@ def usage(session, group_id, now: datetime | None = None) -> Usage:
         resets_on=_next_month(now),
         by_operation=ops[:TOP_OPERATIONS],
         unpriced=unpriced(session, group_id, now),
+        integrations=integration_tally(session, group_id, now),
     )

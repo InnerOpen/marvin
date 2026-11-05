@@ -43,19 +43,20 @@ def _limits(db_session, gid, **cfg):
     db_session.commit()
 
 
-def _run(db_session, gid, *, op="generate-summary", cost=0.0, tokens=0, status="completed", at=NOW):
+def _run(db_session, gid, *, op="generate-summary", cost=0.0, tokens=0, status="completed", at=NOW, trigger="api", provider="openai", meta=None):
     from marvin.db.models.groups.ai_executions import AIExecutionModel
 
     row = AIExecutionModel(
         session=db_session,
         group_id=gid,
         operation_slug=op,
-        provider_type="openai",
+        provider_type=provider,
         model_id="m",
         status=status,
-        trigger_type="api",
+        trigger_type=trigger,
         estimated_cost_usd=cost,
         total_tokens=tokens,
+        metadata_json=meta,
     )
     row.created_at = at
     db_session.add(row)
@@ -272,3 +273,38 @@ def test_the_hourly_check_sends_one_event_per_newly_seen_model(db_session, works
     task.check_unpriced_models(now=datetime(2026, 10, 3, 15, 7, tzinfo=UTC))  # looks at 14:00–15:00
 
     assert ("ai_model_unpriced", workspace, "anthropic", "claude-next", "unpriced_model") in sent
+
+
+# --- an integration's calls are logged, but are not AI spend ---------------------------------------------------------
+
+
+def _speech(db_session, gid, characters, multiplier=1.0, **kw):
+    meta = {"unit": "characters", "units": characters, "multiplier": multiplier}
+    return _run(db_session, gid, op="speech.synthesize", provider="elevenlabs", trigger="integration", meta=meta, **kw)
+
+
+def test_an_integrations_calls_are_left_out_of_the_monthly_total_the_limits_and_the_unpriced_list(db_session, workspace):
+    _run(db_session, workspace, cost=0.25, tokens=100)
+    _speech(db_session, workspace, 400, cost=9.0, tokens=50)  # even a priced integration row is not AI spend
+    _run(db_session, workspace, op="describe", trigger="capability", cost=3.0, tokens=10)
+
+    assert budget.month_spend(db_session, workspace, NOW) == pytest.approx(0.25)
+    assert budget.runs_today(db_session, workspace, NOW) == 1
+    assert budget.unpriced(db_session, workspace, NOW) == []
+    assert [o["operation"] for o in budget.usage(db_session, workspace, NOW).by_operation] == ["generate-summary"]
+
+
+def test_the_integration_tally_counts_characters_and_applies_the_models_multiplier(db_session, workspace):
+    _speech(db_session, workspace, 400)
+    _speech(db_session, workspace, 1000, multiplier=0.5)
+    _speech(db_session, workspace, 50, status="failed")  # a failed call used nothing
+
+    [row] = budget.integration_tally(db_session, workspace, NOW)
+
+    assert row == {"provider": "elevenlabs", "unit": "characters", "calls": 2, "units": 1400, "billed": 900.0}
+
+
+def test_the_tally_is_this_months_only(db_session, workspace):
+    _speech(db_session, workspace, 400, at=datetime(2026, 9, 30, 12, 0, tzinfo=UTC))
+
+    assert budget.integration_tally(db_session, workspace, NOW) == []
