@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { messageParts } from "./linkify.ts";
+import { describeAddress, messageParts } from "./linkify.ts";
 
 describe("messageParts", () => {
   test("a message with no address is one plain part", () => {
@@ -33,5 +33,17 @@ describe("messageParts", () => {
   test("an empty or missing message is no parts", () => {
     assert.deepEqual(messageParts(""), []);
     assert.deepEqual(messageParts(undefined), []);
+  });
+});
+
+describe("describeAddress", () => {
+  test("names the site and the rest of the address in short", () => {
+    assert.deepEqual(describeAddress("https://admin.iwobble.com/workspace/assets/74e83b26/view?x=1#top"), { host: "admin.iwobble.com", path: "workspace/assets/74e83b26/view" });
+    assert.deepEqual(describeAddress("https://www.example.com/"), { host: "example.com", path: "" });
+    assert.deepEqual(describeAddress("http://localhost:4321/a/"), { host: "localhost:4321", path: "a" });
+  });
+
+  test("an address the browser cannot parse is shown whole", () => {
+    assert.deepEqual(describeAddress("https://"), { host: "https://", path: "" });
   });
 });

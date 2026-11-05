@@ -1,5 +1,5 @@
 ---
-import { messageParts } from "@/lib/linkify";
+import MessageText from "@/components/MessageText.astro";
 /**
  * The dashboard's live panels, from GET /api/platform/stats/dashboard: a health strip, what waits on the member
  * (approvals decided inline, parked runs, the triage counts with the age of the oldest item), what the next seven
@@ -214,7 +214,7 @@ if (showAi && (monthLimit != null || dayLimit != null)) {
           <ul class="attention-list">
             {approvals.map((a) => (
               <li class="approval" data-id={a.id}>
-                <p class="approval-ask">{messageParts(a.message).map((part) => part.href ? <a href={part.href} target="_blank" rel="noopener noreferrer">{part.text}</a> : part.text)}</p>
+                <p class="approval-ask"><MessageText message={a.message} /></p>
                 {(a.imageUrl ?? a.image_url) && (isAudioUrl(a.imageUrl ?? a.image_url)
                   ? <audio class="approval-audio" src={a.imageUrl ?? a.image_url} controls preload="metadata" />
                   : <a href={a.imageUrl ?? a.image_url} target="_blank" rel="noopener"><img class="approval-pic" src={a.imageUrl ?? a.image_url} alt="" loading="lazy" /></a>)}

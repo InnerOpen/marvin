@@ -1,0 +1,71 @@
+---
+import { describeAddress, messageParts } from "@/lib/linkify";
+/**
+ * An approval's message (plain text a workflow wrote) with each web address shown as a link card: an arrow, the site in bold and the rest
+ * of the address beneath it, so "watch the filmstrip first: https://…" reads as a thing to open, not a string to copy. Everything printed
+ * is escaped; only http(s) addresses become links (see lib/linkify.ts).
+ */
+interface Props {
+  message: string | null | undefined;
+}
+const { message } = Astro.props;
+const parts = messageParts(message);
+---
+
+{parts.map((part) => {
+  if (!part.href) return part.text;
+  const { host, path } = describeAddress(part.href);
+  return (
+    <a class="message-link" href={part.href} target="_blank" rel="noopener noreferrer" title={part.href}>
+      <span class="message-link-icon" aria-hidden="true">↗</span>
+      <span class="message-link-text">
+        <strong>{host}</strong>
+        {path && <span>{path}</span>}
+      </span>
+    </a>
+  );
+})}
+
+<style is:global>
+  .message-link {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin: 0.5rem 0;
+    padding: 0.55rem 0.75rem;
+    max-width: 32rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel-2);
+    color: inherit;
+    text-decoration: none;
+  }
+  .message-link:hover,
+  .message-link:focus-visible {
+    border-color: var(--accent, currentColor);
+  }
+  .message-link-icon {
+    flex: none;
+    font-size: 1.1rem;
+    color: var(--accent, inherit);
+  }
+  .message-link-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.3;
+  }
+  .message-link-text strong {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .message-link-text span {
+    color: var(--muted);
+    font-size: 0.8125rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+</style>
