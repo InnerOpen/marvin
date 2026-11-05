@@ -2724,6 +2724,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     const warnings = (res.warnings || []).map((w: string) => `<div class="hint run-err">${esc(w)}</div>`).join("");
     return head + warnings + (plan.length ? plan.map(planStepRow).join("") : `<span class="hint">No steps would run (target/conditions matched nothing).</span>`);
   }
+  // The sample each workflow was last tested with, so pressing Dry run again tests the same entry or event instead of the default one.
+  const dryRunPicks = new Map<string, any>();
   async function showDryRun(card: Element, wf: any, sample?: any) {
     const panel = card.querySelector(".wf-history") as HTMLElement;
     panel.removeAttribute("hidden");
@@ -2736,11 +2738,17 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     const body = panel.querySelector(".dry-body") as HTMLElement | null;
     (body ?? panel).innerHTML = `<span class="hint">Resolving plan…</span>`;
     try {
-      const [res, listed]: [any, any] = await Promise.all([
-        dryRunAutomation(wf.id, sample),
-        // The picker's candidates load once per opening; a re-pick only re-runs the dry run.
-        sample ? Promise.resolve(null) : listDryRunSamples(wf.id),
-      ]);
+      // A button press tests the remembered pick (or the default); the list of candidates reloads, a re-pick only re-runs the dry run.
+      let res: any;
+      try {
+        res = await dryRunAutomation(wf.id, sample ?? dryRunPicks.get(wf.id));
+      } catch (e) {
+        if (sample || !dryRunPicks.has(wf.id)) throw e;
+        dryRunPicks.delete(wf.id); // the remembered entry or event is gone: fall back to the default
+        res = await dryRunAutomation(wf.id);
+      }
+      if (sample) dryRunPicks.set(wf.id, sample);
+      const listed: any = sample ? null : await listDryRunSamples(wf.id);
       if (listed) {
         const samples: any[] = listed.samples ?? [];
         if (res.sample && !samples.some((s) => sampleKey(s) === sampleKey(res.sample))) samples.unshift(res.sample);
