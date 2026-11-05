@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { runGuide } from "./workerCommands.ts";
-import { ago, summarize, workerSetup } from "./workers.ts";
+import { ago, needsLook, summarize, workerSetup } from "./workers.ts";
 
 const NOW = Date.parse("2026-11-04T12:00:00Z");
 const iso = (secondsAgo) => new Date(NOW - secondsAgo * 1000).toISOString();
@@ -165,5 +165,28 @@ describe("runGuide", () => {
     const code = guide.options.find((o) => o.id === "kubernetes").blocks.map((b) => b.code).join("\n");
     assert.match(code, /kubectl create secret/);
     assert.match(code, /oc create secret/);
+  });
+});
+
+describe("needsLook", () => {
+  const count = (jobs, workers) => needsLook(summarize(jobs, [kind("k")], workers, NOW));
+
+  test("a workspace that never used workers counts nothing", () => {
+    assert.equal(count([], []), 0);
+  });
+
+  test("a job that failed in the last day counts; an older one does not", () => {
+    assert.equal(count([job("a", { kind: "k", status: "failed" }, 600), job("b", { kind: "k", status: "failed" }, 3 * 86400), job("c", { kind: "k", status: "done" })], [beat(10)]), 1);
+  });
+
+  test("queued jobs count only when workers have reported before and none is running now", () => {
+    const queued = [job("a", { kind: "k", status: "queued" }), job("b", { kind: "k", status: "queued" })];
+    assert.equal(count(queued, [beat(10)]), 0);
+    assert.equal(count(queued, [beat(900)]), 2);
+    assert.equal(count(queued, []), 0);
+  });
+
+  test("a stuck job and a job for an unregistered kind each count once", () => {
+    assert.equal(count([job("a", { kind: "k", status: "running", claimed_at: iso(99999) }, 100000), job("b", { kind: "nope", status: "queued" })], [beat(10)]), 2);
   });
 });

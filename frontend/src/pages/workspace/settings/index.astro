@@ -13,6 +13,8 @@ import { getAutomationAttention } from "@/lib/api/automationAttention";
 import { countBadge, waitingText } from "@/lib/automationAttention";
 import { listApprovals } from "@/lib/api/workflowApprovals";
 import { showResults } from "@/lib/automationResults";
+import { getIntegrationHealth } from "@/lib/api/integrations";
+import { needsLook, summarize, type RecordRow } from "@/lib/workers";
 
 const authToken = getAuthToken(Astro.cookies);
 const currentTab = Astro.url.searchParams.get("tab") || "general";
@@ -88,6 +90,24 @@ const kinds = automationAttention?.kinds ?? {};
 const lookText = (n: number | null | undefined) => ((n ?? 0) > 0 ? ` · ${n} need${n === 1 ? "s" : ""} a look` : "");
 const attentionHref = (id: string, n: number | null | undefined) => ((n ?? 0) > 0 ? `${navHref(id)}?status=attention` : navHref(id));
 
+// Integrations: open alerts on connections (an admin sees them; anyone else gets a 403: none). Workers: failed, stuck or unattended jobs.
+const integrationAlerts = ((await getIntegrationHealth(authToken!).catch(() => [])) as { openAlerts?: number }[]).reduce((n, row) => n + (row.openAlerts ?? 0), 0);
+const findRecords = (entryType: string, limit: number, sort = false): Promise<RecordRow[]> =>
+  fetchApi<{ entries: RecordRow[] }>(
+    "/api/platform/entries/query",
+    { method: "POST", body: JSON.stringify({ spec: { entry_type: entryType, ...(sort ? { sort: { by: "created_at", direction: "desc" } } : {}) }, limit }) },
+    authToken,
+  )
+    .then((r) => r.entries ?? [])
+    .catch(() => []);
+const [workerJobs, workerKinds, workerBeats] = await Promise.all([findRecords("job", 40, true), findRecords("job-kind", 100), findRecords("worker", 20)]);
+const workersCount = needsLook(summarize(workerJobs, workerKinds, workerBeats));
+const tabCounts: Record<string, { text: string; title: string }> = {
+  automation: { text: automationCount, title: "Automation items that need a look or a decision" },
+  integrations: { text: countBadge(integrationAlerts), title: "Open alerts on your connections" },
+  workers: { text: countBadge(workersCount), title: "Jobs that failed, ran past their time or have no worker to run them" },
+};
+
 const tabs = [
   { id: "general", label: "General", icon: "⚙" },
   { id: "members", label: "Members", icon: "👥" },
@@ -121,8 +141,8 @@ const tabs = [
         >
           <span class="tab-icon">{tab.icon}</span>
           <span class="tab-label">{tab.label}</span>
-          {tab.id === "automation" && automationCount && (
-            <span class="tab-count" title="Automation items that need a look or a decision" aria-label={`${automationCount} need a look or a decision`}>{automationCount}</span>
+          {tabCounts[tab.id]?.text && (
+            <span class="tab-count" title={tabCounts[tab.id].title} aria-label={`${tabCounts[tab.id].text}: ${tabCounts[tab.id].title}`}>{tabCounts[tab.id].text}</span>
           )}
         </a>
       ))}
@@ -385,8 +405,8 @@ const tabs = [
                 <p>Add and configure external service connections</p>
               </a>
               <a href={navHref("settings.integrations.health")} class="link-card">
-                <strong>{navTitle("settings.integrations.health")}</strong>
-                <p>Connections that need attention, retries, handled failures, and where alerts go</p>
+                <strong>{navTitle("settings.integrations.health")}{countBadge(integrationAlerts) && <span class="tab-count" aria-hidden="true">{countBadge(integrationAlerts)}</span>}</strong>
+                <p>Connections that need attention, retries, handled failures, and where alerts go{integrationAlerts > 0 ? ` · ${integrationAlerts} open alert${integrationAlerts === 1 ? "" : "s"}` : ""}</p>
               </a>
             </div>
           ) : null}

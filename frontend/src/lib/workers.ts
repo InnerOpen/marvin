@@ -208,6 +208,17 @@ export function summarize(jobs: RecordRow[], kindRows: RecordRow[], workers: Rec
   return { counts, jobs: jobViews, kinds, workers: workerViews, capabilities, warnings };
 }
 
+/** How many things on the Workers page need a look, for the count on the Settings tab: jobs that failed in the last day, jobs past
+ *  their time, jobs asking for a kind nobody registered, and queued jobs when workers have reported before but none is running now.
+ *  Nothing counts in a workspace that has never used workers (no jobs, no worker records). */
+export function needsLook(view: WorkersView, withinSeconds: number = 86400): number {
+  const failed = view.jobs.filter((j) => j.status === "failed" && (j.queuedAgo ?? Infinity) <= withinSeconds).length;
+  const stuck = view.jobs.filter((j) => j.stuck).length;
+  const unknown = view.jobs.filter((j) => j.unknownKind).length;
+  const unattended = view.workers.length > 0 && !view.workers.some((w) => w.healthy) ? (view.counts.queued ?? 0) : 0;
+  return failed + stuck + unknown + unattended;
+}
+
 /** "5 s", "3 min", "2 h", "4 d": how long ago, short. */
 export function ago(secs: number | null): string {
   if (secs === null) return "never";
