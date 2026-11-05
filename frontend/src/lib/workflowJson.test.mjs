@@ -162,3 +162,19 @@ test("the music workflow's approval steps read back with no difference", async (
   const rebuilt = { ...step, ...approvalPolicy(false, "editor", "") };
   assert.deepEqual(definitionDifferences({ actions: [step] }, { actions: [rebuilt] }), []);
 });
+
+import { inputRequired } from "./workflowJson.ts";
+
+test("a trigger input keeps the required it was written with, and needs no key when it never had one", () => {
+  assert.equal(inputRequired(false, true), undefined); // never said: required by default
+  assert.equal(inputRequired(true, true), true); // `required: true` stays
+  assert.equal(inputRequired(false, false), false);
+  assert.equal(inputRequired(true, false), false);
+});
+
+test("a manual trigger input with required, default and description reads back with no difference", async () => {
+  const { definitionDifferences } = await import("./workflowJson.ts");
+  const spec = { name: "story", label: "Story", type: "entry", required: true, default: "the-last-onion", description: "which one" };
+  const rebuilt = { name: "story", label: "Story", type: "entry", ...{ default: "the-last-onion", description: "which one" }, required: inputRequired(true, true) };
+  assert.deepEqual(definitionDifferences({ trigger: { inputs: [spec] } }, { trigger: { inputs: [rebuilt] } }), []);
+});

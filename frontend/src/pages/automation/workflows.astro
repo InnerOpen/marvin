@@ -325,7 +325,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const RENDER_TEMPLATES = RENDER_TEMPLATES_JSON as Record<string, RenderTemplate>;
   import { triggerableEvents, triggerFromQuery } from "@/lib/eventConnections";
   import { describeSaveError } from "@/lib/saveError";
-  import { approvalPolicy, definitionDifferences, freeSlug, parseWorkflowJson, workflowDocument } from "@/lib/workflowJson";
+  import { approvalPolicy, definitionDifferences, inputRequired, freeSlug, parseWorkflowJson, workflowDocument } from "@/lib/workflowJson";
   import { mountOrganizedList } from "@/lib/organizedListView";
   import { humanInterval, prettyEvent, triggerSummary, workflowAdapter, workflowCardHtml } from "@/lib/workflowList";
 
@@ -455,6 +455,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
 
   // ── Run inputs (a manual trigger's `inputs`: what the Run form asks for) ───
   const INPUT_TYPES: [string, string][] = [["text", "Text"], ["choice", "One of a list"], ["number", "Number"], ["entry", "An entry (the run works on it)"]];
+  const INPUT_FORM_KEYS = ["name", "label", "type", "options", "required"];
   function inputRow(spec: any = {}) {
     const row = document.createElement("div");
     row.className = "row input-row";
@@ -464,10 +465,14 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         <input class="input mono i-name" value="${esc(spec.name ?? "")}" placeholder="name, e.g. style" spellcheck="false" />
         <input class="input i-label" value="${esc(spec.label ?? "")}" placeholder="Label, e.g. Remix it as" />
         <select class="input i-type">${INPUT_TYPES.map(([v, l]) => `<option value="${v}" ${type === v ? "selected" : ""}>${l}</option>`).join("")}</select>
-        <label class="check small"><input type="checkbox" class="i-required" ${spec.required === false ? "" : "checked"} /> required</label>
+        <label class="check small"><input type="checkbox" class="i-required" data-set="${spec.required !== undefined ? "1" : ""}" ${spec.required === false ? "" : "checked"} /> required</label>
         <button type="button" class="icon-btn" title="Remove input">✕</button>
       </div>
       <input class="input i-options" value="${esc((spec.options ?? []).join(", "))}" placeholder="Options, comma-separated: a haiku, a fairy tale" ${type === "choice" ? "" : "hidden"} />`;
+    // What the form has no field for (default, description) rides along unchanged instead of being dropped on save.
+    (row as any).extra = Object.fromEntries(Object.entries(spec).filter(([key]) => !INPUT_FORM_KEYS.includes(key)));
+    const required = row.querySelector(".i-required") as HTMLInputElement;
+    required.addEventListener("change", () => { required.dataset.set = "1"; }); // a person's choice, ticked or not, is written down
     const typeSel = row.querySelector(".i-type") as HTMLSelectElement;
     typeSel.addEventListener("change", () => (row.querySelector(".i-options") as HTMLElement).toggleAttribute("hidden", typeSel.value !== "choice"));
     row.querySelector(".icon-btn")!.addEventListener("click", () => { row.remove(); revalidate(); });
@@ -479,10 +484,13 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       const name = val(".i-name").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
       if (!name) return null;
       const type = val(".i-type");
-      const spec: any = { name, type };
+      const spec: any = { name, type, ...(r as any).extra };
       if (val(".i-label")) spec.label = val(".i-label");
       if (type === "choice") spec.options = val(".i-options").split(",").map((o) => o.trim()).filter(Boolean);
-      if (!(r.querySelector(".i-required") as HTMLInputElement).checked) spec.required = false;
+      const required = r.querySelector(".i-required") as HTMLInputElement;
+      const flag = inputRequired(!!required.dataset.set, required.checked);
+      if (flag === undefined) delete spec.required;
+      else spec.required = flag;
       return spec;
     }).filter(Boolean);
   }

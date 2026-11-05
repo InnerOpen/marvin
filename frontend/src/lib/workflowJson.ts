@@ -170,3 +170,13 @@ export function approvalPolicy(hadApprovers: boolean, approvers: string, hoursTe
   if (hoursText.trim() !== "" && Number.isFinite(hours) && hours >= 1) out.expires_in_hours = Math.min(Math.round(hours), MAX_APPROVAL_HOURS);
   return out;
 }
+
+/**
+ * What a trigger input's `required` is written as after the builder reads its checkbox. An input is required unless it says otherwise, so a
+ * ticked box needs no key; but if the definition already said `required: true` (or the person ticked or unticked the box) that is written
+ * down too, or the builder would drop it and report it as a difference.
+ */
+export function inputRequired(wasSet: boolean, checked: boolean): boolean | undefined {
+  if (!checked) return false;
+  return wasSet ? true : undefined;
+}
