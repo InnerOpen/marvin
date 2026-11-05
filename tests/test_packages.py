@@ -116,10 +116,9 @@ def test_a_package_is_capped_in_size():
         service.parse_manifest("x" * 2_000_001)
 
 
-@pytest.mark.parametrize("kind", ["playbook", "event_subscription"])
-def test_kinds_that_cannot_travel_are_refused(kind):
-    blueprint = {"kind": kind, "slug": "x", "name": "X", "payload": {"event_type": "e", "action": "a"}}
-    with pytest.raises(PackageError):
+def test_a_connection_wiring_cannot_travel():
+    blueprint = {"kind": "event_subscription", "slug": "x", "name": "X", "payload": {"event_type": "e", "action": "a"}}
+    with pytest.raises(PackageError, match="not event_subscription"):
         service.parse_manifest(_manifest(blueprints=[blueprint]))
 
 
@@ -439,3 +438,142 @@ def test_the_manifest_round_trips_through_its_own_json():
     again = PackageManifest.model_validate(json.loads(json.dumps(manifest.model_dump(mode="json", by_alias=True))))
 
     assert again == manifest
+
+
+# --- a Playbook in a package ------------------------------------------------------------------------------------------------------------
+
+PLAYBOOK = "kit-house-style"
+
+
+def _skill(name=PLAYBOOK):
+    return f"---\nname: {name}\ndescription: How the kit writes. Use it when drafting.\n---\n\n# House style\n\nSee references/voice.md.\n"
+
+
+def _playbook_blueprint(slug=PLAYBOOK, files=None, skill_md=None) -> dict:
+    payload = {"skill_md": skill_md or _skill(slug), "files": {"references/voice.md": "Short sentences.\n"} if files is None else files}
+    return {"kind": "playbook", "slug": slug, "name": "House style", "payload": payload}
+
+
+def _with_playbook(**kw) -> dict:
+    data = _manifest()
+    data["blueprints"].append(_playbook_blueprint(**kw))
+    return data
+
+
+@fixture
+def workspace_with_playbooks(db_session, workspace):
+    """The workspace, whose Playbook files (assets uploaded by its user) are removed before the fixture deletes that user."""
+    from marvin.db.models.platform.assets import Assets
+
+    yield workspace
+    db_session.rollback()
+    db_session.query(Assets).filter(Assets.group_id == workspace.id).delete()
+    db_session.commit()
+
+
+def _playbook_entry(db_session, gid, slug=PLAYBOOK):
+    from marvin.db.models.platform.entries import Entries
+
+    db_session.expire_all()
+    return db_session.query(Entries).filter_by(group_id=gid, slug=slug).first()
+
+
+@pytest.mark.parametrize(
+    "bad, message",
+    [
+        ({"files": {"scripts/run.sh": "x"}}, "script"),
+        ({"files": {"references/a.png": "x"}}, "must be one of"),
+        ({"files": {f"references/f{i}.md": "x" for i in range(21)}}, "at most 20"),
+        ({"skill_md": _skill("other")}, "must equal the blueprint slug"),
+    ],
+)
+def test_a_playbook_that_is_not_plain_text_is_refused_by_the_package(bad, message):
+    with pytest.raises(PackageError, match=message):
+        service.parse_manifest(_with_playbook(**bad))
+
+
+def test_a_playbook_is_checked_for_ids_like_the_rest_of_a_package():
+    with pytest.raises(PackageError, match="belongs to one workspace"):
+        service.parse_manifest(_with_playbook(files={"references/voice.md": "see 7c9e6679-7425-40de-944b-e07fc1f90ae7"}))
+
+
+def test_installing_a_playbook_makes_a_draft_that_names_its_package(db_session, workspace_with_playbooks):
+    workspace = workspace_with_playbooks
+    manifest = service.parse_manifest(_with_playbook())
+
+    result = service.install(db_session, workspace.id, manifest, actor_id=workspace.user_id)
+    db_session.commit()
+
+    item = next(i for i in result.items if i.kind == "playbook")
+    assert item.status == "created" and "draft" in item.summary
+    row = _playbook_entry(db_session, workspace.id)
+    assert row.status == "draft"
+    assert row.metadata_json["installedBy"]["package"] == "story-kit"
+    assert row.metadata_json["importReview"]["source"] == {"kind": "package", "name": "story-kit"}
+
+
+def test_a_preview_checks_a_playbook_without_making_it(db_session, workspace):
+    manifest = service.parse_manifest(_with_playbook())
+
+    result = service.preview(db_session, workspace.id, manifest, actor_id=workspace.user_id)
+
+    assert next(i for i in result.items if i.kind == "playbook").status == "create"
+    assert _playbook_entry(db_session, workspace.id) is None
+    assert _workflows(db_session, workspace.id) == []
+
+
+def test_installing_again_leaves_the_playbook_as_it_is(db_session, workspace_with_playbooks):
+    workspace = workspace_with_playbooks
+    manifest = service.parse_manifest(_with_playbook())
+    service.install(db_session, workspace.id, manifest, actor_id=workspace.user_id)
+    db_session.commit()
+
+    again = service.install(db_session, workspace.id, manifest, actor_id=workspace.user_id)
+    previewed = service.preview(db_session, workspace.id, manifest, actor_id=workspace.user_id)
+
+    assert next(i for i in again.items if i.kind == "playbook").status == "exists"
+    assert next(i for i in previewed.items if i.kind == "playbook").status == "exists"
+
+
+def test_a_playbook_name_taken_by_something_else_is_blocked_not_replaced(db_session, workspace_with_playbooks):
+    workspace = workspace_with_playbooks
+    from marvin.services.playbooks import playbook_type_id
+
+    service.install(db_session, workspace.id, service.parse_manifest(_with_playbook()), actor_id=workspace.user_id)
+    db_session.commit()
+    mine = _playbook_entry(db_session, workspace.id)
+    mine.metadata_json = {k: v for k, v in mine.metadata_json.items() if k != "installedBy"}  # now a person's own Playbook
+    db_session.commit()
+    assert playbook_type_id(db_session, workspace.id) is not None
+
+    result = service.preview(db_session, workspace.id, service.parse_manifest(_with_playbook()), actor_id=workspace.user_id)
+
+    assert next(i for i in result.items if i.kind == "playbook").status == "blocked"
+
+
+def test_the_list_names_a_packages_playbooks_and_counts_the_published_ones(db_session, workspace_with_playbooks):
+    workspace = workspace_with_playbooks
+    service.install(db_session, workspace.id, service.parse_manifest(_with_playbook()), actor_id=workspace.user_id)
+    db_session.commit()
+
+    before = service.list_packages(db_session, workspace.id)[0]
+    row = _playbook_entry(db_session, workspace.id)
+    row.status = "published"
+    db_session.commit()
+    after = service.list_packages(db_session, workspace.id)[0]
+
+    assert before.playbooks == [PLAYBOOK] and before.playbooks_published == 0
+    assert after.playbooks_published == 1
+
+
+def test_removing_a_package_keeps_its_playbooks_and_clears_their_package_mark(db_session, workspace_with_playbooks):
+    workspace = workspace_with_playbooks
+    service.install(db_session, workspace.id, service.parse_manifest(_with_playbook()), actor_id=workspace.user_id)
+    db_session.commit()
+
+    ungrouped = service.remove(db_session, workspace.id, "story-kit")
+    db_session.commit()
+
+    row = _playbook_entry(db_session, workspace.id)
+    assert row is not None and "package" not in row.metadata_json["installedBy"]
+    assert ungrouped >= 3  # two workflows and the playbook

@@ -340,7 +340,15 @@ def _create(
         from .playbook_apply import create_playbook
 
         try:
-            return create_playbook(session, group_id, blueprint, provenance.get("source_integration_id"), actor_id, event_bus)
+            return create_playbook(
+                session,
+                group_id,
+                blueprint,
+                provenance.get("source_integration_id"),
+                actor_id,
+                event_bus,
+                package_slug=provenance.get("source_package"),
+            )
         except ValueError as e:
             raise BlueprintParameterError(str(e)) from e
 

@@ -16,9 +16,9 @@ from pydantic import Field, StringConstraints, field_validator, model_validator
 from marvin.schemas._marvin import _MarvinModel
 from marvin.schemas.platform.blueprints import CORE_SOURCE, Blueprint, BlueprintApplyResult
 
-#: Kinds a package may carry: workspace content. Not `playbook` (it commits as it applies and brings files) and not `event_subscription`
-#: (it wires one existing connection, so it cannot travel).
-PACKAGEABLE_KINDS = ("entry_type", "entry_fields", "collection", "workflow", "scheduled_task", "incoming_webhook")
+#: Kinds a package may carry: workspace content. Not `event_subscription` (it wires one existing connection, so it cannot travel).
+#: A `playbook` travels as text (the Playbook blueprint's own checks: no scripts, capped) and arrives as a draft, never published.
+PACKAGEABLE_KINDS = ("entry_type", "entry_fields", "collection", "workflow", "scheduled_task", "incoming_webhook", "playbook")
 
 MAX_BLUEPRINTS = 200
 MAX_MANIFEST_BYTES = 2_000_000
@@ -124,6 +124,9 @@ class PackageRead(_MarvinModel):
     version: str = "1"
     entry_types: list[str] = Field(default_factory=list)
     """Slugs of the entry types it brings (these carry no marker; the manifest is the record)."""
+    playbooks: list[str] = Field(default_factory=list)
+    """Names of the Playbooks it brings. They arrive as drafts: `playbooks_published` is how many of them someone has published here."""
+    playbooks_published: int = 0
     workflows: int = 0
     workflows_on: int = 0
     collections: int = 0
