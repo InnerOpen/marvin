@@ -12,6 +12,17 @@ const ADDRESS = /https?:\/\/[^\s<>"']+/g;
 /** what a sentence puts after an address but is not part of it */
 const TRAILING = /[.,;:!?)\]]+$/;
 
+/** How a link card names an address: the site, and the rest of the address in short (no scheme, no `www.`, no query), for the card's two lines. */
+export function describeAddress(address: string): { host: string; path: string } {
+  try {
+    const url = new URL(address);
+    const path = url.pathname === "/" ? "" : url.pathname.replace(/^\//, "").replace(/\/$/, "");
+    return { host: url.host.replace(/^www\./, ""), path };
+  } catch {
+    return { host: address, path: "" };
+  }
+}
+
 export function messageParts(message: string | null | undefined): MessagePart[] {
   const text = message ?? "";
   const parts: MessagePart[] = [];

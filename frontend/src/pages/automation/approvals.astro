@@ -1,5 +1,5 @@
 ---
-import { messageParts } from "@/lib/linkify";
+import MessageText from "@/components/MessageText.astro";
 // Automation → Approvals: workflow runs waiting at an Approval step that you may decide. Approve or Deny (with an
 // optional note) and the run goes on from the next step with ${steps.<id>.output.decision}. Editors and above; a step
 // may ask for admins. Backend: routes/automations/automations_controller.py, services/automation/approvals.py.
@@ -35,7 +35,7 @@ try {
   <div class="approvals">
     {approvals.map((a) => (
       <article class="approval" data-id={a.id}>
-        <p class="ask">{messageParts(a.message).map((part) => part.href ? <a href={part.href} target="_blank" rel="noopener noreferrer">{part.text}</a> : part.text)}</p>
+        <p class="ask"><MessageText message={a.message} /></p>
         {a.imageUrl && (isAudioUrl(a.imageUrl)
           ? <audio class="preview-audio" src={a.imageUrl} controls preload="metadata" />
           : <a href={a.imageUrl} target="_blank" rel="noopener"><img class="preview" src={a.imageUrl} alt="" loading="lazy" /></a>)}
