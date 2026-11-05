@@ -53,6 +53,16 @@ DATA_VALUES_MAX = 25  # changed fields whose values ride along; the rest are nam
 DATA_NAMES_MAX = 100
 _SECRET_KEY = re.compile(r"pass(word|wd)|secret|token|api[_-]?key|credential|private[_-]?key|authorization|(^|[_-])auth([_-]|$)", re.IGNORECASE)
 
+# A worker job's life: the `job` entry's own `status` field (data.status), not the publish status. Each change of it is also one of these events,
+# so a workflow, webhook, email or notification can react to "a job started / ended / errored" without a condition on entry_updated.
+_JOB_EVENTS = {
+    "queued": (EventTypes.job_queued, "queued"),
+    "claimed": (EventTypes.job_claimed, "picked up"),
+    "running": (EventTypes.job_started, "started"),
+    "done": (EventTypes.job_done, "done"),
+    "failed": (EventTypes.job_failed, "failed"),
+}
+
 # The status-transition events: each one is a change of `status`, so its diff always names it.
 _TRANSITION_EVENTS = (
     EventTypes.entry_published,
@@ -187,6 +197,7 @@ class EntryService:
         entry = self._sync_linked_fields(entry)
         names = self._names(entry)
         self._emit(entry, EventTypes.entry_created, EventOperation.create, f"Entry '{entry.title}' created", names, reaction_depth=reaction_depth)
+        self._emit_job_event(entry, names, None, reaction_depth, created=True)
         return entry
 
     def update(self, entry_id, data, *, reaction_depth: int = 0):
@@ -739,6 +750,25 @@ class EntryService:
             logger.error(f"Failed to dispatch {getattr(event_type, 'name', event_type)} event: {e}", exc_info=True)
 
     # ── Emission ──────────────────────────────────────────────────────────────
+    def _emit_job_event(self, entry, names, diff, reaction_depth: int, *, created: bool = False) -> None:
+        """A `job` entry made queued, or whose `data.status` just changed, is also the job event for that status (queued, picked up,
+        started, done, failed). Any other entry type, or a job whose status did not change, sends nothing here."""
+        if names[0] != "job":
+            return
+        status = str(_data_of(entry).get("status") or "")
+        if status not in _JOB_EVENTS or (not created and "data.status" not in (diff[0] if diff else [])):
+            return
+        event_type, said = _JOB_EVENTS[status]
+        self._emit(
+            entry,
+            event_type,
+            EventOperation.create if created else EventOperation.update,
+            f"Job '{entry.title}' {said}",
+            names,
+            reaction_depth=reaction_depth,
+            diff=diff,
+        )
+
     def _emit_updated_and_transitions(self, old, entry, verb: str, reaction_depth: int) -> None:
         """Emit `entry_updated` first, then any status-transition events (published/unpublished/
         archived/trashed/restored). Each carries the scalar diff (changed_fields/before/after). The
@@ -762,6 +792,7 @@ class EntryService:
                 reaction_depth=reaction_depth,
                 diff=diff,
             )
+            self._emit_job_event(entry, names, diff, reaction_depth)
             if old_status == entry.status:
                 return
             if entry.status == "published":
