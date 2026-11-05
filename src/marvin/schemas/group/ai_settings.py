@@ -282,6 +282,18 @@ class AIUnpricedModel(_MarvinModel):
     tokens: int
 
 
+class AIUsageIntegration(_MarvinModel):
+    """This month's calls to one integration, in the unit it bills in (not part of `month_cost_usd`)."""
+
+    provider: str
+    unit: str
+    """What `units` counts: "characters" for speech, "calls" when the provider reports no unit."""
+    calls: int
+    units: int
+    billed: float
+    """`units` times the model's cost multiplier where the provider reported it (else equal to `units`)."""
+
+
 class WorkspaceAIUsage(_MarvinModel):
     """Where the workspace stands against its AI limits — see services/ai/budget.py."""
 
@@ -299,6 +311,8 @@ class WorkspaceAIUsage(_MarvinModel):
     unpriced_runs: int = 0
     """This month's completed runs with no price: `month_cost_usd` and the monthly limit leave their cost out."""
     unpriced_models: list[AIUnpricedModel] = []
+    integrations: list[AIUsageIntegration] = []
+    """Calls to integrations such as ElevenLabs, tallied apart: the AI limits and totals above do not include them."""
 
 
 class AssistantCharacterFile(_MarvinModel):

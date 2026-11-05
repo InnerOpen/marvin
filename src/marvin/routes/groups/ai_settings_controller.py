@@ -10,6 +10,7 @@ from marvin.routes._base.controller import controller
 from marvin.schemas.group.ai_settings import (
     AgentVoice,
     AIUnpricedModel,
+    AIUsageIntegration,
     AIUsageLimits,
     AIUsageOperation,
     AssistantCharacter,
@@ -117,6 +118,7 @@ class AISettingsController(BaseUserController):
             by_operation=[AIUsageOperation(label=operation_label(o["operation"], names), **o) for o in u.by_operation],
             unpriced_runs=u.unpriced_runs,
             unpriced_models=[AIUnpricedModel(**m) for m in u.unpriced],
+            integrations=[AIUsageIntegration(**t) for t in u.integrations],
         )
 
     @router.get("", response_model=WorkspaceAISettingsRead, summary="Get AI Workflow Settings")

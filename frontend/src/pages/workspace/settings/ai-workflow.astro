@@ -457,6 +457,11 @@ const modCfg = s.moderationConfig ?? {};
         </div>
       </div>
       <p class="usage-unpriced" id="usage-unpriced" role="status" hidden></p>
+      <div class="usage-integrations" id="usage-integrations" hidden>
+        <strong>Integrations this month</strong>
+        <ul></ul>
+        <span class="hint">Calls to integrations such as ElevenLabs are logged in AI Executions under the provider's name. They are not in the spend above or the limits: read them against the provider's own meter.</span>
+      </div>
       <table class="usage-ops" id="usage-ops" hidden>
         <thead><tr><th>Top this month</th><th>Runs</th><th>Tokens</th><th>Est. cost</th></tr></thead>
         <tbody></tbody>
@@ -567,7 +572,7 @@ const modCfg = s.moderationConfig ?? {};
 </AppLayout>
 
 <script>
-  import { unpricedNotice } from '@/lib/aiUsage';
+  import { integrationLines, unpricedNotice } from '@/lib/aiUsage';
   import { fetchApi } from '@/lib/api/client';
   import { previewTone } from '@/lib/api/aiTones';
   import { characterPreviewView, promptPreviewHtml, promptPreviewMessage } from '@/lib/promptPreview';
@@ -611,6 +616,13 @@ const modCfg = s.moderationConfig ?? {};
     if (unpriced) {
       unpriced.textContent = note ?? '';
       unpriced.hidden = !note;
+    }
+
+    const tally = document.getElementById('usage-integrations');
+    const lines = integrationLines(u.integrations);
+    if (tally) {
+      tally.querySelector('ul')?.replaceChildren(...lines.map((text) => Object.assign(document.createElement('li'), { textContent: text })));
+      tally.hidden = !lines.length;
     }
 
     const table = document.getElementById('usage-ops') as HTMLTableElement | null;
@@ -1232,6 +1244,8 @@ const modCfg = s.moderationConfig ?? {};
   .usage-fill[data-level="warn"] { background: var(--color-warning, #d97706); }
   .usage-fill[data-level="over"] { background: var(--color-error, #c0392b); }
   .usage-ops { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px; }
+  .usage-integrations { margin: 0 0 12px; padding: 8px 12px; border-left: 3px solid var(--line); background: var(--panel-2); font-size: 13px; }
+  .usage-integrations ul { margin: 4px 0; padding-left: 18px; }
   .usage-unpriced { margin: 0 0 12px; padding: 8px 12px; border-left: 3px solid var(--color-warning, #d97706); background: var(--panel-2); font-size: 13px; }
   .usage-ops th, .usage-ops td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
   .usage-ops th:not(:first-child), .usage-ops td:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }

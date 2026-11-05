@@ -18,3 +18,13 @@ test("names the models, three at most, and says the limit can't see them", () =>
   assert.match(note, /monthly limit can't see it/);
   assert.match(unpricedNotice(1, [m("google", "g", 1)]), /^1 run .*its cost/);
 });
+
+import { integrationLines } from "./aiUsage.ts";
+
+test("an integration's calls are tallied in its own unit, with the multiplier only when it changed the figure", () => {
+  const speech = { provider: "elevenlabs", unit: "characters", calls: 12, units: 4300, billed: 2900 };
+  assert.deepEqual(integrationLines([speech]), ["elevenlabs: 12 calls, 4,300 characters, 2,900 billed at the models' multipliers"]);
+  assert.deepEqual(integrationLines([{ ...speech, calls: 1, billed: 4300 }]), ["elevenlabs: 1 call, 4,300 characters"]);
+  assert.deepEqual(integrationLines([{ provider: "openai_images", unit: "calls", calls: 3, units: 3, billed: 3 }]), ["openai_images: 3 calls"]);
+  assert.deepEqual(integrationLines(undefined), []);
+});
