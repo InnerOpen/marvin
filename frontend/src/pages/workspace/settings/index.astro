@@ -10,7 +10,8 @@ import { nullIfForbidden } from "@/lib/workspaceRole";
 import { getSummary as getResultsSummary } from "@/lib/api/automationResults";
 import { getSummary as getSocialSummary } from "@/lib/api/socialInbox";
 import { getAutomationAttention } from "@/lib/api/automationAttention";
-import { countBadge } from "@/lib/automationAttention";
+import { countBadge, waitingText } from "@/lib/automationAttention";
+import { listApprovals } from "@/lib/api/workflowApprovals";
 import { showResults } from "@/lib/automationResults";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -78,7 +79,9 @@ const resultsSummary = currentTab === "automation" ? await getResultsSummary(aut
 
 // What needs a look in Automation, as a count on the tab (admins only: others get a 403, so no count).
 const automationAttention = await getAutomationAttention(authToken!).catch(() => null);
-const automationCount = countBadge(automationAttention?.total);
+// Approvals waiting for you count too, as they do in the sidebar's Settings badge (an editor sees them; anyone else gets a 403: none).
+const approvalsWaiting = (await listApprovals(authToken!).catch(() => [])).length;
+const automationCount = countBadge((automationAttention?.total ?? 0) + approvalsWaiting);
 // The same count on each kind's card, so the tab's number can be traced to its section: a pill by the title, the
 // description says it in words, and the card opens the list filtered to Needs attention.
 const kinds = automationAttention?.kinds ?? {};
@@ -119,7 +122,7 @@ const tabs = [
           <span class="tab-icon">{tab.icon}</span>
           <span class="tab-label">{tab.label}</span>
           {tab.id === "automation" && automationCount && (
-            <span class="tab-count" title="Automation items that need a look" aria-label={`${automationCount} need a look`}>{automationCount}</span>
+            <span class="tab-count" title="Automation items that need a look or a decision" aria-label={`${automationCount} need a look or a decision`}>{automationCount}</span>
           )}
         </a>
       ))}
@@ -262,8 +265,8 @@ const tabs = [
               <p>Bundles of workflows, entry types and collections: install, build, download and upload them as one file</p>
             </a>
             <a href={navHref("automation.approvals")} class="link-card">
-              <strong>{navTitle("automation.approvals")}</strong>
-              <p>Workflow runs waiting for a person to approve or deny</p>
+              <strong>{navTitle("automation.approvals")}{countBadge(approvalsWaiting) && <span class="tab-count" aria-hidden="true">{countBadge(approvalsWaiting)}</span>}</strong>
+              <p>Workflow runs waiting for a person to approve or deny{waitingText(approvalsWaiting)}</p>
             </a>
             {showResults(resultsSummary) && (
               <a href={navHref("automation.results")} class="link-card">

@@ -21,6 +21,12 @@ export function dashboardLine(
   return { text: `Automation needs a look (${n})`, href: page || fallback };
 }
 
+/** Words for the approvals waiting for you, on the Approvals card: "" when none. */
+export function waitingText(count: number | null | undefined): string {
+  const n = count ?? 0;
+  return n > 0 ? ` · ${n} waiting for you` : "";
+}
+
 /** The count beside the Automation tab / link: "" when nothing needs a look, "99+" for a lot. */
 export function countBadge(count: number | null | undefined): string {
   const n = count ?? 0;

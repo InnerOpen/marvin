@@ -31,3 +31,11 @@ describe("the count beside the Automation tab", () => {
     assert.equal(countBadge(250), "99+");
   });
 });
+
+import { waitingText } from "./automationAttention.ts";
+
+test("the Approvals card says how many are waiting, and nothing when none are", () => {
+  assert.equal(waitingText(3), " · 3 waiting for you");
+  assert.equal(waitingText(0), "");
+  assert.equal(waitingText(undefined), "");
+});
