@@ -162,6 +162,10 @@ class EventTypes(EventTypeBase):
     """A job ended successfully (status `done`); its result is on the job entry."""
     job_failed = auto()
     """A job ended in error (status `failed`); the reason is on the job entry's log."""
+    worker_offline = auto()
+    """A worker's heartbeat went quiet (a `worker` entry's `last_seen` is older than three minutes): it stopped, or lost its connection."""
+    worker_online = auto()
+    """A worker that had gone quiet reported in again."""
 
     entry_scheduled_publish_blocked = auto()
     """An entry's Scheduled Publish time arrived but the scheduled publish is holding it back (the publish gate

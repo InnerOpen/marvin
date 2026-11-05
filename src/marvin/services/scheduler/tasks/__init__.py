@@ -1,6 +1,7 @@
 from .check_backup_health import check_backup_health
 from .check_scheduled_tasks import check_scheduled_tasks
 from .check_unpriced_models import check_unpriced_models
+from .check_workers import check_workers
 from .dispatch_site_rebuilds import dispatch_site_rebuilds
 from .empty_expired_trash import empty_expired_trash
 from .expire_parked_runs import expire_parked_runs
@@ -15,6 +16,7 @@ __all__ = [
     "check_backup_health",
     "check_scheduled_tasks",
     "check_unpriced_models",
+    "check_workers",
     "dispatch_site_rebuilds",
     "empty_expired_trash",
     "expire_parked_runs",
