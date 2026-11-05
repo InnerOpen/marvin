@@ -112,6 +112,8 @@ export interface WorkersView {
   jobs: JobView[];
   kinds: { kind: string; mode: string; image: string; url: string; timeoutSeconds: number; notes: string }[];
   workers: WorkerView[];
+  /** the same workers, grouped by the image and release they run */
+  groups: WorkerGroup[];
   /** every kind any worker offers or any job-kind record names, with its contract and who can do it now */
   capabilities: Capability[];
   /** what to tell the person at the top: nothing running, jobs waiting with no one to start them, jobs stuck */
@@ -212,7 +214,7 @@ export function summarize(jobs: RecordRow[], kindRows: RecordRow[], workers: Rec
   const unknown = jobViews.filter((j) => j.unknownKind).length;
   if (unknown) warnings.push(`${unknown} queued job${unknown === 1 ? " asks" : "s ask"} for a kind nobody registered: add a job kind for it.`);
 
-  return { counts, jobs: jobViews, kinds, workers: workerViews, capabilities, warnings };
+  return { counts, jobs: jobViews, kinds, workers: workerViews, groups: groupByImage(workerViews), capabilities, warnings };
 }
 
 /** How many things on the Workers page need a look, for the count on the Settings tab: jobs that failed in the last day, jobs past
@@ -224,6 +226,46 @@ export function needsLook(view: WorkersView, withinSeconds: number = 86400): num
   const unknown = view.jobs.filter((j) => j.unknownKind).length;
   const unattended = view.workers.length > 0 && !view.workers.some((w) => w.healthy) ? (view.counts.queued ?? 0) : 0;
   return failed + stuck + unknown + unattended;
+}
+
+/** The workers that run one image and release (e.g. `screenplay-studio-worker:v35.1`), shown together under it. */
+export interface WorkerGroup {
+  /** `image:version`; empty for the workers that did not say which image they run */
+  key: string;
+  title: string;
+  /** the distinct builds (commits) among its workers: one means they all run the same build */
+  revisions: string[];
+  workers: WorkerView[];
+  running: number;
+  /** other releases of the same image that are running too, so a mixed fleet shows */
+  alsoRunning: string[];
+}
+
+export const NO_IMAGE_TITLE = "Image not reported";
+
+/** Group workers by the image and release they report. Known images first, by name, then the ones that did not say. A group notes the other
+ *  releases of its image that are running elsewhere (an update half done). */
+export function groupByImage(workers: WorkerView[]): WorkerGroup[] {
+  const byKey = new Map<string, WorkerView[]>();
+  for (const w of workers) {
+    const name = w.image || "";
+    const key = name || w.version ? (name ? (w.version ? `${name}:${w.version}` : name) : w.version) : "";
+    byKey.set(key, [...(byKey.get(key) ?? []), w]);
+  }
+  const groups: WorkerGroup[] = [...byKey.entries()].map(([key, members]) => ({
+    key,
+    title: key || NO_IMAGE_TITLE,
+    revisions: [...new Set(members.map((w) => w.revision).filter(Boolean))].sort(),
+    workers: members,
+    running: members.filter((w) => w.healthy).length,
+    alsoRunning: [],
+  }));
+  const imageOf = (g: WorkerGroup) => g.workers[0].image || "";
+  for (const g of groups) {
+    if (!g.key || !imageOf(g)) continue;
+    g.alsoRunning = groups.filter((o) => o !== g && o.key && imageOf(o) === imageOf(g) && o.running > 0).map((o) => o.workers[0].version || o.key).sort();
+  }
+  return groups.sort((a, b) => (a.key === "" ? 1 : 0) - (b.key === "" ? 1 : 0) || a.title.localeCompare(b.title));
 }
 
 /** The image a worker runs, in one phrase: "screenplay-studio-worker:v35 (1b702bf)", or "" when it did not say. */
