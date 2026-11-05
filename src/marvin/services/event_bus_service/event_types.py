@@ -149,6 +149,20 @@ class EventTypes(EventTypeBase):
     """Event dispatched when an archived entry is restored, or a trashed one is restored from the Trash."""
     entry_trashed = auto()
     """Event dispatched when an entry is moved to the Trash (Delete, the `trash` workflow op, trash_entries)."""
+    # ==========================================================================
+    # Worker Job Events (a `job` entry's life: queued, picked up, running, ended, errored)
+    # ==========================================================================
+    job_queued = auto()
+    """A job was queued: a `job` entry was made, or put back, with status `queued`, waiting for a worker."""
+    job_claimed = auto()
+    """A worker picked a queued job up (status `claimed`)."""
+    job_started = auto()
+    """A worker began running a job (status `running`)."""
+    job_done = auto()
+    """A job ended successfully (status `done`); its result is on the job entry."""
+    job_failed = auto()
+    """A job ended in error (status `failed`); the reason is on the job entry's log."""
+
     entry_scheduled_publish_blocked = auto()
     """An entry's Scheduled Publish time arrived but the scheduled publish is holding it back (the publish gate
     refused it, or the workspace publishes only approved entries on schedule). Once per distinct reason."""

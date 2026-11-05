@@ -173,6 +173,28 @@ def get_payload_example(event_type: str) -> dict:
             "authorId": "<user-uuid>",
             "authorName": "Jane Smith",
         },
+        # --- Worker job events (a `job` entry changing status; the entry is the job) ---
+        **{
+            _job_event: {
+                "documentType": "entry",
+                "operation": "update",
+                "entryId": "<entry-uuid>",
+                "entryTitle": "Audio cut: The Last Onion",
+                "entryType": "job",
+                "workspaceId": "<workspace-uuid>",
+                "workspaceName": "My Workspace",
+                "changedFields": ["data.status"],
+                "before": {"data": {"status": "running"}},
+                "after": {"data": {"status": _job_status}},
+            }
+            for _job_event, _job_status in (
+                ("job_queued", "queued"),
+                ("job_claimed", "claimed"),
+                ("job_started", "running"),
+                ("job_done", "done"),
+                ("job_failed", "failed"),
+            )
+        },
         "entry_scheduled_publish_blocked": {
             "documentType": "entry",
             "operation": "info",

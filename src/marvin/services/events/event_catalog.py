@@ -388,6 +388,66 @@ CATALOG: list[CatalogEntry] = [
         ],
     ),
     CatalogEntry(
+        event_type="job_queued",
+        name="Job Queued",
+        description="A job was queued and is waiting for a worker.",
+        category="Workers",
+        triggerable=True,
+        sent_by=["A `job` entry being made (or put back) with status queued: a workflow's Create entry step, the app, the API, the CLI"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("entry_title", "Title of the job", "Audio cut: The Last Onion", type="title"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="job_claimed",
+        name="Job Picked Up",
+        description="A worker picked a queued job up.",
+        category="Workers",
+        triggerable=True,
+        sent_by=["A runner or dispatcher claiming a queued job (the job's status becomes claimed)"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("entry_title", "Title of the job", "Audio cut: The Last Onion", type="title"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="job_started",
+        name="Job Started",
+        description="A worker started running a job.",
+        category="Workers",
+        triggerable=True,
+        sent_by=["A worker beginning a job (the job's status becomes running)"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("entry_title", "Title of the job", "Audio cut: The Last Onion", type="title"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="job_done",
+        name="Job Done",
+        description="A job ended successfully.",
+        category="Workers",
+        triggerable=True,
+        sent_by=["A worker finishing a job (the job's status becomes done; its result is on the job)"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("entry_title", "Title of the job", "Audio cut: The Last Onion", type="title"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="job_failed",
+        name="Job Failed",
+        description="A job ended in error.",
+        category="Workers",
+        triggerable=True,
+        sent_by=["A worker, or a dispatcher whose container died, failing a job (the job's status becomes failed; the reason is on the job's log)"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("entry_title", "Title of the job", "Audio cut: The Last Onion", type="title"),
+        ],
+    ),
+    CatalogEntry(
         event_type="entry_published",
         name="Entry Published",
         description="A content entry was published.",
@@ -2561,6 +2621,7 @@ CATEGORIES = [
     "Authentication",
     "Workspaces",
     "Content",
+    "Workers",
     "Assets",
     "Forms",
     "Publishing",
