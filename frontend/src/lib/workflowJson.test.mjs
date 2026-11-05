@@ -142,3 +142,23 @@ describe("definitionDifferences", () => {
     assert.deepEqual(definitionDifferences({ value: null }, {}), []);
   });
 });
+
+import { approvalPolicy } from "./workflowJson.ts";
+
+test("an approval step that set neither approvers nor an expiry keeps neither, so the builder shows it unchanged", () => {
+  assert.deepEqual(approvalPolicy(false, "editor", ""), {});
+});
+
+test("what was set, or chosen, is kept", () => {
+  assert.deepEqual(approvalPolicy(true, "editor", "72"), { approvers: "editor", expires_in_hours: 72 });
+  assert.deepEqual(approvalPolicy(false, "admin", "24"), { approvers: "admin", expires_in_hours: 24 });
+  assert.deepEqual(approvalPolicy(false, "editor", "5000"), { expires_in_hours: 720 });
+  assert.deepEqual(approvalPolicy(false, "editor", "0"), {});
+});
+
+test("the music workflow's approval steps read back with no difference", async () => {
+  const { definitionDifferences } = await import("./workflowJson.ts");
+  const step = { kind: "approval", id: "spend", message: "Compose it?" };
+  const rebuilt = { ...step, ...approvalPolicy(false, "editor", "") };
+  assert.deepEqual(definitionDifferences({ actions: [step] }, { actions: [rebuilt] }), []);
+});

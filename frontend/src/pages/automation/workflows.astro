@@ -325,7 +325,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const RENDER_TEMPLATES = RENDER_TEMPLATES_JSON as Record<string, RenderTemplate>;
   import { triggerableEvents, triggerFromQuery } from "@/lib/eventConnections";
   import { describeSaveError } from "@/lib/saveError";
-  import { definitionDifferences, freeSlug, parseWorkflowJson, workflowDocument } from "@/lib/workflowJson";
+  import { approvalPolicy, definitionDifferences, freeSlug, parseWorkflowJson, workflowDocument } from "@/lib/workflowJson";
   import { mountOrganizedList } from "@/lib/organizedListView";
   import { humanInterval, prettyEvent, triggerSummary, workflowAdapter, workflowCardHtml } from "@/lib/workflowList";
 
@@ -1676,14 +1676,13 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       boxes.forEach((b) => b.addEventListener("change", lock));
       lock();
     } else if (kind === "approval") {
-      const hours = Number(a.expires_in_hours ?? 72);
       wrap.innerHTML = `
         <label class="tf"><span>Ask <span class="muted">(what the approvers decide — templates allowed, e.g. Publish “\${entry.title}”?)</span></span>
           <input class="input a-message" value="${esc(a.message ?? "")}" placeholder="e.g. Feature \${entry.title} on the home page?" /></label>
         <label class="tf"><span>Who may decide</span>
-          <select class="input a-approvers">${[["editor", "Editors and above"], ["admin", "Admins and above"]].map(([v, l]) => `<option value="${v}" ${(a.approvers ?? "editor") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+          <select class="input a-approvers" data-set="${a.approvers != null ? "1" : ""}">${[["editor", "Editors and above"], ["admin", "Admins and above"]].map(([v, l]) => `<option value="${v}" ${(a.approvers ?? "editor") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         <label class="tf"><span>Expires after (hours) <span class="muted">— then the run goes on as expired</span></span>
-          <input class="input a-expires" type="number" min="1" max="720" value="${Number.isFinite(hours) ? hours : 72}" /></label>
+          <input class="input a-expires" type="number" min="1" max="720" value="${a.expires_in_hours ?? ""}" placeholder="the workspace default" /></label>
         <label class="tf"><span>Choices <span class="muted">(optional: 2–8 to pick one of, comma-separated — or a template to a list, e.g. \${steps.ideas.output.titles})</span></span>
           <input class="input a-choices" value="${esc(Array.isArray(a.choices) ? a.choices.join(", ") : (a.choices ?? ""))}" placeholder="e.g. Dawn, Dusk, Night" /></label>
         <label class="tf"><span>Picture <span class="muted">(optional: shown with the question — a template to a picture URL, e.g. \${steps.cover.output.images.0.asset.url} or \${entry.image})</span></span>
@@ -2036,9 +2035,10 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       const message = field(".a-message")?.value.trim();
       if (!message) return null;
       step.message = message;
-      step.approvers = field(".a-approvers")?.value || "editor";
-      const hours = Number(field(".a-expires")?.value);
-      step.expires_in_hours = Number.isFinite(hours) && hours >= 1 ? Math.min(Math.round(hours), 720) : 72;
+      // Unset stays unset (editors, the workspace's expiry): see approvalPolicy.
+      delete step.approvers;
+      delete step.expires_in_hours;
+      Object.assign(step, approvalPolicy(!!field(".a-approvers")?.dataset.set, field(".a-approvers")?.value ?? "", field(".a-expires")?.value ?? ""));
       // One template (to a list) stays as typed; anything else is labels, comma-separated.
       const choices = field(".a-choices")?.value.trim() ?? "";
       setOrDrop("choices", !choices ? null : /^\$\{[^}]+\}$/.test(choices) ? choices : choices.split(",").map((c) => c.trim()).filter(Boolean));
