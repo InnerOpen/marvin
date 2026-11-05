@@ -2,12 +2,14 @@
 import type { PlatformAsset } from "@inneropen/marvin-sdk/platform";
 import AssetLineage from "@/components/AssetLineage.astro";
 import AssetMetaValue from "@/components/AssetMetaValue.astro";
+import AssetTextPreview from "@/components/AssetTextPreview.astro";
 import AssetVersions from "@/components/AssetVersions.astro";
 import ItemTrashBanner from "@/components/ItemTrashBanner.astro";
 import SuggestionBanner from "@/components/SuggestionBanner.astro";
 import TagChips from "@/components/TagChips.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import { isTextMime } from "@/lib/assetText";
 import { isUnsearchableImage } from "@/lib/assetLibraryView";
 import { listCollections } from "@/lib/api/collections";
 import { listTags, type TagRead } from "@/lib/api/tags";
@@ -225,6 +227,8 @@ const showAiPanel = aiEnabled && isImage;
               <div class="asset-preview media-preview">
                 <video controls preload="metadata" src={asset.publicUrl}></video>
               </div>
+            ) : asset.publicUrl && isTextMime(asset.mimeType) ? (
+              <AssetTextPreview url={asset.publicUrl} compact />
             ) : asset.publicUrl ? (
               <div class="asset-preview file-preview">
                 <span class="file-icon">{
