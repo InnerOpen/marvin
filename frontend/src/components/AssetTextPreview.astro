@@ -1,0 +1,52 @@
+---
+import { fetchTextPreview, TEXT_PREVIEW_LIMIT } from "@/lib/assetText";
+/**
+ * A text asset (a transcript, a script, CSV, JSON) shown as text: the start of the file in a read-only block, escaped (Astro prints
+ * `{text}` as text, never markup). `compact` is the small version for a side panel. Nothing is shown if the file cannot be read.
+ */
+interface Props {
+  url: string;
+  compact?: boolean;
+}
+const { url, compact = false } = Astro.props;
+const preview = await fetchTextPreview(new URL(url, Astro.url).toString());
+---
+
+{preview && (
+  <div class:list={["text-preview", { compact }]}>
+    <pre tabindex="0">{preview.text}</pre>
+    {preview.truncated && <p class="text-preview-note">Showing the first {TEXT_PREVIEW_LIMIT.toLocaleString()} characters. Download the file for the rest.</p>}
+  </div>
+)}
+
+<style>
+  .text-preview {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .text-preview pre {
+    margin: 0;
+    padding: 1rem;
+    max-height: 70vh;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 0.875rem;
+    line-height: 1.55;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .compact pre {
+    max-height: 16rem;
+    padding: 0.65rem;
+    font-size: 0.75rem;
+  }
+  .text-preview-note {
+    margin: 0;
+    padding: 0.5rem 1rem;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 0.8125rem;
+  }
+</style>

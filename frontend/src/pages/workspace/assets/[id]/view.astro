@@ -1,11 +1,13 @@
 ---
 import type { PlatformAsset } from "@inneropen/marvin-sdk/platform";
 import AssetLineage from "@/components/AssetLineage.astro";
+import AssetTextPreview from "@/components/AssetTextPreview.astro";
 import AssetMetaValue from "@/components/AssetMetaValue.astro";
 import AssetVersions from "@/components/AssetVersions.astro";
 import TagList from "@/components/TagList.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import { isTextMime } from "@/lib/assetText";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
 
@@ -36,6 +38,7 @@ const isVideo = asset?.mimeType?.startsWith("video/");
 const isAudio = asset?.mimeType?.startsWith("audio/");
 const isPdf = asset?.mimeType?.includes("pdf");
 const isHtml = asset?.mimeType === "text/html";
+const isText = isTextMime(asset?.mimeType);
 ---
 
 <AppLayout
@@ -135,7 +138,9 @@ const isHtml = asset?.mimeType === "text/html";
           </div>
         )}
 
-        {!isImage && !isVideo && !isAudio && !isPdf && !isHtml && (
+        {isText && <AssetTextPreview url={asset.publicUrl} />}
+
+        {!isImage && !isVideo && !isAudio && !isPdf && !isHtml && !isText && (
           <div class="file-info">
             <div class="file-icon">📄</div>
             <h3>{asset.originalFilename}</h3>
