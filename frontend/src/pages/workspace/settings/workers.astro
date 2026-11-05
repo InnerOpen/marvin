@@ -6,7 +6,7 @@ import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { getBrowserApiBaseUrl } from "@/lib/api/config";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
 import { runGuide } from "@/lib/workerCommands";
-import { ago, imageLabel, type TypeShape, type RecordRow, STATUSES, summarize, workerSetup } from "@/lib/workers";
+import { ago, type TypeShape, type RecordRow, STATUSES, summarize, workerSetup } from "@/lib/workers";
 
 const authToken = getAuthToken(Astro.cookies);
 type Found = { entries: RecordRow[] };
@@ -117,27 +117,40 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
     {view.workers.length === 0 ? (
       <p class="empty">No dispatcher or runner has reported yet.</p>
     ) : (
-      <ul class="workers">
-        {view.workers.map((w) => (
-          <li>
-            <span class={`dot ${w.healthy ? "ok" : "off"}`} aria-hidden="true"></span>
-            <strong>{w.name}</strong>
-            <span class="pill">{w.role}</span>
-            <span class="muted">
-              {w.healthy ? w.status : "not running"} · last seen {ago(w.lastSeenAgo)} ago
-              {w.currentJob ? ` · on ${w.currentJob}` : ""}
-              {w.modes ? ` · starts ${w.modes}` : ""}
-              {w.tags ? ` · has ${w.tags}` : ""}
-              {w.jobsDone !== null ? ` · ${w.jobsDone} done` : ""}
-              {imageLabel(w) ? ` · image ${imageLabel(w)}` : ""}
-            </span>
-            {w.kinds.length > 0 && <span class="kind-list">{w.kinds.map((k) => <span class="pill">{k}</span>)}</span>}
-            {!w.healthy && (
-              <button type="button" class="button tiny secondary js-remove-worker" data-id={w.id} data-name={w.name}>Remove</button>
-            )}
-          </li>
+      <div class="image-groups">
+        {view.groups.map((g) => (
+          <div class="image-group" data-image={g.key}>
+            <h4 class="image-head">
+              <strong>{g.title}</strong>
+              {g.revisions.length === 1 && <span class="muted">build {g.revisions[0]}</span>}
+              {g.revisions.length > 1 && <span class="muted">mixed builds: {g.revisions.join(", ")}</span>}
+              <span class="pill">{g.workers.length} {g.workers.length === 1 ? "worker" : "workers"}{g.running !== g.workers.length ? `, ${g.running} running` : ""}</span>
+              {g.alsoRunning.length > 0 && <span class="pill warn" title="Another release of this image is running on other workers">also running {g.alsoRunning.join(", ")}</span>}
+            </h4>
+            <ul class="workers">
+              {g.workers.map((w) => (
+                <li>
+                  <span class={`dot ${w.healthy ? "ok" : "off"}`} aria-hidden="true"></span>
+                  <strong>{w.name}</strong>
+                  <span class="pill">{w.role}</span>
+                  <span class="muted">
+                    {w.healthy ? w.status : "not running"} · last seen {ago(w.lastSeenAgo)} ago
+                    {w.currentJob ? ` · on ${w.currentJob}` : ""}
+                    {w.modes ? ` · starts ${w.modes}` : ""}
+                    {w.tags ? ` · has ${w.tags}` : ""}
+                    {w.jobsDone !== null ? ` · ${w.jobsDone} done` : ""}
+                    {g.revisions.length > 1 && w.revision ? ` · build ${w.revision}` : ""}
+                  </span>
+                  {w.kinds.length > 0 && <span class="kind-list">{w.kinds.map((k) => <span class="pill">{k}</span>)}</span>}
+                  {!w.healthy && (
+                    <button type="button" class="button tiny secondary js-remove-worker" data-id={w.id} data-name={w.name}>Remove</button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
         ))}
-      </ul>
+      </div>
     )}
   </section>
 
@@ -318,6 +331,10 @@ const entryHref = (id: string) => `/workspace/entries/${id}?return=${encodeURICo
   .alert.warn { border: 1px solid var(--warn, #d97706); background: color-mix(in srgb, var(--warn, #d97706) 10%, transparent); }
   .alert.error { border: 1px solid var(--color-error, #dc2626); }
   .workers { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .image-groups { display: grid; gap: 1rem; }
+  .image-group { border: 1px solid var(--line); border-radius: var(--radius); padding: 0.75rem 1rem; }
+  .image-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 0 0.6rem; font-size: 0.95rem; }
+  .pill.warn { color: var(--color-warning, #b45309); border-color: currentColor; }
   .workers li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
   .workers .dot { margin-right: 0; }
   .kind-list { display: inline-flex; gap: 4px; flex-wrap: wrap; }

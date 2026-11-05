@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { runGuide } from "./workerCommands.ts";
-import { ago, imageLabel, needsLook, summarize, workerSetup } from "./workers.ts";
+import { ago, groupByImage, imageLabel, needsLook, summarize, workerSetup } from "./workers.ts";
 
 const NOW = Date.parse("2026-11-04T12:00:00Z");
 const iso = (secondsAgo) => new Date(NOW - secondsAgo * 1000).toISOString();
@@ -204,5 +204,45 @@ describe("which image a worker runs", () => {
     assert.equal(imageLabel({ image: "w", version: "", revision: "" }), "w");
     assert.equal(imageLabel({ image: "", version: "v2", revision: "" }), "v2");
     assert.equal(imageLabel({ image: "", version: "", revision: "abc" }), "revision abc");
+  });
+});
+
+describe("workers grouped under their image", () => {
+  const w = (name, secondsAgo, extra = {}) => ({ id: name, slug: name, title: name, dataJson: { host: name, last_seen: iso(secondsAgo), ...extra } });
+  const view = (rows) => summarize([], [], rows, NOW);
+
+  test("workers that run the same image and release sit together, the unreported ones last", () => {
+    const { groups } = view([
+      w("runner", 10, { image: "studio", version: "v35.1", revision: "abc" }),
+      w("transcriber", 12, { image: "studio", version: "v35.1", revision: "abc" }),
+      w("old-box", 20),
+    ]);
+    assert.deepEqual(groups.map((g) => [g.title, g.workers.map((x) => x.name).sort()]), [["studio:v35.1", ["runner", "transcriber"]], ["Image not reported", ["old-box"]]]);
+    assert.deepEqual(groups[0].revisions, ["abc"]);
+    assert.equal(groups[0].running, 2);
+  });
+
+  test("a half-finished update shows: each release names the other as also running", () => {
+    const { groups } = view([w("a", 10, { image: "studio", version: "v35.1" }), w("b", 10, { image: "studio", version: "v35" }), w("c", 10, { image: "other", version: "v1" })]);
+    const byKey = Object.fromEntries(groups.map((g) => [g.key, g]));
+    assert.deepEqual(byKey["studio:v35.1"].alsoRunning, ["v35"]);
+    assert.deepEqual(byKey["studio:v35"].alsoRunning, ["v35.1"]);
+    assert.deepEqual(byKey["other:v1"].alsoRunning, []);  // a different image is not a different release of this one
+  });
+
+  test("a worker that stopped does not count as a release running elsewhere, and a group says how many of its workers run", () => {
+    const { groups } = view([w("a", 10, { image: "studio", version: "v35.1" }), w("b", 900, { image: "studio", version: "v35" }), w("c", 900, { image: "studio", version: "v35.1" })]);
+    const newer = groups.find((g) => g.key === "studio:v35.1");
+    assert.deepEqual([newer.workers.length, newer.running, newer.alsoRunning], [2, 1, []]);  // v35 is not running any more
+  });
+
+  test("different builds of one release are listed, and a worker that only names a version still groups", () => {
+    const { groups } = view([w("a", 10, { image: "studio", version: "v1", revision: "aaa" }), w("b", 10, { image: "studio", version: "v1", revision: "bbb-dirty" }), w("c", 10, { version: "v9" })]);
+    assert.deepEqual(groups.find((g) => g.key === "studio:v1").revisions, ["aaa", "bbb-dirty"]);
+    assert.ok(groups.some((g) => g.key === "v9"));
+  });
+
+  test("no workers means no groups", () => {
+    assert.deepEqual(groupByImage([]), []);
   });
 });
