@@ -187,7 +187,13 @@ def get_payload_example(event_type: str) -> dict:
                 "before": {"data": {"status": "running"}},
                 "after": {"data": {"status": _job_status}},
             }
-            for _job_event, _job_status in (("job_queued", "queued"), ("job_claimed", "claimed"), ("job_started", "running"), ("job_done", "done"), ("job_failed", "failed"))
+            for _job_event, _job_status in (
+                ("job_queued", "queued"),
+                ("job_claimed", "claimed"),
+                ("job_started", "running"),
+                ("job_done", "done"),
+                ("job_failed", "failed"),
+            )
         },
         "entry_scheduled_publish_blocked": {
             "documentType": "entry",

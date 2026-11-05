@@ -24,7 +24,15 @@ class _Entries:
     """One entry whose data can change; get_one returns a snapshot, so what it was differs from what it is."""
 
     def __init__(self, status):
-        self.state = {"id": uuid4(), "title": "Audio cut: The Last Onion", "status": "draft", "group_id": uuid4(), "created_by": None, "entry_type_id": "T", "data_json": {"kind": "audio-cut", "status": status}}
+        self.state = {
+            "id": uuid4(),
+            "title": "Audio cut: The Last Onion",
+            "status": "draft",
+            "group_id": uuid4(),
+            "created_by": None,
+            "entry_type_id": "T",
+            "data_json": {"kind": "audio-cut", "status": status},
+        }
 
     def _snap(self):
         return SimpleNamespace(**{**self.state, "data_json": dict(self.state["data_json"])})
@@ -65,7 +73,9 @@ def test_a_job_made_queued_sends_job_queued_after_entry_created():
     assert _names(bus) == ["entry_created", "job_queued"]
 
 
-@pytest.mark.parametrize(("status", "event"), [("claimed", "job_claimed"), ("running", "job_started"), ("done", "job_done"), ("failed", "job_failed")])
+@pytest.mark.parametrize(
+    ("status", "event"), [("claimed", "job_claimed"), ("running", "job_started"), ("done", "job_done"), ("failed", "job_failed")]
+)
 def test_a_job_changing_status_sends_that_jobs_event_after_entry_updated(status, event):
     svc, bus, entries = _service("job", "queued")
     svc.update(entries.state["id"], EntryUpdate(data_json={"kind": "audio-cut", "status": status}))
