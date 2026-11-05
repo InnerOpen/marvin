@@ -195,6 +195,25 @@ def get_payload_example(event_type: str) -> dict:
                 ("job_failed", "failed"),
             )
         },
+        # --- Worker liveness (a `worker` entry, the dispatcher's or runner's heartbeat, going quiet or coming back) ---
+        **{
+            _worker_event: {
+                "documentType": "entry",
+                "operation": "update",
+                "entryId": "<entry-uuid>",
+                "entryTitle": "Dispatcher on desktop",
+                "entryType": "worker",
+                "workspaceId": "<workspace-uuid>",
+                "workspaceName": "My Workspace",
+                "changedFields": ["data.offline_since"],
+                "before": {"data": {"offline_since": _before}},
+                "after": {"data": {"offline_since": _after}},
+            }
+            for _worker_event, _before, _after in (
+                ("worker_offline", "", "2026-01-01T12:00:00+00:00"),
+                ("worker_online", "2026-01-01T12:00:00+00:00", ""),
+            )
+        },
         "entry_scheduled_publish_blocked": {
             "documentType": "entry",
             "operation": "info",

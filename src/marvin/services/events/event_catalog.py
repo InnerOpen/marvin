@@ -448,6 +448,30 @@ CATALOG: list[CatalogEntry] = [
         ],
     ),
     CatalogEntry(
+        event_type="worker_offline",
+        name="Worker Offline",
+        description="A worker (a dispatcher or runner) stopped reporting: its heartbeat is more than three minutes old.",
+        category="Workers",
+        triggerable=True,
+        sent_by=["Marvin's per-minute worker check, when a `worker` record's last_seen goes stale (once per outage)"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("entry_title", "Name of the worker", "Dispatcher on desktop", type="title"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="worker_online",
+        name="Worker Online",
+        description="A worker that had gone quiet reported in again.",
+        category="Workers",
+        triggerable=True,
+        sent_by=["Marvin's per-minute worker check, when a worker that was offline has a fresh heartbeat"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("entry_title", "Name of the worker", "Dispatcher on desktop", type="title"),
+        ],
+    ),
+    CatalogEntry(
         event_type="entry_published",
         name="Entry Published",
         description="A content entry was published.",

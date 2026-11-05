@@ -63,6 +63,10 @@ _JOB_EVENTS = {
     "failed": (EventTypes.job_failed, "failed"),
 }
 
+# A worker's liveness: Marvin's per-minute check (services/worker_health.py) sets `data.offline_since` on a worker whose heartbeat went quiet
+# and clears it when the heartbeat is back, so each change of it is the event.
+_WORKER_EVENTS = {True: (EventTypes.worker_offline, "went offline"), False: (EventTypes.worker_online, "is back online")}
+
 # The status-transition events: each one is a change of `status`, so its diff always names it.
 _TRANSITION_EVENTS = (
     EventTypes.entry_published,
@@ -769,6 +773,16 @@ class EntryService:
             diff=diff,
         )
 
+    def _emit_worker_event(self, old, entry, names, diff, reaction_depth: int) -> None:
+        """A `worker` entry whose `data.offline_since` was just set or cleared is also worker_offline / worker_online."""
+        if names[0] != "worker" or "data.offline_since" not in diff[0]:
+            return
+        offline = bool(_data_of(entry).get("offline_since"))
+        if offline == bool(_data_of(old).get("offline_since")):
+            return
+        event_type, said = _WORKER_EVENTS[offline]
+        self._emit(entry, event_type, EventOperation.update, f"Worker '{entry.title}' {said}", names, reaction_depth=reaction_depth, diff=diff)
+
     def _emit_updated_and_transitions(self, old, entry, verb: str, reaction_depth: int) -> None:
         """Emit `entry_updated` first, then any status-transition events (published/unpublished/
         archived/trashed/restored). Each carries the scalar diff (changed_fields/before/after). The
@@ -793,6 +807,7 @@ class EntryService:
                 diff=diff,
             )
             self._emit_job_event(entry, names, diff, reaction_depth)
+            self._emit_worker_event(old, entry, names, diff, reaction_depth)
             if old_status == entry.status:
                 return
             if entry.status == "published":
