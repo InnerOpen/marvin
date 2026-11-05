@@ -154,3 +154,19 @@ export function definitionDifferences(a: unknown, b: unknown, path = ""): string
   }
   return Object.is(a, b) ? [] : [path || "(definition)"];
 }
+
+export const APPROVAL_DEFAULT_APPROVERS = "editor";
+const MAX_APPROVAL_HOURS = 720;
+
+/**
+ * The `approvers` and `expires_in_hours` an approval step keeps after the builder reads its form. Unset means "use the default" (editors, and
+ * the workspace's own expiry), so the builder writes them only when they were already set or the person chose something else: writing the
+ * defaults back would pin the expiry at one number for a step that followed the workspace's, and would make every approval step read as changed.
+ */
+export function approvalPolicy(hadApprovers: boolean, approvers: string, hoursText: string): { approvers?: string; expires_in_hours?: number } {
+  const out: { approvers?: string; expires_in_hours?: number } = {};
+  if (hadApprovers || (approvers && approvers !== APPROVAL_DEFAULT_APPROVERS)) out.approvers = approvers || APPROVAL_DEFAULT_APPROVERS;
+  const hours = Number(hoursText);
+  if (hoursText.trim() !== "" && Number.isFinite(hours) && hours >= 1) out.expires_in_hours = Math.min(Math.round(hours), MAX_APPROVAL_HOURS);
+  return out;
+}
