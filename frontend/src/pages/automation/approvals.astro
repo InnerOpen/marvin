@@ -8,15 +8,18 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { listApprovals, type WorkflowApproval } from "@/lib/api/workflowApprovals";
 import { isAudioUrl } from "@/lib/approvalMedia";
+import { deciderLabel, decisionLabel } from "@/lib/approvalHistory";
 import { captionResultsHtml } from "@/lib/captionCheck";
 import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 let approvals: WorkflowApproval[] = [];
+let decided: WorkflowApproval[] = [];
 let error: string | null = null;
 let restricted = false;
 try {
   approvals = await listApprovals(authToken);
+  decided = await listApprovals(authToken, "decided").catch(() => []); // history is a nicety: never hide the waiting ones for it
 } catch (e) {
   if (isForbidden(e)) restricted = true;
   else error = e instanceof Error ? e.message : String(e);
@@ -72,6 +75,28 @@ try {
       </article>
     ))}
   </div>
+  {decided.length > 0 && (
+    <section class="history" aria-labelledby="history-title">
+      <h3 id="history-title">Recently decided</h3>
+      <p class="muted">The latest 50, newest first, with the note each decision was made with.</p>
+      <div class="approvals">
+        {decided.map((a) => (
+          <article class="approval settled">
+            <p class="ask"><MessageText message={a.message} /></p>
+            {a.imageUrl && (isAudioUrl(a.imageUrl)
+              ? <audio class="preview-audio" src={a.imageUrl} controls preload="none" />
+              : <a href={a.imageUrl} target="_blank" rel="noopener"><img class="preview" src={a.imageUrl} alt="" loading="lazy" /></a>)}
+            <p class="verdict"><strong>{decisionLabel(a.status, a.choice)}</strong> by {deciderLabel(a.decidedByName)} · <LocalTime iso={a.decidedAt} fallback="" /></p>
+            {a.note && <p class="note-text">{a.note}</p>}
+            <p class="meta">
+              {a.automationName ?? "A workflow"}
+              {a.entryId && (<> · <a href={`/workspace/entries/${a.entryId}`}>{a.entryTitle ?? "the entry"}</a></>)}
+            </p>
+          </article>
+        ))}
+      </div>
+    </section>
+  )}
 </AppLayout>
 
 <script>
@@ -133,4 +158,9 @@ try {
   .decide { display: flex; flex-wrap: wrap; gap: 8px; }
   .decide .note { flex: 1 1 220px; }
   .result { margin: 8px 0 0; font-size: 13px; }
+  .history { margin-top: 32px; }
+  .history h3 { margin: 0 0 4px; }
+  .settled { background: transparent; }
+  .verdict { margin: 0 0 6px; font-size: 14px; }
+  .note-text { margin: 0 0 8px; padding: 8px 10px; border-left: 3px solid var(--line); background: var(--panel); white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>

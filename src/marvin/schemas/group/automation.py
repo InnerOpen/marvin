@@ -490,6 +490,7 @@ class WorkflowApprovalRead(_MarvinModel):
     created_at: datetime | None = None
     expires_at: datetime
     decided_by: UUID4 | None = None
+    decided_by_name: str | None = None  # who decided, as a name to read
     decided_at: datetime | None = None
     note: str | None = None
     choices: list[str] | None = None  # an approval with choices: the labels to pick from

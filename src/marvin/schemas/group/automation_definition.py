@@ -48,12 +48,13 @@ class EventTrigger(_DefnBase):
 
 
 class RunInput(_DefnBase):
-    """One thing the person (or agent) running a manual workflow fills in, read as ${input.<name>}. `type`: text, number,
-    choice (one of `options`) or entry (an entry's id or slug — the run acts on it: ${entry.*}, entry steps)."""
+    """One thing the person (or agent) running a manual workflow fills in, read as ${input.<name>}. `type`: text, textarea
+    (several lines, for a written brief), number, choice (one of `options`), entry (an entry's id or slug — the run acts on it:
+    ${entry.*}, entry steps) or asset (an asset's slug, id or link: `${input.<name>}` is its id)."""
 
     name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")
     label: str | None = None
-    type: Literal["text", "number", "choice", "entry"] = "text"
+    type: Literal["text", "textarea", "number", "choice", "entry", "asset"] = "text"
     options: list[str] | None = None
     required: bool = True
     default: str | float | None = None

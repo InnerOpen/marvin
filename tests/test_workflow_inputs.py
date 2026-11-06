@@ -121,3 +121,65 @@ def test_the_validator_reads_inputs(ws):
         "actions": REMIX["actions"],
     }
     assert draft_issues(ws.session, ws.gid, two_entries)
+
+
+# ── textarea and asset inputs ────────────────────────────────────────────────────────────────────────────────────────
+
+
+def _asset(ws, *, slug=None, group_id=None, trashed=False, public_url=None):
+    from datetime import UTC, datetime
+
+    from marvin.db.models.platform import Assets
+
+    slug = slug or f"clip-{uuid.uuid4().hex[:6]}"
+    row = Assets(
+        session=ws.session, group_id=group_id or ws.gid, slug=slug, name=slug, original_filename=f"{slug}.mp3", filename=f"{slug}.mp3",
+        extension="mp3", file_size=3, mime_type="audio/mpeg", asset_type="audio", checksum=uuid.uuid4().hex, storage_provider="local",
+        storage_key=f"t/2026/11/{uuid.uuid4().hex}.mp3", public_url=public_url, uploaded_by=ws.uid,
+        trashed_at=datetime.now(UTC) if trashed else None,
+    )  # fmt: skip
+    ws.session.add(row)
+    ws.session.commit()
+    return row
+
+
+def _brief_workflow(ws, inputs):
+    return _workflow(ws, {"trigger": {"type": "manual", "inputs": inputs}, "actions": [{"kind": "collect", "query": {"text": "${input.brief}"}}]})
+
+
+def test_a_textarea_keeps_its_lines_and_allows_a_long_brief(ws):
+    row = _brief_workflow(ws, [{"name": "brief", "type": "textarea"}])
+    brief = "A heavy door closing.\n\nThen a long, low hum:\n  “quiet”, with a rattle. " + "x" * 5000
+
+    assert resolve(ws.session, ws.gid, row, {"brief": brief})[0] == {"brief": brief}  # past the one-line cap, newlines intact
+    with pytest.raises(RunInputError, match="longer than 20,000"):
+        resolve(ws.session, ws.gid, row, {"brief": "x" * 20_001})
+
+
+def test_a_plain_text_input_keeps_its_one_line_cap(ws):
+    row = _brief_workflow(ws, [{"name": "brief", "type": "text"}])
+    with pytest.raises(RunInputError, match="longer than 2,000"):
+        resolve(ws.session, ws.gid, row, {"brief": "x" * 2001})
+
+
+def test_an_asset_input_takes_a_slug_an_id_or_either_link(ws):
+    clip = _asset(ws, public_url="https://assets.example.com/t/2026/11/clip.mp3")
+    row = _brief_workflow(ws, [{"name": "brief", "type": "asset"}])
+    for ref in (
+        clip.slug,
+        str(clip.id),
+        clip.public_url,
+        f"https://assets.example.com/{clip.storage_key}",
+        f"https://admin.example.com/workspace/assets/{clip.id}/view",
+        f"https://admin.example.com/workspace/assets/{clip.id}",
+    ):
+        assert resolve(ws.session, ws.gid, row, {"brief": ref})[0] == {"brief": str(clip.id)}, ref
+
+
+def test_an_asset_input_refuses_what_is_not_in_this_workspace(ws):
+    other_group = uuid.uuid4()  # a workspace this one has no part in: its asset must not resolve here
+    trashed = _asset(ws, trashed=True)
+    row = _brief_workflow(ws, [{"name": "brief", "type": "asset"}])
+    for ref in (trashed.slug, str(trashed.id), "no-such-clip", str(uuid.uuid4()), "https://admin.example.com/workspace/assets/" + str(other_group)):
+        with pytest.raises(RunInputError, match="no asset"):
+            resolve(ws.session, ws.gid, row, {"brief": ref})

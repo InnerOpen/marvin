@@ -27,6 +27,7 @@ from .authz import ROLE_ADMIN, ROLE_EDITOR
 ROLE_OF_APPROVERS = {"editor": ROLE_EDITOR, "admin": ROLE_ADMIN}
 DECISIONS = {"approve": "approved", "deny": "denied"}
 MAX_PENDING_LIST = 100
+MAX_DECIDED_LIST = 50
 
 
 class ApprovalError(Exception):
@@ -268,6 +269,18 @@ def expire_due(session, *, logger=None, now: datetime | None = None) -> int:
         except ApprovalError:
             continue  # decided meanwhile
     return done
+
+
+def decided(session, group_id, role: int, *, limit: int = MAX_DECIDED_LIST) -> list[WorkflowApprovalModel]:
+    """The approvals already settled in this workspace that a member at `role` may see (the ones they could have decided),
+    newest decision first: who decided, when, what they said, the note."""
+    return (
+        session.query(WorkflowApprovalModel)
+        .filter(WorkflowApprovalModel.group_id == group_id, WorkflowApprovalModel.status.in_(DECISIONS_KEPT), WorkflowApprovalModel.min_role <= role)
+        .order_by(WorkflowApprovalModel.decided_at.desc().nullslast(), WorkflowApprovalModel.created_at.desc())
+        .limit(limit)
+        .all()
+    )
 
 
 def count_pending(session, group_id, role: int) -> int:

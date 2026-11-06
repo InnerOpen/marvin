@@ -164,3 +164,26 @@ def test_a_choice_travels_through_the_api(ws):  # noqa: F811
     assert client.post(f"{APPROVALS}/{waiting['id']}/decide", json={"decision": "approve"}).status_code == 422
     decided = client.post(f"{APPROVALS}/{waiting['id']}/decide", json={"decision": "approve", "choice": "Dusk"})
     assert decided.status_code == 200 and (decided.json()["status"], decided.json()["choice"]) == ("approved", "Dusk")
+
+
+def test_the_decided_list_keeps_each_note_with_who_and_when(ws, monkeypatch):  # noqa: F811
+    _resume_inline(ws, monkeypatch)
+    _waiting_run(ws)
+    uid = _sign_in_as_real_editor(ws)
+    client = TestClient(app)
+
+    assert client.get(f"{APPROVALS}?state=decided").json() == []  # nothing is settled yet
+    (waiting,) = client.get(APPROVALS).json()
+    client.post(f"{APPROVALS}/{waiting['id']}/decide", json={"decision": "deny", "note": "Not this week"})
+
+    assert client.get(APPROVALS).json() == []  # no longer waiting
+    (row,) = client.get(f"{APPROVALS}?state=decided").json()
+    assert (row["id"], row["status"], row["note"], row["decidedBy"]) == (waiting["id"], "denied", "Not this week", str(uid))
+    assert row["decidedByName"] and row["decidedAt"] and row["message"] == "Feature “Spring sale”?"
+    assert client.get(f"{APPROVALS}?state=nonsense").status_code == 422
+
+
+def test_an_author_may_not_read_the_decided_list(ws):  # noqa: F811
+    _waiting_run(ws)
+    _sign_in(ws.gid, WorkspaceRole.AUTHOR)
+    assert TestClient(app).get(f"{APPROVALS}?state=decided").status_code == 403

@@ -879,8 +879,8 @@ def list_workflows(ctx: ToolContext, _args: dict) -> str:
         "trigger/condition gates (like pressing Run). Returns whether it completed. Names match "
         "case-insensitively; when nothing matches the error lists the workflows that exist — pick the "
         "right one (or ask the user) rather than guessing again. A workflow with run inputs (list_workflows shows "
-        "them: name, type text|number|choice|entry, options, required) takes them in `inputs` — an entry input is "
-        "an entry's slug or id, and the run acts on that entry."
+        "them: name, type text|textarea|number|choice|entry|asset, options, required) takes them in `inputs` — an entry "
+        "input is an entry's slug or id, and the run acts on that entry; an asset input is an asset's slug, id or link."
     ),
     input_schema={
         "type": "object",
