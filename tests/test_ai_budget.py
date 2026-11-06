@@ -278,8 +278,8 @@ def test_the_hourly_check_sends_one_event_per_newly_seen_model(db_session, works
 # --- an integration's calls are logged, but are not AI spend ---------------------------------------------------------
 
 
-def _speech(db_session, gid, characters, multiplier=1.0, **kw):
-    meta = {"unit": "characters", "units": characters, "multiplier": multiplier}
+def _speech(db_session, gid, characters, multiplier=1.0, credits=None, **kw):
+    meta = {"unit": "characters", "units": characters, "multiplier": multiplier, **({"credits": credits} if credits is not None else {})}
     return _run(db_session, gid, op="speech.synthesize", provider="elevenlabs", trigger="integration", meta=meta, **kw)
 
 
@@ -308,3 +308,13 @@ def test_the_tally_is_this_months_only(db_session, workspace):
     _speech(db_session, workspace, 400, at=datetime(2026, 9, 30, 12, 0, tzinfo=UTC))
 
     assert budget.integration_tally(db_session, workspace, NOW) == []
+
+
+def test_the_tally_believes_the_credits_a_provider_measured_over_characters_times_a_multiplier(db_session, workspace):
+    _speech(db_session, workspace, 400, multiplier=0.5)  # no measurement: 400 x 0.5
+    _speech(db_session, workspace, 20, credits=300)  # a sound effect: 20 characters of prompt, 300 credits of audio
+    _speech(db_session, workspace, 50, credits=0)  # measured as nothing
+
+    [row] = budget.integration_tally(db_session, workspace, NOW)
+
+    assert row == {"provider": "elevenlabs", "unit": "characters", "calls": 3, "units": 470, "billed": 500.0}

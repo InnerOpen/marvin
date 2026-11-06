@@ -40,11 +40,20 @@ export function integrationLines(tally: IntegrationTally[] | undefined): string[
 
 const amount = (value: number) => (Number.isInteger(value) ? value.toLocaleString() : (Math.round(value * 10) / 10).toLocaleString());
 
-/** What an integration call's row shows where an AI run shows tokens and dollars: "285 characters × 0.5" and "142.5 billed" (backend:
- * services/integrations/usage_log.py `metadata_json`: unit, units, multiplier). null for a row with no such record. */
-export function integrationCall(meta: { unit?: string; units?: number; multiplier?: number } | null | undefined): { used: string; billed: string } | null {
+/** What an integration call's row shows where an AI run shows tokens and dollars (backend: services/integrations/usage_log.py `metadata_json`).
+ * Estimated: "285 characters × 0.5" and "142.5 billed" (units times the model's multiplier). Measured, when the provider read its own meter:
+ * the characters, and "300 credits · 98,760 left" (a sound or music is billed by the audio's length, so the credits are the number to trust).
+ * null for a row with no such record. */
+export function integrationCall(
+  meta: { unit?: string; units?: number; multiplier?: number; credits?: number; credits_remaining?: number } | null | undefined,
+): { used: string; billed: string } | null {
   if (!meta || typeof meta.units !== "number") return null;
   if (meta.unit !== "characters") return { used: meta.units === 1 ? "1 call" : `${amount(meta.units)} calls`, billed: "—" };
+  if (typeof meta.credits === "number") {
+    const left = typeof meta.credits_remaining === "number" ? ` · ${amount(meta.credits_remaining)} left` : "";
+    return { used: `${amount(meta.units)} characters`, billed: `${amount(meta.credits)} credits${left}` };
+  }
   const multiplier = typeof meta.multiplier === "number" && meta.multiplier > 0 ? meta.multiplier : 1;
-  return { used: `${amount(meta.units)} characters × ${amount(multiplier)}`, billed: `${amount(meta.units * multiplier)} billed` };
+  const left = typeof meta.credits_remaining === "number" ? ` · ${amount(meta.credits_remaining)} left` : "";
+  return { used: `${amount(meta.units)} characters × ${amount(multiplier)}`, billed: `${amount(meta.units * multiplier)} billed${left}` };
 }
