@@ -8,7 +8,7 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { listApprovals, type WorkflowApproval } from "@/lib/api/workflowApprovals";
 import { isAudioUrl } from "@/lib/approvalMedia";
-import { deciderLabel, decisionLabel } from "@/lib/approvalHistory";
+import { deciderLabel, decisionLabel, firstLine } from "@/lib/approvalHistory";
 import { captionResultsHtml } from "@/lib/captionCheck";
 import { isForbidden } from "@/lib/workspaceRole";
 
@@ -78,21 +78,26 @@ try {
   {decided.length > 0 && (
     <section class="history" aria-labelledby="history-title">
       <h3 id="history-title">Recently decided</h3>
-      <p class="muted">The latest 50, newest first, with the note each decision was made with.</p>
-      <div class="approvals">
+      <p class="muted">The latest 50, newest first. Hover a question or a note to read all of it.</p>
+      <div class="chips">
         {decided.map((a) => (
-          <article class="approval settled">
-            <p class="ask"><MessageText message={a.message} /></p>
-            {a.imageUrl && (isAudioUrl(a.imageUrl)
-              ? <audio class="preview-audio" src={a.imageUrl} controls preload="none" />
-              : <a href={a.imageUrl} target="_blank" rel="noopener"><img class="preview" src={a.imageUrl} alt="" loading="lazy" /></a>)}
-            <p class="verdict"><strong>{decisionLabel(a.status, a.choice)}</strong> by {deciderLabel(a.decidedByName)} · <LocalTime iso={a.decidedAt} fallback="" /></p>
-            {a.note && <p class="note-text">{a.note}</p>}
-            <p class="meta">
-              {a.automationName ?? "A workflow"}
-              {a.entryId && (<> · <a href={`/workspace/entries/${a.entryId}`}>{a.entryTitle ?? "the entry"}</a></>)}
-            </p>
-          </article>
+          <div class={`decided-chip s-${a.status}`}>
+            <div class="chip-left">
+              <div class="chip-title">
+                <span class="verdict-pill">{decisionLabel(a.status, a.choice)}</span>
+                <span class="chip-msg" title={a.message}>{firstLine(a.message)}</span>
+              </div>
+              {a.note && <p class="chip-note" title={a.note}>“{a.note}”</p>}
+            </div>
+            <div class="chip-right">
+              <span class="chip-meta">{deciderLabel(a.decidedByName)} · <LocalTime iso={a.decidedAt} fallback="" /></span>
+              <span class="chip-meta chip-from">
+                {a.automationName ?? "A workflow"}
+                {a.entryId && (<> · <a href={`/workspace/entries/${a.entryId}`}>{a.entryTitle ?? "the entry"}</a></>)}
+              </span>
+              {a.imageUrl && <a class="button secondary small" href={a.imageUrl} target="_blank" rel="noopener">{isAudioUrl(a.imageUrl) ? "Listen" : "View"}</a>}
+            </div>
+          </div>
         ))}
       </div>
     </section>
@@ -158,9 +163,27 @@ try {
   .decide { display: flex; flex-wrap: wrap; gap: 8px; }
   .decide .note { flex: 1 1 220px; }
   .result { margin: 8px 0 0; font-size: 13px; }
+  /* Recently decided: slim full-width rows, the same shape as the Events page's chips. */
   .history { margin-top: 32px; }
   .history h3 { margin: 0 0 4px; }
-  .settled { background: transparent; }
-  .verdict { margin: 0 0 6px; font-size: 14px; }
-  .note-text { margin: 0 0 8px; padding: 8px 10px; border-left: 3px solid var(--line); background: var(--panel); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .chips { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
+  .decided-chip { padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); display: flex; align-items: center; gap: 12px; transition: border-color 0.15s; }
+  .decided-chip:hover { border-color: var(--accent); }
+  .chip-left { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .chip-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .chip-msg { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip-note { margin: 0; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+  .chip-meta { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .chip-from { max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+  .verdict-pill { flex-shrink: 0; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .s-approved .verdict-pill { color: var(--good, #16a34a); }
+  .s-denied .verdict-pill { color: var(--color-error, #dc2626); }
+  .button.small { padding: 4px 10px; font-size: 12px; font-weight: 600; min-height: 26px; }
+  @media (max-width: 640px) {
+    .decided-chip { flex-wrap: wrap; }
+    .chip-right { flex-basis: 100%; flex-wrap: wrap; gap: 4px 12px; }
+    .chip-from { max-width: 100%; white-space: normal; }
+    .button.small { min-height: 36px; }
+  }
 </style>

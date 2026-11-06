@@ -15,3 +15,8 @@ export function decisionLabel(status: string, choice?: string | null): string {
 export function deciderLabel(decidedByName?: string | null): string {
   return decidedByName?.trim() || "no one";
 }
+
+/** The first line of a question, for a one-line row: the full text stays on the row's title. */
+export function firstLine(message: string): string {
+  return (message ?? "").split("\n")[0].trim();
+}
