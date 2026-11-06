@@ -52,3 +52,25 @@ def test_a_call_that_reports_no_usage_leaves_no_row(db_session, group, out):
 def test_a_provider_with_no_characters_is_counted_as_one_call():
     assert usage_log.units_used({"provider_type": "openai_images"}) == ("calls", 1)
     assert usage_log.units_used({"characters": "30"}) == ("characters", 30)
+
+
+def test_what_was_sent_and_what_came_back_are_kept_without_the_audio(db_session, group):
+    sent = {"text": "x" * 5000, "voice_id": "v1", "audio_b64": "QUJD" * 100}
+    answer = {**SPEECH, "audio_b64": "QUJD" * 1000, "words": [{"text": "a"}] * 120}
+    usage_log.record_call(db_session, group, _integration(), "speech.synthesize", answer, args=sent)
+    db_session.commit()
+
+    [row] = db_session.query(AIExecutionModel).filter_by(group_id=group).all()
+    assert row.input_json["args"]["voice_id"] == "v1"
+    assert row.input_json["args"]["text"].startswith("xxx") and "5,000 characters" in row.input_json["args"]["text"]
+    assert len(row.input_json["args"]["text"]) < 2100  # cut, not kept whole
+    assert row.input_json["args"]["audio_b64"] == "‹300 bytes›"  # a size note, never the bytes
+    assert row.output_json["audio_b64"] == "‹3,000 bytes›" and row.output_json["usage"]["multiplier"] == 0.5
+    assert len(row.output_json["words"]) == 51 and row.output_json["words"][-1] == "‹70 more›"
+
+
+def test_a_call_with_no_arguments_keeps_no_input(db_session, group):
+    usage_log.record_call(db_session, group, _integration(), "speech.synthesize", SPEECH)
+    db_session.commit()
+    [row] = db_session.query(AIExecutionModel).filter_by(group_id=group).all()
+    assert row.input_json is None and row.output_json["usage"]["characters"] == 120

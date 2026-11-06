@@ -398,6 +398,7 @@ def _call_provider(session, group_id, row, provider, key, args, src, keeps_image
             out,
             user_id=user_id,
             elapsed_ms=int((time.monotonic() - started) * 1000),
+            args=plain_args,
         )
     if not dry_run:  # an action that hands work off: it is in flight now, until the other side reports back
         automation_results.track(session, group_id, row, _declared_action(provider, key), plain_args, context, out=out)

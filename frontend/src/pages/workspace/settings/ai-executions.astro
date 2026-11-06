@@ -4,6 +4,7 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
+import { integrationCall } from "@/lib/aiUsage";
 
 const authToken = getAuthToken(Astro.cookies);
 const authed = !!authToken;
@@ -138,11 +139,14 @@ function formatDuration(ms: number | null): string {
             const estimatedCost = getField(exec, 'estimatedCostUsd', 'estimated_cost_usd');
             const durationMs = getField(exec, 'durationMs', 'duration_ms');
             const outputJson = getField(exec, 'outputJson', 'output_json');
+            const inputJson = getField(exec, 'inputJson', 'input_json');
             const errorMsg = getField(exec, 'errorMessage', 'error_message');
             const entityType = getField(exec, 'entityType', 'entity_type');
             const entityId = getField(exec, 'entityId', 'entity_id');
             const triggerType = getField(exec, 'triggerType', 'trigger_type');
-            const hasDetails = !!(errorMsg || outputJson || entityType);
+            const hasDetails = !!(errorMsg || outputJson || inputJson || entityType);
+            // An integration's call has no tokens or dollars: its units and the model's multiplier stand in their place.
+            const call = triggerType === 'integration' ? integrationCall(getField(exec, 'metadataJson', 'metadata_json')) : null;
             const tools = toolsUsed(getField(exec, 'metadataJson', 'metadata_json'), outputJson);
             return (
               <>
@@ -166,8 +170,8 @@ function formatDuration(ms: number | null): string {
                   <td>
                     <span class={`status-chip status-${statusClass(exec.status)}`}>{exec.status}</span>
                   </td>
-                  <td class="nowrap">{formatTokens(totalTokens)}{cachedTokens > 0 && <span class="cached" title="Prompt tokens the provider served from its prompt cache, billed at the cache rate">{" "}({formatTokens(cachedTokens)} cached)</span>}</td>
-                  <td class="nowrap">{formatCost(estimatedCost)}</td>
+                  <td class="nowrap">{call ? call.used : formatTokens(totalTokens)}{!call && cachedTokens > 0 && <span class="cached" title="Prompt tokens the provider served from its prompt cache, billed at the cache rate">{" "}({formatTokens(cachedTokens)} cached)</span>}</td>
+                  <td class="nowrap">{call ? call.billed : formatCost(estimatedCost)}</td>
                   <td class="nowrap">{formatDuration(durationMs)}</td>
                 </tr>
                 {hasDetails && (
@@ -200,6 +204,12 @@ function formatDuration(ms: number | null): string {
                             ) : (
                               <p class="check-ok">✓ Nothing left that Marvin could see{outputJson.check.rounds ? ` (sent back ${outputJson.check.rounds}×)` : ''}.</p>
                             )}
+                          </div>
+                        )}
+                        {inputJson && (
+                          <div class="detail-section">
+                            <div class="detail-label">Sent</div>
+                            <pre class="payload-json">{JSON.stringify(inputJson, null, 2)}</pre>
                           </div>
                         )}
                         {outputJson && (
