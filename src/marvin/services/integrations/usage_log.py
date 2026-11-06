@@ -4,7 +4,9 @@ A provider that bills for what it makes (speech by the character, an image by th
 ``{provider_type, model, characters?, multiplier?, input_tokens?, output_tokens?}``. The workflow ``integration`` step writes one row per
 call from it, so AI executions shows what was spent and where. The row has ``trigger_type="integration"``, which ``services/ai/budget.py``
 keeps out of the monthly total, the limits and the unpriced list: those are for the AI set up in AI settings, not for integrations.
-What a call used is kept in ``metadata_json`` (``unit``, ``units``, ``multiplier``) for the tally that card shows.
+What a call used is kept in ``metadata_json`` (``unit``, ``units``, ``multiplier``) for the tally that card shows, and what was sent and
+what came back in ``input_json`` / ``output_json`` (audio and other base64 reduced to a size note, long text cut), so a row can be read
+back later without the run's own record.
 """
 
 from __future__ import annotations
@@ -14,6 +16,8 @@ from marvin.core.root_logger import get_logger
 logger = get_logger(__name__)
 
 INTEGRATION_TRIGGER = "integration"
+MAX_TEXT_CHARS = 2000  # a long prompt or transcript is cut here: the asset or entry it made holds the whole
+MAX_LIST_ITEMS = 50  # a transcript's word list can run to thousands
 
 
 def _number(value, default=0.0) -> float:
@@ -30,7 +34,23 @@ def units_used(usage: dict) -> tuple[str, int]:
     return "calls", 1
 
 
-def record_call(session, group_id, row, operation: str, out: dict, *, user_id=None, elapsed_ms: int | None = None) -> None:
+def clip(value):
+    """A copy of a call's arguments or answer that is safe to keep on a row: base64 (audio, a picture) becomes a size note, long
+    text is cut, long lists are shortened."""
+    if isinstance(value, dict):
+        return {
+            key: (f"‹{len(item) * 3 // 4:,} bytes›" if str(key).endswith("_b64") and isinstance(item, str) else clip(item))
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        kept = [clip(item) for item in value[:MAX_LIST_ITEMS]]
+        return kept + ([f"‹{len(value) - MAX_LIST_ITEMS} more›"] if len(value) > MAX_LIST_ITEMS else [])
+    if isinstance(value, str) and len(value) > MAX_TEXT_CHARS:
+        return f"{value[:MAX_TEXT_CHARS]}… ‹{len(value):,} characters›"
+    return value
+
+
+def record_call(session, group_id, row, operation: str, out: dict, *, user_id=None, elapsed_ms: int | None = None, args: dict | None = None) -> None:
     """Write the call's AI-executions row if its output carries a usage block. Best-effort inside a savepoint: a logging failure never
     fails the step or undoes the work around it. ``row`` is the integration (``provider``, ``slug``, ``id``)."""
     usage = out.get("usage") if isinstance(out, dict) else None
@@ -57,6 +77,8 @@ def record_call(session, group_id, row, operation: str, out: dict, *, user_id=No
                     completion_tokens=output_tokens or None,
                     total_tokens=(input_tokens + output_tokens) or None,
                     duration_ms=elapsed_ms,
+                    input_json={"args": clip(args)} if args else None,
+                    output_json=clip(out),
                     metadata_json={
                         "integration": row.slug,
                         "integration_id": str(row.id),
