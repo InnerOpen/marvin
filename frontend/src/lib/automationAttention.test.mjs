@@ -3,18 +3,18 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { countBadge, dashboardLine } from "./automationAttention.ts";
+import { countBadge, dashboardLine, plainPage } from "./automationAttention.ts";
 
 describe("the dashboard line", () => {
   test("says how many, and links to the page the server named", () => {
     assert.deepEqual(dashboardLine(3, "/automation/incoming-webhooks?status=attention"), {
       text: "Automation needs a look (3)",
-      href: "/automation/incoming-webhooks?status=attention",
+      href: "/automation/incoming-webhooks", // the server's page, minus the pinned filter
     });
   });
 
   test("falls back to the Workflows page when no page came back", () => {
-    assert.equal(dashboardLine(1, null)?.href, "/automation/workflows?status=attention");
+    assert.equal(dashboardLine(1, null)?.href, "/automation/workflows");
   });
 
   test("is hidden when nothing needs a look", () => {
@@ -38,4 +38,9 @@ test("the Approvals card says how many are waiting, and nothing when none are", 
   assert.equal(waitingText(3), " · 3 waiting for you");
   assert.equal(waitingText(0), "");
   assert.equal(waitingText(undefined), "");
+});
+
+test("a link to a list page never pins a filter on it", () => {
+  assert.equal(plainPage("/automation/workflows?status=attention"), "/automation/workflows");
+  assert.equal(plainPage("/automation/workflows"), "/automation/workflows");
 });

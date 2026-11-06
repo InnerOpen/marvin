@@ -6,19 +6,25 @@ export interface AutomationAttention {
   total: number;
   /** Per kind ("workflows", and later webhooks and scheduled tasks). */
   kinds: Record<string, number>;
-  /** The list page, filtered to Needs attention, of the first kind with something flagged; null when nothing is. */
+  /** The list page of the first kind with something flagged (the server may add `?status=attention`; the links drop it); null when nothing is. */
   firstPage: string | null;
+}
+
+/** A link to a list page without the filter another page would pin on it: the page opens the way the person left it, and they
+ * change the Status box themselves. (A `?status=attention` link overrides what the page remembered, so clearing it never stuck.) */
+export function plainPage(href: string): string {
+  return href.split("?")[0];
 }
 
 /** The dashboard's line: null (hidden) when nothing needs a look. `fallback` is where to go if the server named no page. */
 export function dashboardLine(
   count: number | null | undefined,
   page: string | null | undefined,
-  fallback = "/automation/workflows?status=attention",
+  fallback = "/automation/workflows",
 ): { text: string; href: string } | null {
   const n = count ?? 0;
   if (n <= 0) return null;
-  return { text: `Automation needs a look (${n})`, href: page || fallback };
+  return { text: `Automation needs a look (${n})`, href: plainPage(page || fallback) };
 }
 
 /** Words for the approvals waiting for you, on the Approvals card: "" when none. */
