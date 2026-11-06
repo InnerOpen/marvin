@@ -4,7 +4,8 @@ A provider that bills for what it makes (speech by the character, an image by th
 ``{provider_type, model, characters?, multiplier?, input_tokens?, output_tokens?}``. The workflow ``integration`` step writes one row per
 call from it, so AI executions shows what was spent and where. The row has ``trigger_type="integration"``, which ``services/ai/budget.py``
 keeps out of the monthly total, the limits and the unpriced list: those are for the AI set up in AI settings, not for integrations.
-What a call used is kept in ``metadata_json`` (``unit``, ``units``, ``multiplier``) for the tally that card shows, and what was sent and
+What a call used is kept in ``metadata_json`` (``unit``, ``units``, ``multiplier``, and when the provider measured it ``credits``,
+``credits_remaining``, ``credits_limit``, ``credits_resets_at``) for the tally that card shows, and what was sent and
 what came back in ``input_json`` / ``output_json`` (audio and other base64 reduced to a size note, long text cut), so a row can be read
 back later without the run's own record.
 """
@@ -50,6 +51,9 @@ def clip(value):
     return value
 
 
+CREDIT_KEYS = ("credits", "credits_remaining", "credits_limit", "credits_resets_at")  # what a provider that measures its own meter reports
+
+
 def record_call(session, group_id, row, operation: str, out: dict, *, user_id=None, elapsed_ms: int | None = None, args: dict | None = None) -> None:
     """Write the call's AI-executions row if its output carries a usage block. Best-effort inside a savepoint: a logging failure never
     fails the step or undoes the work around it. ``row`` is the integration (``provider``, ``slug``, ``id``)."""
@@ -85,6 +89,7 @@ def record_call(session, group_id, row, operation: str, out: dict, *, user_id=No
                         "unit": unit,
                         "units": units,
                         "multiplier": multiplier,
+                        **{key: usage[key] for key in CREDIT_KEYS if usage.get(key) is not None},
                     },
                 )
             )

@@ -198,9 +198,10 @@ def unpriced(session, group_id, now: datetime | None = None) -> list[dict]:
 
 
 def integration_tally(session, group_id, now: datetime | None = None) -> list[dict]:
-    """This month's completed integration calls, per provider and unit: {provider, unit, calls, units, billed}. ``units`` is what the call used
-    (characters of text); ``billed`` is that times the model's multiplier when the provider reported one (ElevenLabs: some models cost half a
-    character per character). No dollars: Marvin cannot know a plan's price, so this is a tally to read against the provider's own meter."""
+    """This month's completed integration calls, per provider and unit: {provider, unit, calls, units, billed}. ``units`` is what the call
+    used (characters of text). ``billed`` is the credits the provider measured for the call when it did, else ``units`` times the model's
+    multiplier when it reported one (ElevenLabs: some models cost half a character per character). No dollars: Marvin cannot know a
+    plan's price, so this is a tally to read against the provider's own meter."""
     from marvin.db.models.groups.ai_executions import AIExecutionModel as Run
 
     now = now or datetime.now(UTC)
@@ -217,7 +218,10 @@ def integration_tally(session, group_id, now: datetime | None = None) -> list[di
         used = int(meta.get("units") or 0)
         entry["calls"] += 1
         entry["units"] += used
-        entry["billed"] += used * float(meta.get("multiplier") or 1.0)
+        # A provider that measured what the call cost (its credits moved by that much) is believed over characters times a multiplier:
+        # a sound or music is billed by the audio's length, not by the prompt's.
+        measured = meta.get("credits")
+        entry["billed"] += float(measured) if isinstance(measured, int | float) else used * float(meta.get("multiplier") or 1.0)
     return sorted(tally.values(), key=lambda t: (-t["calls"], t["provider"], t["unit"]))
 
 

@@ -37,3 +37,10 @@ test("an integration call shows its units and multiplier where tokens and dollar
   assert.equal(integrationCall(null), null);
   assert.equal(integrationCall({}), null);
 });
+
+test("a row whose credits were measured shows them, and what is left", () => {
+  const measured = { unit: "characters", units: 285, multiplier: 1, credits: 300, credits_remaining: 98760 };
+  assert.deepEqual(integrationCall(measured), { used: "285 characters", billed: "300 credits · 98,760 left" });
+  assert.deepEqual(integrationCall({ unit: "characters", units: 40, multiplier: 0.5, credits_remaining: 500 }), { used: "40 characters × 0.5", billed: "20 billed · 500 left" });
+  assert.deepEqual(integrationCall({ unit: "characters", units: 40, credits: 0 }), { used: "40 characters", billed: "0 credits" });
+});

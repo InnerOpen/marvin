@@ -74,3 +74,21 @@ def test_a_call_with_no_arguments_keeps_no_input(db_session, group):
     db_session.commit()
     [row] = db_session.query(AIExecutionModel).filter_by(group_id=group).all()
     assert row.input_json is None and row.output_json["usage"]["characters"] == 120
+
+
+def test_the_credits_a_provider_measured_are_kept_on_the_row(db_session, group):
+    measured = {
+        **SPEECH["usage"],
+        "credits": 40,
+        "credits_remaining": 98_760,
+        "credits_limit": 100_000,
+        "credits_resets_at": "2027-01-01T00:00:00+00:00",
+    }
+    usage_log.record_call(db_session, group, _integration(), "audio.sound_effect", {"usage": measured})
+    usage_log.record_call(db_session, group, _integration(), "speech.synthesize", SPEECH)  # a provider that measures nothing
+    db_session.commit()
+
+    rows = {r.operation_slug: r.metadata_json for r in db_session.query(AIExecutionModel).filter_by(group_id=group).all()}
+    assert rows["audio.sound_effect"]["credits"] == 40 and rows["audio.sound_effect"]["credits_remaining"] == 98_760
+    assert rows["audio.sound_effect"]["credits_limit"] == 100_000 and rows["audio.sound_effect"]["credits_resets_at"].startswith("2027")
+    assert not any(k.startswith("credits") for k in rows["speech.synthesize"])
