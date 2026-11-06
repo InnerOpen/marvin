@@ -19,6 +19,9 @@ export interface WorkflowApproval {
   entryTitle?: string | null;
   createdAt?: string | null;
   expiresAt: string;
+  /** Settled approvals: who decided (their name), when, and the note they left. */
+  decidedByName?: string | null;
+  decidedAt?: string | null;
   note?: string | null;
   /** An approval with choices: the labels to pick from, and the one picked once approved. */
   choices?: string[] | null;
@@ -29,8 +32,9 @@ export interface WorkflowApproval {
   postPreview?: { text: string; results: CaptionResult[] } | null;
 }
 
-export async function listApprovals(authToken?: string): Promise<WorkflowApproval[]> {
-  return fetchApi<WorkflowApproval[]>("/api/automations/approvals", {}, authToken);
+/** Waiting for you (`pending`, oldest first), or the latest settled ones (`decided`, newest first, with who, when and the note). */
+export async function listApprovals(authToken?: string, state: "pending" | "decided" = "pending"): Promise<WorkflowApproval[]> {
+  return fetchApi<WorkflowApproval[]>(`/api/automations/approvals${state === "decided" ? "?state=decided" : ""}`, {}, authToken);
 }
 
 export async function decideApproval(

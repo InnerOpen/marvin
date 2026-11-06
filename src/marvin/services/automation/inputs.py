@@ -1,11 +1,11 @@
 """Run inputs: what a manual workflow asks for when someone runs it (the Run button's form, the API's body, the agent's
 run_workflow `inputs`), read as ``${input.<name>}``.
 
-A manual trigger declares them (``trigger.inputs``: name, label, type text | number | choice | entry, options, required,
-default). ``resolve`` checks what a caller passed against those declarations — an unknown name, a missing required
-one, a choice outside its options or a number that isn't one is refused with a message saying so — and returns the
-values plus the entry an ``entry`` input names, which the run then acts on (``${entry.*}``, entry steps) as if it had
-been triggered by it. A dry run fills a missing value with a stand-in instead of refusing.
+A manual trigger declares them (``trigger.inputs``: name, label, type text | textarea | number | choice | entry | asset, options,
+required, default). ``resolve`` checks what a caller passed against those declarations — an unknown name, a missing required
+one, a choice outside its options, a number that isn't one or an asset that isn't in the workspace is refused with a
+message saying so — and returns the values plus the entry an ``entry`` input names, which the run then acts on
+(``${entry.*}``, entry steps) as if it had been triggered by it. An ``asset`` input becomes the asset's id. A dry run fills a missing value with a stand-in instead of refusing.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 MAX_TEXT_CHARS = 2000
+MAX_TEXTAREA_CHARS = 20_000  # a written brief (a sound, a scene, a picture to make), not a one-line value
 
 
 class RunInputError(ValueError):
@@ -68,9 +69,12 @@ def _value(session, group_id, spec: dict, raw):
         return str(raw)
     if kind == "entry":
         return _entry_id(session, group_id, label, str(raw).strip())
+    if kind == "asset":
+        return _asset_id(session, group_id, label, str(raw).strip())
     text = str(raw)
-    if len(text) > MAX_TEXT_CHARS:
-        raise RunInputError(f"“{label}” is longer than {MAX_TEXT_CHARS:,} characters")
+    cap = MAX_TEXTAREA_CHARS if kind == "textarea" else MAX_TEXT_CHARS
+    if len(text) > cap:
+        raise RunInputError(f"“{label}” is longer than {cap:,} characters")
     return text
 
 
@@ -86,6 +90,40 @@ def _entry_id(session, group_id, label: str, ref: str) -> str:
     if found is None:
         raise RunInputError(f"“{label}”: no entry {ref!r} in this workspace")
     return str(found[0])
+
+
+def _asset_id(session, group_id, label: str, ref: str) -> str:
+    """The id of the workspace asset a run input names: its id, its slug, its public link, or the link to its page
+    (``…/workspace/assets/<id>``). A trashed asset, or one in another workspace, is not found."""
+    import uuid
+    from urllib.parse import unquote, urlparse
+
+    from marvin.db.models.platform import Assets
+
+    match = Assets.slug == ref
+    if ref.lower().startswith(("http://", "https://")):
+        url = urlparse(ref)
+        segments = [unquote(part) for part in url.path.split("/") if part]
+        page_id = next((segments[i + 1] for i, part in enumerate(segments[:-1]) if part == "assets"), "")
+        match = (Assets.public_url == ref) | (Assets.storage_key == "/".join(segments))
+        if _is_uuid(page_id):
+            match = match | (Assets.id == uuid.UUID(page_id))
+    elif _is_uuid(ref):
+        match = match | (Assets.id == uuid.UUID(ref))
+    found = session.query(Assets.id).filter(Assets.group_id == group_id, Assets.trashed_at.is_(None), match).first()
+    if found is None:
+        raise RunInputError(f"“{label}”: no asset {ref!r} in this workspace (use its slug, id or link)")
+    return str(found[0])
+
+
+def _is_uuid(text: str) -> bool:
+    import uuid
+
+    try:
+        uuid.UUID(text)
+    except ValueError:
+        return False
+    return True
 
 
 def describe(automation) -> list[dict]:

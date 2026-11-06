@@ -6,7 +6,7 @@ action kinds, and the operations available as actions — so the UI is backend-d
 """
 
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from pydantic import UUID4
@@ -191,11 +191,13 @@ def _rank(user, group_id) -> int:
 
 def _approval_read(session, row) -> WorkflowApprovalRead:
     from marvin.db.models.platform.entries import Entries
+    from marvin.db.models.users.users import Users
     from marvin.services.automation.approvals import post_preview
     from marvin.services.automation.authz import ROLE_ADMIN
 
     automation = session.get(WorkspaceAutomationModel, row.automation_id)
     entry = session.get(Entries, row.entry_id) if row.entry_id else None
+    decider = session.get(Users, row.decided_by) if row.decided_by else None
     return WorkflowApprovalRead(
         id=row.id,
         automation_id=row.automation_id,
@@ -209,6 +211,7 @@ def _approval_read(session, row) -> WorkflowApprovalRead:
         created_at=row.created_at,
         expires_at=row.expires_at,
         decided_by=row.decided_by,
+        decided_by_name=(getattr(decider, "full_name", None) or getattr(decider, "username", None)) if decider else None,
         decided_at=row.decided_at,
         note=row.note,
         choices=row.choices or None,
@@ -394,17 +397,19 @@ class AutomationsController(BaseUserController):
         )
 
     # ── Approval steps: runs waiting for a person (services/automation/approvals.py) ──
-    @router.get("/approvals", response_model=list[WorkflowApprovalRead], summary="Workflow runs waiting for approval")
-    def list_approvals(self) -> list[WorkflowApprovalRead]:
-        """The runs in this workspace waiting at an Approval step that you may decide (your role is at least the step's
-        `approvers`), oldest first. EDITOR and above."""
+    @router.get("/approvals", response_model=list[WorkflowApprovalRead], summary="Workflow runs waiting for approval, or recently decided")
+    def list_approvals(self, state: Literal["pending", "decided"] = "pending") -> list[WorkflowApprovalRead]:
+        """`state=pending` (the default): the runs in this workspace waiting at an Approval step that you may decide (your
+        role is at least the step's `approvers`), oldest first. `state=decided`: the latest decisions on approvals you may
+        decide, newest first, each with who decided, when and the note. EDITOR and above."""
         from marvin.db.models.users.roles import WorkspaceRole
         from marvin.routes._base.checks import require_workspace_role
         from marvin.services.automation import approvals
 
         require_workspace_role(self.user, self.group_id, WorkspaceRole.EDITOR)
         role = _rank(self.user, self.group_id)
-        return [_approval_read(self.session, row) for row in approvals.pending(self.session, self.group_id, role)]
+        rows = approvals.decided(self.session, self.group_id, role) if state == "decided" else approvals.pending(self.session, self.group_id, role)
+        return [_approval_read(self.session, row) for row in rows]
 
     @router.post("/approvals/{approval_id}/decide", response_model=WorkflowApprovalRead, summary="Approve or deny a waiting run")
     def decide_approval(self, approval_id: UUID4, data: WorkflowApprovalDecision) -> WorkflowApprovalRead:

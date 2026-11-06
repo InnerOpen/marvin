@@ -287,9 +287,11 @@ Each input has a `name` (steps read it as `${input.<name>}`), a `label`, a `type
 | type | The Run form shows | Notes |
 |---|---|---|
 | `text` | a text box | up to 2,000 characters |
+| `textarea` | a several-line box | a written brief (a sound, a scene, a picture to make): up to 20,000 characters, line breaks kept |
 | `number` | a number box | `"3"` arrives as 3 |
 | `choice` | a list of `options` | anything else is refused — the list is the only choices |
 | `entry` | the entry's slug or id | the run works on that entry: `${entry.*}`, entry steps and a step's `see: ["item"]`, as if the entry had triggered it (one per workflow) |
+| `asset` | the asset's slug, id or link | a file in this workspace's library to work from (audio to transcribe, a picture to refer to): the asset's page link or its public link also work. `${input.<name>}` is the asset's **id**; a trashed asset or one from another workspace is refused |
 
 **Run** opens a small form with them; the API takes them in the body (`POST /api/automations/{id}/run` with
 `{"inputs": {"piece": "brass-lantern", "remix": "a haiku"}}`), and the agent's `run_workflow` tool takes `inputs`
@@ -916,6 +918,8 @@ above, or admins and above (`approvers`) — get a push notification ("Waiting f
 They **Approve** or **Deny**, optionally with a note, and the run goes on from the next step. The step's output is
 `${steps.<id>.output.decision}` (`approved`, `denied`, `expired` or `stale`), `decided_by`, `decided_by_name` and
 `note`: give the step an `id` and use **Only run this step when…** on the steps after it.
+
+- **Where the note goes:** on the approval itself, in the step's output (`${steps.<id>.output.note}`), in the approval's event, and — when the step shows a picture or audio (`image`) — on that asset's metadata (`approval.note`). **Automation → Approvals** also lists the **latest 50 decisions** under *Recently decided*, newest first: the decision, who made it, when, and the note, for approvals with or without a picture. The API is `GET /api/automations/approvals?state=decided`.
 
 - **One tap:** on Chrome and Android the notification has **Approve** and **Deny** buttons when every step after the
   approval can be undone in Marvin (trash, restore, archive, add to or remove from a collection, send to review, create

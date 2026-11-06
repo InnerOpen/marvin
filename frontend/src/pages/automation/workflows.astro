@@ -434,8 +434,12 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
           const opts = (spec.options ?? []).map((o: string) => `<option ${String(spec.default ?? "") === o ? "selected" : ""}>${esc(o)}</option>`).join("");
           return `<label class="tf"><span>${label}</span><select class="input" name="${esc(spec.name)}" ${req}>${req ? "" : "<option value=''>—</option>"}${opts}</select></label>`;
         }
+        if (spec.type === "textarea") {
+          const text = spec.description ? ` <span class="muted">(${esc(spec.description)})</span>` : "";
+          return `<label class="tf"><span>${label}${text}</span><textarea class="input" name="${esc(spec.name)}" rows="7" ${req}>${esc(spec.default ?? "")}</textarea></label>`;
+        }
         const type = spec.type === "number" ? "number" : "text";
-        const hint = spec.type === "entry" ? "the entry's slug (from its URL) or id" : spec.description ?? "";
+        const hint = spec.type === "entry" ? "the entry's slug (from its URL) or id" : spec.type === "asset" ? "the asset's slug, id or link" : spec.description ?? "";
         return `<label class="tf"><span>${label}${hint ? ` <span class="muted">(${esc(hint)})</span>` : ""}</span>
           <input class="input" type="${type}" name="${esc(spec.name)}" value="${esc(spec.default ?? "")}" ${req} ${type === "number" ? 'step="any"' : ""} /></label>`;
       };
@@ -454,12 +458,14 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   }
 
   // ── Run inputs (a manual trigger's `inputs`: what the Run form asks for) ───
-  const INPUT_TYPES: [string, string][] = [["text", "Text"], ["choice", "One of a list"], ["number", "Number"], ["entry", "An entry (the run works on it)"]];
+  const INPUT_TYPES: [string, string][] = [["text", "Text"], ["textarea", "Long text (several lines)"], ["choice", "One of a list"], ["number", "Number"], ["entry", "An entry (the run works on it)"], ["asset", "An asset (a file in the library)"]];
   const INPUT_FORM_KEYS = ["name", "label", "type", "options", "required", "default"];
   const DEFAULT_HINT: Record<string, string> = {
     text: "Default text (optional): used when the run is started without one",
     number: "Default number (optional)",
     entry: "Default entry (optional): its slug, e.g. the-last-onion",
+    textarea: "Default text (optional): it can run over several lines",
+    asset: "Default asset (optional): its slug, id or link",
     choice: "Default (optional): one of the options above",
   };
   function inputRow(spec: any = {}) {
@@ -475,7 +481,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         <button type="button" class="icon-btn" title="Remove input">✕</button>
       </div>
       <input class="input i-options" value="${esc((spec.options ?? []).join(", "))}" placeholder="Options, comma-separated: a haiku, a fairy tale" ${type === "choice" ? "" : "hidden"} />
-      <input class="input i-default" value="${esc(spec.default ?? "")}" placeholder="${esc(DEFAULT_HINT[type] ?? DEFAULT_HINT.text)}" />`;
+      <textarea class="input i-default" rows="${type === "textarea" ? 3 : 1}" spellcheck="false" placeholder="${esc(DEFAULT_HINT[type] ?? DEFAULT_HINT.text)}">${esc(spec.default ?? "")}</textarea>`;
     (row as any).originalDefault = spec.default;
     // What the form has no field for (default, description) rides along unchanged instead of being dropped on save.
     (row as any).extra = Object.fromEntries(Object.entries(spec).filter(([key]) => !INPUT_FORM_KEYS.includes(key)));
@@ -484,7 +490,9 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     const typeSel = row.querySelector(".i-type") as HTMLSelectElement;
     typeSel.addEventListener("change", () => {
       (row.querySelector(".i-options") as HTMLElement).toggleAttribute("hidden", typeSel.value !== "choice");
-      (row.querySelector(".i-default") as HTMLInputElement).placeholder = DEFAULT_HINT[typeSel.value] ?? DEFAULT_HINT.text;
+      const dflt = row.querySelector(".i-default") as HTMLTextAreaElement;
+      dflt.placeholder = DEFAULT_HINT[typeSel.value] ?? DEFAULT_HINT.text;
+      dflt.rows = typeSel.value === "textarea" ? 3 : 1;
     });
     row.querySelector(".icon-btn")!.addEventListener("click", () => { row.remove(); revalidate(); });
     return row;
@@ -499,7 +507,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       if (val(".i-label")) spec.label = val(".i-label");
       if (type === "choice") spec.options = val(".i-options").split(",").map((o) => o.trim()).filter(Boolean);
       // The default as typed; the definition's own value (a number, say) is kept when the text was not changed.
-      const typed = val(".i-default");
+      // Only a long text keeps its lines; any other type's default is one line.
+      const typed = type === "textarea" ? val(".i-default") : val(".i-default").replace(/\s*\n\s*/g, " ");
       const original = (r as any).originalDefault;
       if (typed) spec.default = original !== undefined && String(original) === typed ? original : typed;
       const required = r.querySelector(".i-required") as HTMLInputElement;
@@ -3108,6 +3117,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   :global(dialog.run-inputs) { border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: inherit; padding: 20px; width: min(440px, calc(100vw - 32px)); }
   :global(dialog.run-inputs form) { display: flex; flex-direction: column; gap: 12px; }
   :global(dialog.run-inputs h3) { margin: 0; }
+  :global(dialog.run-inputs textarea) { resize: vertical; font: inherit; min-height: 6em; }
+  .workflows-page :global(.i-default) { resize: vertical; font: inherit; }
   :global(.run-inputs-actions) { display: flex; justify-content: flex-end; gap: 10px; }
   .workflows-page :global(.rows) { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
   .workflows-page :global(.row) { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--bg); }
