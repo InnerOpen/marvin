@@ -11,6 +11,7 @@ import type { AssetRead } from "@/lib/api/assets";
 import type { EntryRead } from "@/lib/api/entries";
 import type { ResourceRead } from "@/lib/api/resources";
 import type { TrashAutoEmpty } from "@/lib/api/trash";
+import { thumbOf } from "@/lib/entryMedia";
 import { autoEmptyNote, restoresTo, type TrashTab, trashedAt } from "@/lib/trash";
 
 interface Props {
@@ -69,7 +70,7 @@ const tabs: Tab[] = [
         id: entry.id,
         title: entry.title || "Untitled",
         href: `/workspace/entries/${entry.id}`,
-        image: ((entry as any).assets?.find((a: any) => a.role === "featured" || a.role === "hero") ?? (entry as any).assets?.[0])?.publicUrl ?? null,
+        image: ((t) => (t?.kind === "image" ? t.url : null))(thumbOf((entry as any).assets, entry.title || "")),
         sub: [internalBadges.has(entry.entryTypeId) ? "" : typeMap.get(entry.entryTypeId) ?? "", `Restores to ${label(restoresTo(meta))}`],
         badge: internalBadges.get(entry.entryTypeId),
         trashed: when ?? null,
