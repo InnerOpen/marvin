@@ -40,6 +40,26 @@ describe("thumbOf", () => {
   });
 });
 
+describe("files that are not pictures", () => {
+  const file = (mimeType) => ({ role: "transcript", publicUrl: "https://a/file", mimeType });
+
+  test("a text, JSON, PDF or video file is no thumbnail: it would be a broken picture", () => {
+    for (const type of ["text/plain", "application/json", "application/pdf", "video/mp4"]) assert.equal(thumbOf([file(type)], "x"), null, type);
+  });
+
+  test("an entry with a transcript and a picture shows the picture, wherever the transcript sits", () => {
+    const picture = { role: "cover", publicUrl: "https://a/p.png", mimeType: "image/png", altText: "p" };
+    const thumb = thumbOf([file("text/plain"), picture], "x");
+    assert.deepEqual([thumb?.kind, thumb?.url], ["image", "https://a/p.png"]);
+    assert.equal(leadAsset([file("text/plain"), picture]), picture);
+  });
+
+  test("with only files, the lead is still the first (for what else reads it), and there is no thumbnail", () => {
+    const first = file("text/plain");
+    assert.equal(leadAsset([first, file("application/json")]), first);
+  });
+});
+
 describe("extraSound", () => {
   const sample = { role: "voice_sample", publicUrl: "https://a/sarah.mp3", mimeType: "audio/mpeg", altText: null };
 
