@@ -85,10 +85,10 @@ const automationAttention = await getAutomationAttention(authToken!).catch(() =>
 const approvalsWaiting = (await listApprovals(authToken!).catch(() => [])).length;
 const automationCount = countBadge((automationAttention?.total ?? 0) + approvalsWaiting);
 // The same count on each kind's card, so the tab's number can be traced to its section: a pill by the title, the
-// description says it in words, and the card opens the list filtered to Needs attention.
+// description says it in words, and the card opens the list as it was left (no pinned filter: see plainPage).
 const kinds = automationAttention?.kinds ?? {};
 const lookText = (n: number | null | undefined) => ((n ?? 0) > 0 ? ` · ${n} need${n === 1 ? "s" : ""} a look` : "");
-const attentionHref = (id: string, n: number | null | undefined) => ((n ?? 0) > 0 ? `${navHref(id)}?status=attention` : navHref(id));
+const attentionHref = (id: string, _n?: number | null) => navHref(id);
 
 // Integrations: open alerts on connections (an admin sees them; anyone else gets a 403: none). Workers: failed, stuck or unattended jobs.
 const integrationAlerts = ((await getIntegrationHealth(authToken!).catch(() => [])) as { openAlerts?: number }[]).reduce((n, row) => n + (row.openAlerts ?? 0), 0);
