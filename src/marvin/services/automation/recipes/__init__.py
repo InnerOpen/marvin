@@ -186,8 +186,14 @@ def configure_for(session, group_id, recipe_id: str, values: Any, refs: Workspac
     the one path the Library's "Use recipe" and the agent's ``draft_workflow(recipe=…)`` share. Saves
     nothing. Raises UnknownRecipe, RecipeUnavailable (not offered here) or RecipeConfigError (a value is
     missing or mistyped)."""
+    from .. import runner_recipes
     from ..authoring import workspace_refs
 
+    if recipe_id.startswith(runner_recipes.RECIPE_PREFIX):  # one a runner offers now: built from its contract, for this workspace
+        built = runner_recipes.recipes(session, group_id).get(recipe_id)
+        if built is None:
+            raise RecipeUnavailable(recipe_id, ["no worker that can do it is online right now"])
+        return configure(built["document"], dict(values or {}), built["variables"])
     item = entry(recipe_id)
     reasons = unavailable_reasons(item, refs or workspace_refs(session, group_id))
     if reasons:
