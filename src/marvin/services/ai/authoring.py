@@ -59,6 +59,53 @@ def default_authoring_model(session, group_id, provider=None) -> str | None:
     return None
 
 
+def _is_empty(value) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip()) or (isinstance(value, list | tuple | dict | set) and not value)
+
+
+def _same_value(current, proposed) -> bool:
+    """Whether a revision's value for a field is no change: equal, ignoring surrounding whitespace on text and treating
+    missing / empty values as one thing (the model re-emits an unset field as "" or null)."""
+    if _is_empty(current) and _is_empty(proposed):
+        return True
+    if isinstance(current, str) and isinstance(proposed, str):
+        return current.strip() == proposed.strip()
+    return current == proposed
+
+
+def changed_only(entry, *, title, summary, fields: dict, tags: list, resources: list) -> tuple[dict, list, list]:
+    """What a revision of `entry` really changes, as a suggestion's {target: value} map, plus the tags and resource refs in it.
+
+    A revise returns the full field set (unchanged ones as-is) and always returns tags and resources, so staging it
+    whole makes the review wall show a Current/Suggested pair for every field. Keep only the differences. Tags and
+    resources apply additively (union), so keeping only the new ones loses nothing.
+    """
+    proposed: dict = {}
+    if title and title.strip() != (entry.title or "").strip():
+        proposed["title"] = title
+    if summary is not None and not _same_value(entry.summary, summary):
+        proposed["summary"] = summary
+    data = entry.data_json or {}
+    for key, value in fields.items():
+        if not _same_value(data.get(key), value):
+            proposed[f"data_json.{key}"] = value
+
+    have_tags = {str(t).strip().lower() for t in entry.tag_names} | {str(t.slug).lower() for t in entry.tags}
+    new_tags: list = []
+    for tag in tags:
+        name = str(tag).strip()
+        if name and name.lower() not in have_tags and name.lower() not in {t.lower() for t in new_tags}:
+            new_tags.append(name)
+    if new_tags:
+        proposed["tags"] = new_tags
+
+    have_resources = {str(v).strip().lower() for r in entry.resources for v in (r.id, r.slug, getattr(r, "name", None)) if v}
+    new_resources = [r for r in dict.fromkeys(resources) if str(r).strip().lower() not in have_resources]
+    if new_resources:
+        proposed["resources"] = new_resources
+    return proposed, new_tags, new_resources
+
+
 class AuthoringService:
     """Composes and revises entries. Construct with the request's session/user/provider/model."""
 
@@ -455,27 +502,22 @@ class AuthoringService:
                 self._emit_entry_updated(entry)
                 outcome = "applied"
             else:
-                # Stage the whole revision for review — nothing touches the entry yet. The entries
-                # "apply suggestion" endpoint commits it later (title/summary/fields/tags/resources
-                # via apply_fields' special targets).
-                proposed: dict = {}
-                if new_title:
-                    proposed["title"] = new_title
-                if new_summary is not None:
-                    proposed["summary"] = new_summary
-                for k, v in new_fields.items():
-                    proposed[f"data_json.{k}"] = v
-                if tag_list:
-                    proposed["tags"] = tag_list
-                if resource_refs:
-                    proposed["resources"] = resource_refs
-                self.repos.entries.stage_suggestion(
-                    entry.id,
-                    {**proposed, "_meta": {"operation": "revise-entry", "executionId": str(execution.id)}},
+                # Stage only what the revision actually CHANGES, for review — nothing touches the entry yet. The model
+                # re-emits the full field set (unchanged ones as-is) and always returns tags/resources, and the review
+                # wall shows a Current/Suggested pair for every key staged, so staging all of it buries the one real
+                # edit under identical rows. The entries "apply suggestion" endpoint commits it later (title/summary/
+                # fields/tags/resources via apply_fields' special targets; tags and resources are additive).
+                proposed, staged_tags, staged_resources = changed_only(
+                    entry, title=new_title, summary=new_summary, fields=new_fields, tags=tag_list, resources=resource_refs
                 )
+                if proposed:
+                    self.repos.entries.stage_suggestion(
+                        entry.id,
+                        {**proposed, "_meta": {"operation": "revise-entry", "executionId": str(execution.id)}},
+                    )
                 self.session.commit()
                 attached_resources = []  # staged, not attached yet
-                outcome = "staged"
+                outcome = "staged" if proposed else "unchanged"
 
             changed = {"fields": list(new_fields), "tags": tag_list, "resources": attached_resources or resource_refs}
             self._complete_execution(
@@ -496,12 +538,12 @@ class AuthoringService:
         fresh = self.session.get(type(entry), entry.id)
         return {
             "entryId": str(entry.id),
-            "outcome": outcome,  # "applied" (live) | "staged" (pending review per approval_mode)
+            "outcome": outcome,  # "applied" (live) | "staged" (pending review per approval_mode) | "unchanged" (nothing to change)
             "title": fresh.title,
             "tags": list(fresh.tag_names),
             "resources": [r.slug for r in fresh.resources],
             # When staged the entry is untouched, so echo what the model proposed for the review UI.
-            "proposed": {"tags": tag_list, "resources": resource_refs} if outcome == "staged" else None,
+            "proposed": {"tags": staged_tags, "resources": staged_resources} if outcome == "staged" else None,
             "editUrl": entry_edit_url(entry.id),
             "reviewLink": entry_review_link(entry.id, "Review the entry"),
             "executionId": str(execution.id),
