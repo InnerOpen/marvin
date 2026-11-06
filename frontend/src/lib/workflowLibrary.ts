@@ -29,10 +29,12 @@ interface RecipeSource {
 }
 
 /** "From the Slack plugin 0.4.0" for an integration's recipe; null for Marvin's own. */
-export const sourceText = (recipe: Pick<Recipe, "source">): string | null =>
-  recipe.source
-    ? `From the ${recipe.source.name} plugin${recipe.source.version ? ` ${recipe.source.version}` : ""}`
-    : null;
+export const sourceText = (recipe: Pick<Recipe, "source">): string | null => {
+  if (!recipe.source) return null;
+  // A runner's recipe is built from what a worker says it can do, so it names the worker, not a plugin.
+  if (recipe.source.provider === "workers") return `Offered by ${recipe.source.name} while it is online`;
+  return `From the ${recipe.source.name} plugin${recipe.source.version ? ` ${recipe.source.version}` : ""}`;
+};
 
 /** Where a workflow made from a recipe opens. */
 export const workflowHref = (id: string) => `/automation/workflows?workflow=${encodeURIComponent(id)}`;

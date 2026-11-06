@@ -255,3 +255,39 @@ def test_the_builder_options_offer_persona_agents_with_whether_they_may_draft_an
 def test_the_library_pickers_offer_the_agents_a_recipe_may_name(ws):
     refs = TestClient(app).get(LIBRARY).json()["refs"]
     assert {a["slug"] for a in refs["agents"]} == {"marvin", "ask", "builder"}
+
+
+def test_the_library_offers_what_an_online_runner_can_do_and_configure_builds_it(ws):
+    from datetime import UTC, datetime, timedelta
+
+    from marvin.db.models.platform import EntryTypes
+    from marvin.db.models.platform.entries import Entries
+
+    job_schema = {"fields": [{"key": "kind", "label": "Kind", "type": "text"}, {"key": "args", "label": "Args", "type": "json"}]}
+    job_schema["fields"].append({"key": "status", "label": "Status", "type": "select", "options": ["queued", "done"]})
+    worker_type = EntryTypes(session=ws.session, group_id=ws.gid, name="Worker", slug="worker", schema_json={})
+    ws.session.add_all([worker_type, EntryTypes(session=ws.session, group_id=ws.gid, name="Job", slug="job", schema_json=job_schema)])
+    ws.session.flush()
+    kinds = [{"kind": "transcribe", "description": "Speech to text.", "inputs": {"audio": {"type": "asset", "required": True}}}]
+    ws.session.add(
+        Entries(
+            session=ws.session, group_id=ws.gid, entry_type_id=worker_type.id, title="desk", slug="desk", status="draft", metadata_json={},
+            data_json={"host": "desk", "last_seen": datetime.now(UTC).isoformat(), "kinds": kinds},
+        )
+    )  # fmt: skip
+    ws.session.commit()
+    client = TestClient(app)
+
+    listed = {r["id"]: r for r in client.get(LIBRARY).json()["recipes"]}
+    assert listed["runner.transcribe"]["category"] == "Workers" and listed["runner.transcribe"]["missing"] == []
+    assert listed["runner.transcribe"]["source"]["name"] == "desk"
+
+    out = client.post(_configure("runner.transcribe"), json={"vars": {}})
+    assert out.status_code == 200
+    assert out.json()["definition"]["trigger"]["inputs"] == [{"name": "audio", "label": "Audio", "type": "asset", "required": True}]
+
+    row = ws.session.query(Entries).filter_by(group_id=ws.gid, slug="desk").one()
+    row.data_json = {**row.data_json, "last_seen": (datetime.now(UTC) - timedelta(hours=2)).isoformat()}
+    ws.session.commit()
+    assert "runner.transcribe" not in {r["id"] for r in client.get(LIBRARY).json()["recipes"]}  # nobody online: not offered
+    assert client.post(_configure("runner.transcribe"), json={"vars": {}}).status_code == 409

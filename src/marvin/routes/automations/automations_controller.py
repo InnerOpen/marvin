@@ -351,13 +351,15 @@ class AutomationsController(BaseUserController):
         capabilities the ideas wait on, and the workspace's names the setup pickers offer."""
         _require_admin(self.user, self.group_id)
         from marvin.schemas.platform.entries import ENTRY_STATUSES, TRASHED
-        from marvin.services.automation import recipes
+        from marvin.services.automation import recipes, runner_recipes
         from marvin.services.automation.authoring import workspace_refs
 
         refs = workspace_refs(self.session, self.group_id)
         uses = _recipe_uses(self.session, self.group_id)
+        # Marvin's and the integrations' recipes, then the ones a runner that is online now offers for what it can do.
+        offered_by_runners = [built["entry"] for built in runner_recipes.recipes(self.session, self.group_id).values()]
         return WorkflowLibraryRead(
-            recipes=[_library_recipe(item, refs, uses) for item in recipes.entries()],
+            recipes=[_library_recipe(item, refs, uses) for item in [*recipes.entries(), *offered_by_runners]],
             capabilities=recipes.catalogue()["capabilities"],
             refs=WorkflowLibraryRefs(
                 entry_types=refs.entry_types,

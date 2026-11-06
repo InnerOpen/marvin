@@ -316,4 +316,11 @@ describe("sourceText", () => {
     assert.equal(sourceText({ source: null }), null);
     assert.equal(sourceText({}), null);
   });
+
+  test("names the worker that offers a runner's recipe, not a plugin", () => {
+    assert.equal(
+      sourceText({ source: { provider: "workers", name: "desktop-transcriber", package: null, version: null } }),
+      "Offered by desktop-transcriber while it is online",
+    );
+  });
 });
