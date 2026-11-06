@@ -5,7 +5,8 @@ A manual trigger declares them (``trigger.inputs``: name, label, type text | tex
 required, default). ``resolve`` checks what a caller passed against those declarations — an unknown name, a missing required
 one, a choice outside its options, a number that isn't one or an asset that isn't in the workspace is refused with a
 message saying so — and returns the values plus the entry an ``entry`` input names, which the run then acts on
-(``${entry.*}``, entry steps) as if it had been triggered by it. An ``asset`` input becomes the asset's id. A dry run fills a missing value with a stand-in instead of refusing.
+(``${entry.*}``, entry steps) as if it had been triggered by it. An ``asset`` input becomes the asset's id.
+A dry run fills a missing value with a stand-in instead of refusing.
 """
 
 from __future__ import annotations
