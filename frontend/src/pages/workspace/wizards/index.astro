@@ -1,0 +1,56 @@
+---
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { listWizards, type WizardSummary } from "@/lib/api/wizards";
+
+const authToken = getAuthToken(Astro.cookies);
+let wizards: WizardSummary[] = [];
+let error: string | null = null;
+if (!authToken) {
+  error = "Sign in to see the guided setups.";
+} else {
+  try {
+    wizards = await listWizards(authToken);
+  } catch (e) {
+    error = e instanceof Error ? e.message : "Could not load the guided setups.";
+  }
+}
+---
+
+<AppLayout crumb="workspace.wizards" width="page">
+  <div class="page-header">
+    <h2>Guided setups</h2>
+    <p>Step-by-step flows that a package brings: each walks you through making something, a page at a time, and can be left and picked up again.</p>
+  </div>
+
+  {error && <div class="alert alert-error">{error}</div>}
+
+  {
+    !error && wizards.length === 0 && (
+      <div class="empty-state">
+        <p>No guided setups yet.</p>
+        <p class="muted">A package can bring them. Add one under Automation → Packages.</p>
+      </div>
+    )
+  }
+
+  <div class="stack">
+    {
+      wizards.map((w) => (
+        <a class="card wiz" href={`/workspace/wizards/${encodeURIComponent(w.slug)}`}>
+          <strong>{w.name}</strong>
+          {w.description && <p>{w.description}</p>}
+          <span class="muted">{w.steps} steps · from {w.packageName}</span>
+        </a>
+      ))
+    }
+  </div>
+</AppLayout>
+
+<style>
+  .stack { display: grid; gap: 12px; }
+  .wiz { display: grid; gap: 4px; text-decoration: none; color: inherit; }
+  .wiz:hover { border-color: var(--accent); }
+  .wiz p { margin: 0; color: var(--muted); font-size: 14px; }
+  .wiz .muted { font-size: 12px; }
+</style>

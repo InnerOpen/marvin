@@ -77,6 +77,8 @@ const NODES: NavNode[] = [
   { id: "workspace.new", label: "Create Workspace", href: "/workspace/new" },
   // Social: a group under Audience in the sidebar (only while a network is connected), so it has no parent. Each connected
   // network has its own page under it (Inbox · Rules · Replies).
+  { id: "workspace.wizards", label: "Guided setups", href: "/workspace/wizards", title: "Guided setups" },
+  { id: "workspace.wizards.run", label: "Guided setup", href: "/workspace/wizards/[slug]", parent: "workspace.wizards" },
   { id: "workspace.social", label: "Social", href: "/workspace/social", title: "Social inbox" },
   { id: "workspace.social.network", label: "Network", href: "/workspace/social/[integration]", parent: "workspace.social" },
 
