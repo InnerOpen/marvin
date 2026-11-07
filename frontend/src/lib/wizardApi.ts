@@ -68,3 +68,22 @@ export async function uploadAsset(file: File, nameHint: string, authToken: strin
 export function describeFailure(e: unknown): string {
   return e instanceof Error && e.message ? e.message.slice(0, 300) : "Something went wrong.";
 }
+
+const AUTO_SLUG_FIELD = "slug";
+
+/** Keys of the fields an entry of this type must have: a wizard's own list of fields can't leave one out and still save. */
+export function requiredKeys(type: EntryTypeRead | null): string[] {
+  const fields = ((type?.schemaJson as { fields?: { key: string; required?: boolean }[] } | null)?.fields ?? []) as { key: string; required?: boolean }[];
+  return fields.filter((f) => f.required).map((f) => f.key);
+}
+
+/** The fields a step asks for: the ones it names, then any the type requires (a required `slug` field is filled from the name, so it is not asked). */
+export function askedKeys(type: EntryTypeRead | null, named: string[] | undefined): string[] {
+  return [...new Set([...(named ?? []), ...requiredKeys(type)])].filter((k) => k !== AUTO_SLUG_FIELD);
+}
+
+/** A required `slug` field left unset takes the name, lowercased with dashes. */
+export function withAutoSlug(type: EntryTypeRead | null, data: Record<string, unknown>, title: string): Record<string, unknown> {
+  if (!requiredKeys(type).includes(AUTO_SLUG_FIELD) || data[AUTO_SLUG_FIELD]) return data;
+  return { ...data, [AUTO_SLUG_FIELD]: title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) };
+}

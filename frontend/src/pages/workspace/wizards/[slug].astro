@@ -4,11 +4,11 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import {
-  type Check, type Step, SIMPLE_FIELD_TYPES, checkSpec, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, passes, previousStep, readCtx,
+  type Check, type Step, SIMPLE_FIELD_TYPES, blocker, checkSpec, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, passes, previousStep, readCtx,
   shownSteps, stepHref,
 } from "@/lib/wizard";
 import { runStep } from "@/lib/wizardActions";
-import { type Row, describeFailure, entryBySlug, findEntries, typeBySlug } from "@/lib/wizardApi";
+import { type Row, askedKeys, describeFailure, entryBySlug, findEntries, typeBySlug } from "@/lib/wizardApi";
 
 const authToken = getAuthToken(Astro.cookies);
 const slug = Astro.params.slug ?? "";
@@ -57,10 +57,10 @@ if (authToken && def && step && !problem) {
     typeName = type?.name ?? step.entry_type;
     if (step.kind === "choose") {
       choices = (await findEntries(chooseSpec(step, ctx), authToken)).entries;
-      formFields = simple(fieldsOf(type, step.create?.fields ?? []));
+      formFields = simple(fieldsOf(type, askedKeys(type, step.create?.fields)));
     } else {
       listRows = (await findEntries(listSpec(step, ctx), authToken)).entries;
-      columns = fieldsOf(type, step.columns);
+      columns = fieldsOf(type, askedKeys(type, step.columns));
     }
   } else if (step.kind === "form" || step.kind === "upload") {
     entry = await entryBySlug(ctx[step.entry], authToken);
@@ -103,10 +103,14 @@ const submitLabel = after ? "Continue" : "Save";
         <ol class="stepper" aria-label="Steps">
           {steps.map((s, i) => (
             <li class:list={[i === here && "current", i < here && "past"]}>
-              <a href={stepHref(slug, ctx, s.id)} aria-current={i === here ? "step" : undefined}>
-                <span class="n">{i + 1}</span>
-                <span class="t">{s.title}</span>
-              </a>
+              {blocker(def, ctx, s.id) ? (
+                <span class="wait" title="Answer the steps before it first"><span class="n">{i + 1}</span><span class="t">{s.title}</span></span>
+              ) : (
+                <a href={stepHref(slug, ctx, s.id)} aria-current={i === here ? "step" : undefined}>
+                  <span class="n">{i + 1}</span>
+                  <span class="t">{s.title}</span>
+                </a>
+              )}
             </li>
           ))}
         </ol>
@@ -264,6 +268,7 @@ const submitLabel = after ? "Continue" : "Save";
   .stepper { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
   .stepper a { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; color: var(--muted); text-decoration: none; background: var(--panel); }
   .stepper .n { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--panel-2); font-size: 12px; }
+  .stepper .wait { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px dashed var(--line); border-radius: 999px; font-size: 13px; color: var(--muted); opacity: 0.6; }
   .stepper .past a { color: var(--ink); }
   .stepper .current a { border-color: var(--accent); color: var(--ink); font-weight: 600; }
   .stepper .current .n { background: var(--accent); color: var(--accent-ink, #fff); }
