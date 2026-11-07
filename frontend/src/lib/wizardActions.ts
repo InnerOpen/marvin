@@ -1,6 +1,6 @@
 /** What posting a wizard step does. Returns the choices after it and whether to stay on the step (a list can add one after another). */
 
-import { type Ctx, type Step, type WizardDefinition, createData, entryTypeOf, listSpec } from "./wizard";
+import { type Ctx, type Step, type WizardDefinition, createData, entryTypeOf, hasValue, listSpec } from "./wizard";
 import { MAX_TEXT_UPLOAD_BYTES, createOf, entryBySlug, findEntries, postedData, setData, typeBySlug, uploadAsset } from "./wizardApi";
 
 export interface Outcome {
@@ -37,6 +37,10 @@ async function upload(def: WizardDefinition, step: Step, form: FormData, ctx: Ct
   const file = form.get("file");
   if (!(file instanceof File) || file.size === 0) throw new Error("Choose a file to upload.");
   const { entry } = await entryFor(def, step, ctx, authToken);
+  // An upload replaces what the field holds, and a script is work someone did: it only goes ahead when they said so.
+  if (hasValue(entry.dataJson?.[step.field]) && text(form, "replace") !== "1") {
+    throw new Error(`“${step.field}” on ${entry.title} already has content. Tick “Replace it” to upload over it.`);
+  }
   if (step.mode === "text") {
     if (file.size > MAX_TEXT_UPLOAD_BYTES) throw new Error("That file is too long to read in as text (1 MB at most).");
     await setData(entry, { [step.field]: await file.text() }, authToken);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  chooseSpec, createData, currentStep, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, withoutEmpty,
+  chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, withoutEmpty,
 } from "./wizard.ts";
 
 const def = {
@@ -72,4 +72,14 @@ test("review comparisons", () => {
 
 test("a step's address keeps the choices", () => {
   assert.equal(stepHref("narrate", { world: "w" }, "story", { story: "s 1" }), "/workspace/wizards/narrate?step=story&world=w&story=s+1");
+});
+
+test("an upload only warns where there is something to replace", () => {
+  assert.equal(hasValue(""), false);
+  assert.equal(hasValue("  \n"), false);
+  assert.equal(hasValue(null), false);
+  assert.equal(hasValue([]), false);
+  assert.equal(hasValue("INT. BOAT - DAY"), true);
+  assert.equal(hasValue(["a"]), true);
+  assert.equal(hasValue("0f1e"), true);
 });

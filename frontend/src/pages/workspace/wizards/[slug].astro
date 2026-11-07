@@ -4,7 +4,7 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import {
-  type Check, type Step, SIMPLE_FIELD_TYPES, checkSpec, chooseSpec, currentStep, entryTypeOf, listSpec, nextStep, passes, previousStep, readCtx,
+  type Check, type Step, SIMPLE_FIELD_TYPES, checkSpec, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, passes, previousStep, readCtx,
   shownSteps, stepHref,
 } from "@/lib/wizard";
 import { runStep } from "@/lib/wizardActions";
@@ -171,6 +171,13 @@ const submitLabel = after ? "Continue" : "Save";
                 <p class="muted">
                   {step.mode === "text" ? `Its text goes into “${step.field}” on ${entry.title}.` : `The file is kept as an asset in “${step.field}” on ${entry.title}.`}
                 </p>
+                {hasValue(entry.dataJson?.[step.field]) && (
+                  <div class="alert alert-info replace">
+                    <strong>{entry.title} already has {step.mode === "text" ? `a ${step.field} (${String(entry.dataJson?.[step.field]).length.toLocaleString()} characters)` : `something in ${step.field}`}.</strong>
+                    Uploading replaces it, and this page cannot bring it back.
+                    <label class="choice"><input type="checkbox" name="replace" value="1" required /> Replace it</label>
+                  </div>
+                )}
                 <input class="input" type="file" name="file" required accept={(step.accept ?? []).join(",") || undefined} />
                 <div class="actions">
                   <button class="button" type="submit">Upload</button>
@@ -278,5 +285,6 @@ const submitLabel = after ? "Continue" : "Save";
   .checks .ok { color: var(--ink); }
   .checks .no { color: var(--muted); }
   .verdict { margin: 0; font-weight: 500; }
+  .replace { display: grid; gap: 8px; }
   .nav { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; border-top: 1px solid var(--line); padding-top: 12px; font-size: 13px; }
 </style>

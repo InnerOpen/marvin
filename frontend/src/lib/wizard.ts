@@ -141,3 +141,10 @@ export function entryTypeOf(def: WizardDefinition, key: string): string | undefi
 
 /** The field types a wizard page draws itself; anything else is edited in the entry's own editor. */
 export const SIMPLE_FIELD_TYPES = ["text", "textarea", "markdown", "number", "boolean", "select", "date", "datetime"];
+
+/** Whether a field already holds something an upload would replace (text, an asset id or a list). */
+export function hasValue(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "string") return value.trim().length > 0;
+  return value !== null && value !== undefined;
+}
