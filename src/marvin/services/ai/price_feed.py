@@ -86,6 +86,19 @@ def set_url(session, url: str | None) -> dict:
 # ── reading the feed ─────────────────────────────────────────────────────────
 
 
+def _rates(entry: dict) -> tuple[Any, Any, Any]:
+    """(input, output, cached input) USD per token for one feed entry. An image model (``mode: image_generation``) is billed in image tokens:
+    its entry may carry only ``input_cost_per_image_token`` / ``output_cost_per_image_token`` (gpt-image-2 has no plain output rate), and
+    those are what its calls are mostly made of, so they win over the text rates. Anything else reads the plain per-token rates."""
+    if entry.get("mode") == "image_generation":
+        return (
+            entry.get("input_cost_per_image_token") or entry.get("input_cost_per_token"),
+            entry.get("output_cost_per_image_token") or entry.get("output_cost_per_token", 0),
+            entry.get("cache_read_input_image_token_cost") or entry.get("cache_read_input_token_cost"),
+        )
+    return entry.get("input_cost_per_token"), entry.get("output_cost_per_token", 0), entry.get("cache_read_input_token_cost")
+
+
 def parse(data: Any) -> dict[str, dict[str, list[float]]]:
     """LiteLLM's format → {slug: {model: [input_per_1m, output_per_1m, cached_per_1m?, cache_write_per_1m?]}} for FEED_PROVIDERS."""
     if not isinstance(data, dict):
@@ -95,7 +108,7 @@ def parse(data: Any) -> dict[str, dict[str, list[float]]]:
         if not isinstance(entry, dict):
             continue
         slug = FEED_PROVIDERS.get(str(entry.get("litellm_provider") or ""))
-        cost_in, cost_out = entry.get("input_cost_per_token"), entry.get("output_cost_per_token", 0)
+        cost_in, cost_out, cache_read = _rates(entry)
         if slug is None or not isinstance(cost_in, int | float) or not isinstance(cost_out, int | float):
             continue
         model = key.split("/", 1)[1] if key.startswith(f"{entry['litellm_provider']}/") else key
@@ -103,8 +116,7 @@ def parse(data: Any) -> dict[str, dict[str, list[float]]]:
             continue
         row = [round(cost_in * PER_MILLION, 6), round(cost_out * PER_MILLION, 6)]
         # The prompt-cache rates, when the feed has them (cache_read_input_token_cost / cache_creation_input_token_cost).
-        for key in ("cache_read_input_token_cost", "cache_creation_input_token_cost"):
-            rate = entry.get(key)
+        for rate in (cache_read, entry.get("cache_creation_input_token_cost")):
             row.append(round(rate * PER_MILLION, 6) if isinstance(rate, int | float) else None)
         while row and row[-1] is None:
             row.pop()
