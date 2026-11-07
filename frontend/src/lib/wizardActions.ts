@@ -1,7 +1,7 @@
 /** What posting a wizard step does. Returns the choices after it and whether to stay on the step (a list can add one after another). */
 
 import { type Ctx, type Step, type WizardDefinition, createData, entryTypeOf, hasValue, listSpec } from "./wizard";
-import { MAX_TEXT_UPLOAD_BYTES, createOf, entryBySlug, findEntries, postedData, setData, typeBySlug, uploadAsset } from "./wizardApi";
+import { MAX_TEXT_UPLOAD_BYTES, askedKeys, createOf, entryBySlug, findEntries, postedData, setData, typeBySlug, uploadAsset, withAutoSlug } from "./wizardApi";
 
 export interface Outcome {
   ctx: Ctx;
@@ -27,7 +27,7 @@ async function choose(step: Step, form: FormData, ctx: Ctx, authToken: string): 
     const type = await typeBySlug(step.entry_type, authToken);
     if (!title) throw new Error("Give it a name, or pick one from the list.");
     if (!type) throw new Error(`This workspace has no “${step.entry_type}” entry type yet.`);
-    const data = { ...createData(step, ctx), ...postedData(form, type, step.create?.fields ?? []) };
+    const data = withAutoSlug(type, { ...createData(step, ctx), ...postedData(form, type, askedKeys(type, step.create?.fields)) }, title);
     next[step.as] = (await createOf(type, title, data, authToken)).slug;
   }
   return { ctx: next, stay: false };
@@ -54,14 +54,15 @@ async function editList(step: Step, form: FormData, ctx: Ctx, authToken: string)
   const type = await typeBySlug(step.entry_type, authToken);
   if (!type) throw new Error(`This workspace has no “${step.entry_type}” entry type yet.`);
   const rows = (await findEntries(listSpec(step, ctx), authToken)).entries;
+  const columns = askedKeys(type, step.columns);
   for (const row of rows) {
-    const changes = postedData(form, type, step.columns, `row.${row.id}.`);
+    const changes = postedData(form, type, columns, `row.${row.id}.`);
     const changed = Object.fromEntries(Object.entries(changes).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(row.dataJson?.[k] ?? null)));
     if (Object.keys(changed).length) await setData(row, changed, authToken);
   }
   const title = text(form, "new.title");
   if (title) {
-    await createOf(type, title, { ...postedData(form, type, step.columns, "new."), ...createData({ ...step, create: { data: step.create_data } } as Step, ctx), [step.parent_field]: ctx[step.parent] }, authToken);
+    await createOf(type, title, { ...postedData(form, type, columns, "new."), ...createData({ ...step, create: { data: step.create_data } } as Step, ctx), [step.parent_field]: ctx[step.parent] }, authToken);
   }
   return { ctx, stay: !!title && !!text(form, "again") };
 }

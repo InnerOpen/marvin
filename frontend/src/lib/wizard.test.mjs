@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, withoutEmpty,
+  blocker, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, withoutEmpty,
 } from "./wizard.ts";
 
 const def = {
@@ -82,4 +82,14 @@ test("an upload only warns where there is something to replace", () => {
   assert.equal(hasValue("INT. BOAT - DAY"), true);
   assert.equal(hasValue(["a"]), true);
   assert.equal(hasValue("0f1e"), true);
+});
+
+test("a step waits for the answers before it, so a list is never shown with nothing chosen to narrow it", () => {
+  assert.equal(blocker(def, {}, "world"), null);
+  assert.equal(blocker(def, {}, "series")?.id, "world");
+  assert.equal(blocker(def, { world: "w" }, "series"), null); // series is optional: it never blocks
+  assert.equal(blocker(def, { world: "w" }, "cast")?.id, "story");
+  assert.equal(blocker(def, { world: "w", story: "s" }, "cast")?.id, "how");
+  assert.equal(currentStep(def, {}, "story")?.id, "world");
+  assert.equal(currentStep(def, { world: "w" }, "story")?.id, "story");
 });
