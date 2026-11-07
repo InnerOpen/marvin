@@ -51,6 +51,8 @@ if (authed) {
   }
 }
 const agentsJson = JSON.stringify(agents);
+// Inside the docked panel (?embed=1) the page is only the chat: a small agent/tone card on top, the answers in the middle, the box at the bottom.
+const embed = Astro.url.searchParams.get("embed") === "1";
 const agentDisplayName = (a: Agent) => (a.slug === MAIN_AGENT && assistantName ? assistantName : a.name);
 const defaultToneName = tones.tones.find((t) => t.slug === tones.defaultTone)?.name ?? "Auto";
 // A tone an agent defaults to stays selectable even if it's hidden from pickers since.
@@ -58,6 +60,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
 ---
 
 <AppLayout crumb="settings.ai-ask">
+  {!embed && (
   <div class="page-header">
     <div class="page-header-row">
       <div>
@@ -67,6 +70,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       <a href="/workspace/settings/ai-agents" class="button secondary">Manage Agents</a>
     </div>
   </div>
+  )}
 
   {!authed ? (
     <div class="alert alert-error"><strong>Authentication required.</strong> Sign in to use Ask.</div>
@@ -83,7 +87,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
     </div>
   ) : (
   <>
-    <div class="chat" data-agents={agentsJson} data-assistant-name={assistantName}>
+    <div class:list={["chat", embed && "chat-embed"]} data-agents={agentsJson} data-assistant-name={assistantName}>
       <!-- Toolbar: agent picker, tone, tools panel -->
       <div class="toolbar">
         <label class="tb-field">
@@ -136,6 +140,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       </div>
     </div>
 
+    {!embed && (
     <div class="reindex-card">
       <div class="reindex-info">
         <strong>Search index</strong>
@@ -147,6 +152,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
         <span id="reindex-status" class="status"></span>
       </div>
     </div>
+    )}
   </>
   )}
 </AppLayout>
@@ -1024,7 +1030,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
         }
       }, 3000);
     }
-    refreshIndexStatus().then((running) => running && pollWhileRunning());
+    if (reindexBtn) refreshIndexStatus().then((running) => running && pollWhileRunning());
 
     reindexBtn?.addEventListener("click", async () => {
       reindexBtn.disabled = true;
@@ -1180,4 +1186,15 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
   .index-status { font-size: 12px; }
   .reindex-action { display: flex; align-items: center; gap: 12px; }
   @media (max-width: 720px) { .transcript :global(.turn.user), .transcript :global(.turn.assistant) { margin: 0; } }
+  /* The docked panel: a small card with the agent and tone on top, the answers in the middle, the box at the bottom. */
+  .chat-embed { display: flex; flex-direction: column; height: calc(100vh - 24px); padding: 0; margin: 0; border: 0; background: transparent; }
+  .chat-embed .toolbar { flex: none; gap: 8px; padding: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+  .chat-embed .tb-field { flex: 1 1 120px; min-width: 0; }
+  .chat-embed .tb-actions { margin-left: 0; flex: 1 1 100%; }
+  .chat-embed .agent-desc { flex: none; margin: 8px 2px 0; }
+  .chat-embed .threads-panel, .chat-embed .tools-panel, .chat-embed .suggestions { flex: none; }
+  .chat-embed .transcript { flex: 1 1 auto; min-height: 0; max-height: none; margin-top: 12px; }
+  .chat-embed .transcript :global(.turn.user) { margin-left: 6%; }
+  .chat-embed .transcript :global(.turn.assistant) { margin-right: 0; }
+  .chat-embed .composer { flex: none; margin-top: 12px; padding-top: 12px; }
 </style>
