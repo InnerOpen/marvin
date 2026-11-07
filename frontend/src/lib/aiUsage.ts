@@ -57,3 +57,9 @@ export function integrationCall(
   const left = typeof meta.credits_remaining === "number" ? ` · ${amount(meta.credits_remaining)} left` : "";
   return { used: `${amount(meta.units)} characters × ${amount(multiplier)}`, billed: `${amount(meta.units * multiplier)} billed${left}` };
 }
+
+/** Whether an integration row shows units and a multiplier (ElevenLabs characters) in place of tokens and dollars. A call billed in tokens
+ * (OpenAI Images) has tokens, so it shows them and its estimated cost like an AI run. */
+export function isUnitBilled(triggerType: string | null | undefined, totalTokens: number | null | undefined): boolean {
+  return triggerType === "integration" && !(Number(totalTokens) > 0);
+}

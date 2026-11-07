@@ -92,3 +92,18 @@ def test_the_credits_a_provider_measured_are_kept_on_the_row(db_session, group):
     assert rows["audio.sound_effect"]["credits"] == 40 and rows["audio.sound_effect"]["credits_remaining"] == 98_760
     assert rows["audio.sound_effect"]["credits_limit"] == 100_000 and rows["audio.sound_effect"]["credits_resets_at"].startswith("2027")
     assert not any(k.startswith("credits") for k in rows["speech.synthesize"])
+
+
+def test_a_call_billed_in_tokens_is_priced_when_the_model_has_a_price_and_stays_out_of_the_spend(db_session, group, monkeypatch):
+    images = {"audio_b64": "", "usage": {"provider_type": "openai", "model": "gpt-image-2", "input_tokens": 2000, "output_tokens": 300}}
+    prices = {"gpt-image-2": 0.05}
+    monkeypatch.setattr("marvin.services.ai.pricing.estimate_cost", lambda provider, model, i, o, *a: prices.get(model))
+    usage_log.record_call(db_session, group, SimpleNamespace(provider="openai_images", slug="openai_images", id=uuid.uuid4()), "image.edit", images)
+    usage_log.record_call(db_session, group, _integration(), "speech.synthesize", SPEECH)  # no tokens: nothing to price
+    prices.clear()  # a model with no price: shown as a gap, not as zero
+    usage_log.record_call(db_session, group, SimpleNamespace(provider="openai_images", slug="openai_images", id=uuid.uuid4()), "image.edit", images)
+    db_session.commit()
+
+    rows = db_session.query(AIExecutionModel).filter_by(group_id=group).order_by(AIExecutionModel.created_at).all()
+    by_op = [(r.operation_slug, r.estimated_cost_usd, r.total_tokens) for r in rows]
+    assert by_op == [("image.edit", 0.05, 2300), ("speech.synthesize", None, None), ("image.edit", None, 2300)]
