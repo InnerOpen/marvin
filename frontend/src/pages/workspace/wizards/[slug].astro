@@ -1,0 +1,282 @@
+---
+import SchemaForm from "@/components/SchemaForm.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { getWizard, type WizardRead } from "@/lib/api/wizards";
+import {
+  type Check, type Step, SIMPLE_FIELD_TYPES, checkSpec, chooseSpec, currentStep, entryTypeOf, listSpec, nextStep, passes, previousStep, readCtx,
+  shownSteps, stepHref,
+} from "@/lib/wizard";
+import { runStep } from "@/lib/wizardActions";
+import { type Row, describeFailure, entryBySlug, findEntries, typeBySlug } from "@/lib/wizardApi";
+
+const authToken = getAuthToken(Astro.cookies);
+const slug = Astro.params.slug ?? "";
+const ctx = readCtx(Astro.url.searchParams);
+
+let wizard: WizardRead | null = null;
+let problem: string | null = authToken ? null : "Sign in to use this guided setup.";
+if (authToken) {
+  try {
+    wizard = await getWizard(slug, authToken);
+  } catch (e) {
+    problem = describeFailure(e);
+  }
+}
+const def = wizard?.definition ?? null;
+const step: Step | null = def ? currentStep(def, ctx, Astro.url.searchParams.get("step")) : null;
+
+if (Astro.request.method === "POST" && authToken && def && step) {
+  try {
+    const done = await runStep(def, step, await Astro.request.formData(), ctx, authToken);
+    const target = done.stay ? step : (nextStep(def, done.ctx, step.id) ?? step);
+    return Astro.redirect(stepHref(slug, done.ctx, target.id));
+  } catch (e) {
+    problem = describeFailure(e);
+  }
+}
+
+// What the current step draws.
+const fieldsOf = (type: Awaited<ReturnType<typeof typeBySlug>>, keys: string[]) =>
+  (((type?.schemaJson as { fields?: any[] } | null)?.fields ?? []) as any[]).filter((f) => keys.includes(f.key));
+const simple = (fields: any[]) => fields.filter((f) => SIMPLE_FIELD_TYPES.includes(f.type));
+let choices: Row[] = [];
+let listRows: Row[] = [];
+let entry: Row | null = null;
+let typeName = "";
+let missingType = false;
+let formFields: any[] = [];
+let leftOut: any[] = [];
+let checks: { label: string; ok: boolean; count: number }[] = [];
+let columns: any[] = [];
+
+if (authToken && def && step && !problem) {
+  if (step.kind === "choose" || step.kind === "list") {
+    const type = await typeBySlug(step.entry_type, authToken);
+    missingType = !type;
+    typeName = type?.name ?? step.entry_type;
+    if (step.kind === "choose") {
+      choices = (await findEntries(chooseSpec(step, ctx), authToken)).entries;
+      formFields = simple(fieldsOf(type, step.create?.fields ?? []));
+    } else {
+      listRows = (await findEntries(listSpec(step, ctx), authToken)).entries;
+      columns = fieldsOf(type, step.columns);
+    }
+  } else if (step.kind === "form" || step.kind === "upload") {
+    entry = await entryBySlug(ctx[step.entry], authToken);
+    if (step.kind === "form") {
+      const type = await typeBySlug(entryTypeOf(def, step.entry), authToken);
+      const all = fieldsOf(type, step.fields);
+      formFields = simple(all);
+      leftOut = all.filter((f) => !SIMPLE_FIELD_TYPES.includes(f.type));
+    }
+  } else if (step.kind === "review") {
+    checks = await Promise.all(
+      (step.checks as Check[]).map(async (c) => {
+        const count = (await findEntries(checkSpec(c, ctx), authToken, 1)).total;
+        return { label: c.label, ok: passes(c.op, count, c.value), count };
+      }),
+    );
+  }
+}
+
+const steps = def ? shownSteps(def, ctx) : [];
+const here = step ? steps.findIndex((s) => s.id === step.id) : -1;
+const before = def && step ? previousStep(def, ctx, step.id) : null;
+const after = def && step ? nextStep(def, ctx, step.id) : null;
+const allPass = checks.length > 0 && checks.every((c) => c.ok);
+const submitLabel = after ? "Continue" : "Save";
+---
+
+<AppLayout crumb="workspace.wizards.run" title={wizard?.name ?? "Guided setup"} width="page">
+  <div class="page-header">
+    <h2>{wizard?.name ?? "Guided setup"}</h2>
+    {wizard?.description && <p>{wizard.description}</p>}
+  </div>
+
+  {problem && <div class="alert alert-error">{problem}</div>}
+  {!problem && !wizard && <div class="alert alert-info">There is no guided setup called “{slug}” here. <a href="/workspace/wizards">See the ones there are.</a></div>}
+
+  {
+    def && step && (
+      <>
+        <ol class="stepper" aria-label="Steps">
+          {steps.map((s, i) => (
+            <li class:list={[i === here && "current", i < here && "past"]}>
+              <a href={stepHref(slug, ctx, s.id)} aria-current={i === here ? "step" : undefined}>
+                <span class="n">{i + 1}</span>
+                <span class="t">{s.title}</span>
+              </a>
+            </li>
+          ))}
+        </ol>
+
+        <section class="card step">
+          <h3>{step.title}</h3>
+          {step.help && <p class="help">{step.help}</p>}
+
+          {step.kind === "option" && (
+            <form method="post" class="form">
+              {step.options.map((o: { value: string; label: string }) => (
+                <label class="choice">
+                  <input type="radio" name="value" value={o.value} checked={ctx[step.as] === o.value} required /> {o.label}
+                </label>
+              ))}
+              <div class="actions"><button class="button" type="submit">{submitLabel}</button></div>
+            </form>
+          )}
+
+          {step.kind === "choose" && (
+            <form method="post" class="form" enctype="multipart/form-data">
+              {missingType && <div class="alert alert-info">This workspace has no “{step.entry_type}” entry type yet, so there is nothing to pick. Install the package’s types first.</div>}
+              {choices.length > 0 && (
+                <>
+                  <p class="label">Pick one you have</p>
+                  {choices.map((c) => (
+                    <label class="choice">
+                      <input type="radio" name="pick" value={c.slug} checked={ctx[step.as] === c.slug} /> {c.title}
+                    </label>
+                  ))}
+                  <div class="actions"><button class="button" type="submit">Use this {typeName.toLowerCase()}</button></div>
+                </>
+              )}
+              {step.create && !missingType && (
+                <fieldset class="create">
+                  <legend>{choices.length > 0 ? "Or make a new one" : `Make a new ${typeName.toLowerCase()}`}</legend>
+                  <div class="form-group">
+                    <label for="create_title">Name</label>
+                    <input class="input" id="create_title" name="create_title" />
+                  </div>
+                  <SchemaForm schema={{ fields: formFields }} />
+                  <div class="actions"><button class="button secondary" type="submit">Create and continue</button></div>
+                </fieldset>
+              )}
+              {step.optional && <div class="actions"><button class="button secondary" type="submit" name="skip" value="1" formnovalidate>Skip this</button></div>}
+            </form>
+          )}
+
+          {step.kind === "form" && (
+            entry ? (
+              <form method="post" class="form">
+                <SchemaForm schema={{ fields: formFields }} values={entry.dataJson ?? {}} />
+                {leftOut.length > 0 && <p class="muted">{leftOut.map((f) => f.label).join(", ")} can be edited in the <a href={`/workspace/entries/${entry.id}`}>entry itself</a>.</p>}
+                <div class="actions"><button class="button" type="submit">{submitLabel}</button></div>
+              </form>
+            ) : <div class="alert alert-info">Choose the {step.entry} in an earlier step first.</div>
+          )}
+
+          {step.kind === "upload" && (
+            entry ? (
+              <form method="post" class="form" enctype="multipart/form-data">
+                <p class="muted">
+                  {step.mode === "text" ? `Its text goes into “${step.field}” on ${entry.title}.` : `The file is kept as an asset in “${step.field}” on ${entry.title}.`}
+                </p>
+                <input class="input" type="file" name="file" required accept={(step.accept ?? []).join(",") || undefined} />
+                <div class="actions">
+                  <button class="button" type="submit">Upload</button>
+                  {after && <a class="button secondary" href={stepHref(slug, ctx, after.id)}>Skip</a>}
+                </div>
+              </form>
+            ) : <div class="alert alert-info">Choose the {step.entry} in an earlier step first.</div>
+          )}
+
+          {step.kind === "list" && (
+            <form method="post" class="form">
+              {missingType && <div class="alert alert-info">This workspace has no “{step.entry_type}” entry type yet.</div>}
+              {!missingType && (
+                <div class="table-wrap">
+                  <table class="grid">
+                    <thead><tr><th>Name</th>{columns.map((c) => <th>{c.label}</th>)}</tr></thead>
+                    <tbody>
+                      {listRows.map((r) => (
+                        <tr>
+                          <td><a href={`/workspace/entries/${r.id}`}>{r.title}</a></td>
+                          {columns.map((c) => (
+                            <td>
+                              {c.type === "select" ? (
+                                <select class="input" name={`row.${r.id}.${c.key}`}>
+                                  <option value=""></option>
+                                  {(c.options ?? []).map((o: string) => <option value={o} selected={r.dataJson?.[c.key] === o}>{o}</option>)}
+                                </select>
+                              ) : (
+                                <input class="input" type={c.type === "number" ? "number" : "text"} name={`row.${r.id}.${c.key}`} value={r.dataJson?.[c.key] ?? ""} />
+                              )}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                      {listRows.length === 0 && <tr><td colspan={columns.length + 1} class="muted">None yet.</td></tr>}
+                      {step.add !== false && (
+                        <tr class="new">
+                          <td><input class="input" name="new.title" placeholder="Add another…" /></td>
+                          {columns.map((c) => (
+                            <td>
+                              {c.type === "select" ? (
+                                <select class="input" name={`new.${c.key}`}>
+                                  <option value=""></option>
+                                  {(c.options ?? []).map((o: string) => <option value={o}>{o}</option>)}
+                                </select>
+                              ) : (
+                                <input class="input" type={c.type === "number" ? "number" : "text"} name={`new.${c.key}`} />
+                              )}
+                            </td>
+                          ))}
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div class="actions">
+                <button class="button" type="submit">{submitLabel}</button>
+                {step.add !== false && <button class="button secondary" type="submit" name="again" value="1">Save and add another</button>}
+              </div>
+            </form>
+          )}
+
+          {step.kind === "review" && (
+            <ul class="checks">
+              {checks.map((c) => (
+                <li class:list={[c.ok ? "ok" : "no"]}><span aria-hidden="true">{c.ok ? "✓" : "○"}</span> {c.label}<span class="muted"> ({c.count})</span></li>
+              ))}
+            </ul>
+            <p class="verdict">{allPass ? "Everything is in place." : "Some things are still missing: go back to the step that makes them."}</p>
+          )}
+
+          <div class="nav">
+            {before ? <a class="button secondary" href={stepHref(slug, ctx, before.id)}>← Previous step</a> : <span />}
+            {after && step.kind !== "option" && step.kind !== "choose" && <a class="muted" href={stepHref(slug, ctx, after.id)}>Next step without saving →</a>}
+          </div>
+        </section>
+      </>
+    )
+  }
+</AppLayout>
+
+<style>
+  .stepper { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .stepper a { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; color: var(--muted); text-decoration: none; background: var(--panel); }
+  .stepper .n { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--panel-2); font-size: 12px; }
+  .stepper .past a { color: var(--ink); }
+  .stepper .current a { border-color: var(--accent); color: var(--ink); font-weight: 600; }
+  .stepper .current .n { background: var(--accent); color: var(--accent-ink, #fff); }
+  .step { display: grid; gap: 14px; }
+  .step h3 { margin: 0; }
+  .help { margin: 0; color: var(--muted); font-size: 14px; }
+  .form { display: grid; gap: 12px; }
+  .choice { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+  .label { margin: 0; font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+  .create { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; display: grid; gap: 10px; }
+  .create legend { padding: 0 6px; font-size: 13px; color: var(--muted); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .table-wrap { overflow-x: auto; }
+  .grid { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .grid th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 500; padding: 4px 8px; }
+  .grid td { padding: 4px 8px; vertical-align: middle; }
+  .grid .new td { border-top: 1px dashed var(--line); }
+  .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .checks .ok { color: var(--ink); }
+  .checks .no { color: var(--muted); }
+  .verdict { margin: 0; font-weight: 500; }
+  .nav { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; border-top: 1px solid var(--line); padding-top: 12px; font-size: 13px; }
+</style>

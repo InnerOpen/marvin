@@ -37,6 +37,7 @@ export interface PackageInfo {
   description: string;
   version: string;
   entryTypes: string[];
+  wizards?: string[];
   workflows: number;
   workflowsOn: number;
   collections: number;

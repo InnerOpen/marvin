@@ -53,6 +53,7 @@ const holds = (p: PackageInfo) =>
     p.workflows ? `${plural(p.workflows, "workflow")} (${p.workflowsOn} on)` : "",
     p.entryTypes.length ? plural(p.entryTypes.length, "entry type") : "",
     p.collections ? plural(p.collections, "collection") : "",
+    p.wizards?.length ? plural(p.wizards.length, "guided setup") : "",
     p.scheduledTasks ? plural(p.scheduledTasks, "scheduled task") : "",
     p.incomingWebhooks ? plural(p.incomingWebhooks, "incoming webhook") : "",
   ]
@@ -87,6 +88,7 @@ const holds = (p: PackageInfo) =>
                 </div>
                 {p.description && <p class="muted">{p.description}</p>}
                 <p class="holds">{holds(p)}</p>
+                {p.wizards?.length ? <p class="holds"><a href="/workspace/wizards">Open its guided setups →</a></p> : null}
                 <div class="actions">
                   {p.workflows > p.workflowsOn && <button type="button" class="button js-enable">Turn on {plural(p.workflows - p.workflowsOn, "workflow")}</button>}
                   <button type="button" class="button secondary js-download">Download</button>
