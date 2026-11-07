@@ -165,3 +165,16 @@ export function hasValue(value: unknown): boolean {
 export function runInputs(step: Step, ctx: Ctx): Record<string, unknown> {
   return withoutEmpty(substitute(step.inputs, ctx));
 }
+
+/** What a new list row still lacks. A row left entirely empty lacks nothing (it is no row); one with anything in it, or one the person asked to
+ * add, needs its name and every required column. Returns the names of what is missing. */
+export function missingForNewRow(
+  title: string,
+  values: Record<string, unknown>,
+  required: { key: string; label: string }[],
+  asked: boolean,
+): string[] {
+  const touched = !!title || Object.values(values).some((v) => v !== false && hasValue(v));
+  if (!touched && !asked) return [];
+  return [...(title ? [] : ["Name"]), ...required.filter((r) => !hasValue(values[r.key])).map((r) => r.label)];
+}
