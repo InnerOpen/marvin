@@ -4,7 +4,7 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
-import { integrationCall } from "@/lib/aiUsage";
+import { integrationCall, isUnitBilled } from "@/lib/aiUsage";
 
 const authToken = getAuthToken(Astro.cookies);
 const authed = !!authToken;
@@ -145,8 +145,8 @@ function formatDuration(ms: number | null): string {
             const entityId = getField(exec, 'entityId', 'entity_id');
             const triggerType = getField(exec, 'triggerType', 'trigger_type');
             const hasDetails = !!(errorMsg || outputJson || inputJson || entityType);
-            // An integration's call has no tokens or dollars: its units and the model's multiplier stand in their place.
-            const call = triggerType === 'integration' ? integrationCall(getField(exec, 'metadataJson', 'metadata_json')) : null;
+            // A call billed in units (ElevenLabs characters) has no tokens or dollars: its units and the model's multiplier stand in their place. One billed in tokens (OpenAI Images) shows them like an AI run.
+            const call = isUnitBilled(triggerType, totalTokens) ? integrationCall(getField(exec, 'metadataJson', 'metadata_json')) : null;
             const tools = toolsUsed(getField(exec, 'metadataJson', 'metadata_json'), outputJson);
             return (
               <>
@@ -171,7 +171,7 @@ function formatDuration(ms: number | null): string {
                     <span class={`status-chip status-${statusClass(exec.status)}`}>{exec.status}</span>
                   </td>
                   <td class="nowrap">{call ? call.used : formatTokens(totalTokens)}{!call && cachedTokens > 0 && <span class="cached" title="Prompt tokens the provider served from its prompt cache, billed at the cache rate">{" "}({formatTokens(cachedTokens)} cached)</span>}</td>
-                  <td class="nowrap">{call ? call.billed : formatCost(estimatedCost)}</td>
+                  <td class="nowrap" title={!call && triggerType === 'integration' && estimatedCost == null ? "No price for this model, so no cost: set one under Admin → AI Pricing." : undefined}>{call ? call.billed : formatCost(estimatedCost)}</td>
                   <td class="nowrap">{formatDuration(durationMs)}</td>
                 </tr>
                 {hasDetails && (

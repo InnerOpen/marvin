@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { integrationCall, unpricedNotice } from "./aiUsage.ts";
+import { integrationCall, isUnitBilled, unpricedNotice } from "./aiUsage.ts";
 
 const m = (provider, model, runs) => ({ provider, model, runs, tokens: runs * 100 });
 
@@ -43,4 +43,12 @@ test("a row whose credits were measured shows them, and what is left", () => {
   assert.deepEqual(integrationCall(measured), { used: "285 characters", billed: "300 credits · 98,760 left" });
   assert.deepEqual(integrationCall({ unit: "characters", units: 40, multiplier: 0.5, credits_remaining: 500 }), { used: "40 characters × 0.5", billed: "20 billed · 500 left" });
   assert.deepEqual(integrationCall({ unit: "characters", units: 40, credits: 0 }), { used: "40 characters", billed: "0 credits" });
+});
+
+test("an integration row shows units only when it has no tokens", () => {
+  assert.equal(isUnitBilled("integration", null), true); // ElevenLabs: characters, no tokens
+  assert.equal(isUnitBilled("integration", 0), true);
+  assert.equal(isUnitBilled("integration", 2185), false); // OpenAI Images: tokens and an estimated cost, like an AI run
+  assert.equal(isUnitBilled("agent", null), false);
+  assert.equal(isUnitBilled(undefined, 10), false);
 });

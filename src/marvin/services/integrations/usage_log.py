@@ -51,6 +51,19 @@ def clip(value):
     return value
 
 
+def _price(provider: str, model: str, input_tokens: int, output_tokens: int) -> float | None:
+    """What a token-billed call (an image model) would cost at the model's known price, for the row to show; None when there is no price or
+    no tokens. Never raises: a price lookup must not fail the call it describes. Integration rows stay out of the AI spend either way."""
+    if not (input_tokens or output_tokens):
+        return None
+    try:
+        from marvin.services.ai.pricing import estimate_cost
+
+        return estimate_cost(provider, model, input_tokens, output_tokens)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 CREDIT_KEYS = ("credits", "credits_remaining", "credits_limit", "credits_resets_at")  # what a provider that measures its own meter reports
 
 
@@ -81,6 +94,9 @@ def record_call(session, group_id, row, operation: str, out: dict, *, user_id=No
                     completion_tokens=output_tokens or None,
                     total_tokens=(input_tokens + output_tokens) or None,
                     duration_ms=elapsed_ms,
+                    estimated_cost_usd=_price(
+                        str(usage.get("provider_type") or row.provider), str(usage.get("model") or "unknown"), input_tokens, output_tokens
+                    ),
                     input_json={"args": clip(args)} if args else None,
                     output_json=clip(out),
                     metadata_json={
