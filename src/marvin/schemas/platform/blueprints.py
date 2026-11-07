@@ -27,6 +27,7 @@ BlueprintKind = Literal[
     "incoming_webhook",
     "workflow",
     "playbook",
+    "wizard",
 ]
 
 #: Kinds that wire up one *connection* rather than workspace content: they reference an integration
@@ -190,6 +191,13 @@ class Blueprint(_MarvinModel):
             if self.payload.get("scope") == "system":
                 raise ValueError("a system Playbook is listed in system_playbooks (or a plugin's playbooks), not in content: it is never an Add item")
             if problem := payload_problem(self.payload, self.slug):
+                raise ValueError(problem)
+        if self.kind == "wizard":
+            from marvin.services.blueprints.wizards import payload_problem as wizard_problem
+
+            if self.required or self.parameters or self.requires:
+                raise ValueError("a wizard blueprint is never required and takes no parameters or requirements")
+            if problem := wizard_problem(self.payload, self.slug):
                 raise ValueError(problem)
         return self
 

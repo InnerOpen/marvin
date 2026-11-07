@@ -27,6 +27,7 @@ from marvin.schemas.platform.packages import (
     PackageRead,
     PackageResult,
 )
+from marvin.schemas.platform.wizards import WizardRead, WizardSummary
 from marvin.services.playbooks import PLAYBOOK_STATUS
 from marvin.services.playbooks.blueprint import PROVENANCE_KEY
 
@@ -136,6 +137,8 @@ def _item(blueprint: Blueprint, result: BlueprintApplyResult, *, preview: bool) 
     summary = workflow_summary((blueprint.payload or {}).get("definition")) if blueprint.kind == "workflow" else ""
     if blueprint.kind == "playbook":
         summary = PLAYBOOK_NOTE
+    if blueprint.kind == "wizard":
+        summary = f"{len((blueprint.payload or {}).get('steps') or [])} steps"
     return PackageItem(
         slug=result.slug, kind=blueprint.kind, name=result.name or blueprint.name, status=status, detail=result.detail or "", summary=summary
     )
@@ -159,12 +162,45 @@ def preview(session, group_id, manifest: PackageManifest, actor_id=None) -> Pack
     """What installing would do, per blueprint. Applies for real inside the transaction and rolls it back, so the answer is exactly what an
     install would do (requirements, existing slugs, a workflow that fails validation) and nothing is left behind. A Playbook is the one kind
     whose apply commits, so it is only checked here (is the name free?), never made."""
-    rest = [b for b in manifest.blueprints if b.kind != "playbook"]
+    rest = [b for b in manifest.blueprints if b.kind not in APPLIED_APART]
     results = apply_many(session, group_id, rest, actor_id=actor_id, event_bus=None, package=manifest.slug)
     results += [_playbook_outcome(session, group_id, b) for b in manifest.blueprints if b.kind == "playbook"]
+    results += _wizard_outcomes(session, group_id, manifest)
     outcome = _result(manifest, results, preview=True)
     session.rollback()
     return outcome
+
+
+#: Kinds whose install `apply_many` does not do: a Playbook commits its own row and a wizard is only data kept in the manifest.
+APPLIED_APART = ("playbook", "wizard")
+
+
+def _wizard_outcomes(session, group_id, manifest: PackageManifest) -> list[BlueprintApplyResult]:
+    """A wizard creates no row: installing keeps its definition in the package's manifest, replacing this package's wizard of the same slug. A
+    slug another package already brings is refused, because a wizard is opened by its slug."""
+    taken = {slug: name for slug, name, _ in _wizard_rows(session, group_id) if slug not in _own_wizards(session, group_id, manifest.slug)}
+    out = []
+    for blueprint in (b for b in manifest.blueprints if b.kind == "wizard"):
+        result = BlueprintApplyResult(slug=blueprint.slug, kind="wizard", created=False, name=blueprint.name)
+        if blueprint.slug in taken:
+            result.detail = f"a wizard with slug '{blueprint.slug}' is already brought by the package '{taken[blueprint.slug]}'"
+        else:
+            result.created = True
+            result.detail = "replaces this package's earlier version" if blueprint.slug in _own_wizards(session, group_id, manifest.slug) else ""
+        out.append(result)
+    return out
+
+
+def _own_wizards(session, group_id, package_slug: str) -> set[str]:
+    return {slug for slug, _, package in _wizard_rows(session, group_id) if package == package_slug}
+
+
+def _wizard_rows(session, group_id) -> list[tuple[str, str, str]]:
+    """(wizard slug, package name, package slug) for every wizard in the workspace's stored manifests."""
+    from marvin.db.models.groups.packages import WorkspacePackageModel
+
+    rows = session.query(WorkspacePackageModel).filter_by(group_id=group_id).all()
+    return [(b["slug"], row.name, row.slug) for row in rows for b in (row.manifest or {}).get("blueprints", []) if b.get("kind") == "wizard"]
 
 
 def _playbook_outcome(session, group_id, blueprint: Blueprint) -> BlueprintApplyResult:
@@ -183,7 +219,12 @@ def _playbook_outcome(session, group_id, blueprint: Blueprint) -> BlueprintApply
 
 def install(session, group_id, manifest: PackageManifest, actor_id=None, event_bus=None) -> PackageResult:
     """Apply the blueprints (stamped with the package) and keep the manifest. Installing a slug again adds what is missing; what exists is left."""
-    results = apply_many(session, group_id, manifest.blueprints, actor_id=actor_id, event_bus=event_bus, package=manifest.slug)
+    wizard_results = _wizard_outcomes(session, group_id, manifest)
+    if clash := next((r for r in wizard_results if not r.created), None):
+        raise PackageError(clash.detail or f"the wizard '{clash.slug}' cannot be installed")
+    rest = [b for b in manifest.blueprints if b.kind != "wizard"]
+    results = apply_many(session, group_id, rest, actor_id=actor_id, event_bus=event_bus, package=manifest.slug)
+    results += wizard_results
     _keep(session, group_id, manifest, actor_id)
     logger.info("Package '%s' installed to %s: %s", manifest.slug, group_id, [(r.kind, r.slug, r.created) for r in results])
     return _result(manifest, results, preview=False)
@@ -236,6 +277,7 @@ def _read(session, group_id, row, models: dict) -> PackageRead:
         entry_types=[b["slug"] for b in (row.manifest or {}).get("blueprints", []) if b.get("kind") == "entry_type"],
         playbooks=[b["slug"] for b in (row.manifest or {}).get("blueprints", []) if b.get("kind") == "playbook"],
         playbooks_published=sum(1 for entry in playbooks if entry.status == PLAYBOOK_STATUS),
+        wizards=[b["slug"] for b in (row.manifest or {}).get("blueprints", []) if b.get("kind") == "wizard"],
         workflows=count("workflow"),
         workflows_on=count("workflow", models["workflow"].enabled.is_(True)),
         collections=count("collection"),
@@ -361,3 +403,38 @@ def export(session, group_id, request: PackageExportRequest, actor_id=None) -> P
             row.source_package = request.slug
         _keep(session, group_id, manifest, actor_id)
     return manifest
+
+
+# --- wizards: read-only, for anyone in the workspace ------------------------------------------------------------------------------------
+
+
+def list_wizards(session, group_id) -> list[WizardSummary]:
+    """The guided setups the workspace's packages bring, by name."""
+    return sorted((_wizard_of(b, row, with_definition=False) for row, b in _wizard_blueprints(session, group_id)), key=lambda w: w.name.lower())
+
+
+def get_wizard(session, group_id, slug: str) -> WizardRead | None:
+    found = next(((row, b) for row, b in _wizard_blueprints(session, group_id) if b["slug"] == slug), None)
+    return _wizard_of(found[1], found[0], with_definition=True) if found else None
+
+
+def _wizard_blueprints(session, group_id):
+    from marvin.db.models.groups.packages import WorkspacePackageModel
+
+    for row in session.query(WorkspacePackageModel).filter_by(group_id=group_id).all():
+        for blueprint in (row.manifest or {}).get("blueprints", []):
+            if blueprint.get("kind") == "wizard":
+                yield row, blueprint
+
+
+def _wizard_of(blueprint: dict, row, *, with_definition: bool):
+    payload = blueprint.get("payload") or {}
+    fields = {
+        "slug": blueprint["slug"],
+        "name": payload.get("title") or blueprint.get("name") or blueprint["slug"],
+        "description": payload.get("description") or blueprint.get("description") or "",
+        "steps": len(payload.get("steps") or []),
+        "package": row.slug,
+        "package_name": row.name,
+    }
+    return WizardRead(**fields, definition=payload) if with_definition else WizardSummary(**fields)
