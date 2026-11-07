@@ -70,6 +70,7 @@ def payload_problem(payload: dict, slug: str) -> str | None:
     if len(steps) > MAX_STEPS:
         return f"wizard {slug!r} has more than {MAX_STEPS} steps"
     known: set[str] = set()  # context keys set by an earlier step
+    entries: set[str] = set()  # the ones a `choose` set: the only keys that name an entry
     seen: set[str] = set()
     for n, step in enumerate(steps, 1):
         if not isinstance(step, dict):
@@ -86,10 +87,12 @@ def payload_problem(payload: dict, slug: str) -> str | None:
         kind = step.get("kind")
         if kind not in STEP_KINDS:
             return f"{label} has kind {kind!r}; it must be one of {', '.join(STEP_KINDS)}"
-        if (problem := _check_when(step.get("when"), known, label)) or (problem := _check_step(step, kind, known, label)):
+        if (problem := _check_when(step.get("when"), known, label)) or (problem := _check_step(step, kind, known, entries, label)):
             return problem
         if kind in ("option", "choose"):
             known.add(step["as"])
+        if kind == "choose":
+            entries.add(step["as"])
     return None
 
 
@@ -108,12 +111,17 @@ def _check_when(when: Any, known: set[str], label: str) -> str | None:
 class _Step:
     """One step being checked: its label for messages, and the context keys the steps before it set."""
 
-    def __init__(self, step: dict, known: set[str], label: str):
-        self.step, self.known, self.label = step, known, label
+    def __init__(self, step: dict, known: set[str], entries: set[str], label: str):
+        self.step, self.known, self.entries, self.label = step, known, entries, label
 
     def ctx(self, key: str) -> str | None:
+        """`key` of this step names the entry an earlier `choose` step picked."""
         value = self.step.get(key)
-        return None if value in self.known else f"{self.label}: {key} names {value!r}, which no earlier step sets"
+        if value in self.entries:
+            return None
+        if value in self.known:
+            return f"{self.label}: {key} names {value!r}, which is an option, not an entry an earlier step chose"
+        return f"{self.label}: {key} names {value!r}, which no earlier step sets"
 
     def refs_known(self, value: Any, what: str) -> str | None:
         bad = next((r for r in _refs(value) if r not in self.known), None)
@@ -210,5 +218,5 @@ _CHECKS = {
 }
 
 
-def _check_step(step: dict, kind: str, known: set[str], label: str) -> str | None:
-    return _CHECKS[kind](_Step(step, known, label))
+def _check_step(step: dict, kind: str, known: set[str], entries: set[str], label: str) -> str | None:
+    return _CHECKS[kind](_Step(step, known, entries, label))

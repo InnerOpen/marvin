@@ -103,6 +103,7 @@ def _bad(mutate) -> str | None:
         (lambda p: p["steps"][1].update(scope={"world": "${planet}"}), "planet"),
         (lambda p: p["steps"][0].update(when={"ctx": "story", "op": "set"}), "no earlier step sets"),
         (lambda p: p["steps"][3].update(entry="series"), "entry"),
+        (lambda p: p["steps"][3].update(entry="input"), "an option, not an entry"),
         (lambda p: p["steps"][3].update(mode="blob"), "mode"),
         (lambda p: p["steps"][3].update(accept=["fountain"]), "extensions"),
         (lambda p: p["steps"][2].update(options=[{"value": "a", "label": "A"}]), "two options"),
