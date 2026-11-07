@@ -211,3 +211,30 @@ def test_cache_rates_ride_along_when_the_feed_has_them():
     sonnet = price_feed._price(table["anthropic"]["claude-sonnet-5"])
     assert sonnet.cost(1_000_000, 0, cached_prompt_tokens=1_000_000) == 0.2
     assert price_feed._price(table["openai"]["plain"]).cost(1_000_000, 0, cached_prompt_tokens=1_000_000) == 1.0
+
+
+def test_an_image_model_is_priced_by_its_image_token_rates():
+    """gpt-image-2 (line 36530 of the real file) has a text input rate but no plain output rate: only image-token rates for output (and
+    input). Read by the plain rates it came out $5 in and $0 out; its calls are image tokens, so those rates are the price."""
+    image = {
+        "gpt-image-2": {
+            "litellm_provider": "openai",
+            "mode": "image_generation",
+            "input_cost_per_token": 5e-06,
+            "input_cost_per_image_token": 8e-06,
+            "output_cost_per_image_token": 3e-05,
+            "cache_read_input_token_cost": 1.25e-06,
+            "cache_read_input_image_token_cost": 2e-06,
+        },
+        "gpt-image-text-only": {
+            "litellm_provider": "openai",
+            "mode": "image_generation",
+            "input_cost_per_token": 5e-06,
+            "output_cost_per_token": 1e-05,
+        },
+    }
+
+    table = price_feed.parse(image)
+
+    assert table["openai"]["gpt-image-2"] == [8.0, 30.0, 2.0]
+    assert table["openai"]["gpt-image-text-only"] == [5.0, 10.0]  # no image rates: the plain ones, as for any model
