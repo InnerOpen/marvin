@@ -1193,7 +1193,8 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
   .chat-embed .tb-actions { margin-left: 0; flex: 1 1 100%; }
   .chat-embed .agent-desc { flex: none; margin: 8px 2px 0; }
   .chat-embed .threads-panel, .chat-embed .tools-panel, .chat-embed .suggestions { flex: none; }
-  .chat-embed .transcript { flex: 1 1 auto; min-height: 0; max-height: none; margin-top: 12px; }
+  /* The transcript is a grid: without align-content: start its rows stretch to fill the height and every bubble becomes as tall as the panel. */
+  .chat-embed .transcript { flex: 1 1 auto; min-height: 0; max-height: none; margin-top: 12px; align-content: start; }
   .chat-embed .transcript :global(.turn.user) { margin-left: 6%; }
   .chat-embed .transcript :global(.turn.assistant) { margin-right: 0; }
   .chat-embed .composer { flex: none; margin-top: 12px; padding-top: 12px; }
