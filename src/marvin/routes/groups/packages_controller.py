@@ -54,7 +54,11 @@ class PackagesController(BaseUserController):
     def install(self, body: dict = Body(..., description="The package file's JSON")):
         """Install it: create what is missing (disabled), group it under the package, keep the manifest. Re-installing adds what is missing."""
         self._manage()
-        result = service.install(self.session, self.group_id, self._manifest(body), actor_id=self.user.id, event_bus=self.event_bus)
+        try:
+            result = service.install(self.session, self.group_id, self._manifest(body), actor_id=self.user.id, event_bus=self.event_bus)
+        except PackageError as e:
+            self.session.rollback()
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
         self.session.commit()
         return result
 

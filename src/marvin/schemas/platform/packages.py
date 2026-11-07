@@ -17,8 +17,9 @@ from marvin.schemas._marvin import _MarvinModel
 from marvin.schemas.platform.blueprints import CORE_SOURCE, Blueprint, BlueprintApplyResult
 
 #: Kinds a package may carry: workspace content. Not `event_subscription` (it wires one existing connection, so it cannot travel).
+#: A `wizard` is plain data (a guided setup the package ships) and stays in the stored manifest: there is nothing to create, so it is inert.
 #: A `playbook` travels as text (the Playbook blueprint's own checks: no scripts, capped) and arrives as a draft, never published.
-PACKAGEABLE_KINDS = ("entry_type", "entry_fields", "collection", "workflow", "scheduled_task", "incoming_webhook", "playbook")
+PACKAGEABLE_KINDS = ("entry_type", "entry_fields", "collection", "workflow", "scheduled_task", "incoming_webhook", "playbook", "wizard")
 
 MAX_BLUEPRINTS = 200
 MAX_MANIFEST_BYTES = 2_000_000
@@ -127,6 +128,8 @@ class PackageRead(_MarvinModel):
     playbooks: list[str] = Field(default_factory=list)
     """Names of the Playbooks it brings. They arrive as drafts: `playbooks_published` is how many of them someone has published here."""
     playbooks_published: int = 0
+    wizards: list[str] = Field(default_factory=list)
+    """Slugs of the guided setups it brings. They live in the stored manifest and are listed under Guided setups."""
     workflows: int = 0
     workflows_on: int = 0
     collections: int = 0
