@@ -86,6 +86,8 @@ const before = def && step ? previousStep(def, ctx, step.id) : null;
 const after = def && step ? nextStep(def, ctx, step.id) : null;
 const allPass = checks.length > 0 && checks.every((c) => c.ok);
 const submitLabel = after ? "Continue" : "Save";
+// A column heading is the field's label without its explanation in brackets (the full label stays as the hover text).
+const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || label;
 ---
 
 <AppLayout crumb="workspace.wizards.run" title={wizard?.name ?? "Guided setup"} width="page">
@@ -121,11 +123,13 @@ const submitLabel = after ? "Continue" : "Save";
 
           {step.kind === "option" && (
             <form method="post" class="form">
-              {step.options.map((o: { value: string; label: string }) => (
-                <label class="choice">
-                  <input type="radio" name="value" value={o.value} checked={ctx[step.as] === o.value} required /> {o.label}
-                </label>
-              ))}
+              <div class="choices">
+                {step.options.map((o: { value: string; label: string }) => (
+                  <label class="choice">
+                    <input type="radio" name="value" value={o.value} checked={ctx[step.as] === o.value} required /> {o.label}
+                  </label>
+                ))}
+              </div>
               <div class="actions"><button class="button" type="submit">{submitLabel}</button></div>
             </form>
           )}
@@ -136,11 +140,13 @@ const submitLabel = after ? "Continue" : "Save";
               {choices.length > 0 && (
                 <>
                   <p class="label">Pick one you have</p>
-                  {choices.map((c) => (
-                    <label class="choice">
-                      <input type="radio" name="pick" value={c.slug} checked={ctx[step.as] === c.slug} /> {c.title}
-                    </label>
-                  ))}
+                  <div class="choices">
+                    {choices.map((c) => (
+                      <label class="choice">
+                        <input type="radio" name="pick" value={c.slug} checked={ctx[step.as] === c.slug} /> {c.title}
+                      </label>
+                    ))}
+                  </div>
                   <div class="actions"><button class="button" type="submit">Use this {typeName.toLowerCase()}</button></div>
                 </>
               )}
@@ -195,47 +201,51 @@ const submitLabel = after ? "Continue" : "Save";
             <form method="post" class="form">
               {missingType && <div class="alert alert-info">This workspace has no “{step.entry_type}” entry type yet.</div>}
               {!missingType && (
-                <div class="table-wrap">
-                  <table class="grid">
-                    <thead><tr><th>Name</th>{columns.map((c) => <th>{c.label}</th>)}</tr></thead>
-                    <tbody>
-                      {listRows.map((r) => (
-                        <tr>
-                          <td><a href={`/workspace/entries/${r.id}`}>{r.title}</a></td>
-                          {columns.map((c) => (
-                            <td>
-                              {c.type === "select" ? (
-                                <select class="input" name={`row.${r.id}.${c.key}`}>
-                                  <option value=""></option>
-                                  {(c.options ?? []).map((o: string) => <option value={o} selected={r.dataJson?.[c.key] === o}>{o}</option>)}
-                                </select>
-                              ) : (
-                                <input class="input" type={c.type === "number" ? "number" : "text"} name={`row.${r.id}.${c.key}`} value={r.dataJson?.[c.key] ?? ""} />
-                              )}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                      {listRows.length === 0 && <tr><td colspan={columns.length + 1} class="muted">None yet.</td></tr>}
-                      {step.add !== false && (
-                        <tr class="new">
-                          <td><input class="input" name="new.title" placeholder="Add another…" /></td>
-                          {columns.map((c) => (
-                            <td>
-                              {c.type === "select" ? (
-                                <select class="input" name={`new.${c.key}`}>
-                                  <option value=""></option>
-                                  {(c.options ?? []).map((o: string) => <option value={o}>{o}</option>)}
-                                </select>
-                              ) : (
-                                <input class="input" type={c.type === "number" ? "number" : "text"} name={`new.${c.key}`} />
-                              )}
-                            </td>
-                          ))}
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+                <div class="rows">
+                  {listRows.length === 0 && <p class="muted none">None yet. Add the first one below.</p>}
+                  {listRows.map((r) => (
+                    <div class="row">
+                      <div class="row-head"><a href={`/workspace/entries/${r.id}`}>{r.title}</a></div>
+                      <div class="cols">
+                        {columns.map((c) => (
+                          <label class="col" title={c.label}>
+                            <span>{shortLabel(c.label)}</span>
+                            {c.type === "select" ? (
+                              <select class="input" name={`row.${r.id}.${c.key}`}>
+                                <option value=""></option>
+                                {(c.options ?? []).map((o: string) => <option value={o} selected={r.dataJson?.[c.key] === o}>{o}</option>)}
+                              </select>
+                            ) : (
+                              <input class="input" type={c.type === "number" ? "number" : "text"} name={`row.${r.id}.${c.key}`} value={r.dataJson?.[c.key] ?? ""} />
+                            )}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {step.add !== false && (
+                    <div class="row new">
+                      <label class="col row-head">
+                        <span>{listRows.length ? "Add another" : "Add one"}</span>
+                        <input class="input" name="new.title" placeholder="Name" />
+                      </label>
+                      <div class="cols">
+                        {columns.map((c) => (
+                          <label class="col" title={c.label}>
+                            <span>{shortLabel(c.label)}</span>
+                            {c.type === "select" ? (
+                              <select class="input" name={`new.${c.key}`}>
+                                <option value=""></option>
+                                {(c.options ?? []).map((o: string) => <option value={o}>{o}</option>)}
+                              </select>
+                            ) : (
+                              <input class="input" type={c.type === "number" ? "number" : "text"} name={`new.${c.key}`} />
+                            )}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               <div class="actions">
@@ -265,31 +275,43 @@ const submitLabel = after ? "Continue" : "Save";
 </AppLayout>
 
 <style>
-  .stepper { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
-  .stepper a { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; color: var(--muted); text-decoration: none; background: var(--panel); }
+  .stepper { list-style: none; margin: 0 0 24px; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .stepper a, .stepper .wait { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; color: var(--muted); text-decoration: none; background: var(--panel); }
+  .stepper .wait { border-style: dashed; opacity: 0.6; }
   .stepper .n { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--panel-2); font-size: 12px; }
-  .stepper .wait { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px dashed var(--line); border-radius: 999px; font-size: 13px; color: var(--muted); opacity: 0.6; }
   .stepper .past a { color: var(--ink); }
   .stepper .current a { border-color: var(--accent); color: var(--ink); font-weight: 600; }
   .stepper .current .n { background: var(--accent); color: var(--accent-ink, #fff); }
-  .step { display: grid; gap: 14px; }
-  .step h3 { margin: 0; }
-  .help { margin: 0; color: var(--muted); font-size: 14px; }
-  .form { display: grid; gap: 12px; }
-  .choice { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+
+  /* .card has no padding of its own (the content goes in a .card-body elsewhere), so the step carries it. */
+  .step { display: grid; gap: 20px; padding: 24px; }
+  .step h3 { margin: 0; font-size: 20px; }
+  .help { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; max-width: 70ch; }
+  .form { display: grid; gap: 16px; }
   .label { margin: 0; font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
-  .create { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; display: grid; gap: 10px; }
+  .choices { display: grid; gap: 8px; }
+  .choice { display: flex; gap: 10px; align-items: center; cursor: pointer; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+  .choice:hover { border-color: var(--muted); }
+  .choice:has(input:checked) { border-color: var(--accent); }
+  .create { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: grid; gap: 14px; margin: 0; }
   .create legend { padding: 0 6px; font-size: 13px; color: var(--muted); }
-  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .table-wrap { overflow-x: auto; }
-  .grid { width: 100%; border-collapse: collapse; font-size: 14px; }
-  .grid th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 500; padding: 4px 8px; }
-  .grid td { padding: 4px 8px; vertical-align: middle; }
-  .grid .new td { border-top: 1px dashed var(--line); }
-  .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-  .checks .ok { color: var(--ink); }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .replace { display: grid; gap: 10px; }
+
+  .rows { display: grid; gap: 12px; }
+  .row { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; background: var(--bg); display: grid; gap: 12px; }
+  .row.new { border-style: dashed; background: transparent; }
+  .row-head { font-weight: 600; }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
+  .col { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+  .col span { font-weight: 500; }
+  .col .input { font-size: 14px; font-weight: 400; color: var(--ink); }
+  .none { margin: 0; }
+
+  .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .checks li { padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+  .checks .ok { color: var(--ink); border-color: var(--accent); }
   .checks .no { color: var(--muted); }
   .verdict { margin: 0; font-weight: 500; }
-  .replace { display: grid; gap: 8px; }
-  .nav { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; border-top: 1px solid var(--line); padding-top: 12px; font-size: 13px; }
+  .nav { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--line); padding-top: 16px; font-size: 13px; }
 </style>
