@@ -16,6 +16,8 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
   reads it as text into ``field`` (a script, a beat sheet). ``accept`` lists extensions.
 - ``list``: the entries of ``entry_type`` whose ``parent_field`` holds context key ``parent``, with the ``columns`` editable in place and
   ``add`` to make another.
+- ``run``: a button that starts the workflow ``workflow`` (by slug) with ``inputs`` ({name: "${key}" | literal}), e.g. cutting the beats of a script
+  once it is uploaded. A workflow that is off is never turned on from here: the page says so.
 - ``review``: ``checks``, each ``{label, query, op, value}``: the query (entry-query spec: ``entry_type``, ``fields``, ``where``…) is
   counted and compared (``gt gte eq lte lt``) to a number; all passing means the wizard is done.
 
@@ -29,7 +31,7 @@ import re
 from typing import Any
 
 MAX_STEPS = 40
-STEP_KINDS = ("option", "choose", "form", "upload", "list", "review")
+STEP_KINDS = ("option", "choose", "form", "upload", "list", "run", "review")
 WHEN_OPS = ("eq", "neq", "set", "unset")
 CHECK_OPS = ("gt", "gte", "eq", "lte", "lt")
 UPLOAD_MODES = ("asset", "text")
@@ -201,6 +203,17 @@ def _check_one_check(s: _Step, check: Any) -> str | None:
     return s.refs_known(check["query"], "a check")
 
 
+def _check_run(s: _Step) -> str | None:
+    inputs = s.step.get("inputs", {})
+    if not isinstance(s.step.get("workflow"), str) or not _SLUG.match(s.step["workflow"]):
+        return f"{s.label} needs the slug of the workflow it runs"
+    if not isinstance(inputs, dict) or not all(_NAME.match(str(k)) and isinstance(v, str) for k, v in inputs.items()):
+        return f"{s.label}: inputs must map the workflow's input names to text"
+    if s.step.get("button") is not None and not isinstance(s.step["button"], str):
+        return f"{s.label}: button must be text"
+    return s.refs_known(inputs, "inputs")
+
+
 def _check_review(s: _Step) -> str | None:
     checks = s.step.get("checks")
     if not isinstance(checks, list) or not checks:
@@ -214,6 +227,7 @@ _CHECKS = {
     "form": _check_form,
     "upload": _check_upload,
     "list": _check_list,
+    "run": _check_run,
     "review": _check_review,
 }
 

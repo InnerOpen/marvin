@@ -1,11 +1,13 @@
 /** What posting a wizard step does. Returns the choices after it and whether to stay on the step (a list can add one after another). */
 
-import { type Ctx, type Step, type WizardDefinition, createData, entryTypeOf, hasValue, listSpec } from "./wizard";
-import { MAX_TEXT_UPLOAD_BYTES, askedKeys, createOf, entryBySlug, findEntries, postedData, setData, typeBySlug, uploadAsset, withAutoSlug } from "./wizardApi";
+import { type Ctx, type Step, type WizardDefinition, createData, entryTypeOf, hasValue, listSpec, runInputs } from "./wizard";
+import { MAX_TEXT_UPLOAD_BYTES, askedKeys, createOf, entryBySlug, findEntries, postedData, setData, typeBySlug, runWorkflow, uploadAsset, withAutoSlug } from "./wizardApi";
 
 export interface Outcome {
   ctx: Ctx;
   stay: boolean;
+  /** A line to show on the next page (a run was started). */
+  notice?: string;
 }
 
 const text = (form: FormData, name: string): string => String(form.get(name) ?? "").trim();
@@ -76,6 +78,10 @@ export async function runStep(def: WizardDefinition, step: Step, form: FormData,
   }
   if (step.kind === "choose") return choose(step, form, ctx, authToken);
   if (step.kind === "upload") return upload(def, step, form, ctx, authToken);
+  if (step.kind === "run") {
+    const name = await runWorkflow(step.workflow, runInputs(step, ctx), authToken);
+    return { ctx, stay: false, notice: `Started “${name}”. It runs in the background: what it makes shows on the later steps when it is done.` };
+  }
   if (step.kind === "list") return editList(step, form, ctx, authToken);
   if (step.kind === "form") {
     const { entry, type } = await entryFor(def, step, ctx, authToken);

@@ -51,6 +51,14 @@ WIZARD = {
             "when": {"ctx": "input", "op": "eq", "value": "script"},
         },
         {
+            "id": "cut",
+            "kind": "run",
+            "title": "Cut the beats",
+            "workflow": "screenplay-import-beats",
+            "inputs": {"story": "${story}", "mode": "refresh"},
+            "button": "Cut the beats",
+        },
+        {
             "id": "cast",
             "kind": "list",
             "title": "Characters",
@@ -107,9 +115,12 @@ def _bad(mutate) -> str | None:
         (lambda p: p["steps"][3].update(mode="blob"), "mode"),
         (lambda p: p["steps"][3].update(accept=["fountain"]), "extensions"),
         (lambda p: p["steps"][2].update(options=[{"value": "a", "label": "A"}]), "two options"),
-        (lambda p: p["steps"][4].update(columns=[]), "columns"),
-        (lambda p: p["steps"][6]["checks"][0].update(op="about"), "compares"),
-        (lambda p: p["steps"][6]["checks"][0]["query"].update(fields={"story": "${nope}"}), "nope"),
+        (lambda p: p["steps"][5].update(columns=[]), "columns"),
+        (lambda p: p["steps"][4].update(workflow=""), "workflow"),
+        (lambda p: p["steps"][4].update(inputs={"story": "${nope}"}), "nope"),
+        (lambda p: p["steps"][4].update(inputs={"story": 3}), "inputs"),
+        (lambda p: p["steps"][7]["checks"][0].update(op="about"), "compares"),
+        (lambda p: p["steps"][7]["checks"][0]["query"].update(fields={"story": "${nope}"}), "nope"),
     ],
 )
 def test_a_wrong_wizard_says_what_is_wrong(mutate, words):
@@ -141,7 +152,7 @@ def test_installing_keeps_a_wizard_as_data_and_makes_no_row(db_session, workspac
     db_session.commit()
 
     item = next(i for i in result.items if i.kind == "wizard")
-    assert (item.status, item.summary) == ("created", "7 steps")
+    assert (item.status, item.summary) == ("created", "8 steps")
     assert db_session.query(EntryTypes).filter_by(group_id=workspace.id).count() == before + 1  # the manifest's beat type, not a wizard
     assert db_session.query(EntryTypes).filter_by(group_id=workspace.id, slug="narrate").count() == 0
     assert [w.slug for w in service.list_wizards(db_session, workspace.id)] == ["narrate"]

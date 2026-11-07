@@ -14,7 +14,7 @@ export interface When {
 
 export interface Step {
   id: string;
-  kind: "option" | "choose" | "form" | "upload" | "list" | "review";
+  kind: "option" | "choose" | "form" | "upload" | "list" | "run" | "review";
   title: string;
   help?: string;
   when?: When;
@@ -28,6 +28,8 @@ export interface WizardDefinition {
 }
 
 export const STEP_PARAM = "step";
+/** Address parameters that are not choices: the step asked for, and the line to show after a step that started something. */
+export const NOTICE_PARAM = "notice";
 const CTX_NAME = /^[a-z][a-z0-9_]{0,39}$/;
 const MAX_VALUE = 200;
 const REF = /\$\{([^}]*)\}/g;
@@ -36,7 +38,7 @@ const REF = /\$\{([^}]*)\}/g;
 export function readCtx(params: URLSearchParams): Ctx {
   const ctx: Ctx = {};
   for (const [key, value] of params.entries()) {
-    if (key !== STEP_PARAM && CTX_NAME.test(key) && value.trim()) ctx[key] = value.trim().slice(0, MAX_VALUE);
+    if (key !== STEP_PARAM && key !== NOTICE_PARAM && CTX_NAME.test(key) && value.trim()) ctx[key] = value.trim().slice(0, MAX_VALUE);
   }
   return ctx;
 }
@@ -157,4 +159,9 @@ export function hasValue(value: unknown): boolean {
   if (Array.isArray(value)) return value.length > 0;
   if (typeof value === "string") return value.trim().length > 0;
   return value !== null && value !== undefined;
+}
+
+/** What a `run` step hands the workflow: its `inputs` with the choices filled in, leaving out any that came out empty. */
+export function runInputs(step: Step, ctx: Ctx): Record<string, unknown> {
+  return withoutEmpty(substitute(step.inputs, ctx));
 }
