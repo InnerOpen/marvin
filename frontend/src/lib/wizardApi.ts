@@ -87,3 +87,26 @@ export function withAutoSlug(type: EntryTypeRead | null, data: Record<string, un
   if (!requiredKeys(type).includes(AUTO_SLUG_FIELD) || data[AUTO_SLUG_FIELD]) return data;
   return { ...data, [AUTO_SLUG_FIELD]: title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) };
 }
+
+interface WorkflowRow {
+  id: string;
+  slug: string;
+  name: string;
+  enabled: boolean;
+}
+
+/** The workspace's workflow of this slug: whether it is there and on. */
+export async function workflowState(slug: string, authToken: string): Promise<{ found: boolean; enabled: boolean; id?: string; name?: string }> {
+  const rows = await fetchApi<WorkflowRow[] | { items?: WorkflowRow[] }>("/api/automations", {}, authToken).catch(() => []);
+  const found = (Array.isArray(rows) ? rows : (rows.items ?? [])).find((w) => w.slug === slug);
+  return found ? { found: true, enabled: !!found.enabled, id: found.id, name: found.name } : { found: false, enabled: false };
+}
+
+/** Start a workflow now and don't wait for it. A workflow that is off is never switched on from here: it runs with its author's permissions. */
+export async function runWorkflow(slug: string, inputs: Record<string, unknown>, authToken: string): Promise<string> {
+  const state = await workflowState(slug, authToken);
+  if (!state.found) throw new Error(`This workspace has no workflow “${slug}”. Install the package that brings it.`);
+  if (!state.enabled) throw new Error(`“${state.name}” is switched off. Turn it on under Automation → Workflows, then run this step again.`);
+  await fetchApi(`/api/automations/${encodeURIComponent(state.id!)}/run?background=true`, { method: "POST", body: JSON.stringify({ inputs }) }, authToken);
+  return state.name ?? slug;
+}

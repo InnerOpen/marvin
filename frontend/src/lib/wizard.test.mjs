@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  blocker, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, withoutEmpty,
+  blocker, runInputs, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, withoutEmpty,
 } from "./wizard.ts";
 
 const def = {
@@ -92,4 +92,10 @@ test("a step waits for the answers before it, so a list is never shown with noth
   assert.equal(blocker(def, { world: "w", story: "s" }, "cast")?.id, "how");
   assert.equal(currentStep(def, {}, "story")?.id, "world");
   assert.equal(currentStep(def, { world: "w" }, "story")?.id, "story");
+});
+
+test("a run step hands the workflow the choices, and the notice is not a choice", () => {
+  const step = { id: "cut", kind: "run", title: "Cut", workflow: "screenplay-import-beats", inputs: { story: "${story}", mode: "refresh", sheet: "${nope}" } };
+  assert.deepEqual(runInputs(step, { story: "s1" }), { story: "s1", mode: "refresh" });
+  assert.deepEqual(readCtx(new URLSearchParams("step=cut&story=s1&notice=Started")), { story: "s1" });
 });

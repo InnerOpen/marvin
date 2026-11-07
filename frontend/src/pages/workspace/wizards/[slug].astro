@@ -4,11 +4,11 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import {
-  type Check, type Step, SIMPLE_FIELD_TYPES, blocker, checkSpec, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, passes, previousStep, readCtx,
+  type Check, type Step, NOTICE_PARAM, SIMPLE_FIELD_TYPES, blocker, checkSpec, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, passes, previousStep, readCtx,
   shownSteps, stepHref,
 } from "@/lib/wizard";
 import { runStep } from "@/lib/wizardActions";
-import { type Row, askedKeys, describeFailure, entryBySlug, findEntries, typeBySlug } from "@/lib/wizardApi";
+import { type Row, askedKeys, describeFailure, entryBySlug, findEntries, typeBySlug, workflowState } from "@/lib/wizardApi";
 
 const authToken = getAuthToken(Astro.cookies);
 const slug = Astro.params.slug ?? "";
@@ -24,13 +24,14 @@ if (authToken) {
   }
 }
 const def = wizard?.definition ?? null;
+const notice = Astro.url.searchParams.get(NOTICE_PARAM);
 const step: Step | null = def ? currentStep(def, ctx, Astro.url.searchParams.get("step")) : null;
 
 if (Astro.request.method === "POST" && authToken && def && step) {
   try {
     const done = await runStep(def, step, await Astro.request.formData(), ctx, authToken);
     const target = done.stay ? step : (nextStep(def, done.ctx, step.id) ?? step);
-    return Astro.redirect(stepHref(slug, done.ctx, target.id));
+    return Astro.redirect(stepHref(slug, done.ctx, target.id, done.notice ? { [NOTICE_PARAM]: done.notice } : {}));
   } catch (e) {
     problem = describeFailure(e);
   }
@@ -49,6 +50,7 @@ let formFields: any[] = [];
 let leftOut: any[] = [];
 let checks: { label: string; ok: boolean; count: number }[] = [];
 let columns: any[] = [];
+let flow: { found: boolean; enabled: boolean; name?: string } = { found: true, enabled: true };
 
 if (authToken && def && step && !problem) {
   if (step.kind === "choose" || step.kind === "list") {
@@ -70,6 +72,8 @@ if (authToken && def && step && !problem) {
       formFields = simple(all);
       leftOut = all.filter((f) => !SIMPLE_FIELD_TYPES.includes(f.type));
     }
+  } else if (step.kind === "run") {
+    flow = await workflowState(step.workflow, authToken);
   } else if (step.kind === "review") {
     checks = await Promise.all(
       (step.checks as Check[]).map(async (c) => {
@@ -97,6 +101,7 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
   </div>
 
   {problem && <div class="alert alert-error">{problem}</div>}
+  {notice && !problem && <div class="alert alert-info">{notice}</div>}
   {!problem && !wizard && <div class="alert alert-info">There is no guided setup called “{slug}” here. <a href="/workspace/wizards">See the ones there are.</a></div>}
 
   {
@@ -154,7 +159,7 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
                 <fieldset class="create">
                   <legend>{choices.length > 0 ? "Or make a new one" : `Make a new ${typeName.toLowerCase()}`}</legend>
                   <div class="form-group">
-                    <label for="create_title">Name</label>
+                    <label for="create_title">Name <span class="req" title="Required">*</span></label>
                     <input class="input" id="create_title" name="create_title" />
                   </div>
                   <SchemaForm schema={{ fields: formFields }} />
@@ -209,7 +214,7 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
                       <div class="cols">
                         {columns.map((c) => (
                           <label class="col" title={c.label}>
-                            <span>{shortLabel(c.label)}</span>
+                            <span>{shortLabel(c.label)}{c.required && <span class="req" title="Required"> *</span>}</span>
                             {c.type === "select" ? (
                               <select class="input" name={`row.${r.id}.${c.key}`}>
                                 <option value=""></option>
@@ -226,13 +231,13 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
                   {step.add !== false && (
                     <div class="row new">
                       <label class="col row-head">
-                        <span>{listRows.length ? "Add another" : "Add one"}</span>
+                        <span>{listRows.length ? "Add another" : "Add one"} <span class="req" title="Required">*</span></span>
                         <input class="input" name="new.title" placeholder="Name" />
                       </label>
                       <div class="cols">
                         {columns.map((c) => (
                           <label class="col" title={c.label}>
-                            <span>{shortLabel(c.label)}</span>
+                            <span>{shortLabel(c.label)}{c.required && <span class="req" title="Required"> *</span>}</span>
                             {c.type === "select" ? (
                               <select class="input" name={`new.${c.key}`}>
                                 <option value=""></option>
@@ -251,6 +256,18 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
               <div class="actions">
                 <button class="button" type="submit">{submitLabel}</button>
                 {step.add !== false && <button class="button secondary" type="submit" name="again" value="1">Save and add another</button>}
+              </div>
+            </form>
+          )}
+
+          {step.kind === "run" && (
+            <form method="post" class="form">
+              {!flow.found && <div class="alert alert-info">This workspace has no workflow “{step.workflow}”. Install the package that brings it.</div>}
+              {flow.found && !flow.enabled && (
+                <div class="alert alert-info">“{flow.name}” is switched off. Turn it on under <a href="/automation/workflows">Automation → Workflows</a> (it runs with its author’s permissions), then come back.</div>
+              )}
+              <div class="actions">
+                <button class="button" type="submit" disabled={!flow.found || !flow.enabled}>{step.button ?? "Run"}</button>
               </div>
             </form>
           )}
@@ -296,6 +313,7 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
   .create { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: grid; gap: 14px; margin: 0; }
   .create legend { padding: 0 6px; font-size: 13px; color: var(--muted); }
   .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .req { color: var(--color-error, #c0392b); }
   .replace { display: grid; gap: 10px; }
 
   .rows { display: grid; gap: 12px; }
