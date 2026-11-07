@@ -1,7 +1,7 @@
 /** What posting a wizard step does. Returns the choices after it and whether to stay on the step (a list can add one after another). */
 
-import { type Ctx, type Step, type WizardDefinition, createData, entryTypeOf, hasValue, listSpec, runInputs } from "./wizard";
-import { MAX_TEXT_UPLOAD_BYTES, askedKeys, createOf, entryBySlug, findEntries, postedData, setData, typeBySlug, runWorkflow, uploadAsset, withAutoSlug } from "./wizardApi";
+import { type Ctx, type Step, type WizardDefinition, createData, entryTypeOf, hasValue, listSpec, missingForNewRow, runInputs } from "./wizard";
+import { MAX_TEXT_UPLOAD_BYTES, askedKeys, createOf, requiredFields, entryBySlug, findEntries, postedData, setData, typeBySlug, runWorkflow, uploadAsset, withAutoSlug } from "./wizardApi";
 
 export interface Outcome {
   ctx: Ctx;
@@ -63,8 +63,14 @@ async function editList(step: Step, form: FormData, ctx: Ctx, authToken: string)
     if (Object.keys(changed).length) await setData(row, changed, authToken);
   }
   const title = text(form, "new.title");
+  const fresh = postedData(form, type, columns, "new.");
+  const wanted = !!text(form, "again");
+  const missing = missingForNewRow(title, fresh, requiredFields(type), wanted);
+  if (missing.length) {
+    throw new Error(`The new row needs ${missing.join(", ")}.${wanted && !title ? " Fill it in, or use Continue to go on without adding one." : ""}`);
+  }
   if (title) {
-    await createOf(type, title, { ...postedData(form, type, columns, "new."), ...createData({ ...step, create: { data: step.create_data } } as Step, ctx), [step.parent_field]: ctx[step.parent] }, authToken);
+    await createOf(type, title, { ...fresh, ...createData({ ...step, create: { data: step.create_data } } as Step, ctx), [step.parent_field]: ctx[step.parent] }, authToken);
   }
   return { ctx, stay: !!title && !!text(form, "again") };
 }

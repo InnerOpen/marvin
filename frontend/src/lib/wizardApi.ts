@@ -77,6 +77,12 @@ export function requiredKeys(type: EntryTypeRead | null): string[] {
   return fields.filter((f) => f.required).map((f) => f.key);
 }
 
+/** The required fields of an entry type with their labels, for saying what is missing. */
+export function requiredFields(type: EntryTypeRead | null): { key: string; label: string }[] {
+  const fields = ((type?.schemaJson as { fields?: { key: string; label?: string; required?: boolean }[] } | null)?.fields ?? []) as { key: string; label?: string; required?: boolean }[];
+  return fields.filter((f) => f.required && f.key !== AUTO_SLUG_FIELD).map((f) => ({ key: f.key, label: f.label ?? f.key }));
+}
+
 /** The fields a step asks for: the ones it names, then any the type requires (a required `slug` field is filled from the name, so it is not asked). */
 export function askedKeys(type: EntryTypeRead | null, named: string[] | undefined): string[] {
   return [...new Set([...(named ?? []), ...requiredKeys(type)])].filter((k) => k !== AUTO_SLUG_FIELD);

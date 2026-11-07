@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  blocker, runInputs, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, withoutEmpty,
+  blocker, missingForNewRow, runInputs, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, withoutEmpty,
 } from "./wizard.ts";
 
 const def = {
@@ -98,4 +98,14 @@ test("a run step hands the workflow the choices, and the notice is not a choice"
   const step = { id: "cut", kind: "run", title: "Cut", workflow: "screenplay-import-beats", inputs: { story: "${story}", mode: "refresh", sheet: "${nope}" } };
   assert.deepEqual(runInputs(step, { story: "s1" }), { story: "s1", mode: "refresh" });
   assert.deepEqual(readCtx(new URLSearchParams("step=cut&story=s1&notice=Started")), { story: "s1" });
+});
+
+test("a new row left empty is no row, but one begun or asked for needs its name and required columns", () => {
+  const required = [{ key: "cast_id", label: "Cast id" }];
+  assert.deepEqual(missingForNewRow("", { cast_id: null, role: null }, required, false), []);
+  assert.deepEqual(missingForNewRow("", { cast_id: null }, required, true), ["Name", "Cast id"]);
+  assert.deepEqual(missingForNewRow("Old cook", { cast_id: null }, required, false), ["Cast id"]);
+  assert.deepEqual(missingForNewRow("", { cast_id: "old-cook" }, required, false), ["Name"]);
+  assert.deepEqual(missingForNewRow("Old cook", { cast_id: "old-cook" }, required, true), []);
+  assert.deepEqual(missingForNewRow("", { presence: false }, required, false), []);
 });
