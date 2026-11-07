@@ -82,6 +82,87 @@ select {
   grid-template-columns: 264px minmax(0, 1fr);
 }
 
+/* Ask: a panel docked on the right, the mirror of the sidebar, opened from the top bar. */
+.app-shell.ask-open {
+  grid-template-columns: 264px minmax(0, 1fr) minmax(340px, 420px);
+}
+
+.ask-panel {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: var(--panel-2);
+  min-width: 0;
+}
+
+.ask-panel[hidden] {
+  display: none;
+}
+
+.ask-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ask-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ask-panel-link {
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.ask-panel-link:hover {
+  color: var(--ink);
+}
+
+.ask-panel-close {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.ask-panel-close:hover {
+  color: var(--ink);
+  background: var(--panel);
+}
+
+.ask-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: transparent;
+}
+
+/* Inside the panel the Ask page drops the app's own chrome: the chat fills the frame. */
+.app-shell.embed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.app-shell.embed .sidebar,
+.app-shell.embed .topbar {
+  display: none;
+}
+
+.app-shell.embed .content {
+  padding: 12px;
+}
+
 .sidebar {
   position: sticky;
   top: 0;
@@ -619,6 +700,24 @@ code {
 @media (max-width: 920px) {
   .app-shell {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* On a phone the panel covers the page from the right, like the sidebar from the left. */
+  .app-shell.ask-open {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ask-panel {
+    position: fixed;
+    inset: 0 0 0 auto;
+    z-index: 1300;
+    width: min(420px, 100vw);
+    height: auto;
+    box-shadow: 0 0 40px rgb(0 0 0 / 0.25);
+  }
+
+  .topbar-ask-label {
+    display: none;
   }
 
   .sidebar {

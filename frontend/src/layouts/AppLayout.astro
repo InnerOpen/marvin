@@ -264,6 +264,11 @@ const SETTINGS_TABS: { tab: string; label: string; icon: string; paths: string[]
   { tab: "workers", label: "Workers", icon: "🧰", paths: ["/workspace/settings/workers"], href: "/workspace/settings/workers" },
 ];
 const ASK_PATH = "/workspace/settings/ai-ask";
+// The Ask page opens in a docked panel from the top bar. Inside that panel it is loaded with ?embed=1, which drops the page chrome (sidebar,
+// top bar, floating widgets) so the chat fills the panel. The full page is still at ASK_PATH.
+const embed = Astro.url.searchParams.get("embed") === "1";
+const onAskPage = Astro.url.pathname === ASK_PATH;
+const askPanelShown = askLinkShown && !!authToken && !embed && !onAskPage;
 const activeTab = SETTINGS_TABS.find((t) => t.paths.some((p) => Astro.url.pathname.startsWith(p)) && Astro.url.pathname !== ASK_PATH)?.tab
   ?? (Astro.url.pathname === "/workspace/settings" ? Astro.url.searchParams.get("tab") || "general" : null);
 const onSettings = activeTab !== null;
@@ -275,8 +280,7 @@ const navGroups: { label: string | null; items: { href: string; label: string; i
     label: null,
     items: [
       { href: "/", label: "Dashboard", icon: "⌂" },
-      // Quick link to the agent chat; the page itself gates on AI being enabled.
-      ...(askLinkShown ? [{ href: ASK_PATH, label: "Ask", icon: "💬" }] : []),
+      // Ask lives in the top bar now (a docked panel), not here.
     ],
   },
 ];
@@ -301,6 +305,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
 <!doctype html>
 <html lang="en">
   <head>
+    {embed && <base target="_top" />}
     <meta charset="UTF-8" />
     <ThemeInit />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -314,7 +319,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
     data-entity-id={entityId}
     data-entity-label={entityLabel}
   >
-    <div class="app-shell">
+    <div class:list={["app-shell", embed && "embed"]}>
       <aside class="sidebar" id="app-sidebar" aria-label="Navigation">
         <div class="sidebar-header">
           <WorkspaceSwitcher isSuperAdmin={isSuperAdmin} />
@@ -540,6 +545,11 @@ function isActive(itemPath: string, currentPath: string): boolean {
           </div>
           <div class="topbar-actions">
             {authToken && <ActivityToaster userId={currentUserId} askPage={askLinkShown} platformFeed={isSuperAdmin} />}
+            {askPanelShown && (
+              <button type="button" class="button secondary topbar-ask" id="ask-toggle" aria-controls="ask-panel" aria-expanded="false" title="Ask">
+                <span aria-hidden="true">💬</span><span class="topbar-ask-label">Ask</span>
+              </button>
+            )}
             <a class="button secondary topbar-profile" href="/user/profile" aria-current={path.startsWith("/user/") ? "page" : undefined} title="Profile"><span aria-hidden="true">👤</span><span class="topbar-profile-label">Profile</span></a>
             <form method="POST" action="/api/auth/logout" style="display:inline;">
               <button type="submit" class="button secondary">Logout</button>
@@ -554,12 +564,45 @@ function isActive(itemPath: string, currentPath: string): boolean {
           )}
         </section>
       </main>
-      <ThemeSwitcher />
-      <Marvin />
-      <UploadQueue />
+      {askPanelShown && (
+        <aside class="ask-panel" id="ask-panel" aria-label="Ask" hidden>
+          <div class="ask-panel-head">
+            <strong>Ask</strong>
+            <span class="ask-panel-actions">
+              <a class="ask-panel-link" href={ASK_PATH} title="Open Ask as a full page">Full page ↗</a>
+              <button type="button" class="ask-panel-close" id="ask-close" aria-label="Close Ask" title="Close">✕</button>
+            </span>
+          </div>
+          <iframe class="ask-frame" id="ask-frame" title="Ask" data-src={`${ASK_PATH}?embed=1`}></iframe>
+        </aside>
+      )}
+      {!embed && <ThemeSwitcher />}
+      {!embed && <Marvin />}
+      {!embed && <UploadQueue />}
     </div>
 
-    <UpdateBanner />
+    {!embed && <UpdateBanner />}
     <LocalTimeScript />
+    {askPanelShown && (
+      <script>
+        const shell = document.querySelector<HTMLElement>(".app-shell");
+        const panel = document.getElementById("ask-panel") as HTMLElement | null;
+        const frame = document.getElementById("ask-frame") as HTMLIFrameElement | null;
+        const toggle = document.getElementById("ask-toggle") as HTMLButtonElement | null;
+        const KEY = "ask.panel.open";
+        function setOpen(open: boolean) {
+          if (!panel || !frame || !toggle || !shell) return;
+          if (open && !frame.getAttribute("src")) frame.setAttribute("src", frame.dataset.src || ""); // load the chat only when first opened
+          panel.hidden = !open;
+          shell.classList.toggle("ask-open", open);
+          toggle.setAttribute("aria-expanded", String(open));
+          try { sessionStorage.setItem(KEY, open ? "1" : "0"); } catch { /* storage off */ }
+        }
+        toggle?.addEventListener("click", () => setOpen(panel?.hidden ?? true));
+        document.getElementById("ask-close")?.addEventListener("click", () => { setOpen(false); toggle?.focus(); });
+        document.addEventListener("keydown", (e) => { if (e.key === "Escape" && panel && !panel.hidden) { setOpen(false); toggle?.focus(); } });
+        try { if (sessionStorage.getItem(KEY) === "1") setOpen(true); } catch { /* storage off */ } // stays open as you move between pages
+      </script>
+    )}
   </body>
 </html>

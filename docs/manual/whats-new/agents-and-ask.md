@@ -4,6 +4,8 @@ Named agents with a per-tool permission matrix, plus an Ask page that keeps conv
 
 ## What it does
 
+- **Ask opens as a side panel.** The **Ask** button now sits in the top bar beside Profile, and opens the chat in a panel docked on the right (like the sidebar on the left) instead of a new page, so you can ask while you look at the page. The panel stays open as you move between pages (this tab only), closes with its ✕ or Escape, and has a **Full page ↗** link to the same chat on its own page. On a phone it covers the page from the right. Ask is no longer in the left sidebar. The chat is the same Ask page, so threads, tones and approvals work as before.
+
 Four built-in agents exist in every workspace (they are code, not rows, so nothing is seeded):
 
 | Slug | Kind | Tools | Notes |
