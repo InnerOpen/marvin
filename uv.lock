@@ -1274,7 +1274,7 @@ plugins = [
     { name = "marvin-ai-anthropic", git = "https://github.com/InnerOpen/marvin-ai-anthropic?rev=v0.4.0" },
     { name = "marvin-ai-google", git = "https://github.com/InnerOpen/marvin-ai-google?rev=v0.3.0" },
     { name = "marvin-ai-ollama", git = "https://github.com/InnerOpen/marvin-ai-ollama?rev=v0.2.0" },
-    { name = "marvin-ai-openai", git = "https://github.com/InnerOpen/marvin-ai-openai?rev=v0.3.0" },
+    { name = "marvin-ai-openai", git = "https://github.com/InnerOpen/marvin-ai-openai?rev=v0.3.1" },
     { name = "marvin-integration-apprise", git = "https://github.com/InnerOpen/marvin-integration-apprise?rev=v0.3.1" },
     { name = "marvin-integration-bluesky", git = "https://github.com/InnerOpen/marvin-integration-bluesky?rev=v0.5.1" },
     { name = "marvin-integration-buttondown", git = "https://github.com/InnerOpen/marvin-integration-buttondown?rev=v0.10.0" },
@@ -1320,8 +1320,8 @@ dependencies = [
 
 [[package]]
 name = "marvin-ai-openai"
-version = "0.3.0"
-source = { git = "https://github.com/InnerOpen/marvin-ai-openai?rev=v0.3.0#1223910af6ebd5fc1237f7dcfe51603bf81b02b4" }
+version = "0.3.1"
+source = { git = "https://github.com/InnerOpen/marvin-ai-openai?rev=v0.3.1#e32cbab651476c655837124b10e64e85776b67b9" }
 dependencies = [
     { name = "marvin-integration-sdk" },
     { name = "openai" },
