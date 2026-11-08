@@ -214,7 +214,7 @@ test("bed lanes: a scene's ambience runs under its beats as one block, splits on
 
 test("progress: a bed lane counts its blocks with a take, and an empty lane says nothing", () => {
   const laid = layout(bedSpec, { entry: row("s", { music: "waltz" }), spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [], ambience: bedSounds, music: bedSounds }, via: { ambience: scenes } });
-  assert.deepEqual(progress(bedSpec, laid).map((p) => p.label + " " + p.done + "/" + p.total), ["ambience with a take 3/3", "music with a take 1/1"]);
+  assert.deepEqual(progress(bedSpec, laid).map((p) => p.label + " " + p.done + "/" + p.total), ["beats with a picture 0/5", "ambience with a take 3/3", "music with a take 1/1"]);
 });
 
 test("bed lanes: nothing named, nothing drawn; a story without music has no music block", () => {
