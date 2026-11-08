@@ -58,8 +58,20 @@ if (spec && authToken) {
     for (const action of spec.actions ?? []) {
       if (action.wizard) {
         const wizard = await getWizard(action.wizard, authToken).catch(() => null);
-        const key = wizard?.definition.steps.find((s: Step) => s.kind === "choose" && s.entry_type === spec.entry_type)?.as;
-        const href = `/workspace/wizards/${encodeURIComponent(action.wizard)}${key ? `?${encodeURIComponent(key)}=${encodeURIComponent(whose)}` : ""}`;
+        const choose = wizard?.definition.steps.find((s: Step) => s.kind === "choose" && s.entry_type === spec.entry_type);
+        // The entry itself, and the earlier choices it records (a story's world: the choose step scopes by `world: ${world}`), so the wizard
+        // resumes past them instead of starting over. The wizard checks every key against what exists, so a stale one is simply dropped.
+        const params = new URLSearchParams(choose?.as ? { [choose.as]: whose } : {});
+        for (const [field, ref] of Object.entries((choose?.scope ?? {}) as Record<string, string>)) {
+          const earlier = /^\$\{(\w+)\}$/.exec(ref)?.[1];
+          const value = entry.dataJson?.[field];
+          if (earlier && typeof value === "string" && value) params.set(earlier, value);
+        }
+        // …and opens on the step after the one that picks the entry (the wizard's own blockers still win if something earlier is missing).
+        const after = wizard?.definition.steps[(wizard?.definition.steps.indexOf(choose as Step) ?? -1) + 1];
+        if (choose && after) params.set("step", after.id);
+        const query = params.toString();
+        const href = `/workspace/wizards/${encodeURIComponent(action.wizard)}${query ? `?${query}` : ""}`;
         actions.push({ label: action.label, href });
       } else if (action.workflow) {
         const state = await workflowState(action.workflow, authToken);
