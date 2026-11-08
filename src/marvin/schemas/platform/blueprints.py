@@ -28,6 +28,7 @@ BlueprintKind = Literal[
     "workflow",
     "playbook",
     "wizard",
+    "view",
 ]
 
 #: Kinds that wire up one *connection* rather than workspace content: they reference an integration
@@ -198,6 +199,13 @@ class Blueprint(_MarvinModel):
             if self.required or self.parameters or self.requires:
                 raise ValueError("a wizard blueprint is never required and takes no parameters or requirements")
             if problem := wizard_problem(self.payload, self.slug):
+                raise ValueError(problem)
+        if self.kind == "view":
+            from marvin.services.blueprints.views import payload_problem as view_problem
+
+            if self.required or self.parameters or self.requires:
+                raise ValueError("a view blueprint is never required and takes no parameters or requirements")
+            if problem := view_problem(self.payload, self.slug):
                 raise ValueError(problem)
         return self
 

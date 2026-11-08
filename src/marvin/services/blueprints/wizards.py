@@ -110,13 +110,16 @@ def payload_problem(payload: dict, slug: str) -> str | None:
 
 
 def _check_open(spec: Any, entries: set[str], slug: str) -> str | None:
-    """``open``: the button at the end that opens what was made, ``{entry, label}``; the entry is a key a choose step set."""
+    """``open``: the button at the end that opens what was made, ``{entry, label, view?}``; the entry is a key a choose step set. ``view`` is
+    the slug of a view (the same package's) the entry opens in, instead of its edit page: a story opens as its timeline."""
     if spec is None:
         return None
     if not isinstance(spec, dict) or not isinstance(spec.get("label"), str) or not spec["label"].strip():
-        return f"wizard {slug!r}: open is {{entry, label}}, the button that opens what was made"
+        return f"wizard {slug!r}: open is {{entry, label, view?}}, the button that opens what was made"
     if spec.get("entry") not in entries:
         return f"wizard {slug!r}: open names {spec.get('entry')!r}, which no choose step sets"
+    if spec.get("view") is not None and not (isinstance(spec["view"], str) and _SLUG.match(spec["view"])):
+        return f"wizard {slug!r}: open.view must be the slug of a view"
     return None
 
 

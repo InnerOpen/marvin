@@ -18,8 +18,9 @@ from marvin.schemas.platform.blueprints import CORE_SOURCE, Blueprint, Blueprint
 
 #: Kinds a package may carry: workspace content. Not `event_subscription` (it wires one existing connection, so it cannot travel).
 #: A `wizard` is plain data (a guided setup the package ships) and stays in the stored manifest: there is nothing to create, so it is inert.
+#: A `view` is plain data too (a way of looking at an entry, e.g. a story's timeline) and stays in the manifest the same way.
 #: A `playbook` travels as text (the Playbook blueprint's own checks: no scripts, capped) and arrives as a draft, never published.
-PACKAGEABLE_KINDS = ("entry_type", "entry_fields", "collection", "workflow", "scheduled_task", "incoming_webhook", "playbook", "wizard")
+PACKAGEABLE_KINDS = ("entry_type", "entry_fields", "collection", "workflow", "scheduled_task", "incoming_webhook", "playbook", "wizard", "view")
 
 MAX_BLUEPRINTS = 200
 MAX_MANIFEST_BYTES = 2_000_000
@@ -88,6 +89,8 @@ class PackageManifest(_MarvinModel):
             problems.extend(f"{blueprint.kind} '{blueprint.slug}': {p}" for p in content_problems(blueprint.payload, "payload"))
         # A wizard's button starts a workflow of this same package: never one it did not bring, whatever its label says.
         workflows = {b.slug for b in self.blueprints if b.kind == "workflow"}
+        wizards = {b.slug for b in self.blueprints if b.kind == "wizard"}
+        views = {b.slug for b in self.blueprints if b.kind == "view"}
         for blueprint in (b for b in self.blueprints if b.kind == "wizard"):
             for step in (blueprint.payload or {}).get("steps") or []:
                 if isinstance(step, dict) and isinstance(step.get("generate"), dict):
@@ -95,6 +98,23 @@ class PackageManifest(_MarvinModel):
                 if isinstance(step, dict) and step.get("kind") == "run" and step.get("workflow") not in workflows:
                     problems.append(
                         f"wizard '{blueprint.slug}': step {step.get('id')!r} runs {step.get('workflow')!r}, which this package does not bring"
+                    )
+            # The end button opens the entry in a view of this same package: a view another package brings may not be there.
+            opened = ((blueprint.payload or {}).get("open") or {}).get("view")
+            if opened is not None and opened not in views:
+                problems.append(f"wizard '{blueprint.slug}': open.view names {opened!r}, which this package does not bring")
+        # A view's buttons start a wizard or a workflow of this same package, for the same reason.
+        for blueprint in (b for b in self.blueprints if b.kind == "view"):
+            for action in (blueprint.payload or {}).get("actions") or []:
+                if not isinstance(action, dict):
+                    continue
+                if action.get("wizard") is not None and action["wizard"] not in wizards:
+                    problems.append(
+                        f"view '{blueprint.slug}': action {action.get('label')!r} opens {action['wizard']!r}, which this package does not bring"
+                    )
+                if action.get("workflow") is not None and action["workflow"] not in workflows:
+                    problems.append(
+                        f"view '{blueprint.slug}': action {action.get('label')!r} runs {action['workflow']!r}, which this package does not bring"
                     )
         if problems:
             raise ValueError("; ".join(problems[:8]) + (f" (and {len(problems) - 8} more)" if len(problems) > 8 else ""))
@@ -140,6 +160,8 @@ class PackageRead(_MarvinModel):
     playbooks_published: int = 0
     wizards: list[str] = Field(default_factory=list)
     """Slugs of the guided setups it brings. They live in the stored manifest and are listed under Guided setups."""
+    views: list[str] = Field(default_factory=list)
+    """Slugs of the views it brings (a story's timeline). They live in the stored manifest too; an entry of a view's type shows its button."""
     workflows: int = 0
     workflows_on: int = 0
     collections: int = 0
