@@ -8,6 +8,7 @@ import { fetchApi } from "./api/client";
 import { listEntryTypes, type EntryTypeRead } from "./api/entryTypes";
 import { coerceDataJsonValue, fieldTypeMap } from "./schemaFields";
 import { createSdkClient } from "./sdk";
+import type { ApprovalCard } from "./wizard";
 
 export interface Row {
   id: string;
@@ -115,4 +116,21 @@ export async function runWorkflow(slug: string, inputs: Record<string, unknown>,
   if (!state.enabled) throw new Error(`“${state.name}” is switched off. Turn it on under Automation → Workflows, then run this step again.`);
   await fetchApi(`/api/automations/${encodeURIComponent(state.id!)}/run?background=true`, { method: "POST", body: JSON.stringify({ inputs }) }, authToken);
   return state.name ?? slug;
+}
+
+export const MAX_DECIDED_SHOWN = 4;
+
+/** The approvals a wizard step may show: the ones waiting, and the latest decided. Empty for someone below editor (they can't decide). */
+export async function approvalCards(authToken: string): Promise<{ pending: ApprovalCard[]; decided: ApprovalCard[] }> {
+  const get = (state: string) => fetchApi<ApprovalCard[]>(`/api/automations/approvals?state=${state}`, {}, authToken).catch(() => [] as ApprovalCard[]);
+  const [pending, decided] = await Promise.all([get("pending"), get("decided")]);
+  return { pending, decided };
+}
+
+/** Decide a waiting approval as the signed-in person (the server checks their role against the step's). */
+export async function decideApproval(id: string, decision: "approve" | "deny", choice: string | null, note: string | null, authToken: string): Promise<void> {
+  const body: Record<string, unknown> = { decision };
+  if (choice) body.choice = choice;
+  if (note) body.note = note;
+  await fetchApi(`/api/automations/approvals/${encodeURIComponent(id)}/decide`, { method: "POST", body: JSON.stringify(body) }, authToken);
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  blocker, missingForNewRow, runInputs, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, withoutEmpty,
+  approvalsOf, blocker, inputKeys, missingForNewRow, runInputs, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, withoutEmpty,
 } from "./wizard.ts";
 
 const def = {
@@ -108,4 +108,17 @@ test("a new row left empty is no row, but one begun or asked for needs its name 
   assert.deepEqual(missingForNewRow("", { cast_id: "old-cook" }, required, false), ["Name"]);
   assert.deepEqual(missingForNewRow("Old cook", { cast_id: "old-cook" }, required, true), []);
   assert.deepEqual(missingForNewRow("", { presence: false }, required, false), []);
+});
+
+test("a run step's approvals are the ones its workflow raised about the entries it was given", () => {
+  const step = { id: "cut", kind: "run", title: "Cut", workflow: "cut-it", inputs: { story: "${story}", mode: "add", world: "${world}" } };
+  assert.deepEqual(inputKeys(step), ["story", "world"]);
+  const cards = [
+    { id: "a", automationSlug: "cut-it", entryId: "s1", message: "m", status: "pending" },
+    { id: "b", automationSlug: "cut-it", entryId: "other", message: "m", status: "pending" },
+    { id: "c", automationSlug: "else", entryId: "s1", message: "m", status: "pending" },
+    { id: "d", automationSlug: "cut-it", entryId: null, message: "m", status: "pending" },
+  ];
+  assert.deepEqual(approvalsOf(cards, "cut-it", ["s1"]).map((c) => c.id), ["a", "d"]);
+  assert.deepEqual(approvalsOf(cards, "cut-it", []).map((c) => c.id), ["a", "b", "d"]);
 });
