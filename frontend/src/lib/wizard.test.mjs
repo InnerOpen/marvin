@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  approvalsOf, blocker, inputKeys, missingForNewRow, runInputs, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, withoutEmpty,
+  approvalsOf, blocker, inputKeys, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, withoutEmpty,
 } from "./wizard.ts";
 
 const def = {
@@ -120,5 +120,19 @@ test("a run step's approvals are the ones its workflow raised about the entries 
     { id: "d", automationSlug: "cut-it", entryId: null, message: "m", status: "pending" },
   ];
   assert.deepEqual(approvalsOf(cards, "cut-it", ["s1"]).map((c) => c.id), ["a", "d"]);
-  assert.deepEqual(approvalsOf(cards, "cut-it", []).map((c) => c.id), ["a", "b", "d"]);
+  assert.deepEqual(approvalsOf(cards, "cut-it", []).map((c) => c.id), ["d"]); // no entry given: only the cards about no entry, never all
+});
+
+test("a changed choice drops what later steps chose", () => {
+  assert.deepEqual(keysAfter(def, "world"), ["series", "story", "input"]);
+  assert.deepEqual(withoutLater(def, { world: "w2", series: "se", story: "s", input: "script" }, "world"), { world: "w2" });
+  assert.deepEqual(withoutLater(def, { world: "w", story: "s", input: "script" }, "story"), { world: "w", story: "s" });
+});
+
+test("nothing, an empty string and null read the same; anything else compares by value", () => {
+  assert.equal(sameValue("", null), true);
+  assert.equal(sameValue(undefined, ""), true);
+  assert.equal(sameValue("a", "a"), true);
+  assert.equal(sameValue("a", ""), false);
+  assert.equal(sameValue(0, null), false);
 });

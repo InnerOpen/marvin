@@ -86,6 +86,14 @@ class PackageManifest(_MarvinModel):
                 problems.append(f"{blueprint.kind} '{blueprint.slug}' is listed twice")
             seen.add(key)
             problems.extend(f"{blueprint.kind} '{blueprint.slug}': {p}" for p in content_problems(blueprint.payload, "payload"))
+        # A wizard's button starts a workflow of this same package: never one it did not bring, whatever its label says.
+        workflows = {b.slug for b in self.blueprints if b.kind == "workflow"}
+        for blueprint in (b for b in self.blueprints if b.kind == "wizard"):
+            for step in (blueprint.payload or {}).get("steps") or []:
+                if isinstance(step, dict) and step.get("kind") == "run" and step.get("workflow") not in workflows:
+                    problems.append(
+                        f"wizard '{blueprint.slug}': step {step.get('id')!r} runs {step.get('workflow')!r}, which this package does not bring"
+                    )
         if problems:
             raise ValueError("; ".join(problems[:8]) + (f" (and {len(problems) - 8} more)" if len(problems) > 8 else ""))
         # A file cannot name an integration as its source: that would link what it creates to a connection it has no right to claim.
