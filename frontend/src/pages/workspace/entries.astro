@@ -2,6 +2,7 @@
 import EntryCard from "@/components/EntryCard.astro";
 import EntryList from "@/components/EntryList.astro";
 import EntrySearchBar from "@/components/EntrySearchBar.astro";
+import { ENTRY_SORTS, querySort, readEntrySort, sortEntries } from "@/lib/entrySort";
 import EntryViews from "@/components/EntryViews.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
@@ -21,6 +22,8 @@ const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCE
 const conds = readConds(Astro.url.searchParams).length ? readConds(Astro.url.searchParams) : legacyConds(Astro.url.searchParams);
 // Set by the entry page's Move to Trash: offer Undo (restore) right here.
 const trashedParam = Astro.url.searchParams.get("trashed") || "";
+// The order of the list (?sort=newest|oldest|updated|title): the plain list is sorted here, a search asks the query for the same order.
+const sort = readEntrySort(Astro.url.searchParams.get("sort"));
 
 let entries: EntryRead[] = [];
 let entryTypes: EntryTypeRead[] = [];
@@ -44,13 +47,14 @@ if (!authToken) {
     console.error("[Entries] Failed to load:", error);
   }
 }
+entries = sortEntries(entries, sort);
 
 // The structured search's results (the same engine as the assistants' find_entries).
 type QueryResult = { entries: EntryRead[]; total: number; note?: string | null; unknownOps?: string[] };
 let search: QueryResult | null = null;
 if (conds.length && authToken && !error) {
   try {
-    search = await fetchApi<QueryResult>("/api/platform/entries/query", { method: "POST", body: JSON.stringify({ spec: toSpec(conds), limit: 500 }) }, authToken);
+    search = await fetchApi<QueryResult>("/api/platform/entries/query", { method: "POST", body: JSON.stringify({ spec: { ...toSpec(conds), sort: querySort(sort) }, limit: 500 }) }, authToken);
   } catch (e) {
     search = { entries: [], total: 0, note: e instanceof Error ? e.message : String(e) };
   }
@@ -99,6 +103,15 @@ if (trashCollection && (trashCollection.entryCount ?? 0) > 0 && authToken) {
       </div>
 
       <EntrySearchBar conds={conds} builderData={builderData} total={search?.total ?? null} note={search?.note ?? null} />
+      {(entries.length > 0 || conds.length > 0) && (
+        <div class="list-sort">
+          <label>Sort
+            <select data-sort-param aria-label="Sort the list">
+              {Object.entries(ENTRY_SORTS).map(([v, l]) => <option value={v} selected={sort === v}>{l}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
 
       {trashedParam && (
         <div class="undo-notice" id="undo-notice" data-entry-id={trashedParam} role="status">
@@ -176,6 +189,12 @@ if (trashCollection && (trashCollection.entryCount ?? 0) > 0 && authToken) {
 </AppLayout>
 
 <script>
+  // The Sort select: the same page with ?sort=…, keeping the conditions in the address.
+  document.querySelector<HTMLSelectElement>("[data-sort-param]")?.addEventListener("change", (e) => {
+    const url = new URL(location.href);
+    url.searchParams.set("sort", (e.target as HTMLSelectElement).value);
+    location.href = url.toString();
+  });
   import { restoreFromTrash } from '@/lib/api/trash';
   // Undo a Move to Trash: restore the entry and go back to it. Drop ?trashed so a reload doesn't offer it again.
   const undoNotice = document.getElementById('undo-notice');
@@ -285,6 +304,9 @@ if (trashCollection && (trashCollection.entryCount ?? 0) > 0 && authToken) {
     max-width: 32rem;
   }
 
+  .list-sort { display: flex; justify-content: flex-end; margin: 0.25rem 0 0.75rem; font-size: 0.875rem; color: var(--muted); }
+  .list-sort label { display: inline-flex; align-items: center; gap: 0.5rem; }
+  .list-sort select { font: inherit; padding: 0.35rem 0.5rem; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
   .view-toggle {
     display: flex;
     gap: 2px;
