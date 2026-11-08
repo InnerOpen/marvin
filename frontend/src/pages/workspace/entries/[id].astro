@@ -224,7 +224,7 @@ if (!id) {
       listEntryTypes(authToken),
       listCollections(authToken),
       listTags(authToken),
-      getAssets(authToken),
+      getAssets(authToken, { sort: "newest" }), // the picker and the sidebar list: a fresh upload at the top, not lost in the alphabet
       listResources(authToken),
     ]);
   } catch (e) {

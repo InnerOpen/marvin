@@ -92,7 +92,7 @@ try {
   entryTypes = await listEntryTypes(authToken);
   // For the schema's asset / resource fields; a failure here only leaves those pickers empty.
   [pickerAssets, pickerResources] = await Promise.all([
-    getAssets(authToken).then((a) => a.map(assetItem)).catch(() => []),
+    getAssets(authToken, { sort: "newest" }).then((a) => a.map(assetItem)).catch(() => []),
     listResources(authToken).then((r) => r.map(resourceItem)).catch(() => []),
   ]);
 } catch (e) {
