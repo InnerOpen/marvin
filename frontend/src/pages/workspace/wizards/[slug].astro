@@ -4,15 +4,14 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import {
-  type ApprovalCard, type Check, type Step, NOTICE_PARAM, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, passes, previousStep, readCtx,
+  type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx,
   shownSteps, stepHref,
 } from "@/lib/wizard";
 import { runStep } from "@/lib/wizardActions";
-import { type Row, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryBySlug, findEntries, typeBySlug, workflowState } from "@/lib/wizardApi";
+import { type Row, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findEntries, typeBySlug, workflowState } from "@/lib/wizardApi";
 
 const authToken = getAuthToken(Astro.cookies);
 const slug = Astro.params.slug ?? "";
-const ctx = readCtx(Astro.url.searchParams);
 
 let wizard: WizardRead | null = null;
 let problem: string | null = authToken ? null : "Sign in to use this guided setup.";
@@ -24,7 +23,29 @@ if (authToken) {
   }
 }
 const def = wizard?.definition ?? null;
-const notice = Astro.url.searchParams.get(NOTICE_PARAM);
+const notice = NOTICES[Astro.url.searchParams.get(NOTICE_PARAM) ?? ""] ?? null;
+
+// The address is only trusted once checked: each choice must be an entry of the type its step picks (or one of an option's values), or it
+// is dropped, so a stale or crafted link cannot point a later step at something else.
+const entries: Record<string, Row> = {};
+async function checkedCtx(raw: Ctx): Promise<Ctx> {
+  if (!def || !authToken) return {};
+  const out: Ctx = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const type = entryTypeOf(def, key);
+    if (type) {
+      const found = await entryOfType(type, value, authToken);
+      if (found) {
+        out[key] = value;
+        entries[key] = found;
+      }
+    } else if (optionStepOf(def, key)?.options?.some((o: { value: string }) => o.value === value)) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+const ctx = await checkedCtx(readCtx(Astro.url.searchParams));
 const step: Step | null = def ? currentStep(def, ctx, Astro.url.searchParams.get("step")) : null;
 
 if (Astro.request.method === "POST" && authToken && def && step) {
@@ -35,8 +56,7 @@ if (Astro.request.method === "POST" && authToken && def && step) {
       const decision = form.get("decision") === "deny" ? "deny" : "approve";
       const choice = String(form.get("choice") ?? "").trim() || null;
       await decideApproval(deciding, decision, choice, String(form.get("note") ?? "").trim() || null, authToken);
-      const said = decision === "deny" ? "Denied." : choice ? `Chose “${choice}”.` : "Approved.";
-      return Astro.redirect(stepHref(slug, ctx, step.id, { [NOTICE_PARAM]: `${said} The workflow goes on; anything else it asks appears here.` }));
+      return Astro.redirect(stepHref(slug, ctx, step.id, { [NOTICE_PARAM]: decision === "deny" ? "denied" : choice ? "chosen" : "approved" }));
     }
     const done = await runStep(def, step, form, ctx, authToken);
     const target = done.stay ? step : (nextStep(def, done.ctx, step.id) ?? step);
@@ -59,12 +79,14 @@ let formFields: any[] = [];
 let leftOut: any[] = [];
 let checks: { label: string; ok: boolean; count: number }[] = [];
 let columns: any[] = [];
-let flow: { found: boolean; enabled: boolean; name?: string } = { found: true, enabled: true };
+let flow: WorkflowState = { found: true, enabled: true };
 let pendingCards: ApprovalCard[] = [];
 let decidedCards: ApprovalCard[] = [];
 let watchIds: string[] = [];
+let lacking: string | null = null; // a run step's `requires` not met
 
-if (authToken && def && step && !problem) {
+// Drawn whatever happened to a post: an error shows above a complete page, never an empty one.
+if (authToken && def && step) {
   if (step.kind === "choose" || step.kind === "list") {
     const type = await typeBySlug(step.entry_type, authToken);
     missingType = !type;
@@ -74,10 +96,10 @@ if (authToken && def && step && !problem) {
       formFields = simple(fieldsOf(type, askedKeys(type, step.create?.fields)));
     } else {
       listRows = (await findEntries(listSpec(step, ctx), authToken)).entries;
-      columns = fieldsOf(type, askedKeys(type, step.columns));
+      columns = simple(fieldsOf(type, askedKeys(type, step.columns))).filter((f) => f.type !== "boolean");
     }
   } else if (step.kind === "form" || step.kind === "upload") {
-    entry = await entryBySlug(ctx[step.entry], authToken);
+    entry = entries[step.entry] ?? null;
     if (step.kind === "form") {
       const type = await typeBySlug(entryTypeOf(def, step.entry), authToken);
       const all = fieldsOf(type, step.fields);
@@ -87,8 +109,12 @@ if (authToken && def && step && !problem) {
   } else if (step.kind === "run") {
     flow = await workflowState(step.workflow, authToken);
     // The approvals this run raises are about the entries the step hands it: those are the cards shown here.
-    const about = (await Promise.all(inputKeys(step).map((k) => entryBySlug(ctx[k], authToken)))).filter((e): e is Row => !!e).map((e) => e.id);
+    const about = inputKeys(step).map((k) => entries[k]).filter((e): e is Row => !!e).map((e) => e.id);
     watchIds = about;
+    if (step.requires) {
+      const needed = entries[step.requires.entry];
+      if (!needed || !hasValue(needed.dataJson?.[step.requires.field])) lacking = `“${step.requires.field}” on ${needed?.title ?? step.requires.entry} is empty: fill it in (or upload it) in an earlier step first.`;
+    }
     const cards = await approvalCards(authToken);
     pendingCards = approvalsOf(cards.pending, step.workflow, about);
     decidedCards = approvalsOf(cards.decided, step.workflow, about).slice(0, MAX_DECIDED_SHOWN);
@@ -158,10 +184,11 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
           )}
 
           {step.kind === "choose" && (
-            <form method="post" class="form" enctype="multipart/form-data">
+            <div class="form">
               {missingType && <div class="alert alert-info">This workspace has no “{step.entry_type}” entry type yet, so there is nothing to pick. Install the package’s types first.</div>}
               {choices.length > 0 && (
-                <>
+                <form method="post" class="form">
+                  <input type="hidden" name="action" value="pick" />
                   <p class="label">Pick one you have</p>
                   <div class="choices">
                     {choices.map((c) => (
@@ -171,21 +198,29 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
                     ))}
                   </div>
                   <div class="actions"><button class="button" type="submit">Use this {typeName.toLowerCase()}</button></div>
-                </>
+                </form>
               )}
               {step.create && !missingType && (
-                <fieldset class="create">
-                  <legend>{choices.length > 0 ? "Or make a new one" : `Make a new ${typeName.toLowerCase()}`}</legend>
-                  <div class="form-group">
-                    <label for="create_title">Name <span class="req" title="Required">*</span></label>
-                    <input class="input" id="create_title" name="create_title" />
-                  </div>
-                  <SchemaForm schema={{ fields: formFields }} />
-                  <div class="actions"><button class="button secondary" type="submit">Create and continue</button></div>
-                </fieldset>
+                <form method="post" class="form">
+                  <input type="hidden" name="action" value="create" />
+                  <fieldset class="create">
+                    <legend>{choices.length > 0 ? "Or make a new one" : `Make a new ${typeName.toLowerCase()}`}</legend>
+                    <div class="form-group">
+                      <label for="create_title">Name <span class="req" title="Required">*</span></label>
+                      <input class="input" id="create_title" name="create_title" required />
+                    </div>
+                    <SchemaForm schema={{ fields: formFields }} />
+                    <div class="actions"><button class="button secondary" type="submit">Create and continue</button></div>
+                  </fieldset>
+                </form>
               )}
-              {step.optional && <div class="actions"><button class="button secondary" type="submit" name="skip" value="1" formnovalidate>Skip this</button></div>}
-            </form>
+              {step.optional && (
+                <form method="post" class="actions">
+                  <input type="hidden" name="action" value="skip" />
+                  <button class="button secondary" type="submit">Skip this</button>
+                </form>
+              )}
+            </div>
           )}
 
           {step.kind === "form" && (
@@ -229,6 +264,7 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
                   {listRows.map((r) => (
                     <div class="row">
                       <div class="row-head"><a href={`/workspace/entries/${r.id}`}>{r.title}</a></div>
+                      <input type="hidden" name={`row.${r.id}.__was`} value={JSON.stringify(Object.fromEntries(columns.map((c) => [c.key, r.dataJson?.[c.key] ?? null])))} />
                       <div class="cols">
                         {columns.map((c) => (
                           <label class="col" title={c.label}>
@@ -238,6 +274,8 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
                                 <option value=""></option>
                                 {(c.options ?? []).map((o: string) => <option value={o} selected={r.dataJson?.[c.key] === o}>{o}</option>)}
                               </select>
+                            ) : c.type === "textarea" || c.type === "markdown" ? (
+                              <textarea class="input" rows="2" name={`row.${r.id}.${c.key}`}>{r.dataJson?.[c.key] ?? ""}</textarea>
                             ) : (
                               <input class="input" type={c.type === "number" ? "number" : "text"} name={`row.${r.id}.${c.key}`} value={r.dataJson?.[c.key] ?? ""} />
                             )}
@@ -261,6 +299,8 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
                                 <option value=""></option>
                                 {(c.options ?? []).map((o: string) => <option value={o}>{o}</option>)}
                               </select>
+                            ) : c.type === "textarea" || c.type === "markdown" ? (
+                              <textarea class="input" rows="2" name={`new.${c.key}`} />
                             ) : (
                               <input class="input" type={c.type === "number" ? "number" : "text"} name={`new.${c.key}`} />
                             )}
@@ -280,7 +320,10 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
 
           {step.kind === "run" && (
             <div class="run" data-watch={notice || pendingCards.length ? "1" : undefined} data-workflow={step.workflow} data-entries={watchIds.join(",")} data-pending={String(pendingCards.length)}>
-              {!flow.found && <div class="alert alert-info">This workspace has no workflow “{step.workflow}”. Install the package that brings it.</div>}
+              {flow.forbidden && <div class="alert alert-info">Only a workspace admin can start a workflow today. Ask one to run this step; what it makes shows here for everyone.</div>}
+              {!flow.found && !flow.forbidden && <div class="alert alert-info">This workspace has no workflow “{step.workflow}”. Install the package that brings it.</div>}
+              {flow.found && flow.enabled && <p class="muted runs">Runs “{flow.name}”{flow.description ? `: ${flow.description}` : ""}</p>}
+              {lacking && flow.found && flow.enabled && <div class="alert alert-info">{lacking}</div>}
               {flow.found && !flow.enabled && (
                 <div class="alert alert-info">“{flow.name}” is switched off. Turn it on under <a href="/automation/workflows">Automation → Workflows</a> (it runs with its author’s permissions), then come back.</div>
               )}
@@ -291,7 +334,7 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
                   <p class="approval-title">{flow.name ?? step.workflow} is asking</p>
                   <div class="approval-message">{c.message}</div>
                   {c.imageUrl && <img class="approval-picture" src={c.imageUrl} alt="" loading="lazy" />}
-                  <label class="col"><span>Note (optional)</span><input class="input" name="note" /></label>
+                  <label class="col"><span>Note (optional)</span><textarea class="input" rows="2" name="note" /></label>
                   <div class="actions">
                     {c.choices?.length
                       ? c.choices.map((label, n) => <button class:list={["button", n > 0 && "secondary"]} type="submit" name="choice" value={label}>{label}</button>)
@@ -305,7 +348,7 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
 
               <form method="post" class="form">
                 <div class="actions">
-                  <button class:list={["button", pendingCards.length > 0 && "secondary"]} type="submit" disabled={!flow.found || !flow.enabled}>
+                  <button class:list={["button", pendingCards.length > 0 && "secondary"]} type="submit" disabled={!flow.found || !flow.enabled || !!lacking}>
                     {pendingCards.length > 0 || decidedCards.length > 0 ? `${step.button ?? "Run"} again` : (step.button ?? "Run")}
                   </button>
                   {after && (decidedCards.length > 0 || notice) && <a class="button" href={stepHref(slug, ctx, after.id)}>Continue →</a>}
@@ -404,6 +447,7 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
   .none { margin: 0; }
 
   .run { display: grid; gap: 14px; }
+  .runs { margin: 0; font-size: 13px; }
   .waiting { margin: 0; }
   .approval { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--warn, #d08700); border-left-width: 3px; border-radius: var(--radius); background: color-mix(in srgb, var(--warn, #d08700) 6%, var(--bg)); }
   .approval-title { margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }

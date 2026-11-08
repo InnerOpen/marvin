@@ -28,6 +28,13 @@ export interface WizardDefinition {
 }
 
 export const STEP_PARAM = "step";
+/** What a page says after a step did something: a code in the address, never free text (a link could not spoof a message). */
+export const NOTICES: Record<string, string> = {
+  started: "Started. Anything the workflow asks you appears below as it runs; when it is done, go on to the next step.",
+  approved: "Approved. The workflow goes on; anything else it asks appears here.",
+  denied: "Denied. The workflow stops there; run it again if you change your mind.",
+  chosen: "Your choice was taken. The workflow goes on; anything else it asks appears here.",
+};
 /** Address parameters that are not choices: the step asked for, and the line to show after a step that started something. */
 export const NOTICE_PARAM = "notice";
 const CTX_NAME = /^[a-z][a-z0-9_]{0,39}$/;
@@ -57,6 +64,23 @@ export function isShown(step: Step, ctx: Ctx): boolean {
   if (!holds(step.when, ctx)) return false;
   const needs = [step.entry, step.parent].filter((k): k is string => typeof k === "string");
   return needs.every((key) => !!ctx[key]);
+}
+
+/** The context keys the steps after `stepId` set: a changed choice drops them, so nothing later acts on a stale pick. */
+export function keysAfter(def: WizardDefinition, stepId: string): string[] {
+  const index = def.steps.findIndex((s) => s.id === stepId);
+  return def.steps.slice(index + 1).map((s) => s.as).filter((k): k is string => typeof k === "string");
+}
+
+/** The context without the keys the steps after `stepId` set. */
+export function withoutLater(def: WizardDefinition, ctx: Ctx, stepId: string): Ctx {
+  const drop = new Set(keysAfter(def, stepId));
+  return Object.fromEntries(Object.entries(ctx).filter(([k]) => !drop.has(k)));
+}
+
+/** The option step that sets `key`, if any. */
+export function optionStepOf(def: WizardDefinition, key: string): Step | undefined {
+  return def.steps.find((s) => s.kind === "option" && s.as === key);
 }
 
 export function shownSteps(def: WizardDefinition, ctx: Ctx): Step[] {
@@ -199,7 +223,14 @@ export interface ApprovalCard {
   decidedByName?: string | null;
 }
 
-/** The approvals that belong to this step: raised by its workflow, about one of the entries it was given (any entry when none was). */
+/** The approvals that belong to this step: raised by its workflow, about one of the entries it was given. With no entries given, only
+ * the cards about no entry at all: never every card of the workflow. */
 export function approvalsOf(cards: ApprovalCard[], workflowSlug: string, entryIds: string[]): ApprovalCard[] {
-  return cards.filter((c) => c.automationSlug === workflowSlug && (entryIds.length === 0 || !c.entryId || entryIds.includes(c.entryId)));
+  return cards.filter((c) => c.automationSlug === workflowSlug && (c.entryId ? entryIds.includes(c.entryId) : true));
+}
+
+/** Two field values are the same when they read the same: nothing, "" and null are all nothing. */
+export function sameValue(a: unknown, b: unknown): boolean {
+  const norm = (v: unknown) => (v === "" || v === undefined ? null : v);
+  return JSON.stringify(norm(a)) === JSON.stringify(norm(b));
 }
