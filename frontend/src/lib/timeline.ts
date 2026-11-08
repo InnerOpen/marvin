@@ -172,7 +172,7 @@ const byOrder = (key: string | undefined) => (a: Row, b: Row) => {
   if (x !== null && y !== null && x !== y) return x - y;
   if (x === null && y !== null) return 1;
   if (x !== null && y === null) return -1;
-  return a.title.localeCompare(b.title);
+  return a.slug.localeCompare(b.slug); // the renderer's own fallback: slugs are numbered (story-line-007)
 };
 
 interface Rows {

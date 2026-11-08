@@ -101,6 +101,12 @@ test("layout puts placed sounds at their offset and drops a reference to nothing
   assert.deepEqual(laid.items[1].lanes.sounds, []);
 });
 
+test("rows with no order field sort by slug, as the renderer does", () => {
+  const unordered = { ...spec, lanes: [{ ...spec.lanes[0], order: undefined }] };
+  const laid = layout(unordered, { spine: beats, groups: chapters, lanes: { lines: [...lines].reverse() } });
+  assert.deepEqual(laid.items[0].lanes.lines.map((p) => p.slug), ["l1", "l2"]);
+});
+
 test("layout without a group spec is one untitled group; without lanes every item holds", () => {
   const bare = { ...spec, spine: { entry_type: "beat", of: "story", order: "number" }, lanes: undefined };
   const laid = layout(bare, { spine: beats, lanes: {} });
