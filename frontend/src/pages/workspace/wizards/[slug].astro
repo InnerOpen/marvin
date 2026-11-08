@@ -5,7 +5,7 @@ import { getAuthToken } from "@/lib/api/client";
 import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import {
   type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx,
-  shownSteps, stepHref,
+  isDone, shownSteps, stepHref,
 } from "@/lib/wizard";
 import { runStep } from "@/lib/wizardActions";
 import { type Row, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findEntries, typeBySlug, workflowState } from "@/lib/wizardApi";
@@ -133,6 +133,10 @@ const here = step ? steps.findIndex((s) => s.id === step.id) : -1;
 const before = def && step ? previousStep(def, ctx, step.id) : null;
 const after = def && step ? nextStep(def, ctx, step.id) : null;
 const allPass = checks.length > 0 && checks.every((c) => c.ok);
+// A run step with a card waiting holds the later steps: answering first keeps the card from going stale (an entry edited after the
+// question was asked makes the approval count as neither yes nor no).
+const held = step?.kind === "run" && pendingCards.length > 0;
+const made = Object.entries(entries).map(([key, e]) => ({ key, ...e }));
 const submitLabel = after ? "Continue" : "Save";
 // A column heading is the field's label without its explanation in brackets (the full label stays as the hover text).
 const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || label;
@@ -153,12 +157,12 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
       <>
         <ol class="stepper" aria-label="Steps">
           {steps.map((s, i) => (
-            <li class:list={[i === here && "current", i < here && "past"]}>
-              {blocker(def, ctx, s.id) ? (
+            <li class:list={[i === here && "current", i < here && "past", isDone(s, ctx) && "done"]}>
+              {blocker(def, ctx, s.id) || (held && i > here) ? (
                 <span class="wait" title="Answer the steps before it first"><span class="n">{i + 1}</span><span class="t">{s.title}</span></span>
               ) : (
                 <a href={stepHref(slug, ctx, s.id)} aria-current={i === here ? "step" : undefined}>
-                  <span class="n">{i + 1}</span>
+                  <span class="n" aria-hidden="true">{isDone(s, ctx) && i !== here ? "✓" : i + 1}</span>
                   <span class="t">{s.title}</span>
                 </a>
               )}
@@ -167,6 +171,7 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
         </ol>
 
         <section class="card step">
+          <p class="eyebrow">Step {here + 1} of {steps.length}</p>
           <h3>{step.title}</h3>
           {step.help && <p class="help">{step.help}</p>}
 
@@ -351,7 +356,8 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
                   <button class:list={["button", pendingCards.length > 0 && "secondary"]} type="submit" disabled={!flow.found || !flow.enabled || !!lacking}>
                     {pendingCards.length > 0 || decidedCards.length > 0 ? `${step.button ?? "Run"} again` : (step.button ?? "Run")}
                   </button>
-                  {after && (decidedCards.length > 0 || notice) && <a class="button" href={stepHref(slug, ctx, after.id)}>Continue →</a>}
+                  {after && !held && (decidedCards.length > 0 || notice) && <a class="button" href={stepHref(slug, ctx, after.id)}>Continue →</a>}
+                  {held && <span class="muted">Answer the question above before going on: editing the story meanwhile would void it.</span>}
                 </div>
               </form>
 
@@ -369,12 +375,26 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
           )}
 
           {step.kind === "review" && (
+            <>
             <ul class="checks">
               {checks.map((c) => (
                 <li class:list={[c.ok ? "ok" : "no"]}><span aria-hidden="true">{c.ok ? "✓" : "○"}</span> {c.label}<span class="muted"> ({c.count})</span></li>
               ))}
             </ul>
             <p class="verdict">{allPass ? "Everything is in place." : "Some things are still missing: go back to the step that makes them."}</p>
+            {made.length > 0 && (
+              <div class="made">
+                <p class="label">What you made</p>
+                <ul>{made.map((e) => <li><span class="muted">{e.key}:</span> <a href={`/workspace/entries/${e.id}`}>{e.title}</a></li>)}</ul>
+              </div>
+            )}
+            {def.next?.length ? (
+              <div class="made">
+                <p class="label">What to do next</p>
+                <ol>{def.next.map((n) => <li>{n.href ? <a href={n.href}>{n.text}</a> : n.text}</li>)}</ol>
+              </div>
+            ) : null}
+            </>
           )}
 
           <div class="nav">
@@ -423,6 +443,10 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
   /* .card has no padding of its own (the content goes in a .card-body elsewhere), so the step carries it. */
   .step { display: grid; gap: 20px; padding: 24px; }
   .step h3 { margin: 0; font-size: 20px; }
+  .eyebrow { margin: 0 0 -10px; font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+  .stepper .done .n { background: color-mix(in srgb, var(--accent) 18%, var(--panel-2)); color: var(--accent); font-weight: 700; }
+  .made { display: grid; gap: 6px; }
+  .made ul, .made ol { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4px; }
   .help { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; max-width: 70ch; }
   .form { display: grid; gap: 16px; }
   .label { margin: 0; font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  approvalsOf, blocker, inputKeys, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, withoutEmpty,
+  approvalsOf, blocker, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, withoutEmpty,
 } from "./wizard.ts";
 
 const def = {
@@ -135,4 +135,11 @@ test("nothing, an empty string and null read the same; anything else compares by
   assert.equal(sameValue("a", "a"), true);
   assert.equal(sameValue("a", ""), false);
   assert.equal(sameValue(0, null), false);
+});
+
+test("a step shows done when the data says so: a choice or option that is set", () => {
+  assert.equal(isDone(def.steps[0], { world: "w" }), true);
+  assert.equal(isDone(def.steps[0], {}), false);
+  assert.equal(isDone(def.steps[3], { input: "script" }), true);
+  assert.equal(isDone(def.steps[5], { story: "s" }), false); // a list has no mark of its own
 });

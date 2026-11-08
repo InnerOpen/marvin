@@ -106,6 +106,8 @@ def _bad(mutate) -> str | None:
     [
         (lambda p: p.pop("title"), "title"),
         (lambda p: p.update(steps=[]), "at least one step"),
+        (lambda p: p.update(next=[{"text": "Go", "href": "https://elsewhere.example"}]), "path in the app"),
+        (lambda p: p.update(next=[{"href": "/x"}]), "needs text"),
         (lambda p: p["steps"][0].update(kind="sparkle"), "kind"),
         (lambda p: p["steps"][1].update(id="world"), "used twice"),
         (lambda p: p["steps"][1].update(scope={"world": "${planet}"}), "planet"),
