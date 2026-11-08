@@ -177,7 +177,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
 
             {lanes.map((lane) => (
               <div class="tl-lane" data-lane={lane.id} role="list" aria-label={lane.title}>
-                <span class="tl-lane-name">{lane.title}</span>
+                <span class="tl-lane-name">
+                  {lane.title}
+                  {lane.estimate_from && laid!.items.some((i) => (i.lanes[lane.id] ?? []).some((p) => p.estimated)) && <em>hatched: no take yet, length estimated</em>}
+                </span>
                 {laid!.items.flatMap((item) => item.lanes[lane.id] ?? []).map((p) => (
                   <a
                     class:list={["tl-piece", { estimated: p.estimated, untimed: p.seconds === 0, recorded: !!p.audio, placed: p.at !== null }]}
@@ -189,7 +192,6 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                   >
                     {p.who && <b>{p.who}</b>}
                     <span>{firstWords(p.text || p.title)}</span>
-                    {p.estimated && <small>no take yet</small>}
                   </a>
                 ))}
               </div>
@@ -369,10 +371,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
 
   .tl-lane { position: relative; height: 44px; margin-top: 6px; border-top: 1px dashed var(--line); }
   .tl-lane-name { position: sticky; left: 0; display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 2px 0 0; z-index: 2; }
+  .tl-lane-name em { font-style: normal; text-transform: none; letter-spacing: 0; margin-left: 8px; }
   .tl-piece { position: absolute; top: 18px; height: 24px; box-sizing: border-box; display: flex; align-items: center; gap: 5px; padding: 0 7px; border-radius: 6px; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 22%, var(--panel)); color: var(--ink); font-size: 12px; white-space: nowrap; overflow: hidden; text-decoration: none; }
   .tl-piece b { font-weight: 600; }
   .tl-piece span { overflow: hidden; text-overflow: ellipsis; }
-  .tl-piece small { font-size: 10px; color: var(--muted); flex: none; }
   .tl-piece.estimated { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, var(--panel)) 0 6px, var(--panel) 6px 10px); border-style: dashed; }
   .tl-piece.untimed { border-style: dotted; background: var(--panel-2); padding: 0 4px; }
   .tl-piece.placed { border-radius: 999px; border-color: var(--muted); background: var(--panel-2); }
