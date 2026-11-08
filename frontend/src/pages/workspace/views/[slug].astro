@@ -12,7 +12,7 @@ import { getWizard } from "@/lib/api/wizards";
 import type { Step } from "@/lib/wizard";
 import { timecode } from "@/lib/audioTimeline";
 import { withReturn } from "@/lib/entryBack";
-import { type Layout, type Row as LaidRow, type TimelineSpec, cues, layout, progress, progressLine, scale, ticks } from "@/lib/timeline";
+import { type Layout, type Row as LaidRow, type TimelineSpec, cues, layout, progress, progressLine, minInnerWidth, percent, ticks } from "@/lib/timeline";
 import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -82,10 +82,10 @@ if (spec && authToken) {
 }
 
 // The strip is laid out at a fixed width and scrolls sideways past it: a 0.3 s beat still gets a card you can click, so a long story is wider
-// than the page, never squashed. Every position is seconds × this scale, so the lanes line up under the cards.
-const DESIGN_WIDTH = 1040;
-const pps = laid ? scale(laid.items, laid.total, DESIGN_WIDTH) : 0;
-const x = (seconds: number) => Math.round(seconds * pps);
+// than the page, never squashed. Positions are percentages of the strip, so it fills the page at any width and the lanes line up under the cards;
+// the strip is never narrower than the pixels the shortest card needs, and past that the box scrolls.
+const minPx = laid ? minInnerWidth(laid.items, laid.total) : 0;
+const pct = (seconds: number) => percent(seconds, laid?.total ?? 0);
 const total = laid?.total ?? 0;
 const marks = ticks(total);
 const steps = spec && laid ? progress(spec, laid) : [];
@@ -99,7 +99,7 @@ const playJson = JSON.stringify(playable).replace(/</g, "\\u003c");
 const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View";
 ---
 
-<AppLayout crumb="workspace.views.run" title={title} width="page">
+<AppLayout crumb="workspace.views.run" title={title} width="full">
   {problem && <div class="alert alert-error">{problem}</div>}
   {!problem && !view && <div class="alert alert-info">There is no view called “{slug}” here. Install the package that brings it.</div>}
 
@@ -123,7 +123,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   )}
 
   {spec && entry && laid && (
-    <div class="tl" data-total={total} data-pps={pps}>
+    <div class="tl" data-total={total}>
       <header class="tl-head">
         <div class="tl-title">
           <h2>{entry.title}</h2>
@@ -147,11 +147,11 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
         </div>
       ) : (
         <div class="tl-scroll" data-scroll tabindex="0" aria-label="Timeline: scroll sideways">
-          <div class="tl-inner" style={`width:${x(total)}px`}>
+          <div class="tl-inner" style={`min-width:${minPx}px`}>
             {spec.spine.group && (
               <div class="tl-groups" role="list">
                 {laid.groups.map((g) => (
-                  <div class="tl-group" role="listitem" style={`left:${x(g.start)}px;width:${x(g.start + g.seconds) - x(g.start)}px`}>
+                  <div class="tl-group" role="listitem" style={`left:${pct(g.start)};width:${pct(g.seconds)}`}>
                     {g.id ? <a href={open(g.id)}>{g.title}</a> : <span class="muted">{g.title || (laid!.groups.length > 1 ? `No ${spec.spine.group!.entry_type}` : "")}</span>}
                   </div>
                 ))}
@@ -165,7 +165,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                   role="listitem"
                   data-item={item.id}
                   data-start={item.start}
-                  style={`left:${x(item.start)}px;width:${x(item.start + item.seconds) - x(item.start)}px`}
+                  style={`left:${pct(item.start)};width:${pct(item.seconds)}`}
                   title={`${item.title}${item.text ? ` — ${item.text}` : ""}\n${timecode(item.start)} → ${timecode(item.start + item.seconds)} (${item.seconds.toFixed(1)} s${item.estimated ? ", estimated" : ""})`}
                 >
                   <button type="button" class="tl-seek" data-seek={item.start} aria-label={`Go to ${item.title}`}>
@@ -183,7 +183,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
 
             <div class="tl-ruler" aria-hidden="true">
               {marks.map((t) => (
-                <span class="tl-tick" style={`left:${x(t)}px`}><i /><b>{timecode(t)}</b></span>
+                <span class="tl-tick" style={`left:${pct(t)}`}><i /><b>{timecode(t)}</b></span>
               ))}
             </div>
 
@@ -199,7 +199,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                     role="listitem"
                     href={open(p.id)}
                     data-piece={p.id}
-                    style={`left:${x(p.start)}px;width:${Math.max(p.seconds === 0 ? 10 : 18, x(p.start + p.seconds) - x(p.start))}px`}
+                    style={`left:${pct(p.start)};width:${pct(p.seconds)};min-width:${p.seconds === 0 ? 10 : 18}px`}
                     title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${timecode(p.start)}${p.seconds ? ` → ${timecode(p.start + p.seconds)} (${p.seconds.toFixed(1)} s${p.estimated ? ", estimated: no take yet" : ""})` : ""}${p.at !== null ? ` · at ${p.at.toFixed(1)} s` : ""}`}
                   >
                     {p.who && <b>{p.who}</b>}
@@ -227,7 +227,6 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   const cuesEl = root?.querySelector<HTMLScriptElement>("script[data-cues]");
   if (root && cuesEl) {
     const cues: Cue[] = JSON.parse(cuesEl.textContent || "[]");
-    const pps = Number(root.dataset.pps || "0");
     const total = Number(root.dataset.total || "0");
     const playBtn = root.querySelector<HTMLButtonElement>("[data-play]");
     const head = root.querySelector<HTMLElement>("[data-playhead]");
@@ -251,11 +250,11 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
       at = Math.max(0, Math.min(total, t));
       if (head) {
         head.hidden = false;
-        head.style.left = `${Math.round(at * pps)}px`;
+        head.style.left = `${total > 0 ? (at / total) * 100 : 0}%`;
       }
       light(at);
       if (scroll && playing) {
-        const px = at * pps;
+        const px = head ? head.offsetLeft : 0;
         if (px < scroll.scrollLeft + 40 || px > scroll.scrollLeft + scroll.clientWidth - 40) scroll.scrollLeft = Math.max(0, px - scroll.clientWidth / 3);
       }
     };

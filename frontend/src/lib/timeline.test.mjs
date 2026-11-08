@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cues, estimateSeconds, itemSeconds, layout, pieceSeconds, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
+import { cues, estimateSeconds, itemSeconds, layout, minInnerWidth, percent, pieceSeconds, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
 
 const spec = {
   kind: "timeline",
@@ -158,4 +158,13 @@ test("cues walk every second of the timeline: silences, takes and estimated line
   assert.deepEqual(walk.find((c) => c.item === "id-b3"), { item: "id-b3", piece: null, start: 8.1, seconds: 6, audio: null });
   const end = walk[walk.length - 1];
   assert.equal((end.start + end.seconds).toFixed(2), laid.total.toFixed(2));
+});
+
+test("the strip fills its container: percent positions, and a pixel floor that keeps the shortest item clickable", () => {
+  assert.equal(percent(5, 20), "25%");
+  assert.equal(percent(1, 3), "33.3333%");
+  assert.equal(percent(0, 0), "0%");
+  assert.equal(minInnerWidth([{ seconds: 0.3 }, { seconds: 10 }], 10.3), 2472);
+  assert.equal(minInnerWidth([{ seconds: 4 }, { seconds: 6 }], 10), 180);
+  assert.equal(minInnerWidth([], 0), 0);
 });
