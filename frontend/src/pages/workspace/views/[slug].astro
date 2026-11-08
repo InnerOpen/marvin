@@ -12,7 +12,7 @@ import { getWizard } from "@/lib/api/wizards";
 import type { Step } from "@/lib/wizard";
 import { timecode } from "@/lib/audioTimeline";
 import { withReturn } from "@/lib/entryBack";
-import { type Layout, type Row as LaidRow, type TimelineSpec, cues, layout, progress, progressLine, minInnerWidth, percent, ticks } from "@/lib/timeline";
+import { type Group, type Item, type Layout, type Row as LaidRow, type TimelineSpec, cues, layout, progress, progressLine, ZOOM_LEVELS, minInnerWidth, percent, tickLevels } from "@/lib/timeline";
 import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -84,10 +84,33 @@ if (spec && authToken) {
 // The strip is laid out at a fixed width and scrolls sideways past it: a 0.3 s beat still gets a card you can click, so a long story is wider
 // than the page, never squashed. Positions are percentages of the strip, so it fills the page at any width and the lanes line up under the cards;
 // the strip is never narrower than the pixels the shortest card needs, and past that the box scrolls.
-const minPx = laid ? minInnerWidth(laid.items, laid.total) : 0;
-const pct = (seconds: number) => percent(seconds, laid?.total ?? 0);
 const total = laid?.total ?? 0;
-const marks = ticks(total);
+// One track for the whole story, or (`?stack=chapters`) one track per chapter, each with its own ruler and lanes, stacked down the page.
+interface Track {
+  id: string | null;
+  title: string;
+  start: number;
+  seconds: number;
+  items: Item[];
+  groups: Group[];
+}
+const stackable = !!spec?.spine.group && (laid?.groups.length ?? 0) > 1;
+const stacked = stackable && Astro.url.searchParams.get("stack") === "chapters";
+const tracks: Track[] = !laid
+  ? []
+  : stacked
+    ? laid.groups.map((g) => ({ id: g.id, title: g.title, start: g.start, seconds: g.seconds, items: g.items, groups: [g] }))
+    : [{ id: null, title: "", start: 0, seconds: laid.total, items: laid.items, groups: laid.groups }];
+const pctIn = (track: Track, seconds: number) => percent(seconds - track.start, track.seconds);
+// Stacked tracks share one scale: the longest chapter fills the page and a shorter one is proportionally shorter, so rows compare honestly.
+const longest = Math.max(1e-9, ...tracks.map((t) => t.seconds));
+const share = (track: Track) => (stacked ? track.seconds / longest : 1);
+const stackHref = (on: boolean) => {
+  const u = new URL(Astro.url);
+  if (on) u.searchParams.set("stack", "chapters");
+  else u.searchParams.delete("stack");
+  return `${u.pathname}${u.search}`;
+};
 const steps = spec && laid ? progress(spec, laid) : [];
 const lanes = spec?.lanes ?? [];
 const firstWords = (text: string, n = 8) => {
@@ -135,6 +158,17 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
         </div>
         <div class="tl-actions">
           <button type="button" class="button tl-play" data-play aria-pressed="false" disabled={laid.items.length === 0}>▶ Play</button>
+          <span class="tl-zoom" role="group" aria-label="Zoom" title="How wide the timeline is: Fit is the page, 2× is two pages. Also + and −.">
+            {ZOOM_LEVELS.map((z) => (
+              <button type="button" data-zoom={z} aria-pressed={z === 1 ? "true" : "false"}>{z === 1 ? "Fit" : `${z}×`}</button>
+            ))}
+          </span>
+          {stackable && (
+            <span class="tl-zoom" role="group" aria-label="Layout" title="One track for the whole story, or a track per chapter stacked down the page.">
+              <a href={stackHref(false)} aria-current={stacked ? undefined : "true"}>One track</a>
+              <a href={stackHref(true)} aria-current={stacked ? "true" : undefined}>By {spec.spine.group!.entry_type.replace(/-/g, " ")}</a>
+            </span>
+          )}
           {actions.map((a) => <a class="button secondary" href={a.href}>{a.label}</a>)}
           <a class="button secondary" href={open(entry.id)}>Open the {spec.entry_type.replace(/-/g, " ")}</a>
         </div>
@@ -146,72 +180,82 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
           {actions.length > 0 && <p class="muted">The buttons above are how to make them.</p>}
         </div>
       ) : (
-        <div class="tl-scroll" data-scroll tabindex="0" aria-label="Timeline: scroll sideways">
-          <div class="tl-inner" style={`min-width:${minPx}px`}>
-            {spec.spine.group && (
-              <div class="tl-groups" role="list">
-                {laid.groups.map((g) => (
-                  <div class="tl-group" role="listitem" style={`left:${pct(g.start)};width:${pct(g.seconds)}`}>
-                    {g.id ? <a href={open(g.id)}>{g.title}</a> : <span class="muted">{g.title || (laid!.groups.length > 1 ? `No ${spec.spine.group!.entry_type}` : "")}</span>}
+        tracks.map((track) => (
+          <section class:list={["tl-track", { stacked }]} data-track data-start={track.start} data-seconds={track.seconds}>
+            {stacked && (
+              <h3 class="tl-track-title">
+                {track.id ? <a href={open(track.id)}>{track.title}</a> : <span>{track.title || `No ${spec.spine.group!.entry_type.replace(/-/g, " ")}`}</span>}
+                <span class="muted"> {timecode(track.start)} → {timecode(track.start + track.seconds)} · {track.seconds.toFixed(1)} s</span>
+              </h3>
+            )}
+            <div class="tl-scroll" data-scroll tabindex="0" aria-label="Timeline: scroll sideways">
+              <div class="tl-inner" data-zoom="1" data-share={share(track)} style={`width:${(share(track) * 100).toFixed(3)}%;min-width:${minInnerWidth(track.items, track.seconds)}px`}>
+                {spec.spine.group && !stacked && (
+                  <div class="tl-groups" role="list">
+                    {track.groups.map((g) => (
+                      <div class="tl-group" role="listitem" style={`left:${pctIn(track, g.start)};width:${pctIn(track, track.start + g.seconds)}`}>
+                        {g.id ? <a href={open(g.id)}>{g.title}</a> : <span class="muted">{g.title || (laid!.groups.length > 1 ? `No ${spec.spine.group!.entry_type}` : "")}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div class="tl-strip" role="list" aria-label={spec.spine.entry_type}>
+                  {track.items.map((item) => (
+                    <div
+                      class:list={["tl-item", { "has-picture": !!item.picture, estimated: item.estimated }]}
+                      role="listitem"
+                      data-item={item.id}
+                      data-start={item.start}
+                      style={`left:${pctIn(track, item.start)};width:${pctIn(track, track.start + item.seconds)}`}
+                      title={`${item.title}${item.text ? ` — ${item.text}` : ""}\n${timecode(item.start)} → ${timecode(item.start + item.seconds)} (${item.seconds.toFixed(1)} s${item.estimated ? ", estimated" : ""})`}
+                    >
+                      <button type="button" class="tl-seek" data-seek={item.start} aria-label={`Go to ${item.title}`}>
+                        {item.picture ? <img src={item.picture} alt="" loading="lazy" /> : <span class="tl-text">{item.text || item.title}</span>}
+                      </button>
+                      <span class="tl-badge">
+                        {item.number !== null && <span class="tl-n">{item.number}</span>}
+                        {item.status && <span class="tl-dot" data-status={item.status} title={item.status} />}
+                      </span>
+                      <a class="tl-open" href={open(item.id)} title={`Open ${item.title}`}>Open</a>
+                      <span class="tl-len">{item.seconds.toFixed(1)}s</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div class="tl-ruler" aria-hidden="true">
+                  {tickLevels(track.seconds, Math.max(3, Math.round(10 * share(track)))).map(({ t, levels }) => (
+                    <span class:list={["tl-tick", ...levels.map((z) => `z${z}`)]} style={`left:${pctIn(track, track.start + t)}`}><i /><b>{timecode(track.start + t)}</b></span>
+                  ))}
+                </div>
+
+                {lanes.map((lane) => (
+                  <div class="tl-lane" data-lane={lane.id} role="list" aria-label={lane.title}>
+                    <span class="tl-lane-name">
+                      {lane.title}
+                      {lane.estimate_from && track.items.some((i) => (i.lanes[lane.id] ?? []).some((p) => p.estimated)) && <em>hatched: no take yet, length estimated</em>}
+                    </span>
+                    {track.items.flatMap((item) => item.lanes[lane.id] ?? []).map((p) => (
+                      <a
+                        class:list={["tl-piece", { estimated: p.estimated, untimed: p.seconds === 0, recorded: !!p.audio, placed: p.at !== null }]}
+                        role="listitem"
+                        href={open(p.id)}
+                        data-piece={p.id}
+                        style={`left:${pctIn(track, p.start)};width:${pctIn(track, track.start + p.seconds)};min-width:${p.seconds === 0 ? 10 : 18}px`}
+                        title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${timecode(p.start)}${p.seconds ? ` → ${timecode(p.start + p.seconds)} (${p.seconds.toFixed(1)} s${p.estimated ? ", estimated: no take yet" : ""})` : ""}${p.at !== null ? ` · at ${p.at.toFixed(1)} s` : ""}`}
+                      >
+                        {p.who && <b>{p.who}</b>}
+                        <span>{firstWords(p.text || p.title)}</span>
+                      </a>
+                    ))}
                   </div>
                 ))}
+
+                <div class="tl-playhead" data-playhead hidden><i /></div>
               </div>
-            )}
-
-            <div class="tl-strip" role="list" aria-label={spec.spine.entry_type}>
-              {laid.items.map((item) => (
-                <div
-                  class:list={["tl-item", { "has-picture": !!item.picture, estimated: item.estimated }]}
-                  role="listitem"
-                  data-item={item.id}
-                  data-start={item.start}
-                  style={`left:${pct(item.start)};width:${pct(item.seconds)}`}
-                  title={`${item.title}${item.text ? ` — ${item.text}` : ""}\n${timecode(item.start)} → ${timecode(item.start + item.seconds)} (${item.seconds.toFixed(1)} s${item.estimated ? ", estimated" : ""})`}
-                >
-                  <button type="button" class="tl-seek" data-seek={item.start} aria-label={`Go to ${item.title}`}>
-                    {item.picture ? <img src={item.picture} alt="" loading="lazy" /> : <span class="tl-text">{item.text || item.title}</span>}
-                  </button>
-                  <span class="tl-badge">
-                    {item.number !== null && <span class="tl-n">{item.number}</span>}
-                    {item.status && <span class="tl-dot" data-status={item.status} title={item.status} />}
-                  </span>
-                  <a class="tl-open" href={open(item.id)} title={`Open ${item.title}`}>Open</a>
-                  <span class="tl-len">{item.seconds.toFixed(1)}s</span>
-                </div>
-              ))}
             </div>
-
-            <div class="tl-ruler" aria-hidden="true">
-              {marks.map((t) => (
-                <span class="tl-tick" style={`left:${pct(t)}`}><i /><b>{timecode(t)}</b></span>
-              ))}
-            </div>
-
-            {lanes.map((lane) => (
-              <div class="tl-lane" data-lane={lane.id} role="list" aria-label={lane.title}>
-                <span class="tl-lane-name">
-                  {lane.title}
-                  {lane.estimate_from && laid!.items.some((i) => (i.lanes[lane.id] ?? []).some((p) => p.estimated)) && <em>hatched: no take yet, length estimated</em>}
-                </span>
-                {laid!.items.flatMap((item) => item.lanes[lane.id] ?? []).map((p) => (
-                  <a
-                    class:list={["tl-piece", { estimated: p.estimated, untimed: p.seconds === 0, recorded: !!p.audio, placed: p.at !== null }]}
-                    role="listitem"
-                    href={open(p.id)}
-                    data-piece={p.id}
-                    style={`left:${pct(p.start)};width:${pct(p.seconds)};min-width:${p.seconds === 0 ? 10 : 18}px`}
-                    title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${timecode(p.start)}${p.seconds ? ` → ${timecode(p.start + p.seconds)} (${p.seconds.toFixed(1)} s${p.estimated ? ", estimated: no take yet" : ""})` : ""}${p.at !== null ? ` · at ${p.at.toFixed(1)} s` : ""}`}
-                  >
-                    {p.who && <b>{p.who}</b>}
-                    <span>{firstWords(p.text || p.title)}</span>
-                  </a>
-                ))}
-              </div>
-            ))}
-
-            <div class="tl-playhead" data-playhead hidden><i /></div>
-          </div>
-        </div>
+          </section>
+        ))
       )}
       <p class="tl-hint muted">Click a card to put the playhead there; Open takes you to it. Space plays and pauses. A take plays as recorded; a line with none passes in silence for its estimated length.</p>
       <script is:inline type="application/json" data-cues set:html={playJson} />
@@ -229,9 +273,51 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     const cues: Cue[] = JSON.parse(cuesEl.textContent || "[]");
     const total = Number(root.dataset.total || "0");
     const playBtn = root.querySelector<HTMLButtonElement>("[data-play]");
-    const head = root.querySelector<HTMLElement>("[data-playhead]");
-    const scroll = root.querySelector<HTMLElement>("[data-scroll]");
+    // Each track (the whole story, or one chapter when stacked) has its own box, strip and playhead; the playhead shows in the track holding `at`.
+    const tracks = [...root.querySelectorAll<HTMLElement>("[data-track]")].map((el, i, all) => ({
+      start: Number(el.dataset.start || "0"),
+      seconds: Number(el.dataset.seconds || "0"),
+      last: i === all.length - 1,
+      inner: el.querySelector<HTMLElement>(".tl-inner"),
+      scroll: el.querySelector<HTMLElement>("[data-scroll]"),
+      head: el.querySelector<HTMLElement>("[data-playhead]"),
+    }));
+    const trackAt = (t: number) => tracks.find((k) => t >= k.start && (t < k.start + k.seconds || (k.last && t <= k.start + k.seconds)));
     const audio = new Audio();
+    const zoomButtons = [...root.querySelectorAll<HTMLButtonElement>("[data-zoom]")];
+    const zoomKey = `tl-zoom:${location.pathname}`;
+    let zoom = 1;
+    // Zoom: the strip is `zoom` pages wide (never under the floor the shortest beat needs); what sits under the middle of the box stays there.
+    const setZoom = (level: number) => {
+      zoom = level;
+      for (const { inner, scroll } of tracks) {
+        if (!inner || !scroll) continue;
+        const box = scroll.clientWidth;
+        const middle = (scroll.scrollLeft + box / 2) / Math.max(1, inner.offsetWidth);
+        inner.style.width = `${Number(inner.dataset.share || "1") * level * 100}%`;
+        inner.dataset.zoom = String(level);
+        scroll.scrollLeft = Math.max(0, middle * inner.offsetWidth - box / 2);
+      }
+      zoomButtons.forEach((b) => b.setAttribute("aria-pressed", Number(b.dataset.zoom) === level ? "true" : "false"));
+      try {
+        localStorage.setItem(zoomKey, String(level));
+      } catch {
+        /* a private window forgets the zoom, nothing more */
+      }
+    };
+    const levels = zoomButtons.map((b) => Number(b.dataset.zoom)).filter(Boolean);
+    zoomButtons.forEach((b) => b.addEventListener("click", () => setZoom(Number(b.dataset.zoom))));
+    const stepZoom = (dir: 1 | -1) => {
+      const i = levels.indexOf(zoom);
+      const next = levels[Math.min(levels.length - 1, Math.max(0, i + dir))];
+      if (next && next !== zoom) setZoom(next);
+    };
+    try {
+      const kept = Number(localStorage.getItem(zoomKey));
+      if (levels.includes(kept) && kept !== 1) setZoom(kept);
+    } catch {
+      /* same */
+    }
     let at = 0; // seconds into the timeline
     let playing = false;
     let frame = 0;
@@ -248,13 +334,16 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     };
     const show = (t: number) => {
       at = Math.max(0, Math.min(total, t));
-      if (head) {
-        head.hidden = false;
-        head.style.left = `${total > 0 ? (at / total) * 100 : 0}%`;
+      const here = trackAt(at);
+      for (const k of tracks) {
+        if (!k.head) continue;
+        k.head.hidden = k !== here;
+        if (k === here) k.head.style.left = `${k.seconds > 0 ? ((at - k.start) / k.seconds) * 100 : 0}%`;
       }
       light(at);
-      if (scroll && playing) {
-        const px = head ? head.offsetLeft : 0;
+      if (here?.scroll && here.head && playing) {
+        const { scroll, head } = here;
+        const px = head.offsetLeft;
         if (px < scroll.scrollLeft + 40 || px > scroll.scrollLeft + scroll.clientWidth - 40) scroll.scrollLeft = Math.max(0, px - scroll.clientWidth / 3);
       }
     };
@@ -326,7 +415,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     );
     document.addEventListener("keydown", (e) => {
       const target = e.target as HTMLElement | null;
-      if (e.code !== "Space" || target?.closest("input, textarea, select, [contenteditable], button, a")) return;
+      if (target?.closest("input, textarea, select, [contenteditable]")) return;
+      if (e.key === "+" || e.key === "=") return stepZoom(1);
+      if (e.key === "-") return stepZoom(-1);
+      if (e.code !== "Space" || target?.closest("button, a")) return;
       e.preventDefault();
       toggle();
     });
@@ -346,7 +438,16 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-title h2 { margin: 0 0 4px; }
   .tl-facts { margin: 0; font-size: 14px; }
   .tl-total { font-variant-numeric: tabular-nums; font-size: 16px; }
-  .tl-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tl-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .tl-zoom { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
+  .tl-zoom button { margin: 0; padding: 7px 10px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
+  .tl-zoom button:first-child { border-left: 0; }
+  .tl-zoom button:first-child, .tl-zoom a:first-child { border-left: 0; }
+  .tl-zoom a { display: inline-block; padding: 7px 10px; border-left: 1px solid var(--line); color: var(--muted); font-size: 13px; text-decoration: none; }
+  .tl-zoom button[aria-pressed="true"], .tl-zoom a[aria-current="true"] { background: var(--panel-2); color: var(--ink); font-weight: 600; }
+  .tl-track + .tl-track { margin-top: 14px; }
+  .tl-track-title { margin: 0 0 6px; font-size: 15px; }
+  .tl-track-title a { color: var(--ink); text-decoration: none; }
   .tl-empty { padding: 24px; }
   .tl-hint { margin: 0; font-size: 13px; }
 
@@ -355,6 +456,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-inner { position: relative; min-width: 100%; }
   .tl-groups { position: relative; height: 24px; margin-bottom: 4px; }
   .tl-group { position: absolute; top: 0; height: 22px; border-bottom: 2px solid var(--accent); padding: 0 6px; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
+  /* The title slides along inside its chapter while you scroll, so you always know where you are at a high zoom. */
+  .tl-group > a, .tl-group > span { position: sticky; left: 16px; display: inline-block; max-width: 100%; }
   .tl-group a { color: var(--ink); text-decoration: none; }
   .tl-group + .tl-group { border-left: 1px solid var(--line); }
 
@@ -376,6 +479,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
 
   .tl-ruler { position: relative; height: 22px; margin: 4px 0 6px; border-top: 1px solid var(--line); }
   .tl-tick { position: absolute; top: 0; }
+  /* The ruler carries the ticks of every zoom level; the strip's zoom says which show (finer ticks only once there is room for them). */
+  .tl-inner[data-zoom="1"] .tl-tick:not(.z1), .tl-inner[data-zoom="2"] .tl-tick:not(.z2), .tl-inner[data-zoom="4"] .tl-tick:not(.z4), .tl-inner[data-zoom="8"] .tl-tick:not(.z8) { display: none; }
   .tl-tick i { display: block; width: 1px; height: 6px; background: var(--muted); }
   .tl-tick b { display: block; font-weight: 400; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; transform: translateX(-50%); margin-top: 1px; }
   .tl-tick:first-child b { transform: none; }
