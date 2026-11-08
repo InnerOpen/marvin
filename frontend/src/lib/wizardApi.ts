@@ -15,6 +15,7 @@ export interface Row {
   slug: string;
   title: string;
   dataJson?: Record<string, any> | null;
+  assets?: { role?: string | null; publicUrl?: string | null; mimeType?: string | null; name?: string | null }[];
 }
 
 export const MAX_TEXT_UPLOAD_BYTES = 1_000_000;
