@@ -3,6 +3,7 @@ import SchemaForm from "@/components/SchemaForm.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getWizard, type WizardRead } from "@/lib/api/wizards";
+import { viewHref } from "@/lib/api/views";
 import {
   type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx,
   StepError, cardPicture, generateAsRun, isDone, shownSteps, stepHref,
@@ -495,7 +496,7 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
             </ul>
             <p class="verdict">{allPass ? "Everything is in place." : "Some things are still missing: go back to the step that makes them."}</p>
             {opened && (
-              <p class="open"><a class="button" href={`/workspace/entries/${opened.id}`}>{def.open!.label} →</a> <span class="muted">{opened.title}</span></p>
+              <p class="open"><a class="button" href={def.open!.view ? viewHref(def.open!.view, opened.slug) : `/workspace/entries/${opened.id}`}>{def.open!.label} →</a> <span class="muted">{opened.title}</span></p>
             )}
             {made.length > 0 && (
               <div class="made">
