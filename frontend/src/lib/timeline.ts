@@ -445,6 +445,8 @@ export const progressLine = (steps: Progress[]): string => steps.map((p) => `${p
 export interface Cue {
   item: string;
   piece: string | null;
+  /** The lane the piece is in (so its lane's mute applies); null for a silence. */
+  lane: string | null;
   start: number;
   seconds: number;
   audio: string | null;
@@ -454,6 +456,7 @@ export interface Cue {
  * of the file" (a sound with no declared length). */
 export interface Overlay {
   id: string;
+  lane: string;
   start: number;
   seconds: number;
   audio: string;
@@ -465,11 +468,11 @@ export function overlays(laid: Layout, lanes: LaneSpec[]): Overlay[] {
   const out: Overlay[] = [];
   for (const lane of lanes.filter((l) => l.placed)) {
     for (const p of laid.items.flatMap((i) => i.lanes[lane.id] ?? [])) {
-      if (p.audio) out.push({ id: p.id, start: p.start, seconds: p.seconds, audio: p.audio, volume: p.volume ?? 1, loop: false });
+      if (p.audio) out.push({ id: p.id, lane: lane.id, start: p.start, seconds: p.seconds, audio: p.audio, volume: p.volume ?? 1, loop: false });
     }
   }
   for (const lane of lanes.filter((l) => l.bed)) {
-    for (const b of laid.beds[lane.id] ?? []) if (b.audio) out.push({ id: b.id, start: b.start, seconds: b.seconds, audio: b.audio, volume: b.volume, loop: b.loop });
+    for (const b of laid.beds[lane.id] ?? []) if (b.audio) out.push({ id: b.id, lane: lane.id, start: b.start, seconds: b.seconds, audio: b.audio, volume: b.volume, loop: b.loop });
   }
   return out.sort((a, b) => a.start - b.start);
 }
@@ -478,19 +481,22 @@ export function cues(laid: Layout, lanes: LaneSpec[]): Cue[] {
   const timedLanes = lanes.filter((l) => l.in && (l.seconds || l.estimate_from)).map((l) => l.id);
   const out: Cue[] = [];
   for (const item of laid.items) {
-    const timed = timedLanes.flatMap((id) => item.lanes[id] ?? []).filter((p) => p.seconds > 0).sort((a, b) => a.start - b.start);
+    const timed = timedLanes
+      .flatMap((id) => (item.lanes[id] ?? []).map((p) => ({ p, lane: id })))
+      .filter(({ p }) => p.seconds > 0)
+      .sort((a, b) => a.p.start - b.p.start);
     if (timed.length === 0) {
-      out.push({ item: item.id, piece: null, start: item.start, seconds: item.seconds, audio: null });
+      out.push({ item: item.id, piece: null, lane: null, start: item.start, seconds: item.seconds, audio: null });
       continue;
     }
     let at = item.start;
-    for (const p of timed) {
-      if (p.start > at) out.push({ item: item.id, piece: null, start: at, seconds: p.start - at, audio: null });
-      out.push({ item: item.id, piece: p.id, start: p.start, seconds: p.seconds, audio: p.audio });
+    for (const { p, lane } of timed) {
+      if (p.start > at) out.push({ item: item.id, piece: null, lane: null, start: at, seconds: p.start - at, audio: null });
+      out.push({ item: item.id, piece: p.id, lane, start: p.start, seconds: p.seconds, audio: p.audio });
       at = p.start + p.seconds;
     }
     const end = item.start + item.seconds;
-    if (end > at) out.push({ item: item.id, piece: null, start: at, seconds: end - at, audio: null });
+    if (end > at) out.push({ item: item.id, piece: null, lane: null, start: at, seconds: end - at, audio: null });
   }
   return out;
 }

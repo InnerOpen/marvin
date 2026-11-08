@@ -155,7 +155,8 @@ test("cues walk every second of the timeline: silences, takes and estimated line
       [null, "3.75", "0.35", null],
     ],
   );
-  assert.deepEqual(walk.find((c) => c.item === "id-b3"), { item: "id-b3", piece: null, start: 8.1, seconds: 6, audio: null });
+  assert.deepEqual(walk.find((c) => c.item === "id-b3"), { item: "id-b3", piece: null, lane: null, start: 8.1, seconds: 6, audio: null });
+  assert.equal(walk.find((c) => c.piece === "id-l1").lane, "lines");
   const end = walk[walk.length - 1];
   assert.equal((end.start + end.seconds).toFixed(2), laid.total.toFixed(2));
 });
@@ -221,6 +222,7 @@ test("overlays: placed sounds at their offset and beds under their stretch, in t
   const fx = [row("gull", { duration_seconds: 2, volume: 0.6 }, { assets: [take] }), row("silent", { duration_seconds: 1 })];
   const laid = layout(bedSpec, { entry: row("s", { music: "waltz" }), spine: [...bedBeats, ...placed], groups: chapters, lanes: { lines: [], sounds: fx, ambience: bedSounds, music: bedSounds }, via: { ambience: scenes } });
   const over = overlays(laid, bedSpec.lanes);
+  assert.deepEqual(over.map((o) => o.lane), ["ambience", "music", "ambience", "ambience", "sounds"]);
   assert.deepEqual(over.map((o) => [o.id, o.start, o.seconds, o.loop, Number(o.volume.toFixed(2))]), [
     ["id-sea", 0, 8, true, 0.4],
     ["id-waltz", 0, laid.total, true, 0.3],
