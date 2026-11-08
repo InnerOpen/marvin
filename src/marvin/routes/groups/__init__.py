@@ -23,6 +23,7 @@ from . import (
     smtp_controller,
     storage_settings_controller,
     variables_controller,
+    views_controller,
     webhook_controller,
     wizards_controller,
 )
@@ -33,6 +34,7 @@ router.include_router(invitation_controller.router, tags=["Groups: Invitations"]
 router.include_router(blueprints_controller.router, tags=["Groups: Blueprints"])
 router.include_router(packages_controller.router, tags=["Groups: Packages"])
 router.include_router(wizards_controller.router, tags=["Groups: Wizards"])
+router.include_router(views_controller.router, tags=["Groups: Views"])
 router.include_router(webhook_controller.router, tags=["Groups: Webhooks"])
 router.include_router(secrets_controller.router, tags=["Groups: Secrets"])
 router.include_router(smtp_controller.router, tags=["Groups: SMTP Profiles"])

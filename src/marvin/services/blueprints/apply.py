@@ -189,9 +189,9 @@ def apply_blueprint(
     author's privileges, and as a Playbook's creator. `event_bus` is the request's, for the events a Playbook's entry emits."""
     result = BlueprintApplyResult(slug=blueprint.slug, kind=blueprint.kind, created=False)
 
-    if blueprint.kind == "wizard":
+    if blueprint.kind in ("wizard", "view"):
         # Data kept in a package's manifest (services/blueprints/packages.py), never a row: without this it would fall through to an entry type.
-        result.detail = "a wizard is installed with its package, not applied on its own"
+        result.detail = f"a {blueprint.kind} is installed with its package, not applied on its own"
         return result
 
     try:
