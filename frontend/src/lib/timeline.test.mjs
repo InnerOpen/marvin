@@ -1,0 +1,155 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { cues, estimateSeconds, itemSeconds, layout, pieceSeconds, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
+
+const spec = {
+  kind: "timeline",
+  title: "Timeline",
+  entry_type: "story",
+  spine: {
+    entry_type: "beat",
+    of: "story",
+    order: "number",
+    group: { entry_type: "chapter", field: "chapter", order: "number" },
+    picture: "still",
+    text: "picture",
+    status: "status",
+    seconds: { hold: "hold_seconds", lead: "lead_seconds", gap: "gap_seconds", tail: "tail_seconds", defaults: { hold: 4, lead: 0.3, gap: 0.25, tail: 0.35 } },
+  },
+  lanes: [
+    { id: "lines", title: "Lines", entry_type: "speech-line", of: "story", in: "beat", order: "number", text: "text", who: "speaker", audio: "audio", seconds: "duration_seconds", estimate_from: "text", status: "status" },
+    { id: "sounds", title: "Sounds", entry_type: "sound", of: "story", placed: { field: "sounds", ref: "sound", at: "at" }, audio: "audio", seconds: "duration_seconds" },
+  ],
+};
+
+const row = (slug, data, extra = {}) => ({ id: `id-${slug}`, slug, title: slug, dataJson: data, ...extra });
+const still = { role: "still", publicUrl: "https://cdn/still.png", mimeType: "image/png" };
+const take = { role: "audio", publicUrl: "https://cdn/take.mp3", mimeType: "audio/mpeg" };
+
+const beats = [
+  row("b2", { story: "s", number: 2, chapter: "c1", picture: "A door." }),
+  row("b1", { story: "s", number: 1, chapter: "c1", picture: "A street.", sounds: [{ sound: "rain", at: 1.5 }, { sound: "nope", at: 0 }] }, { assets: [still] }),
+  row("b3", { story: "s", number: 3, chapter: "c2", hold_seconds: 6 }),
+  row("b4", { story: "s", number: 4, chapter: "c-missing" }),
+];
+const chapters = [row("c2", { number: 2 }), row("c1", { number: 1 })];
+const lines = [
+  row("l2", { beat: "b1", number: 2, text: "one two three", speaker: "Ann" }),
+  row("l1", { beat: "b1", number: 1, text: "ignored because recorded", speaker: "Bob", duration_seconds: 2 }, { assets: [take] }),
+  row("l3", { beat: "b2", number: 1, text: "", speaker: "Ann" }),
+];
+const sounds = [row("rain", { duration_seconds: 3 })];
+
+test("estimate: 150 words a minute, never under a second", () => {
+  assert.equal(estimateSeconds("one two three"), 1.2);
+  assert.equal(estimateSeconds("hi"), 1);
+  assert.equal(estimateSeconds(Array(150).fill("w").join(" ")), 60);
+});
+
+test("item seconds follow the renderer: lead + pieces + gaps + tail, or hold when nothing is timed", () => {
+  const plain = row("b", {});
+  assert.equal(itemSeconds(plain, [{ seconds: 2 }, { seconds: 3 }], spec.spine.seconds).toFixed(2), "5.90");
+  assert.equal(itemSeconds(plain, [{ seconds: 2 }], spec.spine.seconds).toFixed(2), "2.65");
+  assert.equal(itemSeconds(plain, [], spec.spine.seconds), 4);
+  assert.equal(itemSeconds(row("b", { hold_seconds: 6 }), [], spec.spine.seconds), 6);
+  assert.equal(itemSeconds(row("b", { lead_seconds: 1, tail_seconds: 1, gap_seconds: 0 }), [{ seconds: 1 }, { seconds: 1 }], spec.spine.seconds), 4);
+});
+
+test("seconds fields fall back to the view's defaults, and a bad value is ignored", () => {
+  assert.deepEqual(secondsOf(row("b", { hold_seconds: "7", lead_seconds: -1 }), spec.spine.seconds), { hold: 7, lead: 0.3, gap: 0.25, tail: 0.35 });
+  assert.deepEqual(secondsOf(row("b", {}), undefined), { hold: 4, lead: 0.3, gap: 0.25, tail: 0.35 });
+});
+
+test("a piece is timed by its recording, else estimated from its text, else untimed", () => {
+  assert.deepEqual(pieceSeconds(lines[1], spec.lanes[0]), { seconds: 2, estimated: false });
+  assert.deepEqual(pieceSeconds(lines[0], spec.lanes[0]), { seconds: 1.2, estimated: true });
+  assert.equal(pieceSeconds(lines[2], spec.lanes[0]), null);
+  assert.equal(pieceSeconds(row("x", {}), spec.lanes[1]), null);
+});
+
+test("layout orders beats inside ordered chapters, times them, and puts strays last", () => {
+  const laid = layout(spec, { spine: beats, groups: chapters, lanes: { lines, sounds } });
+  assert.deepEqual(laid.groups.map((g) => [g.title, g.items.map((i) => i.slug)]), [["c1", ["b1", "b2"]], ["c2", ["b3"]], ["", ["b4"]]]);
+  const [b1, b2, b3, b4] = laid.items;
+  // b1: lead 0.3 + l1 2.0 + gap 0.25 + l2 1.2 + tail 0.35 = 4.1
+  assert.equal(b1.seconds.toFixed(2), "4.10");
+  assert.equal(b1.estimated, true);
+  assert.equal(b1.picture, "https://cdn/still.png");
+  // b2 has one line with no text and no take: nothing timed, so it holds
+  assert.equal(b2.seconds, 4);
+  assert.equal(b2.start.toFixed(2), "4.10");
+  assert.equal(b2.lanes.lines.length, 1);
+  assert.equal(b2.text, "A door.");
+  assert.equal(b3.seconds, 6);
+  assert.equal(b4.start.toFixed(2), "14.10");
+  assert.equal(laid.total.toFixed(2), "18.10");
+  assert.equal(laid.groups[0].seconds.toFixed(2), "8.10");
+});
+
+test("layout places line pieces one after another from the lead, recorded or estimated", () => {
+  const laid = layout(spec, { spine: beats, groups: chapters, lanes: { lines, sounds } });
+  const [l1, l2] = laid.items[0].lanes.lines;
+  assert.deepEqual([l1.slug, l1.start.toFixed(2), l1.seconds, l1.estimated, l1.audio, l1.who], ["l1", "0.30", 2, false, "https://cdn/take.mp3", "Bob"]);
+  assert.deepEqual([l2.slug, l2.start.toFixed(2), l2.seconds, l2.estimated, l2.audio], ["l2", "2.55", 1.2, true, null]);
+});
+
+test("layout puts placed sounds at their offset and drops a reference to nothing", () => {
+  const laid = layout(spec, { spine: beats, groups: chapters, lanes: { lines, sounds } });
+  const placed = laid.items[0].lanes.sounds;
+  assert.equal(placed.length, 1);
+  assert.deepEqual([placed[0].slug, placed[0].at, placed[0].start, placed[0].seconds], ["rain", 1.5, 1.5, 3]);
+  assert.deepEqual(laid.items[1].lanes.sounds, []);
+});
+
+test("layout without a group spec is one untitled group; without lanes every item holds", () => {
+  const bare = { ...spec, spine: { entry_type: "beat", of: "story", order: "number" }, lanes: undefined };
+  const laid = layout(bare, { spine: beats, lanes: {} });
+  assert.deepEqual(laid.groups.map((g) => g.title), [""]);
+  assert.deepEqual(laid.items.map((i) => i.seconds), [4, 4, 4, 4]);
+  assert.equal(laid.total, 16);
+});
+
+test("scale fills the width but never shrinks the shortest item under its minimum card", () => {
+  assert.equal(scale([{ seconds: 10 }, { seconds: 10 }], 20, 1000), 50);
+  assert.equal(scale([{ seconds: 0.3 }, { seconds: 10 }], 10.3, 1000), 240);
+  assert.equal(scale([], 0, 1000), 0);
+  assert.equal(widthOf(0.3, 50), 72);
+  assert.equal(widthOf(10, 50), 500);
+});
+
+test("ticks pick a step for about ten marks", () => {
+  assert.deepEqual(ticks(18.1), [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]);
+  assert.deepEqual(ticks(4), [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4]);
+  assert.equal(ticks(600).length, 11);
+  assert.deepEqual(ticks(0), [0]);
+});
+
+test("progress counts pictures and takes, and reads as a line", () => {
+  const laid = layout(spec, { spine: beats, groups: chapters, lanes: { lines, sounds } });
+  const steps = progress(spec, laid);
+  assert.deepEqual(steps, [
+    { label: "beats with a picture", done: 1, total: 4 },
+    { label: "lines recorded", done: 1, total: 3 },
+    { label: "sounds recorded", done: 0, total: 1 },
+  ]);
+  assert.equal(progressLine(steps), "1 of 4 beats with a picture · 1 of 3 lines recorded · 0 of 1 sounds recorded");
+});
+
+test("cues walk every second of the timeline: silences, takes and estimated lines, holds", () => {
+  const laid = layout(spec, { spine: beats, groups: chapters, lanes: { lines, sounds } });
+  const walk = cues(laid, spec.lanes);
+  const b1 = walk.filter((c) => c.item === "id-b1");
+  assert.deepEqual(
+    b1.map((c) => [c.piece, c.start.toFixed(2), c.seconds.toFixed(2), c.audio]),
+    [
+      [null, "0.00", "0.30", null],
+      ["id-l1", "0.30", "2.00", "https://cdn/take.mp3"],
+      [null, "2.30", "0.25", null],
+      ["id-l2", "2.55", "1.20", null],
+      [null, "3.75", "0.35", null],
+    ],
+  );
+  assert.deepEqual(walk.find((c) => c.item === "id-b3"), { item: "id-b3", piece: null, start: 8.1, seconds: 6, audio: null });
+  const end = walk[walk.length - 1];
+  assert.equal((end.start + end.seconds).toFixed(2), laid.total.toFixed(2));
+});

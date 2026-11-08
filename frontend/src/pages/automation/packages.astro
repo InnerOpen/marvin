@@ -54,6 +54,7 @@ const holds = (p: PackageInfo) =>
     p.entryTypes.length ? plural(p.entryTypes.length, "entry type") : "",
     p.collections ? plural(p.collections, "collection") : "",
     p.wizards?.length ? plural(p.wizards.length, "guided setup") : "",
+    p.views?.length ? plural(p.views.length, "view") : "",
     p.scheduledTasks ? plural(p.scheduledTasks, "scheduled task") : "",
     p.incomingWebhooks ? plural(p.incomingWebhooks, "incoming webhook") : "",
   ]
