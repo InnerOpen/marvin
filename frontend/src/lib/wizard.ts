@@ -21,10 +21,22 @@ export interface Step {
   [key: string]: any;
 }
 
+export interface NextLine {
+  text: string;
+  href?: string;
+}
+
 export interface WizardDefinition {
   title: string;
   description?: string;
   steps: Step[];
+  /** What to do once the wizard is done, shown at the end. */
+  next?: NextLine[];
+}
+
+/** A step is done when the data says so: a choice or option that is set. Other kinds have no mark of their own (they can be redone). */
+export function isDone(step: Step, ctx: Ctx): boolean {
+  return (step.kind === "choose" || step.kind === "option") && !!ctx[step.as];
 }
 
 export const STEP_PARAM = "step";

@@ -22,6 +22,7 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
 - ``review``: ``checks``, each ``{label, query, op, value}``: the query (entry-query spec: ``entry_type``, ``fields``, ``where``…) is
   counted and compared (``gt gte eq lte lt``) to a number; all passing means the wizard is done.
 
+``next`` ([{text, href?}]) is shown at the end: what to do once the wizard is done, with paths inside the app.
 ``when`` ({ctx, op: eq|neq|set|unset, value?}) hides a step unless it holds, which is how an upload step follows the option chosen.
 Progress is never stored: the context rides in the page's address and each step shows done from what exists.
 """
@@ -32,6 +33,7 @@ import re
 from typing import Any
 
 MAX_STEPS = 40
+MAX_NEXT = 6  # lines of "what to do next" at the end
 STEP_KINDS = ("option", "choose", "form", "upload", "list", "run", "review")
 WHEN_OPS = ("eq", "neq", "set", "unset")
 CHECK_OPS = ("gt", "gte", "eq", "lte", "lt")
@@ -71,6 +73,8 @@ def payload_problem(payload: dict, slug: str) -> str | None:
     steps = payload.get("steps")
     if not isinstance(steps, list) or not steps:
         return f"wizard {slug!r} needs at least one step"
+    if problem := _check_next(payload.get("next"), slug):
+        return problem
     if len(steps) > MAX_STEPS:
         return f"wizard {slug!r} has more than {MAX_STEPS} steps"
     known: set[str] = set()  # context keys set by an earlier step
@@ -97,6 +101,21 @@ def payload_problem(payload: dict, slug: str) -> str | None:
             known.add(step["as"])
         if kind == "choose":
             entries.add(step["as"])
+    return None
+
+
+def _check_next(lines: Any, slug: str) -> str | None:
+    """``next``: what to do once the wizard is done, each ``{text, href?}``; an href is a path inside the app, never a full address."""
+    if lines is None:
+        return None
+    if not isinstance(lines, list) or len(lines) > MAX_NEXT:
+        return f"wizard {slug!r}: next is a list of at most {MAX_NEXT} {{text, href?}} lines"
+    for line in lines:
+        if not isinstance(line, dict) or not isinstance(line.get("text"), str) or not line["text"].strip():
+            return f"wizard {slug!r}: each next line needs text"
+        href = line.get("href")
+        if href is not None and (not isinstance(href, str) or not href.startswith("/") or href.startswith("//")):
+            return f"wizard {slug!r}: a next line's href is a path in the app, starting with /"
     return None
 
 
