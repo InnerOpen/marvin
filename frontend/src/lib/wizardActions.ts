@@ -86,7 +86,7 @@ export async function runStep(def: WizardDefinition, step: Step, form: FormData,
   if (step.kind === "upload") return upload(def, step, form, ctx, authToken);
   if (step.kind === "run") {
     const name = await runWorkflow(step.workflow, runInputs(step, ctx), authToken);
-    return { ctx, stay: false, notice: `Started “${name}”. It runs in the background: what it makes shows on the later steps when it is done.` };
+    return { ctx, stay: true, notice: `Started “${name}”. Anything it asks you appears below as it runs; when it is done, go on to the next step.` };
   }
   if (step.kind === "list") return editList(step, form, ctx, authToken);
   if (step.kind === "form") {

@@ -4,11 +4,11 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import {
-  type Check, type Step, NOTICE_PARAM, SIMPLE_FIELD_TYPES, blocker, checkSpec, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, passes, previousStep, readCtx,
+  type ApprovalCard, type Check, type Step, NOTICE_PARAM, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, passes, previousStep, readCtx,
   shownSteps, stepHref,
 } from "@/lib/wizard";
 import { runStep } from "@/lib/wizardActions";
-import { type Row, askedKeys, describeFailure, entryBySlug, findEntries, typeBySlug, workflowState } from "@/lib/wizardApi";
+import { type Row, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryBySlug, findEntries, typeBySlug, workflowState } from "@/lib/wizardApi";
 
 const authToken = getAuthToken(Astro.cookies);
 const slug = Astro.params.slug ?? "";
@@ -29,7 +29,16 @@ const step: Step | null = def ? currentStep(def, ctx, Astro.url.searchParams.get
 
 if (Astro.request.method === "POST" && authToken && def && step) {
   try {
-    const done = await runStep(def, step, await Astro.request.formData(), ctx, authToken);
+    const form = await Astro.request.formData();
+    const deciding = String(form.get("decide") ?? "");
+    if (deciding) {
+      const decision = form.get("decision") === "deny" ? "deny" : "approve";
+      const choice = String(form.get("choice") ?? "").trim() || null;
+      await decideApproval(deciding, decision, choice, String(form.get("note") ?? "").trim() || null, authToken);
+      const said = decision === "deny" ? "Denied." : choice ? `Chose “${choice}”.` : "Approved.";
+      return Astro.redirect(stepHref(slug, ctx, step.id, { [NOTICE_PARAM]: `${said} The workflow goes on; anything else it asks appears here.` }));
+    }
+    const done = await runStep(def, step, form, ctx, authToken);
     const target = done.stay ? step : (nextStep(def, done.ctx, step.id) ?? step);
     return Astro.redirect(stepHref(slug, done.ctx, target.id, done.notice ? { [NOTICE_PARAM]: done.notice } : {}));
   } catch (e) {
@@ -51,6 +60,9 @@ let leftOut: any[] = [];
 let checks: { label: string; ok: boolean; count: number }[] = [];
 let columns: any[] = [];
 let flow: { found: boolean; enabled: boolean; name?: string } = { found: true, enabled: true };
+let pendingCards: ApprovalCard[] = [];
+let decidedCards: ApprovalCard[] = [];
+let watchIds: string[] = [];
 
 if (authToken && def && step && !problem) {
   if (step.kind === "choose" || step.kind === "list") {
@@ -74,6 +86,12 @@ if (authToken && def && step && !problem) {
     }
   } else if (step.kind === "run") {
     flow = await workflowState(step.workflow, authToken);
+    // The approvals this run raises are about the entries the step hands it: those are the cards shown here.
+    const about = (await Promise.all(inputKeys(step).map((k) => entryBySlug(ctx[k], authToken)))).filter((e): e is Row => !!e).map((e) => e.id);
+    watchIds = about;
+    const cards = await approvalCards(authToken);
+    pendingCards = approvalsOf(cards.pending, step.workflow, about);
+    decidedCards = approvalsOf(cards.decided, step.workflow, about).slice(0, MAX_DECIDED_SHOWN);
   } else if (step.kind === "review") {
     checks = await Promise.all(
       (step.checks as Check[]).map(async (c) => {
@@ -261,15 +279,50 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
           )}
 
           {step.kind === "run" && (
-            <form method="post" class="form">
+            <div class="run" data-watch={notice || pendingCards.length ? "1" : undefined} data-workflow={step.workflow} data-entries={watchIds.join(",")} data-pending={String(pendingCards.length)}>
               {!flow.found && <div class="alert alert-info">This workspace has no workflow “{step.workflow}”. Install the package that brings it.</div>}
               {flow.found && !flow.enabled && (
                 <div class="alert alert-info">“{flow.name}” is switched off. Turn it on under <a href="/automation/workflows">Automation → Workflows</a> (it runs with its author’s permissions), then come back.</div>
               )}
-              <div class="actions">
-                <button class="button" type="submit" disabled={!flow.found || !flow.enabled}>{step.button ?? "Run"}</button>
-              </div>
-            </form>
+
+              {pendingCards.map((c) => (
+                <form method="post" class="approval">
+                  <input type="hidden" name="decide" value={c.id} />
+                  <p class="approval-title">{flow.name ?? step.workflow} is asking</p>
+                  <div class="approval-message">{c.message}</div>
+                  {c.imageUrl && <img class="approval-picture" src={c.imageUrl} alt="" loading="lazy" />}
+                  <label class="col"><span>Note (optional)</span><input class="input" name="note" /></label>
+                  <div class="actions">
+                    {c.choices?.length
+                      ? c.choices.map((label, n) => <button class:list={["button", n > 0 && "secondary"]} type="submit" name="choice" value={label}>{label}</button>)
+                      : <button class="button" type="submit" name="decision" value="approve">Approve</button>}
+                    <button class="button secondary" type="submit" name="decision" value="deny">Deny</button>
+                  </div>
+                </form>
+              ))}
+
+              {pendingCards.length === 0 && notice && flow.found && flow.enabled && <p class="muted waiting">Running… this page checks for anything to approve every few seconds.</p>}
+
+              <form method="post" class="form">
+                <div class="actions">
+                  <button class:list={["button", pendingCards.length > 0 && "secondary"]} type="submit" disabled={!flow.found || !flow.enabled}>
+                    {pendingCards.length > 0 || decidedCards.length > 0 ? `${step.button ?? "Run"} again` : (step.button ?? "Run")}
+                  </button>
+                  {after && (decidedCards.length > 0 || notice) && <a class="button" href={stepHref(slug, ctx, after.id)}>Continue →</a>}
+                </div>
+              </form>
+
+              {decidedCards.length > 0 && (
+                <details class="decided">
+                  <summary>Earlier answers ({decidedCards.length})</summary>
+                  <ul>
+                    {decidedCards.map((c) => (
+                      <li><strong>{c.choice ?? c.status}</strong> {c.decidedByName ? `by ${c.decidedByName}` : ""} {c.decidedAt ? `· ${new Date(c.decidedAt).toLocaleString()}` : ""}<span class="muted"> — {c.message.split("\n")[0].slice(0, 120)}</span></li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
           )}
 
           {step.kind === "review" && (
@@ -283,13 +336,37 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
 
           <div class="nav">
             {before ? <a class="button secondary" href={stepHref(slug, ctx, before.id)}>← Previous step</a> : <span />}
-            {after && step.kind !== "option" && step.kind !== "choose" && <a class="muted" href={stepHref(slug, ctx, after.id)}>Next step without saving →</a>}
+            {after && !["option", "choose", "run"].includes(step.kind) && <a class="muted" href={stepHref(slug, ctx, after.id)}>Next step without saving →</a>}
           </div>
         </section>
       </>
     )
   }
 </AppLayout>
+
+<script>
+  import { fetchApi } from "@/lib/api/client";
+  // A run step with something going on (just started, or a card waiting): reload when the set of cards for it changes, for ten minutes at most.
+  const run = document.querySelector<HTMLElement>(".run[data-watch]");
+  if (run) {
+    const slug = run.dataset.workflow;
+    const entries = (run.dataset.entries ?? "").split(",").filter(Boolean);
+    const shown = Number(run.dataset.pending ?? "0");
+    const started = Date.now();
+    const tick = async () => {
+      if (Date.now() - started > 10 * 60 * 1000) return;
+      try {
+        const cards = await fetchApi<{ automationSlug?: string; entryId?: string }[]>("/api/automations/approvals?state=pending");
+        const mine = cards.filter((c) => c.automationSlug === slug && (entries.length === 0 || !c.entryId || entries.includes(c.entryId)));
+        if (mine.length !== shown) return location.reload();
+      } catch {
+        /* a failed poll just tries again */
+      }
+      window.setTimeout(tick, 5000);
+    };
+    window.setTimeout(tick, 5000);
+  }
+</script>
 
 <style>
   .stepper { list-style: none; margin: 0 0 24px; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
@@ -326,6 +403,14 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
   .col .input { font-size: 14px; font-weight: 400; color: var(--ink); }
   .none { margin: 0; }
 
+  .run { display: grid; gap: 14px; }
+  .waiting { margin: 0; }
+  .approval { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--warn, #d08700); border-left-width: 3px; border-radius: var(--radius); background: color-mix(in srgb, var(--warn, #d08700) 6%, var(--bg)); }
+  .approval-title { margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
+  .approval-message { white-space: pre-wrap; font-size: 14px; line-height: 1.5; max-height: 320px; overflow: auto; padding-right: 4px; }
+  .approval-picture { max-width: 100%; max-height: 360px; border-radius: var(--radius); }
+  .decided summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  .decided ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; display: grid; gap: 4px; }
   .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
   .checks li { padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
   .checks .ok { color: var(--ink); border-color: var(--accent); }

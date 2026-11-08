@@ -178,3 +178,28 @@ export function missingForNewRow(
   if (!touched && !asked) return [];
   return [...(title ? [] : ["Name"]), ...required.filter((r) => !hasValue(values[r.key])).map((r) => r.label)];
 }
+
+/** The context keys a run step hands its workflow (`${key}` in its inputs): the entries its approvals will be about. */
+export function inputKeys(step: Step): string[] {
+  return [...new Set(Object.values(step.inputs ?? {}).flatMap((v) => (typeof v === "string" ? [...v.matchAll(REF)].map((m) => m[1]) : [])))];
+}
+
+export interface ApprovalCard {
+  id: string;
+  automationSlug?: string | null;
+  entryId?: string | null;
+  message: string;
+  status: string;
+  choices?: string[] | null;
+  choice?: string | null;
+  imageUrl?: string | null;
+  note?: string | null;
+  createdAt?: string | null;
+  decidedAt?: string | null;
+  decidedByName?: string | null;
+}
+
+/** The approvals that belong to this step: raised by its workflow, about one of the entries it was given (any entry when none was). */
+export function approvalsOf(cards: ApprovalCard[], workflowSlug: string, entryIds: string[]): ApprovalCard[] {
+  return cards.filter((c) => c.automationSlug === workflowSlug && (entryIds.length === 0 || !c.entryId || entryIds.includes(c.entryId)));
+}
