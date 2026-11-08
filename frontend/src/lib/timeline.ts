@@ -294,6 +294,15 @@ export function scale(items: { seconds: number }[], total: number, width: number
   return shortest === Infinity ? fit : Math.max(fit, MIN_ITEM_PX / shortest);
 }
 
+/** The narrowest the strip may be (px) so the shortest item still gets its minimum card; wider than this it fills whatever room there is. */
+export function minInnerWidth(items: { seconds: number }[], total: number): number {
+  const shortest = Math.min(...items.map((i) => i.seconds).filter((s) => s > 0), Infinity);
+  return shortest === Infinity || total <= 0 ? 0 : Math.ceil((MIN_ITEM_PX / shortest) * total);
+}
+
+/** A position or length in seconds as a CSS percentage of the whole timeline (the strip is laid out in percent, so it fills its container). */
+export const percent = (seconds: number, total: number): string => `${total > 0 ? Number(((seconds / total) * 100).toFixed(4)) : 0}%`;
+
 export const widthOf = (seconds: number, pxPerSecond: number): number => Math.max(MIN_ITEM_PX, Math.round(seconds * pxPerSecond));
 
 const TICK_STEPS = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
