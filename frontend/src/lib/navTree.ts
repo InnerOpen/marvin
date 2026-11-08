@@ -79,6 +79,8 @@ const NODES: NavNode[] = [
   // network has its own page under it (Inbox · Rules · Replies).
   { id: "workspace.wizards", label: "Guided setups", href: "/workspace/wizards", title: "Guided setups" },
   { id: "workspace.wizards.run", label: "Guided setup", href: "/workspace/wizards/[slug]", parent: "workspace.wizards" },
+  // A view of an entry (a story's timeline) is reached from that entry or a wizard's end button, not from a list, so it has no parent.
+  { id: "workspace.views.run", label: "View", href: "/workspace/views/[slug]" },
   { id: "workspace.social", label: "Social", href: "/workspace/social", title: "Social inbox" },
   { id: "workspace.social.network", label: "Network", href: "/workspace/social/[integration]", parent: "workspace.social" },
 
