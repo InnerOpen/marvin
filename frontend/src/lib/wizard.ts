@@ -32,6 +32,8 @@ export interface WizardDefinition {
   steps: Step[];
   /** What to do once the wizard is done, shown at the end. */
   next?: NextLine[];
+  /** The button at the end that opens what was made: `entry` is a key a choose step set. */
+  open?: { entry: string; label: string };
 }
 
 /** A step is done when the data says so: a choice or option that is set. Other kinds have no mark of their own (they can be redone). */
