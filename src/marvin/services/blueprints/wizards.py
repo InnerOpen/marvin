@@ -106,6 +106,17 @@ def payload_problem(payload: dict, slug: str) -> str | None:
             known.add(step["as"])
         if kind == "choose":
             entries.add(step["as"])
+    return _check_open(payload.get("open"), entries, slug)
+
+
+def _check_open(spec: Any, entries: set[str], slug: str) -> str | None:
+    """``open``: the button at the end that opens what was made, ``{entry, label}``; the entry is a key a choose step set."""
+    if spec is None:
+        return None
+    if not isinstance(spec, dict) or not isinstance(spec.get("label"), str) or not spec["label"].strip():
+        return f"wizard {slug!r}: open is {{entry, label}}, the button that opens what was made"
+    if spec.get("entry") not in entries:
+        return f"wizard {slug!r}: open names {spec.get('entry')!r}, which no choose step sets"
     return None
 
 
