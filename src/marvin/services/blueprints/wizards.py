@@ -16,11 +16,16 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
   reads it as text into ``field`` (a script, a beat sheet). ``accept`` lists extensions.
 - ``list``: the entries of ``entry_type`` whose ``parent_field`` holds context key ``parent``, with the ``columns`` editable in place and
   ``add`` to make another.
+- ``gallery``: the entries of ``entry_type`` as picture cards (a troupe of actors, a story's cast), scoped like a list (``parent_field`` holds
+  context key ``parent``; both or neither). ``picture`` is the asset field shown, ``subtitle`` a field under the name, ``badges`` fields shown
+  as pills. Actions, each optional: ``add`` ({fields, data?}: a form), ``upload`` ({field}: a picture becomes a new entry, named for the
+  file), ``generate`` ({workflow, inputs, button, prompt?: {name, label}}: a run, as a run step, with a text the person types).
 - ``run``: a button that starts the workflow ``workflow`` (by slug, one the same package brings) with ``inputs`` ({name: "${key}" | literal}),
   e.g. cutting the beats of a script once it is uploaded. ``requires`` ({entry, field}) keeps the button off until that field holds something.
   A workflow that is off is never turned on from here: the page says so.
-- ``review``: ``checks``, each ``{label, query, op, value}``: the query (entry-query spec: ``entry_type``, ``fields``, ``where``…) is
-  counted and compared (``gt gte eq lte lt``) to a number; all passing means the wizard is done.
+- ``review``: ``checks``, each ``{label, query, op, value, step?}``: the query (entry-query spec: ``entry_type``, ``fields``, ``where``…) is
+  counted and compared (``gt gte eq lte lt``) to a number; ``step`` names the step that makes it, linked when it fails. All passing means
+  the wizard is done.
 
 ``next`` ([{text, href?}]) is shown at the end: what to do once the wizard is done, with paths inside the app.
 ``when`` ({ctx, op: eq|neq|set|unset, value?}) hides a step unless it holds, which is how an upload step follows the option chosen.
@@ -34,7 +39,7 @@ from typing import Any
 
 MAX_STEPS = 40
 MAX_NEXT = 6  # lines of "what to do next" at the end
-STEP_KINDS = ("option", "choose", "form", "upload", "list", "run", "review")
+STEP_KINDS = ("option", "choose", "form", "upload", "list", "gallery", "run", "review")
 WHEN_OPS = ("eq", "neq", "set", "unset")
 CHECK_OPS = ("gt", "gte", "eq", "lte", "lt")
 UPLOAD_MODES = ("asset", "text")
@@ -95,7 +100,7 @@ def payload_problem(payload: dict, slug: str) -> str | None:
         kind = step.get("kind")
         if kind not in STEP_KINDS:
             return f"{label} has kind {kind!r}; it must be one of {', '.join(STEP_KINDS)}"
-        if (problem := _check_when(step.get("when"), known, label)) or (problem := _check_step(step, kind, known, entries, label)):
+        if (problem := _check_when(step.get("when"), known, label)) or (problem := _check_step(step, kind, known, entries, label, seen - {sid})):
             return problem
         if kind in ("option", "choose"):
             known.add(step["as"])
@@ -134,8 +139,9 @@ def _check_when(when: Any, known: set[str], label: str) -> str | None:
 class _Step:
     """One step being checked: its label for messages, and the context keys the steps before it set."""
 
-    def __init__(self, step: dict, known: set[str], entries: set[str], label: str):
+    def __init__(self, step: dict, known: set[str], entries: set[str], label: str, step_ids: set[str] | None = None):
         self.step, self.known, self.entries, self.label = step, known, entries, label
+        self.step_ids = step_ids or set()  # the ids of the steps before this one
 
     def ctx(self, key: str) -> str | None:
         """`key` of this step names the entry an earlier `choose` step picked."""
@@ -230,6 +236,8 @@ def _check_one_check(s: _Step, check: Any) -> str | None:
         return f"{s.label}: each check compares with one of {', '.join(CHECK_OPS)} to a whole number"
     if not isinstance(check["query"].get("entry_type"), str):
         return f"{s.label}: each check's query needs an entry_type"
+    if check.get("step") is not None and check["step"] not in s.step_ids:
+        return f"{s.label}: check {check['label']!r} names step {check['step']!r}, which is not before it"
     return s.refs_known(check["query"], "a check")
 
 
@@ -250,6 +258,34 @@ def _check_run(s: _Step) -> str | None:
     return s.refs_known(inputs, "inputs")
 
 
+def _check_gallery(s: _Step) -> str | None:
+    step = s.step
+    scoped = [k for k in ("parent", "parent_field") if step.get(k) is not None]
+    if len(scoped) == 1:
+        return f"{s.label}: parent and parent_field go together (or neither)"
+    if scoped and not _NAME.match(str(step.get("parent_field"))):
+        return f"{s.label}: parent_field must be a field key"
+    for key in ("picture", "subtitle"):
+        if step.get(key) is not None and not _NAME.match(str(step[key])):
+            return f"{s.label}: {key} must be a field key"
+    if step.get("badges") is not None and (problem := _keys(step["badges"], f"{s.label}: badges")):
+        return problem
+    if step.get("add") is not None and (problem := _check_create(s, step["add"])):
+        return problem.replace("create", "add")
+    if step.get("upload") is not None and not (isinstance(step["upload"], dict) and _NAME.match(str(step["upload"].get("field")))):
+        return f"{s.label}: upload needs the asset field the picture goes into"
+    if (gen := step.get("generate")) is not None:
+        if not isinstance(gen, dict):
+            return f"{s.label}: generate must be an object like a run step"
+        prompt = gen.get("prompt")
+        if prompt is not None and not (isinstance(prompt, dict) and _NAME.match(str(prompt.get("name"))) and isinstance(prompt.get("label"), str)):
+            return f"{s.label}: generate.prompt needs a name and a label"
+        typed = {prompt["name"]} if isinstance(prompt, dict) else set()
+        if problem := _check_run(_Step(gen, s.known | typed, s.entries, f"{s.label} generate")):
+            return problem
+    return s.entry_type() or (s.ctx("parent") if scoped else None)
+
+
 def _check_review(s: _Step) -> str | None:
     checks = s.step.get("checks")
     if not isinstance(checks, list) or not checks:
@@ -263,10 +299,11 @@ _CHECKS = {
     "form": _check_form,
     "upload": _check_upload,
     "list": _check_list,
+    "gallery": _check_gallery,
     "run": _check_run,
     "review": _check_review,
 }
 
 
-def _check_step(step: dict, kind: str, known: set[str], entries: set[str], label: str) -> str | None:
-    return _CHECKS[kind](_Step(step, known, entries, label))
+def _check_step(step: dict, kind: str, known: set[str], entries: set[str], label: str, seen: set[str] | None = None) -> str | None:
+    return _CHECKS[kind](_Step(step, known, entries, label, seen))

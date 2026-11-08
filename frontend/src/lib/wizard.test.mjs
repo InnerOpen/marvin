@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  approvalsOf, blocker, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, withoutEmpty,
+  approvalsOf, blocker, cardPicture, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, withoutEmpty,
 } from "./wizard.ts";
 
 const def = {
@@ -103,9 +103,9 @@ test("a run step hands the workflow the choices, and the notice is not a choice"
 test("a new row left empty is no row, but one begun or asked for needs its name and required columns", () => {
   const required = [{ key: "cast_id", label: "Cast id" }];
   assert.deepEqual(missingForNewRow("", { cast_id: null, role: null }, required, false), []);
-  assert.deepEqual(missingForNewRow("", { cast_id: null }, required, true), ["Name", "Cast id"]);
-  assert.deepEqual(missingForNewRow("Old cook", { cast_id: null }, required, false), ["Cast id"]);
-  assert.deepEqual(missingForNewRow("", { cast_id: "old-cook" }, required, false), ["Name"]);
+  assert.deepEqual(missingForNewRow("", { cast_id: null }, required, true).map((m) => m.label), ["Name", "Cast id"]);
+  assert.deepEqual(missingForNewRow("Old cook", { cast_id: null }, required, false).map((m) => m.key), ["cast_id"]);
+  assert.deepEqual(missingForNewRow("", { cast_id: "old-cook" }, required, false).map((m) => m.key), ["title"]);
   assert.deepEqual(missingForNewRow("Old cook", { cast_id: "old-cook" }, required, true), []);
   assert.deepEqual(missingForNewRow("", { presence: false }, required, false), []);
 });
@@ -142,4 +142,21 @@ test("a step shows done when the data says so: a choice or option that is set", 
   assert.equal(isDone(def.steps[0], {}), false);
   assert.equal(isDone(def.steps[3], { input: "script" }), true);
   assert.equal(isDone(def.steps[5], { story: "s" }), false); // a list has no mark of its own
+});
+
+test("a card's picture is the asset in the picture field's role, and generate is a run step with the prompt as a choice", () => {
+  const assets = [
+    { role: "age_view", publicUrl: "https://x/young.png", mimeType: "image/png" },
+    { role: "general_view", publicUrl: "https://x/now.png", mimeType: "image/png" },
+    { role: "voice_sample", publicUrl: "https://x/v.mp3", mimeType: "audio/mpeg" },
+  ];
+  assert.equal(cardPicture(assets, "general_view"), "https://x/now.png");
+  assert.equal(cardPicture(assets, "voice_sample"), null);
+  assert.equal(cardPicture(undefined, "general_view"), null);
+  const step = { id: "troupe", kind: "gallery", title: "T", entry_type: "actor", generate: { workflow: "make-actor", inputs: { world: "${world}", brief: "${brief}" }, button: "Make one", prompt: { name: "brief", label: "Who" } } };
+  const { run, extra } = generateAsRun(step, "a tall sailor");
+  assert.equal(run.kind, "run");
+  assert.equal(run.workflow, "make-actor");
+  assert.deepEqual(extra, { brief: "a tall sailor" });
+  assert.deepEqual(listSpec({ id: "g", kind: "gallery", title: "G", entry_type: "actor" }, {}), { entry_type: "actor" });
 });

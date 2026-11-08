@@ -90,6 +90,8 @@ class PackageManifest(_MarvinModel):
         workflows = {b.slug for b in self.blueprints if b.kind == "workflow"}
         for blueprint in (b for b in self.blueprints if b.kind == "wizard"):
             for step in (blueprint.payload or {}).get("steps") or []:
+                if isinstance(step, dict) and isinstance(step.get("generate"), dict):
+                    step = {"id": step.get("id"), "kind": "run", "workflow": step["generate"].get("workflow")}
                 if isinstance(step, dict) and step.get("kind") == "run" and step.get("workflow") not in workflows:
                     problems.append(
                         f"wizard '{blueprint.slug}': step {step.get('id')!r} runs {step.get('workflow')!r}, which this package does not bring"

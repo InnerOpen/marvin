@@ -14,7 +14,7 @@ export interface When {
 
 export interface Step {
   id: string;
-  kind: "option" | "choose" | "form" | "upload" | "list" | "run" | "review";
+  kind: "option" | "choose" | "form" | "upload" | "list" | "gallery" | "run" | "review";
   title: string;
   help?: string;
   when?: When;
@@ -46,6 +46,7 @@ export const NOTICES: Record<string, string> = {
   approved: "Approved. The workflow goes on; anything else it asks appears here.",
   denied: "Denied. The workflow stops there; run it again if you change your mind.",
   chosen: "Your choice was taken. The workflow goes on; anything else it asks appears here.",
+  added: "Added.",
 };
 /** Address parameters that are not choices: the step asked for, and the line to show after a step that started something. */
 export const NOTICE_PARAM = "notice";
@@ -150,9 +151,32 @@ export function createData(step: Step, ctx: Ctx): Record<string, unknown> {
   return withoutEmpty(substitute(step.create?.data, ctx));
 }
 
-/** The entries query behind a `list` step: those whose `parent_field` holds the parent's slug. */
+/** The entries query behind a `list` or `gallery` step: those whose `parent_field` holds the parent's slug (a gallery may be unscoped). */
 export function listSpec(step: Step, ctx: Ctx): Record<string, unknown> {
+  if (!step.parent_field) return { entry_type: step.entry_type };
   return { entry_type: step.entry_type, fields: { [step.parent_field]: ctx[step.parent] } };
+}
+
+export interface AttachedAsset {
+  role?: string | null;
+  publicUrl?: string | null;
+  mimeType?: string | null;
+  name?: string | null;
+}
+
+/** The picture a card shows: the asset attached in the picture field's role (a linked asset field syncs its role to its key). */
+export function cardPicture(assets: AttachedAsset[] | undefined, pictureField: string | undefined): string | null {
+  if (!pictureField) return null;
+  const hit = (assets ?? []).find((a) => a.role === pictureField && a.publicUrl && (a.mimeType ?? "").startsWith("image/"));
+  return hit?.publicUrl ?? null;
+}
+
+/** A gallery's generate action as the run step it is: the step's own keys plus the typed prompt as a context value. */
+export function generateAsRun(step: Step, promptValue: string | undefined): { run: Step; extra: Ctx } {
+  const gen = step.generate ?? {};
+  const run: Step = { id: `${step.id}-generate`, kind: "run", title: gen.button ?? "Generate", workflow: gen.workflow, inputs: gen.inputs ?? {}, button: gen.button };
+  const extra: Ctx = gen.prompt?.name && promptValue ? { [gen.prompt.name]: promptValue } : {};
+  return { run, extra };
 }
 
 export interface Check {
@@ -202,6 +226,15 @@ export function runInputs(step: Step, ctx: Ctx): Record<string, unknown> {
   return withoutEmpty(substitute(step.inputs, ctx));
 }
 
+/** A step's error with the form fields it is about (their input names), so the page can mark them. */
+export class StepError extends Error {
+  fields: string[];
+  constructor(message: string, fields: string[] = []) {
+    super(message);
+    this.fields = fields;
+  }
+}
+
 /** What a new list row still lacks. A row left entirely empty lacks nothing (it is no row); one with anything in it, or one the person asked to
  * add, needs its name and every required column. Returns the names of what is missing. */
 export function missingForNewRow(
@@ -209,10 +242,10 @@ export function missingForNewRow(
   values: Record<string, unknown>,
   required: { key: string; label: string }[],
   asked: boolean,
-): string[] {
+): { key: string; label: string }[] {
   const touched = !!title || Object.values(values).some((v) => v !== false && hasValue(v));
   if (!touched && !asked) return [];
-  return [...(title ? [] : ["Name"]), ...required.filter((r) => !hasValue(values[r.key])).map((r) => r.label)];
+  return [...(title ? [] : [{ key: "title", label: "Name" }]), ...required.filter((r) => !hasValue(values[r.key]))];
 }
 
 /** The context keys a run step hands its workflow (`${key}` in its inputs): the entries its approvals will be about. */
