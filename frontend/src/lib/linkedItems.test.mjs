@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assetItem, canAdd, chosen, idsOf, matches, resourceItem, serialize } from "./linkedItems.ts";
+import { assetItem, canAdd, chosen, idsOf, matches, resourceItem, serialize, nameFromFile, uploadSlug } from "./linkedItems.ts";
 
 test("idsOf reads a list, a single id, or an older comma-separated string", () => {
   assert.deepEqual(idsOf(["a", "b"]), ["a", "b"]);
@@ -51,4 +51,14 @@ test("assetItem carries an audio file's url so its card can play it", () => {
   assert.equal(item.audioUrl, "/sarah.mp3");
   assert.equal(item.imageUrl, null);
   assert.equal(assetItem({ id: "2", name: "pic", mimeType: "image/png", publicUrl: "/p.png" }).audioUrl, null);
+});
+
+test("an upload from a field gets a slug from its name and a name from its file", () => {
+  assert.equal(uploadSlug("Grace's Blue Boat.JPG", "k1"), "grace-s-blue-boat-k1");
+  assert.equal(uploadSlug("   ", "k1"), "asset-k1");
+  assert.equal(uploadSlug("Blue Boat", ""), "blue-boat");
+  assert.equal(uploadSlug("", ""), "asset");
+  assert.equal(uploadSlug("x".repeat(80), "k1").length, 63);
+  assert.equal(nameFromFile("blue_boat-2024.jpg"), "blue boat 2024");
+  assert.equal(nameFromFile("IMG_0042.HEIC"), "IMG 0042");
 });

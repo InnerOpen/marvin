@@ -62,6 +62,7 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
   </ul>
 
   {!field.readOnly && (
+    <div class="li-actions">
     <details class="li-picker" data-linked-picker>
       <summary class:list={["button", "secondary", "li-choose", { "li-hidden": !addable }]} data-linked-choose>Choose {multiple ? `${noun}s` : `an ${noun}`}…</summary>
       <div class="li-panel">
@@ -79,6 +80,38 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
         <p class="li-none" data-linked-none hidden>Nothing matches.</p>
       </div>
     </details>
+    {isAsset && (
+      <button type="button" class:list={["button", "secondary", "li-upload-open", { "li-hidden": !addable }]} data-linked-upload-open>Upload {multiple ? "assets" : "an asset"}…</button>
+    )}
+    </div>
+  )}
+
+  {isAsset && !field.readOnly && (
+    <dialog class="li-upload" data-linked-upload aria-labelledby={`${inputId}-upload-title`}>
+      <div class="li-upload-body">
+        <h3 id={`${inputId}-upload-title`}>Upload {field.label}</h3>
+        <p class="field-help">A new asset for this field: a picture opens in the cropper first (crop, rotate, brightness, contrast). It is uploaded now, chosen here, and attached as <code>{role}</code> when you save.</p>
+        <label class="li-upload-label">File
+          <input type="file" data-linked-upload-file accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.svg" />
+        </label>
+        <div class="li-upload-preview" data-linked-upload-preview hidden><img alt="" /><button type="button" class="button secondary li-upload-again" data-linked-upload-again hidden>Crop or adjust again…</button></div>
+        <label class="li-upload-keep" data-linked-upload-keep hidden><input type="checkbox" data-linked-upload-keep-on checked /> Keep the original file in the library too (the cropped picture is saved as a version made from it)</label>
+        <label class="li-upload-label">Name
+          <input type="text" data-linked-upload-name maxlength="200" />
+        </label>
+        <label class="li-upload-label">Alt text <small>(what the picture shows, for people who cannot see it)</small>
+          <input type="text" data-linked-upload-alt maxlength="500" />
+        </label>
+        <label class="li-upload-label">Description <small>(optional)</small>
+          <textarea rows="2" data-linked-upload-description></textarea>
+        </label>
+        <p class="field-error" data-linked-upload-error hidden></p>
+        <div class="li-upload-actions">
+          <button type="button" class="button secondary" data-linked-upload-cancel>Cancel</button>
+          <button type="button" class="button" data-linked-upload-go disabled>Upload and choose</button>
+        </div>
+      </div>
+    </dialog>
   )}
 
   {field.helpText && <p class="field-help">{field.helpText}</p>}
@@ -105,7 +138,19 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
   .li-field .li-remove, .li-field .li-add { flex: 0 0 auto; width: 28px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; display: grid; place-items: center; }
   .li-field .li-remove:hover { color: var(--color-error); border-color: var(--color-error); }
   .li-field .li-add:hover { color: var(--color-primary); border-color: var(--color-primary); }
+  .li-field .li-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
   .li-field .li-picker { position: relative; }
+  .li-field .li-upload { border: 1px solid var(--line); border-radius: 12px; padding: 0; width: min(480px, calc(100vw - 32px)); background: var(--panel); color: var(--ink); }
+  .li-field .li-upload::backdrop { background: rgb(0 0 0 / 0.35); }
+  .li-field .li-upload-body { display: grid; gap: 12px; padding: 20px; }
+  .li-field .li-upload-body h3 { margin: 0; font-size: 1.1rem; }
+  .li-field .li-upload-label { display: grid; gap: 4px; font-size: 0.875rem; font-weight: 600; }
+  .li-field .li-upload-label small { font-weight: 400; color: var(--muted); }
+  .li-field .li-upload-label input[type="text"], .li-field .li-upload-label textarea { font: inherit; padding: 0.5rem 0.75rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
+  .li-field .li-upload-preview { display: grid; gap: 8px; justify-items: start; }
+  .li-field .li-upload-preview img { max-width: 100%; max-height: 180px; border-radius: 8px; display: block; }
+  .li-field .li-upload-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .li-field .li-upload-keep { display: flex; gap: 8px; align-items: flex-start; font-size: 0.8125rem; color: var(--muted); }
   .li-field .li-picker summary { list-style: none; display: inline-flex; width: max-content; cursor: pointer; }
   .li-field .li-picker summary::-webkit-details-marker { display: none; }
   .li-field .li-hidden { display: none !important; }
@@ -120,7 +165,8 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
 </style>
 
 <script>
-  import { canAdd, matches, serialize } from "@/lib/linkedItems";
+  import { assetItem, canAdd, matches, nameFromFile, serialize, uploadSlug } from "@/lib/linkedItems";
+  import { fetchApi } from "@/lib/api/client";
 
   // Each field keeps its ids in the hidden input; the cards and the option list are redrawn from it, so the page's own
   // "unsaved changes" tracking (a change event on the input) keeps working.
@@ -184,6 +230,7 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
       options.forEach((o) => (o.hidden = current.includes(o.dataset.id!) || !matches({ id: o.dataset.id!, name: o.dataset.name || "", meta: o.dataset.meta }, search.value)));
       none.hidden = options.some((o) => !o.hidden) || options.length === 0;
       choose.classList.toggle("li-hidden", !canAdd(current.length, multiple, max));
+      root.querySelector("[data-linked-upload-open]")?.classList.toggle("li-hidden", !canAdd(current.length, multiple, max));
       if (!canAdd(current.length, multiple, max)) picker.open = false;
     }
 
@@ -209,6 +256,158 @@ const role = (field as { role?: string | null }).role?.trim() || field.key;
 
     search.addEventListener("input", refresh);
     picker.addEventListener("toggle", () => picker.open && search.focus());
+
+    // Upload from here: a dialog like the Upload page, without leaving the form. A raster picture goes through the page's cropper first
+    // (crop, rotate, brightness, contrast). The new asset becomes an option and is chosen at once; saving the entry attaches it in this
+    // field's role, as with any chosen asset.
+    const dialog = root.querySelector<HTMLDialogElement>("[data-linked-upload]");
+    const openUpload = root.querySelector<HTMLButtonElement>("[data-linked-upload-open]");
+    if (dialog && openUpload) {
+      const file = dialog.querySelector<HTMLInputElement>("[data-linked-upload-file]")!;
+      const name = dialog.querySelector<HTMLInputElement>("[data-linked-upload-name]")!;
+      const alt = dialog.querySelector<HTMLInputElement>("[data-linked-upload-alt]")!;
+      const description = dialog.querySelector<HTMLTextAreaElement>("[data-linked-upload-description]")!;
+      const preview = dialog.querySelector<HTMLElement>("[data-linked-upload-preview]")!;
+      const again = dialog.querySelector<HTMLButtonElement>("[data-linked-upload-again]")!;
+      const keep = dialog.querySelector<HTMLElement>("[data-linked-upload-keep]")!;
+      const keepOn = dialog.querySelector<HTMLInputElement>("[data-linked-upload-keep-on]")!;
+      let original: File | null = null; // the file as picked, when the cropper made something else of it
+      let source: { id: string } | null = null; // the original once uploaded, so a retry never sends it twice
+      const error = dialog.querySelector<HTMLElement>("[data-linked-upload-error]")!;
+      const go = dialog.querySelector<HTMLButtonElement>("[data-linked-upload-go]")!;
+      const cancel = dialog.querySelector<HTMLButtonElement>("[data-linked-upload-cancel]")!;
+      let picked: File | null = null; // what will be sent: the cropper's output, or the file as it came
+      const reset = () => {
+        file.value = "";
+        name.value = "";
+        alt.value = "";
+        description.value = "";
+        preview.hidden = true;
+        again.hidden = true;
+        keep.hidden = true;
+        error.hidden = true;
+        go.disabled = true;
+        go.textContent = "Upload and choose";
+        picked = null;
+        original = null;
+        source = null;
+      };
+      const show = (f: File) => {
+        picked = f;
+        go.disabled = false;
+        const img = preview.querySelector("img")!;
+        if (f.type.startsWith("image/")) {
+          img.src = URL.createObjectURL(f);
+          preview.hidden = false;
+        } else preview.hidden = true;
+      };
+      type CropperClass = new () => { show: (f: File, ok: (b: Blob) => void, no?: () => void) => void };
+      const crop = (f: File) => {
+        // Looked up when needed: the cropper's own script (SchemaForm puts one on the page) may run after this one.
+        const Cropper = (window as unknown as { ImageCropper?: CropperClass }).ImageCropper;
+        if (!Cropper || !f.type.startsWith("image/") || f.type === "image/svg+xml") return show(f);
+        // The cropper is a modal of its own over this dialog: hide the dialog while it is up so the two do not fight for the screen.
+        dialog.close();
+        try {
+          new Cropper().show(
+            f,
+            (blob) => {
+              const type = blob.type || "image/jpeg";
+              const ext = type === "image/png" ? ".png" : type === "image/webp" ? ".webp" : ".jpg";
+              show(new File([blob], f.name.replace(/\.[a-z0-9]+$/i, "") + ext, { type }));
+              original = f;
+              again.hidden = false;
+              keep.hidden = false; // the crop is a smaller copy: the archive may want the file as it came
+              dialog.showModal();
+            },
+            () => {
+              show(f);
+              original = null;
+              again.hidden = false;
+              keep.hidden = true;
+              dialog.showModal();
+            },
+          );
+        } catch {
+          show(f);
+          dialog.showModal();
+        }
+      };
+      openUpload.addEventListener("click", () => {
+        reset();
+        picker.open = false;
+        dialog.showModal();
+      });
+      cancel.addEventListener("click", () => dialog.close());
+      file.addEventListener("change", () => {
+        const f = file.files?.[0];
+        if (!f) return;
+        if (!name.value.trim()) name.value = nameFromFile(f.name);
+        crop(f);
+      });
+      again.addEventListener("click", () => {
+        const f = file.files?.[0];
+        if (f) crop(f);
+      });
+      type Made = { id: string; name: string; mimeType?: string | null; publicUrl?: string | null; altText?: string | null };
+      const send = (f: File, slug: string, title: string, metadata?: Record<string, string>) => {
+        const body = new FormData();
+        body.append("file", f);
+        body.append("slug", slug);
+        body.append("name", title);
+        if (alt.value.trim()) body.append("alt_text", alt.value.trim());
+        if (description.value.trim()) body.append("description", description.value.trim());
+        if (metadata) body.append("metadata", JSON.stringify(metadata));
+        return fetchApi<Made>("/api/platform/assets/upload", { method: "POST", body });
+      };
+      // The crop goes up as a version made from the original (the library shows the lineage), when the original is kept. The original is
+      // sent once, with a stamped slug of its own; only the crop's slug is retried when a nicer one is taken.
+      const upload = async (slug: string) => {
+        if (!picked) return null;
+        const title = name.value.trim() || nameFromFile(picked.name);
+        if (original && !keep.hidden && keepOn.checked && !source) source = await send(original, uploadSlug(`${title} original`), `${title} (original)`);
+        return send(picked, slug, title, source ? { derived_from: source.id, derivation: "edited:cropper" } : undefined);
+      };
+      go.addEventListener("click", async () => {
+        if (!picked) return;
+        error.hidden = true;
+        go.disabled = true;
+        go.textContent = "Uploading…";
+        try {
+          let made: Awaited<ReturnType<typeof upload>>;
+          try {
+            made = await upload(uploadSlug(name.value.trim() || picked.name, ""));
+          } catch (e) {
+            // The slug is taken (a second "Blue boat"): once more with a stamp.
+            if (!/exist|taken|duplicate|unique|409|conflict/i.test(e instanceof Error ? e.message : String(e))) throw e;
+            made = await upload(uploadSlug(name.value.trim() || picked.name));
+          }
+          if (!made) return;
+          const item = assetItem(made);
+          const option = document.createElement("li");
+          option.className = "li-card li-option";
+          option.dataset.id = item.id;
+          option.dataset.name = item.name;
+          option.dataset.meta = item.meta ?? "";
+          option.dataset.image = item.imageUrl ?? "";
+          option.dataset.alt = item.alt ?? "";
+          option.hidden = true;
+          picker.querySelector("[data-linked-options]")!.append(option);
+          options.push(option);
+          const current = ids();
+          if (canAdd(current.length, multiple, max)) {
+            chosenEl.append(card(option));
+            setIds([...current, item.id]);
+          }
+          dialog.close();
+        } catch (e) {
+          error.textContent = e instanceof Error ? e.message : "The upload failed.";
+          error.hidden = false;
+          go.disabled = false;
+          go.textContent = "Upload and choose";
+        }
+      });
+    }
     // The entry editor's sidebar removed an attachment with this field's role: drop the id here too, or the next save
     // would attach it again (the field owns its role; see services/entries/linked_fields.py).
     root.addEventListener("linked-field:drop", (e) => {

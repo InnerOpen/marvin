@@ -3,6 +3,7 @@ import BooleanField from "./schema-fields/BooleanField.astro";
 import DateField from "./schema-fields/DateField.astro";
 import DateTimeField from "./schema-fields/DateTimeField.astro";
 import EmbedField from "./schema-fields/EmbedField.astro";
+import ImageCropper from "@/components/ImageCropper.astro";
 import LinkedItemsField from "./schema-fields/LinkedItemsField.astro";
 import MarkdownField from "./schema-fields/MarkdownField.astro";
 import NumberField from "./schema-fields/NumberField.astro";
@@ -39,6 +40,8 @@ export interface Props {
 }
 
 const { schema, values = {}, errors = {}, assets = [], resources = [] } = Astro.props;
+// An asset field can upload from its own dialog, which sends a picture through the page's cropper: one cropper per page, only when needed.
+const hasAssetField = (schema.fields ?? []).some((f: { type?: string }) => f.type === "asset" || f.type === "asset-list");
 
 // If no schema provided, show empty state
 if (!schema?.fields || schema.fields.length === 0) {
@@ -132,6 +135,7 @@ function getFieldError(key: string) {
     }
   })}
 </div>
+{hasAssetField && <ImageCropper />}
 
 <style>
   .schema-form {

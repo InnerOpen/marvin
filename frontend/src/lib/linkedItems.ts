@@ -55,3 +55,20 @@ export function assetItem(a: { id: string; name: string; mimeType?: string | nul
 export function resourceItem(r: { id: string; name: string; slug?: string | null }): LinkedItem {
   return { id: r.id, name: r.name, meta: r.slug ?? null };
 }
+
+/** A slug for an asset uploaded from a field: the name, lowercased with dashes, capped; a short stamp keeps a second "Untitled" apart. */
+export function uploadSlug(name: string, stamp: string = Date.now().toString(36)): string {
+  const base = name
+    .toLowerCase()
+    .replace(/\.[a-z0-9]{1,5}$/, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return stamp ? `${base || "asset"}-${stamp}` : base || "asset";
+}
+
+/** The name an upload starts with: the file's name without its extension, underscores and dashes as spaces. */
+export function nameFromFile(filename: string): string {
+  return filename.replace(/\.[a-z0-9]{1,5}$/i, "").replace(/[_-]+/g, " ").trim() || filename;
+}
+

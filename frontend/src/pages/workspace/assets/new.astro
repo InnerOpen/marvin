@@ -57,6 +57,7 @@ try {
           </div>
           <div class="upload-batch" id="uploadBatch" style="display: none;">
             <p class="batch-summary" id="batchSummary"></p>
+            <label class="batch-adjust" id="batchAdjust" hidden><input type="checkbox" id="batchAdjustOn" /> <span id="batchAdjustText">Apply my last adjustments to every picture</span></label>
             <ul class="batch-list" id="batchList"></ul>
             <button type="button" class="button secondary small" id="changeFiles">Change files</button>
           </div>
@@ -237,6 +238,7 @@ try {
 
   .upload-batch { text-align: left; }
   .batch-summary { margin: 0 0 0.5rem; font-weight: 600; }
+  .batch-adjust { display: flex; gap: 0.5rem; align-items: flex-start; margin: 0 0 0.75rem; font-size: 0.875rem; font-weight: 400; }
   .batch-list { margin: 0 0 1rem; padding: 0; list-style: none; max-height: 240px; overflow: auto; font-size: 0.875rem; }
   .batch-list li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.25rem 0; border-bottom: 1px solid var(--line); }
   .batch-size { color: var(--muted); white-space: nowrap; }
@@ -313,6 +315,40 @@ try {
   const uploadBatch = document.getElementById('uploadBatch') as HTMLElement;
   const batchSummary = document.getElementById('batchSummary') as HTMLElement;
   const batchList = document.getElementById('batchList') as HTMLElement;
+  const batchAdjust = document.getElementById('batchAdjust') as HTMLElement;
+  const batchAdjustOn = document.getElementById('batchAdjustOn') as HTMLInputElement;
+  const batchAdjustText = document.getElementById('batchAdjustText') as HTMLElement;
+  // The cropper remembers the last brightness, contrast and saturation; a batch (which skips the cropper) can take the same look.
+  const rememberedAdjust = () => ((window as any).ImageCropper?.rememberedFilter?.() ?? null) as { filter: string; summary: string } | null;
+  function showBatchAdjust() {
+    const kept = rememberedAdjust();
+    batchAdjust.hidden = !kept;
+    if (kept) batchAdjustText.textContent = `Apply my last adjustments (${kept.summary}) to every picture, fitted within ${maxBox().w}×${maxBox().h} (JPEG; a PNG stays PNG), like a single cropped upload`;
+  }
+  /** The cropper's max size and quality, as set on the page (its controls are there even when the batch skips it). */
+  const maxBox = () => ({
+    w: parseInt((document.getElementById('maxWidth') as HTMLInputElement)?.value || '1920'),
+    h: parseInt((document.getElementById('maxHeight') as HTMLInputElement)?.value || '1080'),
+    q: parseInt((document.getElementById('quality') as HTMLInputElement)?.value || '85') / 100,
+  });
+  /** A raster picture with the remembered adjustments baked in, fitted within the cropper's max size, as JPEG: the same format a single
+   * cropped upload gives. Anything that is not a raster picture goes as it is. */
+  async function adjusted(file: File, filter: string): Promise<File> {
+    if (!file.type.startsWith('image/') || file.type === 'image/svg+xml') return file;
+    const bitmap = await createImageBitmap(file);
+    const { w, h, q } = maxBox();
+    const ratio = Math.min(1, w / bitmap.width, h / bitmap.height);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * ratio);
+    canvas.height = Math.round(bitmap.height * ratio);
+    const ctx = canvas.getContext('2d')!;
+    ctx.filter = filter;
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const keep = file.type === 'image/png' || file.type === 'image/webp'; // transparency stays; anything else becomes a JPEG
+    const type = keep ? file.type : 'image/jpeg';
+    const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, type, q));
+    return blob ? new File([blob], keep ? file.name : file.name.replace(/\.[a-z0-9]+$/i, '') + '.jpg', { type }) : file;
+  }
   const batchHelp = document.getElementById('batchHelp') as HTMLElement;
   const changeFilesBtn = document.getElementById('changeFiles') as HTMLButtonElement;
   const nameGroup = nameInput.closest('.form-group') as HTMLElement | null;
@@ -387,6 +423,7 @@ try {
     uploadPreview.style.display = 'none';
     uploadBatch.style.display = 'block';
     batchHelp.style.display = 'block';
+    showBatchAdjust();
     batchSummary.textContent = `${selectedFiles.length} files, ${formatFileSize(selectedFiles.reduce((n, f) => n + f.size, 0))}`;
     batchList.replaceChildren(
       ...selectedFiles.map((file) => {
@@ -434,7 +471,7 @@ try {
       try {
         const cropper = new (window as any).ImageCropper();
         cropper.show(file, (blob: Blob) => {
-          selectedFile = new File([blob], file.name, { type: 'image/jpeg' });
+          selectedFile = new File([blob], file.name, { type: blob.type || 'image/jpeg' });
           showPreview(selectedFile);
         }, () => {
           selectedFile = file;
@@ -617,6 +654,7 @@ try {
     const taken = new Set<string>();
     const failed: Array<{ name: string; reason: string }> = [];
     let done = 0;
+    const look = batchAdjustOn.checked ? rememberedAdjust() : null;
     for (const file of selectedFiles) {
       const name = nameFor(file);
       progressText.textContent = `Uploading ${done + 1} of ${total}: ${name}`;
@@ -628,7 +666,7 @@ try {
       let tries = 0;
       while (true) {
         try {
-          await sdk.assets.upload(file, { slug, name, altText: altText || undefined, description: description || undefined, metadata });
+          await sdk.assets.upload(look ? await adjusted(file, look.filter) : file, { slug, name, altText: altText || undefined, description: description || undefined, metadata });
           taken.add(slug);
           break;
         } catch (error: any) {

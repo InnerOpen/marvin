@@ -42,6 +42,28 @@
           <span id="qualityValue">85%</span>
         </div>
       </div>
+      <div class="cropper-controls cropper-adjust">
+        <div class="control-group">
+          <label>Brightness</label>
+          <input type="range" id="adjBrightness" value="100" min="40" max="160" data-adjust="brightness" />
+          <span data-adjust-value="brightness">100%</span>
+        </div>
+        <div class="control-group">
+          <label>Contrast</label>
+          <input type="range" id="adjContrast" value="100" min="40" max="160" data-adjust="contrast" />
+          <span data-adjust-value="contrast">100%</span>
+        </div>
+        <div class="control-group">
+          <label>Saturation</label>
+          <input type="range" id="adjSaturation" value="100" min="0" max="200" data-adjust="saturation" />
+          <span data-adjust-value="saturation">100%</span>
+        </div>
+        <div class="control-group control-buttons">
+          <button type="button" class="button secondary" id="rotateLeft" title="Rotate a quarter turn left">↺ Rotate</button>
+          <button type="button" class="button secondary" id="rotateRight" title="Rotate a quarter turn right">↻ Rotate</button>
+          <button type="button" class="button secondary" id="resetAdjust" title="Back to the picture as it came">Reset</button>
+        </div>
+      </div>
     </div>
 
     <div class="cropper-footer">
@@ -52,6 +74,9 @@
 </div>
 
 <style>
+  .cropper-adjust { border-top: 1px solid var(--line, #ddd); margin-top: 8px; padding-top: 8px; }
+  .cropper-adjust .control-buttons { display: flex; gap: 6px; flex-wrap: wrap; align-items: flex-end; }
+  .cropper-adjust .control-buttons .button { padding: 6px 10px; font-size: 13px; }
   .image-cropper-modal {
     position: fixed;
     top: 0;
@@ -143,7 +168,8 @@
   #cropCanvas {
     display: block;
     max-width: 100%;
-    max-height: calc(95vh - 400px);
+    /* Room for both control rows and the footer; a tall (rotated) picture shrinks to fit rather than running over the sliders. */
+    max-height: max(220px, calc(95vh - 560px));
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   }
 
@@ -240,6 +266,9 @@
     private ctx: CanvasRenderingContext2D;
     private cropBox: HTMLElement;
     private image: HTMLImageElement | null = null;
+    // The picture as shown and exported: the file turned by `rotation` quarter turns, with brightness, contrast and saturation over it.
+    private rotated: HTMLCanvasElement | null = null;
+    private adjust = { brightness: 100, contrast: 100, saturation: 100, rotation: 0 };
     private crop = { x: 0, y: 0, width: 0, height: 0 };
     // The crop is kept in canvas pixels; the canvas is shown scaled (a phone shows a 1200px preview at ~340px), so
     // pointer movement is converted by `scale()` and the box is drawn at crop / scale.
@@ -262,6 +291,15 @@
       document.getElementById('closeCropper')!.addEventListener('click', () => this.cancel());
       document.getElementById('cancelCrop')!.addEventListener('click', () => this.cancel());
       document.getElementById('applyCrop')!.addEventListener('click', () => this.apply());
+      this.modal.querySelectorAll<HTMLInputElement>('[data-adjust]').forEach((slider) =>
+        slider.addEventListener('input', () => {
+          (this.adjust as any)[slider.dataset.adjust!] = Number(slider.value);
+          this.showAdjust();
+        }),
+      );
+      document.getElementById('rotateLeft')!.addEventListener('click', () => this.rotate(-1));
+      document.getElementById('rotateRight')!.addEventListener('click', () => this.rotate(1));
+      document.getElementById('resetAdjust')!.addEventListener('click', () => this.resetAdjust());
 
       // Quality slider
       const qualitySlider = document.getElementById('quality') as HTMLInputElement;
@@ -280,15 +318,20 @@
       new ResizeObserver(() => this.updateCropBox()).observe(this.canvas);
     }
 
+    private outType = 'image/jpeg'; // a PNG or WebP stays what it is (transparency kept); anything else becomes a JPEG
+
     public show(file: File, onApply: (blob: Blob) => void, onCancel?: () => void) {
       this.onApply = onApply;
       this.onCancel = onCancel || null;
+      this.outType = file.type === 'image/png' || file.type === 'image/webp' ? file.type : 'image/jpeg';
 
       const reader = new FileReader();
       reader.onload = (e) => {
         const img = new Image();
         img.onload = () => {
           this.image = img;
+          this.resetAdjust(false);
+          this.recallAdjust();
           this.drawImage();
           this.resetCrop();
           this.modal.style.display = 'flex';
@@ -301,6 +344,8 @@
     public hide() {
       this.modal.style.display = 'none';
       this.image = null;
+      this.rotated = null;
+      this.canvas.style.filter = 'none';
     }
 
     private cancel() {
@@ -311,14 +356,104 @@
       }
     }
 
+    /** The full-size picture to crop from: the file as it came, or turned when a rotation is set. */
+    private src(): HTMLImageElement | HTMLCanvasElement {
+      const img = this.image!;
+      const turns = ((this.adjust.rotation % 4) + 4) % 4;
+      if (turns === 0) return img;
+      if (!this.rotated) {
+        const c = document.createElement('canvas');
+        const sideways = turns % 2 === 1;
+        c.width = sideways ? img.height : img.width;
+        c.height = sideways ? img.width : img.height;
+        const ctx = c.getContext('2d')!;
+        ctx.translate(c.width / 2, c.height / 2);
+        ctx.rotate((turns * Math.PI) / 2);
+        ctx.drawImage(img, -img.width / 2, -img.height / 2);
+        this.rotated = c;
+      }
+      return this.rotated;
+    }
+
+    private filter(): string {
+      const { brightness, contrast, saturation } = this.adjust;
+      return brightness === 100 && contrast === 100 && saturation === 100 ? 'none' : `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)`;
+    }
+
+    /** The sliders' values on the preview (a CSS filter, instant) and on their labels. */
+    private showAdjust() {
+      this.canvas.style.filter = this.filter();
+      this.modal.querySelectorAll<HTMLElement>('[data-adjust-value]').forEach((el) => {
+        el.textContent = `${(this.adjust as any)[el.dataset.adjustValue!]}%`;
+      });
+    }
+
+    private rotate(dir: 1 | -1) {
+      this.adjust.rotation += dir;
+      this.rotated = null;
+      this.drawImage();
+      this.resetCrop();
+    }
+
+    private static REMEMBER = 'cropper-adjust'; // the last brightness, contrast and saturation used, so a batch of pictures gets the same look
+
+    /** The sliders start where they were left last time (never the rotation or the crop: those belong to one picture). */
+    private recallAdjust() {
+      try {
+        const kept = JSON.parse(localStorage.getItem(ImageCropper.REMEMBER) || 'null');
+        if (!kept) return;
+        for (const key of ['brightness', 'contrast', 'saturation'] as const) {
+          const v = Number(kept[key]);
+          if (Number.isFinite(v)) (this.adjust as any)[key] = v;
+        }
+        this.modal.querySelectorAll<HTMLInputElement>('[data-adjust]').forEach((slider) => (slider.value = String((this.adjust as any)[slider.dataset.adjust!])));
+        this.showAdjust();
+      } catch {
+        /* nothing remembered */
+      }
+    }
+
+    private rememberAdjust() {
+      try {
+        const { brightness, contrast, saturation } = this.adjust;
+        localStorage.setItem(ImageCropper.REMEMBER, JSON.stringify({ brightness, contrast, saturation }));
+      } catch {
+        /* a private window forgets, nothing more */
+      }
+    }
+
+    /** The remembered adjustments, for a batch that skips the cropper: a CSS filter string, or null when they are neutral. */
+    public static rememberedFilter(): { filter: string; summary: string } | null {
+      try {
+        const kept = JSON.parse(localStorage.getItem(ImageCropper.REMEMBER) || 'null');
+        if (!kept) return null;
+        const b = Number(kept.brightness) || 100, c = Number(kept.contrast) || 100, s = Number(kept.saturation) || 100;
+        if (b === 100 && c === 100 && s === 100) return null;
+        return { filter: `brightness(${b}%) contrast(${c}%) saturate(${s}%)`, summary: `brightness ${b}%, contrast ${c}%, saturation ${s}%` };
+      } catch {
+        return null;
+      }
+    }
+
+    private resetAdjust(redraw = true) {
+      this.adjust = { brightness: 100, contrast: 100, saturation: 100, rotation: 0 };
+      this.rotated = null;
+      this.modal.querySelectorAll<HTMLInputElement>('[data-adjust]').forEach((slider) => (slider.value = '100'));
+      this.showAdjust();
+      if (redraw && this.image) {
+        this.drawImage();
+        this.resetCrop();
+      }
+    }
+
     private drawImage() {
       if (!this.image) return;
 
       // Use larger preview canvas for better editing experience
       const maxWidth = 1200;
       const maxHeight = 800;
-      let width = this.image.width;
-      let height = this.image.height;
+      let width = this.src().width;
+      let height = this.src().height;
 
       if (width > maxWidth || height > maxHeight) {
         const ratio = Math.min(maxWidth / width, maxHeight / height);
@@ -328,7 +463,7 @@
 
       this.canvas.width = width;
       this.canvas.height = height;
-      this.ctx.drawImage(this.image, 0, 0, width, height);
+      this.ctx.drawImage(this.src(), 0, 0, width, height);
     }
 
     private resetCrop() {
@@ -417,8 +552,8 @@
       if (!this.image) return;
 
       // Get crop dimensions in original image coordinates
-      const scaleX = this.image.width / this.canvas.width;
-      const scaleY = this.image.height / this.canvas.height;
+      const scaleX = this.src().width / this.canvas.width;
+      const scaleY = this.src().height / this.canvas.height;
 
       const cropX = this.crop.x * scaleX;
       const cropY = this.crop.y * scaleY;
@@ -446,20 +581,22 @@
       outputCanvas.height = outputHeight;
       const outputCtx = outputCanvas.getContext('2d')!;
 
-      // Draw cropped and resized image
+      // Draw cropped and resized image, with the adjustments baked in
+      outputCtx.filter = this.filter();
       outputCtx.drawImage(
-        this.image,
+        this.src(),
         cropX, cropY, cropWidth, cropHeight,
         0, 0, outputWidth, outputHeight
       );
 
+      this.rememberAdjust();
       // Convert to blob
       outputCanvas.toBlob((blob) => {
         if (blob && this.onApply) {
           this.onApply(blob);
           this.hide();
         }
-      }, 'image/jpeg', quality);
+      }, this.outType, quality);
     }
   };
 </script>
