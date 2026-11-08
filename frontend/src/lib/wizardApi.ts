@@ -99,19 +99,42 @@ interface WorkflowRow {
   id: string;
   slug: string;
   name: string;
+  description?: string | null;
   enabled: boolean;
 }
 
 /** The workspace's workflow of this slug: whether it is there and on. */
-export async function workflowState(slug: string, authToken: string): Promise<{ found: boolean; enabled: boolean; id?: string; name?: string }> {
-  const rows = await fetchApi<WorkflowRow[] | { items?: WorkflowRow[] }>("/api/automations", {}, authToken).catch(() => []);
+export interface WorkflowState {
+  found: boolean;
+  enabled: boolean;
+  /** The signed-in person may not list or run workflows (an editor: that is an admin's right today). */
+  forbidden?: boolean;
+  id?: string;
+  name?: string;
+  description?: string;
+}
+
+export async function workflowState(slug: string, authToken: string): Promise<WorkflowState> {
+  let rows: WorkflowRow[] | { items?: WorkflowRow[] };
+  try {
+    rows = await fetchApi<WorkflowRow[] | { items?: WorkflowRow[] }>("/api/automations", {}, authToken);
+  } catch (e) {
+    return { found: false, enabled: false, forbidden: /403|forbidden/i.test(e instanceof Error ? e.message : String(e)) };
+  }
   const found = (Array.isArray(rows) ? rows : (rows.items ?? [])).find((w) => w.slug === slug);
-  return found ? { found: true, enabled: !!found.enabled, id: found.id, name: found.name } : { found: false, enabled: false };
+  return found ? { found: true, enabled: !!found.enabled, id: found.id, name: found.name, description: found.description } : { found: false, enabled: false };
+}
+
+/** The entry a context key names, checked to be of the type the wizard says it is; null when it is not there or is something else. */
+export async function entryOfType(typeSlug: string | undefined, slug: string | undefined, authToken: string): Promise<Row | null> {
+  if (!slug || !typeSlug) return null;
+  return (await findEntries({ entry_type: typeSlug, entries: [slug] }, authToken, 1)).entries[0] ?? null;
 }
 
 /** Start a workflow now and don't wait for it. A workflow that is off is never switched on from here: it runs with its author's permissions. */
 export async function runWorkflow(slug: string, inputs: Record<string, unknown>, authToken: string): Promise<string> {
   const state = await workflowState(slug, authToken);
+  if (state.forbidden) throw new Error("Only a workspace admin can start a workflow today; ask one to run this step.");
   if (!state.found) throw new Error(`This workspace has no workflow “${slug}”. Install the package that brings it.`);
   if (!state.enabled) throw new Error(`“${state.name}” is switched off. Turn it on under Automation → Workflows, then run this step again.`);
   await fetchApi(`/api/automations/${encodeURIComponent(state.id!)}/run?background=true`, { method: "POST", body: JSON.stringify({ inputs }) }, authToken);

@@ -54,7 +54,7 @@ WIZARD = {
             "id": "cut",
             "kind": "run",
             "title": "Cut the beats",
-            "workflow": "screenplay-import-beats",
+            "workflow": "kit-mark-sold",
             "inputs": {"story": "${story}", "mode": "refresh"},
             "button": "Cut the beats",
         },
@@ -119,6 +119,12 @@ def _bad(mutate) -> str | None:
         (lambda p: p["steps"][4].update(workflow=""), "workflow"),
         (lambda p: p["steps"][4].update(inputs={"story": "${nope}"}), "nope"),
         (lambda p: p["steps"][4].update(inputs={"story": 3}), "inputs"),
+        (lambda p: p["steps"][4].update(requires={"entry": "input", "field": "screenplay"}), "an option, not an entry"),
+        (lambda p: p["steps"][4].update(requires={"entry": "story", "field": "no spaces"}), "requires"),
+        (lambda p: p["steps"][3].update(entry=["x"]), "must name a context key"),
+        (lambda p: p["steps"][3].update(when={"ctx": {}, "op": "set"}), "no earlier step sets"),
+        (lambda p: p["steps"][2].update(**{"as": "step"}), "the page uses that name"),
+        (lambda p: p["steps"][1].update(**{"as": "world"}), "already set by an earlier step"),
         (lambda p: p["steps"][7]["checks"][0].update(op="about"), "compares"),
         (lambda p: p["steps"][7]["checks"][0]["query"].update(fields={"story": "${nope}"}), "nope"),
     ],
@@ -134,6 +140,16 @@ def test_a_wizard_is_a_blueprint_kind_that_takes_no_parameters():
         Blueprint.model_validate({**_wizard_blueprint(), "required": True})
     with pytest.raises(ValueError, match="title"):
         Blueprint.model_validate(_wizard_blueprint(payload={"steps": WIZARD["steps"]}))
+
+
+def test_a_wizard_only_runs_a_workflow_its_own_package_brings():
+    manifest = _with_wizard()
+    wizard = next(b for b in manifest["blueprints"] if b["kind"] == "wizard")
+    wizard["payload"]["steps"][4]["workflow"] = "kit-mark-sold"  # a workflow in this manifest
+    service.parse_manifest(manifest)
+    wizard["payload"]["steps"][4]["workflow"] = "someone-elses-workflow"
+    with pytest.raises(PackageError, match="does not bring"):
+        service.parse_manifest(manifest)
 
 
 def test_the_package_file_accepts_a_wizard_that_uses_context_references():

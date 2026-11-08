@@ -16,8 +16,9 @@ Steps (each has ``id``, ``title`` and optional ``help`` and ``when``):
   reads it as text into ``field`` (a script, a beat sheet). ``accept`` lists extensions.
 - ``list``: the entries of ``entry_type`` whose ``parent_field`` holds context key ``parent``, with the ``columns`` editable in place and
   ``add`` to make another.
-- ``run``: a button that starts the workflow ``workflow`` (by slug) with ``inputs`` ({name: "${key}" | literal}), e.g. cutting the beats of a script
-  once it is uploaded. A workflow that is off is never turned on from here: the page says so.
+- ``run``: a button that starts the workflow ``workflow`` (by slug, one the same package brings) with ``inputs`` ({name: "${key}" | literal}),
+  e.g. cutting the beats of a script once it is uploaded. ``requires`` ({entry, field}) keeps the button off until that field holds something.
+  A workflow that is off is never turned on from here: the page says so.
 - ``review``: ``checks``, each ``{label, query, op, value}``: the query (entry-query spec: ``entry_type``, ``fields``, ``where``…) is
   counted and compared (``gt gte eq lte lt``) to a number; all passing means the wizard is done.
 
@@ -37,6 +38,7 @@ CHECK_OPS = ("gt", "gte", "eq", "lte", "lt")
 UPLOAD_MODES = ("asset", "text")
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+RESERVED_KEYS = ("step", "notice")  # address parameters the page uses for itself: never a context key
 _STEP_ID = re.compile(r"^[a-z][a-z0-9_-]{0,39}$")
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,79}$")
 _REF = re.compile(r"\$\{([^}]*)\}")
@@ -103,7 +105,7 @@ def _check_when(when: Any, known: set[str], label: str) -> str | None:
         return None
     if not isinstance(when, dict) or when.get("op") not in WHEN_OPS:
         return f"{label}: when must be {{ctx, op}} with op one of {', '.join(WHEN_OPS)}"
-    if when.get("ctx") not in known:
+    if not isinstance(when.get("ctx"), str) or when["ctx"] not in known:
         return f"{label}: when names {when.get('ctx')!r}, which no earlier step sets"
     if when["op"] in ("eq", "neq") and not isinstance(when.get("value"), str):
         return f"{label}: when {when['op']} needs a text value"
@@ -119,6 +121,8 @@ class _Step:
     def ctx(self, key: str) -> str | None:
         """`key` of this step names the entry an earlier `choose` step picked."""
         value = self.step.get(key)
+        if not isinstance(value, str):
+            return f"{self.label}: {key} must name a context key"
         if value in self.entries:
             return None
         if value in self.known:
@@ -134,7 +138,14 @@ class _Step:
         return None if isinstance(found, str) and _SLUG.match(found) else f"{self.label} needs an entry_type slug"
 
     def sets_context(self) -> str | None:
-        return None if _NAME.match(str(self.step.get("as"))) else f"{self.label} needs `as`, the context key it sets"
+        key = self.step.get("as")
+        if not isinstance(key, str) or not _NAME.match(key):
+            return f"{self.label} needs `as`, the context key it sets"
+        if key in RESERVED_KEYS:
+            return f"{self.label}: `as` cannot be {key!r}, the page uses that name itself"
+        if key in self.known:
+            return f"{self.label}: `as` {key!r} is already set by an earlier step"
+        return None
 
 
 def _check_option(s: _Step) -> str | None:
@@ -211,6 +222,12 @@ def _check_run(s: _Step) -> str | None:
         return f"{s.label}: inputs must map the workflow's input names to text"
     if s.step.get("button") is not None and not isinstance(s.step["button"], str):
         return f"{s.label}: button must be text"
+    requires = s.step.get("requires")
+    if requires is not None:
+        if not isinstance(requires, dict) or not _NAME.match(str(requires.get("field"))):
+            return f"{s.label}: requires must be {{entry, field}}, the field that has to hold something before it can run"
+        if (problem := _Step(requires, s.known, s.entries, s.label).ctx("entry")) is not None:
+            return problem
     return s.refs_known(inputs, "inputs")
 
 

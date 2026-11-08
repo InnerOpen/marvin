@@ -1,7 +1,7 @@
 /** What posting a wizard step does. Returns the choices after it and whether to stay on the step (a list can add one after another). */
 
-import { type Ctx, type Step, type WizardDefinition, createData, entryTypeOf, hasValue, listSpec, missingForNewRow, runInputs } from "./wizard";
-import { MAX_TEXT_UPLOAD_BYTES, askedKeys, createOf, requiredFields, entryBySlug, findEntries, postedData, setData, typeBySlug, runWorkflow, uploadAsset, withAutoSlug } from "./wizardApi";
+import { type Ctx, type Step, type WizardDefinition, createData, entryTypeOf, hasValue, listSpec, missingForNewRow, runInputs, sameValue, withoutLater } from "./wizard";
+import { MAX_TEXT_UPLOAD_BYTES, askedKeys, createOf, entryBySlug, entryOfType, findEntries, postedData, requiredFields, runWorkflow, setData, typeBySlug, uploadAsset, withAutoSlug } from "./wizardApi";
 
 export interface Outcome {
   ctx: Ctx;
@@ -18,20 +18,28 @@ async function entryFor(def: WizardDefinition, step: Step, ctx: Ctx, authToken: 
   return { entry, type: await typeBySlug(entryTypeOf(def, step.entry), authToken) };
 }
 
-async function choose(step: Step, form: FormData, ctx: Ctx, authToken: string): Promise<Outcome> {
-  const next = { ...ctx };
-  if (text(form, "skip")) {
-    delete next[step.as];
-  } else if (text(form, "pick")) {
-    next[step.as] = text(form, "pick");
-  } else {
+async function choose(def: WizardDefinition, step: Step, form: FormData, ctx: Ctx, authToken: string): Promise<Outcome> {
+  const action = text(form, "action"); // which button: pick | create | skip (each form has one, so a ticked radio can't beat Create)
+  let value: string | undefined;
+  if (action === "create") {
     const title = text(form, "create_title");
     const type = await typeBySlug(step.entry_type, authToken);
-    if (!title) throw new Error("Give it a name, or pick one from the list.");
+    if (!title) throw new Error("Give the new one a name.");
     if (!type) throw new Error(`This workspace has no “${step.entry_type}” entry type yet.`);
     const data = withAutoSlug(type, { ...createData(step, ctx), ...postedData(form, type, askedKeys(type, step.create?.fields)) }, title);
-    next[step.as] = (await createOf(type, title, data, authToken)).slug;
+    value = (await createOf(type, title, data, authToken)).slug;
+  } else if (action === "pick") {
+    const picked = text(form, "pick");
+    if (!picked) throw new Error("Pick one from the list, or make a new one.");
+    if (!(await entryOfType(step.entry_type, picked, authToken))) throw new Error("That one is not there any more. Pick again.");
+    value = picked;
+  } else if (action !== "skip") {
+    throw new Error("Pick one, make a new one, or skip.");
   }
+  // A changed choice drops what later steps chose on the strength of the old one.
+  const next = value === ctx[step.as] ? { ...ctx } : withoutLater(def, ctx, step.id);
+  if (value) next[step.as] = value;
+  else delete next[step.as];
   return { ctx: next, stay: false };
 }
 
@@ -58,8 +66,12 @@ async function editList(step: Step, form: FormData, ctx: Ctx, authToken: string)
   const rows = (await findEntries(listSpec(step, ctx), authToken)).entries;
   const columns = askedKeys(type, step.columns);
   for (const row of rows) {
+    // Only what the person changed on the page is written: compared with what the page showed (`__was`), not with the row now, so a
+    // field something else filled in the meantime is kept.
+    const was = JSON.parse(text(form, `row.${row.id}.__was`) || "null");
+    if (was === null) continue; // the row was not on the page they posted
     const changes = postedData(form, type, columns, `row.${row.id}.`);
-    const changed = Object.fromEntries(Object.entries(changes).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(row.dataJson?.[k] ?? null)));
+    const changed = Object.fromEntries(Object.entries(changes).filter(([k, v]) => !sameValue(v, was[k])));
     if (Object.keys(changed).length) await setData(row, changed, authToken);
   }
   const title = text(form, "new.title");
@@ -82,11 +94,12 @@ export async function runStep(def: WizardDefinition, step: Step, form: FormData,
     if (!step.options.some((o: { value: string }) => o.value === value)) throw new Error("Pick one of the choices.");
     return { ctx: { ...ctx, [step.as]: value }, stay: false };
   }
-  if (step.kind === "choose") return choose(step, form, ctx, authToken);
+  if (step.kind === "choose") return choose(def, step, form, ctx, authToken);
   if (step.kind === "upload") return upload(def, step, form, ctx, authToken);
   if (step.kind === "run") {
     const name = await runWorkflow(step.workflow, runInputs(step, ctx), authToken);
-    return { ctx, stay: true, notice: `Started “${name}”. Anything it asks you appears below as it runs; when it is done, go on to the next step.` };
+    void name;
+    return { ctx, stay: true, notice: "started" };
   }
   if (step.kind === "list") return editList(step, form, ctx, authToken);
   if (step.kind === "form") {
