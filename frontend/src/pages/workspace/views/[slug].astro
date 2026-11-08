@@ -87,7 +87,7 @@ const playJson = JSON.stringify(playable).replace(/</g, "\\u003c");
 const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View";
 ---
 
-<AppLayout title={title} width="page">
+<AppLayout crumb="workspace.views.run" title={title} width="page">
   {problem && <div class="alert alert-error">{problem}</div>}
   {!problem && !view && <div class="alert alert-info">There is no view called “{slug}” here. Install the package that brings it.</div>}
 
