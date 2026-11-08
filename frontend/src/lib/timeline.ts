@@ -27,18 +27,36 @@ export interface SpineSpec {
   seconds?: SecondsSpec;
 }
 
+export interface BedSpec {
+  /** The field naming the lane entry's slug: on the view's entry (default), on each spine item (`on: "spine"`), or on the entry a spine
+   * item's `via` field names (`via` + `entry_type`: a beat's scene names its ambience). */
+  field: string;
+  on?: "entry" | "spine";
+  via?: string;
+  entry_type?: string;
+  /** The level (0 to 1) on the entry that names the bed, and an override on the spine item. */
+  volume?: string;
+  item_volume?: string;
+  muffled?: string;
+}
+
 export interface LaneSpec {
   id: string;
   title: string;
   entry_type: string;
-  of: string;
+  /** The field on a lane entry that holds the view's entry's slug; required for `in` lanes, optional otherwise. */
+  of?: string;
   in?: string;
   placed?: { field: string; ref: string; at: string };
+  bed?: BedSpec;
   order?: string;
   text?: string;
   who?: string;
   audio?: string;
   seconds?: string;
+  /** The lane entry's own level (0 to 1) and whether it repeats. */
+  volume?: string;
+  loop?: string;
   estimate_from?: string;
   status?: string;
 }
@@ -81,8 +99,26 @@ export interface Piece {
   /** True when `seconds` came from the text, not a recording. */
   estimated: boolean;
   audio: string | null;
+  /** The entry's own level, 0 to 1, when it declares one. */
+  volume: number | null;
   /** For a placed piece: its offset inside the item, as declared. */
   at: number | null;
+}
+
+/** A sound running under a stretch of the timeline: a scene's ambience across its beats, a story's music under everything. */
+export interface Bed {
+  id: string;
+  slug: string;
+  title: string;
+  start: number;
+  seconds: number;
+  audio: string | null;
+  /** The effective level: the sound's own × the level where it is named (× the spine item's override). */
+  volume: number;
+  loop: boolean;
+  muffled: boolean;
+  /** The spine items it runs under. */
+  items: string[];
 }
 
 export interface Item {
@@ -113,6 +149,8 @@ export interface Layout {
   total: number;
   groups: Group[];
   items: Item[];
+  /** Per bed lane, its blocks in time order. */
+  beds: Record<string, Bed[]>;
 }
 
 export const DEFAULT_SECONDS = { hold: 4, lead: 0.3, gap: 0.25, tail: 0.35 };
@@ -176,10 +214,20 @@ const byOrder = (key: string | undefined) => (a: Row, b: Row) => {
 };
 
 interface Rows {
+  /** The view's entry itself (a bed lane may name its sound on it). */
+  entry?: Row;
   spine: Row[];
   groups?: Row[];
+  /** Per lane id, its entries: the children of an `in` lane, the referenced entries of a `placed` or `bed` lane. */
   lanes: Record<string, Row[]>;
+  /** Per bed lane with `via`, the entries the spine items name (the scenes). */
+  via?: Record<string, Row[]>;
 }
+
+const level = (v: unknown): number | null => {
+  const n = num(v);
+  return n === null ? null : Math.max(0, Math.min(1, n));
+};
 
 /**
  * Lay the view out. Spine rows are sorted by the spine's order field and gathered under their group (chapters in their own order; items
@@ -190,6 +238,7 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
   const lanes = spec.lanes ?? [];
   const inLanes = lanes.filter((l) => l.in);
   const placedLanes = lanes.filter((l) => l.placed);
+  const bedLanes = lanes.filter((l) => l.bed);
   const laneRows = (lane: LaneSpec) => [...(rows.lanes[lane.id] ?? [])].sort(byOrder(lane.order));
   const bySlug = (lane: LaneSpec) => new Map(laneRows(lane).map((r) => [r.slug, r] as const));
 
@@ -255,7 +304,50 @@ export function layout(spec: TimelineSpec, rows: Rows): Layout {
     }
     out.push({ id: g.id, slug: g.slug, title: g.title, start: groupStart, seconds: clock - groupStart, items: made });
   }
-  return { total: clock, groups: out, items };
+  const beds: Record<string, Bed[]> = {};
+  for (const lane of bedLanes) beds[lane.id] = bedsOf(lane, items, rows, clock, bySlug(lane));
+  return { total: clock, groups: out, items, beds };
+}
+
+/** The blocks of a bed lane: which sound runs under each item, merged across consecutive items that share one, at what level. */
+function bedsOf(lane: LaneSpec, items: Item[], rows: Rows, total: number, sounds: Map<string, Row>): Bed[] {
+  const spec = lane.bed!;
+  const via = new Map((rows.via?.[lane.id] ?? []).map((r) => [r.slug, r] as const));
+  const spine = new Map(rows.spine.map((r) => [r.id, r] as const));
+  const make = (sound: Row, start: number, seconds: number, at: number | null, muffled: boolean, ids: string[]): Bed => ({
+    id: sound.id,
+    slug: sound.slug,
+    title: sound.title,
+    start,
+    seconds,
+    audio: assetUrl(sound, lane.audio, "audio/"),
+    volume: (level(field(sound, lane.volume)) ?? 1) * (at ?? 1),
+    loop: lane.loop ? field(sound, lane.loop) !== false : true,
+    muffled,
+    items: ids,
+  });
+  if (!spec.via && spec.on !== "spine") {
+    const sound = rows.entry ? sounds.get(str(field(rows.entry, spec.field))) : undefined;
+    return sound && total > 0 ? [make(sound, 0, total, level(field(rows.entry!, spec.volume)), false, items.map((i) => i.id))] : [];
+  }
+  const out: Bed[] = [];
+  for (const item of items) {
+    const row = spine.get(item.id);
+    if (!row) continue;
+    const named = spec.via ? via.get(str(field(row, spec.via))) : row;
+    const sound = named ? sounds.get(str(field(named, spec.field))) : undefined;
+    if (!sound) continue;
+    const at = level(field(row, spec.item_volume)) ?? level(named ? field(named, spec.volume) : null);
+    const muffled = !!(named && spec.muffled && field(named, spec.muffled) === true);
+    const last = out[out.length - 1];
+    if (last && last.slug === sound.slug && last.volume === (level(field(sound, lane.volume)) ?? 1) * (at ?? 1) && last.muffled === muffled && last.start + last.seconds >= item.start - 1e-6) {
+      last.seconds = item.start + item.seconds - last.start;
+      last.items.push(item.id);
+    } else {
+      out.push(make(sound, item.start, item.seconds, at, muffled, [item.id]));
+    }
+  }
+  return out;
 }
 
 function pieceOf(row: Row, lane: LaneSpec, seconds: number, estimated: boolean, start: number, at: number | null): Piece {
@@ -270,6 +362,7 @@ function pieceOf(row: Row, lane: LaneSpec, seconds: number, estimated: boolean, 
     seconds,
     estimated,
     audio: assetUrl(row, lane.audio, "audio/"),
+    volume: level(field(row, lane.volume)),
     at,
   };
 }
@@ -355,6 +448,30 @@ export interface Cue {
   start: number;
   seconds: number;
   audio: string | null;
+}
+
+/** What plays *over* the cues: each placed sound at its offset and each bed under its stretch, with its level; `seconds` 0 means "to the end
+ * of the file" (a sound with no declared length). */
+export interface Overlay {
+  id: string;
+  start: number;
+  seconds: number;
+  audio: string;
+  volume: number;
+  loop: boolean;
+}
+
+export function overlays(laid: Layout, lanes: LaneSpec[]): Overlay[] {
+  const out: Overlay[] = [];
+  for (const lane of lanes.filter((l) => l.placed)) {
+    for (const p of laid.items.flatMap((i) => i.lanes[lane.id] ?? [])) {
+      if (p.audio) out.push({ id: p.id, start: p.start, seconds: p.seconds, audio: p.audio, volume: p.volume ?? 1, loop: false });
+    }
+  }
+  for (const lane of lanes.filter((l) => l.bed)) {
+    for (const b of laid.beds[lane.id] ?? []) if (b.audio) out.push({ id: b.id, start: b.start, seconds: b.seconds, audio: b.audio, volume: b.volume, loop: b.loop });
+  }
+  return out.sort((a, b) => a.start - b.start);
 }
 
 export function cues(laid: Layout, lanes: LaneSpec[]): Cue[] {

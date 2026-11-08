@@ -12,7 +12,7 @@ import { getWizard } from "@/lib/api/wizards";
 import type { Step } from "@/lib/wizard";
 import { timecode } from "@/lib/audioTimeline";
 import { withReturn } from "@/lib/entryBack";
-import { type Group, type Item, type Layout, type Row as LaidRow, type TimelineSpec, cues, layout, progress, progressLine, ZOOM_LEVELS, minInnerWidth, percent, tickLevels } from "@/lib/timeline";
+import { type Group, type Item, type LaneSpec, type Layout, type Row as LaidRow, type TimelineSpec, cues, layout, overlays, progress, progressLine, ZOOM_LEVELS, minInnerWidth, percent, tickLevels } from "@/lib/timeline";
 import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -44,15 +44,37 @@ if (spec && authToken) {
     candidates = (await findEntries({ entry_type: spec.entry_type }, authToken, 50)).entries;
   } else {
     const whose = entry.slug;
+    const none = { entries: [] as Row[], total: 0 };
     const [spine, ...laneRows] = await Promise.all([
       findEntries({ entry_type: spec.spine.entry_type, fields: { [spec.spine.of]: whose } }, authToken, MAX_ROWS),
-      ...(spec.lanes ?? []).map((lane) => findEntries({ entry_type: lane.entry_type, fields: { [lane.of]: whose } }, authToken, MAX_ROWS)),
+      ...(spec.lanes ?? []).map((lane) => (lane.of ? findEntries({ entry_type: lane.entry_type, fields: { [lane.of]: whose } }, authToken, MAX_ROWS) : none)),
     ]);
+    const rows = spine.entries;
+    const slugsIn = (list: Row[], key: string | undefined) => [...new Set(list.map((r) => String(r.dataJson?.[key ?? ""] ?? "")).filter(Boolean))];
+    const bySlugs = async (type: string, slugs: string[]) => (slugs.length ? (await findEntries({ entry_type: type, entries: slugs }, authToken, slugs.length)).entries : []);
     const group = spec.spine.group;
-    const groupSlugs = group ? [...new Set(spine.entries.map((r) => String(r.dataJson?.[group.field] ?? "")).filter(Boolean))] : [];
-    const groups = groupSlugs.length ? (await findEntries({ entry_type: group!.entry_type, entries: groupSlugs }, authToken, groupSlugs.length)).entries : [];
-    const lanes = Object.fromEntries((spec.lanes ?? []).map((lane, i) => [lane.id, laneRows[i].entries as LaidRow[]]));
-    laid = layout(spec, { spine: spine.entries as LaidRow[], groups: groups as LaidRow[], lanes });
+    const groups = group ? await bySlugs(group.entry_type, slugsIn(rows, group.field)) : [];
+    // A placed or bed lane's entries come by the slugs the spine (or the entry, or the entries a spine field names) points at: a library
+    // sound shared by several stories has no `story` of its own, so a scope by `of` alone would miss it.
+    const lanes: Record<string, LaidRow[]> = {};
+    const via: Record<string, LaidRow[]> = {};
+    for (const [i, lane] of (spec.lanes ?? []).entries()) {
+      const have = laneRows[i].entries as LaidRow[];
+      let wanted: string[] = [];
+      if (lane.placed) {
+        const { field, ref } = lane.placed;
+        wanted = [...new Set(rows.flatMap((r) => (Array.isArray(r.dataJson?.[field]) ? (r.dataJson![field] as unknown[]) : [])).map((x) => String((x as Record<string, unknown>)?.[ref] ?? "")))];
+      } else if (lane.bed?.via && lane.bed.entry_type) {
+        via[lane.id] = (await bySlugs(lane.bed.entry_type, slugsIn(rows, lane.bed.via))) as LaidRow[];
+        wanted = slugsIn(via[lane.id], lane.bed.field);
+      } else if (lane.bed) {
+        wanted = lane.bed.on === "spine" ? slugsIn(rows, lane.bed.field) : slugsIn([entry], lane.bed.field);
+      }
+      const known = new Set(have.map((r) => r.slug));
+      const missing = wanted.filter((x) => x && !known.has(x));
+      lanes[lane.id] = [...have, ...((await bySlugs(lane.entry_type, missing)) as LaidRow[])];
+    }
+    laid = layout(spec, { entry: entry as LaidRow, spine: rows as LaidRow[], groups: groups as LaidRow[], lanes, via });
 
     // A button starts a wizard with this entry already chosen (the choose step of its type sets the key), or opens a workflow's page.
     for (const action of spec.actions ?? []) {
@@ -119,6 +141,15 @@ const firstWords = (text: string, n = 8) => {
 };
 const playable = laid ? cues(laid, lanes) : [];
 const playJson = JSON.stringify(playable).replace(/</g, "\\u003c");
+const overJson = JSON.stringify(laid ? overlays(laid, lanes) : []).replace(/</g, "\\u003c");
+// A bed's block clipped to a track (a scene's ambience may run on past a chapter's end).
+const clip = (b: { start: number; seconds: number }, track: { start: number; seconds: number }) => {
+  const from = Math.max(b.start, track.start);
+  const to = Math.min(b.start + b.seconds, track.start + track.seconds);
+  return { from, seconds: Math.max(0, to - from) };
+};
+const bedsIn = (lane: LaneSpec, track: { start: number; seconds: number }) =>
+  (laid?.beds[lane.id] ?? []).filter((b) => b.start < track.start + track.seconds && b.start + b.seconds > track.start);
 const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View";
 ---
 
@@ -235,6 +266,22 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
                       {lane.title}
                       {lane.estimate_from && track.items.some((i) => (i.lanes[lane.id] ?? []).some((p) => p.estimated)) && <em>hatched: no take yet, length estimated</em>}
                     </span>
+                    {lane.bed &&
+                      bedsIn(lane, track).map((b) => (
+                        <a
+                          class:list={["tl-bed", { silent: !b.audio }]}
+                          role="listitem"
+                          href={open(b.id)}
+                          data-bed={b.id}
+                          data-start={b.start}
+                          data-end={b.start + b.seconds}
+                          style={`left:${pctIn(track, clip(b, track).from)};width:${pctIn(track, track.start + clip(b, track).seconds)}`}
+                          title={`${b.title}\n${timecode(b.start)} → ${timecode(b.start + b.seconds)} · level ${Math.round(b.volume * 100)}%${b.loop ? ", loops" : ""}${b.muffled ? ", muffled" : ""}${b.audio ? "" : "\nno take yet"}`}
+                        >
+                          <span>{b.title}</span>
+                          <small>{Math.round(b.volume * 100)}%{b.muffled ? " · muffled" : ""}{b.audio ? "" : " · no take yet"}</small>
+                        </a>
+                      ))}
                     {track.items.flatMap((item) => item.lanes[lane.id] ?? []).map((p) => (
                       <a
                         class:list={["tl-piece", { estimated: p.estimated, untimed: p.seconds === 0, recorded: !!p.audio, placed: p.at !== null }]}
@@ -257,8 +304,9 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
           </section>
         ))
       )}
-      <p class="tl-hint muted">Click a card to put the playhead there; Open takes you to it. Space plays and pauses. A take plays as recorded; a line with none passes in silence for its estimated length.</p>
+      <p class="tl-hint muted">Click a card to put the playhead there; Open takes you to it. Space plays and pauses. A take plays as recorded; a line with none passes in silence for its estimated length. Sound effects and beds (ambience, music) play over it at their levels, when they have a take.</p>
       <script is:inline type="application/json" data-cues set:html={playJson} />
+      <script is:inline type="application/json" data-overlays set:html={overJson} />
     </div>
   )}
 </AppLayout>
@@ -267,10 +315,39 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   // The player: walks the cues (each a stretch of time, with a take to play or silence to wait), moves the playhead and lights the item and
   // piece under it. Nothing is stitched: a story plays from its takes as they are, and improves as takes land.
   interface Cue { item: string; piece: string | null; start: number; seconds: number; audio: string | null }
+  interface Overlay { id: string; start: number; seconds: number; audio: string; volume: number; loop: boolean }
   const root = document.querySelector<HTMLElement>(".tl");
   const cuesEl = root?.querySelector<HTMLScriptElement>("script[data-cues]");
   if (root && cuesEl) {
     const cues: Cue[] = JSON.parse(cuesEl.textContent || "[]");
+    const overlays: Overlay[] = JSON.parse(root.querySelector<HTMLScriptElement>("script[data-overlays]")?.textContent || "[]");
+    // Sounds and beds play over the lines: each starts when the playhead reaches it (joining mid-way after a seek), stops at its end or on pause.
+    const live = new Map<number, HTMLAudioElement>();
+    const syncOverlays = (t: number, on: boolean) => {
+      overlays.forEach((o, i) => {
+        const end = o.seconds > 0 ? o.start + o.seconds : Infinity;
+        const due = on && t >= o.start && t < end;
+        const a = live.get(i);
+        if (due && !a) {
+          const el = new Audio(o.audio);
+          el.volume = Math.max(0, Math.min(1, o.volume));
+          el.loop = o.loop;
+          const offset = t - o.start;
+          el.addEventListener("loadedmetadata", () => {
+            if (!el.duration || !Number.isFinite(el.duration)) return;
+            if (o.loop) el.currentTime = offset % el.duration;
+            else if (offset < el.duration) el.currentTime = offset;
+            else el.pause();
+          });
+          el.addEventListener("ended", () => live.delete(i));
+          el.play().catch(() => live.delete(i));
+          live.set(i, el);
+        } else if (!due && a) {
+          a.pause();
+          live.delete(i);
+        }
+      });
+    };
     const total = Number(root.dataset.total || "0");
     const playBtn = root.querySelector<HTMLButtonElement>("[data-play]");
     // Each track (the whole story, or one chapter when stacked) has its own box, strip and playhead; the playhead shows in the track holding `at`.
@@ -328,6 +405,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     const light = (t: number) => {
       const cue = cues[cueAt(t)];
       root.querySelectorAll<HTMLElement>(".tl-item.is-now, .tl-piece.is-now").forEach((el) => el.classList.remove("is-now"));
+      root.querySelectorAll<HTMLElement>(".tl-bed").forEach((el) => el.classList.toggle("is-now", playing && t >= Number(el.dataset.start) && t < Number(el.dataset.end)));
       if (!cue) return;
       root.querySelector(`[data-item="${cue.item}"]`)?.classList.add("is-now");
       if (cue.piece) root.querySelector(`[data-piece="${cue.piece}"]`)?.classList.add("is-now");
@@ -341,6 +419,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
         if (k === here) k.head.style.left = `${k.seconds > 0 ? ((at - k.start) / k.seconds) * 100 : 0}%`;
       }
       light(at);
+      syncOverlays(at, playing);
       if (here?.scroll && here.head && playing) {
         const { scroll, head } = here;
         const px = head.offsetLeft;
@@ -352,6 +431,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
       playing = false;
       cancelAnimationFrame(frame);
       audio.pause();
+      syncOverlays(at, false);
       cueIndex = -1;
       if (playBtn) {
         playBtn.textContent = "▶ Play";
@@ -496,6 +576,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-piece.placed { border-radius: 999px; border-color: var(--muted); background: var(--panel-2); }
   .tl-piece.placed.recorded { border-color: var(--ink); }
   .tl-piece.is-now { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .tl-bed { position: absolute; top: 18px; height: 24px; box-sizing: border-box; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: color-mix(in srgb, var(--ink) 8%, var(--panel)); color: var(--ink); font-size: 12px; white-space: nowrap; overflow: hidden; text-decoration: none; }
+  .tl-bed small { color: var(--muted); font-size: 11px; }
+  .tl-bed.silent { border-style: dotted; background: var(--panel); }
+  .tl-bed.is-now { outline: 2px solid var(--accent); outline-offset: 1px; }
   .tl-piece:hover { z-index: 1; min-width: max-content; }
 
   .tl-playhead { position: absolute; top: 0; bottom: 0; width: 0; pointer-events: none; z-index: 3; }
