@@ -1,6 +1,6 @@
 /** What posting a wizard step does. Returns the choices after it and whether to stay on the step (a list can add one after another). */
 
-import { type Ctx, type Step, type WizardDefinition, createData, entryTypeOf, hasValue, listSpec, missingForNewRow, runInputs, sameValue, withoutLater } from "./wizard";
+import { type Ctx, type Step, StepError, type WizardDefinition, createData, entryTypeOf, generateAsRun, hasValue, listSpec, missingForNewRow, runInputs, sameValue, withoutLater } from "./wizard";
 import { MAX_TEXT_UPLOAD_BYTES, askedKeys, createOf, entryBySlug, entryOfType, findEntries, postedData, requiredFields, runWorkflow, setData, typeBySlug, uploadAsset, withAutoSlug } from "./wizardApi";
 
 export interface Outcome {
@@ -24,7 +24,7 @@ async function choose(def: WizardDefinition, step: Step, form: FormData, ctx: Ct
   if (action === "create") {
     const title = text(form, "create_title");
     const type = await typeBySlug(step.entry_type, authToken);
-    if (!title) throw new Error("Give the new one a name.");
+    if (!title) throw new StepError("Give the new one a name.", ["create_title"]);
     if (!type) throw new Error(`This workspace has no “${step.entry_type}” entry type yet.`);
     const data = withAutoSlug(type, { ...createData(step, ctx), ...postedData(form, type, askedKeys(type, step.create?.fields)) }, title);
     value = (await createOf(type, title, data, authToken)).slug;
@@ -45,11 +45,11 @@ async function choose(def: WizardDefinition, step: Step, form: FormData, ctx: Ct
 
 async function upload(def: WizardDefinition, step: Step, form: FormData, ctx: Ctx, authToken: string): Promise<Outcome> {
   const file = form.get("file");
-  if (!(file instanceof File) || file.size === 0) throw new Error("Choose a file to upload.");
+  if (!(file instanceof File) || file.size === 0) throw new StepError("Choose a file to upload.", ["file"]);
   const { entry } = await entryFor(def, step, ctx, authToken);
   // An upload replaces what the field holds, and a script is work someone did: it only goes ahead when they said so.
   if (hasValue(entry.dataJson?.[step.field]) && text(form, "replace") !== "1") {
-    throw new Error(`“${step.field}” on ${entry.title} already has content. Tick “Replace it” to upload over it.`);
+    throw new StepError(`“${step.field}” on ${entry.title} already has content. Tick “Replace it” to upload over it.`, ["replace"]);
   }
   if (step.mode === "text") {
     if (file.size > MAX_TEXT_UPLOAD_BYTES) throw new Error("That file is too long to read in as text (1 MB at most).");
@@ -79,12 +79,48 @@ async function editList(step: Step, form: FormData, ctx: Ctx, authToken: string)
   const wanted = !!text(form, "again");
   const missing = missingForNewRow(title, fresh, requiredFields(type), wanted);
   if (missing.length) {
-    throw new Error(`The new row needs ${missing.join(", ")}.${wanted && !title ? " Fill it in, or use Continue to go on without adding one." : ""}`);
+    const labels = missing.map((m) => m.label).join(", ");
+    throw new StepError(`The new row needs ${labels}.${wanted && !title ? " Fill it in, or use Continue to go on without adding one." : ""}`, missing.map((m) => `new.${m.key}`));
   }
   if (title) {
     await createOf(type, title, { ...fresh, ...createData({ ...step, create: { data: step.create_data } } as Step, ctx), [step.parent_field]: ctx[step.parent] }, authToken);
   }
   return { ctx, stay: !!title && !!text(form, "again") };
+}
+
+const MAX_PICTURE_BYTES = 25_000_000;
+
+/** A gallery's actions: add (a form), upload (a picture becomes a new entry named for the file), generate (a run with a typed prompt). */
+async function gallery(step: Step, form: FormData, ctx: Ctx, authToken: string): Promise<Outcome> {
+  const action = text(form, "action");
+  const type = await typeBySlug(step.entry_type, authToken);
+  if (!type) throw new Error(`This workspace has no “${step.entry_type}” entry type yet.`);
+  const scope = step.parent_field ? { [step.parent_field]: ctx[step.parent] } : {};
+  const seed = () => ({ ...createData({ ...step, create: step.add } as Step, ctx), ...scope });
+  if (action === "add") {
+    const title = text(form, "add_title");
+    if (!title) throw new StepError("Give it a name.", ["add_title"]);
+    const data = withAutoSlug(type, { ...seed(), ...postedData(form, type, askedKeys(type, step.add?.fields), "add.") }, title);
+    await createOf(type, title, data, authToken);
+    return { ctx, stay: true, notice: "added" };
+  }
+  if (action === "upload") {
+    const file = form.get("file");
+    if (!(file instanceof File) || file.size === 0) throw new Error("Choose a picture to upload.");
+    if (!file.type.startsWith("image/")) throw new Error("That is not a picture.");
+    if (file.size > MAX_PICTURE_BYTES) throw new Error("That picture is too big (25 MB at most).");
+    const title = text(form, "upload_title") || file.name.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").trim() || "Untitled";
+    const assetId = await uploadAsset(file, `${step.entry_type}-${title}`, authToken);
+    await createOf(type, title, withAutoSlug(type, { ...seed(), [step.upload.field]: assetId }, title), authToken);
+    return { ctx, stay: true, notice: "added" };
+  }
+  if (action === "generate") {
+    const { run, extra } = generateAsRun(step, text(form, "prompt"));
+    if (step.generate?.prompt && !extra[step.generate.prompt.name]) throw new Error(`Say ${step.generate.prompt.label.toLowerCase()} first.`);
+    await runWorkflow(run.workflow, runInputs(run, { ...ctx, ...extra }), authToken);
+    return { ctx, stay: true, notice: "started" };
+  }
+  throw new Error("Add one, upload a picture, or generate one.");
 }
 
 /** Do what the posted step asks. Throws an Error whose message the page shows. */
@@ -102,6 +138,7 @@ export async function runStep(def: WizardDefinition, step: Step, form: FormData,
     return { ctx, stay: true, notice: "started" };
   }
   if (step.kind === "list") return editList(step, form, ctx, authToken);
+  if (step.kind === "gallery") return gallery(step, form, ctx, authToken);
   if (step.kind === "form") {
     const { entry, type } = await entryFor(def, step, ctx, authToken);
     await setData(entry, postedData(form, type, step.fields), authToken);

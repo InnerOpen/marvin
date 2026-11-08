@@ -5,7 +5,7 @@ import { getAuthToken } from "@/lib/api/client";
 import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import {
   type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx,
-  isDone, shownSteps, stepHref,
+  StepError, cardPicture, generateAsRun, isDone, shownSteps, stepHref,
 } from "@/lib/wizard";
 import { runStep } from "@/lib/wizardActions";
 import { type Row, type WorkflowState, MAX_DECIDED_SHOWN, approvalCards, askedKeys, decideApproval, describeFailure, entryOfType, findEntries, typeBySlug, workflowState } from "@/lib/wizardApi";
@@ -15,6 +15,9 @@ const slug = Astro.params.slug ?? "";
 
 let wizard: WizardRead | null = null;
 let problem: string | null = authToken ? null : "Sign in to use this guided setup.";
+let stepProblem: string | null = null; // what went wrong with the step just posted: shown inside its card
+let badFields: string[] = []; // the inputs it is about
+const bad = (name: string) => (badFields.includes(name) ? "invalid" : undefined);
 if (authToken) {
   try {
     wizard = await getWizard(slug, authToken);
@@ -62,7 +65,8 @@ if (Astro.request.method === "POST" && authToken && def && step) {
     const target = done.stay ? step : (nextStep(def, done.ctx, step.id) ?? step);
     return Astro.redirect(stepHref(slug, done.ctx, target.id, done.notice ? { [NOTICE_PARAM]: done.notice } : {}));
   } catch (e) {
-    problem = describeFailure(e);
+    stepProblem = describeFailure(e);
+    badFields = e instanceof StepError ? e.fields : [];
   }
 }
 
@@ -77,13 +81,16 @@ let typeName = "";
 let missingType = false;
 let formFields: any[] = [];
 let leftOut: any[] = [];
-let checks: { label: string; ok: boolean; count: number }[] = [];
+let checks: { label: string; ok: boolean; count: number; step?: Step | null }[] = [];
 let columns: any[] = [];
 let flow: WorkflowState = { found: true, enabled: true };
 let pendingCards: ApprovalCard[] = [];
 let decidedCards: ApprovalCard[] = [];
 let watchIds: string[] = [];
 let lacking: string | null = null; // a run step's `requires` not met
+let cards: Row[] = [];
+let addFields: any[] = [];
+let genStep: Step | null = null; // a gallery's generate action, as the run step it is
 
 // Drawn whatever happened to a post: an error shows above a complete page, never an empty one.
 if (authToken && def && step) {
@@ -106,6 +113,21 @@ if (authToken && def && step) {
       formFields = simple(all);
       leftOut = all.filter((f) => !SIMPLE_FIELD_TYPES.includes(f.type));
     }
+  } else if (step.kind === "gallery") {
+    const type = await typeBySlug(step.entry_type, authToken);
+    missingType = !type;
+    typeName = type?.name ?? step.entry_type;
+    cards = (await findEntries(listSpec(step, ctx), authToken)).entries;
+    addFields = simple(fieldsOf(type, askedKeys(type, step.add?.fields)));
+    if (step.generate) {
+      genStep = generateAsRun(step, undefined).run;
+      flow = await workflowState(genStep.workflow, authToken);
+      const about = inputKeys(genStep).map((k) => entries[k]).filter((e): e is Row => !!e).map((e) => e.id);
+      watchIds = about;
+      const all = await approvalCards(authToken);
+      pendingCards = approvalsOf(all.pending, genStep.workflow, about);
+      decidedCards = approvalsOf(all.decided, genStep.workflow, about).slice(0, MAX_DECIDED_SHOWN);
+    }
   } else if (step.kind === "run") {
     flow = await workflowState(step.workflow, authToken);
     // The approvals this run raises are about the entries the step hands it: those are the cards shown here.
@@ -120,9 +142,9 @@ if (authToken && def && step) {
     decidedCards = approvalsOf(cards.decided, step.workflow, about).slice(0, MAX_DECIDED_SHOWN);
   } else if (step.kind === "review") {
     checks = await Promise.all(
-      (step.checks as Check[]).map(async (c) => {
+      (step.checks as (Check & { step?: string })[]).map(async (c) => {
         const count = (await findEntries(checkSpec(c, ctx), authToken, 1)).total;
-        return { label: c.label, ok: passes(c.op, count, c.value), count };
+        return { label: c.label, ok: passes(c.op, count, c.value), count, step: c.step ? def.steps.find((s) => s.id === c.step) : null };
       }),
     );
   }
@@ -135,7 +157,7 @@ const after = def && step ? nextStep(def, ctx, step.id) : null;
 const allPass = checks.length > 0 && checks.every((c) => c.ok);
 // A run step with a card waiting holds the later steps: answering first keeps the card from going stale (an entry edited after the
 // question was asked makes the approval count as neither yes nor no).
-const held = step?.kind === "run" && pendingCards.length > 0;
+const held = (step?.kind === "run" || step?.kind === "gallery") && pendingCards.length > 0;
 const made = Object.entries(entries).map(([key, e]) => ({ key, ...e }));
 const submitLabel = after ? "Continue" : "Save";
 // A column heading is the field's label without its explanation in brackets (the full label stays as the hover text).
@@ -174,6 +196,7 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
           <p class="eyebrow">Step {here + 1} of {steps.length}</p>
           <h3>{step.title}</h3>
           {step.help && <p class="help">{step.help}</p>}
+          {stepProblem && <div class="step-error" role="alert">{stepProblem}</div>}
 
           {step.kind === "option" && (
             <form method="post" class="form">
@@ -212,7 +235,7 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
                     <legend>{choices.length > 0 ? "Or make a new one" : `Make a new ${typeName.toLowerCase()}`}</legend>
                     <div class="form-group">
                       <label for="create_title">Name <span class="req" title="Required">*</span></label>
-                      <input class="input" id="create_title" name="create_title" required />
+                      <input class:list={["input", bad("create_title")]} id="create_title" name="create_title" required />
                     </div>
                     <SchemaForm schema={{ fields: formFields }} />
                     <div class="actions"><button class="button secondary" type="submit">Create and continue</button></div>
@@ -293,21 +316,21 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
                     <div class="row new">
                       <label class="col row-head">
                         <span>{listRows.length ? "Add another" : "Add one"} <span class="req" title="Required">*</span></span>
-                        <input class="input" name="new.title" placeholder="Name" />
+                        <input class:list={["input", bad("new.title")]} name="new.title" placeholder="Name" />
                       </label>
                       <div class="cols">
                         {columns.map((c) => (
                           <label class="col" title={c.label}>
                             <span>{shortLabel(c.label)}{c.required && <span class="req" title="Required"> *</span>}</span>
                             {c.type === "select" ? (
-                              <select class="input" name={`new.${c.key}`}>
+                              <select class:list={["input", bad(`new.${c.key}`)]} name={`new.${c.key}`}>
                                 <option value=""></option>
                                 {(c.options ?? []).map((o: string) => <option value={o}>{o}</option>)}
                               </select>
                             ) : c.type === "textarea" || c.type === "markdown" ? (
-                              <textarea class="input" rows="2" name={`new.${c.key}`} />
+                              <textarea class:list={["input", bad(`new.${c.key}`)]} rows="2" name={`new.${c.key}`} />
                             ) : (
-                              <input class="input" type={c.type === "number" ? "number" : "text"} name={`new.${c.key}`} />
+                              <input class:list={["input", bad(`new.${c.key}`)]} type={c.type === "number" ? "number" : "text"} name={`new.${c.key}`} />
                             )}
                           </label>
                         ))}
@@ -321,6 +344,91 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
                 {step.add !== false && <button class="button secondary" type="submit" name="again" value="1">Save and add another</button>}
               </div>
             </form>
+          )}
+
+          {step.kind === "gallery" && (
+            <div class="gallery" data-watch={step.generate && (notice === NOTICES.started || pendingCards.length) ? "1" : undefined} data-workflow={genStep?.workflow} data-entries={watchIds.join(",")} data-pending={String(pendingCards.length)}>
+              {missingType && <div class="alert alert-info">This workspace has no “{step.entry_type}” entry type yet.</div>}
+              {!missingType && (
+                <div class="cards">
+                  {cards.map((r) => {
+                    const pic = cardPicture(r.assets, step.picture);
+                    const badges = ((step.badges ?? []) as string[]).filter((b) => r.dataJson?.[b]);
+                    return (
+                      <a class="gcard" href={`/workspace/entries/${r.id}`}>
+                        <div class="gpic">{pic ? <img src={pic} alt="" loading="lazy" /> : <span class="gnone" aria-hidden="true">{(r.title || "?").slice(0, 1)}</span>}</div>
+                        <div class="gbody">
+                          <strong>{r.title}</strong>
+                          {step.subtitle && r.dataJson?.[step.subtitle] && <span class="muted gsub">{String(r.dataJson[step.subtitle]).slice(0, 80)}</span>}
+                          {badges.length > 0 && <span class="gbadges">{badges.map((b) => <span class="pill">{String(r.dataJson?.[b])}</span>)}</span>}
+                        </div>
+                      </a>
+                    );
+                  })}
+                  {cards.length === 0 && <p class="muted none">{step.empty ?? `No ${typeName.toLowerCase()} yet.`}</p>}
+                </div>
+              )}
+
+              {!missingType && (step.add || step.upload || step.generate) && (
+                <div class="gactions">
+                  {step.add && (
+                    <details class="gaction">
+                      <summary class="button secondary">＋ Add {typeName.toLowerCase()}</summary>
+                      <form method="post" class="form gform">
+                        <input type="hidden" name="action" value="add" />
+                        <div class="form-group"><label for="add_title">Name <span class="req" title="Required">*</span></label><input class:list={["input", bad("add_title")]} id="add_title" name="add_title" required /></div>
+                        <SchemaForm schema={{ fields: addFields }} />
+                        <div class="actions"><button class="button" type="submit">Add</button></div>
+                      </form>
+                    </details>
+                  )}
+                  {step.upload && (
+                    <details class="gaction">
+                      <summary class="button secondary">⬆ Upload a picture</summary>
+                      <form method="post" class="form gform" enctype="multipart/form-data">
+                        <input type="hidden" name="action" value="upload" />
+                        <p class="muted">The picture becomes a new {typeName.toLowerCase()}, named for the file unless you name it here.</p>
+                        <input class="input" type="file" name="file" accept="image/*" required />
+                        <div class="form-group"><label for="upload_title">Name (optional)</label><input class="input" id="upload_title" name="upload_title" /></div>
+                        <div class="actions"><button class="button" type="submit">Upload</button></div>
+                      </form>
+                    </details>
+                  )}
+                  {step.generate && (
+                    <details class="gaction" open={!!(notice || pendingCards.length)}>
+                      <summary class="button secondary">✦ {step.generate.button ?? "Generate"}</summary>
+                      <div class="form gform">
+                        {flow.forbidden && <div class="alert alert-info">Only a workspace admin can start a workflow today.</div>}
+                        {!flow.found && !flow.forbidden && <div class="alert alert-info">This workspace has no workflow “{step.generate.workflow}”.</div>}
+                        {flow.found && !flow.enabled && <div class="alert alert-info">“{flow.name}” is switched off: turn it on under <a href="/automation/workflows">Automation → Workflows</a>.</div>}
+                        {pendingCards.map((c) => (
+                          <form method="post" class="approval">
+                            <input type="hidden" name="decide" value={c.id} />
+                            <p class="approval-title">{flow.name ?? step.generate.workflow} is asking</p>
+                            <div class="approval-message">{c.message}</div>
+                            {c.imageUrl && <img class="approval-picture" src={c.imageUrl} alt="" loading="lazy" />}
+                            <label class="col"><span>Note (optional)</span><textarea class="input" rows="2" name="note" /></label>
+                            <div class="actions">
+                              {c.choices?.length
+                                ? c.choices.map((label: string, n: number) => <button class:list={["button", n > 0 && "secondary"]} type="submit" name="choice" value={label}>{label}</button>)
+                                : <button class="button" type="submit" name="decision" value="approve">Approve</button>}
+                              <button class="button secondary" type="submit" name="decision" value="deny">Deny</button>
+                            </div>
+                          </form>
+                        ))}
+                        {pendingCards.length === 0 && notice === NOTICES.started && <p class="muted waiting">Running… this page checks for anything to approve every few seconds.</p>}
+                        <form method="post" class="form">
+                          <input type="hidden" name="action" value="generate" />
+                          {step.generate.prompt && <label class="col"><span>{step.generate.prompt.label}</span><textarea class="input" rows="3" name="prompt" required /></label>}
+                          <div class="actions"><button class="button" type="submit" disabled={!flow.found || !flow.enabled}>{step.generate.button ?? "Generate"}</button></div>
+                        </form>
+                      </div>
+                    </details>
+                  )}
+                </div>
+              )}
+              {after && <div class="actions"><a class="button" href={stepHref(slug, ctx, after.id)}>Continue →</a></div>}
+            </div>
           )}
 
           {step.kind === "run" && (
@@ -378,7 +486,10 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
             <>
             <ul class="checks">
               {checks.map((c) => (
-                <li class:list={[c.ok ? "ok" : "no"]}><span aria-hidden="true">{c.ok ? "✓" : "○"}</span> {c.label}<span class="muted"> ({c.count})</span></li>
+                <li class:list={[c.ok ? "ok" : "no"]}>
+                  <span aria-hidden="true">{c.ok ? "✓" : "○"}</span> {c.label}<span class="muted"> ({c.count})</span>
+                  {!c.ok && c.step && <a class="fix" href={stepHref(slug, ctx, c.step.id)}>Go to “{c.step.title}” →</a>}
+                </li>
               ))}
             </ul>
             <p class="verdict">{allPass ? "Everything is in place." : "Some things are still missing: go back to the step that makes them."}</p>
@@ -410,7 +521,7 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
 <script>
   import { fetchApi } from "@/lib/api/client";
   // A run step with something going on (just started, or a card waiting): reload when the set of cards for it changes, for ten minutes at most.
-  const run = document.querySelector<HTMLElement>(".run[data-watch]");
+  const run = document.querySelector<HTMLElement>(".run[data-watch], .gallery[data-watch]");
   if (run) {
     const slug = run.dataset.workflow;
     const entries = (run.dataset.entries ?? "").split(",").filter(Boolean);
@@ -471,6 +582,21 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
   .none { margin: 0; }
 
   .run { display: grid; gap: 14px; }
+  .gallery { display: grid; gap: 16px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .gcard { display: grid; grid-template-rows: auto 1fr; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); overflow: hidden; text-decoration: none; color: inherit; }
+  .gcard:hover { border-color: var(--accent); }
+  .gpic { aspect-ratio: 1; background: var(--panel-2); display: grid; place-items: center; }
+  .gpic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .gnone { font-size: 40px; font-weight: 700; color: var(--muted); }
+  .gbody { display: grid; gap: 4px; padding: 10px 12px; font-size: 14px; }
+  .gsub { font-size: 12px; }
+  .gbadges { display: flex; flex-wrap: wrap; gap: 4px; }
+  .gbadges .pill { font-size: 11px; }
+  .gactions { display: grid; gap: 10px; }
+  .gaction summary { display: inline-flex; list-style: none; cursor: pointer; }
+  .gaction summary::-webkit-details-marker { display: none; }
+  .gform { margin-top: 10px; padding: 14px 16px; border: 1px dashed var(--line); border-radius: var(--radius); }
   .runs { margin: 0; font-size: 13px; }
   .waiting { margin: 0; }
   .approval { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--warn, #d08700); border-left-width: 3px; border-radius: var(--radius); background: color-mix(in srgb, var(--warn, #d08700) 6%, var(--bg)); }
@@ -483,6 +609,9 @@ const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "") || labe
   .checks li { padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
   .checks .ok { color: var(--ink); border-color: var(--accent); }
   .checks .no { color: var(--muted); }
+  .checks .fix { margin-left: 8px; font-size: 13px; color: var(--accent); }
+  .step-error { padding: 10px 14px; border: 1px solid var(--color-error, #c0392b); border-left-width: 3px; border-radius: var(--radius); background: color-mix(in srgb, var(--color-error, #c0392b) 7%, var(--bg)); color: var(--color-error, #c0392b); font-size: 14px; }
+  .step :global(.invalid) { border-color: var(--color-error, #c0392b) !important; box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-error, #c0392b) 20%, transparent); }
   .verdict { margin: 0; font-weight: 500; }
   .nav { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--line); padding-top: 16px; font-size: 13px; }
 </style>

@@ -69,10 +69,37 @@ WIZARD = {
         },
         {"id": "form", "kind": "form", "title": "Details", "entry": "story", "fields": ["premise", "setting"]},
         {
+            "id": "troupe",
+            "kind": "gallery",
+            "title": "Troupe",
+            "entry_type": "actor",
+            "parent": "world",
+            "parent_field": "world",
+            "picture": "general_view",
+            "subtitle": "build",
+            "badges": ["status"],
+            "add": {"fields": ["age", "build"], "data": {"world": "${world}"}},
+            "upload": {"field": "general_view"},
+            "generate": {
+                "workflow": "kit-mark-sold",
+                "inputs": {"world": "${world}", "brief": "${brief}"},
+                "button": "Make one",
+                "prompt": {"name": "brief", "label": "Who"},
+            },
+        },
+        {
             "id": "ready",
             "kind": "review",
             "title": "Ready?",
-            "checks": [{"label": "Has characters", "query": {"entry_type": "cast-member", "fields": {"story": "${story}"}}, "op": "gte", "value": 1}],
+            "checks": [
+                {
+                    "label": "Has characters",
+                    "query": {"entry_type": "cast-member", "fields": {"story": "${story}"}},  # noqa: E501
+                    "op": "gte",
+                    "value": 1,
+                    "step": "cast",
+                }
+            ],
         },
     ],
 }
@@ -127,8 +154,14 @@ def _bad(mutate) -> str | None:
         (lambda p: p["steps"][3].update(when={"ctx": {}, "op": "set"}), "no earlier step sets"),
         (lambda p: p["steps"][2].update(**{"as": "step"}), "the page uses that name"),
         (lambda p: p["steps"][1].update(**{"as": "world"}), "already set by an earlier step"),
-        (lambda p: p["steps"][7]["checks"][0].update(op="about"), "compares"),
-        (lambda p: p["steps"][7]["checks"][0]["query"].update(fields={"story": "${nope}"}), "nope"),
+        (lambda p: p["steps"][8]["checks"][0].update(op="about"), "compares"),
+        (lambda p: p["steps"][8]["checks"][0].update(step="nowhere"), "is not before it"),
+        (lambda p: p["steps"][8]["checks"][0]["query"].update(fields={"story": "${nope}"}), "nope"),
+        (lambda p: p["steps"][7].pop("parent_field"), "go together"),
+        (lambda p: p["steps"][7].update(badges="status"), "badges"),
+        (lambda p: p["steps"][7].update(upload={}), "upload needs"),
+        (lambda p: p["steps"][7]["generate"].update(inputs={"x": "${nope}"}), "nope"),
+        (lambda p: p["steps"][7]["generate"].update(prompt={"name": "Bad Name"}), "prompt needs"),
     ],
 )
 def test_a_wrong_wizard_says_what_is_wrong(mutate, words):
@@ -170,7 +203,7 @@ def test_installing_keeps_a_wizard_as_data_and_makes_no_row(db_session, workspac
     db_session.commit()
 
     item = next(i for i in result.items if i.kind == "wizard")
-    assert (item.status, item.summary) == ("created", "8 steps")
+    assert (item.status, item.summary) == ("created", "9 steps")
     assert db_session.query(EntryTypes).filter_by(group_id=workspace.id).count() == before + 1  # the manifest's beat type, not a wizard
     assert db_session.query(EntryTypes).filter_by(group_id=workspace.id, slug="narrate").count() == 0
     assert [w.slug for w in service.list_wizards(db_session, workspace.id)] == ["narrate"]
