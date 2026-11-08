@@ -20,8 +20,13 @@ A timeline definition::
       "lanes": [
         {"id": "lines", "title": "Lines", "entry_type": "speech-line", "of": "story", "in": "beat", "order": "number",
          "text": "text", "who": "speaker", "audio": "audio", "seconds": "duration_seconds", "estimate_from": "text", "status": "status"},
-        {"id": "sounds", "title": "Sounds", "entry_type": "sound", "of": "story", "placed": {"field": "sounds", "ref": "sound", "at": "at"},
-         "audio": "audio", "seconds": "duration_seconds", "status": "status"}
+        {"id": "sounds", "title": "Sounds", "entry_type": "sound", "placed": {"field": "sounds", "ref": "sound", "at": "at"},
+         "audio": "audio", "seconds": "duration_seconds", "volume": "volume", "status": "status"},
+        {"id": "ambience", "title": "Ambience", "entry_type": "sound", "audio": "audio", "seconds": "duration_seconds", "loop": "loop",
+         "volume": "volume",
+         "bed": {"via": "scene", "entry_type": "scene", "field": "ambience", "volume": "ambience_volume", "item_volume": "ambience_volume"}},
+        {"id": "music", "title": "Music", "entry_type": "sound", "bed": {"field": "music"}, "audio": "audio", "seconds": "duration_seconds",
+         "loop": "loop", "volume": "volume"}
       ],
       "actions": [{"label": "Guided setup", "wizard": "narrate-a-story"}]
     }
@@ -32,10 +37,15 @@ A timeline definition::
   field, ``text`` a text shown when there is no picture, ``status`` a status field drawn as a dot. ``seconds`` names the fields that time an
   item: ``hold`` is how long an item with nothing in its lanes lasts; ``lead``, ``gap`` and ``tail`` are the silences around and between the
   pieces of a lane that has ``seconds``; ``defaults`` fill in when a field is empty.
-- A ``lane`` is a child type drawn under the spine. ``of`` scopes its entries to the view's entry. Either ``in`` names the field that holds
-  the spine item's slug (a line belongs to a beat), or ``placed`` says the spine item lists them: ``field`` is a JSON list on the item whose
-  objects name a lane entry in ``ref`` and its offset in seconds in ``at``. ``audio`` is an asset field, ``seconds`` a duration field, and
-  ``estimate_from`` a text field whose length stands in for the seconds while there is no recording (drawn hatched).
+- A ``lane`` is a child type drawn under the spine, in one of three shapes. ``in`` names the field that holds the spine item's slug (a line
+  belongs to a beat; ``of`` is then required and scopes the lane's entries to the view's entry). ``placed`` says the spine item lists them:
+  ``field`` is a JSON list on the item whose objects name a lane entry in ``ref`` and its offset in seconds in ``at`` (the entries come by
+  those slugs, so a library sound shared by stories is found; ``of`` is optional). ``bed`` is a sound that runs under a stretch: ``field``
+  names the lane entry's slug on the view's entry itself (a story's music, one block under everything), or on each spine item, or, with
+  ``via`` and ``entry_type``, on the entry a spine item's ``via`` field names (a beat's scene names its ambience); consecutive items with the
+  same bed merge into one block. ``bed.volume`` is the level field on that entry and ``bed.item_volume`` an override on the spine item.
+  ``audio`` is an asset field, ``seconds`` a duration field, ``volume`` (0 to 1) and ``loop`` the lane entry's own level and whether it
+  repeats, and ``estimate_from`` a text field whose length stands in for the seconds while there is no recording (drawn hatched).
 - ``actions`` are buttons on the page: each starts a ``wizard`` or a ``workflow`` the same package brings.
 """
 
@@ -134,20 +144,33 @@ def _check_spine(spine: dict, label: str) -> str | None:
 def _check_lane(lane: dict, label: str) -> str | None:
     if not isinstance(lane.get("title"), str) or not lane["title"].strip():
         return f"{label} needs a title"
-    if (problem := _slug(lane, "entry_type", label)) or (problem := _field(lane, "of", label, required=True)):
+    if problem := _slug(lane, "entry_type", label):
         return problem
-    has_in, placed = lane.get("in") is not None, lane.get("placed")
-    if has_in == (placed is not None):
-        return f"{label}: either `in` (the field holding the spine item's slug) or `placed` ({{field, ref, at}}), one of the two"
-    if has_in and (problem := _field(lane, "in", label)):
+    shapes = [k for k in ("in", "placed", "bed") if lane.get(k) is not None]
+    if len(shapes) != 1:
+        return f"{label}: one of `in` (the field holding the spine item's slug), `placed` ({{field, ref, at}}) or `bed` ({{field, via?}})"
+    if problem := _field(lane, "of", label, required=shapes == ["in"]):
         return problem
-    if placed is not None:
+    if shapes == ["in"] and (problem := _field(lane, "in", label)):
+        return problem
+    if (placed := lane.get("placed")) is not None:
         if not isinstance(placed, dict):
             return f"{label}: placed is {{field, ref, at}}"
         for key in ("field", "ref", "at"):
             if problem := _field(placed, key, f"{label} placed", required=True):
                 return problem
-    return _fields(lane, ("order", "text", "who", "audio", "seconds", "estimate_from", "status"), label)
+    if (bed := lane.get("bed")) is not None:
+        if not isinstance(bed, dict):
+            return f"{label}: bed is {{field, via?, entry_type?, volume?, item_volume?}}"
+        if problem := _field(bed, "field", f"{label} bed", required=True):
+            return problem
+        if problem := _fields(bed, ("via", "volume", "item_volume", "muffled"), f"{label} bed"):
+            return problem
+        if (bed.get("via") is None) != (bed.get("entry_type") is None):
+            return f"{label}: bed.via (the spine item's field naming the entry) and bed.entry_type go together"
+        if bed.get("entry_type") is not None and (problem := _slug(bed, "entry_type", f"{label} bed")):
+            return problem
+    return _fields(lane, ("order", "text", "who", "audio", "seconds", "volume", "loop", "estimate_from", "status"), label)
 
 
 def _check_actions(actions: Any, label: str) -> str | None:

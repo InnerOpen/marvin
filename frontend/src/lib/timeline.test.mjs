@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cues, estimateSeconds, itemSeconds, layout, minInnerWidth, percent, pieceSeconds, tickLevels, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
+import { cues, estimateSeconds, itemSeconds, layout, minInnerWidth, overlays, percent, pieceSeconds, tickLevels, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
 
 const spec = {
   kind: "timeline",
@@ -18,7 +18,7 @@ const spec = {
   },
   lanes: [
     { id: "lines", title: "Lines", entry_type: "speech-line", of: "story", in: "beat", order: "number", text: "text", who: "speaker", audio: "audio", seconds: "duration_seconds", estimate_from: "text", status: "status" },
-    { id: "sounds", title: "Sounds", entry_type: "sound", of: "story", placed: { field: "sounds", ref: "sound", at: "at" }, audio: "audio", seconds: "duration_seconds" },
+    { id: "sounds", title: "Sounds", entry_type: "sound", placed: { field: "sounds", ref: "sound", at: "at" }, audio: "audio", seconds: "duration_seconds", volume: "volume" },
   ],
 };
 
@@ -155,7 +155,8 @@ test("cues walk every second of the timeline: silences, takes and estimated line
       [null, "3.75", "0.35", null],
     ],
   );
-  assert.deepEqual(walk.find((c) => c.item === "id-b3"), { item: "id-b3", piece: null, start: 8.1, seconds: 6, audio: null });
+  assert.deepEqual(walk.find((c) => c.item === "id-b3"), { item: "id-b3", piece: null, lane: null, start: 8.1, seconds: 6, audio: null });
+  assert.equal(walk.find((c) => c.piece === "id-l1").lane, "lines");
   const end = walk[walk.length - 1];
   assert.equal((end.start + end.seconds).toFixed(2), laid.total.toFixed(2));
 });
@@ -177,4 +178,61 @@ test("tick levels: the fitted ruler's ticks show at every zoom, finer ticks only
   assert.deepEqual(all.find((x) => x.t === 0.5).levels, [4, 8]);
   assert.equal(all.filter((x) => x.levels.includes(1)).length, ticks(18.1).length);
   assert.deepEqual(all.map((x) => x.t).slice(0, 4), [0, 0.5, 1, 1.5]);
+});
+
+const bedSpec = {
+  ...spec,
+  lanes: [
+    ...spec.lanes,
+    { id: "ambience", title: "Ambience", entry_type: "sound", bed: { via: "scene", entry_type: "scene", field: "ambience", volume: "ambience_volume", item_volume: "ambience_volume", muffled: "ambience_muffled" }, audio: "audio", loop: "loop", volume: "volume" },
+    { id: "music", title: "Music", entry_type: "sound", bed: { field: "music" }, audio: "audio", loop: "loop", volume: "volume" },
+  ],
+};
+const sea = { role: "audio", publicUrl: "https://cdn/sea.mp3", mimeType: "audio/mpeg" };
+const tune = { role: "audio", publicUrl: "https://cdn/tune.mp3", mimeType: "audio/mpeg" };
+const bedBeats = [
+  row("b1", { story: "s", number: 1, scene: "deck", chapter: "c1" }),
+  row("b2", { story: "s", number: 2, scene: "deck", chapter: "c1" }),
+  row("b3", { story: "s", number: 3, scene: "deck", chapter: "c1", ambience_volume: 0.2 }),
+  row("b4", { story: "s", number: 4, scene: "hold", chapter: "c1" }),
+  row("b5", { story: "s", number: 5, scene: "nowhere", chapter: "c1" }),
+];
+const scenes = [row("deck", { ambience: "sea", ambience_volume: 0.5 }), row("hold", { ambience: "sea", ambience_volume: 0.5, ambience_muffled: true })];
+const bedSounds = [row("sea", { volume: 0.8, loop: true }, { assets: [sea] }), row("waltz", { volume: 0.3 }, { assets: [tune] })];
+
+test("bed lanes: a scene's ambience runs under its beats as one block, splits on a level or muffling change, skips an unknown scene", () => {
+  const laid = layout(bedSpec, { entry: row("s", { music: "waltz" }), spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [], ambience: bedSounds, music: bedSounds }, via: { ambience: scenes } });
+  const amb = laid.beds.ambience;
+  assert.deepEqual(amb.map((b) => [b.slug, b.start, b.seconds, b.items.length, Number(b.volume.toFixed(2)), b.muffled, b.loop]), [
+    ["sea", 0, 8, 2, 0.4, false, true], // b1 + b2 at 0.8 × 0.5
+    ["sea", 8, 4, 1, 0.16, false, true], // b3 lowers its own level: 0.8 × 0.2
+    ["sea", 12, 4, 1, 0.4, true, true], // the hold: same sound, muffled, so its own block
+  ]);
+  assert.equal(amb[0].audio, "https://cdn/sea.mp3");
+  assert.deepEqual(laid.beds.music.map((b) => [b.slug, b.start, b.seconds, Number(b.volume.toFixed(2)), b.items.length]), [["waltz", 0, 20, 0.3, 5]]);
+});
+
+test("progress: a bed lane counts its blocks with a take, and an empty lane says nothing", () => {
+  const laid = layout(bedSpec, { entry: row("s", { music: "waltz" }), spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [], ambience: bedSounds, music: bedSounds }, via: { ambience: scenes } });
+  assert.deepEqual(progress(bedSpec, laid).map((p) => p.label + " " + p.done + "/" + p.total), ["beats with a picture 0/5", "ambience with a take 3/3", "music with a take 1/1"]);
+});
+
+test("bed lanes: nothing named, nothing drawn; a story without music has no music block", () => {
+  const laid = layout(bedSpec, { entry: row("s", {}), spine: bedBeats, groups: chapters, lanes: { lines: [], sounds: [], ambience: [], music: bedSounds } });
+  assert.deepEqual(laid.beds, { ambience: [], music: [] });
+});
+
+test("overlays: placed sounds at their offset and beds under their stretch, in time order, with levels", () => {
+  const placed = [row("b6", { story: "s", number: 6, chapter: "c1", sounds: [{ sound: "gull", at: 1 }, { sound: "silent", at: 2 }] })];
+  const fx = [row("gull", { duration_seconds: 2, volume: 0.6 }, { assets: [take] }), row("silent", { duration_seconds: 1 })];
+  const laid = layout(bedSpec, { entry: row("s", { music: "waltz" }), spine: [...bedBeats, ...placed], groups: chapters, lanes: { lines: [], sounds: fx, ambience: bedSounds, music: bedSounds }, via: { ambience: scenes } });
+  const over = overlays(laid, bedSpec.lanes);
+  assert.deepEqual(over.map((o) => o.lane), ["ambience", "music", "ambience", "ambience", "sounds"]);
+  assert.deepEqual(over.map((o) => [o.id, o.start, o.seconds, o.loop, Number(o.volume.toFixed(2))]), [
+    ["id-sea", 0, 8, true, 0.4],
+    ["id-waltz", 0, laid.total, true, 0.3],
+    ["id-sea", 8, 4, true, 0.16],
+    ["id-sea", 12, 4, true, 0.4],
+    ["id-gull", 21, 2, false, 0.6], // the placed effect at its offset inside b6 (which starts at 20); the one with no take is not played
+  ]);
 });
