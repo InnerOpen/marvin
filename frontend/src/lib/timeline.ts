@@ -433,8 +433,10 @@ export function progress(spec: TimelineSpec, laid: Layout, noun = { item: "beat"
     out.push({ label: `${total === 1 ? noun.item : noun.items} with a picture`, done: laid.items.filter((i) => i.picture).length, total });
   }
   for (const lane of (spec.lanes ?? []).filter((l) => l.audio)) {
-    const pieces = laid.items.flatMap((i) => i.lanes[lane.id] ?? []);
-    out.push({ label: `${lane.title.toLowerCase()} recorded`, done: pieces.filter((p) => p.audio).length, total: pieces.length });
+    // A bed lane counts its blocks with a take; the others their pieces. A lane with nothing in it says nothing.
+    const sounds: { audio: string | null }[] = lane.bed ? (laid.beds[lane.id] ?? []) : laid.items.flatMap((i) => i.lanes[lane.id] ?? []);
+    if (sounds.length === 0) continue;
+    out.push({ label: lane.bed ? `${lane.title.toLowerCase()} with a take` : `${lane.title.toLowerCase()} recorded`, done: sounds.filter((p) => p.audio).length, total: sounds.length });
   }
   return out;
 }
