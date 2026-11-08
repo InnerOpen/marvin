@@ -1,0 +1,393 @@
+---
+/**
+ * A view of an entry, as a package declares it (services/blueprints/views.py): today the one kind, `timeline`, draws a story as time. The
+ * spine (its beats) is a filmstrip of cards as wide as they last; under it one lane per child type (lines, sounds) placed where they fall;
+ * a ruler of timecodes; a player that walks the lines and plays each take in the browser, moving a playhead. Everything is read through
+ * the entries API, so who may see what is decided there.
+ */
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { getView, type ViewRead } from "@/lib/api/views";
+import { getWizard } from "@/lib/api/wizards";
+import type { Step } from "@/lib/wizard";
+import { timecode } from "@/lib/audioTimeline";
+import { withReturn } from "@/lib/entryBack";
+import { type Layout, type Row as LaidRow, type TimelineSpec, cues, layout, progress, progressLine, scale, ticks } from "@/lib/timeline";
+import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
+
+const authToken = getAuthToken(Astro.cookies);
+const slug = Astro.params.slug ?? "";
+const entryRef = Astro.url.searchParams.get("entry") ?? "";
+const here = `${Astro.url.pathname}${Astro.url.search}`;
+const open = (id: string) => withReturn(`/workspace/entries/${id}`, here);
+
+let view: ViewRead | null = null;
+let problem: string | null = authToken ? null : "Sign in to see this.";
+if (authToken) {
+  try {
+    view = await getView(slug, authToken);
+  } catch (e) {
+    problem = describeFailure(e);
+  }
+}
+const spec: TimelineSpec | null = view?.definition ?? null;
+
+// The entry the view is of, checked to be of the declared type; without one, the entries of that type to pick from.
+const MAX_ROWS = 500;
+let entry: Row | null = null;
+let candidates: Row[] = [];
+let laid: Layout | null = null;
+let actions: { label: string; href: string }[] = [];
+if (spec && authToken) {
+  entry = await entryOfType(spec.entry_type, entryRef, authToken);
+  if (!entry) {
+    candidates = (await findEntries({ entry_type: spec.entry_type }, authToken, 50)).entries;
+  } else {
+    const whose = entry.slug;
+    const [spine, ...laneRows] = await Promise.all([
+      findEntries({ entry_type: spec.spine.entry_type, fields: { [spec.spine.of]: whose } }, authToken, MAX_ROWS),
+      ...(spec.lanes ?? []).map((lane) => findEntries({ entry_type: lane.entry_type, fields: { [lane.of]: whose } }, authToken, MAX_ROWS)),
+    ]);
+    const group = spec.spine.group;
+    const groupSlugs = group ? [...new Set(spine.entries.map((r) => String(r.dataJson?.[group.field] ?? "")).filter(Boolean))] : [];
+    const groups = groupSlugs.length ? (await findEntries({ entry_type: group!.entry_type, entries: groupSlugs }, authToken, groupSlugs.length)).entries : [];
+    const lanes = Object.fromEntries((spec.lanes ?? []).map((lane, i) => [lane.id, laneRows[i].entries as LaidRow[]]));
+    laid = layout(spec, { spine: spine.entries as LaidRow[], groups: groups as LaidRow[], lanes });
+
+    // A button starts a wizard with this entry already chosen (the choose step of its type sets the key), or opens a workflow's page.
+    for (const action of spec.actions ?? []) {
+      if (action.wizard) {
+        const wizard = await getWizard(action.wizard, authToken).catch(() => null);
+        const key = wizard?.definition.steps.find((s: Step) => s.kind === "choose" && s.entry_type === spec.entry_type)?.as;
+        const href = `/workspace/wizards/${encodeURIComponent(action.wizard)}${key ? `?${encodeURIComponent(key)}=${encodeURIComponent(whose)}` : ""}`;
+        actions.push({ label: action.label, href });
+      } else if (action.workflow) {
+        const state = await workflowState(action.workflow, authToken);
+        actions.push({ label: action.label, href: state.id ? `/automation/workflows?workflow=${encodeURIComponent(state.id)}` : "/automation/workflows" });
+      }
+    }
+  }
+}
+
+// The strip is laid out at a fixed width and scrolls sideways past it: a 0.3 s beat still gets a card you can click, so a long story is wider
+// than the page, never squashed. Every position is seconds × this scale, so the lanes line up under the cards.
+const DESIGN_WIDTH = 1040;
+const pps = laid ? scale(laid.items, laid.total, DESIGN_WIDTH) : 0;
+const x = (seconds: number) => Math.round(seconds * pps);
+const total = laid?.total ?? 0;
+const marks = ticks(total);
+const steps = spec && laid ? progress(spec, laid) : [];
+const lanes = spec?.lanes ?? [];
+const firstWords = (text: string, n = 8) => {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  return words.slice(0, n).join(" ") + (words.length > n ? "…" : "");
+};
+const playable = laid ? cues(laid, lanes) : [];
+const playJson = JSON.stringify(playable).replace(/</g, "\\u003c");
+const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View";
+---
+
+<AppLayout title={title} width="page">
+  {problem && <div class="alert alert-error">{problem}</div>}
+  {!problem && !view && <div class="alert alert-info">There is no view called “{slug}” here. Install the package that brings it.</div>}
+
+  {spec && !entry && !problem && (
+    <>
+      <div class="page-header">
+        <h2>{view!.name}</h2>
+        <p>Pick a {spec.entry_type.replace(/-/g, " ")} to see it this way.</p>
+      </div>
+      {entryRef && <div class="alert alert-info">“{entryRef}” is not a {spec.entry_type.replace(/-/g, " ")} here.</div>}
+      {candidates.length === 0 ? (
+        <p class="muted">There are none yet.</p>
+      ) : (
+        <ul class="pick">
+          {candidates.map((c) => (
+            <li><a href={`/workspace/views/${encodeURIComponent(slug)}?entry=${encodeURIComponent(c.slug)}`}>{c.title}</a></li>
+          ))}
+        </ul>
+      )}
+    </>
+  )}
+
+  {spec && entry && laid && (
+    <div class="tl" data-total={total} data-pps={pps}>
+      <header class="tl-head">
+        <div class="tl-title">
+          <h2>{entry.title}</h2>
+          <p class="tl-facts">
+            <strong class="tl-total">{timecode(total)}</strong>
+            {steps.length > 0 && <span class="muted"> · {progressLine(steps)}</span>}
+            {laid.items.some((i) => i.estimated) && <span class="muted" title="A line with no take yet is measured by its words, at 150 a minute."> · lengths with no take are estimates</span>}
+          </p>
+        </div>
+        <div class="tl-actions">
+          <button type="button" class="button tl-play" data-play aria-pressed="false" disabled={laid.items.length === 0}>▶ Play</button>
+          {actions.map((a) => <a class="button secondary" href={a.href}>{a.label}</a>)}
+          <a class="button secondary" href={open(entry.id)}>Open the {spec.entry_type.replace(/-/g, " ")}</a>
+        </div>
+      </header>
+
+      {laid.items.length === 0 ? (
+        <div class="card tl-empty">
+          <p>Nothing on the timeline yet: this {spec.entry_type.replace(/-/g, " ")} has no {spec.spine.entry_type.replace(/-/g, " ")}s.</p>
+          {actions.length > 0 && <p class="muted">The buttons above are how to make them.</p>}
+        </div>
+      ) : (
+        <div class="tl-scroll" data-scroll tabindex="0" aria-label="Timeline: scroll sideways">
+          <div class="tl-inner" style={`width:${x(total)}px`}>
+            {spec.spine.group && (
+              <div class="tl-groups" role="list">
+                {laid.groups.map((g) => (
+                  <div class="tl-group" role="listitem" style={`left:${x(g.start)}px;width:${x(g.start + g.seconds) - x(g.start)}px`}>
+                    {g.id ? <a href={open(g.id)}>{g.title}</a> : <span class="muted">{g.title || (laid!.groups.length > 1 ? `No ${spec.spine.group!.entry_type}` : "")}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div class="tl-strip" role="list" aria-label={spec.spine.entry_type}>
+              {laid.items.map((item) => (
+                <div
+                  class:list={["tl-item", { "has-picture": !!item.picture, estimated: item.estimated }]}
+                  role="listitem"
+                  data-item={item.id}
+                  data-start={item.start}
+                  style={`left:${x(item.start)}px;width:${x(item.start + item.seconds) - x(item.start)}px`}
+                  title={`${item.title}${item.text ? ` — ${item.text}` : ""}\n${timecode(item.start)} → ${timecode(item.start + item.seconds)} (${item.seconds.toFixed(1)} s${item.estimated ? ", estimated" : ""})`}
+                >
+                  <button type="button" class="tl-seek" data-seek={item.start} aria-label={`Go to ${item.title}`}>
+                    {item.picture ? <img src={item.picture} alt="" loading="lazy" /> : <span class="tl-text">{item.text || item.title}</span>}
+                  </button>
+                  <span class="tl-badge">
+                    {item.number !== null && <span class="tl-n">{item.number}</span>}
+                    {item.status && <span class="tl-dot" data-status={item.status} title={item.status} />}
+                  </span>
+                  <a class="tl-open" href={open(item.id)} title={`Open ${item.title}`}>Open</a>
+                  <span class="tl-len">{item.seconds.toFixed(1)}s</span>
+                </div>
+              ))}
+            </div>
+
+            <div class="tl-ruler" aria-hidden="true">
+              {marks.map((t) => (
+                <span class="tl-tick" style={`left:${x(t)}px`}><i /><b>{timecode(t)}</b></span>
+              ))}
+            </div>
+
+            {lanes.map((lane) => (
+              <div class="tl-lane" data-lane={lane.id} role="list" aria-label={lane.title}>
+                <span class="tl-lane-name">{lane.title}</span>
+                {laid!.items.flatMap((item) => item.lanes[lane.id] ?? []).map((p) => (
+                  <a
+                    class:list={["tl-piece", { estimated: p.estimated, untimed: p.seconds === 0, recorded: !!p.audio, placed: p.at !== null }]}
+                    role="listitem"
+                    href={open(p.id)}
+                    data-piece={p.id}
+                    style={`left:${x(p.start)}px;width:${Math.max(p.seconds === 0 ? 10 : 18, x(p.start + p.seconds) - x(p.start))}px`}
+                    title={`${p.who ? `${p.who}: ` : ""}${p.text || p.title}\n${timecode(p.start)}${p.seconds ? ` → ${timecode(p.start + p.seconds)} (${p.seconds.toFixed(1)} s${p.estimated ? ", estimated: no take yet" : ""})` : ""}${p.at !== null ? ` · at ${p.at.toFixed(1)} s` : ""}`}
+                  >
+                    {p.who && <b>{p.who}</b>}
+                    <span>{firstWords(p.text || p.title)}</span>
+                    {p.estimated && <small>no take yet</small>}
+                  </a>
+                ))}
+              </div>
+            ))}
+
+            <div class="tl-playhead" data-playhead hidden><i /></div>
+          </div>
+        </div>
+      )}
+      <p class="tl-hint muted">Click a card to put the playhead there; Open takes you to it. Space plays and pauses. A take plays as recorded; a line with none passes in silence for its estimated length.</p>
+      <script is:inline type="application/json" data-cues set:html={playJson} />
+    </div>
+  )}
+</AppLayout>
+
+<script>
+  // The player: walks the cues (each a stretch of time, with a take to play or silence to wait), moves the playhead and lights the item and
+  // piece under it. Nothing is stitched: a story plays from its takes as they are, and improves as takes land.
+  interface Cue { item: string; piece: string | null; start: number; seconds: number; audio: string | null }
+  const root = document.querySelector<HTMLElement>(".tl");
+  const cuesEl = root?.querySelector<HTMLScriptElement>("script[data-cues]");
+  if (root && cuesEl) {
+    const cues: Cue[] = JSON.parse(cuesEl.textContent || "[]");
+    const pps = Number(root.dataset.pps || "0");
+    const total = Number(root.dataset.total || "0");
+    const playBtn = root.querySelector<HTMLButtonElement>("[data-play]");
+    const head = root.querySelector<HTMLElement>("[data-playhead]");
+    const scroll = root.querySelector<HTMLElement>("[data-scroll]");
+    const audio = new Audio();
+    let at = 0; // seconds into the timeline
+    let playing = false;
+    let frame = 0;
+    let cueIndex = -1;
+    let cueStartedAt = 0; // wall clock, for silent stretches
+
+    const cueAt = (t: number) => cues.findIndex((c) => t >= c.start && t < c.start + c.seconds);
+    const light = (t: number) => {
+      const cue = cues[cueAt(t)];
+      root.querySelectorAll<HTMLElement>(".tl-item.is-now, .tl-piece.is-now").forEach((el) => el.classList.remove("is-now"));
+      if (!cue) return;
+      root.querySelector(`[data-item="${cue.item}"]`)?.classList.add("is-now");
+      if (cue.piece) root.querySelector(`[data-piece="${cue.piece}"]`)?.classList.add("is-now");
+    };
+    const show = (t: number) => {
+      at = Math.max(0, Math.min(total, t));
+      if (head) {
+        head.hidden = false;
+        head.style.left = `${Math.round(at * pps)}px`;
+      }
+      light(at);
+      if (scroll && playing) {
+        const px = at * pps;
+        if (px < scroll.scrollLeft + 40 || px > scroll.scrollLeft + scroll.clientWidth - 40) scroll.scrollLeft = Math.max(0, px - scroll.clientWidth / 3);
+      }
+    };
+
+    const stop = () => {
+      playing = false;
+      cancelAnimationFrame(frame);
+      audio.pause();
+      cueIndex = -1;
+      if (playBtn) {
+        playBtn.textContent = "▶ Play";
+        playBtn.setAttribute("aria-pressed", "false");
+      }
+    };
+    const startCue = (i: number) => {
+      cueIndex = i;
+      const cue = cues[i];
+      if (!cue) return finish();
+      cueStartedAt = performance.now() - Math.max(0, at - cue.start) * 1000;
+      if (cue.audio) {
+        audio.src = cue.audio;
+        audio.currentTime = Math.max(0, at - cue.start);
+        audio.play().catch(() => {
+          // A take that will not play (gone, blocked) passes as silence of its length instead of stopping the story.
+          cue.audio = null;
+        });
+      }
+    };
+    const finish = () => {
+      stop();
+      show(total);
+    };
+    const tick = () => {
+      if (!playing) return;
+      const cue = cues[cueIndex];
+      if (!cue) return finish();
+      const elapsed = cue.audio && !audio.paused && !audio.ended ? audio.currentTime : (performance.now() - cueStartedAt) / 1000;
+      if (elapsed >= cue.seconds || (cue.audio && audio.ended)) {
+        if (cueIndex + 1 >= cues.length) return finish();
+        at = cue.start + cue.seconds;
+        startCue(cueIndex + 1);
+      } else {
+        show(cue.start + Math.min(elapsed, cue.seconds));
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    const play = () => {
+      if (!cues.length) return;
+      if (at >= total) at = 0;
+      playing = true;
+      if (playBtn) {
+        playBtn.textContent = "❚❚ Pause";
+        playBtn.setAttribute("aria-pressed", "true");
+      }
+      const i = cueAt(at);
+      startCue(i < 0 ? 0 : i);
+      frame = requestAnimationFrame(tick);
+    };
+    const toggle = () => (playing ? stop() : play());
+
+    playBtn?.addEventListener("click", toggle);
+    root.querySelectorAll<HTMLButtonElement>("[data-seek]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const was = playing;
+        stop();
+        show(Number(b.dataset.seek || "0"));
+        if (was) play();
+      }),
+    );
+    document.addEventListener("keydown", (e) => {
+      const target = e.target as HTMLElement | null;
+      if (e.code !== "Space" || target?.closest("input, textarea, select, [contenteditable], button, a")) return;
+      e.preventDefault();
+      toggle();
+    });
+    audio.addEventListener("error", () => {
+      const cue = cues[cueIndex];
+      if (cue) cue.audio = null;
+    });
+  }
+</script>
+
+<style>
+  .pick { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .pick a { display: block; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); text-decoration: none; color: var(--ink); }
+
+  .tl { display: grid; gap: 16px; }
+  .tl-head { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-end; justify-content: space-between; }
+  .tl-title h2 { margin: 0 0 4px; }
+  .tl-facts { margin: 0; font-size: 14px; }
+  .tl-total { font-variant-numeric: tabular-nums; font-size: 16px; }
+  .tl-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tl-empty { padding: 24px; }
+  .tl-hint { margin: 0; font-size: 13px; }
+
+  /* One scroll container holds the strip, the ruler and the lanes, so they move together; everything inside is placed in seconds × scale. */
+  .tl-scroll { overflow-x: auto; overflow-y: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 12px 16px 16px; position: relative; }
+  .tl-inner { position: relative; min-width: 100%; }
+  .tl-groups { position: relative; height: 24px; margin-bottom: 4px; }
+  .tl-group { position: absolute; top: 0; height: 22px; border-bottom: 2px solid var(--accent); padding: 0 6px; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
+  .tl-group a { color: var(--ink); text-decoration: none; }
+  .tl-group + .tl-group { border-left: 1px solid var(--line); }
+
+  .tl-strip { position: relative; height: 128px; }
+  .tl-item { position: absolute; top: 0; height: 120px; box-sizing: border-box; padding-right: 3px; }
+  .tl-seek { display: block; width: 100%; height: 100%; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); overflow: hidden; cursor: pointer; text-align: left; color: var(--muted); }
+  .tl-item.estimated .tl-seek { border-style: dashed; }
+  .tl-item.is-now .tl-seek { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .tl-seek img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .tl-text { display: block; padding: 26px 8px 8px; font-size: 12px; line-height: 1.35; max-height: 100%; overflow: hidden; }
+  .tl-badge { position: absolute; top: 6px; left: 6px; display: inline-flex; align-items: center; gap: 5px; padding: 2px 6px; border-radius: 999px; background: color-mix(in srgb, var(--panel) 85%, transparent); font-size: 11px; font-weight: 600; pointer-events: none; }
+  .tl-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .tl-dot[data-status="ready"], .tl-dot[data-status="done"], .tl-dot[data-status="approved"], .tl-dot[data-status="published"] { background: #2f9e44; }
+  .tl-dot[data-status="review"], .tl-dot[data-status="recording"], .tl-dot[data-status="rendering"] { background: #e8a317; }
+  .tl-open { position: absolute; right: 9px; top: 6px; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--ink); text-decoration: none; opacity: 0; }
+  .tl-item:hover .tl-open, .tl-item:focus-within .tl-open { opacity: 1; }
+  @media (hover: none) { .tl-open { opacity: 1; } }
+  .tl-len { position: absolute; right: 9px; bottom: 6px; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--ink); background: color-mix(in srgb, var(--panel) 85%, transparent); padding: 0 5px; border-radius: 4px; pointer-events: none; }
+
+  .tl-ruler { position: relative; height: 22px; margin: 4px 0 6px; border-top: 1px solid var(--line); }
+  .tl-tick { position: absolute; top: 0; }
+  .tl-tick i { display: block; width: 1px; height: 6px; background: var(--muted); }
+  .tl-tick b { display: block; font-weight: 400; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; transform: translateX(-50%); margin-top: 1px; }
+  .tl-tick:first-child b { transform: none; }
+
+  .tl-lane { position: relative; height: 44px; margin-top: 6px; border-top: 1px dashed var(--line); }
+  .tl-lane-name { position: sticky; left: 0; display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 2px 0 0; z-index: 2; }
+  .tl-piece { position: absolute; top: 18px; height: 24px; box-sizing: border-box; display: flex; align-items: center; gap: 5px; padding: 0 7px; border-radius: 6px; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 22%, var(--panel)); color: var(--ink); font-size: 12px; white-space: nowrap; overflow: hidden; text-decoration: none; }
+  .tl-piece b { font-weight: 600; }
+  .tl-piece span { overflow: hidden; text-overflow: ellipsis; }
+  .tl-piece small { font-size: 10px; color: var(--muted); flex: none; }
+  .tl-piece.estimated { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, var(--panel)) 0 6px, var(--panel) 6px 10px); border-style: dashed; }
+  .tl-piece.untimed { border-style: dotted; background: var(--panel-2); padding: 0 4px; }
+  .tl-piece.placed { border-radius: 999px; border-color: var(--muted); background: var(--panel-2); }
+  .tl-piece.placed.recorded { border-color: var(--ink); }
+  .tl-piece.is-now { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .tl-piece:hover { z-index: 1; min-width: max-content; }
+
+  .tl-playhead { position: absolute; top: 0; bottom: 0; width: 0; pointer-events: none; z-index: 3; }
+  .tl-playhead i { position: absolute; top: 0; bottom: 0; left: -1px; width: 2px; background: #e03131; }
+  .tl-playhead::before { content: ""; position: absolute; top: -2px; left: -6px; border: 6px solid transparent; border-top: 8px solid #e03131; border-bottom: 0; }
+
+  @media (max-width: 640px) {
+    .tl-head { align-items: stretch; }
+    .tl-actions .button { flex: 1 1 auto; text-align: center; }
+    .tl-strip { height: 104px; }
+    .tl-item { height: 96px; }
+  }
+</style>

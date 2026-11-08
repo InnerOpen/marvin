@@ -12,6 +12,7 @@ import { listCollections } from "@/lib/api/collections";
 import { type CollectionRead, type EntryRead, getEntry, updateEntry } from "@/lib/api/entries";
 import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
 import { getAssets } from "@/lib/api/platform";
+import { listViews, type ViewSummary, viewHref } from "@/lib/api/views";
 import { listResources } from "@/lib/api/resources";
 import { createTag, listTags, type TagRead } from "@/lib/api/tags";
 import { keysHint } from "@/lib/disclosure";
@@ -347,6 +348,9 @@ const attachedTags = ((entry?.tags as string[] | undefined) || [])
 
 // Get entry type schema for schema-driven form
 const entryType = entry ? entryTypes.find((t) => t.id === entry.entryTypeId) : null;
+// A package may bring a view of this type (a story's timeline): a button next to the site link opens the entry in it.
+let views: ViewSummary[] = [];
+if (entry && entryType && authToken) views = await listViews(authToken, entryType.slug).catch(() => []);
 // "Use as <field>": the type's single-asset field can be pointed at any asset attached here (a speech line keeps every recording attached).
 const assetField = assetFieldOf(entryType?.schemaJson as any);
 const currentFieldAsset = assetField ? (entry?.dataJson as any)?.[assetField.key] : null;
@@ -717,6 +721,14 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                     <p class="form-help">{siteLink.hint}</p>
                   </>
                 )}
+              </div>
+            )}
+
+            {views.length > 0 && (
+              <div class="form-group">
+                {views.map((v) => (
+                  <a href={viewHref(v.slug, entry!.slug)} class="button secondary">{v.name} →</a>
+                ))}
               </div>
             )}
 

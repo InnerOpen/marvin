@@ -38,6 +38,7 @@ export interface PackageInfo {
   version: string;
   entryTypes: string[];
   wizards?: string[];
+  views?: string[];
   workflows: number;
   workflowsOn: number;
   collections: number;
