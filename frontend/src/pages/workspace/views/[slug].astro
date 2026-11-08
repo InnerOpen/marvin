@@ -12,7 +12,7 @@ import { getWizard } from "@/lib/api/wizards";
 import type { Step } from "@/lib/wizard";
 import { timecode } from "@/lib/audioTimeline";
 import { withReturn } from "@/lib/entryBack";
-import { type Layout, type Row as LaidRow, type TimelineSpec, cues, layout, progress, progressLine, minInnerWidth, percent, ticks } from "@/lib/timeline";
+import { type Layout, type Row as LaidRow, type TimelineSpec, cues, layout, progress, progressLine, ZOOM_LEVELS, minInnerWidth, percent, tickLevels } from "@/lib/timeline";
 import { type Row, describeFailure, entryOfType, findEntries, workflowState } from "@/lib/wizardApi";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -87,7 +87,7 @@ if (spec && authToken) {
 const minPx = laid ? minInnerWidth(laid.items, laid.total) : 0;
 const pct = (seconds: number) => percent(seconds, laid?.total ?? 0);
 const total = laid?.total ?? 0;
-const marks = ticks(total);
+const marks = tickLevels(total);
 const steps = spec && laid ? progress(spec, laid) : [];
 const lanes = spec?.lanes ?? [];
 const firstWords = (text: string, n = 8) => {
@@ -135,6 +135,11 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
         </div>
         <div class="tl-actions">
           <button type="button" class="button tl-play" data-play aria-pressed="false" disabled={laid.items.length === 0}>▶ Play</button>
+          <span class="tl-zoom" role="group" aria-label="Zoom" title="How wide the timeline is: Fit is the page, 2× is two pages. Also + and −.">
+            {ZOOM_LEVELS.map((z) => (
+              <button type="button" data-zoom={z} aria-pressed={z === 1 ? "true" : "false"}>{z === 1 ? "Fit" : `${z}×`}</button>
+            ))}
+          </span>
           {actions.map((a) => <a class="button secondary" href={a.href}>{a.label}</a>)}
           <a class="button secondary" href={open(entry.id)}>Open the {spec.entry_type.replace(/-/g, " ")}</a>
         </div>
@@ -147,7 +152,7 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
         </div>
       ) : (
         <div class="tl-scroll" data-scroll tabindex="0" aria-label="Timeline: scroll sideways">
-          <div class="tl-inner" style={`min-width:${minPx}px`}>
+          <div class="tl-inner" data-zoom="1" style={`min-width:${minPx}px`}>
             {spec.spine.group && (
               <div class="tl-groups" role="list">
                 {laid.groups.map((g) => (
@@ -182,8 +187,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
             </div>
 
             <div class="tl-ruler" aria-hidden="true">
-              {marks.map((t) => (
-                <span class="tl-tick" style={`left:${pct(t)}`}><i /><b>{timecode(t)}</b></span>
+              {marks.map(({ t, levels }) => (
+                <span class:list={["tl-tick", ...levels.map((z) => `z${z}`)]} style={`left:${pct(t)}`}><i /><b>{timecode(t)}</b></span>
               ))}
             </div>
 
@@ -232,6 +237,39 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     const head = root.querySelector<HTMLElement>("[data-playhead]");
     const scroll = root.querySelector<HTMLElement>("[data-scroll]");
     const audio = new Audio();
+    const inner = root.querySelector<HTMLElement>(".tl-inner");
+    const zoomButtons = [...root.querySelectorAll<HTMLButtonElement>("[data-zoom]")];
+    const zoomKey = `tl-zoom:${location.pathname}`;
+    let zoom = 1;
+    // Zoom: the strip is `zoom` pages wide (never under the floor the shortest beat needs); what sits under the middle of the box stays there.
+    const setZoom = (level: number) => {
+      if (!inner || !scroll) return;
+      const box = scroll.clientWidth;
+      const middle = (scroll.scrollLeft + box / 2) / Math.max(1, inner.offsetWidth);
+      zoom = level;
+      inner.style.width = level === 1 ? "" : `${level * 100}%`;
+      inner.dataset.zoom = String(level);
+      zoomButtons.forEach((b) => b.setAttribute("aria-pressed", Number(b.dataset.zoom) === level ? "true" : "false"));
+      scroll.scrollLeft = Math.max(0, middle * inner.offsetWidth - box / 2);
+      try {
+        localStorage.setItem(zoomKey, String(level));
+      } catch {
+        /* a private window forgets the zoom, nothing more */
+      }
+    };
+    const levels = zoomButtons.map((b) => Number(b.dataset.zoom)).filter(Boolean);
+    zoomButtons.forEach((b) => b.addEventListener("click", () => setZoom(Number(b.dataset.zoom))));
+    const stepZoom = (dir: 1 | -1) => {
+      const i = levels.indexOf(zoom);
+      const next = levels[Math.min(levels.length - 1, Math.max(0, i + dir))];
+      if (next && next !== zoom) setZoom(next);
+    };
+    try {
+      const kept = Number(localStorage.getItem(zoomKey));
+      if (levels.includes(kept) && kept !== 1) setZoom(kept);
+    } catch {
+      /* same */
+    }
     let at = 0; // seconds into the timeline
     let playing = false;
     let frame = 0;
@@ -326,7 +364,10 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
     );
     document.addEventListener("keydown", (e) => {
       const target = e.target as HTMLElement | null;
-      if (e.code !== "Space" || target?.closest("input, textarea, select, [contenteditable], button, a")) return;
+      if (target?.closest("input, textarea, select, [contenteditable]")) return;
+      if (e.key === "+" || e.key === "=") return stepZoom(1);
+      if (e.key === "-") return stepZoom(-1);
+      if (e.code !== "Space" || target?.closest("button, a")) return;
       e.preventDefault();
       toggle();
     });
@@ -346,7 +387,11 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-title h2 { margin: 0 0 4px; }
   .tl-facts { margin: 0; font-size: 14px; }
   .tl-total { font-variant-numeric: tabular-nums; font-size: 16px; }
-  .tl-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tl-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .tl-zoom { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
+  .tl-zoom button { margin: 0; padding: 7px 10px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
+  .tl-zoom button:first-child { border-left: 0; }
+  .tl-zoom button[aria-pressed="true"] { background: var(--panel-2); color: var(--ink); font-weight: 600; }
   .tl-empty { padding: 24px; }
   .tl-hint { margin: 0; font-size: 13px; }
 
@@ -355,6 +400,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
   .tl-inner { position: relative; min-width: 100%; }
   .tl-groups { position: relative; height: 24px; margin-bottom: 4px; }
   .tl-group { position: absolute; top: 0; height: 22px; border-bottom: 2px solid var(--accent); padding: 0 6px; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
+  /* The title slides along inside its chapter while you scroll, so you always know where you are at a high zoom. */
+  .tl-group > a, .tl-group > span { position: sticky; left: 16px; display: inline-block; max-width: 100%; }
   .tl-group a { color: var(--ink); text-decoration: none; }
   .tl-group + .tl-group { border-left: 1px solid var(--line); }
 
@@ -376,6 +423,8 @@ const title = view ? `${view.name}${entry ? ` · ${entry.title}` : ""}` : "View"
 
   .tl-ruler { position: relative; height: 22px; margin: 4px 0 6px; border-top: 1px solid var(--line); }
   .tl-tick { position: absolute; top: 0; }
+  /* The ruler carries the ticks of every zoom level; the strip's zoom says which show (finer ticks only once there is room for them). */
+  .tl-inner[data-zoom="1"] .tl-tick:not(.z1), .tl-inner[data-zoom="2"] .tl-tick:not(.z2), .tl-inner[data-zoom="4"] .tl-tick:not(.z4), .tl-inner[data-zoom="8"] .tl-tick:not(.z8) { display: none; }
   .tl-tick i { display: block; width: 1px; height: 6px; background: var(--muted); }
   .tl-tick b { display: block; font-weight: 400; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; transform: translateX(-50%); margin-top: 1px; }
   .tl-tick:first-child b { transform: none; }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cues, estimateSeconds, itemSeconds, layout, minInnerWidth, percent, pieceSeconds, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
+import { cues, estimateSeconds, itemSeconds, layout, minInnerWidth, percent, pieceSeconds, tickLevels, progress, progressLine, scale, secondsOf, ticks, widthOf } from "./timeline.ts";
 
 const spec = {
   kind: "timeline",
@@ -167,4 +167,14 @@ test("the strip fills its container: percent positions, and a pixel floor that k
   assert.equal(minInnerWidth([{ seconds: 0.3 }, { seconds: 10 }], 10.3), 2472);
   assert.equal(minInnerWidth([{ seconds: 4 }, { seconds: 6 }], 10), 180);
   assert.equal(minInnerWidth([], 0), 0);
+});
+
+test("tick levels: the fitted ruler's ticks show at every zoom, finer ticks only when zoomed in", () => {
+  const all = tickLevels(18.1);
+  assert.deepEqual(all.find((x) => x.t === 0).levels, [1, 2, 4, 8]);
+  assert.deepEqual(all.find((x) => x.t === 2).levels, [1, 2, 4, 8]);
+  assert.deepEqual(all.find((x) => x.t === 1).levels, [2, 4, 8]);
+  assert.deepEqual(all.find((x) => x.t === 0.5).levels, [4, 8]);
+  assert.equal(all.filter((x) => x.levels.includes(1)).length, ticks(18.1).length);
+  assert.deepEqual(all.map((x) => x.t).slice(0, 4), [0, 0.5, 1, 1.5]);
 });

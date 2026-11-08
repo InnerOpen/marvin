@@ -316,6 +316,16 @@ export function ticks(total: number, want = 10): number[] {
   return out;
 }
 
+export const ZOOM_LEVELS = [1, 2, 4, 8] as const;
+
+/** Ruler ticks for every zoom level at once: each tick says at which levels it shows (a finer step at a higher zoom), so the page can
+ * render them all and switch with CSS. Level 1 is the strip fitted to the page; level n is n pages wide. */
+export function tickLevels(total: number, want = 10): { t: number; levels: number[] }[] {
+  const byLevel = new Map<number, Set<number>>();
+  for (const level of ZOOM_LEVELS) for (const t of ticks(total, want * level)) byLevel.set(t, (byLevel.get(t) ?? new Set()).add(level));
+  return [...byLevel.entries()].sort((a, b) => a[0] - b[0]).map(([t, levels]) => ({ t, levels: [...levels].sort((a, b) => a - b) }));
+}
+
 export interface Progress {
   label: string;
   done: number;
