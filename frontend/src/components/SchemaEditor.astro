@@ -9,6 +9,7 @@
  * The schema is stored in a hidden input field as JSON and can be submitted with the form.
  */
 
+import { ACCEPT_PRESETS as acceptPresets } from "@/lib/assetAccept";
 import { getAuthToken } from "@/lib/api/client";
 import { listEntryTypes } from "@/lib/api/entryTypes";
 import { getEmbedProviders } from "@/lib/api/mediaEmbeds";
@@ -365,7 +366,7 @@ try {
   }
 </style>
 
-<script define:vars={{ initialSchema, fieldTypes, embedProviders, refTypes }}>
+<script define:vars={{ initialSchema, fieldTypes, embedProviders, refTypes, acceptPresets }}>
   // Schema state
   let schema = JSON.parse(JSON.stringify(initialSchema));
 
@@ -577,6 +578,17 @@ try {
         formGroup('', 'Max Value', inputEl('field-max', field.max ?? '', 'Optional', { type: 'number' })),
       );
     }
+    if (field.type.startsWith('asset')) {
+      // Which kinds of file the field takes: the picker then lists only those (with a way to show the rest), and the upload dialog filters.
+      body.append(
+        formGroup(
+          'full-width',
+          ['Accepts (file types) ', labelHint('— the picker lists only these; empty takes any file')],
+          inputEl('field-accept', field.accept || '', 'e.g. application/pdf, audio/*, .html'),
+          formHelp('Like a file input: a type (application/pdf), a family (image/*, audio/*) or an ending (.html). Separate several with commas. Presets: ' + acceptPresets.filter(p => p.accept).map(p => `${p.label} = ${p.accept}`).join('; ') + '.'),
+        ),
+      );
+    }
     if (LINKED_TYPES.includes(field.type)) {
       const noun = field.type.startsWith('asset') ? 'asset' : 'resource';
       body.append(
@@ -626,7 +638,7 @@ try {
     });
 
     // Update field on other input changes (placeholder, help text, type, required, etc.)
-    div.querySelectorAll('.field-placeholder, .field-help-text, .field-ai-hint, .field-type, .field-required, .field-options, .field-min, .field-max, .field-role, .field-providers, .field-auto-embed, .field-ref').forEach(input => {
+    div.querySelectorAll('.field-placeholder, .field-help-text, .field-ai-hint, .field-type, .field-required, .field-options, .field-min, .field-max, .field-role, .field-accept, .field-providers, .field-auto-embed, .field-ref').forEach(input => {
       input.addEventListener('input', () => updateField(index, div));
     });
 
@@ -688,6 +700,18 @@ try {
       }
     } else {
       delete field.autoEmbed;
+    }
+
+    // An asset field may limit the kinds of file it takes (`accept`); only asset fields carry the key.
+    if (field.type.startsWith('asset')) {
+      const acceptInput = fieldEl.querySelector('.field-accept');
+      if (acceptInput) {
+        const accept = acceptInput.value.split(',').map(t => t.trim()).filter(Boolean).join(',');
+        if (accept) field.accept = accept;
+        else delete field.accept;
+      }
+    } else {
+      delete field.accept;
     }
 
     // Asset / resource fields attach what they name; `role` is the attachment's role (default: the key).
