@@ -5,7 +5,7 @@ import { getAuthToken } from "@/lib/api/client";
 import { getWizard, type WizardRead } from "@/lib/api/wizards";
 import { viewHref } from "@/lib/api/views";
 import {
-  type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx,
+  type ApprovalCard, type Check, type Ctx, type Step, NOTICE_PARAM, NOTICES, SIMPLE_FIELD_TYPES, approvalsOf, blocker, checkSpec, inputKeys, chooseSpec, currentStep, entryTypeOf, hasValue, listSpec, nextStep, optionStepOf, passes, previousStep, readCtx, suppliedData,
   StepError, cardPicture, generateAsRun, isDone, shownSteps, stepHref,
 } from "@/lib/wizard";
 import { runStep } from "@/lib/wizardActions";
@@ -101,10 +101,10 @@ if (authToken && def && step) {
     typeName = type?.name ?? step.entry_type;
     if (step.kind === "choose") {
       choices = (await findEntries(chooseSpec(step, ctx), authToken)).entries;
-      formFields = simple(fieldsOf(type, askedKeys(type, step.create?.fields)));
+      formFields = simple(fieldsOf(type, askedKeys(type, step.create?.fields, Object.keys(suppliedData(step, ctx)))));
     } else {
       listRows = (await findEntries(listSpec(step, ctx), authToken)).entries;
-      columns = simple(fieldsOf(type, askedKeys(type, step.columns))).filter((f) => f.type !== "boolean");
+      columns = simple(fieldsOf(type, askedKeys(type, step.columns, Object.keys(suppliedData(step, ctx))))).filter((f) => f.type !== "boolean");
     }
   } else if (step.kind === "form" || step.kind === "upload") {
     entry = entries[step.entry] ?? null;
@@ -119,7 +119,7 @@ if (authToken && def && step) {
     missingType = !type;
     typeName = type?.name ?? step.entry_type;
     cards = (await findEntries(listSpec(step, ctx), authToken)).entries;
-    addFields = simple(fieldsOf(type, askedKeys(type, step.add?.fields)));
+    addFields = simple(fieldsOf(type, askedKeys(type, step.add?.fields, Object.keys(suppliedData(step, ctx)))));
     if (step.generate) {
       genStep = generateAsRun(step, undefined).run;
       flow = await workflowState(genStep.workflow, authToken);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  approvalsOf, blocker, cardPicture, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, withoutEmpty,
+  approvalsOf, blocker, cardPicture, generateAsRun, inputKeys, isDone, keysAfter, missingForNewRow, runInputs, sameValue, withoutLater, chooseSpec, createData, currentStep, hasValue, holds, listSpec, nextStep, passes, previousStep, readCtx, shownSteps, stepHref, substitute, suppliedData, withoutEmpty,
 } from "./wizard.ts";
 
 const def = {
@@ -56,6 +56,15 @@ test("a choose narrows by what was chosen before and a skipped choice narrows no
   assert.deepEqual(chooseSpec(story, { world: "w", series: "se" }), { entry_type: "story", fields: { world: "w", series: "se" } });
   assert.deepEqual(chooseSpec(story, { world: "w" }), { entry_type: "story", fields: { world: "w" } });
   assert.deepEqual(createData(story, { world: "w" }), { world: "w", status: "draft" });
+});
+
+test("a step supplies the parent's slug and its own create data, so a form need not ask for them", () => {
+  const troupe = { id: "troupe", kind: "gallery", title: "Troupe", entry_type: "actor", parent: "world", parent_field: "world", add: { fields: ["build"] } };
+  assert.deepEqual(suppliedData(troupe, { world: "w" }), { world: "w" });
+  assert.deepEqual(suppliedData(troupe, {}), {}, "no world chosen yet: nothing is supplied");
+  assert.deepEqual(suppliedData(def.steps[2], { world: "w" }), { world: "w", status: "draft" }, "a choose's create data, skipped choices left out");
+  const cast = { ...def.steps[5], create_data: { presence: "${presence}" } };
+  assert.deepEqual(suppliedData(cast, { story: "s", presence: "on" }), { presence: "on", story: "s" });
 });
 
 test("a list asks for the children of the parent", () => {
