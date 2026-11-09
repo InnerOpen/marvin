@@ -578,6 +578,13 @@ try {
         formGroup('', 'Max Value', inputEl('field-max', field.max ?? '', 'Optional', { type: 'number' })),
       );
     }
+    body.append(
+      formGroup(
+        'full-width',
+        ['Group ', labelHint('— optional: fields with the same group name sit together in one collapsible section of the form')],
+        inputEl('field-group-name', field.group || '', 'e.g. Made by Marvin'),
+      ),
+    );
     if (field.type.startsWith('asset')) {
       // Which kinds of file the field takes: the picker then lists only those (with a way to show the rest), and the upload dialog filters.
       body.append(
@@ -638,7 +645,7 @@ try {
     });
 
     // Update field on other input changes (placeholder, help text, type, required, etc.)
-    div.querySelectorAll('.field-placeholder, .field-help-text, .field-ai-hint, .field-type, .field-required, .field-options, .field-min, .field-max, .field-role, .field-accept, .field-providers, .field-auto-embed, .field-ref').forEach(input => {
+    div.querySelectorAll('.field-placeholder, .field-help-text, .field-ai-hint, .field-type, .field-required, .field-options, .field-min, .field-max, .field-role, .field-accept, .field-group-name, .field-providers, .field-auto-embed, .field-ref').forEach(input => {
       input.addEventListener('input', () => updateField(index, div));
     });
 
@@ -700,6 +707,14 @@ try {
       }
     } else {
       delete field.autoEmbed;
+    }
+
+    // Any field may name a group for the form to fold it into.
+    const groupInput = fieldEl.querySelector('.field-group-name');
+    if (groupInput) {
+      const group = groupInput.value.trim();
+      if (group) field.group = group;
+      else delete field.group;
     }
 
     // An asset field may limit the kinds of file it takes (`accept`); only asset fields carry the key.
